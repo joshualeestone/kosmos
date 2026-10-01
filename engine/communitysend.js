@@ -1555,6 +1555,7 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  * hold a key. `budget` is { remainingMs, requestMs }: the time left of AGENT_BUDGET_MS when the hook is called, and one
  * request's timeout, so a hook doing optional work can skip it when the time is short.
  * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
+ * #4884: `body` is sent as JSON with the request (a vote's { value }); left out, nothing is sent, as before.
  */
 /* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); what it has
    queued is kept, and `kosmos community status` says which of it will go (#4939 review 7). No trailing period: the CLIs add their own. */
@@ -1595,7 +1596,7 @@ async function agentCallNow(agentKey, method, pathname, opts = {}) {
   }
 }
 
-async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null } = {}) {
+async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null, body } = {}) {
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
@@ -1627,7 +1628,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     const a = await beforeCall(publicGet, String(keys[agentKey].name || ''), budget());
     if (a != null) return { ok: true, answered: a };
   }
-  const r = await asAgent(agentKey, keys, method, pathname, undefined, ctx);
+  const r = await asAgent(agentKey, keys, method, pathname, body, ctx);
   if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
