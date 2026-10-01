@@ -206,6 +206,10 @@ test('a fallback tarball left on the previous release alarms (on its second sigh
   assert.equal((await run(base, dir, st, { now: T0 })).code, 2, 'CONTROL: a first sighting');
   assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 1);
   assert.match(st.card(), /kosmos-arm64\.tar\.gz is not the release latest\.json names/);
+  // A run that cannot read the fallback's sidecar does not forget it: the next run alarms at once (1, not a new 2).
+  site.failGet.set('/dist/kosmos-arm64.tar.gz.sha256', 2);
+  await run(base, dir, st, { now: T0 + 1800 });
+  assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 1, 'a confirmed stale fallback was forgotten after one short run');
 }));
 
 test('a failed whole-file read is retried on the next run, not held for a day', () => withSite(async ({ site, base, dir, st }) => {
