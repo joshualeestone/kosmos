@@ -3402,7 +3402,8 @@ cmd_task() {
           say "Kosmos could not move that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when moving that task."; exit 1 ;;
       esac
-      say "Task $num${part:+, part $part,} on ${project:-the project} $_now. See it with: kosmos task list ${project:-<project-id>}"
+      local shown; shown=$(printf '%s' "$num" | sed 's/^0*//'); shown="${shown:-0}"   # "007" is said back as task 7, as --parent is
+      say "Task $shown${part:+, part $part,} on ${project:-the project} $_now. See it with: kosmos task list ${project:-<project-id>}"
       ;;
     hold|unhold)
       # #4771: put a task on hold (the Prompter never nudges an agent about it and the Assigner never hands it out), or

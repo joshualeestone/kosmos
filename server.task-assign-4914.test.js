@@ -29,7 +29,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server } = require('./server');
+const { start, server, boardAuthState } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const sendertoken = require('./engine/sendertoken');
@@ -128,4 +128,38 @@ test('an agent that is not on the project cannot move its tasks', async (t) => {
   assert.equal(r.code, 403, r.text.slice(0, 200));
   assert.match(r.json.error, /not on this project, so it cannot move its tasks/);
   assert.deepEqual(ownerOf(n), ['mara']);
+});
+
+test('a member named nobody is that member; part must be a number (an array is refused)', async () => {
+  projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto', 'nobody'] }));
+  try {
+    const n = fresh('Named nobody', 'mara');
+    const r = await assign(n, { who: 'nobody' }, asAgent('mara'));
+    assert.equal(r.code, 200, r.text.slice(0, 200));
+    assert.deepEqual(ownerOf(n), ['nobody'], 'a member named nobody lost to the special word');
+    const arr = await assign(n, { who: 'otto', part: [1] }, asAgent('mara'));
+    assert.equal(arr.code, 400, arr.text.slice(0, 200));
+    assert.match(arr.json.error, /has no part like that/);
+    assert.deepEqual(ownerOf(n), ['nobody']);
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto'] }));
+  }
+});
+
+test('on a board that enforces its token, an agent token alone moves a task for a member and is refused for a non-member', async (t) => {
+  const BOARD = 'BOARDTOKEN_test_4914_assign_0123456789abcdef';
+  const was = { on: boardAuthState.on, token: boardAuthState.token };
+  boardAuthState.on = true; boardAuthState.token = BOARD;
+  const three = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' }), fleet.agent('zed', { state: 'idle' })]);
+  t.after(() => { boardAuthState.on = was.on; boardAuthState.token = was.token; three.restore(); board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' })]); });
+  const n = fresh('Gated move', 'mara');
+  const bare = await assign(n, { who: 'otto' });
+  assert.equal(bare.code, 403, 'CONTROL: no credential passed the gate, so nothing below can be trusted: ' + bare.text.slice(0, 160));
+  const member = await assign(n, { who: 'otto' }, asAgent('mara'));
+  assert.equal(member.code, 200, 'a member on its token alone was refused: ' + member.text.slice(0, 200));
+  assert.deepEqual(ownerOf(n), ['otto']);
+  const outsider = await assign(n, { who: 'mara' }, asAgent('zed'));
+  assert.equal(outsider.code, 403, outsider.text.slice(0, 200));
+  assert.match(outsider.json.error, /not on this project, so it cannot move its tasks/);
+  assert.deepEqual(ownerOf(n), ['otto'], 'a refused move changed the owner');
 });

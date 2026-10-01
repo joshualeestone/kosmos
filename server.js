@@ -3918,7 +3918,10 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    /room/reopen and every other room verb do not match). */
 /* #4491 slice 5: `kosmos task add` (POST .../tasks) and `kosmos task close` join: both handlers name the caller from
    the token and refuse an agent that is not on the project. Reopen, due, parts and every other task verb stay out. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/assign$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #4914: `kosmos task assign` (POST .../task/<n>/assign) joins on the same terms: its handler names the caller
+   (processCaller), refuses an agent that is not on the project (notOnProjectRefusal), and moves the part through
+   givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -17992,16 +17995,22 @@ const server = http.createServer(async (req, res) => {
       let partId = body.part;
       if (partId === undefined || partId === null || partId === '') {
         if (parts.length !== 1) {
-          const listed = parts.map((x) => x.id + ' ' + String(x.sentence || '').replace(/\s+/g, ' ').trim().slice(0, 60) + ' (' + (x.who || 'nobody') + ')').join('; ');
-          sendJson(res, 400, { error: 'task ' + task.number + ' has ' + parts.length + ' parts: ' + listed + '. Name one with --part <number>' }); return;
+          /* No double quote, backslash or control character in it (as taskMessageSummary): the Mac CLI reads `error`
+             with sed, and an escaped quote would cut the list short there. Ten parts at most, then a count. */
+          const plain = (v) => String(v == null ? '' : v).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+          const shown = parts.slice(0, 10).map((x) => x.id + ' ' + plain(x.sentence).slice(0, 60) + ' (' + (plain(x.who) || 'nobody') + ')');
+          const more = parts.length > 10 ? '; and ' + (parts.length - 10) + ' more' : '';
+          sendJson(res, 400, { error: 'task ' + task.number + ' has ' + parts.length + ' parts: ' + shown.join('; ') + more + '. Name one with --part <number>' }); return;
         }
         partId = parts[0].id;
       }
-      if (!/^[0-9]+$/.test(String(partId)) || !parts.some((x) => Number(x.id) === Number(partId))) {
-        sendJson(res, 400, { error: 'task ' + task.number + ' has no part ' + String(partId).slice(0, 20) }); return;
+      const partOk = (typeof partId === 'number' && Number.isInteger(partId)) || (typeof partId === 'string' && /^[0-9]+$/.test(partId));
+      if (!partOk || !parts.some((x) => Number(x.id) === Number(partId))) {
+        sendJson(res, 400, { error: 'task ' + task.number + ' has no part ' + (partOk ? String(partId) : 'like that') }); return;
       }
       const toSelf = !viaScreen && !!caller.card && !!asked.who && sameAgentName(asked.who, caller.card.sessionName, caller.byKey);
       try {
+        partId = Number(partId);
         const g = await givePart(id, task.number, partId, asked.who, { screen: viaScreen, roster, asyncDelivery: true, noPage: toSelf });
         if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
         if (!g.ok) { sendJson(res, g.status || 400, { error: g.because }); return; }

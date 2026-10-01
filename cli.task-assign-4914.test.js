@@ -84,7 +84,7 @@ test('both CLIs move a task to another agent, to me, and to nobody, and say who 
   const mara = sendertoken.mint('mara').token;
   for (const [label, run] of BOTH) {
     const n = fresh(label + ': brief', 'mara');
-    const to = await run(['task', 'assign', projectId, String(n), 'otto'], mara);
+    const to = await run(['task', 'assign', projectId, '00' + n, 'otto'], mara);   // leading zeros are said back without them
     assert.equal(to.code, 0, label + ': ' + to.text);
     assert.match(to.text, new RegExp('Task ' + n + ' on ' + projectId + ' is now with otto\\. See it with'), label + ': ' + to.text);
     assert.deepEqual(ownerOf(n), ['otto'], label);
@@ -103,10 +103,11 @@ test('both CLIs: a task with several parts comes back as the board\'s list; --pa
   const mara = sendertoken.mint('mara').token;
   for (const [label, run] of BOTH) {
     const n = fresh(label + ': launch', 'mara');
-    tasks.addPart(projectId, n, { sentence: 'Write the post', who: 'otto' });
+    tasks.addPart(projectId, n, { sentence: 'Write the "post" \\ today', who: 'otto' });
     const r = await run(['task', 'assign', projectId, String(n), 'otto'], mara);
     assert.equal(r.code, 1, label + ': ' + r.text);
-    assert.match(r.text, /has 2 parts: .*Name one with --part <number>/, label + ': ' + r.text);
+    // A quote and a backslash in a part's words must not cut the list short (the Mac CLI reads it with sed).
+    assert.match(r.text, /has 2 parts: 1 .*\(mara\); 2 Write the post today \(otto\)\. Name one with --part <number>/, label + ': ' + r.text);
     const p2 = await run(['task', 'assign', projectId, String(n), 'mara', '--part', '2'], mara);
     assert.equal(p2.code, 0, label + ': ' + p2.text);
     assert.match(p2.text, new RegExp('Task ' + n + ', part 2, on ' + projectId + ' is now with mara\\.'), label + ': ' + p2.text);

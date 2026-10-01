@@ -735,7 +735,8 @@ async function taskAssign(ctx, args) {
   if (!r.reached) return ctx.unreachable('move that task');
   if (r.json && r.json.task) {
     const now = typeof r.json.who === 'string' && r.json.who ? 'is now with ' + r.json.who : 'now has nobody on it';
-    ctx.out('Task ' + num + (part !== null ? ', part ' + part + ',' : '') + ' on ' + project + ' ' + now + '. See it with: kosmos task list ' + project);
+    const shown = num.replace(/^0+(?=\d)/, '');   // "007" is said back as task 7, as --parent is
+    ctx.out('Task ' + shown + (part !== null ? ', part ' + part + ',' : '') + ' on ' + project + ' ' + now + '. See it with: kosmos task list ' + project);
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not move that task: ' + ctx.refusedBy(r) + '.'); return 1; }
