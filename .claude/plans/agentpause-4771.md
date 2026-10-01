@@ -77,3 +77,16 @@ taught line pinned in engine/tasks.test.js and the Recommender arm in engine/rec
 - N8 stale plan line: FIXED.
 - N9 notes (archived, swarm-off, federated members; explicit assignment still types): kept, all explicit acts or
   local-only by design.
+
+## Review 3 (Sonnet, blind, source-only): 0 blockers, 2 warnings, 5 nits
+- W1 the nudge invites an idle agent to pause, and nothing records an agent's pause, so a self-silencing pause was
+  invisible: FIXED. A pause that did not come from the screen posts a room note (the agent's name when its token says
+  it, else "An agent"), only on the change from running to paused; the nudge says "only if your person asked in the
+  room" and that the room is told. Server arms: announced once, a repeat silent, the screen's own pause silent.
+- W2 any agent can pause any project (no membership check): kept, as review 1 W1; the room note now names who did it,
+  and the route fix belongs with #4491 (comment 5939670720).
+- N3 the hint typed any id through plainWords: FIXED, only an id in the slug set the CLIs take as it is.
+- N4 `kosmos` hardcoded in the nudge: kept, the nudge's other command already is.
+- N5 Mac error sed stops at a quote: kept, shared pattern.
+- N6 a person-paused project with an agent-held task reads "the person parked it": kept, conservative and true.
+- N7 what to do when the person asks the agent to resume: FIXED, the taught line says to point them at the page.

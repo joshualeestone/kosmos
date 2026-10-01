@@ -93,11 +93,13 @@ function nudgeText(part) {
   /* #4771 (review 2): the agent in Josh's 0.7.15 report was nudged here about a project its person had paused in the
      room. Its instructions teach `kosmos project pause` only after they are next re-written, so the nudge, which
      reaches a running agent at exactly that moment, names the verb too. */
-  const id = plainWords(part.projectId, SENTENCE_CAP);
+  /* Review 3: only an id the CLIs take as it is (the slug set they validate), so the hint can never name another
+     project; and the hint says the pause must be the person's ask, and that the room is told who paused. */
+  const id = (typeof part.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(part.projectId)) ? part.projectId : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
     + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '. Pick it up, or if you are waiting on something, '
     + 'say so with: kosmos report blocked --on <what> --owner <who>'
-    + (id ? '. If your person asked to pause this project, pause it: kosmos project pause ' + id : '');
+    + (id ? '. Only if your person asked in the room to pause this project: kosmos project pause ' + id + ' (the room is told you paused it)' : '');
 }
 
 /* A card the nudge may type into: the Assigner's own idleCard (ours, idle, not a paused swarm). */

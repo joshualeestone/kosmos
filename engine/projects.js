@@ -3010,7 +3010,8 @@ function blockBody(projects, sessionName) {
     ...(sessionName ? [
       '',
       `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
-      'Nobody is then nudged about its tasks or handed them. It is resumed on the screen, by your person: do not resume it yourself.',
+      'Nobody is then nudged about its tasks or handed them, and the room is told you paused it. It is resumed on the',
+      'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
     ] : []),
   ].join('\n');
 }

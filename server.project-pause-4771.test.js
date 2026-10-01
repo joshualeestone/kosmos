@@ -34,6 +34,7 @@ const { start, server, boardAuthState } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const nudge = require('./engine/agentnudge');
+const messages = require('./engine/messages');
 const fleet = require('./test-support/fleet');
 
 const AGENT = 'cd'.repeat(16);
@@ -53,9 +54,15 @@ const asScreen = (id, paused) => fetch(`${base}/api/project/${id}`, { method: 'P
 
 test('#4771: an agent\'s pause is recorded as an agent\'s, and the person\'s own pause cannot be lifted by an agent', async () => {
   const p = projects.create({ name: 'Pause By Agent' });
+  const notes = (pid) => messages.record().rows.filter((m) => m.kind === 'note' && m.project === pid).map((m) => m.text);
   const r = await asAgent(p.id, true);
   assert.equal(r.status, 200, await r.text());
   assert.equal(stored(p.id).paused, true);
+  // Review 3: an agent's pause is said in the room (here the token names nobody known, so "An agent"); a repeat is not.
+  assert.equal(notes(p.id).filter((t) => /paused this project/.test(t)).length, 1, 'an agent\'s pause was not said in the room');
+  assert.match(notes(p.id).find((t) => /paused this project/.test(t)), /^An agent paused this project: .*resume it there\.$/);
+  await asAgent(p.id, true);
+  assert.equal(notes(p.id).filter((t) => /paused this project/.test(t)).length, 1, 'a repeat pause said it again');
   assert.notEqual(stored(p.id).pausedByPerson, true, 'an agent\'s pause was recorded as the person\'s');
 
   // Review 1: with no agent token at all (the CLI with KOSMOS_AGENT_TOKEN unset) and no browser headers, still an
@@ -65,6 +72,12 @@ test('#4771: an agent\'s pause is recorded as an agent\'s, and the person\'s own
   assert.equal(bare.status, 200, await bare.text());
   assert.equal(stored(q.id).paused, true);
   assert.notEqual(stored(q.id).pausedByPerson, true, 'a tokenless pause was recorded as the person\'s');
+
+  // CONTROL: the person's own pause, on a running project, is not announced to them.
+  const s = projects.create({ name: 'Pause By Screen' });
+  assert.equal((await asScreen(s.id, true)).status, 200);
+  assert.equal(stored(s.id).paused, true, 'fixture: the screen pause did not land');
+  assert.equal(notes(s.id).filter((x) => /paused this project/.test(x)).length, 0, 'the person\'s own pause was announced to them');
 
   // The person pauses on the screen: theirs now, and an agent cannot lift it.
   assert.equal((await asScreen(p.id, true)).status, 200);
