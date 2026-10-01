@@ -9901,6 +9901,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    which is the state. */
 :root[data-look="new"] body:not(.consolidated) #alist .lrow { border-radius: 16px; }
 :root[data-look="new"] body:not(.consolidated) #alist .lrow:not(.attn):not(.unk):not(:hover) { border-color: transparent; }
+/* #4470, the Tasks page in the new look: the same rule as the Agents cards and rows (a plain card loses its border,
+   its grey ground is the separation) and their 16px corners. A tile's border stays where it says something: the
+   red of Needs Your Decision while it holds tasks, and the gold of the tile that is filtering. The task list loses
+   its frame on the grey band; its rows keep their dividers. No drawing exists for this page; this is the Agents
+   pages' approved language applied, not a new design. */
+:root[data-look="new"] body:not(.consolidated) #panel-tasks .tsk-tile { border-radius: 16px; }
+:root[data-look="new"] body:not(.consolidated) #panel-tasks .tsk-tile:not([aria-pressed="true"]):not([data-tile="decision"]:not([data-n="0"]):not([data-n="unknown"])) { border-color: transparent; }
+:root[data-look="new"] body:not(.consolidated) #panel-tasks .tsk-list { border-color: transparent; border-radius: 16px; }
 /* The name is a button (.namego, it opens the agent), and a button centres its text by default, so a name long
    enough to wrap sat in the middle of a left-aligned column (seen with a two-word surname). Today's look has the
    same; this page sets it. */
