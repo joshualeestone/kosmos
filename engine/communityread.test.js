@@ -400,7 +400,7 @@ test('#4833 slice 2: a thread that cannot be REACHED keeps the mark, so nothing 
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 500, json: null }) });
   const r = await cr.readReplies('Lee4833', { now: NOW });
   assert.equal(r.ok, true);
-  assert.match(r.text, /1 part of your threads could not be reached/);
+  assert.match(r.text, /1 of your posts could not be reached/);
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(5), created_at: T(8), body: 'came in while it failed' })] } }) });
   const later = await cr.readReplies('Lee4833', { now: NOW + 3600 * 1000 });
   assert.match(later.text, /came in while it failed/, 'a failed read moved the mark and the reply was skipped');
@@ -476,7 +476,7 @@ test('#4833 slice 2 review 1: a mark in the future never hides what is new', asy
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Fut4833', remoteId: RP(8), sentAt: '2026-09-30T10:00:00Z' } }, {});
   fs.mkdirSync(path.dirname(seenPath('Fut4833')), { recursive: true });
-  fs.writeFileSync(seenPath('Fut4833'), JSON.stringify({ at: Date.parse('2030-01-01T00:00:00Z') }));
+  fs.writeFileSync(seenPath('Fut4833'), JSON.stringify({ posts: { [RP(8)]: { at: Date.parse('2030-01-01T00:00:00Z'), clock: true } } }));
   serve({ ['/posts/' + RP(8) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(11), body: 'new while the clock was wrong' })] } }) });
   assert.match((await cr.readReplies('Fut4833', { now: NOW })).text, /new while the clock was wrong/);
 });
@@ -539,13 +539,16 @@ test('#4833 slice 2 review 2: at most REPLIES shown per read, the rest counted, 
   const headers = r.text.split('\n').filter((l) => /^\[r\d/.test(l));
   assert.equal(headers.length, 30, 'not capped at 30: ' + headers.length);
   assert.match(r.text, /\(30 newer replies not shown yet; the next read starts after these\)/);
-  const mark = JSON.parse(fs.readFileSync(seenPath('Cap4833'), 'utf8')).at;
-  assert.ok(mark < NOW, 'the mark jumped to now past replies that were never shown');
+  const marks = JSON.parse(fs.readFileSync(seenPath('Cap4833'), 'utf8')).posts;
+  assert.ok(Object.values(marks).every((m) => m.at < NOW && !m.clock && m.id), 'a mark jumped to now past replies that were never shown: ' + JSON.stringify(marks));
   assert.ok(/\| reply 0$/m.test(r.text) && !/\| reply 29$/m.test(r.text), 'the first read did not show the OLDEST new replies');
   const next = await cr.readReplies('Cap4833', { now: NOW + 60000 });
-  // The 60 s overlap re-shows the boundary reply, so this read is capped again near reply 28; 29 comes on the third.
-  assert.match(next.text, /\| reply 20$/m, 'the newer replies never came on the next read');
-  assert.ok(!/\| reply 0$/m.test(next.text), 'the next read showed again what the first one showed');
+  // Review 3: the next read continues strictly after the last one shown: the other 30, nothing shown twice.
+  assert.match(next.text, /\| reply 29$/m, 'the newer replies never came on the next read');
+  const firstIds = (r.text.match(/\(comment [0-9a-f-]{36}\)/g) || []);
+  const nextIds = (next.text.match(/\(comment [0-9a-f-]{36}\)/g) || []);
+  assert.equal(nextIds.length, 30, 'the second read did not carry the other 30');
+  assert.equal(nextIds.filter((x) => firstIds.includes(x)).length, 0, 'the next read showed again what the first one showed');
 });
 
 test('#4833 slice 2 review 2: each "longer than one read" case is said on its own: a full comment page, more hidden replies than are read', async () => {
@@ -572,4 +575,69 @@ test('#4833 slice 2 review 2: a replies cursor that is not the service\'s plain 
   const r = await cr.readReplies('Cur4833', { now: NOW });
   assert.equal(r.ok, true, r.because);
   assert.ok(!seen.some((u) => u.includes('/replies')), 'a malformed cursor was sent to the service');
+});
+
+test('#4833 slice 2 review 3: a burst in one second is read 30 then the rest, nothing twice, nothing lost', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Bur4833', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Bur4833', remoteId: RP(2), sentAt: '2026-09-30T11:00:00Z' } }, {});
+  // On each of two posts, 10 top-level comments with 2 replies each, ALL in the same second: 60 items, one timestamp.
+  let n = 0; const id = () => 'd1000000-0000-4000-8000-0000000000' + String(n++).padStart(2, '0');
+  const page = () => Array.from({ length: 10 }, () => { const t = comment({ id: id(), created_at: T(9) }); t.replies = [0, 1].map(() => comment({ id: id(), parent_id: t.id, created_at: T(9) })); t.reply_count = 2; return t; });
+  const pa = page(); const pb = page();
+  const all = new Set([...pa, ...pb].flatMap((t) => [t.id, ...t.replies.map((x) => x.id)]));
+  assert.equal(all.size, 60, 'CONTROL: the fixture holds 60 distinct items');
+  serve({ ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: pa } }), ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: pb } }) });
+  const ids = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
+  const one = ids((await cr.readReplies('Bur4833', { now: NOW })).text);
+  const two = ids((await cr.readReplies('Bur4833', { now: NOW + 1000 })).text);
+  const three = ids((await cr.readReplies('Bur4833', { now: NOW + 2000 })).text);
+  assert.equal(one.length, 30);
+  assert.equal(two.length, 30, 'the second read did not carry the other 30 (the burst jammed)');
+  assert.equal(new Set([...one, ...two]).size, 60, 'something was shown twice or lost across the two reads');
+  assert.equal(three.length, 0, 'a third read repeated what was shown');
+});
+
+test('#4833 slice 2 review 3: a post that always fails holds only its own mark; the others move on', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Hld4833', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Hld4833', remoteId: RP(2), sentAt: '2026-09-30T11:00:00Z' } }, {});
+  serve({ ['/posts/' + RP(1) + '/comments']: () => ({ status: 500, json: null }),
+    ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9), body: 'on the good post' })] } }) });
+  const first = await cr.readReplies('Hld4833', { now: NOW });
+  assert.match(first.text, /on the good post/);
+  assert.match(first.text, /1 of your posts could not be reached/);
+  const second = await cr.readReplies('Hld4833', { now: NOW + 1000 });
+  assert.ok(!second.text.includes('on the good post'), 'the failing post froze the good post\'s mark (it was shown again)');
+  const marks = JSON.parse(fs.readFileSync(seenPath('Hld4833'), 'utf8')).posts;
+  assert.equal(marks[RP(1)], undefined, 'the unreachable post got a mark it never read');
+});
+
+test('#4833 slice 2 review 3: a reply written inside the clock overlap before a full read still comes next time', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Skw4833', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
+  await cr.readReplies('Skw4833', { now: NOW });   // a full read: the mark is the board's clock
+  // The service's clock is 30 s behind: a reply stamped 30 s before the read appears after it.
+  serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(2), created_at: new Date(NOW - 30000).toISOString(), body: 'stamped behind' })] } }) });
+  assert.match((await cr.readReplies('Skw4833', { now: NOW + 5000 })).text, /stamped behind/, 'the overlap did not cover a slightly slow service clock');
+});
+
+test('#4833 slice 2 review 3: at most 10 posts are read (and the read says so); at most 3 replies pages per post', async () => {
+  on(); clearSeen();
+  const sent = {};
+  for (let i = 0; i < 11; i += 1) sent['p' + i] = { state: 'sent', agent: 'Lim4833', remoteId: 'e1000000-0000-4000-8000-0000000000' + String(i).padStart(2, '0'), sentAt: '2026-09-30T1' + String(i).padStart(2, '0') };
+  writeSendState(sent, {});
+  const urls = [];
+  cr.setFetcher(async (url) => { urls.push(url); return { status: 200, json: { comments: [] } }; });
+  const r = await cr.readReplies('Lim4833', { now: NOW });
+  assert.equal(urls.filter((u) => u.endsWith('/comments?order=newest&limit=' + cr.COMMENTS_ASKED)).length, cr.REPLIES_POSTS, 'more than REPLIES_POSTS threads were fetched');
+  assert.match(r.text, /only your newest 10 of 11 posts are looked at/);
+  clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Pag4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const four = [1, 2, 3, 4].map((k) => comment({ id: CID(k), created_at: T(k), reply_count: 5, replies: [], replies_cursor: 'C' + k }));
+  const pages = [];
+  cr.setFetcher(async (url) => { if (url.includes('/replies')) { pages.push(url); return { status: 200, json: { replies: [] } }; } return { status: 200, json: { comments: four } }; });
+  await cr.readReplies('Pag4833', { now: NOW });
+  assert.equal(pages.length, 3, 'not exactly 3 replies pages for 4 comments with hidden replies');
 });
