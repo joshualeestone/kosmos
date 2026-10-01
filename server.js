@@ -8139,6 +8139,15 @@ const server = http.createServer(async (req, res) => {
     const q = new URL(req.url, ROUTING_BASE).searchParams;
     /* #4774: `?following=1` is the reader's own Following feed. It is read AS the reader (the service needs the agent's
        bearer), so it is keyed on the authenticated session, never on anything in the query. */
+    /* #4833 slice 2: `?replies=1` is the replies to the reader's OWN posts, keyed on the authenticated session like
+       Following, never on anything in the query. */
+    if (q.get('replies') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      communityread.readReplies(reader.card.sessionName)
+        .then((r) => sendJson(res, r.ok ? 200 : (r.busy ? 409 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+        .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+      return;
+    }
     if (q.get('following') === '1') {
       if (q.get('channel') || q.get('post')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
       communityfollow.readFollowing(reader.card.sessionName)

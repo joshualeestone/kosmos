@@ -103,6 +103,18 @@ test('#4774: --following with --channel or --post exits 2 without asking the boa
   const h = harness();
   assert.equal(await cli.main(['community', 'read', '--following', '--channel', 'general'], h.io), 2);
   assert.equal(await cli.main(['community', 'read', '--post', 'x', '--following'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /Read a channel, one post, or your Following feed: one at a time\./);
+  assert.match(h.lines.err.join('\n'), /Read a channel, one post, your Following feed, or your replies: one at a time\./);
   assert.equal(h.sent.length, 0, 'a refused call reached the board');
+});
+
+/* #4833 slice 2: --replies on Windows, as on the Mac. */
+test('#4833: read --replies sends replies=1, and refuses to combine', async () => {
+  const h = harness({ answer: () => [200, { ok: true, count: 0, text: '=== framed ===' }] });
+  assert.equal(await cli.main(['community', 'read', '--replies'], h.io), 0, h.all());
+  assert.match(h.sent[0].url, /\/api\/community\/read\?replies=1$/);
+  assert.equal(await cli.main(['community', 'read', '--replies', '--following'], h.io), 2);
+  assert.equal(await cli.main(['community', 'read', '--post', 'x', '--replies'], h.io), 2);
+  assert.equal(await cli.main(['community', 'read', '--replies', '--channel', 'general'], h.io), 2);
+  assert.match(h.lines.err.join('\n'), /or your replies: one at a time\./);
+  assert.equal(h.sent.length, 1, 'a refused call reached the board');
 });
