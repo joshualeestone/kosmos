@@ -381,7 +381,7 @@ test('a mismatch that lasts stays an alarm: no "back to healthy" between sightin
   site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  kosmos-1.0.0-win-x64.zip\n']);
   const codes = [];
   for (let i = 0; i < 4; i++) codes.push((await run(base, dir, st, { now: T0 + i * 900 })).code);
-  assert.deepEqual(codes, [0, 1, 1, 1], 'a standing mismatch flapped');
+  assert.deepEqual(codes, [2, 1, 1, 1], 'a standing mismatch flapped (or its first sighting read as healthy)');
   assert.doesNotMatch(st.card(), /back to healthy/, 'a standing mismatch posted an all-clear');
 }));
 
@@ -411,4 +411,20 @@ test('--check calls a first sighting "could not tell", not healthy', () => withS
   const r = await run(base, dir, st, { now: T0, args: ['--check'] });
   assert.equal(r.code, 2, r.out);
   assert.ok(JSON.parse(r.out).pending.includes('sidecar-sha:kosmos-1.0.0-win-x64.zip'));
+}));
+
+test('a pending mismatch for a file no pointer names any more is dropped, not carried forever', () => withSite(async ({ site, base, dir, st }) => {
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  x\n']);
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 2, 'CONTROL: a first sighting is pending');
+  // A new Windows build replaces both pointers: the 1.0.0 zip is named by nobody now.
+  const NEXT = Buffer.from('next\n');
+  site.files.set('kosmos-2.0.0-win-x64.zip', ['application/zip', NEXT]);
+  site.files.set('kosmos-2.0.0-win-x64.zip.sha256', ['text/plain', sha(NEXT) + '  kosmos-2.0.0-win-x64.zip\n']);
+  site.files.set('kosmos-win-x64.zip', ['application/zip', NEXT]);
+  site.files.set('kosmos-win-x64.zip.sha256', ['text/plain', sha(NEXT) + '  kosmos-win-x64.zip\n']);
+  for (const p of ['latest-win.json', 'latest-win-staging.json']) site.files.set(p, ['application/json', JSON.stringify({ version: '2.0.0', arch: 'x64', sha256: sha(NEXT), artifact: 'kosmos-win-x64.zip', versioned: 'kosmos-2.0.0-win-x64.zip' })]);
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 0, 'a stale pending key outlived its file');
+  const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  assert.deepEqual(state.pending, []);
+  assert.ok(!Object.keys(state.sha).some((u) => u.includes('kosmos-1.0.0-win-x64.zip')), 'a hash record for an unnamed file was kept');
 }));

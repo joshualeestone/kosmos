@@ -30,7 +30,8 @@
  *     owners), and
  *   - a comment on kosmos#4877.
  * It posts when an alarm starts or what is wrong changes, again every 6 h while it lasts, once when it clears, and
- * once every 6 h while it cannot tell, said only once that has lasted an hour. While healthy, the card alone gets one
+ * once every 6 h while it cannot tell, said only once that has lasted an hour (when it cannot keep state, it runs once a day
+ * and says so at once). While healthy, the card alone gets one
  * "still watching" line a week, so a job that stopped running is visible. Each channel keeps its own clock, and a post
  * that failed is retried after an hour, not every run.
  *
@@ -40,7 +41,8 @@
  *   node tools/serve-watch.js --install write that plist to AGENT_WORKFORCE_LAUNCH (default ~/Library/LaunchAgents)
  *                                       and load it. From the MAIN checkout: a linked worktree is refused.
  *
- * Exit: 0 healthy, 1 alarm, 2 could not tell. EXIT 2 IS NOT A PASS.
+ * Exit: 0 healthy, 1 alarm, 2 could not tell (including a sha or sidecar mismatch seen once, not yet twice).
+ * EXIT 2 IS NOT A PASS.
  *
  * SEAMS (tests): SERVE_WATCH_SITE, SERVE_WATCH_DIST, SERVE_WATCH_COMMUNITY, SERVE_WATCH_RELAY (base URLs), SERVE_WATCH_NOW (epoch
  * seconds), SERVE_WATCH_STATE, SERVE_WATCH_MSG_CMD, SERVE_WATCH_TO, SERVE_WATCH_GH_CMD, SERVE_WATCH_ISSUE,
@@ -229,8 +231,11 @@ async function gather(prev, now) {
   if (!healthOk) add('community-health', 'the community site\'s /api/health did not answer ok (' + why(health) + ')');
   const feed = await getJson(COMMUNITY + '/api/posts/feed');
   if (!(feed.status === 200 && feed.json && typeof feed.json === 'object')) add('community-feed', 'the community feed did not answer (' + why(feed) + ')');
-  const relay = await twice(() => getText(RELAY));
-  const relayUp = relay.status === 503 && typeof relay.text === 'string' && relay.text.includes(RELAY_PAGE);
+  // Its healthy answer IS a 503, so retried only when it is not the relay's page (twice() would retry every 5xx).
+  const relayPage = (r) => r.status === 503 && typeof r.text === 'string' && r.text.includes(RELAY_PAGE);
+  let relay = await getText(RELAY);
+  if (!relayPage(relay)) relay = await getText(RELAY);
+  const relayUp = relayPage(relay);
   if (!relayUp) add('relay', 'the relay did not answer with its own page at ' + RELAY + ' (' + why(relay) + '): no computer address can be reached');
 
   // The negative control: a file that never exists must answer 404. A 2xx means the site answers anything, so nothing
@@ -283,8 +288,9 @@ async function gather(prev, now) {
       // What the installers compare against (install/setup.sh verify_download, setup.ps1): cheap, so every run.
       const s = await getJson(url + '.sha256');
       const said = s.status === 200 && s.text ? String(s.text).trim().split(/\s+/)[0].toLowerCase() : null;
-      if (s.status === 200) evaluated.add('sidecar-sha:' + a.name);
-      if (s.status !== 200) add('sidecar-missing:' + a.name, a.name + '.sha256' + by + ' is not served (' + why(s) + '): installers refuse the download without it');
+      if (s.status === 200 && said && /^[0-9a-f]{64}$/.test(said)) evaluated.add('sidecar-sha:' + a.name);
+      if (s.status === 200 && !(said && /^[0-9a-f]{64}$/.test(said))) add('sidecar-missing:' + a.name, a.name + '.sha256' + by + ' is served but holds no sha256: installers refuse the download');
+      else if (s.status !== 200) add('sidecar-missing:' + a.name, a.name + '.sha256' + by + ' is not served (' + why(s) + '): installers refuse the download without it');
       else if (said !== want) mismatch('sidecar-sha:' + a.name, a.name + '.sha256 says ' + shown(said).slice(0, 12) + ', the pointer says ' + want.slice(0, 12) + ': installers refuse the download');
     }
     if (!a.hashed || !want) continue;
@@ -328,8 +334,12 @@ async function gather(prev, now) {
   /* What this run did not get as far as comparing (its HEAD or sidecar failed, its pointer was not served) keeps its
      earlier record: a mismatch still standing is not forgotten by one run that stopped short, and a hash is not
      downloaded again for it. */
-  for (const k of prevPending) if (!evaluated.has(k) && !pending.includes(k)) pending.push(k);
-  for (const [url, rec] of Object.entries(prevSha)) if (!(url in sha)) sha[url] = rec;
+  // Only for a file still named (by a pointer this run read, or FIXED): a record for a file no pointer names any more
+  // (an old version) is dropped, so it can neither linger as pending forever nor grow the state with every release.
+  const named = new Set([...[...urls.values()].map((e) => e.a.name), ...FIXED.map((f) => f.name)]);
+  const namedUrls = new Set([...urls.keys(), ...FIXED.map((f) => f.url())]);
+  for (const k of prevPending) if (!evaluated.has(k) && !pending.includes(k) && named.has(k.slice(k.indexOf(':') + 1))) pending.push(k);
+  for (const [url, rec] of Object.entries(prevSha)) if (!(url in sha) && namedUrls.has(url)) sha[url] = rec;
   return { now, unknown: false, alarm: problems.length > 0, problems, artifacts: urls.size + FIXED.length, sha, pending };
 }
 
@@ -517,7 +527,8 @@ async function main(argv) {
   }
   const state = noState ? { noState: true } : readState();
   const v = await gather(state, now);
-  const code = v.unknown ? 2 : v.alarm ? 1 : 0;
+  // A first sighting (pending) is not yet healthy: exit 2, the same as --check, and it does not count as a clean run.
+  const code = v.unknown ? 2 : v.alarm ? 1 : (v.pending && v.pending.length) ? 2 : 0;
   v.cleanRuns = code === 0 ? (Number(state && state.cleanRuns) || 0) + 1 : 0;
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= now ? since : now) : null;
