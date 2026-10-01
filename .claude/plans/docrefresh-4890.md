@@ -47,7 +47,7 @@ missing-headings rule. 3 of 3 here did (v15 twice, v18 once), a small sample. A 
 who edited theirs is offered only missing headings, as before; birth in the span is the lasting fix.
 
 ## Tests
-engine/doctrine-4890.test.js (29): birth span and current-at-birth; the card's case (a same-heading change reaches an
+engine/doctrine-4890.test.js (31): birth span and current-at-birth; the card's case (a same-heading change reaches an
 agent born before it); replace in place with a control; an edited, a one-character-edited and today's copy are not
 replaced; marker fallback; the shipped table's pairing guard; server flag and dialog copy. Mutations: dropping the
 past-block match, the today's-copy skip, or the line-start check each red a test. create.test.js: the verbatim test
@@ -148,4 +148,13 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   version, the fleet click leaves it, the next version offers it); guarded by the per-version row test and the
   generator failing on an unloadable version. FIXED NITs: atBirth's docblock lists its four cases; the table's
   header says it holds every block from git history, released or not.
+- Round 18 (opus): FIXED W (a regression I made in round 15): a span from an older click holding only the headings an
+  agent lacked is Kosmos's own text, but it was called `edited`, so the fleet click skipped it and the list said
+  "changed by hand". The table now also holds every section's fingerprint (44), and a span is Kosmos's when it is a
+  whole earlier block or every section in it is an earlier section, byte for byte (knownContent). The fleet reason
+  no longer accuses anyone ("not a copy Kosmos recognises as its own"). Test with a control (one word changed in
+  the partial span is the person's); mutation reds it; a guard that the table holds every section of today's block.
+  FIXED NIT: the generator drops an earlier row only when the later block continues on a NEW line (a same-line
+  extension is already refused at runtime). Left NITs: the overlap guard in planFor is defensive and cannot fire
+  today; the cut-only case's empty fold and blank line.
 

@@ -359,3 +359,35 @@ test('#4890 review 17: the dialog body, run for every plan shape, never says all
   const plan = doctrine.planFor(`${doctrine.atBirth('# Mine\n', NOW).replace(BLOCK, () => OLD)}\n${OLD}\n`, NOW, OLD_TABLE);
   assert.ok(plan.replacing && plan.updating, 'CONTROL: the combined shape is real, not only a test input');
 });
+
+test('#4890 review 18: a span from an older click holding only SOME sections, unedited, is Kosmos\'s, so the fleet updates it', () => {
+  const store = require('./store');
+  // An earlier block that differs from today's in its LAST section, so a span of its last two is out of date.
+  const lastNow = defaults.sections().slice(-1)[0].text;
+  const lastLine = lastNow.split('\n').find((l) => l.length > 20);
+  const OLDB = BLOCK.replace(lastNow, () => lastNow.replace(lastLine, () => lastLine + ' (an older wording)'));
+  assert.notEqual(OLDB, BLOCK);
+  const oldSections = OLDB.split('\n### ').map((p, j) => (j === 0 ? p : '### ' + p));
+  const table = Object.assign([{ version: 1, length: OLDB.length, sha256: sha(OLDB) }], { sections: oldSections.map(sha) });
+  // A person's plain rules without the last two sections (their own, not in the table), and a span from an older
+  // click holding just those two, at the OLD wording.
+  const lastTwo = oldSections.slice(-2);
+  const plainPart = defaults.sections().slice(0, -2).map((s) => s.text).join('\n') + ' (their own wording)';
+  const file = `# Mine\n\n${plainPart}\n\n${doctrine.START}\n${doctrine.spanBody(lastTwo.map((text) => ({ text })), NOW)}\n${doctrine.END}\n`;
+  const plan = doctrine.planFor(file, NOW, table);
+  assert.equal(plan.updating, true);
+  assert.equal(plan.edited, false, 'an unedited partial span was called edited');
+  assert.equal(doctrine.fleetLeaves(plan), null);
+  const f = agentFile('partial', file);
+  store.writeProfile('partial', { doctrineVersion: defaults.DOCTRINE_VERSION - 1 });
+  assert.equal(doctrine.refresh('partial', rosterOf('partial'), { now: NOW, past: table }).state, 'added');
+  assert.ok(fs.readFileSync(f, 'utf8').includes(defaults.sections().slice(-1)[0].text), 'the span was not brought current');
+  // CONTROL: one word changed in that partial span, and it is the person's.
+  const edited = file.replace(lastLine + ' (an older wording)', () => lastLine + ' (an older wording) Mine.');
+  assert.notEqual(edited, file);
+  assert.equal(doctrine.planFor(edited, NOW, table).edited, true);
+});
+
+test('#4890 review 18: the shipped table holds every section of today\'s block', () => {
+  for (const s of defaults.sections()) assert.ok(PAST.sections.includes(sha(s.text)), 'missing section: ' + s.heading);
+});

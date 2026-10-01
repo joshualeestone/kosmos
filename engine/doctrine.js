@@ -123,6 +123,16 @@ function hasPlainCurrent(body) {
   return plainCurrentAt(body) >= 0;
 }
 
+/* #4890: rules text Kosmos wrote and nobody changed: a whole earlier block, or (a span from an older click that
+   added only the headings an agent lacked) sections that are each an earlier block's section, byte for byte. */
+function knownContent(content, past) {
+  const rows = past || PAST;
+  const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+  if (rows.some((r) => r.length === content.length && sha(content) === r.sha256)) return true;
+  const known = new Set(rows.sections || []);
+  return known.size > 0 && content.split('\n### ').every((p, j) => known.has(sha(j === 0 ? p : '### ' + p)));
+}
+
 /**
  * #4890: where an unedited plain copy of an EARLIER block sits in this text, or null. "Unedited" is a byte match
  * against a fingerprint in doctrine-past.js, starting at the rules' first heading line and ending at a line end. The current block is in
@@ -233,11 +243,8 @@ function planFor(text, now, past) {
     if (sectionContentOf(spanInner) === wantedContent) return { state: 'current' };
     const spanNext = spanBody(wanted, now);
     const fileNext = projects.spliceBlock(body, spanNext, START, END);
-    /* #4890: a span whose rules are exactly an earlier block was never edited; any other content (an edit, or a
-       span from an older click that holds only some sections) is `edited`, which the fleet click leaves. */
-    const content = sectionContentOf(spanInner);
-    const known = (past || PAST).some((r) => r.length === content.length
-      && crypto.createHash('sha256').update(content).digest('hex') === r.sha256);
+    /* #4890: a span that is not text Kosmos wrote (knownContent) is `edited`, which the fleet click leaves. */
+    const known = knownContent(sectionContentOf(spanInner), past);
     return { state: 'refresh', updating: true, edited: !known, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
   }
   /* No span: an agent born with the doctrine as plain text, or born before
@@ -286,7 +293,7 @@ function status(sessionName, now, past) {   // `past`: tests only
 }
 
 const FLEET_LEAVES_REPLACE = 'its older copy of the rules is replaced only from its own page, where the change is shown';
-const FLEET_LEAVES_EDITED = 'its working rules were changed by hand, so they are updated only from its own page, where that is shown';
+const FLEET_LEAVES_EDITED = 'its working rules are not a copy Kosmos recognises as its own, so they are updated only from its own page, where the change is shown';
 /* #4890: why the fleet click (names only, no dialog hash) leaves this plan for the agent's own page, or null. The
    fleet list (server.js) reads the same answer, so the list and the click agree. */
 function fleetLeaves(plan) {
