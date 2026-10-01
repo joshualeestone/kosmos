@@ -47063,7 +47063,7 @@ let SEEDED_TEAMS = null;
 let SEEDED_GEN = 0;
 function resetTeamStep() {
   ORGCHART_GEN += 1;   // a team create still in flight must not paint over a screen the person has left
-  orgchartUndoAsking(false);   // #4688: an Undo left mid-ask or mid-run has stopped (its GEN check), so it is not busy
+  orgchartUndoAsking(false);   // #4688: an Undo left mid-ask or mid-run stops at its next GEN check, so it is not busy
   orgchartEndFileFlow();   // #4559's leave rule; the result and its Undo stay, and come back when the panel reopens within ORGCHART_UNDO_KEEP_MS (#4688)
   SEEDED_GEN += 1;
   document.getElementById('orgchartpick').hidden = true;
@@ -47484,6 +47484,10 @@ let ORGCHART_CREATED = [];
    one removed on the board, a new one made under its name). Past this the reopen drops it instead of restoring. */
 let ORGCHART_CREATED_AT = 0;
 const ORGCHART_UNDO_KEEP_MS = 15 * 60 * 1000;
+/* #4688 review: true when the result on screen was brought back by a reopen (orgchartRestoreCreated), false when a
+   create painted it directly. Undo and Remove apply the window only to a brought-back result; one the person never
+   left keeps its Undo while it is on screen, as before #4688. */
+let ORGCHART_RESULT_RESTORED = false;
 // The create's result as painted, so Keep them can put it back exactly (refused rows and all).
 let ORGCHART_RESULT = null;
 // True while /api/team is answering: Preview waits, so a late create result is never thrown away.
@@ -47522,7 +47526,7 @@ function resetOrgchartPreview() {
   ORGCHART_MANY_OK = false;
   const many = document.getElementById('orgchart-many');
   if (many) many.hidden = true;
-  ORGCHART_GEN += 1;   // an Undo still asking or removing does not paint its own result over what comes next
+  ORGCHART_GEN += 1;   // an Undo still asking or removing does not paint its own result over what comes next (#4688: a left run updates a kept result in place, orgchartUndoLeftMidRun)
   const box = document.getElementById('orgchart-preview-box');
   if (box) box.hidden = true;
   const list = document.getElementById('orgchart-list');
@@ -47576,6 +47580,7 @@ function orgchartRestoreCreated() {
   if (create) create.disabled = true;   // the reviewed set already exists (the create path's own rule)
   box.hidden = false;
   ORGCHART_RESULT_SHOWN = true;
+  ORGCHART_RESULT_RESTORED = true;
   showOrgchartUndo();
   return true;
 }
@@ -48166,6 +48171,7 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   ORGCHART_CREATED = madeList;
   ORGCHART_CREATED_AT = Date.now();
   ORGCHART_RESULT_SHOWN = true;
+  ORGCHART_RESULT_RESTORED = false;
   ORGCHART_RESULT = { count: countText, list: listHtml, msg: msgText };
   showOrgchartUndo();
 });
@@ -48214,7 +48220,7 @@ function orgchartLosesDiffer(plan) {
 }
 
 async function orgchartUndoAsk() {
-  if (orgchartDropExpiredUndo()) { orgchartSayUndoExpired(); return; }
+  if (ORGCHART_RESULT_RESTORED && orgchartDropExpiredUndo()) { orgchartSayUndoExpired(); return; }
   const n = ORGCHART_CREATED.length;
   if (!n) return;
   const gen = ORGCHART_GEN;
@@ -48270,9 +48276,8 @@ document.getElementById('orgchart-undo').addEventListener('click', orgchartUndoA
 
 document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
   orgchartUndoAsking(false);
-  const msg = document.getElementById('orgchart-msg');
-  msg.textContent = (ORGCHART_RESULT && ORGCHART_RESULT.msg) || ''; msg.hidden = !msg.textContent;
   if (ORGCHART_RESULT) orgchartPaintKeptResult();
+  else { const msg = document.getElementById('orgchart-msg'); msg.textContent = ''; msg.hidden = true; }
   showOrgchartUndo();
   document.getElementById('orgchart-undo').focus();
 });
@@ -48321,6 +48326,8 @@ function orgchartUndoListChanged() {
 function orgchartPaintKeptResult() {
   document.getElementById('orgchart-count').textContent = ORGCHART_RESULT.count;
   document.getElementById('orgchart-list').innerHTML = ORGCHART_RESULT.list;
+  const msg = document.getElementById('orgchart-msg');
+  msg.textContent = ORGCHART_RESULT.msg || ''; msg.hidden = !msg.textContent;
   showOrgchartUndo();
 }
 
@@ -48331,7 +48338,7 @@ function orgchartPaintKeptResult() {
    is offered again. If the panel is left mid-run the loop stops sending, and orgchartUndoLeftMidRun
    takes what it already removed off the kept list. */
 document.getElementById('orgchart-undo-go').addEventListener('click', async () => {
-  if (orgchartDropExpiredUndo()) { orgchartSayUndoExpired(); return; }
+  if (ORGCHART_RESULT_RESTORED && orgchartDropExpiredUndo()) { orgchartSayUndoExpired(); return; }
   if (!ORGCHART_CREATED.length) return;
   const gen = ORGCHART_GEN;
   const countEl = document.getElementById('orgchart-count');

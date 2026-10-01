@@ -1,4 +1,4 @@
-// Browser-check-surface: orgchart-undo create-path-back team-orgchart-open cstep-team orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
+// Browser-check-surface: orgchart-undo orgchart-undo-go orgchart-undo-keep orgchart-preview create-path-back team-orgchart-open cstep-team orgchartpick orgchart-read-stop orgchart-edit orgchart-file-btn orgchart-file orgchart-file-note orgchart-consent orgchart-consent-say orgchart-consent-go orgchart-consent-no orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-msg orgchart-usenames
 'use strict';
 
 /*
@@ -221,6 +221,15 @@ async function run() {
         await pk.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 10000 });
         await pk.click('#orgchart-create');
         await pk.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+        /* #4688 review CONTROL: the 15-minute window is for a result brought back by a reopen. A result the person never
+           left keeps its Undo (as before #4688): aged 16 minutes, Undo still asks. */
+        await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now() - 16 * 60 * 1000; });
+        await pk.click('#orgchart-undo');
+        await pk.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 }).catch(() => {});
+        const neverLeft = await pk.evaluate(() => ({ asking: !document.getElementById('orgchart-undo-go').hidden, created: ORGCHART_CREATED.length }));
+        check('#4688 CONTROL: a result never left still offers Undo past 15 minutes', neverLeft.asking && neverLeft.created === 7, JSON.stringify(neverLeft));
+        if (neverLeft.asking) await pk.click('#orgchart-undo-keep');
+        await pk.evaluate(() => { ORGCHART_CREATED_AT = Date.now(); });
         await pk.click('#team-orgchart-open');   // close the panel
         await pk.waitForSelector('#orgchartpick', { state: 'hidden', timeout: 5000 });
         const kept = await pk.evaluate(() => ({ created: ORGCHART_CREATED.length, undoShown: !document.getElementById('orgchart-undo').hidden, count: document.getElementById('orgchart-count').textContent }));

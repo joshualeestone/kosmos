@@ -145,3 +145,14 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
   list or open Undo can coexist with a create in flight): a late create overwriting a kept list after Back to the
   list, and the create tail's unconditional previewBtn.disabled = false. Reopen if a create can start without a
   Preview.
+
+## Iteration 9 (Opus): one warning, fixed; a scope correction
+- The 15-minute window also took Undo away from a result the person never left, which main offered for as long as it
+  was on screen and the card did not ask to change. Narrowed: ORGCHART_RESULT_RESTORED is set by a reopen's restore
+  and cleared by a create's own paint; Undo and Remove apply the window only to a restored result. A reopen still
+  drops an expired list. New CONTROL arm: a never-left result aged 16 minutes still asks.
+- NITs taken: the in-place paint carries the result's own message (it matched neither a reopen nor Keep before);
+  Keep with no stored result clears the ask's message as before; two comments corrected ("stops at its next GEN
+  check"; the reset's GEN comment names the in-place exception); the 4559 surface line names the Undo ask buttons
+  and Preview. Not taken: a later return after a left run removed ALL shows a blank panel rather than "Removed 7
+  agents" (nothing is left to offer, so blank is the honest idle state).
