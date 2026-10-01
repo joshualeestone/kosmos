@@ -1,8 +1,8 @@
 # #4797: the room-hold retry skips a member the quota still holds; no "told of" for nothing told
 
-Card: joshualeestone/kosmos#4797 (claimed:angel). Branch roomholdquiet-4797, STACKED ON agyhold-4588 (1c8fc9642),
-because flushReleased and the retry's log line exist only there. No PR until agyhold-4588 merges; then rebase onto
-main and open it.
+Card: joshualeestone/kosmos#4797 (claimed:angel). Branch roomholdquiet-4797. Built on Renet's agyhold-4588
+(1c8fc9642) while it was unmerged; it merged as #4813 (0c9c78c99), and these six commits were moved onto main with
+patches unchanged (2026-09-30 23:58).
 
 ## What finished looks like
 During a Google quota pause, the one-minute retry does not try a held Antigravity member at all (no refused try, no
@@ -40,3 +40,7 @@ Round 1: 1 should-fix (the idle flush's line), taken; nit taken (env to the skip
 result logged as told), taken; nits taken (comment, UNCONFIRMED pinned, server wiring test).
 Round 3: CONVERGED (no blocker, no should-fix); nits taken (delivery=none, the wiring check given a control in both
 template and concatenated form, the "same gate" comment scoped to production env).
+
+## After the rebase onto main
+Focused at the new head: engine/roomhold-agyhold-4588.test.js, engine/roomhold.test.js and the #4796 guard 23/23;
+server.agyhold-4588, server.agyquota-4588 and server.test.js 369/369.
