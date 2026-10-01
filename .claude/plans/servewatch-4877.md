@@ -34,7 +34,11 @@ log line and that a --check is healthy. The job then runs beside coordinator-mon
 - Its own tool, modelled on tools/gap-alarm.js, rather than refactoring gap-alarm's reviewed machinery into a shared
   lib in the same change. Weakest premise: two copies of the alert loop can drift; a follow-up card can unify them.
 - A negative control every run: dist/<a name that never exists> must answer 404. A site that answers 200 for
-  everything would otherwise pass every artifact check; then the run is "could not tell", not "healthy".
+  everything would otherwise pass every artifact check; then a run where nothing fails is "could not tell", not
+  "healthy", and a run where something still fails (a 404, a wrong type, broken JSON, a sha) is an alarm (round 9).
+- A problem leaves a standing alarm only after it is gone two runs in a row (as the all-clear needs two clean runs),
+  so a second problem flapping beside a first is one post, not one every 15 minutes (round 9). A new problem posts
+  at once. Weakest premise: the alarm text lists only this run's problems, so a held one is not named while held.
 - The relay's build is NOT checked: the relay only writes it to its own journal on the box (crates/relay/src/serve.rs
   "relay up ... build="), with no public route, and this monitor holds no SSH.
 - The relay canary is a name that never exists, answered by the relay's own listener (crates/relay/src/redirect.rs),
