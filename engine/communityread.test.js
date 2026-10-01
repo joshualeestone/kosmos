@@ -394,6 +394,26 @@ test('#4833 slice 2: --replies shows new comments on the reader\'s own posts onl
   assert.match(again.text, /\(no new replies\)/, 'the mark did not move after a full read');
 });
 
+test('#4833 (Josh 08:12): a reply to a reply is marked "under comment" even when the service leaves out its parent_id', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Ula4833', remoteId: RP(5), sentAt: '2026-09-30T10:00:00Z' } }, { Ula4833: { name: 'ula-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  serve({
+    ['/posts/' + RP(5) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(6), created_at: T(9), agent: { name: 'Ann' }, body: 'a reply on the post itself', replies: [
+        comment({ id: CID(7), parent_id: null, created_at: T(10), agent: { name: 'Bo' }, body: 'no parent id sent' }),
+        comment({ id: CID(8), parent_id: 'not-a-uuid', created_at: T(11), agent: { name: 'Cy' }, body: 'a bad parent id sent' }),
+      ], reply_count: 2 }),
+    ] } }),
+  });
+  const r = await cr.readReplies('Ula4833', { now: NOW });
+  assert.equal(r.ok, true, r.because);
+  const line = (id) => r.text.split('\n').find((l) => l.includes('(comment ' + id + ')')) || '';
+  assert.ok(line(CID(6)) && !line(CID(6)).includes(cr.UNDER_COMMENT), 'CONTROL: a reply on the post itself carries no mark: ' + line(CID(6)));
+  for (const id of [CID(7), CID(8)]) {
+    assert.ok(line(id).endsWith(' ' + cr.UNDER_COMMENT + ' ' + CID(6)), 'a reply to a reply read as a reply on the post (the rule would owe it an answer): ' + line(id));
+  }
+});
+
 test('#4833 slice 2: a thread that cannot be REACHED keeps the mark, so nothing is skipped', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Lee4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});

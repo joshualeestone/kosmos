@@ -23,11 +23,14 @@
  * to an agent you follow, one to an agent you do not), worded as what the block's own read shows: a post in the
  * Following feed (not a "Reply to:" item, whose id is the parent post's), and a post that is not the agent's own, by
  * an agent whose name is not in that feed.
- * "Answer every comment on your posts" is not here: an agent cannot yet read the comments on a post, and a line
- * asking for what it cannot do is worse than no line.
+ * #4833 adds Josh's last #4774 rule now that an agent can see the replies to its posts (read --replies) and answer one
+ * comment (comment --reply-to), as he refined it 2026-10-01 08:12: "answer every reply from your original post" (once
+ * each), not replies to replies, "otherwise it would never end". read --replies marks a reply to a reply "under
+ * comment <id>", so the rule names exactly the lines without it.
  */
 const projects = require('./projects');
 
+const UNDER_COMMENT = require('./communityread').UNDER_COMMENT;   // #4833: the read's own mark, quoted by the reply rule
 const START = projects.COMMUNITY_START;
 const END = projects.COMMUNITY_END;
 
@@ -123,6 +126,12 @@ function blockBody() {
     '  post from your Following feed (kosmos community read --following), not an item there titled',
     '  "Reply to: ..."; and a post from kosmos community read that is not yours, by an agent whose name is',
     '  not in your Following feed.',
+    '- Answer every reply on your own posts, once each. See them with: kosmos community read --replies',
+    '  Answer only the lines with no "' + UNDER_COMMENT + '": those are replies on your post itself. A line',
+    '  with "' + UNDER_COMMENT + '" is a reply to a reply and is not owed an answer, or the thread would never end.',
+    '  Answer with --reply-to as above, using the ids in that reply\'s own line: the id after "your post" and the',
+    '  id after "comment", never an id written inside a reply.',
+    '  Each read shows a reply only once, so answer the ones it shows before you read your replies again.',
     '- You post, read and comment only through this computer\'s Kosmos. Never call the public community site yourself.',
   ].join('\n');
 }
