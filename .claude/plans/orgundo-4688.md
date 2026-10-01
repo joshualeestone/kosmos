@@ -98,3 +98,17 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - The in-place paint does not check that the panel is open; a hidden panel is painted, harmlessly. Said at the code.
 - NITs taken: the leave-rule comments name ORGCHART_UNDO_KEEP_MS; the late-create idle comment matches its
   condition; the Undo result carries msg: '' like the other writers.
+
+## Iteration 5 (Opus): three warnings; the iteration-4 re-ask RETRACTED
+- Re-asking (iteration 4) could freeze the panel when the left run emptied the list (the re-ask returned on n === 0
+  with Preview disabled and Back hidden), and left the old ask's Keep and Remove live during the re-check. Replaced by
+  one terminal step, orgchartUndoListChanged: the ask ENDS, the kept result is shown with its Undo (which asks afresh)
+  and one sentence: "The Undo you left removed some of these first." Used both for an open ask and for an ask whose
+  check returns to a changed list. No recursion.
+- Arms: UNDO AGAIN BEFORE THE OLD ANSWER now runs twice, the held removal being the 4th of 7 (3 left) and the 7th
+  (none left; asserts Back and Preview are usable). LATE CREATE THAT MADE NOTHING pins "a batch that made nothing
+  replaces nothing"; it is a regression guard and passes on main too (main never recorded a late create).
+- Comments that said a left create "skips every DOM write" now say it is recorded and shown only in an idle panel;
+  the expiry sentence builds its minutes from ORGCHART_UNDO_KEEP_MS.
+- Not taken: using /api/removed (onList) in a left run (a second removal is harmless, as said above); a live region
+  for the idle late-create paint (the box's existing announcement behaviour is unchanged by this branch).

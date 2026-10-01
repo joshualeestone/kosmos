@@ -684,56 +684,95 @@ async function run() {
     await pur.close();
 
     /* #4688 review: back in the panel, the person presses Undo again before the old run's held removal answers. The
-       answer takes the removed agents off the kept list and the open ask is drawn again for the 3 still on the board;
-       Keep them then shows the left run's result, not the 7 the first ask named. */
-    const pua = await page();
-    let deletesA = 0;
-    let releaseDelA;
-    const delHeldA = new Promise((ok) => { releaseDelA = ok; });
-    await pua.route('**/api/team', (r) => {
+       answer takes the removed agents off the kept list and ends the open ask, showing what is still on the board
+       with an Undo that asks afresh. Run twice: the held answer is the 4th of 7 (3 left) and the 7th (none left). */
+    const undoAgain = async (heldAt) => {
+      const pua = await page();
+      let deletesA = 0;
+      let releaseDelA;
+      const delHeldA = new Promise((ok) => { releaseDelA = ok; });
+      await pua.route('**/api/team', (r) => {
+        const body = JSON.parse(r.request().postData() || '{}');
+        r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+      });
+      await pua.route('**/api/agent/*/removal', async (r) => {
+        const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+        if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+        deletesA += 1;
+        if (deletesA === heldAt) await delHeldA;
+        r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+      });
+      await pua.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
+      await openPanel(pua);
+      let out = null;
+      if (await pua.$('#orgchart-file-btn')) {
+        await pua.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+        await pua.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+        await pua.click('#orgchart-create');
+        await pua.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+        await pua.click('#orgchart-undo');
+        await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+        await pua.click('#orgchart-undo-go');
+        for (let i = 0; i < 50 && deletesA < heldAt; i++) await pua.waitForTimeout(100);   // the held removal is in flight
+        await pua.click('#create-path-back');
+        await pua.click('#cstep-kind [data-path="team"]');
+        await pua.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+        await pua.click('#team-orgchart-open');
+        await pua.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+        await pua.click('#orgchart-undo');
+        await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+        const asking = await pua.evaluate(() => document.getElementById('orgchart-undo-go').textContent);
+        releaseDelA();
+        // A swallowed timeout still fails: the check asserts the same state.
+        await pua.waitForFunction(() => document.getElementById('orgchart-undo-go').hidden, null, { timeout: 5000 }).catch(() => {});
+        out = await pua.evaluate(() => ({ created: ORGCHART_CREATED.length, asking: !document.getElementById('orgchart-undo-go').hidden,
+          undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
+          back: !document.getElementById('orgchart-edit').hidden, preview: !document.getElementById('orgchart-preview').disabled,
+          count: document.getElementById('orgchart-count').textContent, msg: document.getElementById('orgchart-msg').textContent }));
+        out.firstAsk = asking;
+        out.deletes = deletesA;
+      }
+      await pua.close();
+      return out;
+    };
+    const ua3 = await undoAgain(4);
+    check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER (3 left): the open ask ends and the panel offers the 3 still on the board',
+      !!ua3 && ua3.deletes === 4 && /Remove these 7 agents/.test(ua3.firstAsk) && !ua3.asking && ua3.created === 3 && /remove these 3 agents/.test(ua3.undo || '')
+      && /Removed 4 of 7 before you left/.test(ua3.count) && /The Undo you left removed some of these first\. Press Undo again/.test(ua3.msg) && ua3.back && ua3.preview, JSON.stringify(ua3));
+    const ua0 = await undoAgain(7);
+    check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER (none left): the open ask ends with nothing left to offer, and the panel is usable',
+      !!ua0 && ua0.deletes === 7 && !ua0.asking && ua0.created === 0 && ua0.undo === null && /Removed 7 agents\./.test(ua0.count)
+      && /The Undo you left removed some of these first\.$/.test(ua0.msg) && ua0.back && ua0.preview, JSON.stringify(ua0));
+
+    /* #4688 review: a late create that made NOTHING (every row refused) replaces nothing: the reopened, idle panel stays
+       empty rather than showing a result with no Undo. */
+    const pnz = await page();
+    let releaseNone;
+    const noneHeld = new Promise((ok) => { releaseNone = ok; });
+    await pnz.route('**/api/team', async (r) => {
       const body = JSON.parse(r.request().postData() || '{}');
-      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+      await noneHeld;
+      r.fulfill({ status: 200, json: { outcome: 'created', created: [], refused: body.members.map((m) => ({ name: m.name, because: 'taken' })) } });
     });
-    await pua.route('**/api/agent/*/removal', async (r) => {
-      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
-      if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
-      deletesA += 1;
-      if (deletesA === 4) await delHeldA;
-      r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
-    });
-    await pua.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
-    await openPanel(pua);
-    if (await pua.$('#orgchart-file-btn')) {
-      await pua.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
-      await pua.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
-      await pua.click('#orgchart-create');
-      await pua.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
-      await pua.click('#orgchart-undo');
-      await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
-      await pua.click('#orgchart-undo-go');
-      for (let i = 0; i < 50 && deletesA < 4; i++) await pua.waitForTimeout(100);   // the 4th removal is now held
-      await pua.click('#create-path-back');
-      await pua.click('#cstep-kind [data-path="team"]');
-      await pua.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
-      await pua.click('#team-orgchart-open');
-      await pua.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
-      await pua.click('#orgchart-undo');
-      await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
-      const landed = pua.waitForResponse((res) => res.request().method() === 'DELETE', { timeout: 5000 }).catch(() => {});
-      releaseDelA();
-      await landed;
-      // A swallowed timeout still fails: the check below asserts the same state.
-      await pua.waitForFunction(() => /Remove these 3 agents/.test(document.getElementById('orgchart-undo-go').textContent), null, { timeout: 5000 }).catch(() => {});
-      const ask = await pua.evaluate(() => ({ created: ORGCHART_CREATED.length, asking: !document.getElementById('orgchart-undo-go').hidden,
-        go: document.getElementById('orgchart-undo-go').textContent, count: document.getElementById('orgchart-count').textContent }));
-      await pua.click('#orgchart-undo-keep');
-      const kept = await pua.evaluate(() => ({ undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
-        count: document.getElementById('orgchart-count').textContent }));
-      check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER: the open ask is redrawn for the 3 still on the board, and so is Keep them',
-        deletesA === 4 && ask.asking && ask.created === 3 && /Remove these 3 agents/.test(ask.go) && /these 3 agents, the ones this import made/.test(ask.count)
-        && /remove these 3 agents/.test(kept.undo || '') && /Removed 4 of 7 before you left/.test(kept.count), JSON.stringify([deletesA, ask, kept]));
-    } else check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER: the panel offers a file', false);
-    await pua.close();
+    await openPanel(pnz);
+    if (await pnz.$('#orgchart-file-btn')) {
+      await pnz.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pnz.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pnz.click('#orgchart-create');
+      await pnz.waitForFunction(() => ORGCHART_CREATING === true, null, { timeout: 5000 });
+      await pnz.click('#create-path-back');
+      await pnz.click('#cstep-kind [data-path="team"]');
+      await pnz.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await pnz.click('#team-orgchart-open');
+      await pnz.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      releaseNone();
+      await pnz.waitForFunction(() => ORGCHART_CREATING === false, null, { timeout: 5000 }).catch(() => {});
+      const nz = await pnz.evaluate(() => ({ creating: ORGCHART_CREATING, created: ORGCHART_CREATED.length,
+        box: !document.getElementById('orgchart-preview-box').hidden, undo: !document.getElementById('orgchart-undo').hidden }));
+      check('#4688 LATE CREATE THAT MADE NOTHING: the reopened panel stays empty, with no Undo',
+        !nz.creating && nz.created === 0 && !nz.box && !nz.undo, JSON.stringify(nz));
+    } else check('#4688 LATE CREATE THAT MADE NOTHING: the panel offers a file', false);
+    await pnz.close();
 
     // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
     // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.

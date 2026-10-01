@@ -47518,7 +47518,7 @@ function resetOrgchartPreview() {
   ORGCHART_MANY_OK = false;
   const many = document.getElementById('orgchart-many');
   if (many) many.hidden = true;
-  ORGCHART_GEN += 1;   // an Undo still asking or removing must not paint over what comes next
+  ORGCHART_GEN += 1;   // an Undo still asking or removing does not paint its own result over what comes next
   const box = document.getElementById('orgchart-preview-box');
   if (box) box.hidden = true;
   const list = document.getElementById('orgchart-list');
@@ -47548,7 +47548,8 @@ function orgchartSayUndoExpired() {
   if (ORGCHART_RESULT) orgchartPaintKeptResult();
   showOrgchartUndo();
   const msg = document.getElementById('orgchart-msg');
-  msg.textContent = 'Undo is no longer offered: more than 15 minutes have passed since these agents were made. '
+  msg.textContent = 'Undo is no longer offered: more than ' + Math.round(ORGCHART_UNDO_KEEP_MS / 60000)
+    + ' minutes have passed since these agents were made. '
     + 'Remove any of them from its own page.';
   msg.hidden = false;
   const back = document.getElementById('orgchart-edit');
@@ -47979,8 +47980,9 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
   if (ORGCHART_READ_CTL) ORGCHART_READ_CTL.abort();
   ORGCHART_FILE_SEQ += 1;
   // Capture the generation: if the operator leaves the Team screen or reopens the form while
-  // this create is in flight, resetTeamStep bumps ORGCHART_GEN and every DOM write below
-  // is skipped, so a late response cannot yank a screen the person has left.
+  // this create is in flight, resetTeamStep bumps ORGCHART_GEN and the DOM writes below
+  // are skipped, so a late response cannot yank a screen the person has left (#4688: it is
+  // recorded instead, and shown only in a panel that is open again and idle).
   const gen = ORGCHART_GEN;
   const btn = document.getElementById('orgchart-create');
   const msg = document.getElementById('orgchart-msg');
@@ -48032,8 +48034,8 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
       + ((err && err.message) ? err.message : 'network error') + '). Try again.';
     return;
   }
-  /* The person left the panel during the fetch: nothing below writes to the screen, but a team that WAS created still
-     gets its reporting-line fix-ups, which correct data (create stores reportsTo as sent) rather than the screen. */
+  /* The person left the panel during the fetch: the result is not painted where they are (#4688: it is recorded for
+     the panel), but a team that WAS created still gets its reporting-line fix-ups, which correct data (create stores reportsTo as sent) rather than the screen. */
   const superseded = gen !== ORGCHART_GEN;
   if (!result) {
     ORGCHART_CREATING = false; previewBtn.disabled = false;
@@ -48226,7 +48228,7 @@ async function orgchartUndoAsk() {
     fetch('/api/agent/' + encodeURIComponent(c.name) + '/removal', { cache: 'no-store' })
       .then((res) => res.json().catch(() => null), () => null)));
   if (gen !== ORGCHART_GEN) return;
-  if (ORGCHART_CREATED !== asked) { orgchartUndoAsk(); return; }   // checked a list that has since changed: ask again
+  if (ORGCHART_CREATED !== asked) { orgchartUndoListChanged(); return; }   // a left run shortened it while this checked
   asked.forEach((c, i) => { plans[c.name] = answers[i]; });
   ORGCHART_FIRST_PLAN = ORGCHART_CREATED.map((c) => plans[c.name]).find((p) => p && p.ok === true) || null;
   ORGCHART_UNDO_PLANS = plans;
@@ -48289,17 +48291,27 @@ function orgchartUndoLeftMidRun(runList, todo, answers) {
     msg: '',
   };
   /* With that result in the box (not a preview or a file's rows; a hidden panel is painted too, harmlessly): updated
-     in place. With a new Undo ask open over it, the ask is drawn again from the updated list, so it never names
-     agents already gone. A newer removal run already under way is left to count its own answers. */
+     in place. An Undo ask open over it is ended (orgchartUndoListChanged), so it never names agents already gone; an
+     ask still checking ends itself when its check returns. A newer removal run already under way is left to count
+     its own answers. */
   const box = document.getElementById('orgchart-preview-box');
   if (!box || box.hidden || !ORGCHART_RESULT_SHOWN) return;
-  if (ORGCHART_UNDO_BUSY) {
-    const keep = document.getElementById('orgchart-undo-keep');
-    if (keep && !keep.hidden) orgchartUndoAsk();
-    return;
-  }
-  if (document.getElementById('orgchart-undo').disabled) return;   // an ask still checking starts over by itself
+  const keep = document.getElementById('orgchart-undo-keep');
+  if (ORGCHART_UNDO_BUSY) { if (keep && !keep.hidden) orgchartUndoListChanged(); return; }
+  if (document.getElementById('orgchart-undo').disabled) return;   // an ask still checking
   orgchartPaintKeptResult();
+}
+/* #4688 review: an Undo ask whose list a left run shortened. It ends, and the kept result (what the left run removed,
+   and what is still on the board) is shown with its Undo, which asks afresh about what is left. */
+function orgchartUndoListChanged() {
+  orgchartUndoAsking(false);
+  if (ORGCHART_RESULT) orgchartPaintKeptResult(); else showOrgchartUndo();
+  const msg = document.getElementById('orgchart-msg');
+  msg.textContent = 'The Undo you left removed some of these first.'
+    + (ORGCHART_CREATED.length ? ' Press Undo again to remove the rest.' : '');
+  msg.hidden = false;
+  const undo = document.getElementById('orgchart-undo');
+  (undo.hidden ? document.getElementById('orgchart-edit') : undo).focus();
 }
 function orgchartPaintKeptResult() {
   document.getElementById('orgchart-count').textContent = ORGCHART_RESULT.count;
