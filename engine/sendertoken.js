@@ -215,10 +215,33 @@ function revokeUnlocked(sessionName) {
   }
 }
 
+/* #4844: whose tokens may one name's untagged SWEEP take, when the file is shared? Returns a predicate for the
+   tokens that are NOT this agent's (kept), or null for "take them all", today's rule. Only narrows when the file holds
+   named tokens for more than one name AND one of those names is exactly `sessionName`. Tokens with no name (minted
+   before #4792, unattributable) are taken as before.
+   🛑 FOR THE SWEEP ONLY, NEVER FOR revoke. The sweep's name comes from the supervisor's token_roster_name, the same
+   function that names its mint, so the spelling always matches. revoke's callers do not have that: a paneless
+   (Windows or remote) agent is removed and created under its KEY spelling (status.js lists it by key) while its
+   tokens carry the typed name, so a narrowed revoke kept the removed agent's own tokens and revoked a bystander's
+   (review 1, measured). revoke stays whole-key: its cross-name cost is an over-revoke the other agent recovers from by
+   relaunching or being re-issued, never a removed agent that can still speak. */
+function othersTokens(held, sessionName) {
+  let key;
+  try { key = store.safeKey(sessionName); } catch { return null; }
+  const names = new Set();
+  for (const t of held) { const n = tokenName(t, key); if (n) names.add(n); }
+  /* `names.size < 2` is only a short-cut (with one name, the predicate below keeps nothing anyway). The second arm
+     (this name absent) is defensive: the kept run always carries this name today. Both are tested. */
+  if (names.size < 2 || !names.has(String(sessionName))) return null;
+  return (t) => { const n = tokenName(t, key); return n !== null && n !== String(sessionName); };
+}
+
 /** Drop EVERY token for an agent. A deleted or recreated agent stops speaking.
  *  #1782: under the lock, so a straggler `mint` cannot land its write between the
  *  read and this unlink and resurrect a token the recreate meant to erase -
- *  `create.js` uses `revoke` as exactly that new-agent security gate. */
+ *  `create.js` uses `revoke` as exactly that new-agent security gate.
+ *  #4844: deliberately WHOLE-KEY, also taking another name's tokens under the same key; see othersTokens for why a
+ *  narrowed revoke is unsafe. */
 function revoke(sessionName) {
   let held;
   try { held = withSessionLock(sessionName, () => revokeUnlocked(sessionName)); }
@@ -262,6 +285,7 @@ function retire(sessionName, instance) {
  * when the -discord twin, which shares this token file, has no session: never when adopting
  * a live run, whose own pre-#4530 token is untagged. Remote agents' tokens are tagged
  * `remote` from #4530 on, so this never reaches them.
+ * #4844: with `untagged`, another name's NAMED tokens under the same key are kept (othersTokens); unnamed ones are not.
  */
 function retireLauncher(sessionName, launcher, keepInstance, opts = {}) {
   if (typeof launcher !== 'string' || !launcher) return { ok: false, because: 'name the launcher whose runs to retire' };
@@ -270,7 +294,12 @@ function retireLauncher(sessionName, launcher, keepInstance, opts = {}) {
     held = withSessionLock(sessionName, () => {
       const all = readTokens(sessionName);
       const untagged = !!(opts && opts.untagged);
+      /* #4844: the untagged sweep never takes another agent's NAMED tokens when that agent shares this key (on a Mac,
+         adopt mints with no launcher). Narrowed only when the file names this agent among others (othersTokens);
+         tokens with no name are swept as before. revoke deliberately does NOT narrow: see othersTokens. */
+      const theirs = untagged ? othersTokens(all, sessionName) : null;
       const left = all.filter((t) => t.instance === keepInstance
+        || (theirs !== null && theirs(t))
         || (t.launcher !== launcher && !(untagged && !t.launcher)));
       if (left.length === all.length) return { ok: true, retired: 0 };
       if (left.length === 0) { const r = revokeUnlocked(sessionName); return r.ok ? { ok: true, retired: all.length } : r; }

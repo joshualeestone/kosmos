@@ -232,6 +232,54 @@ test('#4792 review 2: one twin resolving does not re-arm the other twin\'s clash
   } finally { console.warn = orig; }
 });
 
+test('#4844 review 1: revoke stays whole-key, so a paneless agent removed by its KEY spelling cannot keep speaking', () => {
+  /* A Windows or remote agent "Pax4844" is minted under its typed name but listed, removed and created by its key
+     "pax4844" (status.js). A narrowed revoke kept its tokens and took a bystander's instead (measured in review). */
+  const typed = sendertoken.mint('Pax4844').token;
+  const bystander = sendertoken.mint('pax4844').token;
+  assert.equal(sendertoken.revoke('pax4844').ok, true);
+  assert.equal(sendertoken.resolveName(typed).ok, false, 'the removed paneless agent\'s token still resolves');
+  assert.equal(sendertoken.resolveName(bystander).ok, false, 'revoke is whole-key by design: the other name is over-revoked, never under');
+  // And by the typed spelling, the same.
+  const t2 = sendertoken.mint('Pax4844').token;
+  const b2 = sendertoken.mint('pax4844').token;
+  assert.equal(sendertoken.revoke('Pax4844').ok, true);
+  assert.equal(sendertoken.resolveName(t2).ok || sendertoken.resolveName(b2).ok, false, 'a revoke left a token under its key');
+});
+
+test('#4844: one name\'s untagged sweep keeps another name\'s tokens under the same key', () => {
+  const mine = sendertoken.mint('Zia4844', { launcher: 'supervisor:Zia4844' });
+  const oldRun = sendertoken.mint('Zia4844').token;            // untagged, this agent's
+  const theirs = sendertoken.mint('zia4844').token;            // untagged (adopt / Windows), the other agent's
+  const r = sendertoken.retireLauncher('Zia4844', 'supervisor:Zia4844', mine.instance, { untagged: true });
+  assert.equal(r.ok, true);
+  assert.equal(sendertoken.resolveName(mine.token).ok, true, 'the kept run was swept');
+  assert.equal(sendertoken.resolveName(oldRun).ok, false, 'this agent\'s own untagged run survived its sweep');
+  assert.equal(sendertoken.resolveName(theirs).ok, true, 'Zia4844\'s sweep took zia4844\'s token');
+});
+
+test('#4844 review 2: the narrowed sweep still takes an unnamed older token, and takes all when this name is absent', () => {
+  const fs = require('node:fs');
+  const mine = sendertoken.mint('Oak4844', { launcher: 'supervisor:Oak4844' });
+  const theirs = sendertoken.mint('oak4844').token;
+  const file = path.join(sendertoken.DIR, 'oak4844.json');
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const old = require('node:crypto').randomBytes(32).toString('hex');
+  kept.tokens.push({ token: old, instance: 'old' });   // a past run's token from before names were kept: no name, no launcher
+  fs.writeFileSync(file, JSON.stringify(kept), { mode: 0o600 });
+  sendertoken.retireLauncher('Oak4844', 'supervisor:Oak4844', mine.instance, { untagged: true });
+  const after = JSON.parse(fs.readFileSync(file, 'utf8')).tokens.map((t) => t.token);
+  assert.equal(after.includes(old), false, 'the unnamed older token survived the sweep (it would resolve by key once the other name is gone)');
+  assert.equal(after.includes(theirs), true, 'CONTROL: the other name\'s token is still kept');
+  // A sweep under a spelling no token carries does not narrow: every untagged token goes, as before #4844.
+  const a = sendertoken.mint('Elm4844', { launcher: 'supervisor:ELM4844' });
+  const b = sendertoken.mint('elm4844').token;
+  const c = sendertoken.mint('Elm4844').token;
+  sendertoken.retireLauncher('ELM4844', 'supervisor:ELM4844', a.instance, { untagged: true });
+  const left = JSON.parse(fs.readFileSync(path.join(sendertoken.DIR, 'elm4844.json'), 'utf8')).tokens.map((t) => t.token);
+  assert.equal(left.includes(b) || left.includes(c), false, 'a sweep by an absent spelling narrowed anyway');
+});
+
 test('#4763 review 3: a clash logs once per clash, and a clean resolve re-arms it', () => {
   const warned = [];
   const orig = console.warn;
