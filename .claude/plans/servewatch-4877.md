@@ -48,9 +48,14 @@ log line and that a --check is healthy. The job then runs beside coordinator-mon
   (round 13). gap-alarm still counts 8 as told, on #1909's older premise: #4898. Weakest premise: a pane that answers
   8 every time is messaged hourly.
 - No all-clear and no weekly line on a run with a first sighting still to confirm: that run exits 2 (round 13).
-- The relay's build is NOT checked: the relay only writes it to its own journal on the box (crates/relay/src/serve.rs
+- Kosmos.pkg, the home page's Mac download button, is watched against its sidecar (round 15).
+- Shas are compared lowercase and case-sensitively, as the installers read them (round 15).
+- Weakest premise of the relay canary: the name serve-watch-canary is not reserved in kosmos-relay, so a computer
+  someone names that would make the check fail every run while the relay is fine. Reserving it is a kosmos-relay
+  change, not this one; the alarm text would say the relay did not answer with its own page, which points at it.
+- The relay's build is NOT checked: the relay only writes it to its own journal on the box (kosmos-relay: crates/relay/src/serve.rs
   "relay up ... build="), with no public route, and this monitor holds no SSH.
-- The relay canary is a name that never exists, answered by the relay's own listener (crates/relay/src/redirect.rs),
+- The relay canary is a name that never exists, answered by the relay's own listener (kosmos-relay: crates/relay/src/redirect.rs),
   not a real computer. Rejected: pizzarama (the card's suggestion), which is Josh's Windows PC: it sleeps, and every
   sleep would alarm. Weakest premise: this checks the relay's http listener, not the https path a person's browser
   takes through it to their Mac (that path's certificate is #4878).
