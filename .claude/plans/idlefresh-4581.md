@@ -31,3 +31,14 @@ would change my mind: PMs reading such members as behind on a quiet night.
 ## Tests
 engine/projectview.test.js: idle 3h after the summary reads "current when it went idle"; idle 8h after reads stale; a
 working report, no report, and an idle report dated in the future read stale; a current summary is untouched.
+
+## Review 1 (Sonnet, blind, source-only): 0 blockers, 2 warnings, 4 nits
+- W1 a summary written AFTER the idle report was excused and printed an idle time before the summary: FIXED, it stays
+  stale; arm added (and the exact four-hour edge pinned).
+- W2 any repeated idle report while parked moves the idle time forward and the feature quietly stops excusing:
+  ACCEPTED as part of the weakest premise (a wake that ends in idle is a real turn; a PM reading "stale" for a member
+  that worked without summarising is right). Taking the first idle of the current run needs a new field from
+  selfreport.read; noted on the card.
+- N3 the documented premise; no change. N4 garbage report time: arm added (stays stale). N5 edges: consistent.
+- N6 the PM role text does not mention the new phrase: kept (it raises "stale" only, which is the intended outcome);
+  a roles.js change rewrites every PM's boot text.

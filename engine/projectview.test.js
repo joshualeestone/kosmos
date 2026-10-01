@@ -287,6 +287,11 @@ test('#4581 N10: an idle member whose summary was current when it went idle read
   assert.equal(show({ found: true, state: 'working', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'stale');
   assert.equal(show({ found: false }).m.summary.state, 'stale');
   assert.equal(show({ found: true, state: 'idle', at: new Date(NOW + 60000).toISOString() }).m.summary.state, 'stale');
+  // Review 1: an idle report OLDER than the summary, and an unreadable report time, leave it stale.
+  assert.equal(show(idleAt(660)).m.summary.state, 'stale', 'an idle time before the summary was written excused it');
+  assert.equal(show({ found: true, state: 'idle', at: 'garbage' }).m.summary.state, 'stale');
+  // The edge: idle exactly four hours after the summary is still current when it stopped (as summaryFreshness's <= 4h).
+  assert.equal(show(idleAt(360)).m.summary.state, 'idle');
   // CONTROL: a current summary is untouched by any report.
   const fresh = agentFolder('ida-fresh', [['2026-09-29-16.md', 30]]);
   const o = { now: NOW, folderOf: () => fresh, readBrief: () => ({ found: false }), readReport: () => idleAt(420) };

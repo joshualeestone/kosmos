@@ -126,6 +126,9 @@ function idleExcused(summary, member, readReport, nowMs) {
   const wroteAt = Date.parse(summary.at);
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   if (!Number.isFinite(idleAt) || !Number.isFinite(wroteAt) || idleAt > now) return summary;
+  // Review 1: a summary written AFTER the idle report (a later turn whose idle was lost, or skewed clocks) is not one
+  // that "was current when it went idle"; it stays stale rather than print an idle time before the summary.
+  if (wroteAt > idleAt) return summary;
   if (idleAt - wroteAt > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
   return { ...summary, state: 'idle', idleSince: new Date(idleAt).toISOString(), idleMinutes: Math.max(0, Math.round((now - idleAt) / 60000)) };
 }
