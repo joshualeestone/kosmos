@@ -2734,9 +2734,17 @@ trap 'exit 1' HUP TERM
 _kosmos_board_decide
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
-  if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ] \
-     && curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then
-    _kosmos_was_running=yes   # #4818: running before the pause, so a failed run puts it back
+  # #4818: running before the pause, so a failed run puts it back. OUR board by its pid file and its command line
+  # (the same test as _ourboard below), not by an HTTP answer (review 4): a board busy with many agents can take more
+  # than a probe's 2 s to answer and was read as off, and another install's board answering on this port is not ours.
+  if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ] && [ -f "$KOSMOS_HOME/board.pid" ]; then
+    _kosmos_wr_pid="$(cat "$KOSMOS_HOME/board.pid" 2>/dev/null || true)"
+    case "$_kosmos_wr_pid" in
+      ''|*[!0-9]*) ;;
+      *) case "$(/bin/ps -ww -p "$_kosmos_wr_pid" -o command= 2>/dev/null)" in
+           *"$KOSMOS_HOME/app/server.js"*) _kosmos_was_running=yes ;;
+         esac ;;
+    esac
   fi
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is

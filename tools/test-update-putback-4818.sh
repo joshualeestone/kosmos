@@ -18,7 +18,7 @@ BLOCK="$(awk '/^# BEGIN #4818 put-back$/{f=1; next} /^# END #4818 put-back$/{f=0
 case "$BLOCK" in *"_kosmos_put_board_back()"*"trap '_kosmos_on_exit' EXIT"*) : ;;
   *) echo "FAIL: could not extract the #4818 put-back block (anchor drift?)" >&2; exit 1 ;; esac
 WASRUN="$(awk '/if ! _kosmos_mode_keeps_board_off && \[ ! -e "\$KOSMOS_HOME\/board.stopped" \]/{f=1} f{print} f && /^  fi$/{exit}' "$SETUP")"
-case "$WASRUN" in *"_kosmos_was_running=yes"*) : ;;
+case "$WASRUN" in *"_kosmos_was_running=yes"*"app/server.js"*|*"app/server.js"*"_kosmos_was_running=yes"*) : ;;
   *) echo "FAIL: could not extract the #4818 was-running check (anchor drift?)" >&2; exit 1 ;; esac
 PAUSED="$(awk '/^  _kosmos_paused_board="\$_kosmos_was_running"$/{print; exit}' "$SETUP")"
 case "$PAUSED" in *'_kosmos_paused_board="$_kosmos_was_running"'*) : ;;
@@ -50,7 +50,8 @@ if [ -n "$L_ARM" ] && [ -n "$L_OURS" ] && [ -n "$L_APP" ] && [ -n "$L_SURV" ]; t
   echo "FAIL: could not find the pause dies or the arming line (anchor drift?)" >&2; exit 1; fi
 pass() { echo "PASS  $1"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL  $1"; FAIL=$((FAIL + 1)); }
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/putback4818.XXXXXX")"
+# Normalised (TMPDIR ends in a slash on macOS): setup matches its board by the exact path in its command line.
+TMP="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/putback4818.XXXXXX")" && pwd)"
 cleanup() {
   for pf in "$TMP"/*/board.pid; do [ -f "$pf" ] && kill "$(cat "$pf")" 2>/dev/null; done
   rm -rf "$TMP"
@@ -64,13 +65,20 @@ home() {
   h="$TMP/$1"; mkdir -p "$h/bin" "$h/app" "$h/www"
   printf '{\n  "name": "kosmos",\n  "version": "0.7.11"\n}\n' > "$h/app/package.json"
   printf '<html>Kosmos</html>\n' > "$h/www/index.html"
+  # The fake board's program sits at app/server.js, so its command line names that path as the real board's does
+  # (setup recognises its own board by board.pid plus that path).
+  cat > "$h/app/server.js" <<'EOF'
+import http.server, os, sys
+os.chdir(sys.argv[2])
+http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), http.server.SimpleHTTPRequestHandler).serve_forever()
+EOF
   cat > "$h/bin/kosmos" <<'EOF'
 #!/bin/sh
 H="$(cd "$(dirname "$0")/.." && pwd)"
 case "$1" in
   start)
     [ -f "$H/board.pid" ] && kill -0 "$(cat "$H/board.pid")" 2>/dev/null && exit 0
-    ( cd "$H/www" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1 ) &
+    python3 "$H/app/server.js" "$PORT" "$H/www" >/dev/null 2>&1 &
     echo $! > "$H/board.pid"
     i=0; while [ $i -lt 50 ]; do curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null && exit 0; sleep 0.1; i=$((i + 1)); done
     exit 1 ;;
@@ -113,6 +121,39 @@ exit 1'
 if answers "$P"; then pass "a failed update puts back a board it paused: the old board answers on its port"; else fail "a failed update left the paused board off"; fi
 if [ ! -e "$H/board.stopped" ]; then pass "and board.stopped is gone (launchd's KeepAlive keys on it)"; else fail "board.stopped was left behind"; fi
 if grep -q "running again (0.7.11)" "$H/err"; then pass "and it says which version is running"; else fail "no 'running again (0.7.11)' line: $(cat "$H/err")"; fi
+
+# 1b. Review 4: a BUSY board (ours, alive, but not answering within any probe) still counts as running, because it is
+#     recognised by board.pid and its command line, not by an HTTP answer. Its program here never listens at all.
+H=$(home busy)
+cat > "$H/app/server.js" <<'EOF'
+import time
+time.sleep(60)
+EOF
+python3 "$H/app/server.js" >/dev/null 2>&1 &
+echo $! > "$H/board.pid"
+r=$(KOSMOS_HOME="$H" PORT=1 sh -c "set -eu
+$MODEFNS
+_kosmos_board_decide
+_kosmos_was_running=no
+$WASRUN
+echo \$_kosmos_was_running")
+kill "$(cat "$H/board.pid")" 2>/dev/null; rm -f "$H/board.pid"
+if [ "$r" = yes ]; then pass "a busy board that does not answer still counts as running (by pid and path)"; else fail "a busy board read as not running (got '$r')"; fi
+
+# 1c. Review 4: another install's board answering on the port, with our board.pid pointing at something else, is NOT
+#     ours: the put-back is not armed for it.
+P=$(free_port); O=$(home other); export PORT=$P
+"$O/bin/kosmos" start
+H=$(home notours)
+sleep 60 & echo $! > "$H/board.pid"
+r=$(KOSMOS_HOME="$H" PORT=$P sh -c "set -eu
+$MODEFNS
+_kosmos_board_decide
+_kosmos_was_running=no
+$WASRUN
+echo \$_kosmos_was_running")
+kill "$(cat "$H/board.pid")" 2>/dev/null; rm -f "$H/board.pid"
+if [ "$r" = no ]; then pass "another install's board answering on the port does not count as ours"; else fail "another install's answering board counted as ours (got '$r')"; fi
 
 # 2. CONTROL: the board was stopped before the run (board.stopped present, nothing answering): it stays stopped.
 P=$(free_port); H=$(home stopped); export PORT=$P
