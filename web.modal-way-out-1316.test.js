@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 21,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4288's Community notice; 21: #4343's restart screen
-    `${found.length} modals now, up from 21 (#4343 added restart-screen as the 21st). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 20,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice)
+    `${found.length} modals now, up from 20 (#4820 removed the Community notice). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -94,9 +94,6 @@ const ESCAPES_VIA = {
   /* #4080: "Lost your phone?" (the second-step reset), the same machinery: a document-level Escape guarded on
      hidden, and a Tab trap between Close and Reset; Close returns focus to the link. */
   'plus-lost-modal': /plus-lost-modal'\)\.hidden\) plusLostClose/,
-  /* #4288 part B: the one-time Community notice, made when it opens (like What's New): a document-level
-     Escape that closes it when it exists, and a Tab trap between its two buttons. */
-  'cmnotice': /getElementById\('cmnotice'\)\) cnClose\(\);/,
 };
 
 test('every modal has a named way out with Escape, and the table covers them all', () => {
