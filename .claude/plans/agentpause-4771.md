@@ -90,3 +90,22 @@ taught line pinned in engine/tasks.test.js and the Recommender arm in engine/rec
 - N5 Mac error sed stops at a quote: kept, shared pattern.
 - N6 a person-paused project with an agent-held task reads "the person parked it": kept, conservative and true.
 - N7 what to do when the person asks the agent to resume: FIXED, the taught line says to point them at the page.
+
+## Review 4 (Opus, blind, source-only): 0 blockers, 3 warnings, 7 nits
+- W1 the note named the internal session: FIXED, the roster's display name at write time (a later rename leaves the
+  note as written, like any room line).
+- W2 the hint rides every idle nudge and one agent's pause silences all members: ACCEPTED. The hint is conditional
+  ("Only if your person asked in the room"), the room is told who paused, and the person resumes from the page. The
+  alternative (drop the hint) leaves Josh's report unfixed for agents whose block has not been re-written. What would
+  change my mind: rooms showing agent pauses nobody asked for.
+- W3 the note's paths untested: ADDED arms for a non-screen resume, a save without paused, a refused pause (bad
+  parent), and the tokenless text. A token that resolves to a name is not driven here (it needs a minted token).
+- N4 a person's own terminal pause read "An agent ... If you did not ask": FIXED, "Someone", and the token read via
+  presentedAgentToken (header or body).
+- N5 a key-only or twin token could name the wrong agent: FIXED, only an exact name, else "Someone".
+- N6 a non-screen resume was silent: FIXED, said in the room.
+- N7 the note's second sentence addressed the reader as the person: FIXED, "The person can resume it on the
+  project's page."
+- N8 three store reads per PUT: FIXED, wasPaused reuses the existence check's read.
+- N9 timeout exit codes differ Mac/Windows: kept, the same split as project create.
+- N10 an all-dots id passed the nudge's check: FIXED.

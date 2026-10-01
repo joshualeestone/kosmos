@@ -95,7 +95,8 @@ function nudgeText(part) {
      reaches a running agent at exactly that moment, names the verb too. */
   /* Review 3: only an id the CLIs take as it is (the slug set they validate), so the hint can never name another
      project; and the hint says the pause must be the person's ask, and that the room is told who paused. */
-  const id = (typeof part.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(part.projectId)) ? part.projectId : '';
+  // Not all dots: both CLIs refuse such an id (review 4).
+  const id = (typeof part.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(part.projectId) && /[^.]/.test(part.projectId)) ? part.projectId : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
     + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '. Pick it up, or if you are waiting on something, '
     + 'say so with: kosmos report blocked --on <what> --owner <who>'

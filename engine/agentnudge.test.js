@@ -340,6 +340,7 @@ test('#4771 review 2: the nudge names the pause verb with the project id, so a r
   assert.doesNotMatch(nudge.nudgeText({ n: 3, project: 'Kosmos Growth', sentence: 'grow' }), /project pause/);
   // Review 3: an id the CLIs would not take as it is gets no hint, never a rewritten one.
   assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: 'bad id!', project: 'X', sentence: 'grow' }), /project pause/);
+  assert.doesNotMatch(nudge.nudgeText({ n: 3, projectId: '..', project: 'X', sentence: 'grow' }), /project pause/);
 });
 
 test('the Prompter must read the agent as idle too: a card that says idle but a low-confidence reading (toAsk to unknown) is not nudged', () => {

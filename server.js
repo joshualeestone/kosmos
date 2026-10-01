@@ -16195,7 +16195,8 @@ const server = http.createServer(async (req, res) => {
         // ⚠️ A missing project is a 404 here as it is on GET and DELETE. It
         // used to be a 400 for the identical condition, which told a caller
         // its request was malformed when the request was fine.
-        if (!projects.readAll().some((p) => p.id === id)) {
+        const before = projects.readAll().find((p) => p.id === id);
+        if (!before) {
           const missing = new Error('there is no project by that name');
           missing.status = 404;
           throw missing;
@@ -16225,21 +16226,29 @@ const server = http.createServer(async (req, res) => {
         /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
            a paused project's tasks, and the members' instructions mark them, so a pause re-tells the members (below). */
         if (body.paused !== undefined) { fields.paused = body.paused; fields.viaScreen = isViaScreen(req, body); }
-        /* #4771 review 3: an agent's pause silences every member and only the screen lifts it, and the Prompter's
-           nudge now names the verb to an idle agent. So a pause that did not come from the screen is said in the
-           project's room, with the agent's name when its token says it, and the person sees who paused and why to
-           check. Only on the change from running to paused, so a repeat says nothing. */
-        const wasPaused = projects.isPaused(projects.readAll().find((p) => p.id === id));
+        /* #4771 review 3/4: an agent's pause silences every member, and the Prompter's nudge now names the verb to an
+           idle agent. So a pause or a resume that did not come from the screen is said in the project's room, naming
+           the agent when its token says exactly which (its display name), else "Someone" (a person's own terminal
+           sends no agent token). Only on a change, so a repeat says nothing; only after the edit landed. */
+        const wasPaused = projects.isPaused(before);
         /* #1994: parent is a carried field like the rest -- the engine's edit
            validates it (self-parent, a missing parent, and cycles are refused)
            before its single write, so a body mixing parent with name or
            description applies whole or not at all. null or '' un-groups. */
         if (body.parent !== undefined) fields.parent = body.parent;
         projects.edit(id, fields);
-        if (fields.paused === true && fields.viaScreen !== true && !wasPaused) {
+        if (fields.paused !== undefined && fields.viaScreen !== true && fields.paused !== wasPaused) {
           let who = null;
-          try { const r = sendertoken.resolveName(req.headers['x-kosmos-agent-token']); who = (r && r.ok === true && (r.name || r.key)) || null; } catch { who = null; }
-          messages.roomNote(id, (who ? who : 'An agent') + ' paused this project: nobody is nudged about its tasks or handed them until it is resumed on the screen. If you did not ask for this, resume it there.');
+          try {
+            const r = sendertoken.resolveName(presentedAgentToken(req, body));
+            // Only a token that names exactly one agent (#4792: an older key-only token, or twins, does not).
+            const session = (r && r.ok === true && typeof r.name === 'string' && r.name && r.twins !== true) ? r.name : null;
+            const card = session ? ((safeRoster() || []).find((a) => a && a.sessionName === session) || null) : null;
+            who = session ? ((card && typeof card.displayName === 'string' && card.displayName.trim()) || session) : null;
+          } catch { who = null; }
+          messages.roomNote(id, fields.paused
+            ? (who || 'Someone') + ' paused this project: nobody is nudged about its tasks or handed them. The person can resume it on the project\'s page.'
+            : (who || 'Someone') + ' resumed this project, not from the project\'s page: its tasks can be nudged about and handed out again.');
         }
         // The block names the project, so a rename has to reach the agents that
         // were told the old name -- otherwise their instructions describe a

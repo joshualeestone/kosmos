@@ -58,9 +58,9 @@ test('#4771: an agent\'s pause is recorded as an agent\'s, and the person\'s own
   const r = await asAgent(p.id, true);
   assert.equal(r.status, 200, await r.text());
   assert.equal(stored(p.id).paused, true);
-  // Review 3: an agent's pause is said in the room (here the token names nobody known, so "An agent"); a repeat is not.
+  // Review 3/4: an agent's pause is said in the room (here the token names nobody known, so "Someone"); a repeat is not.
   assert.equal(notes(p.id).filter((t) => /paused this project/.test(t)).length, 1, 'an agent\'s pause was not said in the room');
-  assert.match(notes(p.id).find((t) => /paused this project/.test(t)), /^An agent paused this project: .*resume it there\.$/);
+  assert.match(notes(p.id).find((t) => /paused this project/.test(t)), /^Someone paused this project: .*The person can resume it on the project's page\.$/);
   await asAgent(p.id, true);
   assert.equal(notes(p.id).filter((t) => /paused this project/.test(t)).length, 1, 'a repeat pause said it again');
   assert.notEqual(stored(p.id).pausedByPerson, true, 'an agent\'s pause was recorded as the person\'s');
@@ -72,6 +72,18 @@ test('#4771: an agent\'s pause is recorded as an agent\'s, and the person\'s own
   assert.equal(bare.status, 200, await bare.text());
   assert.equal(stored(q.id).paused, true);
   assert.notEqual(stored(q.id).pausedByPerson, true, 'a tokenless pause was recorded as the person\'s');
+  assert.equal(notes(q.id).filter((x) => /^Someone paused this project/.test(x)).length, 1, 'a tokenless pause was not said as Someone');
+  // Review 4: a non-screen resume is said too; a save that does not carry paused says nothing; a pause whose edit is
+  // refused (a bad parent, so the whole edit fails) says nothing.
+  assert.equal((await asAgent(q.id, false)).status, 200);
+  assert.equal(notes(q.id).filter((x) => /^Someone resumed this project, not from the project's page/.test(x)).length, 1, 'a non-screen resume was not said');
+  const quiet = projects.create({ name: 'Pause Quiet' });
+  const rename = await fetch(`${base}/api/project/${quiet.id}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': AGENT }, body: JSON.stringify({ description: 'no pause here' }) });
+  assert.equal(rename.status, 200, await rename.text());
+  const failed = await fetch(`${base}/api/project/${quiet.id}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': AGENT }, body: JSON.stringify({ paused: true, parent: 'no-such-parent-4771' }) });
+  assert.notEqual(failed.status, 200, 'fixture: the bad parent did not refuse the edit');
+  assert.notEqual(stored(quiet.id).paused, true, 'fixture: a refused edit still paused');
+  assert.deepEqual(notes(quiet.id).filter((x) => /this project/.test(x)), [], 'a save without paused, or a refused pause, was said in the room');
 
   // CONTROL: the person's own pause, on a running project, is not announced to them.
   const s = projects.create({ name: 'Pause By Screen' });
