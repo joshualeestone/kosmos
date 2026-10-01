@@ -17246,8 +17246,7 @@ const server = http.createServer(async (req, res) => {
         }
         /* #4887: `kosmos task add --who <agent>`. For an agent caller, `me` is that agent unless a member is named
            exactly that; the page sends member names, so `me` is a name there. A name is matched to a member
-           exactly, else by store key when exactly one member has that key; otherwise it goes through as typed,
-           for tasks.create to refuse. */
+           exactly, else by store key when exactly one member has that key. */
         let whoAsked = body.who;
         let members = [];
         if (typeof whoAsked === 'string' && whoAsked.trim()) {
