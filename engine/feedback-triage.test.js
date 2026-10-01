@@ -256,7 +256,21 @@ test('#4415: adminSummary is empty with nothing new, and shows five candidates t
   const shown = out.split('\n').filter((l) => l.startsWith('- '));
   assert.equal(shown.length, 5);
   assert.match(out, new RegExp('\\.\\.\\.and ' + (res.candidates.length - 5) + ' more\\.'));
-  assert.match(out, /https:\/\/x\/admin \(Reports\)\. No card was opened\.$/);
+  assert.match(out, /^Daily reports: 1 new since the last digest\. Not yet triaged into cards\.\n/);
+  assert.match(out, /\nWhere they live: https:\/\/x\/admin \(Reports\)\. [^\n]*$/);
+});
+
+test('#4415 wording: the default summary reports status and asks the reader for nothing', () => {
+  /* Josh, #admin 2026-09-30: he read the old closing line as a task for him. Nothing in the fallback text may read as
+     an instruction to the reader or as a final word on whether cards were filed. */
+  const t = require('./feedback-triage');
+  const body = '---\ndate: 2026-09-28\n---\n- The room scroll jumps to the top and is broken every time.\n';
+  const out = t.adminSummary([{ date: '2026-09-28', body }], '', 'https://x/admin');
+  assert.ok(out.length > 0);
+  for (const bad of [/mark them triaged/i, /no card was opened/i, /read them all/i, /\bto review\b/i, /\bplease\b/i]) {
+    assert.doesNotMatch(out, bad, 'the default text still carries ' + bad);
+  }
+  assert.match(out, /Not yet triaged into cards\./);
 });
 
 test('#4415: a clean clause does not clean a report, and an idiom about the reporter negates nothing', () => {
