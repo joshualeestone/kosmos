@@ -57,5 +57,20 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   protection, and the before/after control measures whether it is enough; if it is not, KOSMOS_SIDE_LANE=0 is one
   export. (10) rm race: same posture as the machine claim. (14) a take that keeps losing resets the bound: the new
   sleep bounds the spin; a take loses only to another side turn, which ends in minutes.
+- Round 3 (Sonnet + Opus, blind): no blocker. Fixed: the side take claims FIRST and then re-checks (a cut, harness or
+  page layer marks itself before it looks, so one of the two always sees the other; Opus reproduced the old gap);
+  rollout skew (a waiter of an older lib is ranked by the older rule on both sides, so the two never wait on each
+  other; and no side turn while a pre-#4911 queued-heavy.sh waits, since it would not wait for one: marker line 6
+  "aware"/"side"); the page-layer WAIT is now proven (the old arm could not fail under KOSMOS_NO_WAIT); a signalled
+  side run stops its command group and capper before the release; the capper runs in its own process group (a kill
+  between its fork and pid record orphaned a 600 s sleep: two found and killed); stdin from /dev/null for the side
+  command; the pause after a lost take is side-lane only; signal traps side-lane only (a main turn's `kill` still
+  works as before); inherited side variables are cleared; the CAPPED line warns that a stopped run may have left its
+  worktree edited. Not taken: chained side turns starving a waiting page layer (a waiting page layer IS a live
+  browser-checks.sh, which refuses every new side turn); a side run's own late browser-checks.sh refusing beside a
+  waiting page layer (the light run takes the red, by design); a main-lane loser rejoining at the back (unchanged
+  from before).
+- ROLLOUT, in this order: merge; update the queue lib checkout (kosmos-bc-main-4610) to origin/main; mv the new
+  queued-heavy.sh in. Side turns stay off by themselves until every waiter of the old script has gone.
 - Dry runs of queued-heavy.sh.4911-new (private marker dir, probe seams): side turn; heavy main refused beside a
   live side turn; main renewer stops (no claim after release); the cap stops a 1-minute run and its child.

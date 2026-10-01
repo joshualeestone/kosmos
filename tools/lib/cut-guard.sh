@@ -621,7 +621,9 @@ kosmos_mark_suite_waiting() {
   # this lib reads lines 1 to 4 only, so it keeps plain oldest-first order.
   # #4911: line 6 is "side" when this run asks for side turns (KOSMOS_SIDE_CAPABLE=1, queued-heavy.sh sets it), so a
   # light waiter that never will (an older queued-heavy, KOSMOS_SIDE_LANE=0) does not hold the side lane for others.
-  printf '%s %s\n%s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" "$([ "${KOSMOS_SIDE_CAPABLE:-0}" = 1 ] && echo side)" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  # "aware" when it is a queued-heavy.sh that knows about side turns (KOSMOS_SIDE_AWARE=1) but does not take them.
+  local l6=""; if [ "${KOSMOS_SIDE_CAPABLE:-0}" = 1 ]; then l6=side; elif [ "${KOSMOS_SIDE_AWARE:-0}" = 1 ]; then l6=aware; fi
+  printf '%s %s\n%s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" "$l6" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }
@@ -645,11 +647,23 @@ _kosmos_queue_rank() {
   else echo 2; fi
 }
 
+# The #4609 rank, for a waiter whose marker an older lib wrote (5 lines): a light waiter never ages there. Compared
+# against such a waiter, BOTH ranks use it, so this run and that one read the same order: with two rules, a starving
+# light waiter of an older lib and a starving heavy one of this lib each named the other as ahead and both waited
+# (review 3, reproduced).
+_kosmos_queue_rank_legacy() {
+  local starve="${KOSMOS_QUEUE_STARVE_S:-2700}"
+  case "$starve" in ''|*[!0-9]*) starve=2700 ;; esac
+  if [ "$2" = light ]; then echo 1
+  elif [ $(( $3 - $1 )) -ge "$starve" ]; then echo 0
+  else echo 2; fi
+}
+
 # _kosmos_suite_waiters_ahead: the pids of the live waiters ahead of this run in the suite queue, one per line (all of
 # them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
 # Ahead means first by rank (_kosmos_queue_rank), then by queue time, then by pid.
 _kosmos_suite_waiters_ahead() {
-  local dir f pid mine_ts mine_pid ts cls rank mine_rank now
+  local dir f pid mine_ts mine_pid ts cls rank mine_rank mine_rank_legacy now
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
   # A caller that already read this run's queue time passes it (the bound, review 23), so there is no gap between a
   # check that the marker exists and this read; otherwise it is read here.
@@ -664,6 +678,7 @@ _kosmos_suite_waiters_ahead() {
   if [ -n "$mine_ts" ]; then
     cls="$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)" || cls=""; [ -n "$cls" ] || cls="$(_kosmos_queue_class)"
     mine_rank="$(_kosmos_queue_rank "$mine_ts" "$cls" "$now")"
+    mine_rank_legacy="$(_kosmos_queue_rank_legacy "$mine_ts" "$cls" "$now")"
   fi
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
@@ -676,8 +691,10 @@ _kosmos_suite_waiters_ahead() {
     case "$ts" in ''|*[!0-9]*) continue ;; esac
     if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
     cls="$(sed -n '5p' "$f" 2>/dev/null)" || cls=""   # an older lib's marker has no line 5 (or it just left): heavy
-    rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"
-    if [ "$rank" -lt "$mine_rank" ] || { [ "$rank" -eq "$mine_rank" ] && { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; }; }; then
+    local cmp_mine="$mine_rank"
+    if [ "$(sed -n '$=' "$f" 2>/dev/null)" -ge 6 ] 2>/dev/null; then rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"
+    else rank="$(_kosmos_queue_rank_legacy "$ts" "$cls" "$now")"; cmp_mine="$mine_rank_legacy"; fi
+    if [ "$rank" -lt "$cmp_mine" ] || { [ "$rank" -eq "$cmp_mine" ] && { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; }; }; then
       echo "$pid"
     fi
   done
@@ -1186,15 +1203,24 @@ kosmos_light_side_clear() {
   case "$mine_ts" in ''|*[!0-9]*) echo "$what has no readable queue place." >&2; return 1 ;; esac
   case "$mine_pid" in ''|*[!0-9]*) mine_pid="$$" ;; esac   # review: a one-field marker still orders by this run's pid
   dir="$(_kosmos_marker_dir)"
+  local l6
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
     case "${f##*/}" in *.tmp.*) continue ;; esac
     pid="${f##*.}"
     case "$pid" in ''|*[!0-9]*) continue ;; esac
     [ "$pid" = "$$" ] && continue
+    l6="$(sed -n '6p' "$f" 2>/dev/null)" || l6=""
+    # Review 3: a queued-heavy.sh from before #4911 checks no side claim when it takes a main turn, so while one waits
+    # a side turn could find a main turn started beside it. No side turn until every such waiter has gone (rollout).
+    case "$(sed -n '2p' "$f" 2>/dev/null)" in *queued-heavy*)
+      if [ "$l6" != side ] && [ "$l6" != aware ] && _kosmos_suite_waiter_live "$pid"; then
+        echo "a queued run from a queued-heavy.sh older than #4911 is waiting (pid $pid); it would not wait for a side turn, so none is taken until it has gone." >&2; return 1
+      fi ;;
+    esac
     cls="$(sed -n '5p' "$f" 2>/dev/null)" || cls=""
     [ "$cls" = light ] || continue
-    [ "$(sed -n '6p' "$f" 2>/dev/null)" = side ] || continue   # review 2: only a waiter that asks for side turns
+    [ "$l6" = side ] || continue   # review 2: only a waiter that asks for side turns
     _kosmos_suite_waiter_live "$pid" || continue
     read -r ts _ 2>/dev/null < "$f" || continue
     case "$ts" in ''|*[!0-9]*) continue ;; esac
@@ -1212,6 +1238,10 @@ kosmos_light_side_take() {
   local what="${1:-this run}" minutes="${2:-15}"
   kosmos_light_side_clear "$what" >/dev/null 2>&1 || return 1
   kosmos_claim_light_side "$minutes" || return 1
+  # Review 3: a cut, an install harness and a page layer MARK themselves and then look for a side claim; this side
+  # looked first and claimed second, so one could slip into the gap. Claimed now, it asks again: anything that marked
+  # before the claim is seen here, and anything after it sees the claim. Either way one of the two waits.
+  if ! kosmos_light_side_clear "$what" >/dev/null 2>&1; then kosmos_release_light_side; return 1; fi
   kosmos_unmark_suite_waiting
   return 0
 }

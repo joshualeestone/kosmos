@@ -155,6 +155,21 @@ KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this run" --suite-queue --side nope
 { [ "$rc" -eq 0 ] && [ "$KOSMOS_WAIT_LANE" = main ] && [ ! -e "$M/suitewait.$$" ]; } && pass "a clear box is an ordinary main turn even with --side" \
   || fail "a clear box did not give a main turn (rc=$rc, lane=$KOSMOS_WAIT_LANE)"
 
+# Review 3: a queued-heavy.sh from before #4911 waiting (its marker names queued-heavy and has no side/aware line)
+# holds every side turn off; one that is side-aware does not.
+claim 300 "(not a cut) queued one-off: a full suite"
+# A live stand-in whose command names queued-heavy.sh (a marker whose command is not its process's is stale and removed).
+printf '#!/bin/bash\ntrap '"'"'kill $c; exit 0'"'"' TERM\nsleep 600 & c=$!\nwait $c\n' > "$T/queued-heavy.sh"; chmod +x "$T/queued-heavy.sh"
+"$T/queued-heavy.sh" </dev/null >/dev/null 2>&1 & QH=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do case "$(ps -ww -o command= -p "$QH")" in *queued-heavy*) break ;; esac; sleep 0.1; done
+printf '%s %s\n%s\n%s\n%s\nheavy\n' "$((NOW - 50))" "$QH" "$(ps -ww -o command= -p "$QH")" "$(_kosmos_pid_started_local "$QH")" "$(_kosmos_pid_started "$QH")" > "$M/suitewait.$QH"
+out="$(side)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "older than #4911"; } && pass "an older queued-heavy.sh waiting holds side turns off" || fail "a side turn while an old queued-heavy waits (rc=$rc, $out)"
+printf 'aware\n' >> "$M/suitewait.$QH"
+out="$(side)"; rc=$?
+[ "$rc" -eq 0 ] && pass "CONTROL: a side-aware heavy waiter does not" || fail "CONTROL: an aware waiter held side turns off (rc=$rc, $out)"
+kill "$QH" 2>/dev/null; wait "$QH" 2>/dev/null; rm -f "$M/suitewait.$QH"; kosmos_unmark_suite_waiting
+
 # kosmos_light_side_take: the take a caller makes under its lock. A win claims and drops the queue marker; a loss
 # (another side turn is live) keeps both as they were. kosmos_holds_light_side says the winner holds it.
 claim 300 "(not a cut) queued one-off: a full suite"
@@ -162,6 +177,14 @@ out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_sui
   kosmos_light_side_take "a light run" 5 || exit 9; [ -e "$M/suitewait.$$" ] && exit 8; kosmos_holds_light_side || exit 7
   kosmos_release_light_side; kosmos_holds_light_side && exit 6; exit 0 ) 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "a won side take claims, drops its marker, holds the turn, and releases it" || fail "the side take misbehaved (step rc=$rc, $out)"
+# Review 3: the take claims FIRST and then asks again, so a cut that marked itself in the gap is seen (here the cut
+# probe reads live only once the side claim exists). The claim is released and the marker kept.
+probe cut-after-claim "[ -e '$M/light-side-claim' ] && printf '$OTHER bash tools/release.sh 0.9.99\\n' || exit 1"
+out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1 KOSMOS_CUT_PROBE="$T/cut-after-claim"; kosmos_mark_suite_waiting "$((NOW - 10))"
+  kosmos_light_side_take "a light run" 5 && exit 9; [ -e "$M/light-side-claim" ] && exit 8; [ -e "$M/suitewait.$$" ] || exit 7; exit 0 ) 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a cut that marks between the side check and the claim is seen, and the side claim is given back" \
+  || fail "the take kept a side turn beside a cut that started in the gap (step rc=$rc, $out)"
+kosmos_unmark_suite_waiting
 # The take asks the side check again under the lock: the box changed after the wait asked (here, the load rose).
 out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1 KOSMOS_LOAD_PROBE="$T/load-half"; kosmos_mark_suite_waiting "$((NOW - 10))"
   kosmos_light_side_take "a light run" 5 && exit 9; [ -e "$M/light-side-claim" ] && exit 8; [ -e "$M/suitewait.$$" ] || exit 7; exit 0 ) 2>&1)"; rc=$?
@@ -189,7 +212,7 @@ kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null; rm -f "$M/light-side-claim"
 
 # Aging: a light waiter past the starve line is rank 0 like a heavy one, so an OLDER starving light waiter goes ahead of
 # a starving heavy one (before #4911 the heavy one went first, and the light lane stood still all afternoon).
-printf '%s %s\n%s\n%s\n%s\nlight\n' "$((NOW - 3500))" "$OTHER" "$(ps -ww -o command= -p "$OTHER")" "$(_kosmos_pid_started_local "$OTHER")" "$(_kosmos_pid_started "$OTHER")" > "$M/suitewait.$OTHER"
+printf '%s %s\n%s\n%s\n%s\nlight\n\n' "$((NOW - 3500))" "$OTHER" "$(ps -ww -o command= -p "$OTHER")" "$(_kosmos_pid_started_local "$OTHER")" "$(_kosmos_pid_started "$OTHER")" > "$M/suitewait.$OTHER"
 kosmos_mark_suite_waiting "$((NOW - 3000))"
 out="$(kosmos_refuse_if_earlier_suite_waiter "a starving heavy run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "pid $OTHER"; } && pass "an older starving light waiter goes ahead of a starving heavy one" \
@@ -198,6 +221,14 @@ kosmos_mark_suite_waiting "$((NOW - 4000))"
 out="$(kosmos_refuse_if_earlier_suite_waiter "an older starving heavy run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "CONTROL: an older starving heavy waiter still goes first (queue time orders rank 0)" \
   || fail "CONTROL: an older starving heavy waiter was held (rc=$rc, $out)"
+# Review 3: the same starving light waiter in an OLDER lib's marker (5 lines) is compared by the older rule on both
+# sides, so this run reads the order that waiter reads (it puts the starving heavy first), and the two never each wait
+# for the other.
+sed -i '' '6d' "$M/suitewait.$OTHER" 2>/dev/null || sed -i '6d' "$M/suitewait.$OTHER"
+kosmos_mark_suite_waiting "$((NOW - 3000))"
+out="$(kosmos_refuse_if_earlier_suite_waiter "a starving heavy run" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "against an older lib's starving light waiter, a starving heavy run goes first, as that lib reads it" \
+  || fail "a new-lib heavy waiter waited on an old-lib light one that waits on it (rc=$rc, $out)"
 kosmos_unmark_suite_waiting; rm -f "$M/suitewait.$OTHER"
 
 # browser-checks.sh's guard block, run as the script's own text (extracted from it, so an edit to the script is what
@@ -215,8 +246,17 @@ else
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
   out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/quiet" bcguard)"; rc=$?
   { [ "$rc" -eq 1 ] && has "$out" "has a side turn beside the heavy one" && has "$out" "this page layer" && ! has "$out" GUARD-PASSED; } \
-    && pass "browser-checks.sh's guard waits on a live side turn instead of running beside it" \
-    || fail "browser-checks.sh's guard did not wait on a side turn (rc=$rc, $(printf '%s' "$out" | tail -3))"
+    && pass "browser-checks.sh's guard does not run beside a live side turn" \
+    || fail "browser-checks.sh's guard ran beside a side turn (rc=$rc, $(printf '%s' "$out" | tail -3))"
+  # Review 3: under KOSMOS_NO_WAIT a wait and a refusal look the same, so prove the WAIT: the sleep seam ends the side
+  # turn on its first call, and the guard must then go on and pass (a plain refusal exits 1 instead).
+  printf '#!/bin/sh\nrm -f "%s/light-side-claim"\n' "$M" > "$T/side-ends"; chmod +x "$T/side-ends"
+  bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp2=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
+  out="$(KOSMOS_WAIT_SLEEP="$T/side-ends" KOSMOS_BC_PROBE="$T/quiet" bcguard)"; rc=$?
+  { [ "$rc" -eq 0 ] && has "$out" GUARD-PASSED; } && pass "browser-checks.sh's guard WAITS for the side turn and runs once it ends (it does not refuse)" \
+    || fail "browser-checks.sh's guard refused rather than waiting out a side turn (rc=$rc, $(printf '%s' "$out" | tail -3))"
+  kill "$sp2" 2>/dev/null; wait "$sp2" 2>/dev/null; rm -f "$M/light-side-claim"
   kill "$sp" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$sp" 2>/dev/null || break; sleep 0.2; done
   rm -f "$M/light-side-claim"
   out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/live-bc" bcguard)"; rc=$?
