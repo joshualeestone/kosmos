@@ -267,7 +267,7 @@ tokenonly_run() {
 printf '%s\n' '{"agents":["pilotagent"]}' > "$DATA6/Kosmos/agent-token-only.json"
 tokenonly_run pilotagent
 if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB2/pane-secrets" \
-  && ! grep -q 'KOSMOS_AGENT_TOKEN_ONLY' "$SB2/new-session.args"; then
+  && ! grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB2/new-session.args"; then
   ok "#4491: a listed agent launches with its own token AND the token-only switch, privately"
 else
   bad "#4491: a listed agent did not get the switch beside its token: $(tr '\n' ' ' < "$SB2/pane-secrets" 2>/dev/null | sed -E 's/[0-9a-f]{64}/<tok>/g')"
@@ -280,12 +280,37 @@ if grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null 
 else
   bad "#4491 CONTROL: an unlisted agent got the switch, or no token at all"
 fi
+# The pin: every pane is handed KOSMOS_AGENT_TOKEN_ONLY empty, so a value on the shared tmux server's global
+# environment cannot put an unlisted agent into the pilot (tmux sessions inherit it, #1704).
+if grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=' "$SB2/new-session.args"; then
+  ok "#4491: an unlisted agent's pane is pinned to no switch, whatever the tmux server's environment holds"
+else
+  bad "#4491: no empty KOSMOS_AGENT_TOKEN_ONLY pin in new-session's arguments"
+fi
 printf '%s\n' '{"agents":"pilotagent"}' > "$DATA6/Kosmos/agent-token-only.json"
 tokenonly_run pilotagent
 if [ -s "$SB2/new-session.args" ] && grep -qE '^KOSMOS_AGENT_TOKEN=[0-9a-f]{64}$' "$SB2/pane-secrets" 2>/dev/null && ! grep -q 'KOSMOS_AGENT_TOKEN_ONLY' "$SB2/pane-secrets"; then
   ok "#4491: a wrongly shaped setting is off, and the agent still starts with its token"
 else
   bad "#4491: a wrongly shaped setting turned the switch on or broke the launch"
+fi
+
+# Listed, but nothing minted (the SB layout: no engine beside the script): no token, so no switch either.
+mkdir -p "$SB/Kosmos-data/Kosmos"; printf '%s\n' '{"agents":["pilotagent"]}' > "$SB/Kosmos-data/Kosmos/agent-token-only.json"
+rm -f "$SB/new-session.args" "$SB/pane-secrets"
+AGENT_WORKFORCE_DATA="$SB/Kosmos-data" STUB_DIR="$SB" AGENT_WORKFORCE_WAIT_POLL_SECS=1 \
+  bash "$SB/bin/agent-supervisor.sh" pilotagent "$SB/work" /usr/bin/true "$SB/tmux" "$SB/start.log" > "$SB/out.log" 2>&1 || true
+if [ -s "$SB/new-session.args" ] && ! grep -qx 'KOSMOS_AGENT_TOKEN_ONLY=1' "$SB/new-session.args" "$SB/pane-secrets" 2>/dev/null; then
+  ok "#4491: a listed agent with no token gets no switch, and still starts"
+else
+  bad "#4491: a listed agent with no token got the switch, or did not start"
+fi
+# Antigravity's launch-time report runs the bridge from this shell, not the pane: it must carry the switch too.
+# STRUCTURAL (no test here drives a signed-in Antigravity launch): the seed's env line names it.
+if grep -q 'KOSMOS_AGENT_TOKEN_ONLY="${_LAUNCH_TOKEN_ONLY:-}" TMUX_PANE="$_AGY_PANE"' bin/agent-supervisor.sh; then
+  ok "#4491: the Antigravity launch-time report is handed the same switch"
+else
+  bad "#4491: the Antigravity launch-time report no longer carries KOSMOS_AGENT_TOKEN_ONLY"
 fi
 
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"

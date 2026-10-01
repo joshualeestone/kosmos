@@ -12,6 +12,8 @@ own token alone. Every other agent, and every agent when the file is absent or b
    shaped is false.
 2. `bin/agent-supervisor.sh`: right after the token joins SECRET_ENV, ask tokenOnlyFor(roster name); "1" adds
    `KOSMOS_AGENT_TOKEN_ONLY=1` to SECRET_ENV. Only beside a real token; any failure leaves it off and the launch goes on.
+   Every pane is also pinned `-e KOSMOS_AGENT_TOKEN_ONLY=` (review 1), so the tmux server's global environment cannot
+   switch an unlisted agent on; and Antigravity's launch-time report (run from the supervisor shell) gets the switch.
 
 ## Decisions
 - A file, not a Settings toggle: this is a pilot for one agent ("watch that agent work for a while before any more").
@@ -25,4 +27,5 @@ own token alone. Every other agent, and every agent when the file is absent or b
 - `engine/sendertoken-tokenonly-4491.test.js`: listed/unlisted, exact match vs safeKey neighbours, broken files, bad names.
 - `tools/test-supervisor-env.sh` #4491 arm: real supervisor and real mint in a sandbox: listed gets token + switch in
   the secrets file and not argv; its -discord session too; an unlisted agent gets the token only; a wrongly shaped
-  setting is off and the agent still starts.
+  setting is off and the agent still starts; every pane carries the empty pin; a listed agent with no token gets no
+  switch; the Antigravity seed line names the switch (structural: nothing drives a signed-in Antigravity launch).

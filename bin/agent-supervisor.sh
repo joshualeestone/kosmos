@@ -384,6 +384,7 @@ if [ -z "$adopt" ]; then
   SECRET_ENTRY=()
   SECRET_FILE=""
   _LAUNCH_TOKEN=""
+  _LAUNCH_TOKEN_ONLY=""
     # ── #570: the sender token, minted HERE because this is the launch ──────
     #
     # `/api/report` learns who is reporting by handing `from_pane` to tmux. A
@@ -487,6 +488,7 @@ if [ -z "$adopt" ]; then
           try { process.stdout.write(require(process.argv[1]).tokenOnlyFor(process.argv[2]) ? "1" : ""); } catch (e) { /* off */ }
         ' "$_eng/sendertoken.js" "$_roster" 2>/dev/null || true)" = "1" ]; then
         SECRET_ENV+=("KOSMOS_AGENT_TOKEN_ONLY=1")
+        _LAUNCH_TOKEN_ONLY=1   # for Antigravity's launch-time report too, beside _LAUNCH_TOKEN
       fi
       # Kept only in this shell for Antigravity's one launch-time status report.
       _LAUNCH_TOKEN="$KOSMOS_AGENT_TOKEN"
@@ -740,6 +742,10 @@ if [ -z "$adopt" ]; then
   # supervisor's environment. `${VAR:-}` is empty when unset, which is exactly
   # what the default world wants pushed.
   PANE_ENV+=(-e "KOSMOS_WORLD=${KOSMOS_WORLD:-}")
+  # #4491: pinned empty for every pane, so a value on the shared tmux server's global environment cannot put an
+  # unlisted agent into the token-only pilot. A listed agent's 1 comes from the one-use secrets file, which the pane
+  # entry exports after these, so it still wins.
+  PANE_ENV+=(-e "KOSMOS_AGENT_TOKEN_ONLY=")
   PANE_ENV+=(-e "AGENT_WORKFORCE_DATA=${AGENT_WORKFORCE_DATA:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_WORKERS=${AGENT_WORKFORCE_WORKERS:-}")
@@ -1203,7 +1209,7 @@ if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] &
     done
     (
       export KOSMOS_AGENT_TOKEN="${_LAUNCH_TOKEN:-}"
-      env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1
+      env ${_AGY_SEED_ENV[@]+"${_AGY_SEED_ENV[@]}"} KOSMOS_AGENT_TOKEN_ONLY="${_LAUNCH_TOKEN_ONLY:-}" TMUX_PANE="$_AGY_PANE" "$NODE_BIN" "$_AGY_BRIDGE" KosmosLaunch </dev/null >/dev/null 2>&1
     ) || true
     unset _AGY_SEED_ENV _x
   fi
@@ -1211,7 +1217,7 @@ if [ "$RUNNER" = antigravity ] && [ -n "${NODE_BIN:-}" ] && [ -n "${_eng:-}" ] &
 fi
 unset _AGY_HOOKED _AGY_TRUSTED _AGY_PANE
 unset _AGY_BRIDGE
-unset _LAUNCH_TOKEN
+unset _LAUNCH_TOKEN _LAUNCH_TOKEN_ONLY
 
 # Stay alive while the session does, so launchd supervises the AGENT rather than
 # a command that exits in a tenth of a second.
