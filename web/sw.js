@@ -136,7 +136,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* The named shell assets (manifest + the two icons) change rarely and are
+  /* The named shell assets (the manifest and its four install icons) change rarely and are
      dropped wholesale when a new worker version activates, so this is a plain
      cache-first: serve the cached copy when present, otherwise fetch and cache
      it. NOT stale-while-revalidate -- a hit is returned as-is with no background
@@ -145,7 +145,7 @@ self.addEventListener('fetch', (event) => {
   /* '/' is NOT served from here (#4103, review round 1): only a navigation may put '/' in the cache, and only after
      the board check above. A non-navigation GET of '/' (a script's fetch, a prefetch) goes to the network untouched,
      so a signed-out one can never write the relay's sign-in page as the offline copy. This branch serves the
-     manifest and the two icons. */
+     manifest and its install icons. */
   if (url.pathname !== '/' && SHELL_ASSETS.includes(url.pathname)) {
     event.respondWith((async () => {
       const hit = await caches.match(req);
