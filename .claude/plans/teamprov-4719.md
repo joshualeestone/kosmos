@@ -7,7 +7,7 @@ recorded below ran on the stacked base; a fresh loop runs on the rebased branch 
 ## What changes
 - engine/teamseed.js `specs`: optional `provider` and `account`, carried by every member's spec the
   way the single-agent form sends them (provider only when not Anthropic, account only when chosen).
-  A provider that is not a plain lowercase name is refused before anything is made. POST /api/agents
+  A provider that is not a plain name (letters, digits and hyphens, read after trimming and lowercasing) is refused before anything is made. POST /api/agents
   still checks both, per member, so a bad account is refused with a reason on that member's row.
 - server.js: the specs route passes them through.
 - web/index.html: the team step has a Model menu and an account menu (the account row only at two or
@@ -142,3 +142,11 @@ recorded below ran on the stacked base; a fresh loop runs on the rebased branch 
   web.teamprov-settle-4719.test.js now ties the id to the markup (the step must contain #tc-provider; control: the
   chooser does not). The stub had the same wrong id, which is why the test passed.
 - The settle stops when the default is not usable either (a guard, in place of a comment claiming it never is).
+- Review 2 (WARNINGs, fixed in c1253e477): menus stay disabled through tcFillProvider's 5 s account wait (TC_FILLING
+  counts, so a second team opened during the first one's wait does not unlock early); the settle test reads the page
+  by __dirname; server.teamseed-4557.test.js gains a route test (provider/account land in each member's spec.spec;
+  control: absent without them).
+- Review 3 (opus, fresh): NO NEW FINDINGS (47/47 across the three focused files). One wording point taken: line 10
+  said "plain lowercase name", but the engine trims and lowercases first, so " OpenAI " is accepted; reworded.
+- Converged after the rebase. Deferred and accepted: the menus read blank for up to 5 s while accounts load (matches
+  the single-agent form).
