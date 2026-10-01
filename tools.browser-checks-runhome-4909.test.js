@@ -160,7 +160,7 @@ test('#4909 review 2: board_home seeds the board\'s own home once; a failed copy
 test('#4909 review 4: exit 97 (the seed, not the check) is named as the seed and never retried; an unenterable seed refuses', () => {
   const src = fs.readFileSync(RUNNER, 'utf8');
   const runOne = src.match(/^run_one\(\) \{[\s\S]*?^\}/m)[0];
-  const at97 = runOne.indexOf('if [ "$rc" -eq 97 ]; then');
+  const at97 = runOne.indexOf('if [ "$rc" -eq 97 ] && [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then');
   const retry = runOne.indexOf('failed once, retrying');
   assert.ok(at97 > 0 && at97 < retry, 'exit 97 is not handled before the retry');
   assert.match(runOne.slice(at97, retry), /FAILED\+=\("kosmos-4909-seed-copy:\$label"\)/);
