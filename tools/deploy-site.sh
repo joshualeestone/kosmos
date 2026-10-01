@@ -484,11 +484,17 @@ check_staging_not_stale() {
     *) echo "deploy-site: could not read the live latest-staging.json (HTTP $_CSM_CODE) -- refusing; without it this cannot tell whether the checkout's staging pointer is stale (#4819)"; exit 1 ;;
   esac
   if [ -n "$_csm_live" ] && [ -z "$_csm_ptr" ]; then
-    echo "deploy-site: live serves a latest-staging.json but $H commits none -- refusing; the deploy would unpublish staging. Sync $SITE to the current release, then retry (#4819)"; exit 1
+    echo "deploy-site: live serves a latest-staging.json but $H commits none -- refusing; the deploy would unpublish staging. Sync $SITE to the current release, then retry. (Unpublishing staging on purpose has no path through this script: point staging at a build instead, publish-staging-pointer.sh.) (#4819)"; exit 1
   fi
   if [ -n "$_csm_live" ] && [ "$_csm_live" != "$_csm_ptr" ]; then
     _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")"); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")")
-    [ -n "$_csm_lv" ] || { echo "deploy-site: the live latest-staging.json differs from the committed one and names no kosmos-<version>-arm64.tar.gz -- refusing; which is newer cannot be told (#4819)"; exit 1; }
+    if [ -z "$_csm_lv" ]; then
+      if [ -n "$_csm_cv" ] && [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
+        echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: replacing a live latest-staging.json that names no kosmos-<version>-arm64.tar.gz, on purpose (#4819)"
+        return 0
+      fi
+      echo "deploy-site: the live latest-staging.json differs from the committed one and names no kosmos-<version>-arm64.tar.gz -- refusing; which is newer cannot be told. To replace it with the committed staging ${_csm_cv:-pointer}, re-run with KOSMOS_STAGING_ROLLBACK=${_csm_cv:-<version>} (#4819)"; exit 1
+    fi
     if [ "$_csm_lv" != "$_csm_cv" ] && [ "$(printf '%s\n%s\n' "$_csm_lv" "$_csm_cv" | sort -V | tail -1)" = "$_csm_lv" ]; then
       if [ -n "$_csm_cv" ] && [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
         echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: rolling staging back from $_csm_lv to $_csm_cv on purpose (#4819)"
@@ -540,7 +546,7 @@ carry_staged_mac() {
       return 0
     fi
     [ -n "$_csm_served" ] || { echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art and live does not serve $_csm_art.sha256 either -- refusing; deploying would drop the build latest-staging.json names (#4819)"; exit 1; }
-    [ "$_csm_served" = "$_csm_sha" ] || { echo "deploy-site: live serves a $_csm_art.sha256 (or a page that is not a checksum) that does not name the build the committed latest-staging.json names -- refusing before fetching, so $SITE/dist/ is untouched (#4819)"; exit 1; }
+    [ "$_csm_served" = "$_csm_sha" ] || { echo "deploy-site: live serves a $_csm_art.sha256 (or a page that is not a checksum) that does not name the build the committed latest-staging.json names -- refusing before fetching, so $SITE/dist/ is untouched. If the build was re-cut under the same version and not yet deployed, deploy from the machine that cut it (its dist/ has the bytes) (#4819)"; exit 1; }
     fetch_verified "$HOST/dist/$_csm_art" "$SITE/dist/$_csm_art"
     # fetch_verified reads the served .sha256 again itself. Only if it changed between that read
     # and the one above (a concurrent publish) does this fire, and then the newer served pair is

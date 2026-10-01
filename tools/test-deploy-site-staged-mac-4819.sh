@@ -32,6 +32,7 @@
 #   st3 live has a staging pointer, none committed  -> refuses (would unpublish it)
 #   st4 live unreachable                            -> refuses "could not read", not "absent"
 #   st6 live pointer names no parsable tarball     -> refuses (cannot tell which is newer)
+#   st6r ...with KOSMOS_STAGING_ROLLBACK=<committed version> -> proceeds
 #   st5 superseded, the sidecar read fails in transport -> refuses, does not take the skip
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
@@ -203,6 +204,9 @@ if has "$out" "RC=1 " && has "$out" "could not read the live latest-staging.json
 S="$T/st6"; mksite "$S" "$(ptr "$SHA" "$STAGED")"; mkdir -p "$T/live-st6"; ptr "$SHA" "something-else.zip" > "$T/live-st6/latest-staging.json"
 out=$(run_carry "$S" "$T/live-st6")
 if has "$out" "RC=1 " && has "$out" "which is newer cannot be told"; then pass "st6: a live staging pointer naming no kosmos-<version>-arm64.tar.gz refuses rather than skipping the stale check"; else bad "st6: $out"; fi
+cp "$BYTES" "$S/dist/$STAGED"; printf '%s  %s\n' "$SHA" "$STAGED" > "$S/dist/$STAGED.sha256"
+out=$(KOSMOS_STAGING_ROLLBACK=9.9.02 run_carry "$S" "$T/live-st6")
+if has "$out" "RC=0 STAGED_ART=$STAGED" && has "$out" "replacing a live latest-staging.json"; then pass "st6r: KOSMOS_STAGING_ROLLBACK naming the committed version replaces an unparsable live pointer"; else bad "st6r: $out"; fi
 # A transport failure on the SIDECAR read of a superseded build must refuse, not take the skip.
 S="$T/st5"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-st5"; cp "$BYTES" "$T/live-st5/$OLDSTG"; : > "$T/live-st5/.down-sidecar"
 out=$(run_carry "$S" "$T/live-st5")
@@ -242,5 +246,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh checks staging staleness before any fetch, runs the carry before the export, checks the export for the pair, and served-verifies the pair and the pointer"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 23 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 23)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 24 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 24)"; exit 1
