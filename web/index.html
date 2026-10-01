@@ -47485,6 +47485,8 @@ let ORGCHART_RESULT = null;
 let ORGCHART_CREATING = false;
 // #4559: true while Undo asks or removes (orgchartUndoAsking), so a file read waits.
 let ORGCHART_UNDO_BUSY = false;
+// #4688 review: counts Undo asks and removal runs, so a run the person left knows when a newer Undo has started.
+let ORGCHART_UNDO_RUN = 0;
 /* #4559: the file flow's state, declared here, above resetOrgchartPreview, which clears it (a let read before its
    declaration runs throws, and typeof does not guard that). The rows a file produced before names are derived (so
    the names toggle re-derives from the file), a picture waiting for Read it, and the read in flight. */
@@ -48135,6 +48137,8 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
        idle (no preview, no result, no file being read, no Undo running), they are shown now. A batch that made
        nothing replaces nothing. */
     if (!madeList.length) return;
+    /* Overwriting is safe: no newer batch can exist here, because Preview, choosing a file and reading one all
+       return early while ORGCHART_CREATING is set. */
     ORGCHART_CREATED = madeList;
     ORGCHART_CREATED_AT = Date.now();
     ORGCHART_RESULT = { count: countText, list: listHtml, msg: msgText };
@@ -48206,6 +48210,7 @@ async function orgchartUndoAsk() {
   if (orgchartDropExpiredUndo()) { orgchartSayUndoExpired(); return; }
   const n = ORGCHART_CREATED.length;
   if (!n) return;
+  ORGCHART_UNDO_RUN += 1;
   const gen = ORGCHART_GEN;
   const undo = document.getElementById('orgchart-undo');
   const countEl = document.getElementById('orgchart-count');
@@ -48269,10 +48274,12 @@ document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
 
 /* #4688 review: an Undo the person left mid-run. The kept list must stop offering the agents this run already
    removed, or the reopened panel would offer "remove these 7" for 3 that are gone. If they are already back in the
-   panel and it is idle, it is repainted from the updated list. Only a clean `removed` answer counts; anything else stays offered (asking the engine again is harmless).
-   Changed only while the kept list is still the one this run started from, so a newer batch is never touched. */
-function orgchartUndoLeftMidRun(runList, todo, answers) {
-  if (ORGCHART_CREATED !== runList) return;
+   panel and it is idle, it is repainted from the updated list. Only a clean `removed` answer counts; anything else
+   stays offered (asking the engine again is harmless). Changed only while the kept list is still the one this run
+   started from, so a newer batch is never touched, and only while no newer Undo has started (ORGCHART_UNDO_RUN):
+   that one's own answers and the removed list decide what it shows. */
+function orgchartUndoLeftMidRun(runList, todo, answers, run) {
+  if (ORGCHART_CREATED !== runList || run !== ORGCHART_UNDO_RUN) return;
   const gone = new Set(answers.filter((a) => a.out && a.out.outcome === 'removed').map((a) => a.c.name));
   if (!gone.size) return;
   ORGCHART_CREATED = runList.filter((c) => !gone.has(c.name));
@@ -48297,6 +48304,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
   if (orgchartDropExpiredUndo()) { orgchartSayUndoExpired(); return; }
   if (!ORGCHART_CREATED.length) return;
   const gen = ORGCHART_GEN;
+  const run = ++ORGCHART_UNDO_RUN;
   const countEl = document.getElementById('orgchart-count');
   const listEl = document.getElementById('orgchart-list');
   const msg = document.getElementById('orgchart-msg');
@@ -48320,7 +48328,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
     } catch (err) { reached = false; }
     if (gen !== ORGCHART_GEN) {
       answers.push({ c, out, reached });
-      orgchartUndoLeftMidRun(runList, todo, answers);
+      orgchartUndoLeftMidRun(runList, todo, answers, run);
       if (typeof paintRemoved === 'function') paintRemoved();
       return;
     }
@@ -48332,7 +48340,7 @@ document.getElementById('orgchart-undo-go').addEventListener('click', async () =
     const body = res.ok ? await res.json().catch(() => null) : null;
     if (body && Array.isArray(body.agents)) onList = new Set(body.agents.map((a) => a && a.name));
   } catch (err) { onList = null; }
-  if (gen !== ORGCHART_GEN) { orgchartUndoLeftMidRun(runList, todo, answers); return; }
+  if (gen !== ORGCHART_GEN) { orgchartUndoLeftMidRun(runList, todo, answers, run); return; }
   const rows = answers.map(({ c, out, reached }) => {
     const clean = Boolean(out && out.outcome === 'removed');
     // A clean removal's `because` only repeats that it was removed; any other answer is worth reading.

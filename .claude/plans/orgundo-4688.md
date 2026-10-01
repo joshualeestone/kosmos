@@ -57,3 +57,17 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - Two comments said a reopen resets; corrected. NITs taken: a fixed 800 ms wait is now a wait on the state; the
   all-removed result that could never be painted is gone (ORGCHART_RESULT null); Keep them restores the result's
   own message, as a reopen does.
+
+## Iteration 2 (Sonnet): three warnings, fixed or documented
+- An Undo the person left could still shrink the kept list under a NEW Undo ask opened after reopening. Fixed with
+  ORGCHART_UNDO_RUN: each ask and each removal run takes a number, and a left run changes the list only if no newer
+  Undo has started. (First try was `|| ORGCHART_UNDO_BUSY`; rejected before commit: Back and closing the panel bump
+  ORGCHART_GEN without clearing ORGCHART_UNDO_BUSY, so the left run would always have skipped.) New arm: UNDO AGAIN
+  BEFORE THE OLD ANSWER. It is an absence check, so it waits on the held DELETE's response plus 500 ms; reasoned to
+  fail without the counter (the old run's list is still ORGCHART_CREATED), to be shown in the control run.
+- The late-create overwrite's safety (no newer batch can exist) is now stated at the code, naming its guards: Preview,
+  choosing a file and reading one return early while ORGCHART_CREATING.
+- Second weakest premise: "Back to the list" after a create is NOT a dismissal. It hides the box; a later close and
+  reopen within 15 minutes shows the result and Undo again. Consistent with "until used or replaced"; stated, not
+  changed. What would change it: Josh or Mona saying Back to the list should end the Undo.
+- REOPEN BEFORE THE ANSWER now waits on ORGCHART_CREATING instead of a fixed 300 ms.

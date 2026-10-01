@@ -562,7 +562,7 @@ async function run() {
       await prb.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
       await prb.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
       await prb.click('#orgchart-create');
-      await prb.waitForTimeout(300);
+      await prb.waitForFunction(() => ORGCHART_CREATING === true, null, { timeout: 5000 });   // the held create is in flight
       await prb.click('#create-path-back');
       await prb.click('#cstep-kind [data-path="team"]');
       await prb.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
@@ -664,6 +664,51 @@ async function run() {
         && /Removed 4 of 7 before you left/.test(afterR.count), JSON.stringify([deletesR, beforeR, afterR]));
     } else check('#4688 UNDO LEFT MID-RUN, BACK BEFORE THE ANSWER: the panel offers a file', false);
     await pur.close();
+
+    /* #4688 review: back in the panel, the person presses Undo again before the old run's held removal answers. The
+       old answer must not change the list under the new ask (that ask's own run decides). */
+    const pua = await page();
+    let deletesA = 0;
+    let releaseDelA;
+    const delHeldA = new Promise((ok) => { releaseDelA = ok; });
+    await pua.route('**/api/team', (r) => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      r.fulfill({ status: 200, json: { outcome: 'created', created: body.members.map((m) => ({ name: m.name, shownAs: m.label })), refused: [] } });
+    });
+    await pua.route('**/api/agent/*/removal', async (r) => {
+      const name = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3]);
+      if (r.request().method() === 'GET') return r.fulfill({ status: 200, json: { ok: true, name, label: name, loses: ['Its place on the board'], keeps: ['Its folder'] } });
+      deletesA += 1;
+      if (deletesA === 4) await delHeldA;
+      r.fulfill({ status: 200, json: { outcome: 'removed', because: name + ' has been removed.' } });
+    });
+    await pua.route('**/api/removed', (r) => r.fulfill({ status: 200, json: { agents: [] } }));
+    await openPanel(pua);
+    if (await pua.$('#orgchart-file-btn')) {
+      await pua.setInputFiles('#orgchart-file', path.join(FIX, 'people.csv'));
+      await pua.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 8000 });
+      await pua.click('#orgchart-create');
+      await pua.waitForFunction(() => /Created 7 agents/.test(document.getElementById('orgchart-count').textContent), null, { timeout: 8000 });
+      await pua.click('#orgchart-undo');
+      await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+      await pua.click('#orgchart-undo-go');
+      for (let i = 0; i < 50 && deletesA < 4; i++) await pua.waitForTimeout(100);   // the 4th removal is now held
+      await pua.click('#create-path-back');
+      await pua.click('#cstep-kind [data-path="team"]');
+      await pua.waitForSelector('#team-orgchart-open', { state: 'visible', timeout: 8000 });
+      await pua.click('#team-orgchart-open');
+      await pua.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
+      await pua.click('#orgchart-undo');
+      await pua.waitForSelector('#orgchart-undo-go:not([hidden])', { timeout: 5000 });
+      const landed = pua.waitForResponse((res) => res.request().method() === 'DELETE', { timeout: 5000 }).catch(() => {});
+      releaseDelA();
+      await landed;
+      await pua.waitForTimeout(500);   // an ABSENCE check: give the page time to act on the answer it now has
+      const ask = await pua.evaluate(() => ({ created: ORGCHART_CREATED.length, asking: !document.getElementById('orgchart-undo-go').hidden }));
+      check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER: the old run leaves the list alone under the new ask',
+        deletesA === 4 && ask.asking && ask.created === 7, JSON.stringify([deletesA, ask]));
+    } else check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER: the panel offers a file', false);
+    await pua.close();
 
     // RENAMED + FAILED: create canonicalises a manager's name (head-of-sales -> head-of-sales-2), so the person
     // under it is re-pointed to the name it was created under; and a profile update that fails is named, not counted.
