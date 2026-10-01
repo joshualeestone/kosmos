@@ -260,16 +260,17 @@ test('round 5: runs of joiners or variation selectors (a zero-width channel) go;
 });
 
 test('#4896: renderShow says a menu title one way whatever its case, and leaves any other role to its own words', () => {
-  const view = v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true }));
-  const base = view.members[0];
-  view.members = [
-    Object.assign({}, base, { name: 'Ann', sessionName: 'ann', role: 'project manager' }),   // parsed from its instructions
-    Object.assign({}, base, { name: 'Bo', sessionName: 'bo', role: 'Project Manager' }),     // chosen off the menu
-    Object.assign({}, base, { name: 'Cy', sessionName: 'cy', role: 'data wrangler' }),       // not a menu title
-    Object.assign({}, base, { name: 'Di', sessionName: 'di', role: 'seo specialist' }),      // a menu title with an acronym
-  ];
+  // Through overviewOf, as the board builds it: its members carry the roles the roster gives them.
+  const roles = { ann: 'project manager', bo: 'Project Manager', cy: 'data wrangler', di: 'seo specialist' };
+  const tied = DESCRIBED.agents[0];
+  const project = { ...DESCRIBED, agents: Object.keys(roles).map((s) => ({ ...tied, sessionName: s, name: s[0].toUpperCase() + s.slice(1), role: roles[s] })) };
+  const view = v.overviewOf(project, ROSTER, opts({ goal: null, done: null, found: true }));
+  assert.deepEqual(view.members.map((m) => m.role), Object.values(roles), 'the payload keeps the role as stored');
   const text = v.renderShow({ project: view }).join('\n');
   assert.match(text, /^ {2}Ann, Project Manager {2}\|/m, text);
+  // An older board sends no roleTitle: the stored role is printed, as before.
+  const old = v.renderShow({ project: Object.assign({}, view, { members: view.members.map((m) => Object.assign({}, m, { roleTitle: undefined })) }) }).join('\n');
+  assert.match(old, /^ {2}Ann, project manager {2}\|/m, old);
   assert.match(text, /^ {2}Bo, Project Manager {2}\|/m, text);
   assert.match(text, /^ {2}Cy, Data wrangler {2}\|/m, 'a role that is not a menu title is not title-cased: ' + text);
   assert.match(text, /^ {2}Di, SEO Specialist {2}\|/m, 'the menu says SEO Specialist: ' + text);
@@ -283,4 +284,6 @@ test('#4896: roleTitle is the board\'s roleLine rule (a lookup on the menu title
   assert.equal(roleTitle(''), '');
   assert.equal(roleTitle(null), '');
   assert.equal(roleTitle('own'), 'Own', 'the own role is not a menu role, so it is not looked up');
+  // Review 1: `setup` is labelled "Kosmos Guide" but is not on the menu, so it is not one of the board's titles.
+  assert.equal(roleTitle('kosmos guide'), 'Kosmos guide', 'a menu: false label must not be looked up');
 });
