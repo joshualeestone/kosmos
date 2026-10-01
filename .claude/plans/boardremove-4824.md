@@ -15,12 +15,13 @@ The board's Remove passed none.
   POST has no timeout of its own: the board answers within the retire timeout, and `finally` clears Removing.
 - web/index.html, the Devices list: after a Remove, `removedWords` says what it reached, from the answer: "Its
   current sign-in on your other computers ends too; it stays allowed there until you remove it there" only when
-  `signed_out` is true; "Kosmos+ could not confirm it, so it
-  may still open your other computers" when it is false (or a new connector left it out); "It was not on this
+  `signed_out` is true; "Kosmos+ could not confirm its sign-in was
+  ended, so it may still open your other computers" when it is false (or a new connector left it out); "It was not on this
   computer's list" when `removed` is false; a line when `local_cutoff` is not true. A connector from before
   kosmos#4803 answers neither field, and gets one plain sentence saying how it works (if let in on the other
   computers too, it still opens them until removed there, and an old sign-in comes back if let in again here),
-  not a failure. Telling Kosmos+ can take the connector up to 10 s, so the row says Removing, its button is
+  not a failure. Telling Kosmos+ makes a Remove slow (the connector's own tell gives up at 10 s; the board waits up
+  to its retire timeout per connector call), so the row says Removing, its button is
   disabled, and no second Remove can start while one is out (`ASK.removing`).
   The line lives in `ASK.said` and is repainted by every `paintDevices` (the 5 s `paintPlus` poll included,
   without rewriting an unchanged assertive alert) until the next Remove or Keep click, or two minutes; it used to
@@ -46,6 +47,8 @@ and the test pins the measured wording.
 - engine/remote.test.js: remove passes `--coordinator` once and passes the answer through; an old connector (fake
   in `old-remove` mode, clap's measured words and exit 2) is asked again without it and still removes (control:
   any other refusal is not retried); `signed_out` / `local_cutoff` false reach the page.
+- server.test.js: the Remove route hands the page every answer field unchanged (engine stubbed; control: a refusal
+  is still a 400 with the engine's sentence).
 - web.allow-card.test.js: `removedWords` run on each answer shape (told / false / absent / not on the list / both
   false), and the `ASK.said` wiring.
 - docs/browser-checks/render-device-remove-4824.js: a real click on Remove for each answer; the line is still

@@ -43182,7 +43182,7 @@ async function paintDevices() {
 function removedWords(said) {
   if (!said || typeof said !== 'object') return 'Removed here.'; // an answer that could not be read says nothing more
   const s = said;
-  if (s.timed_out === true) return 'This took too long to finish. If it is still on the list below, remove it again. If it is gone, it may still open your other computers until you remove it there too.';
+  if (s.timed_out === true) return 'This took too long to finish. If it is still on the list above, remove it again. If it is gone, it may still open your other computers until you remove it there too.';
   const here = s.removed === false ? 'It was not on this computer\'s list.' : s.signed_out === true ? 'Removed.' : 'Removed here.';
   // A connector from before kosmos#4803 answers neither field: it never tries to reach the other computers or to
   // end the old sign-in here, so that is said as how it works, not as something that failed.
@@ -43191,7 +43191,7 @@ function removedWords(said) {
   }
   const out = [here + (s.signed_out === true
     ? (s.removed === false ? ' Its current sign-in on your other computers ends' : ' Its current sign-in on your other computers ends too') + '; it stays allowed there until you remove it there.'
-    : ' Kosmos+ could not confirm it, so it may still open your other computers until you remove it there too.')];
+    : ' Kosmos+ could not confirm its sign-in was ended, so it may still open your other computers until you remove it there too.')];
   if (s.local_cutoff !== true) out.push('This computer could not record the end of its current sign-in, so if you let it in again, that old sign-in could come back.');
   return out.join(' ');
 }
@@ -43205,8 +43205,9 @@ document.getElementById('plus-devlist').addEventListener('click', async (e) => {
   if (act === 'remove') { if (ASK.removing) return; ASK.confirm = id; ASK.said = ''; paintDevices(); return; }
   if (act === 'keep') { ASK.confirm = null; ASK.said = ''; paintDevices(); return; }
   if (act === 'removeyes') {
-    /* #4824: telling Kosmos+ can take the connector up to 10 s, so the row says Removing and no second Remove
-       can start (its "not on this computer's list" answer would replace this one's). */
+    /* #4824: telling Kosmos+ makes a Remove slow (the board waits up to its retire timeout per connector call), so
+       the row says Removing and no second Remove can start (its "not on this computer's list" answer would replace
+       this one's). */
     if (ASK.removing) return;
     ASK.confirm = null;
     ASK.removing = id;

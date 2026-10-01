@@ -6,7 +6,7 @@
  * answer (kosmos#4803), and the line is still there after the list repaints (it used to be cleared by it).
  * Three answers, each through a real click on Remove then the confirm's Remove:
  *   told      -> signed_out true:  "Removed. Its current sign-in on your other computers ends too; it stays ..."
- *   not told  -> signed_out false: "Removed here. Kosmos+ could not confirm it ..."
+ *   not told  -> signed_out false: "Removed here. Kosmos+ could not confirm its sign-in was ended ..."
  *   old       -> neither field (a connector from before kosmos#4803): "Removed here. If you let it in on your
  *                other computers too, it still opens them ...", said as how it works, not as a failure
  * The line must still be there after one of the page's own 5 s polls has repainted the list (counted, not timed).
@@ -107,7 +107,7 @@ async function open(browser, BASE, answer) {
       const visible = await page.evaluate(() => { const e = document.getElementById('plus-devmsg'); return !!(e && e.getBoundingClientRect().height > 0); });
       if (key === 'told') chk(/^Removed\. Its current sign-in on your other computers ends too; it stays allowed there until you remove it there\.$/.test(said) && visible, key + ': says the other computers are reached, and it is still showing after the repaint', JSON.stringify(said));
       else if (key === 'old') chk(/^Removed here\. If you let it in on your other computers too, it still opens them/.test(said) && !/could not/.test(said) && visible, 'old: said as how an older connector works, still showing after the repaint', JSON.stringify(said));
-      else chk(/^Removed here\. Kosmos\+ could not confirm it/.test(said) && visible, key + ': says Kosmos+ could not confirm it, still showing after the repaint', JSON.stringify(said));
+      else chk(/^Removed here\. Kosmos\+ could not confirm its sign-in was ended/.test(said) && visible, key + ': says Kosmos+ could not confirm its sign-in was ended, still showing after the repaint', JSON.stringify(said));
       if (key !== 'old') chk(!/could not record/.test(said), key + ': no cutoff line when the connector recorded one', JSON.stringify(said));
       chk(!/[\u2014]/.test(said), key + ': no em dash');
       chk(errs.length === 0, key + ': no page errors', errs.join(' | '));
@@ -142,7 +142,7 @@ async function open(browser, BASE, answer) {
       chk(said === '', 'control: a poll after the line is forgotten does clear it, so the arms above can see a clearing repaint', JSON.stringify(said));
       await page.close();
     }
-    // One Remove at a time: while the connector is still telling Kosmos+ (up to 10 s), the row says Removing and
+    // One Remove at a time: while the connector is still telling Kosmos+ (slow; bounded by the retire timeout), the row says Removing and
     // another Remove does nothing.
     {
       const page = (await open(browser, BASE, ANSWERS.told)).page;

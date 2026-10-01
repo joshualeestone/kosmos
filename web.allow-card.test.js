@@ -128,15 +128,15 @@ test('#4824: removedWords says the other computers are reached only when the con
   assert.equal(removedWords({ removed: true, signed_out: true, local_cutoff: true }), 'Removed. Its current sign-in on your other computers ends too; it stays allowed there until you remove it there.');
   assert.equal(removedWords({ removed: false, signed_out: true, local_cutoff: true }), "It was not on this computer's list. Its current sign-in on your other computers ends; it stays allowed there until you remove it there.");
   assert.equal(removedWords(null), 'Removed here.', 'an unreadable answer claimed how the connector works');
-  assert.equal(removedWords({ timed_out: true }), 'This took too long to finish. If it is still on the list below, remove it again. If it is gone, it may still open your other computers until you remove it there too.');
+  assert.equal(removedWords({ timed_out: true }), 'This took too long to finish. If it is still on the list above, remove it again. If it is gone, it may still open your other computers until you remove it there too.');
   // An older connector: neither field. Said as how it works, not as a failure.
   assert.equal(removedWords({ removed: true }), 'Removed here. If you let it in on your other computers too, it still opens them until you remove it there, and if you let it in again here, its old sign-in comes back with it.');
   assert.doesNotMatch(removedWords({ removed: true }), /could not/);
   // An unreachable Kosmos+ answers false, and a new connector that left the field out is read the same way.
   for (const said of [{ removed: true, signed_out: false, local_cutoff: true }, { removed: true, local_cutoff: true }]) {
-    assert.match(removedWords(said), /^Removed here\. Kosmos\+ could not confirm it/, JSON.stringify(said));
+    assert.match(removedWords(said), /^Removed here\. Kosmos\+ could not confirm its sign-in was ended, so it may still open/, JSON.stringify(said));
   }
-  assert.match(removedWords({ signed_out: false, local_cutoff: false }), /could not confirm.*could not record the end of its current sign-in/);
+  assert.match(removedWords({ signed_out: false, local_cutoff: false }), /could not confirm its sign-in was ended.*could not record the end of its current sign-in/);
   assert.doesNotMatch(removedWords({ signed_out: true, local_cutoff: true }), /could not record/);
   for (const said of [null, {}, { removed: true }, { removed: false, signed_out: true, local_cutoff: true }, { signed_out: true, local_cutoff: true },
     { signed_out: false, local_cutoff: true }, { signed_out: false, local_cutoff: false }, { signed_out: true, local_cutoff: false }]) {
