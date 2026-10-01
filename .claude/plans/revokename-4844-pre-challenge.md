@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: revokename-4844
-diff_hash: 6ec666e0e2d0004180158f664013587d3e5031a46b7f1aae96dad3b8165f75d8
+diff_hash: 68e2a3cfc2724632aac1c8743655ca633e00389bde32e581bd5b9940f9ecd86c
 validation: focused at this head (stacked on tokenname-4792, PR #4841): engine/sendertoken.test.js with the revoke callers' tests (remove, create, delete-leftover, supervisor retire, win32create) and the #4796 guard, 404/404; the full run of tokenname-4792 is queued on Agent1s; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T05:37:46Z
@@ -29,3 +29,5 @@ converged: true
 - Mutants on copies: no narrowing 2 red, unnamed guard 1 red, absent arm 1 red, narrowed revoke 1 red
 
 Rebased 2026-10-01 01:27 CDT onto tokenname-4792 4a7c5233c (its fixture fix); patches unchanged; with fixture-discipline 78+ tests pass; hash recomputed.
+
+Rebased 2026-10-01 02:43 CDT onto main after #4841 merged as b7fa3cd26 (patches unchanged); focused with the file-scanning guards pass; a full run of this head is queued on Mortals (the rebased tree differs from a direct merge of the validated head, which conflicts on the squash, so the earlier run does not carry). Hash recomputed.
