@@ -928,7 +928,7 @@ async function run() {
   if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
     throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
   }
-  // The long code fits at the desktop size (its 1.6rem cap), so spill with no phone size would arm nothing and pass.
+  // The long code is about 450px wide (1.9rem mono), inside the desktop card, so spill with no phone size would arm nothing and pass.
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
