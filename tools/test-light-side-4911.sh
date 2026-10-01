@@ -257,6 +257,16 @@ else
   { [ "$rc" -eq 0 ] && has "$out" GUARD-PASSED; } && pass "browser-checks.sh's guard WAITS for the side turn and runs once it ends (it does not refuse)" \
     || fail "browser-checks.sh's guard refused rather than waiting out a side turn (rc=$rc, $(printf '%s' "$out" | tail -3))"
   kill "$sp2" 2>/dev/null; wait "$sp2" 2>/dev/null; rm -f "$M/light-side-claim"
+  # Review 4: a page layer that arrives while another browser run is live refuses AT ONCE, side turn or not (it never
+  # waits, so it cannot meet the first one when the side turn ends). The seam records whether the guard waited.
+  printf '#!/bin/sh\ntouch "%s/waited"\nrm -f "%s/light-side-claim"\n' "$T" "$M" > "$T/side-ends-rec"; chmod +x "$T/side-ends-rec"
+  bash -c '. "$1"; kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp2=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
+  rm -f "$T/waited"
+  out="$(KOSMOS_WAIT_SLEEP="$T/side-ends-rec" KOSMOS_BC_PROBE="$T/live-bc" bcguard)"; rc=$?
+  { [ "$rc" -eq 1 ] && [ ! -e "$T/waited" ] && ! has "$out" GUARD-PASSED; } && pass "a page layer that meets another browser run refuses at once, even during a side turn" \
+    || fail "a page layer waited out the side turn beside another browser run (rc=$rc, waited=$([ -e "$T/waited" ] && echo yes || echo no))"
+  kill "$sp2" 2>/dev/null; wait "$sp2" 2>/dev/null; rm -f "$M/light-side-claim"
   kill "$sp" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$sp" 2>/dev/null || break; sleep 0.2; done
   rm -f "$M/light-side-claim"
   out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/live-bc" bcguard)"; rc=$?
@@ -266,6 +276,34 @@ else
   out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/quiet" bcguard)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" GUARD-PASSED; } && pass "CONTROL: with nothing live the guard block passes" \
     || fail "CONTROL: the extracted guard refused on a clear box (rc=$rc, $out)"
+fi
+
+# Review 4: three starving waiters, two of this lib (A light, C heavy) and one of the OLDER lib (B heavy), queue times
+# A, C, B. Comparing per pair, A named B ahead, B named C and C named A: a circle, so all three (and everyone behind)
+# waited on an idle box until the bound. Each is a live process using its OWN lib; exactly one must see nobody ahead.
+# Each stays the same process (no exec) until all three have read: a waiter whose command changes reads as stale.
+git -C "$HERE/.." show 'origin/main:tools/lib/cut-guard.sh' > "$T/old-lib.sh" 2>/dev/null
+if ! grep -q '_kosmos_queue_rank' "$T/old-lib.sh" || grep -q '_kosmos_queue_rank_legacy' "$T/old-lib.sh"; then
+  echo "SKIP  the three-waiter arm: origin/main's lib is not the pre-#4911 one (merged?), so there is no older lib to pair with"
+else
+  M3="$T/m3"; mkdir -p "$M3"; rm -f "$T"/go3 "$T"/stop3 "$T"/ahead.*
+  waiter() { # <name> <lib> <class> <queue time>
+    KOSMOS_RUN_MARKER_DIR="$M3" KOSMOS_QUEUE_CLASS="$3" bash -c '. "$1"; kosmos_mark_suite_waiting "$2"
+      until [ -e "$3/go3" ]; do sleep 0.1; done
+      _kosmos_suite_waiters_ahead > "$3/ahead.$4"; echo done >> "$3/ahead.$4.ok"
+      until [ -e "$3/stop3" ]; do sleep 0.1; done' _ "$2" "$4" "$T" "$1" </dev/null >/dev/null 2>&1 &
+    eval "W_$1=\$!"
+  }
+  waiter A "$HERE/lib/cut-guard.sh" light $((NOW - 4000))
+  waiter C "$HERE/lib/cut-guard.sh" heavy $((NOW - 3900))
+  waiter B "$T/old-lib.sh" heavy $((NOW - 3800))
+  for _ in $(seq 1 50); do [ "$(ls "$M3" | grep -c '^suitewait\.[0-9]*$')" = 3 ] && break; sleep 0.1; done
+  touch "$T/go3"
+  for _ in $(seq 1 100); do [ -e "$T/ahead.A.ok" ] && [ -e "$T/ahead.B.ok" ] && [ -e "$T/ahead.C.ok" ] && break; sleep 0.1; done
+  free=0; for w in A B C; do [ -s "$T/ahead.$w" ] || free=$((free + 1)); done
+  { [ -e "$T/ahead.A.ok" ] && [ "$free" -eq 1 ]; } && pass "three starving waiters of mixed libs: exactly one sees nobody ahead (no circle)" \
+    || fail "three waiters of mixed libs: $free see nobody ahead (A: $(tr '\n' ' ' < "$T/ahead.A" 2>/dev/null), B: $(tr '\n' ' ' < "$T/ahead.B" 2>/dev/null), C: $(tr '\n' ' ' < "$T/ahead.C" 2>/dev/null); pids A=$W_A B=$W_B C=$W_C)"
+  touch "$T/stop3"; wait "$W_A" "$W_B" "$W_C" 2>/dev/null
 fi
 
 echo "light side turn: $fails failures"; [ "$fails" -eq 0 ]

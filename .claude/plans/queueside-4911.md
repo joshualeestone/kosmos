@@ -70,6 +70,14 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   browser-checks.sh, which refuses every new side turn); a side run's own late browser-checks.sh refusing beside a
   waiting page layer (the light run takes the red, by design); a main-lane loser rejoining at the back (unchanged
   from before).
+- Round 4 (Opus + Sonnet, blind; both reproduced the first): (1) three starving waiters of mixed libs formed a circle
+  (per-pair rule switching is not transitive): now, while ANY older-lib marker is live, every comparison in the pass
+  uses the older rule, one total order; test runs three live waiters each on its own lib and is red on round 3's lib.
+  (2) two page layers waiting out one side turn could refuse each other when it ended: browser-checks.sh now refuses
+  beside another browser run BEFORE the side wait too (as before #4911), and again after; test red without it.
+  Script: signals ignored during cleanup (a second TERM abandoned it, leaving the command unclaimed); SIDE_MIN read
+  as decimal (08/09); the queue's wait settings are not passed to the command; a queued-heavy.sh started inside a
+  side turn refuses at once (it waited on its own parent until the cap). Dry harness: 12 checks, no orphans.
 - ROLLOUT, in this order: merge; update the queue lib checkout (kosmos-bc-main-4610) to origin/main; mv the new
   queued-heavy.sh in. Side turns stay off by themselves until every waiter of the old script has gone.
 - Dry runs of queued-heavy.sh.4911-new (private marker dir, probe seams): side turn; heavy main refused beside a

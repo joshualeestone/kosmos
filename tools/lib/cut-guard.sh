@@ -663,7 +663,7 @@ _kosmos_queue_rank_legacy() {
 # them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
 # Ahead means first by rank (_kosmos_queue_rank), then by queue time, then by pid.
 _kosmos_suite_waiters_ahead() {
-  local dir f pid mine_ts mine_pid ts cls rank mine_rank mine_rank_legacy now
+  local dir f pid mine_ts mine_pid ts cls rank mine_rank mine_cls now legacy=0 seen=""
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
   # A caller that already read this run's queue time passes it (the bound, review 23), so there is no gap between a
   # check that the marker exists and this read; otherwise it is read here.
@@ -677,9 +677,9 @@ _kosmos_suite_waiters_ahead() {
   fi
   if [ -n "$mine_ts" ]; then
     cls="$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)" || cls=""; [ -n "$cls" ] || cls="$(_kosmos_queue_class)"
-    mine_rank="$(_kosmos_queue_rank "$mine_ts" "$cls" "$now")"
-    mine_rank_legacy="$(_kosmos_queue_rank_legacy "$mine_ts" "$cls" "$now")"
+    mine_cls="$cls"
   fi
+  # Pass 1: the live waiters, with their class and whether an OLDER lib wrote the marker (fewer than 6 lines).
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
     case "${f##*/}" in *.tmp.*) continue ;; esac   # a marker half-written (before its mv) is not a waiter; the NAME only, so a marker dir whose path holds ".tmp." still counts
@@ -689,12 +689,26 @@ _kosmos_suite_waiters_ahead() {
     _kosmos_suite_waiter_live "$pid" || continue
     read -r ts _ 2>/dev/null < "$f" || continue
     case "$ts" in ''|*[!0-9]*) continue ;; esac
-    if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
     cls="$(sed -n '5p' "$f" 2>/dev/null)" || cls=""   # an older lib's marker has no line 5 (or it just left): heavy
-    local cmp_mine="$mine_rank"
-    if [ "$(sed -n '$=' "$f" 2>/dev/null)" -ge 6 ] 2>/dev/null; then rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"
-    else rank="$(_kosmos_queue_rank_legacy "$ts" "$cls" "$now")"; cmp_mine="$mine_rank_legacy"; fi
-    if [ "$rank" -lt "$cmp_mine" ] || { [ "$rank" -eq "$cmp_mine" ] && { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; }; }; then
+    case "$cls" in ''|*[!a-z]*) cls=heavy ;; esac
+    if [ "$(sed -n '$=' "$f" 2>/dev/null)" -ge 6 ] 2>/dev/null; then :; else legacy=1; fi
+    seen="$seen$pid $ts $cls
+"
+  done
+  # #4911 review 4: while ANY waiter of an older lib (which never ages a light run) is live, EVERY comparison in this
+  # pass uses that older rule, so every reader, old lib or new, reads one order. Switching rule per pair was not
+  # enough: a new light, a new heavy and an old heavy, all starving, could each name another as ahead in a circle and
+  # wait on an idle box until the bound (reproduced). One rule for all is one total order: rank, queue time, pid.
+  if [ -n "$mine_ts" ]; then
+    if [ "$legacy" = 1 ]; then mine_rank="$(_kosmos_queue_rank_legacy "$mine_ts" "$mine_cls" "$now")"
+    else mine_rank="$(_kosmos_queue_rank "$mine_ts" "$mine_cls" "$now")"; fi
+  fi
+  printf '%s' "$seen" | while read -r pid ts cls; do
+    [ -n "$pid" ] || continue
+    if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
+    if [ "$legacy" = 1 ]; then rank="$(_kosmos_queue_rank_legacy "$ts" "$cls" "$now")"
+    else rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"; fi
+    if [ "$rank" -lt "$mine_rank" ] || { [ "$rank" -eq "$mine_rank" ] && { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; }; }; then
       echo "$pid"
     fi
   done
