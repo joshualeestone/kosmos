@@ -57,8 +57,8 @@
 #                                     # fetching the stale live one. Run promote-channel.sh (#2036,
 #                                     # which runs the experience + agent-spawn gates and refreshes
 #                                     # the alias LOCALLY) and COMMIT latest.json first; this is the
-#                                     # deploy that publishes it. The staging checks below
-#                                     # run here too (#4819): a checkout committing an
+#                                     # deploy that publishes it. The staging checks
+#                                     # (check_staging_not_stale, #4819) run here too: a checkout committing an
 #                                     # older staging than live is refused in this mode as
 #                                     # well, since the deploy would move staging back.
 #   KOSMOS_STAGING_ROLLBACK=<version> tools/deploy-site.sh --publish

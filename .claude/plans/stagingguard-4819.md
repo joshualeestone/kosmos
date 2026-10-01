@@ -13,7 +13,7 @@ Card: joshualeestone/kosmos#4819 (claimed: barondraxum).
 | Local dist/ has the pointer's bytes | carried (sidecar written from them if missing or wrong) |
 | No good local copy, live serves the pointer's build | fetched from live and carried |
 | No copy anywhere, staged build newer than prod | refused, naming the tarball |
-| No copy anywhere, superseded, live pointer unchanged | warned, nothing carried |
+| No copy anywhere, superseded, live pointer unchanged | warned, nothing carried (a stray local tarball or .sha256 of other bytes refuses instead) |
 | No copy anywhere, superseded, deploy would move the pointer | refused |
 | Live serves a NEWER staging version than committed | refused before any fetch (opt-in: `KOSMOS_STAGING_ROLLBACK=<committed version>`) |
 | Same version, different bytes / live pointer names no build | refused (same opt-in) |
@@ -70,7 +70,7 @@ staged WINDOWS build; it had no Mac twin.
   read again twice on a mismatch before it fails, since an edge can serve the old pointer briefly
   (review 14; a persistent mismatch is arm 16, the brief one has no arm).
 - DRY RUN summary names the staged build when one was carried.
-- `tools/test-deploy-site-staged-mac-4819.sh` (35 checks), wired into `test:shell`; end-to-end
+- `tools/test-deploy-site-staged-mac-4819.sh` (36 checks), wired into `test:shell`; end-to-end
   arms in `tools/test-deploy-site-promote.sh` that run the real script.
 
 ## Decided, and why
@@ -127,7 +127,7 @@ one's tarball and not see the served one. Today the Mac staging pointer is track
 statically (measured: 200 application/json from installkosmos.com).
 
 ## Tests
-- `bash tools/test-deploy-site-staged-mac-4819.sh`, 35 checks on the extracted block: nothing
+- `bash tools/test-deploy-site-staged-mac-4819.sh`, 36 checks on the extracted block: nothing
   committed; staged == prod; local copy carried (control); the incident (no local copy, live serves
   it); no copy anywhere refuses; wrong local bytes; local without its sidecar (carried, sidecar written); a wrong
   local sidecar rewritten; live serving other bytes refuses before fetching; a refusal leaves the
@@ -171,6 +171,10 @@ statically (measured: 200 application/json from installkosmos.com).
   in check_staging_not_stale, before any fetch, in every case (it was only before the fetch when live
   differed): e2e arm 20 and st13; without the early call, arm 20 red. An orphan local .sha256 in the
   superseded skip refuses like a stray tarball (s6; red without it).
+  Review 23: arm s3 had gone vacuous after review 13 (a string sort refused through the moves-the-
+  pointer branch, so s3 still passed); it now serves an unchanged pointer and asserts the missing-copy
+  refusal, so a string sort takes the warn-and-skip and s3 is red. st14 adds the same check for the
+  live-vs-committed comparison (live 9.9.10 over committed 9.9.9), with the reverse as control.
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)

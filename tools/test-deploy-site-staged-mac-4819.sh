@@ -44,6 +44,7 @@
 #   st11 an empty 200 for the live pointer         -> refuses
 #   st12 an empty 200 for the staged .sha256       -> refuses (not the superseded skip)
 #   st13 malformed committed pointer, live none    -> refuses
+#   st14 live 9.9.10 over committed 9.9.9           -> refuses (version order); reverse proceeds
 #   s6 superseded, pointer unchanged, orphan local .sha256 -> refuses
 #   i  the pointer names a path, not a file         -> refuses before any fetch
 #   j  the pointer has no sha                       -> refuses before any fetch
@@ -206,9 +207,19 @@ S="$T/s2"; mksite "$S" "$(ptr "$SHA" "$OLDSTG")"; mkdir -p "$T/live-s2"; cp "$BY
 out=$(run_carry "$S" "$T/live-s2")
 if has "$out" "RC=0 STAGED_ART=$OLDSTG FETCHED=[https://site.invalid/dist/$OLDSTG ]"; then pass "s2: a superseded staged build that live still serves is still carried"; else bad "s2: $out"; fi
 # Version order, not string order: 9.9.10 is NEWER than 9.9.9, so it is not superseded and refuses (arm e's shape).
-S="$T/s3"; mksite "$S" "$(ptr "$SHA" "kosmos-9.9.10-arm64.tar.gz")"; mkdir -p "$T/live-s3"
+# Live serves the same pointer, so the deploy does not move it: a superseded verdict would take the
+# warn-and-skip (RC 0). Only version order (9.9.10 newer than 9.9.9) makes it refuse as a missing copy.
+S="$T/s3"; mksite "$S" "$(ptr "$SHA" "kosmos-9.9.10-arm64.tar.gz")"; mkdir -p "$T/live-s3"; ptr "$SHA" "kosmos-9.9.10-arm64.tar.gz" > "$T/live-s3/latest-staging.json"
 out=$( PROD=kosmos-9.9.9-arm64.tar.gz run_carry "$S" "$T/live-s3")
-if has "$out" "RC=1 " && ! has "$out" "superseded"; then pass "s3: 9.9.10 staged over 9.9.9 prod is newer (sort -V), so a missing copy still refuses"; else bad "s3: $out"; fi
+if has "$out" "RC=1 " && has "$out" "live does not serve kosmos-9.9.10-arm64.tar.gz.sha256 either" && ! has "$out" "WARNING"; then pass "s3: 9.9.10 staged over 9.9.9 prod is newer (sort -V), so a missing copy still refuses"; else bad "s3: $out"; fi
+# st14: the live-vs-committed comparison is version order too: live 9.9.10 over a committed 9.9.9 refuses
+# (string order would call 9.9.9 the newer and let the stale checkout deploy); the reverse proceeds.
+S="$T/st14"; mksite "$S" "$(ptr "$SHA" "kosmos-9.9.9-arm64.tar.gz")"; mkdir -p "$T/live-st14"; ptr "$SHA" "kosmos-9.9.10-arm64.tar.gz" > "$T/live-st14/latest-staging.json"
+out=$( PROD=kosmos-9.9.1-arm64.tar.gz run_carry "$S" "$T/live-st14")
+S2="$T/st14c"; mksite "$S2" "$(ptr "$SHA" "kosmos-9.9.10-arm64.tar.gz")"; mkdir -p "$T/live-st14c"; ptr "$SHA" "kosmos-9.9.9-arm64.tar.gz" > "$T/live-st14c/latest-staging.json"
+cp "$BYTES" "$S2/dist/kosmos-9.9.10-arm64.tar.gz"
+out2=$( PROD=kosmos-9.9.1-arm64.tar.gz run_carry "$S2" "$T/live-st14c")
+if has "$out" "RC=1 " && has "$out" "live staging is 9.9.10" && has "$out2" "RC=0 STAGED_ART=kosmos-9.9.10-arm64.tar.gz"; then pass "st14: live 9.9.10 over committed 9.9.9 refuses (version order); CONTROL committed 9.9.10 over live 9.9.9 proceeds"; else bad "st14: $out // $out2"; fi
 
 # ---- st: the checkout's staging pointer against the one live serves ----------------------------------
 NEWER=kosmos-9.9.03-arm64.tar.gz
@@ -312,5 +323,5 @@ if [ -n "$call" ] && [ -n "$export_at" ] && [ "$call" -lt "$export_at" ]; then :
 [ "$k_ok" = 1 ] && pass "k: deploy-site.sh checks staging staleness before any fetch, runs the carry before the export, checks the export for the pair, and served-verifies the pair and the pointer"
 
 echo
-if [ "$fail" = 0 ] && [ "$npass" = 35 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
-echo "FAILED ($npass passed, expected 35)"; exit 1
+if [ "$fail" = 0 ] && [ "$npass" = 36 ]; then echo "all $npass staged-Mac-carry checks passed"; exit 0; fi
+echo "FAILED ($npass passed, expected 36)"; exit 1
