@@ -366,9 +366,18 @@ function chk(ok, label, extra) {
         /* --- a lead that fails holds the others until it is made -------------------------------- */
         {
           const { page, errs, posted, script } = await newPage(1280);
+          /* #4719: this arm's accounts are its own (a Claude and an OpenAI account), so the menu starts on
+             Claude and the change to OpenAI below is a change. Under the runner the board's home is shared by
+             every check, and an OpenAI-only list left there by another made the default OpenAI (0.7.16 cut). */
+          const CL = { provider: 'anthropic', dir: '/acct/claude', email: 'me@example.com', isDefault: true, state: 'connected' };
+          const OA = { provider: 'openai', dir: '/acct/openai', email: 'me@example.com', isDefault: true, state: 'connected' };
+          await page.route('**/api/accounts*', (r) => r.fulfill({ status: 200, json: { accounts: [CL, OA] } }));
+          await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });   // read again, from the route
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
+          const start = await page.evaluate(() => ({ p: document.getElementById('tc-provider').value, a: document.getElementById('tc-account').value }));
+          chk(start.p === 'anthropic', `${E} #4719 with a Claude account, the team step starts on Claude`, JSON.stringify(start));
           script.Maya = 'the account this agent would use is not signed in';
           await page.click('#tc-go');
           await settle(page, () => /Not made/.test((document.querySelector('#tc-list li[data-slot="lead"] .tc-state') || {}).textContent || ''));
