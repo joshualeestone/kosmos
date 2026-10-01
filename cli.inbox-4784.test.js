@@ -11,10 +11,16 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+
+// #4796: a data root of its own, so the CLI never reads this computer's board token and sends it to the stub.
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-inbox-4784-'));
+process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'ab'.repeat(16);
-const envFor = (port) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%7', KOSMOS_AGENT_TOKEN: TOKEN });
+const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%7', KOSMOS_AGENT_TOKEN: TOKEN });
 const TEXT = '2026-09-30 21:00:20Z the person: Please check the invoice\n2026-09-30 21:00:30Z you: On it.\n';
 
 function runCli(args, env) {
