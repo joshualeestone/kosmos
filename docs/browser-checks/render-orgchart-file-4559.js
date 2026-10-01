@@ -684,8 +684,8 @@ async function run() {
     await pur.close();
 
     /* #4688 review: back in the panel, the person presses Undo again before the old run's held removal answers. The
-       answer takes the removed agents off the kept list but does not repaint over the open ask; Keep them then shows
-       the 3 still on the board, not the 7 the ask was drawn from. */
+       answer takes the removed agents off the kept list and the open ask is drawn again for the 3 still on the board;
+       Keep them then shows the left run's result, not the 7 the first ask named. */
     const pua = await page();
     let deletesA = 0;
     let releaseDelA;
@@ -722,14 +722,15 @@ async function run() {
       const landed = pua.waitForResponse((res) => res.request().method() === 'DELETE', { timeout: 5000 }).catch(() => {});
       releaseDelA();
       await landed;
-      await pua.waitForFunction(() => ORGCHART_CREATED.length === 3, null, { timeout: 5000 }).catch(() => {});
+      // A swallowed timeout still fails: the check below asserts the same state.
+      await pua.waitForFunction(() => /Remove these 3 agents/.test(document.getElementById('orgchart-undo-go').textContent), null, { timeout: 5000 }).catch(() => {});
       const ask = await pua.evaluate(() => ({ created: ORGCHART_CREATED.length, asking: !document.getElementById('orgchart-undo-go').hidden,
-        count: document.getElementById('orgchart-count').textContent }));
+        go: document.getElementById('orgchart-undo-go').textContent, count: document.getElementById('orgchart-count').textContent }));
       await pua.click('#orgchart-undo-keep');
       const kept = await pua.evaluate(() => ({ undo: !document.getElementById('orgchart-undo').hidden ? document.getElementById('orgchart-undo').textContent : null,
         count: document.getElementById('orgchart-count').textContent }));
-      check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER: the ask stays as drawn, and Keep them then offers only the 3 still on the board',
-        deletesA === 4 && ask.asking && ask.created === 3 && !/before you left/.test(ask.count)
+      check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER: the open ask is redrawn for the 3 still on the board, and so is Keep them',
+        deletesA === 4 && ask.asking && ask.created === 3 && /Remove these 3 agents/.test(ask.go) && /these 3 agents, the ones this import made/.test(ask.count)
         && /remove these 3 agents/.test(kept.undo || '') && /Removed 4 of 7 before you left/.test(kept.count), JSON.stringify([deletesA, ask, kept]));
     } else check('#4688 UNDO AGAIN BEFORE THE OLD ANSWER: the panel offers a file', false);
     await pua.close();

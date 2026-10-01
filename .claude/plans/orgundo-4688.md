@@ -88,3 +88,13 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
   Keep them then offers 3 with "Removed 4 of 7 before you left".
 - NITs taken: the ORGCHART_CREATED comment names the expiry; the Remove handler's comment no longer says a left run
   "paints nothing".
+
+## Iteration 4 (Sonnet): two warnings, fixed
+- An Undo ask open when a left run's answer lands kept naming the 7 while Remove acted on 3. The open ask is now
+  drawn again from the updated list (orgchartUndoAsk). Found while fixing it: an ask still CHECKING matched its plans
+  to the list by index, and the list could shrink under the await. The ask now keeps the list it checked and starts
+  over if that list changed; a left run does not paint over a check. A removal run already under way is left alone.
+  UNDO AGAIN BEFORE THE OLD ANSWER now asserts the redrawn ask ("Remove these 3 agents").
+- The in-place paint does not check that the panel is open; a hidden panel is painted, harmlessly. Said at the code.
+- NITs taken: the leave-rule comments name ORGCHART_UNDO_KEEP_MS; the late-create idle comment matches its
+  condition; the Undo result carries msg: '' like the other writers.
