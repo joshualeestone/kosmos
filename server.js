@@ -13690,10 +13690,10 @@ const server = http.createServer(async (req, res) => {
            agent into the first: its posts and reports would land as the local agent. Refused whatever the spelling,
            since even the same spelling would be two runtimes behind one identity. A REMOVED agent counts too: its plist
            and folder are kept so Restore can bring it back under the same key. Its weakest point: the created list
-           answers [] when it cannot read the LaunchAgents folder or a job, or in an inconsistent sandbox, so this check
-           fails OPEN then: no worse than before #4845, and the running-pane check above still stands. */
+           answers [] when it cannot read the LaunchAgents folder or a job, in an inconsistent sandbox, or on Windows (no
+           created source there), so this check fails OPEN then: no worse than before #4845, and the running-pane check above still stands. */
         if (require('./engine/status').createdKeys().includes(key)) {
-          sendJson(res, 409, { issued: false, because: `an agent called ${key} was created on this computer, and a token for ${name} would be filed under the same name` });
+          sendJson(res, 409, { issued: false, because: `an agent called ${key} was created on this computer, and a token for ${name} would be filed under the same name; choose another name, or delete that agent first to free it` });
           return;
         }
         // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.

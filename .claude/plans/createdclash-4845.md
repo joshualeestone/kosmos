@@ -44,3 +44,8 @@ created list skipped it, so a remote token could be issued under its key and Res
 now includes removed agents (createdroster includeRemoved), with a test. Nits taken: the #4763 comment no longer says a
 created row's name can be re-issued; every fail-open case is listed; createdroster's docblock says it lists running
 agents too. Not taken: naming the display name in the refusal (the key is what collides).
+Round 2 (blind): no blocker, no should-fix. CONVERGED. Four mutants on copies all red (the server check, the option
+forced off, the removed list read under the option, the board's removed skip bypassed); the board's own list is
+unchanged; a full delete frees the key (delete-leftover trashes the plist and folder). Nits taken: sendertoken.js's
+comment names #4845; Windows added to the fail-open list; the refusal says how to free the name; the test's restore
+says what it restores.

@@ -460,7 +460,8 @@ function resolve(token, roster) {
        #4763: safeKey is lossy ("Mara" and "mara", "ma.ra" and "mara" share a key, and so one token file), so two
        running agents of ours can both match. Taking the first let one agent's token speak as the other. With
        more than one, NO agent is resolved: the answer is the same as a token we never issued, never a guess.
-       Creating an agent and POST /api/agent-token refuse a key clash with a RUNNING pane agent; this covers a
+       Creating an agent and POST /api/agent-token refuse a key clash with a RUNNING pane agent (and, since #4845, the
+       token route refuses any created agent's key at issuance); this covers a
        clash they cannot see (a session made outside Kosmos, or two made while one was stopped and now both
        running). It covers ONLY two ROWS: with one of them stopped, or with a remote twin whose paneless row
        dedupes against the pane row, there is one row and the other's token (same file, no owner field)

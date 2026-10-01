@@ -316,7 +316,9 @@ test('#4845: POST /api/agent-token refuses a name whose key belongs to an agent 
     assert.equal(removedKey.status, 409, 'a removed (restorable) agent\'s key was issued a token');
     assert.equal(asked && asked.includeRemoved, true, 'the route did not ask for removed agents');
   } finally {
-    // Back to the real source (the launch folder is this file's sandbox, so it lists nothing real).
+    // Back to the real source the server wires (createdroster.make() off Windows), not the exact function it held: the
+    // two behave the same today; if setup ever wires another source, this restore must follow it. The launch folder
+    // is this file's sandbox, so it lists nothing real.
     status.setCreatedSource(process.platform === 'win32' ? null : require('./engine/createdroster').make());
   }
 });
