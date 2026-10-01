@@ -57,7 +57,21 @@
 #                                     # fetching the stale live one. Run promote-channel.sh (#2036,
 #                                     # which runs the experience + agent-spawn gates and refreshes
 #                                     # the alias LOCALLY) and COMMIT latest.json first; this is the
-#                                     # deploy that publishes it.
+#                                     # deploy that publishes it. The staging checks
+#                                     # (check_staging_not_stale, #4819) run here too: a checkout committing an
+#                                     # older staging than live is refused in this mode as
+#                                     # well, since the deploy would move staging back.
+#   KOSMOS_STAGING_ROLLBACK=<version> tools/deploy-site.sh --publish
+#                                     # deploy the committed staging pointer (naming <version>) over
+#                                     # live on purpose (#4819): a staging ROLLBACK to an older
+#                                     # version, the same version with different bytes, or replacing
+#                                     # a live staging pointer that names no build. Without it each
+#                                     # of those is refused. Pass it inline on the one command, never
+#                                     # export it: it is a decision about one deploy. NOT caught: a
+#                                     # checkout still committing the newer staging AFTER a deliberate
+#                                     # rollback deploys it again (it reads as a publish not yet
+#                                     # deployed); sync the site checkout after a staging rollback.
+#   KOSMOS_DEPLOY_RETRY_SLEEP=<s>     # seconds between retries of a live read (default 3; tests use 0).
 #
 # NOTE ON THE SHELL: this is #!/bin/sh but sources two #!/bin/bash libraries (site-deploy.sh,
 # pkg-inputs.sh) that use `local` and ${var:0:2} substrings, so it needs a bash-compatible /bin/sh.
@@ -442,6 +456,165 @@ else
   # trailing-newline difference cannot cause a false refusal.) A promote takes the branch above.
   [ "$CJ" = "$LJ" ] || { echo "deploy-site: the checkout's COMMITTED latest.json differs from LIVE -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer pointer. Sync $SITE to the current release, then retry."; exit 1; }
 fi
+# >>> staged Mac carry (#4819) -- tools/test-deploy-site-staged-mac-4819.sh extracts and tests this block.
+# The STAGED Mac build: the tarball the committed latest-staging.json names, and its .sha256. Both
+# are gitignored and carried by the export's dist/*.tar.gz and dist/*.tar.gz.sha256 globs, so a
+# deploy from a checkout without them dropped them while the pointer still named them: 2026-09-30
+# 19:52, a site deploy left 0.7.14 staging answering 404, and every staging install and update
+# failed until the site was redeployed from the cut box. Carry it rather than only refuse: the
+# local copy when it is the committed pointer's bytes (that is how a redeploy from the cut box
+# restores a dropped one), else the copy live serves now, fetched and checked against the served
+# .sha256 AND the committed pointer's sha. Refuse when neither exists, naming the tarball, unless
+# the staged build is not newer than prod (superseded, as #3600 decides for Windows): then warn and
+# carry nothing, since nobody will promote it. Two exceptions refuse instead: a local copy (tarball or
+# .sha256) with other bytes, which the glob would ship unchecked, and a deploy that would MOVE the live
+# staging pointer to that build (the skip would then break staging on its own). A superseded build that IS present
+# (locally or live) is still carried and checked.
+# Sets STAGED_ART, empty when nothing extra is carried.
+# Before any fetch, check_staging_not_stale refuses: a committed staging pointer that is malformed (a
+# name that is not a bare kosmos-<version>-arm64.tar.gz, or no 64-hex sha); one OLDER than the
+# pointer live serves, or none while live serves one (deploying it would move staging back and drop
+# the newer tarball, the same incident one version over); the same version as live with different
+# bytes; and one that differs from a live pointer naming no build.
+# A deliberate change (a ROLLBACK via publish-staging-pointer.sh, the same version re-cut, a broken
+# live pointer replaced) passes only with KOSMOS_STAGING_ROLLBACK=<the committed version>.
+#
+# One read of a live file: sets _CSM_CODE (the HTTP status, 000 when the request never completed)
+# and _CSM_BODY. Only a 404 means absent; anything else that is not a 200 is "could not check".
+# Its temp, and the sidecar temp below, sit in the site-fetch helpers' _FETCH_TMP_P / _FETCH_TMP_S
+# while in flight, so the EXIT/INT/TERM trap removes them; nothing else is in flight at those points.
+# Three attempts, retrying only a transport failure (000), a 429 or a 5xx; a 404 is an answer ("absent"),
+# unlike the artifact fetches, which retry any failure.
+_csm_read() {  # <url>
+  _FETCH_TMP_P=$(mktemp "${TMPDIR:-/tmp}/deploy-site-staged.XXXXXX") || { _FETCH_TMP_P=""; echo "deploy-site: could not make a temp file to read $1 -- stopping (#4819)"; exit 1; }
+  for _csm_try in 1 2 3; do
+    _CSM_CODE=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o "$_FETCH_TMP_P" -w '%{http_code}' "$1" 2>/dev/null) || _CSM_CODE=000
+    case "$_CSM_CODE" in ''|*[!0-9]*) _CSM_CODE=000 ;; esac
+    case "$_CSM_CODE" in 000|429|5[0-9][0-9]) [ "$_csm_try" = 3 ] || sleep "$_CSM_SLEEP" ;; *) break ;; esac
+  done
+  _CSM_BODY=$(cat "$_FETCH_TMP_P" 2>/dev/null) || _CSM_BODY=""; rm -f "$_FETCH_TMP_P"; _FETCH_TMP_P=""
+}
+# Seconds between retries of a live read; a value that is not a whole number falls back to 3.
+case "${KOSMOS_DEPLOY_RETRY_SLEEP:-3}" in ''|*[!0-9]*) _CSM_SLEEP=3 ;; *) _CSM_SLEEP=${KOSMOS_DEPLOY_RETRY_SLEEP:-3} ;; esac
+_csm_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p'; }
+# The committed pointer's name and sha, checked before either is used in a path, a URL or a
+# comparison. Sets _csm_art, _csm_sha and _csm_show from _csm_ptr; refuses on anything malformed.
+_csm_validate_committed() {
+  _csm_art=$(ptr_artifact "$_csm_ptr"); _csm_sha=$(ptr_sha "$_csm_ptr")
+  _csm_show=$(printf '%s' "$_csm_art" | tr -cd '[:print:]')
+  case "$_csm_art" in
+    kosmos-[0-9]*-arm64.tar.gz) : ;;
+    *) echo "deploy-site: the committed latest-staging.json names '${_csm_show:-nothing}', not a kosmos-<digit>...-arm64.tar.gz -- refusing; repair the committed pointer (publish-staging-pointer.sh) and retry (#4819)"; exit 1 ;;
+  esac
+  # Second check, not redundant: the glob's * above also matches '/' and '..'.
+  case "$_csm_art" in *[!A-Za-z0-9._-]*|*..*) echo "deploy-site: the committed latest-staging.json names '$_csm_show', which is not a bare file name -- refusing (#4819)"; exit 1 ;; esac
+  case "$_csm_sha" in ''|*[!0-9a-f]*) echo "deploy-site: the committed latest-staging.json names $_csm_art without a lowercase hex sha256 -- refusing (#4819)"; exit 1 ;; esac
+  [ ${#_csm_sha} -eq 64 ] || { echo "deploy-site: the committed latest-staging.json's sha256 for $_csm_art is not 64 characters -- refusing (#4819)"; exit 1; }
+}
+# Runs BEFORE any artifact is fetched, so a stale checkout is refused before it downloads anything
+# or touches the shared dist/.
+check_staging_not_stale() {
+  _csm_ptr=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_ptr=""
+  [ -z "$_csm_ptr" ] || _csm_validate_committed
+  _csm_read "$HOST/dist/latest-staging.json"
+  case "$_CSM_CODE" in
+    200) _csm_live=$_CSM_BODY
+         [ -n "$_csm_live" ] || { echo "deploy-site: the live latest-staging.json answered 200 with nothing in it -- refusing; that is neither a pointer nor absent (#4819)"; exit 1; } ;;
+    404) _csm_live="" ;;
+    *) echo "deploy-site: could not read the live latest-staging.json (HTTP $_CSM_CODE) -- refusing; without it this cannot tell whether the checkout's staging pointer is stale (#4819)"; exit 1 ;;
+  esac
+  # Whether this deploy changes the staging pointer users read; carry_staged_mac's superseded skip
+  # applies only when it does not (a skip that MOVES the pointer would break staging on its own).
+  # (Bytes differ, not "build differs": a pointer rewritten with the same build also counts.)
+  _CSM_MOVES=""; [ "$_csm_live" = "$_csm_ptr" ] || _CSM_MOVES=1
+  if [ -n "$_csm_live" ] && [ -z "$_csm_ptr" ]; then
+    echo "deploy-site: live serves a latest-staging.json but $H commits none -- refusing; the deploy would unpublish staging. Sync $SITE to the current release, then retry. (Unpublishing staging on purpose has no path through this script: point staging at a build instead, publish-staging-pointer.sh.) (#4819)"; exit 1
+  fi
+  if [ -n "$_csm_live" ] && [ "$_csm_live" != "$_csm_ptr" ]; then
+    # Printable-only: the live pointer comes from outside this repo and its version is printed below.
+    _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")" | tr -cd '[:print:]'); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")" | tr -cd '[:print:]')
+    if [ -z "$_csm_lv" ]; then
+      if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
+        echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: replacing a live latest-staging.json that names no kosmos-<version>-arm64.tar.gz, on purpose (#4819)"
+        return 0
+      fi
+      echo "deploy-site: the live latest-staging.json differs from the committed one and names no kosmos-<version>-arm64.tar.gz (it begins: $(printf '%s' "$_csm_live" | tr -cd '[:print:]' | cut -c1-120)) -- refusing; which is newer cannot be told. To replace it with the committed staging $_csm_cv, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
+    fi
+    # Same version, different bytes (a same-version re-cut): which build is newer cannot be told.
+    if [ "$_csm_lv" = "$_csm_cv" ] && [ "$(ptr_sha "$_csm_live")" != "$(ptr_sha "$_csm_ptr")" ]; then
+      if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
+        echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: replacing the live $_csm_lv staging build with the committed one of the same version, on purpose (#4819)"
+      else
+        echo "deploy-site: live staging and $H both name $_csm_lv but different bytes (sha256 differs) -- refusing; this checkout may hold an older build of that version. Sync $SITE to the current release and retry, or, to deploy the committed build on purpose, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
+      fi
+    fi
+    # (Equal versions never reach the next check: it needs them to differ.)
+    if [ "$_csm_lv" != "$_csm_cv" ] && [ "$(printf '%s\n%s\n' "$_csm_lv" "$_csm_cv" | sort -V | tail -1)" = "$_csm_lv" ]; then
+      if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
+        echo "deploy-site: KOSMOS_STAGING_ROLLBACK=$_csm_cv: rolling staging back from $_csm_lv to $_csm_cv on purpose (#4819)"
+      else
+        echo "deploy-site: live staging is $_csm_lv but $H commits staging $_csm_cv -- refusing; the deploy would move staging back and drop the newer build. Sync $SITE to the current release and retry, or, for a deliberate staging rollback, re-run with KOSMOS_STAGING_ROLLBACK=$_csm_cv (#4819)"; exit 1
+      fi
+    fi
+  fi
+}
+carry_staged_mac() {
+  STAGED_ART=""
+  _csm_ptr=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_ptr=""
+  [ -n "$_csm_ptr" ] || { echo "deploy-site: no committed dist/latest-staging.json at $H, so no staged Mac build to carry (#4819)"; return 0; }
+  _csm_validate_committed
+  # The staged build is the prod one (a promote, or staging not ahead): fetched and checked above.
+  [ "$_csm_art" != "$ART" ] || { echo "deploy-site: the staged Mac build is the prod one ($ART), already carried (#4819)"; return 0; }
+  # Superseded: the staged version (from its NAME, as for Windows) is not newer than prod's.
+  _csm_v=$(_csm_version "$_csm_art"); _csm_pv=$(_csm_version "$ART")
+  _csm_superseded=""
+  [ -z "$_csm_pv" ] || [ "$(printf '%s\n%s\n' "$_csm_v" "$_csm_pv" | sort -V | tail -1)" != "$_csm_pv" ] || _csm_superseded=1
+  if [ -f "$SITE/dist/$_csm_art" ] && [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ]; then
+    # The bytes are the pointer's build. A missing or wrong local .sha256 is rewritten from them
+    # (right after a cut, on the cut box, live may not serve the pair yet).
+    if [ "$(awk '{print $1; exit}' "$SITE/dist/$_csm_art.sha256" 2>/dev/null)" != "$_csm_sha" ]; then
+      _FETCH_TMP_S=$(mktemp "$SITE/dist/.$_csm_art.sha256.XXXXXX") || { _FETCH_TMP_S=""; echo "deploy-site: could not make a temp file in $SITE/dist -- refusing (#4819)"; exit 1; }
+      # 644 like the sidecars curl writes: mktemp makes 0600, and mv keeps it.
+      printf '%s  %s\n' "$_csm_sha" "$_csm_art" > "$_FETCH_TMP_S" && chmod 644 "$_FETCH_TMP_S" && mv -f "$_FETCH_TMP_S" "$SITE/dist/$_csm_art.sha256" \
+        || { rm -f "$_FETCH_TMP_S"; _FETCH_TMP_S=""; echo "deploy-site: could not write $SITE/dist/$_csm_art.sha256 -- refusing (#4819)"; exit 1; }
+      _FETCH_TMP_S=""
+      echo "deploy-site: wrote $SITE/dist/$_csm_art.sha256 from the verified local bytes (#4819)"
+    fi
+    echo "deploy-site: carrying the staged Mac build $_csm_art from $SITE/dist/ (its bytes match the committed latest-staging.json) (#4819)"
+  else
+    echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art matching the committed latest-staging.json; fetching the one live serves (#4819)"
+    # Read the served sidecar FIRST and refuse before anything is fetched when it names other
+    # bytes: fetch_verified renames what it fetched over the local copy, so a refusal after it
+    # would leave the wrong build in dist/ under the real name.
+    _csm_read "$HOST/dist/$_csm_art.sha256"
+    case "$_CSM_CODE" in
+      200) _csm_served=$(printf '%s\n' "$_CSM_BODY" | awk '{print $1; exit}')
+           [ -n "$_csm_served" ] || { echo "deploy-site: live answered 200 for $_csm_art.sha256 with no checksum in it -- refusing; that is neither a checksum nor absent (#4819)"; exit 1; } ;;
+      404) _csm_served="" ;;
+      *) echo "deploy-site: could not read the live $_csm_art.sha256 (HTTP $_CSM_CODE) -- refusing; whether live serves the staged Mac build is unknown, and $SITE/dist/ has no copy matching the committed pointer (#4819)"; exit 1 ;;
+    esac
+    # Superseded and served nowhere: skip. A served sidecar that names other bytes still refuses
+    # below, superseded or not: that is live disagreeing with the committed pointer.
+    if [ -z "$_csm_served" ] && [ -n "$_csm_superseded" ]; then
+      # A local copy here has OTHER bytes (a matching one was carried above), and the export's glob
+      # would ship it unchecked under the name the pointer names.
+      [ ! -e "$SITE/dist/$_csm_art" ] && [ ! -e "$SITE/dist/$_csm_art.sha256" ] || { echo "deploy-site: $SITE/dist/ holds a $_csm_art (or its .sha256) that is not the build the committed latest-staging.json names, and the export would ship it unchecked -- refusing; move it aside (the build is superseded, so nothing needs it) and retry (#4819)"; exit 1; }
+      [ -z "${_CSM_MOVES:-}" ] || { echo "deploy-site: this deploy would publish a staging pointer naming $_csm_art, which neither $SITE/dist/ nor live has -- refusing; staging-channel installs would fail on it. Deploy from a machine that has the tarball, or point staging at a served build (tools/publish-staging-pointer.sh) (#4819)"; exit 1; }
+      echo "deploy-site: WARNING (#4819): latest-staging.json names $_csm_art, which is not newer than the prod build $ART; $SITE/dist/ has no copy of it and live serves no $_csm_art.sha256. It is superseded, so nothing is carried for it. Staging-channel installs ALREADY fail on it (the pointer names a tarball nobody serves) and this deploy does not change that; to fix them now, point staging at the prod build (tools/publish-staging-pointer.sh) and deploy." >&2
+      return 0
+    fi
+    [ -n "$_csm_served" ] || { echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art and live does not serve $_csm_art.sha256 either -- refusing; deploying would drop the build latest-staging.json names. Deploy from the machine that cut it (its dist/ has the bytes), or after that machine has published it (#4819)"; exit 1; }
+    [ "$_csm_served" = "$_csm_sha" ] || { echo "deploy-site: live serves a $_csm_art.sha256 (or a page that is not a checksum) that does not name the build the committed latest-staging.json names -- refusing before fetching, so $SITE/dist/ is untouched. If the build was re-cut under the same version and not yet deployed, deploy from the machine that cut it (its dist/ has the bytes) (#4819)"; exit 1; }
+    fetch_verified "$HOST/dist/$_csm_art" "$SITE/dist/$_csm_art"
+    # fetch_verified reads the served .sha256 again itself. Only if it changed between that read
+    # and the one above (a concurrent publish) does this fire, and then the newer served pair is
+    # already in dist/; the refusal still stops the deploy.
+    [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ] || { echo "deploy-site: the served $_csm_art is not the build the committed latest-staging.json names (sha differs) -- refusing; deploying would point staging at bytes nobody verified (#4819)"; exit 1; }
+  fi
+  STAGED_ART="$_csm_art"
+}
+# <<< staged Mac carry (#4819)
+check_staging_not_stale
 fetch_verified "$HOST/dist/$ART" "$SITE/dist/$ART"   # the artifact and its .sha256 (#4745)
 verify_sha "$SITE/dist/$ART" "$HOST/dist/$ART.sha256"
 # For a promote, pin the committed pointer's advertised sha to the bytes we just fetched + verified
@@ -497,15 +670,19 @@ else
   fetch_verified "$HOST/dist/kosmos-arm64.tar.gz" "$SITE/dist/kosmos-arm64.tar.gz"   # + .sha256 (#4745)
   verify_sha "$SITE/dist/kosmos-arm64.tar.gz"   "$HOST/dist/kosmos-arm64.tar.gz.sha256"
 fi
+carry_staged_mac
 # Historical version tarballs (kosmos-0.6.08-arm64.tar.gz ..) are gitignored rollback URLs and are
 # DELIBERATELY OUT OF SCOPE here: rollback-only, not new-install-critical. A clean checkout drops
 # them (breaking a rollback link, not a new install). There is no manifest of the full set, so they
 # are not enumerable here; if rollback coverage is ever needed, fetch them the same way.
 
-echo "deploy-site: fetched and verified the current live GITIGNORED artifacts into $SITE/dist/"
+echo "deploy-site: fetched and verified the current live GITIGNORED artifacts into $SITE/dist/${STAGED_ART:+ (the staged Mac build $STAGED_ART: see above for where it came from)}"
 # ⚠️ This wrote into the SHARED site checkout's dist/ (also the live board, also shared with
-# tools/release.sh), but ONLY gitignored artifacts (the tarball, pkg triple, tmux, alias) -- each
-# sha-verified against live, and none of them tracked, so `git status` stays clean and no later
+# tools/release.sh), but ONLY gitignored artifacts (the tarball, pkg triple, tmux, alias, and the
+# staged Mac build when it was fetched rather than already present, and its .sha256 when it was
+# rewritten from present bytes, #4819) -- each sha-verified (against live; a staged Mac build
+# already in dist/ against the committed pointer, its rewritten sidecar from those bytes), and none of
+# them tracked, so `git status` stays clean and no later
 # `git commit -a` can sweep them up. It is still not side-effect-free on the filesystem, so do not
 # run a --publish concurrently with a release cut populating the same dist/.
 
@@ -563,6 +740,11 @@ if [ -n "$WIN_STAGED" ]; then
   [ -f "$EXPORT/dist/$WIN_STAGED.sha256" ] || { echo "deploy-site: the export has no $WIN_STAGED.sha256 -- refusing (the staged Windows build latest-win-staging.json names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
   [ -f "$EXPORT/dist/latest-win-staging.json" ] || { echo "deploy-site: the export has no latest-win-staging.json -- refusing (the staged Windows build it names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
 fi
+# The STAGED Mac build (#4819): carried above from dist/, so the export must hold it and its checksum.
+if [ -n "$STAGED_ART" ]; then
+  [ -f "$EXPORT/dist/$STAGED_ART" ] || { echo "deploy-site: the export did not carry the staged Mac build $STAGED_ART -- refusing (latest-staging.json names it; dropping it is what broke 0.7.14 staging, #4819)"; rm -rf "$EXPORT"; exit 1; }
+  [ -f "$EXPORT/dist/$STAGED_ART.sha256" ] || { echo "deploy-site: the export did not carry the checksum $STAGED_ART.sha256 -- refusing (the installer verifies the staged build against it, #4819)"; rm -rf "$EXPORT"; exit 1; }
+fi
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 4) the .vercelignore guard, exactly as the release runs it ---------------
@@ -570,7 +752,7 @@ DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-sit
 [ -z "$DROP" ] || { echo "deploy-site: the export .vercelignore would drop $DROP -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 if [ "$PUBLISH" != 1 ]; then
-  echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART), tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy (or --promote to publish a moved pointer)."
+  echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART)${STAGED_ART:+, the staged Mac build ($STAGED_ART)}, tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy (or --promote to publish a moved pointer)."
   rm -rf "$EXPORT"   # a dry run leaves no temp dir behind; the summary above is the artifact
   exit 0
 fi
@@ -622,6 +804,28 @@ for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz; do
   served_matches "$f"        "$SITE/dist/$f"
   served_matches "$f.sha256" "$SITE/dist/$f.sha256"
 done
+# ...and the staged Mac build, the pair the 2026-09-30 deploy dropped (#4819).
+if [ -n "$STAGED_ART" ]; then
+  served_matches "$STAGED_ART"        "$SITE/dist/$STAGED_ART"
+  served_matches "$STAGED_ART.sha256" "$SITE/dist/$STAGED_ART.sha256"
+fi
+# ...and the served staging pointer is the committed one, as for Windows below (#4819).
+_csm_committed=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_committed=""
+if [ -z "$_csm_committed" ]; then
+  # None committed: live must serve none either (the pre-deploy check refused a live one).
+  _csm_read "$HOST/dist/latest-staging.json"
+  [ "$_CSM_CODE" = 404 ] || { echo "deploy-site: $H commits no latest-staging.json but live answers HTTP $_CSM_CODE for it after the deploy -- investigate (#4819)."; exit 1; }
+else
+  # A mismatch is read again twice before it fails: an edge can serve the old pointer briefly.
+  for _csm_ptry in 1 2 3; do   # not _csm_try: _csm_read's own loop uses that name
+    _csm_read "$HOST/dist/latest-staging.json"   # itself three tries on a transport failure
+    # A 404 is the old answer when there was no pointer before: retried like a mismatch.
+    case "$_CSM_CODE" in 200|404) : ;; *) echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1 ;; esac
+    [ "$_CSM_CODE" != 200 ] || [ "$_CSM_BODY" != "$_csm_committed" ] || break
+    [ "$_csm_ptry" = 3 ] || sleep "$_CSM_SLEEP"
+  done
+  [ "$_CSM_CODE" = 200 ] && [ "$_CSM_BODY" = "$_csm_committed" ] || { echo "deploy-site: the served latest-staging.json is not the committed one (HTTP $_CSM_CODE) -- the deploy already ran; investigate (#4819)."; exit 1; }
+fi
 # the served latest.json (tracked, committed) must still name $ART after the deploy.
 sj=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: could not re-read the served latest.json after deploy -- investigate."; exit 1; }
 printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest.json no longer names $ART after deploy -- investigate."; exit 1; }
