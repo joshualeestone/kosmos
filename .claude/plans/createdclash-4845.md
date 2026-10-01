@@ -15,11 +15,12 @@ off main (independent of #4841).
 
 ## What finished looks like
 The token route refuses (409, nothing written) any name whose key belongs to an agent created on this computer,
-running or not, whatever the spelling.
+running or not, removed but restorable included, whatever the spelling.
 
 ## The change
 - engine/status.js: createdKeys(), the created agents' keys from the same source the board's created rows use
-  (createdroster on a Mac; [] on Windows or when none is set).
+  (createdroster on a Mac; [] on Windows or when none is set), asking it to include removed agents.
+- engine/createdroster.js: an includeRemoved call option (the removed list is then not read).
 - server.js POST /api/agent-token: after the running-pane check, refuse when createdKeys() holds the key.
 
 ## Decisions
@@ -27,11 +28,19 @@ running or not, whatever the spelling.
    name (would need every key-keyed record migrated, against the board's identity model).
 2. Refuse every spelling, including the created agent's own: a remote token under a local agent's key is two
    runtimes behind one identity either way. The running-pane check's same-spelling exemption is left as it was.
-WEAKEST PREMISE: the created list reads launchd plists and answers [] when it cannot read them, so this check fails
-OPEN then (the running-pane check still stands). Also not covered: a clash that already exists (issued before this),
+WEAKEST PREMISE: the created list answers [] when it cannot read the LaunchAgents folder or a job, or in an
+inconsistent sandbox, so this check fails OPEN then: no worse than before, and the running-pane check still stands.
+(A later change could make createdroster say "unreadable" so the route can 503 like its roster check.) Also not covered: a clash that already exists (issued before this),
 and a Windows board (no created source there).
 
 ## Tests (server.remote-bind-1112.test.js)
 - A created agent "kip4845": both "Kip4845" and "kip4845" are refused 409 with the reason, and nothing is written.
 - Control: with no created agent under the key, a name is issued (200).
 - Mutant: the check removed turns the test red. With server.test.js, createdroster and sendertoken tests: 414/414.
+
+## Review
+Round 1 (blind): no blocker, one should-fix, taken: a REMOVED agent keeps its plist and folder for Restore, and the
+created list skipped it, so a remote token could be issued under its key and Restore would then merge them. The check
+now includes removed agents (createdroster includeRemoved), with a test. Nits taken: the #4763 comment no longer says a
+created row's name can be re-issued; every fail-open case is listed; createdroster's docblock says it lists running
+agents too. Not taken: naming the display name in the refusal (the key is what collides).

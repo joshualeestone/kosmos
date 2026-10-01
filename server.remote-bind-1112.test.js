@@ -309,6 +309,12 @@ test('#4845: POST /api/agent-token refuses a name whose key belongs to an agent 
       assert.match(j.because, /kip4845 was created on this computer/);
       assert.equal(sendertoken.live('kip4845').length, before, 'the refusal still wrote a token');
     }
+    // #4845 review 1: the route asks the source to include REMOVED agents (Restore brings them back under the key).
+    let asked = null;
+    status.setCreatedSource((exclude, callOpts) => { asked = callOpts; return callOpts && callOpts.includeRemoved ? ['rue4845'] : []; });
+    const removedKey = await post('Rue4845');
+    assert.equal(removedKey.status, 409, 'a removed (restorable) agent\'s key was issued a token');
+    assert.equal(asked && asked.includeRemoved, true, 'the route did not ask for removed agents');
   } finally {
     // Back to the real source (the launch folder is this file's sandbox, so it lists nothing real).
     status.setCreatedSource(process.platform === 'win32' ? null : require('./engine/createdroster').make());
