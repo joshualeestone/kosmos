@@ -336,9 +336,7 @@ run_deploy "$S15" "$L15" --promote
 { [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && cmp -s "$L15/dist/latest-staging.json" "$T/live-staging-before" && [ ! -e "$S15/dist/$NEWART" ] \
   && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L15/dist/latest.json")" = "$OLD" ]; } \
   && pass "mac staged: a checkout behind LIVE's staging refuses before any fetch or deploy, LIVE untouched" || bad "mac staged stale checkout (rc=$RC) out=$out"
-export KOSMOS_STAGING_ROLLBACK="$STG"
-run_deploy "$S15" "$L15" --promote
-unset KOSMOS_STAGING_ROLLBACK
+KOSMOS_STAGING_ROLLBACK="$STG" run_deploy "$S15" "$L15" --promote   # inline, as the usage says
 { [ "$RC" = 0 ] && has "$out" "rolling staging back from 0.6.33 to $STG" && has "$(cat "$L15/dist/latest-staging.json")" "$STGART"; } \
   && pass "mac staged: KOSMOS_STAGING_ROLLBACK=$STG deploys the deliberate rollback" || bad "mac staged rollback (rc=$RC) out=$out"
 

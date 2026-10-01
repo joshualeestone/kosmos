@@ -500,7 +500,7 @@ check_staging_not_stale() {
   fi
   if [ -n "$_csm_live" ] && [ "$_csm_live" != "$_csm_ptr" ]; then
     # Printable-only: the live pointer comes from outside this repo and its version is printed below.
-    _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")" | tr -cd '[:print:]'); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")")
+    _csm_lv=$(_csm_version "$(ptr_artifact "$_csm_live")" | tr -cd '[:print:]'); _csm_cv=$(_csm_version "$(ptr_artifact "$_csm_ptr")" | tr -cd '[:print:]')
     [ -n "$_csm_cv" ] || { echo "deploy-site: the committed latest-staging.json at $H names no kosmos-<version>-arm64.tar.gz -- refusing; repair the committed pointer (publish-staging-pointer.sh) and retry (#4819)"; exit 1; }
     if [ -z "$_csm_lv" ]; then
       if [ "${KOSMOS_STAGING_ROLLBACK:-}" = "$_csm_cv" ]; then
@@ -785,7 +785,9 @@ if [ -n "$STAGED_ART" ]; then
 fi
 # ...and the served staging pointer is the committed one, as for Windows below (#4819).
 if _csm_committed=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) && [ -n "$_csm_committed" ]; then
-  _csm_served_ptr=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest-staging.json") || { echo "deploy-site: could not re-read the served latest-staging.json after deploy -- investigate."; exit 1; }
+  _csm_read "$HOST/dist/latest-staging.json"   # three tries, like the pre-deploy reads
+  [ "$_CSM_CODE" = 200 ] || { echo "deploy-site: could not re-read the served latest-staging.json after deploy (HTTP $_CSM_CODE) -- the deploy already ran; re-check it (#4819)."; exit 1; }
+  _csm_served_ptr=$_CSM_BODY
   [ "$_csm_served_ptr" = "$_csm_committed" ] || { echo "deploy-site: the served latest-staging.json is not the committed one -- investigate (#4819)."; exit 1; }
 fi
 # the served latest.json (tracked, committed) must still name $ART after the deploy.

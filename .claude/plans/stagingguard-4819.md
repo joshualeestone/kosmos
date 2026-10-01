@@ -2,6 +2,8 @@
 
 Card: joshualeestone/kosmos#4819 (claimed: barondraxum).
 
+("Review N" below means challenge-loop iteration N of this branch's pre-PR review.)
+
 ## What happened
 2026-09-30 19:52 CDT, `tools/deploy-site.sh --publish` ran from a checkout whose dist/ had no
 `kosmos-0.7.14-arm64.tar.gz`. The export carries tarballs only by the `dist/*.tar.gz` glob from the
@@ -85,6 +87,10 @@ staged WINDOWS build; it had no Mac twin.
   is the card's ask 2 (one artifact list both paths read), recorded on the card as the follow-up.
 - Only the arm64 staged build: the pointer names one artifact.
 
+- A local copy whose bytes match the committed pointer is deployed even if live serves other bytes
+  under the same name while its pointer is unchanged (review 12). It can only put back the bytes the
+  committed pointer names, so it is accepted rather than guarded.
+
 ## Weakest premise
 That the committed `latest-staging.json` is the only Mac staging pointer users follow. If a staging
 pointer were ever served by redirect (as the Windows ones are, R2), this would carry the committed
@@ -119,7 +125,7 @@ statically (measured: 200 application/json from installkosmos.com).
   arm 15 red); the post-deploy pointer comparison made tautological (e2e arm 16 red). Review 6: the
   unparsable-pointer opt-in disabled (st6r red). Review 7: the same-version guard disabled (st7 red). Review 8: no carry call
   (k and e2e 12-14, 17 red); the sidecar not written (g, g3 red); the stray-copy refusal disabled (s4 red). Review 11: one attempt instead of
-  three (st9 red).
+  three (st9 red). Review 12: the post-deploy pointer re-read now uses the same three-try reader.
   (A post-fetch pointer-sha check remains as a backstop. `fetch_verified` re-reads the served
   sidecar itself, so it fires only if the sidecar changed between the two reads, a concurrent
   publish; no test reaches it.)
