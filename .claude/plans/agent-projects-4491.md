@@ -192,3 +192,15 @@ nobody has ruled on a lead agent that sets up projects for others and does not w
 - It walked six Assigner cases (a maker alone, and with a second member; a person-added task, a goal with no tasks,
   a goal with only a closed task) and found the code does what this plan says in each.
 
+
+## Rebase onto main after slice 5a merged (2026-09-30 evening)
+- Conflict with main's #4583 (done on create, and the done notes) in server.js's create route, resolved to keep both:
+  the two asking notes (brief or done pending) need a member other than the maker (hasOthers); the note that a typed
+  done was not written is a fact and still reaches a maker alone (made.agents.length > 0). New test:
+  "a maker alone is not told to ask what done looks like either, and is still told when its done was not written"
+  (fails if the done ask is gated on any member instead of another member). 483 pass, 2 skipped across the project,
+  server-project and assigner tests.
+- Blind review of the resolution: no blocker, no should-fix. Nits, recorded for the PR: (1) doneNotWrittenNote says
+  "the person typed" even when an agent sent done with a raw request (neither CLI sends done; main words it this way
+  for any process caller); (2) an agent whose token no longer resolves now gets 403 on project create, where before
+  the create succeeded unnamed (matches the task verbs since slice 5; tested).
