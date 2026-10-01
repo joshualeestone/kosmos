@@ -184,3 +184,13 @@ Each must fail on the base (main before this branch) and pass here; run on a qui
 - Left-run repaint relying on box visibility: DEFERRED; the condition is in the code (box.hidden), no claim needed.
 - NIT taken: LEAVE DURING CREATE, REOPENED waits on the create having recorded rather than on a fixed 2.5 s margin
   alone. Code changed, so one more blind iteration runs.
+
+## Iteration 13 (Opus): one CONVENTION, fixed
+- A comment written by this loop ("only a clean removed answer counts") was falsified by iteration 11's onList; the
+  sentence is deleted rather than rewritten (the code states the rule).
+- NITs taken: when an in-place repaint hides a focused Undo (all removed), focus moves to Back, as the other two paths
+  do. Two-run case, stated: a run left, then a second Remove left before it reaches the agents the first removed,
+  drops the first run's answers (identity guard); the next watched run's /api/removed read counts them as done.
+- Deferred NITs: "will appear on your board in a moment" replayed by a restore up to 15 minutes later (the create's
+  own copy, unchanged); the expiry sentence replacing a create's fix-it message once (the fix-it stays true on the
+  agent's page).

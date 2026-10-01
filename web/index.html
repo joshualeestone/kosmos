@@ -48283,9 +48283,8 @@ document.getElementById('orgchart-undo-keep').addEventListener('click', () => {
 });
 
 /* #4688 review: an Undo the person left mid-run. The kept list must stop offering the agents this run already
-   removed, or the reopened panel would offer "remove these 7" for 3 that are gone. Only a clean `removed` answer
-   counts; anything else stays offered (asking the engine again is harmless). Changed only while the kept list is
-   still the one this run started from, so a newer batch is never touched. */
+   removed, or the reopened panel would offer "remove these 7" for 3 that are gone. Changed only while the kept list
+   is still the one this run started from, so a newer batch is never touched. */
 function orgchartUndoLeftMidRun(runList, todo, answers, onList) {
   if (ORGCHART_CREATED !== runList) return;
   // As the watched path: a clean `removed`, or (when the run got as far as reading it) on the removed list.
@@ -48308,8 +48307,11 @@ function orgchartUndoLeftMidRun(runList, todo, answers, onList) {
   if (!box || box.hidden || !ORGCHART_RESULT_SHOWN) return;
   const keep = document.getElementById('orgchart-undo-keep');
   if (ORGCHART_UNDO_BUSY) { if (keep && !keep.hidden) orgchartUndoListChanged(); return; }
-  if (document.getElementById('orgchart-undo').disabled) return;   // an ask still checking
+  const undoBtn = document.getElementById('orgchart-undo');
+  if (undoBtn.disabled) return;   // an ask still checking
+  const hadFocus = document.activeElement === undoBtn;
   orgchartPaintKeptResult();
+  if (hadFocus && undoBtn.hidden) document.getElementById('orgchart-edit').focus();
 }
 /* #4688 review: an Undo ask whose list a left run shortened. It ends, and the kept result (what the left run removed,
    and what is still on the board) is shown with its Undo, which asks afresh about what is left. */
