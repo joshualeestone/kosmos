@@ -376,7 +376,7 @@ test('whoami prints the BOARD\'s sentence, verbatim', async () => {
   assert.equal(r.calls[0].headers['x-kosmos-agent-token'], AGENT);
 });
 
-test('room and task sanitize the project id the way install/kosmos does; the reads present the agent token (#4491 slice 4), the task writes do not', async () => {
+test('room and task sanitize the project id the way install/kosmos does; the reads (#4491 slice 4) and task add (slice 5) present the agent token', async () => {
   const room = await run(['room', 'proj/../x y'], () => ({ body: 'room text\n' }));
   assert.equal(room.calls[0].route, '/api/project/proj..xy/room?as=text');
   assert.equal(room.calls[0].headers['x-kosmos-agent-token'], AGENT, 'the room read answers to the agent\'s own token since #4491 slice 4');
@@ -385,7 +385,7 @@ test('room and task sanitize the project id the way install/kosmos does; the rea
   assert.equal(list.out, '[1] ship it (leo)');
   const add = await run(['task', 'add', 'p1', 'write docs', 'more', 'detail'], () => ({ body: { task: {} } }));
   assert.deepEqual(add.calls[0].body, { sentence: 'write docs', detail: 'more detail', from_pane: '' });
-  assert.equal(add.calls[0].headers['x-kosmos-agent-token'], undefined, 'the tasks route ignores it; sending it only suggests it counts');
+  assert.equal(add.calls[0].headers['x-kosmos-agent-token'], AGENT, 'task add names its caller from the agent token since #4491 slice 5');
   const close = await run(['task', 'close', 'p1', 'two']);
   assert.equal(close.code, 2, 'a non-number task is a usage error, sent nowhere');
   assert.equal(close.calls.length, 0);

@@ -3064,7 +3064,9 @@ cmd_task() {
       # #3861: the parent goes as a STRING ("007" is not valid JSON as a number); the board
       # reads a digit string as the task number.
       local rc=0 body
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/tasks" \
+      local _atok=""   # #4491 slice 5: the agent's own token too (plain hex only), so the board names who added it
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _atok="$KOSMOS_AGENT_TOKEN" ;; esac
+      body=$(kosmos_curl "$_bt" "$_atok" -sS -m 15 -X POST "$URL/api/project/$esc_project/tasks" \
         -H 'content-type: application/json' \
         --data "{\"sentence\":\"$esc_sentence\",\"detail\":\"$esc_detail\",\"from_pane\":\"$esc_pane\"${parent:+,\"parent\":\"$parent\"}}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "add that task" "$rc" write; exit 1; }
@@ -3081,7 +3083,9 @@ cmd_task() {
     close)
       local project num; project="${1:-}"; num="${2:-}"   # both validated (num is all-digits) before the health check above
       local rc=0 body
-      body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
+      local _ctok=""   # #4491 slice 5: the agent's own token too (plain hex only); the board closes only for an agent on the project
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ctok="$KOSMOS_AGENT_TOKEN" ;; esac
+      body=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "close that task" "$rc" write; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of an error.
       case "$body" in
