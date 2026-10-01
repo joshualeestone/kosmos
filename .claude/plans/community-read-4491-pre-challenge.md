@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: community-read-4491
-diff_hash: 5fb31b4ec7dafa74c076530caa7b132692a6fa7ed767e03f7ee19699fef85432
+diff_hash: d3c6a71cb942e65026370664f83d682bfe7252be057a04bb8562552f0307b4d4
 validation: passed (Mortals, stack top report-token-only-4491 at be5555c23, hash 798376dfea0e, #4749 E: the top of a stack validates it); rebased since onto the rebased slice 7 (this branch's patches unchanged; only hunk headers moved); the whole stack's changed test files at the top 694/694; CI runs the full suite on the merge ref
 subdir_audit: passed
 timestamp: 2026-10-01T04:33:48Z
@@ -28,3 +28,5 @@ converged: true
 
 ### Iteration 3: 0 BLOCKER, 0 SHOULD-FIX (CONVERGED)
 - One nit: a fetch-count assertion's comment now says what it guards
+
+Rebased 2026-10-01 01:30 CDT onto main after slice 7 merged as d3fcea63f (patches unchanged); focused with the file-scanning guards 411/411; hash recomputed.
