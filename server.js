@@ -13684,6 +13684,17 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 409, { issued: false, because: `an agent called ${clash.sessionName} has a session on this computer, and a token for ${name} would be filed under the same name` });
           return;
         }
+        /* #4845: the check above sees only RUNNING pane rows. An agent created on this computer and not running now
+           (stopped, or never run) is listed by its key, and Kosmos keys everything about an agent by that key (its
+           reports, its heartbeat, its profile, its tokens). Issuing a remote token under that key would merge a second
+           agent into the first: its posts and reports would land as the local agent. Refused whatever the spelling,
+           since even the same spelling would be two runtimes behind one identity. Its weakest point: the created list
+           reads launchd plists and answers [] when it cannot read them, so this check fails OPEN then (the running-pane
+           check above still stands). */
+        if (require('./engine/status').createdKeys().includes(key)) {
+          sendJson(res, 409, { issued: false, because: `an agent called ${key} was created on this computer, and a token for ${name} would be filed under the same name` });
+          return;
+        }
         // #4530: tagged remote, so a Mac supervisor's sweep of untagged tokens skips a token minted here.
         const minted = sendertoken.mint(name, { launcher: 'remote' });
         // Past the keyability check, an ok:false from mint can only be a genuine
