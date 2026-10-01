@@ -20,5 +20,14 @@ converged: true
 #### Iteration 1
 **Reviewer model:** sonnet
 - [NIT] the cleanup cannot run if the process is killed by a signal (an empty temp dir is left); same shape as the merged #4829 --> NOT TAKEN
-No BLOCKER or WARNING (converged). The reviewer checked: every CLI spawn carries the data root; the CLI reads a board
-token only from the data root; no assertion depends on the real data root; the cleanup removes only the mkdtemp dir.
+No BLOCKER or WARNING (converged). What the reviewer checked, and found clean:
+- [STRENGTH] Spawns: the file has one execFile (runCli, line 28); every caller passes envFor(port) (lines 58, 67, 73,
+  80, 88, 95), and envFor now carries AGENT_WORKFORCE_DATA. No call passes a bare process.env.
+- [STRENGTH] Other token sources: install/kosmos board_token() (lines 575-592) reads only $ROOT/board.token, and ROOT
+  comes from engine/store.js, where AGENT_WORKFORCE_DATA wins (line 95); HOME is not consulted once it is set. The
+  only other token the CLI sends is KOSMOS_AGENT_TOKEN, the test's own fake value.
+- [STRENGTH] Assertions: the only token assertion (line 62) checks x-kosmos-agent-token == TOKEN, which comes from the
+  env, not the data root; the fix does not change what any test measures. An empty data root means no board token is
+  sent, which is what a stub board should see.
+- [STRENGTH] Cleanup: rmSync targets only DATA, the mkdtemp directory under os.tmpdir(), in a try/catch.
+- Ran: node --test on cli.inbox-4784.test.js and cli.sandbox-data-4796.test.js, 9 of 9 (the guard and its two controls).
