@@ -386,7 +386,11 @@ function decidePost(v, last, now) {
   const due = !last || now - (last.at || 0) >= REPOST_S;
   if (v.unknown) return (!last || last.key !== 'unknown' || due) ? { post: 'unknown', key: 'unknown' } : { post: null, key: 'unknown' };
   const all = new Set([...(v.alarm ? v.problems.map((p) => p.key) : []), ...(Array.isArray(v.held) ? v.held : [])]);
-  if (!all.size) return (last && last.key && last.key !== 'clear') ? { post: 'cleared', key: 'clear' } : { post: null, key: 'clear' };
+  if (!all.size) {
+    // A first sighting still to confirm is not healthy (that run exits 2): no all-clear yet, and the key stands.
+    if (Array.isArray(v.pending) && v.pending.length) return { post: null, key: (last && last.key) || 'clear' };
+    return (last && last.key && last.key !== 'clear') ? { post: 'cleared', key: 'clear' } : { post: null, key: 'clear' };
+  }
   const key = 'alarm:' + [...all].sort().join(',');
   const lastKeys = last && typeof last.key === 'string' && last.key.startsWith('alarm:') ? last.key.slice('alarm:'.length).split(',') : [];
   const fresh = [...all].some((k) => !lastKeys.includes(k));
@@ -457,8 +461,10 @@ function post(text, want = { pane: true, card: true }) {
       });
       went.pane = true;
     } catch (err) {
-      // Exit 7 and 8 are claude-msg's "delivered but could not confirm" (#1909): counted as told for the pane only.
-      if (err && (err.status === 8 || err.status === 7)) {
+      /* Exit 7 is claude-msg's "the message is in the composer, unsubmitted" (#1909): counted as told, since sending
+         again would paste it twice; the card says the pane may not have gone. Exit 8 is a possible loss (claude-msg's
+         own table: "may not have landed", part of it, or a prompt was open), so it is a failure, retried in an hour. */
+      if (err && err.status === 7) {
         went.pane = true;
         unsure.pane = true;
         paneUnsure = 'claude-msg exit ' + err.status + ', which usually means the pane was busy and the message landed (#1909)';
@@ -583,7 +589,13 @@ async function main(argv) {
   const since = state ? Number(state.unknownSince) : NaN;
   const unknownSince = v.unknown ? (Number.isFinite(since) && since > 0 && since <= now ? since : now) : null;
   if (!noState && v.unknown && now - unknownSince < UNKNOWN_GRACE_S) {
-    writeState({ pane: lastFor(state, 'pane', now), card: lastFor(state, 'card', now), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, seen });
+    // A problem whose hold ran out while this could not look leaves the posted key, so its return is said again.
+    const aged = (l) => {
+      if (!l || !/^alarm:/.test(l.key || '')) return l;
+      const ks = l.key.slice('alarm:'.length).split(',').filter((k) => k in seen);
+      return ks.length ? Object.assign({}, l, { key: 'alarm:' + ks.sort().join(',') }) : l;
+    };
+    writeState({ pane: aged(lastFor(state, 'pane', now)), card: aged(lastFor(state, 'card', now)), lastRunAt: now, unknownSince, sha: v.sha, pending: v.pending, seen });
     return code;
   }
   const next = {};
@@ -597,7 +609,7 @@ async function main(argv) {
     if (!d.post && (!last || last.key !== d.key)) next[ch] = { key: d.key, at: last && /^alarm:/.test(last.key || '') && /^alarm:/.test(d.key) ? last.at : now };
   }
   const cardLast = next.card;
-  if (!due.card.post && due.card.key === 'clear' && cardLast && cardLast.key === 'clear' && now - (cardLast.at || 0) >= WATCHING_S) {
+  if (!due.card.post && due.card.key === 'clear' && !(v.pending && v.pending.length) && cardLast && cardLast.key === 'clear' && now - (cardLast.at || 0) >= WATCHING_S) {
     due.card = { post: 'watching', key: 'clear' };
   }
   const texts = {};
@@ -606,7 +618,7 @@ async function main(argv) {
     const last = lastFor(state, ch, now);
     if (last && last.failedKey === due[ch].key && now - (last.failedAt || 0) < RETRY_S) continue;
     texts[ch] = message(due[ch].post, Object.assign({}, v, { after: last && last.key }))
-      + (noState ? ' (The serve watch cannot keep its state at ' + statePath() + ': ' + noState + '. It says this once a day until that is fixed.)' : '');
+      + (noState ? ' (The serve watch cannot keep its state at ' + statePath() + ': ' + noState + '. It says this once or twice a day until that is fixed.)' : '');
   }
   for (const text of [...new Set(Object.values(texts))]) {
     const want = { pane: texts.pane === text, card: texts.card === text };

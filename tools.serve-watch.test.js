@@ -234,6 +234,8 @@ test('a healthy week brings one "still watching" line on the card, and no pane m
   // A fresh state records the clear without a post; a week later the card hears from it.
   assert.equal((await run(base, dir, st, { now: T0 })).code, 0);
   assert.equal(st.card(), '');
+  assert.equal((await run(base, dir, st, { now: T0 + 6 * 24 * 3600 })).code, 0);
+  assert.equal(st.card(), '', 'CONTROL: the weekly line came before the week was out');
   assert.equal((await run(base, dir, st, { now: T0 + 7 * 24 * 3600 })).code, 0);
   assert.match(st.card(), /still watching/);
   assert.equal(st.pane(), '', 'the weekly line went to a pane');
@@ -306,17 +308,17 @@ test('a sidecar that disagrees with its pointer alarms (the installers would ref
   assert.match(st.card(), /kosmos-1\.0\.0-arm64\.tar\.gz\.sha256 \(named by latest\.json and latest-staging\.json\) is not served \(404\)/);
 }));
 
-test('a card post that fails is retried after an hour, not every run; a busy pane (claude-msg exit 8) counts as told', () => withSite(async ({ site, base, dir, st }) => {
+test('a card post that fails is retried after an hour, not every run; a pane left in its composer (claude-msg exit 7) counts as told', () => withSite(async ({ site, base, dir, st }) => {
   const failGh = path.join(dir, 'gh-fail.sh');
   fs.writeFileSync(failGh, '#!/bin/sh\necho "HTTP 401" >&2\nexit 1\n'); fs.chmodSync(failGh, 0o755);
   const busyMsg = path.join(dir, 'msg-busy.sh');
-  fs.writeFileSync(busyMsg, '#!/bin/sh\ncat > /dev/null\nexit 8\n'); fs.chmodSync(busyMsg, 0o755);
+  fs.writeFileSync(busyMsg, '#!/bin/sh\ncat > /dev/null\nexit 7\n'); fs.chmodSync(busyMsg, 0o755);
   site.files.delete('kosmos-win-x64.zip');
   const broken = { msg: busyMsg, gh: failGh, pane: st.pane, card: st.card };
   assert.equal((await run(base, dir, broken, { now: T0 })).code, 1);
   const state1 = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
   assert.ok(state1.card.failedAt === T0 && state1.card.failedKey, 'the failed card post was not recorded: ' + JSON.stringify(state1.card));
-  assert.ok(state1.pane.key && state1.pane.at === T0, 'an exit-8 pane was not counted as told: ' + JSON.stringify(state1.pane));
+  assert.ok(state1.pane.key && state1.pane.at === T0, 'an exit-7 pane was not counted as told: ' + JSON.stringify(state1.pane));
   // Within the hour: the card is not retried (the stub would fail again; nothing new recorded).
   await run(base, dir, broken, { now: T0 + 900 });
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).card.failedAt, T0, 'the card was retried within the hour');
@@ -327,10 +329,24 @@ test('a card post that fails is retried after an hour, not every run; a busy pan
 
 test('a card post beside an exit-8 pane says the pane message may not have gone', () => withSite(async ({ site, base, dir, st }) => {
   const busyMsg = path.join(dir, 'msg-busy.sh');
-  fs.writeFileSync(busyMsg, '#!/bin/sh\ncat > /dev/null\nexit 8\n'); fs.chmodSync(busyMsg, 0o755);
+  fs.writeFileSync(busyMsg, '#!/bin/sh\ncat > /dev/null\nexit 7\n'); fs.chmodSync(busyMsg, 0o755);
   site.files.delete('kosmos-win-x64.zip');
   assert.equal((await run(base, dir, { msg: busyMsg, gh: st.gh, pane: st.pane, card: st.card }, { now: T0 })).code, 1);
-  assert.match(st.card(), /may not have gone: claude-msg exit 8/);
+  assert.match(st.card(), /may not have gone: claude-msg exit 7/);
+}));
+
+test('a possible loss on the pane (claude-msg exit 8) is a failure, tried again an hour on', () => withSite(async ({ site, base, dir, st }) => {
+  const lost = path.join(dir, 'msg-lost.sh');
+  const tries = path.join(dir, 'tries');
+  fs.writeFileSync(lost, '#!/bin/sh\ncat > /dev/null\necho x >> "' + tries + '"\nexit 8\n'); fs.chmodSync(lost, 0o755);
+  site.relayUp = false;
+  const s = { msg: lost, gh: st.gh, pane: st.pane, card: st.card };
+  for (const t of [0, 900, 1800, 2700]) await run(base, dir, s, { now: T0 + t });
+  assert.equal(fs.readFileSync(tries, 'utf8').split('\n').filter(Boolean).length, 1, 'CONTROL: not retried within the hour');
+  await run(base, dir, s, { now: T0 + 3600 });
+  assert.equal(fs.readFileSync(tries, 'utf8').split('\n').filter(Boolean).length, 2, 'an exit-8 pane was counted as told');
+  assert.equal((st.card().match(/serve watch \(kosmos#4877\)/g) || []).length, 1, 'the card was posted again');
+  assert.match(st.card(), /did not go/);
 }));
 
 test('a pending mismatch for a file still named but no longer held to a sha is dropped, not carried forever', () => withSite(async ({ site, base, dir, st }) => {
@@ -584,6 +600,32 @@ test('the feed as it really is (HEAD refused): one dropped GET is tried again, t
   assert.equal((await run(base, dir, st, { now: T0, args: ['--check'] })).code, 0, 'one dropped feed GET was an alarm');
   site.feedFailGet = 2;
   assert.equal((await run(base, dir, st, { now: T0, args: ['--check'] })).code, 1, 'CONTROL: two dropped GETs are an alarm');
+}));
+
+test('a first sighting still to confirm is not an all-clear', () => withSite(async ({ site, base, dir, st }) => {
+  site.relayUp = false;
+  await run(base, dir, st, { now: T0 });
+  site.relayUp = true;
+  await run(base, dir, st, { now: T0 + 900 });
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  x\n']);
+  assert.equal((await run(base, dir, st, { now: T0 + 3600 })).code, 2, 'CONTROL: a first sighting');
+  assert.doesNotMatch(st.card(), /back to healthy/, 'healthy was said on a run that could not tell');
+  site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', sha(ZIP) + '  kosmos-1.0.0-win-x64.zip\n']);
+  assert.equal((await run(base, dir, st, { now: T0 + 4500 })).code, 0);
+  assert.match(st.card(), /back to healthy/, 'CONTROL: the all-clear comes once it is confirmed fine');
+}));
+
+test('a problem whose hold ran out while nothing could be checked is said again when it returns', () => withSite(async ({ site, base, dir, st }) => {
+  const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
+  site.files.delete('kosmos-1.0.0-arm64.tar.gz'); site.relayUp = false;   // A and B
+  await run(base, dir, st, { now: T0 });
+  site.relayUp = true;   // B goes
+  await run(base, dir, st, { now: T0 + 900 });
+  site.catchAll = true; site.files.set('kosmos-1.0.0-arm64.tar.gz', ['application/gzip', TAR]);   // could not tell
+  for (const t of [1800, 2700, 3600]) await run(base, dir, st, { now: T0 + t });
+  site.catchAll = false; site.files.delete('kosmos-1.0.0-arm64.tar.gz'); site.relayUp = false;   // A and B again
+  await run(base, dir, st, { now: T0 + 4500 });
+  assert.equal(posts(), 2, 'B returned unsaid: ' + st.card());
 }));
 
 test('a failed first post is retried an hour on even when the problem came and went in between', () => withSite(async ({ site, base, dir, st }) => {
