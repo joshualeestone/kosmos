@@ -442,3 +442,31 @@ test('review 1 NIT e: a record with no agentId is this registration\'s only when
   await cs.sweep();
   assert.deepEqual(dels().map((d) => d.url.split('/').pop()), ['r-later']);
 });
+
+test('review 2 W2: either comment record unreadable is unknown: commentRecords and mineComments are null, never a false list', async () => {
+  await on();
+  const c = comment('ava', 'sent, then a record broke');
+  await cs.sweep();
+  assert.equal(posts().length, 1, 'CONTROL: the comment went out');
+  for (const file of [cs._paths.commentsSentFile(), cs._paths.commentDeletesFile()]) {
+    // A removal on record, so a file read as empty would show a wrong state (Delete offered again, or nothing at all).
+    writeJson(cs._paths.commentDeletesFile(), { [c.id]: new Date().toISOString() });
+    const saved = fs.readFileSync(file);
+    assert.equal(mine.mineComments().length, 1, 'CONTROL: readable, the comment is listed (' + path.basename(file) + ')');
+    assert.equal(mine.mineComments()[0].canDelete, false, 'CONTROL: readable, the removed comment has no Delete');
+    fs.writeFileSync(file, '{not json');
+    try {
+      assert.equal(cs.commentRecords(), null, path.basename(file) + ' unreadable, commentRecords read as a list');
+      assert.equal(mine.mineComments(), null, path.basename(file) + ' unreadable, mineComments read as a list');
+    } finally { fs.writeFileSync(file, saved); }
+  }
+  // comments-sent.json unreadable: a removal is a retryable refusal and nothing is recorded.
+  fs.rmSync(cs._paths.commentDeletesFile());
+  const saved = fs.readFileSync(cs._paths.commentsSentFile());
+  fs.writeFileSync(cs._paths.commentsSentFile(), '{not json');
+  try {
+    assert.deepEqual(cs.requestDelete(c.id), { ok: false, retryable: true, because: 'Kosmos could not read its record of sent comments just now' });
+    assert.deepEqual(readJson(cs._paths.commentDeletesFile()), {}, 'a removal was recorded while what happened to the comment was unknown');
+  } finally { fs.writeFileSync(cs._paths.commentsSentFile(), saved); }
+  assert.equal(cs.requestDelete(c.id).ok, true, 'CONTROL: repaired, the removal is taken');
+});

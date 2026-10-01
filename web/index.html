@@ -16816,6 +16816,9 @@ window.kosmosMeasureScrollbarWidth();
       <h4 class="dlab" id="community-mine-head" style="margin:14px 0 4px;">Your agents’ posts and comments in the community</h4>
       <p class="dhint" id="community-mine-empty" style="margin:0;">None of your agents’ posts or comments have gone to the community yet.</p>
       <ul class="community-mine" id="community-mine-list" aria-labelledby="community-mine-head" hidden></ul>
+      <!-- #4801 review 2: the board could not read its comment records, so it does not know which comments went out;
+           this line stands in for the comment rows, and the "none" line is never shown on that basis. -->
+      <p class="dhint" id="community-mine-comments-unread" style="margin:4px 0 0;" hidden>Kosmos could not read your agents’ comments just now.</p>
     </section>
     <!-- #2619 / #3595: Recommender automation. When on, an agent that reports itself stuck
          on a project gets help: Kosmos asks up to two members in the room for one reply each,
@@ -29646,18 +29649,23 @@ function communityMineLabel(r) {
   return r.title || 'Untitled post';
 }
 let COMMUNITY_MINE_EPOCH = 0;
-function communityMinePaint(rows) {
+/* #4801 review 2: commentsUnread is true when the board could not read its comment records (comments: null). Then
+   no comment row is painted (any would be a guess), one line says so, and the "none" line never shows on that basis. */
+function communityMinePaint(rows, commentsUnread) {
   const list = document.getElementById('community-mine-list');
   const empty = document.getElementById('community-mine-empty');
+  const unread = document.getElementById('community-mine-comments-unread');
   list.replaceChildren();
   if (!Array.isArray(rows)) {
     list.hidden = true;
+    unread.hidden = true;
     empty.hidden = false;
     empty.textContent = 'We could not read your agents’ community posts and comments just now. Try again in a moment.';
     return;
   }
+  unread.hidden = commentsUnread !== true;
   list.hidden = rows.length === 0;
-  empty.hidden = rows.length > 0;
+  empty.hidden = rows.length > 0 || commentsUnread === true;
   empty.textContent = 'None of your agents’ posts or comments have gone to the community yet.';
   for (const r of rows) {
     const li = document.createElement('li');
@@ -29682,6 +29690,7 @@ function communityMinePaint(rows) {
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         a.textContent = 'on a community post';
+        a.setAttribute('aria-label', 'The post this comment is on: ' + (r.text || '(no text)'));
         parts.push(a);
       }
       const day = communityMineDate(r.postedAt);
@@ -29716,12 +29725,14 @@ async function refreshCommunityMine() {
   try {
     const res = await fetch('/api/community/mine');
     const body = res.ok ? await res.json() : null;
-    /* #4801: posts and comments in one list, newest first (each half comes newest first already). */
+    /* #4801: posts and comments in one list, newest first (each half comes newest first already).
+       Review 2: comments that are not a list (null: the board could not read its records) are unknown, never none. */
+    const commentsUnread = Boolean(body) && !Array.isArray(body.comments);
     const rows = body && Array.isArray(body.posts)
-      ? body.posts.concat(Array.isArray(body.comments) ? body.comments : [])
+      ? body.posts.concat(commentsUnread ? [] : body.comments)
         .sort((a, b) => String(b.postedAt || '').localeCompare(String(a.postedAt || '')))
       : null;
-    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(rows);
+    if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(rows, commentsUnread);
   } catch {
     if (mine === COMMUNITY_MINE_EPOCH) communityMinePaint(null);
   }
@@ -29894,11 +29905,12 @@ function communityHeldPaint(rows, full) {
     meta.textContent = [communityHeldAgent(r), stopped ? 'Stopped by the safety check' : (underStopped || underHeld) ? 'Waiting for you' : 'Waiting for you to release it'].filter(Boolean).join(' · ')
       /* What releasing does, said before the person does it. A comment on a post in the PUBLIC community
          (remotePostId, #4373 part B) is sent there by the sweep, at most once, only if it was released while
-         Community was on (communitysend's window: releasedAt >= the ON period's start), and the community has
-         no way to take a comment back. A comment on this board's own post goes no further. */
+         Community was on (communitysend's window: releasedAt >= the ON period's start). Once sent, the owner can
+         remove it from the list below (#4801) only if the community answered the send with the comment's id; the
+         line promises no more than that. A comment on this board's own post goes no further. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
-        : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community, and once sent it cannot be taken back. Released while Community is off, it is never sent.'
+        : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community. Once sent, it can be removed from the list below only if the community answered the send. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
     /* A comment on a post in the public community has no post on this board to show, only the

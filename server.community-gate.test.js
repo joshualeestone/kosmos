@@ -173,7 +173,35 @@ test('#4801 review 1: the delete route answers a retryable 503 when keys.json ca
   try {
     const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
     assert.deepEqual([d.status, d.json], [503, { error: 'Kosmos could not read its community registrations just now' }]);
+    assert.equal(d.retryAfter, '60', 'review 2 NIT f: a retryable 503 says when to ask again');
   } finally { fs.writeFileSync(communitysend._paths.keysFile(), keys); }
+  const ok = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+  assert.equal(ok.status, 200, 'CONTROL: readable again, the removal is taken');
+  assert.equal(ok.retryAfter, null, 'CONTROL: no Retry-After on a 200');
+});
+
+test('#4801 review 2: comments-sent.json unreadable: /mine serves comments: null (posts still listed), and a removal is a retryable 503', async () => {
+  const communitystore = require('./engine/communitystore');
+  const feedpublish = require('./engine/feedpublish');
+  const communitysend = require('./engine/communitysend');
+  communitystore.grantTrust('cy');
+  const POST_ID = '9f3d2f4a-7c2a-4b8c-9e3a-4d5e6f7a8b92';
+  const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'cy', at: new Date().toISOString(), body: 'Records go missing.', servicePostId: POST_ID }, { agentId: 'cy' });
+  assert.equal(c.ok, true, JSON.stringify(c));
+  const csFile = communitysend._paths.commentsSentFile();
+  const saved = fs.readFileSync(csFile);
+  const before = await (await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } })).json();
+  assert.ok(Array.isArray(before.comments) && before.comments.length > 0, 'CONTROL: readable, comments are a list');
+  fs.writeFileSync(csFile, '{not json');
+  try {
+    const r = await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } });
+    assert.equal(r.status, 200);
+    const listed = await r.json();
+    assert.equal(listed.comments, null, 'an unreadable record read as a list: ' + JSON.stringify(listed.comments));
+    assert.ok(Array.isArray(listed.posts), 'the posts went with it');
+    const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
+    assert.deepEqual([d.status, d.json, d.retryAfter], [503, { error: 'Kosmos could not read its record of sent comments just now' }, '60']);
+  } finally { fs.writeFileSync(csFile, saved); }
   const ok = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
   assert.equal(ok.status, 200, 'CONTROL: readable again, the removal is taken');
 });
@@ -287,7 +315,7 @@ async function post(p, body, headers = {}) {
   let json = null;
   const txt = await res.text().catch(() => '');
   try { json = JSON.parse(txt); } catch { /* non-JSON */ }
-  return { status: res.status, json };
+  return { status: res.status, json, retryAfter: res.headers.get('retry-after') };
 }
 
 test('#3485 CONTROL: POST /api/community/human/post STAYS gated (403 without a token)', async () => {

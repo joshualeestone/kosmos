@@ -21,7 +21,10 @@
  *             else; Delete asks with Keep it focused; Delete it POSTs exactly {id} with the comment's id, the
  *             row repaints as coming down and focus goes to the heading; an unconfirmed comment, one sent with
  *             no id, one being sent and one whose registration could not be read show no Delete and say why;
- *             a removed one says removed.
+ *             a removed one says removed. Review 2: the date has the year only when it is not this year;
+ *             a post id that is not a plain id, or none, gets no link; the link's accessible name names the comment.
+ *   UNREAD    (#4801 review 2) comments: null (the board could not read its comment records) paints one line
+ *             saying so in place of comment rows, posts still listed, and never the "none" line on that basis.
  * The ROWS arm is also the control for the others: it proves the list is found and painted.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -78,6 +81,8 @@ function readList(pg) {
       listHidden: list ? list.hidden : null,
       emptyHidden: empty ? empty.hidden : null,
       empty: empty ? empty.textContent : '',
+      unreadHidden: (() => { const u = document.getElementById('community-mine-comments-unread'); return u ? u.hidden : null; })(),
+      unread: (() => { const u = document.getElementById('community-mine-comments-unread'); return u ? u.textContent : ''; })(),
       rows,
       focus: a ? (a.className || a.id || a.tagName) + '|' + a.textContent : '',
     };
@@ -96,12 +101,13 @@ async function run() {
   try {
     // EMPTY
     const p1 = await page();
-    await p1.route(MINE, answer({ posts: [] }));
+    await p1.route(MINE, answer({ posts: [], comments: [] }));
     await openAutomation(p1);
     const e = await readList(p1);
     check('EMPTY: the list exists and its heading shows under Automation', e.found && e.headShown, JSON.stringify(e));
     check('EMPTY: the heading sits below the Community switch', e.belowSwitch, JSON.stringify(e));
     check('EMPTY: the list is hidden and the empty line says none have gone out', e.listHidden === true && e.emptyHidden === false && /have gone to the community yet\.$/.test(e.empty), JSON.stringify(e));
+    check('EMPTY: comments read as a list, so the could-not-read-comments line stays hidden', e.unreadHidden === true, JSON.stringify(e));
     await p1.close();
 
     // ROWS + ASK + KEEP + DELETE, on one page so the repaint after a delete is observed.
@@ -120,7 +126,7 @@ async function run() {
       row('g7', { agentRefused: true, deleteRequested: true, canDelete: false }),   // refused after the owner asked
       row('h8', { state: 'pending' }),   // waiting for a retry (429 / 401): not out yet, Delete withholds it
       row('i9', { state: 'pending', agentRefused: true, canDelete: false }),   // never goes out
-    ] })(route));
+    ], comments: [] })(route));
     await p2.route(DELETE, (route) => { posts.push(route.request().postData()); deleted = true; return answer({ ok: true, state: 'sent' })(route); });
     await openAutomation(p2);
     const r = await readList(p2);
@@ -167,7 +173,7 @@ async function run() {
 
     // FAIL
     const p3 = await page();
-    await p3.route(MINE, answer({ posts: [row('a1')] }));
+    await p3.route(MINE, answer({ posts: [row('a1')], comments: [] }));
     await p3.route(DELETE, answer({ error: 'we could not save that' }, 500));
     await openAutomation(p3);
     await p3.click('li[data-id="a1"] .community-mine-start');
@@ -196,41 +202,56 @@ async function run() {
 
     // COMMENT (#4801)
     const p5 = await page();
+    /* Review 2 NIT a: c1 is dated THIS year (from this machine's clock, which the browser shares), so its date must
+       read without the year; c8 is from 2019, so its date must read with it. Both sort as the arm expects. */
+    const C1_AT = new Date().getFullYear() + '-09-28T10:00:00Z';
     let cdeleted = false;
     const cposts = [];
     await p5.route(MINE, (route) => answer({
       posts: [row('a1', { postedAt: '2026-09-28T08:00:00Z' })],
       comments: [
-        cdeleted ? crow('c1', { deleteRequested: true, canDelete: false }) : crow('c1', { postedAt: '2026-09-28T10:00:00Z' }),
+        cdeleted ? crow('c1', { deleteRequested: true, canDelete: false }) : crow('c1', { postedAt: C1_AT }),
         crow('c2', { state: 'unconfirmed', untraceable: true, canDelete: false, postedAt: '2026-09-28T07:00:00Z' }),
         crow('c3', { untraceable: true, canDelete: false, postedAt: '2026-09-28T06:00:00Z' }),   // sent, the service gave no id
         crow('c4', { state: 'deleted', deleteRequested: true, canDelete: false, postedAt: '2026-09-28T05:00:00Z' }),
         crow('c5', { state: 'pending', postedAt: '2026-09-28T04:00:00Z' }),
         crow('c6', { state: 'sending', canDelete: false, postedAt: '2026-09-28T03:00:00Z' }),   // its POST is out now
         crow('c7', { traceUnknown: true, canDelete: false, postedAt: '2026-09-28T02:00:00Z' }),  // keys.json unreadable
+        crow('c9', { remotePostId: 'not/a plain id', postedAt: '2026-09-28T01:00:00Z' }),   // review 2 NIT b: no link
+        crow('c10', { remotePostId: null, postedAt: '2026-09-28T00:30:00Z' }),               // review 2 NIT b: no link
+        crow('c8', { postedAt: '2019-09-28T10:00:00Z' }),   // review 2 NIT a: another year, so the date says the year
       ],
     })(route));
     await p5.route(DELETE, (route) => { cposts.push(route.request().postData()); cdeleted = true; return answer({ ok: true, state: 'sent' })(route); });
     await openAutomation(p5);
     const c = await readList(p5);
     const ids = c.rows.map((x) => x.id).join(',');
-    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7', ids);
+    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c8', ids);
     const byId = Object.fromEntries(c.rows.map((x) => [x.id, x]));
     check('COMMENT: a comment row reads as a comment, with its text and agent', byId.c1 && /^Comment: Reply c1/.test(byId.c1.text) && /Bo/.test(byId.c1.text) && /In the community/.test(byId.c1.text), JSON.stringify(byId.c1));
     check('COMMENT: Delete shows where the board says canDelete, and nowhere else', JSON.stringify(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((i) => byId[i] && byId[i].del)) === '[true,false,false,false,true,false,false]', JSON.stringify(c.rows));
     check('COMMENT: a comment being sent says Sending', byId.c6 && /Sending\. Kosmos is sending it/.test(byId.c6.text), JSON.stringify(byId.c6));
     check('COMMENT: unreadable registrations say so, never "no way to find"', byId.c7 && /could not read its community registrations just now/.test(byId.c7.text) && !/no way to find/.test(byId.c7.text), JSON.stringify(byId.c7));
     // WHERE and WHEN (review 1): a link out to the post it is on, built as the #4525 held list builds it, and the date.
-    const where = await p5.evaluate(() => {
+    const where = await p5.evaluate((c1At) => {
       const li = document.querySelector('li[data-id="c1"]');
       const a = li && li.querySelector('a.community-mine-post');
       const t = li && li.querySelector('time.community-mine-when');
-      return { href: a ? a.href : '', target: a ? a.target : '', rel: a ? a.rel : '', text: a ? a.textContent : '',
-        dt: t ? t.dateTime : '', day: t ? t.textContent : '', expect: new Date('2026-09-28T10:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
-        expectThisYear: new Date('2026-09-28T10:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) };
-    });
+      const old = document.querySelector('li[data-id="c8"] time.community-mine-when');
+      const fmt = (at, y) => new Date(at).toLocaleDateString(undefined, y ? { month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric' });
+      const linkOf = (id) => { const x = document.querySelector('li[data-id="' + id + '"]'); return x ? x.querySelectorAll('a.community-mine-post').length : -1; };
+      return { href: a ? a.href : '', target: a ? a.target : '', rel: a ? a.rel : '', text: a ? a.textContent : '', label: a ? a.getAttribute('aria-label') : '',
+        dt: t ? t.dateTime : '', day: t ? t.textContent : '', expectThisYear: fmt(c1At, false), expectWithYear: fmt(c1At, true),
+        oldDay: old ? old.textContent : '', expectOld: fmt('2019-09-28T10:00:00Z', true), expectOldNoYear: fmt('2019-09-28T10:00:00Z', false),
+        links: { c9: linkOf('c9'), c10: linkOf('c10'), c8: linkOf('c8') } };
+    }, C1_AT);
     check('COMMENT: the row links to the post it is on, out of the board', where.href === 'https://community.installkosmos.com/post/' + CPOST && where.target === '_blank' && /noopener/.test(where.rel) && where.text === 'on a community post', JSON.stringify(where));
-    check('COMMENT: the row says when', where.dt === '2026-09-28T10:00:00Z' && where.day !== '' && (where.day === where.expect || where.day === where.expectThisYear), JSON.stringify(where));
+    check('COMMENT: the post link\'s accessible name names the comment (review 2 NIT c)', where.label === 'The post this comment is on: Reply c1', JSON.stringify(where));
+    check('COMMENT: a post id that is not a plain id, or none, gets no link; a plain one does (review 2 NIT b)', where.links.c9 === 0 && where.links.c10 === 0 && where.links.c8 === 1, JSON.stringify(where.links));
+    // The two formats must differ, or the year checks below could not tell them apart.
+    check('COMMENT: CONTROL: the this-year and with-year formats differ', where.expectThisYear !== where.expectWithYear && where.expectOld !== where.expectOldNoYear, JSON.stringify(where));
+    check('COMMENT: the row says when, without the year when it is this year (review 2 NIT a)', where.dt === C1_AT && where.day === where.expectThisYear, JSON.stringify(where));
+    check('COMMENT: a comment from another year says the year (review 2 NIT a)', where.oldDay === where.expectOld, JSON.stringify(where));
     check('COMMENT: an unconfirmed comment says why it cannot be removed', byId.c2 && /never learned whether this arrived, so it cannot remove it/.test(byId.c2.text), JSON.stringify(byId.c2));
     check('COMMENT: a comment sent with no id says why it cannot be removed', byId.c3 && /no way to find this comment again, so it cannot remove it/.test(byId.c3.text), JSON.stringify(byId.c3));
     check('COMMENT: a removed comment says removed', byId.c4 && /Removed from the community/.test(byId.c4.text), JSON.stringify(byId.c4));
@@ -254,6 +275,21 @@ async function run() {
     const hf = await p5.evaluate(() => (document.activeElement ? document.activeElement.id : ''));
     check('COMMENT: after Delete it, focus goes to the list heading', hf === 'community-mine-head', hf);
     await p5.close();
+
+    // UNREAD (#4801 review 2): the board could not read its comment records.
+    const p6 = await page();
+    await p6.route(MINE, answer({ posts: [], comments: null }));
+    await openAutomation(p6);
+    const u = await readList(p6);
+    check('UNREAD: with no posts, the line says the comments could not be read', u.unreadHidden === false && /^Kosmos could not read your agents[’'] comments just now\.$/.test(u.unread), JSON.stringify(u));
+    check('UNREAD: never the "none" line on that basis', u.emptyHidden === true && u.listHidden === true, JSON.stringify(u));
+    await p6.close();
+    const p7 = await page();
+    await p7.route(MINE, answer({ posts: [row('a1')], comments: null }));
+    await openAutomation(p7);
+    const u2 = await readList(p7);
+    check('UNREAD: posts are still listed, with no comment rows, and the line shows', u2.rows.length === 1 && u2.rows[0].id === 'a1' && u2.unreadHidden === false && u2.emptyHidden === true, JSON.stringify(u2));
+    await p7.close();
   } finally {
     await browser.close();
   }

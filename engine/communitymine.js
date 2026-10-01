@@ -90,9 +90,11 @@ function canDeleteComment(st) {
  * no Delete. The one service id carried is the POST's (`remotePostId`), which is public: the row links to the post
  * the comment is on, as the #4525 held list does. `traceUnknown`: keys.json could not be read, so whether the board
  * still holds the registration that sent it is not known (review 1).
+ * Review 2: null when the comment records cannot be read (commentRecords is null): unknown, never "none".
  */
 function mineComments() {
   const recs = communitysend.commentRecords();
+  if (!recs) return null;
   const ids = Object.keys(recs);
   if (!ids.length) return [];
   const rows = new Map();

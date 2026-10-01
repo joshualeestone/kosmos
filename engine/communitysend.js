@@ -165,7 +165,8 @@ function endOnPeriod(st) {
 }
 /* #4373 part B: the person turned Community OFF. End the ON period now, not at the next sweep: an OFF-then-ON between
    two sweeps would otherwise keep the old window, and a comment released while OFF would go, although the page told
-   the person it never will (a sent comment cannot be taken back). Best effort; the sweep still ends it too. */
+   the person it never will (once sent, the owner can remove it only if the community answered with its id, #4801).
+   Best effort; the sweep still ends it too. */
 function endOnPeriodNow() {
   const st = loadJson(stateFile());
   if (st) endOnPeriod(st);
@@ -804,7 +805,10 @@ function requestCommentDelete(id) {
   if (!cdel) return { ok: false, because: 'we could not read the list of removed comments' };
   // A comment that may be out but cannot be found again is refused rather than recorded: recorded, the owner's list
   // would say "coming down" forever, since sweepCommentDeletes has no id to ask the service about.
-  const before = commentRecords()[id];
+  const recs = commentRecords();
+  // #4801 review 2: comments-sent.json unreadable: what happened to this comment is unknown, so nothing is recorded.
+  if (!recs) return { ok: false, retryable: true, because: 'Kosmos could not read its record of sent comments just now' };
+  const before = recs[id];
   // #4801 review 1: out on the network right now. Not "never learned": it has an answer within a minute.
   if (before && !cdel[id] && before.state === 'sending') {
     return { ok: false, busy: true, because: 'It is being sent right now; try again in a minute' };
@@ -822,7 +826,8 @@ function requestCommentDelete(id) {
     cdel[id] = new Date().toISOString();
     saveJson(commentDeletesFile(), cdel);
   }
-  const rec = commentRecords()[id];
+  const after = commentRecords();
+  const rec = after && after[id];
   return { ok: true, state: rec ? rec.state : 'withheld' };
 }
 
@@ -929,6 +934,8 @@ function commentStatuses() {
  * #4801: each comment the board has a record for or the owner asked to remove, for the owner's own list
  * (engine/communitymine.js). No keys and no remote ids: `traceable` says only whether the service answered with the
  * comment's id, which is what a removal needs. A pending comment the owner removed reads withheld, as a post does.
+ * #4801 review 2: null when comments-sent.json or comment-deletes.json is unreadable. Read as empty, a removed comment
+ * would be offered Delete again, or every comment would vanish into a false "none".
  */
 function sameServiceAgent(rec, k) {
   if (rec.agentId) return Boolean(k && k.remoteId === rec.agentId);
@@ -937,8 +944,9 @@ function sameServiceAgent(rec, k) {
   return Boolean(k && typeof k.registeredAt === 'string' && typeof rec.sentAt === 'string' && k.registeredAt <= rec.sentAt);
 }
 function commentRecords() {
-  const csent = loadJson(commentsSentFile()) || {};
-  const cdel = loadJson(commentDeletesFile()) || {};
+  const csent = loadJson(commentsSentFile());
+  const cdel = loadJson(commentDeletesFile());
+  if (!csent || !cdel) return null;
   // #4801 review 1: unreadable keys.json is NOT "no registrations": traceability is then unknown (null), never false.
   const keysRead = loadJson(keysFile());
   const keys = keysRead || {};

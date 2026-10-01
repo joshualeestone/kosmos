@@ -1,8 +1,8 @@
 # commentmine-4801: the owner sees, and can remove, the comments their agents published
 
 Card: kosmos#4801. Board half only; the service route (`DELETE /posts/{post_id}/comments/{comment_id}`, agent bearer,
-204, 404 for gone or not-own) is kosmos-community #24, merged. Stacked on communitycomment-4373 (PR #4741), base
-0eb8c375a.
+204, 404 for gone or not-own) is kosmos-community #24, merged. Was stacked on communitycomment-4373 (PR #4741); #4741 has merged, so
+the base is now main at 84540d310.
 
 ## Call
 
@@ -144,3 +144,50 @@ behaviour, not a wrong removal. Also: a legacy record (no agentId) sent in the s
 agent compares a real-time `registeredAt` with the sweep-start `sentAt`, so it reads untraceable (no Delete) rather
 than wrongly removable; only records from this unmerged stack lack agentId, and sendComment writes it whenever the
 service answered `agent_id`.
+
+## Review round 2
+
+- **W1 (the held list said a sent comment "cannot be taken back").** The "Waiting for you" line for a comment on a
+  public post now reads: "Releasing it while Community is on sends it to the public community. Once sent, it can be
+  removed from the list below only if the community answered the send. Released while Community is off, it is never
+  sent." Its code comment, and the comments at `communitysend.endOnPeriodNow` and the `communityblock.js` header,
+  say the same. The agent-facing block text is unchanged: "do not send it again" is still true for the agent, which
+  cannot take a comment back. render-community-held-4525.js asserts the new line and that "cannot be taken back" is
+  gone. A repo-wide grep for "taken back" found no other claim about comments (the rest are about other things).
+- **W2 (an unreadable comment record read as empty).** `commentRecords` returns null when comments-sent.json or
+  comment-deletes.json cannot be read, `mineComments` returns null on that, and `/api/community/mine` serves
+  `comments: null`. The page paints `#community-mine-comments-unread` ("Kosmos could not read your agents’ comments
+  just now.") in place of comment rows, keeps the posts, and never shows the "none" line on that basis.
+  `requestCommentDelete` refuses as `retryable` ("Kosmos could not read its record of sent comments just now", 503)
+  when comments-sent.json cannot be read, since what happened to the comment is unknown. Tests: engine (null on
+  each file, the refusal, nothing recorded), the route (comments: null, posts still a list, 503 with Retry-After),
+  and the browser UNREAD arm (with no posts and with one).
+- **NITs.** (a) The COMMENT arm dates c1 in THIS year (from the machine clock the browser shares) and asserts the
+  month-and-day format, and adds c8 from 2019 asserting the with-year format, with a control that the two formats
+  differ. (b) c9 (a post id that is not a plain id) and c10 (none) render no `a.community-mine-post`; c8 (plain)
+  does. (c) The post link's `aria-label` is "The post this comment is on: <text>". (d) Base and counts updated here.
+  (e) CLAUDE.md's Community routing row names `mineComments`, `comment-deletes.json` and `sweepCommentDeletes`
+  (a plain tracked file; no generated or imported markers in it). (f) The retryable 503 carries `Retry-After: 60`.
+
+### Decided in round 2 (beyond the brief)
+
+1. **Any `comments` that is not a list is unknown on the page**, not only `null`: a missing field would otherwise
+   paint a false "none". The browser fixtures that answered `{ posts }` alone now answer `comments: []` too.
+2. **The removal refuses on unreadable comments-sent.json** (retryable 503) rather than recording. Recorded, an
+   unconfirmed comment would read "Removing" forever, the case round 1 refused for a readable record.
+3. **The year fixture uses the current year**, not a literal 2026, so the this-year arm does not turn red on
+   1 January.
+
+### Weakest premise (round 2)
+
+That "only if the community answered the send" is the whole condition the owner needs before release. Removal also
+needs the board to still hold the registration that sent it (a fresh registration reads untraceable). The held line
+says "only if", which promises no more than is true, and the list below says why when a comment cannot be removed.
+
+### Verified (round 2)
+
+- engine/communitycommentmine-4801.test.js 21/21; server.community-gate.test.js 21/21. All engine/community*.test.js
+  and server.community*.test.js (19 files): 272 tests, 270 pass, 0 fail, 2 skipped (the contract tests).
+- Red arms: W2 engine arm red with commentRecords' null reverted (comments-sent.json arm) and, separately, with only
+  the comment-deletes.json null reverted. NIT a red both ways: always month-and-day reds the other-year arm, always
+  with-year reds the this-year arm.
