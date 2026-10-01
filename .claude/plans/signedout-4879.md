@@ -1,4 +1,4 @@
-# signedout-4879 (app half): Log out lands on "You're signed out"
+# signedout-4879 (app half): Log out lands on "You're signed out" (the goal; on Josh's phone it depends on the relay plan's unmeasured premise)
 
 Card: kosmos#4879. Relay half: kosmos-relay `signedout-4879` (its plan holds the reasoning and the measurement).
 
