@@ -499,13 +499,16 @@ else
 fi
 # >>> staged Mac carry (#4819) -- tools/test-deploy-site-staged-mac-4819.sh extracts and tests this block.
 # The STAGED Mac build: the tarball the committed latest-staging.json names, and its .sha256. Both
-# are gitignored and carried by the export's dist/*.tar.gz glob, so a checkout without them DROPPED
+# are gitignored and carried by the export's dist/*.tar.gz and dist/*.tar.gz.sha256 globs, so a
+# checkout without them DROPPED
 # them while the pointer still named them: 2026-09-30 19:52, a site deploy left 0.7.14 staging
 # answering 404, and every staging install and update failed until the site was redeployed from the
 # cut box. Carry it rather than only refuse: the local copy when it is the committed pointer's bytes
 # (that is how a redeploy from the cut box restores a dropped one), else the copy live serves now,
 # fetched and checked against the served .sha256 AND the committed pointer's sha. Refuse when
-# neither exists, naming the tarball. Sets STAGED_ART, empty when nothing extra is staged.
+# neither exists, naming the tarball, unless the staged build is not newer than prod (superseded,
+# as #3600 decides for Windows): then warn and carry nothing, since nobody will promote it.
+# Sets STAGED_ART, empty when nothing extra is carried.
 carry_staged_mac() {
   STAGED_ART=""
   _csm_ptr=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || _csm_ptr=""
@@ -522,6 +525,11 @@ carry_staged_mac() {
   [ ${#_csm_sha} -eq 64 ] || { echo "deploy-site: the committed latest-staging.json's sha256 for $_csm_art is not 64 characters -- refusing (#4819)"; exit 1; }
   # The staged build is the prod one (a promote, or staging not ahead): fetched and checked above.
   [ "$_csm_art" != "$ART" ] || { echo "deploy-site: the staged Mac build is the prod one ($ART), already carried (#4819)"; return 0; }
+  # Superseded: the staged version (from its NAME, as for Windows) is not newer than prod's.
+  _csm_v=$(printf '%s' "$_csm_art" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p')
+  _csm_pv=$(printf '%s' "$ART" | sed -n 's/^kosmos-\(.*\)-arm64\.tar\.gz$/\1/p')
+  _csm_superseded=""
+  [ -z "$_csm_pv" ] || [ "$(printf '%s\n%s\n' "$_csm_v" "$_csm_pv" | sort -V | tail -1)" != "$_csm_pv" ] || _csm_superseded=1
   if [ -f "$SITE/dist/$_csm_art" ] && [ -f "$SITE/dist/$_csm_art.sha256" ] \
      && [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ] \
      && [ "$(awk '{print $1; exit}' "$SITE/dist/$_csm_art.sha256")" = "$_csm_sha" ]; then
@@ -533,9 +541,14 @@ carry_staged_mac() {
     # would leave the wrong build in dist/ under the real name.
     _csm_served=$(curl -fsSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' "$HOST/dist/$_csm_art.sha256" 2>/dev/null) || _csm_served=""
     _csm_served=$(printf '%s\n' "$_csm_served" | awk '{print $1; exit}')
+    if [ -z "$_csm_served" ] && [ -n "$_csm_superseded" ]; then
+      echo "deploy-site: WARNING (#4819): latest-staging.json names $_csm_art, which is not newer than the prod build $ART, and neither $SITE/dist/ nor live has it. It is superseded, so nothing is carried for it; the next staging publish replaces the pointer." >&2
+      return 0
+    fi
     [ -n "$_csm_served" ] || { echo "deploy-site: $SITE/dist/ has no copy of the staged Mac build $_csm_art and live does not serve $_csm_art.sha256 either -- refusing; deploying would drop the build latest-staging.json names (#4819)"; exit 1; }
-    [ "$_csm_served" = "$_csm_sha" ] || { echo "deploy-site: live serves a $_csm_art.sha256 that is not the build the committed latest-staging.json names -- refusing before fetching, so $SITE/dist/ is untouched (#4819)"; exit 1; }
+    [ "$_csm_served" = "$_csm_sha" ] || { echo "deploy-site: live serves a $_csm_art.sha256 (or a page that is not a checksum) that does not name the build the committed latest-staging.json names -- refusing before fetching, so $SITE/dist/ is untouched (#4819)"; exit 1; }
     fetch_verified "$HOST/dist/$_csm_art" "$SITE/dist/$_csm_art"
+    # Backstop: unreachable while fetch_verified checks the bytes against the sidecar read above.
     [ "$(_sha256_of "$SITE/dist/$_csm_art")" = "$_csm_sha" ] || { echo "deploy-site: the served $_csm_art is not the build the committed latest-staging.json names (sha differs) -- refusing; deploying would point staging at bytes nobody verified (#4819)"; exit 1; }
   fi
   STAGED_ART="$_csm_art"
@@ -550,8 +563,9 @@ carry_staged_mac
 echo "deploy-site: fetched and verified the current live GITIGNORED artifacts into $SITE/dist/"
 # ⚠️ This wrote into the SHARED site checkout's dist/ (also the live board, also shared with
 # tools/release.sh), but ONLY gitignored artifacts (the tarball, pkg triple, tmux, alias, and the
-# staged Mac build when it was fetched rather than already present, #4819) -- each
-# sha-verified (against live; a staged Mac build already in dist/ against the committed pointer), and none of them tracked, so `git status` stays clean and no later
+# staged Mac build when it was fetched rather than already present, #4819) -- each sha-verified
+# (against live; a staged Mac build already in dist/ against the committed pointer), and none of
+# them tracked, so `git status` stays clean and no later
 # `git commit -a` can sweep them up. It is still not side-effect-free on the filesystem, so do not
 # run a --publish concurrently with a release cut populating the same dist/.
 
