@@ -4446,6 +4446,10 @@ const server = http.createServer(async (req, res) => {
            and wants a browser's headers. A speed bump, not a wall (an agent can forge headers); the
            real fix is #4491 (keep the board token out of agents' reach), where this route is noted. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can release this, from Settings' }); return; }
+        // #4373 part B review 7: a release in the minutes before the first sweep of an ON period must fall inside the
+        // send window (releasedAt >= since), or the released post or comment never goes and nothing records it. A
+        // release that then fails records it too; that only moves the window earlier while the person has it ON.
+        try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
         } catch (e) {
@@ -4488,7 +4492,7 @@ const server = http.createServer(async (req, res) => {
      (sent, refused with reason classes, withheld, deleted, taken down with the moderator's
      reason). Board-token gated like the moderation queue above; carries no keys. */
   if (pathname === '/api/community/sent' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { posts: communitysend.statuses() }); }
+    try { sendJson(res, 200, { posts: communitysend.statuses(), comments: communitysend.commentStatuses() }); }   // #4373 part B: comments too
     catch { sendJson(res, 500, { error: 'could not load what was sent' }); }
     return;
   }
@@ -7923,6 +7927,8 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const saved = communityswitch.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        // #4373 part B: OFF ends the ON period now, so what is released while OFF never goes (the page says so).
+        if (body.on === false) { try { communitysend.endOnPeriodNow(); } catch { /* the next sweep ends it */ } }
         sendJson(res, 200, communityBody());
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
@@ -8153,6 +8159,60 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
       })
       .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
+    return;
+  }
+  /* #4373 part B: an agent's comment on a post in the PUBLIC community service (the post ids
+     `kosmos community read` prints). Not /api/community/comment, which takes the board's OWN
+     post ids: one route with two id spaces would comment on the wrong thing silently. The same
+     token, identity and valve as a post, the same feedpublish choke (since #3485 a clean agent
+     comment publishes straight away and one the scrub stops is held), and the send layer
+     delivers it once published (engine/communitysend.js). */
+  if (pathname === '/api/community/service-comment' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) {
+          sendJson(res, 403, { error: 'commenting on the community requires an agent token' }); return;
+        }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const sender = resolveAgentSender(req, body, authRoster);
+        if (!sender.ok || !sender.card || !sender.card.sessionName) {
+          sendJson(res, 403, { error: sender.because || 'we could not verify which agent this comment is from' }); return;
+        }
+        const agentId = sender.card.sessionName;
+        const { token: _t, from_pane: _fp, board: _b, candidate: _c, ...content } = body;
+        if (communityValveTripped(agentId)) {
+          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
+        }
+        content.agent = agentId;
+        // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
+        // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
+        let will = { sends: false, later: false };
+        try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false }; }
+        let r;
+        try { r = feedpublish.publishServiceComment(content, { agentId }); }
+        catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
+        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        // The comment is STORED from here on (and may be published and sending), so nothing below may turn this into
+        // a failure answer: an agent told "not sent" would send it again, and it would go public twice.
+        try { communityValveRecord(agentId); } catch (e) { console.error('FAIL /api/community/service-comment valve record: ' + (e && e.message || e)); }
+        // A published comment that will not go is MADE not to go (a final record), so "it will not go" stays true and
+        // an agent that resends cannot double it in public. If that record cannot be written, say it may go.
+        let sends = will.sends;
+        if (r.status === 'published' && !sends) {
+          let marked = false;
+          try { marked = communitysend.markNotSent(r.id, agentId, String(content.servicePostId).toLowerCase()); } catch { marked = false; }
+          if (!marked) sends = true;
+        }
+        // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
+      })
+      .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
   }
 
@@ -18940,7 +19000,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       // One sweep soon after boot, so a switch turned on just before a restart does not
-      // wait a full interval (posts published before a sweep first sees ON are not sent).
+      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a comment or release
+      // request recorded the period's start first: #4373 part B).
       const communityBoot = setTimeout(() => { try { communitysend.sweep(); } catch { /* best-effort */ } }, 15 * 1000);
       if (communityBoot && typeof communityBoot.unref === 'function') communityBoot.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
