@@ -303,8 +303,13 @@ test('#4588 B retry (flushReleased): with no idle report, posts held on the quot
 
     let tmux = arm();
     const r1 = rosterOf(board, AHEAD());
+    const heldFile = roomhold.fileFor('mara');
+    const stamp = Math.floor(fs.statSync(heldFile).mtimeMs / 1000) * 1000 - 60000;   // whole seconds: utimes rounds
+    fs.utimesSync(heldFile, new Date(stamp), new Date(stamp));   // a minute back, so a rewrite is visible
     const whileHeld = await roomhold.flushReleased(r1, releasedDeps(r1, Date.now()));
-    assert.deepEqual(whileHeld.map((d) => d.state), [chat.DELIVERY.COULD_NOT]);
+    // #4797: while the quota holds her, she is not tried at all: no result (so no log line), her file not rewritten.
+    assert.deepEqual(whileHeld, [], 'the retry tried a member the quota still holds');
+    assert.equal(fs.statSync(heldFile).mtimeMs, stamp, 'the held file was rewritten while nothing could be told');
     assert.deepEqual(typedTo(tmux, 'mara'), [], 'the retry typed while the pool is held');
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.addressedId(sent.id)]);
 
@@ -427,4 +432,28 @@ test('#4588 B clause: without an addressed id the #4624 line is byte-unchanged',
   assert.equal(roomhold.hold('zed', 'p1', roomhold.addressedId('m7')), true);
   assert.equal(roomhold.hold('zed', 'p1', 'm7'), true);
   assert.deepEqual(roomhold.heldIn('zed', 'p1'), ['@m7']);
+});
+
+test('#4797: the log line says "told of" only when something was told', () => {
+  const placed = roomhold.toldLine('mara', { n: 2, projectId: PROJECT, state: chat.DELIVERY.PLACED }, 'after the quota hold');
+  assert.match(placed, /^room-hold: mara told of 2 held post\(s\) in .+ after the quota hold, delivery=/);
+  assert.match(roomhold.toldLine('mara', { n: 2, projectId: PROJECT, state: chat.DELIVERY.PLACED }), /told of 2 held post\(s\) in [^ ]+, delivery=/);
+  const refused = roomhold.toldLine('mara', { n: 2, projectId: PROJECT, state: chat.DELIVERY.COULD_NOT }, 'after the quota hold');
+  assert.equal(/told of/.test(refused.replace('could not yet be told of', '')), false, 'a refused try was logged as told');
+  assert.match(refused, /could not yet be told of 2 held post\(s\)/);
+  assert.ok(refused.endsWith('\n') && placed.endsWith('\n'));
+  // No state: flushOnIdle put the ids back, so it was not told either.
+  assert.match(roomhold.toldLine('mara', { n: 1, projectId: PROJECT, state: undefined }), /could not yet be told of 1 held post.*\(delivery=none\)/);
+  // UNCONFIRMED: flushOnIdle cleared the ids (the line reached the pane), so it is told, and says so.
+  assert.match(roomhold.toldLine('mara', { n: 1, projectId: PROJECT, state: chat.DELIVERY.UNCONFIRMED }), /told of 1 held post\(s\) in [^ ]+, delivery=/);
+});
+
+test('#4797: both server log lines for a flush go through toldLine (no inline "told of" left)', () => {
+  const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  assert.equal((src.match(/roomhold\.toldLine\(/g) || []).length, 2, 'CONTROL: the two call sites were not found');
+  const inline = /room-hold: (\$\{[^}]+\}|' \+ \w+ \+ ')\s*told of/;
+  // CONTROL: the check matches the old inline line, in both template and concatenated form.
+  assert.ok(inline.test('write(`room-hold: ${who} told of ${d.n} held post(s)`)'), 'the check cannot see a template line');
+  assert.ok(inline.test("write('room-hold: ' + who + ' told of ' + n)"), 'the check cannot see a concatenated line');
+  assert.equal(inline.test(src), false, 'an inline "told of" log line is back in server.js');
 });

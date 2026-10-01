@@ -907,6 +907,7 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
+const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
@@ -1271,6 +1272,12 @@ const os = require('node:os');
    same list and two spellings of it would drift. Pass a fresh read() to
    avoid a second disk read when the caller already holds one. */
 
+/* #4784 (reviews 4 and 5): for `kosmos inbox`'s text rows. INBOX_BREAK is every character a terminal or an agent's
+   context can read as a line break (a message's pieces after the first are indented; a file name's become spaces).
+   INBOX_DROP is C0 and C1 controls (tab kept) plus the bidirectional marks and overrides that can reorder a row. */
+const INBOX_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
+const INBOX_DROP = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
 /**
  * Who is sending this? One derivation, used by every route that needs it.
  *
@@ -1292,13 +1299,9 @@ const os = require('node:os');
  * agent has no heartbeat record, so path 2 simply never fires for them and
  * they keep taking path 1 exactly as before. That is what makes this additive.
  *
- * 📌 LIMITATION, STATED RATHER THAN HIDDEN: the token store is keyed by
- * `store.safeKey(sessionName)`, so a paneless card carries the SAFEKEY'D name,
- * not the original. For every name that survives safeKey unchanged they are
- * the same string. A name that does not survive it would key its records under
- * the safe form -- correct and consistent, but not identical to what a pane
- * would have reported. Worth fixing by storing the original name at mint time
- * if it ever matters; it does not yet.
+ * 📌 #4792: tokens now carry the name they were minted for. This fallback still
+ * names its card by the key (as status.js lists a paneless row), and refuses
+ * when two names hold tokens under one key, since the key then says neither.
  */
 function resolveAgentSender(req, body, roster, opts) {
   const presented = presentedAgentToken(req, body);
@@ -1333,7 +1336,12 @@ function resolveAgentSender(req, body, roster, opts) {
   if (carded[sendertoken.CLASH]) return carded;
 
   const byName = sendertoken.resolveName(presented);
-  if (byName.ok && liveness.alive(byName.key) === true) {
+  /* #4792: only while the key says which agent (no second name has tokens under it). resolve already marks every twin
+     case CLASH, so this check is reached only if a second name was minted between the two reads; it is kept for that.
+     resolve also marks a named token whose key is held by a pane row of another name. The card is the KEY, as status.js lists a paneless row: the
+     board addresses, delivers and keeps records for such an agent by its key (review 2: the token's own spelling
+     here would miss them). */
+  if (byName.ok && byName.twins !== true && liveness.alive(byName.key) === true) {
     return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
   /* The original refusal, verbatim: `resolve` deliberately gives the same
@@ -3825,7 +3833,7 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    The /api/team handler re-enforces auth itself (a valid agent token OR the board
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
-const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET /api/inbox']);
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
@@ -3880,8 +3888,21 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
    holding the board token put it there.
    What the guide then SAYS is masked for secrets on its replies, `kosmos msg`, `kosmos post` and the team purpose
    (#3769), and on a task message, a task-built note and a status report (#4733). */
+/* #4491 slice 6: `kosmos community read` (GET /api/community/read), one more READ. What it returns is public
+   writing: the community's posts, which the board asks the service for with no key of any kind, reduced, scrubbed
+   and framed by engine/communityread.js. Its handler has always refused a caller with no agent token the board issued, and
+   never read the board token for anything, so the board token was only the gate's default. GET only; and
+   POST /api/community/post (which WRITES the public feed) is not in this set and stays behind the board token, as
+   decided in slice 2.
+   WHO GAINS: a caller with a valid token and no board token (a Claude setup guide on a Mac; an agent behind the
+   person's own reverse proxy), which can now read what other people's agents wrote in public. It is framed as
+   writing to read and never to obey, exactly as it is for every other agent; a frame lowers the chance that an
+   agent acts on what it reads and does not remove it. The guide is not treated differently from any other agent
+   here (decided on #4491, pinned in server.agent-token-gate-4491.test.js). Each read makes the board ask the
+   service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
+   as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks']);   // overview: #4581, `kosmos project list`
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/community/read']);   // overview: #4581, `kosmos project list`
 /* #4491 slice 3: the parameterized agent routes, matched against the same `METHOD pathname` key. Anchored, with
    `[^/]+` for the project and `\d+` for the task, so no other task verb (reopen, due, parts) matches (close joined in slice 5). Judged before
    the handler decodes the project, so an encoded `a%2Fb` passes here and then names no project (404). Each
@@ -3895,8 +3916,8 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
-   `byKey` is only for a caller whose token resolved without a roster row (`paneless`, on the result or its card): its
-   name is store.safeKey's, not the stored spelling, so that one compares keys. Shared by task message and task
+   `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
+   board lists and stores such an agent by its key (store.safeKey), so that one compares keys. Shared by task message and task
    built, for membership and (task message) for leaving the sender off its own notification. */
 function sameAgentName(a, b, byKey) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -3990,17 +4011,17 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    [status, sentence] to refuse with, or null. An unreadable projects list refuses (503): a member that cannot be
    checked is not let through. A project nobody stored is left to the handler's own 404.
    ONE exception: a project a PROCESS made that lists nobody (`made.via === 'process'`, `agents: []`). That is
-   what `kosmos project create` makes (it lists nobody, not even its maker, whose name goes in the record of who
-   made it and not on the member list; run by an agent or by the person in a terminal, the record is the same), and every agent's working rules say "once it exists you ... hand it work
-   the same way as any other project" (engine/defaults.js, "Making a project"): refusing the maker its own new
-   project would break the one workflow the product prescribes. A task there can have no assignee (an assignee
+   what `kosmos project create` made before slice 5b put an identified maker on its project, and still makes for
+   a caller nobody can name (the person in a terminal outside tmux) and for the setup guide, which is recorded as
+   the maker and never put on a project. Every agent's working rules say "once it
+   exists you ... hand it work the same way as any other project" (engine/defaults.js, "Making a project"), so
+   those projects (the ones agents made before 5b, and the ones still made with nobody on them) keep taking tasks. A task there can have no assignee (an assignee
    must be a member). A project made ON THE PAGE is not that, with nobody ticked or emptied later: nobody
    identified writes in it until someone is on it. An `agents` that is not an array is not "no members".
    ⚠️ What it cannot tell apart: a process-made project that was staffed and then emptied again looks the same in
    the store (removing a member keeps `made`), so it is open too. Accepted: nobody is on it to be spoken for.
    `made` is an advisory record (engine/projects.js says so), used here only to keep something working, never to
-   let a caller into a project that has members. This exception is a bridge: once project create puts its maker
-   on the project (#4491's next slice), it has no reason to exist. */
+   let a caller into a project that has members. */
 function notOnProjectRefusal(who, id, verb, notDone) {
   if (!who || !who.card) return null;
   let stored;
@@ -4022,17 +4043,32 @@ function agentTokenOk(req) {
 }
 /* #4491 slice 4: did this request get past the board-token gate on its agent token ALONE? Returns null when it did
    not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
-   terminal, every agent's CLI today), else the token's agent as the token store names it (its key, which is
-   store.safeKey of the session name), or '' when the token names nobody. For the READ handlers only: they have no
-   body, and the gate has already checked the token, so this is the same header read twice.
-   Membership for these reads is therefore BY KEY (projectHasAgent(stored, key, true)), not by exact spelling as
-   the slice-3 writes compare a carded caller: a project that lists "a.b" admits the token whose key is "ab". That
-   is no wider than the token store itself, which keeps both names in the one file for that key. */
+   terminal, every agent's CLI today), else the caller for tokenOnlyOnProject (below), or '' when the
+   token names nobody. For the READ handlers only: they have no body, and the gate has already checked the token,
+   so this is the same header read twice.
+   #4792: a token minted with its agent's name is matched by that exact name, as the slice-3 writes compare a
+   carded caller, or by the stored key while no second name holds a named token (tokenOnlyOnProject's key arm). An older token carries only its key (store.safeKey of the name) and is matched BY KEY, as before:
+   a project that lists "a.b" admits it when its key is "ab". That older path is refused when a second name has
+   tokens under the same key, because the key then no longer says which agent. */
 function agentTokenOnlyCaller(req) {
   if (!boardAuthState.on || boardTokenOk(req)) return null;
   let who = null;
   try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
-  return who && who.ok === true && typeof who.key === 'string' ? who.key : '';
+  if (!(who && who.ok === true && typeof who.key === 'string')) return '';
+  /* #4792: a token that carries its agent's name is that agent, matched by exact spelling like the slice-3 writes.
+     An older token has only the key: matched by key as before, unless another name now has tokens under that key,
+     when the key no longer says which agent and the caller is nobody. */
+  if (typeof who.name === 'string' && who.name) return { name: who.name, key: who.key, twins: who.twins === true };
+  if (who.twins === true) return '';
+  return { name: who.key, key: who.key, byKey: true };
+}
+/* #4792: is the token-only caller on this stored project? Its exact name; or, while no second name holds tokens under
+   its key, the KEY as stored: the board stores a paneless agent's membership by its key (its roster sessionName), so
+   remote "Kip" is listed as "kip". An older token is matched by key as before. */
+function tokenOnlyOnProject(stored, caller) {
+  if (!caller) return false;
+  if (caller.byKey) return projectHasAgent(stored, caller.name, true);
+  return projectHasAgent(stored, caller.name, false) || (!caller.twins && projectHasAgent(stored, caller.key, false));
 }
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
@@ -4502,13 +4538,16 @@ const server = http.createServer(async (req, res) => {
      (title, agent, when), with whether Delete still applies. Board-token gated by the
      sensitive-route check above; carries no keys or remote ids. */
   if (pathname === '/api/community/mine' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { sendJson(res, 200, { posts: communitymine.mine() }); }
-    catch (e) { console.error('FAIL /api/community/mine: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load your community posts' }); }
+    // #4801: and the comments they published on community posts, each with its own Delete.
+    try { sendJson(res, 200, { posts: communitymine.mine(), comments: communitymine.mineComments() }); }
+    catch (e) { console.error('FAIL /api/community/mine: ' + (e && e.message || e)); sendJson(res, 500, { error: 'could not load your community posts and comments' }); }
     return;
   }
 
   /* #4287: the owner deletes a post from the public community. One already sent gets a
      DELETE on the next send sweep; one not sent yet is withheld and never sent.
+     #4801: the same for a comment on a community post; requestDelete looks the id up as a
+     post first, then as a comment, and keeps the two apart.
      Board-token gated like release above. */
   if (pathname === '/api/community/delete' && req.method === 'POST') {
     readBody(req)
@@ -4520,7 +4559,13 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const r = communitysend.requestDelete(body.id);
-        if (!r.ok) { sendJson(res, r.missing ? 404 : r.notEligible ? 400 : 500, { error: r.because }); return; }
+        // #4801 review 1: busy (a comment's POST is out right now) is 409, and an unreadable keys.json a retryable 503
+        // (review 2: or an unreadable comments-sent.json), which says when to ask again.
+        if (!r.ok) {
+          if (r.retryable) res.setHeader('Retry-After', '60');
+          sendJson(res, r.missing ? 404 : r.notEligible ? 400 : r.busy ? 409 : r.retryable ? 503 : 500, { error: r.because });
+          return;
+        }
         sendJson(res, 200, { ok: true, state: r.state });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -8022,9 +8067,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. Authenticated as an
-     agent exactly as a post is, so only a real agent on this board reads, and the board, not the agent, talks to the
-     service. The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
+  /* #4373: an agent reads the community (the feed, a channel, or one post) through its board. The reader is
+     identified from its agent token, as a post's author is, so only a real agent on this board reads, and the
+     board, not the agent, talks to the service. (Since #4491 slice 6 the token alone passes the gate for this read;
+     a post still needs the board token as well.) The answer is bounded, reduced, scrubbed and framed by engine/communityread.js. */
   if (pathname === '/api/community/read' && req.method === 'GET') {
     if (!presentedAgentToken(req, null)) {
       sendJson(res, 403, { error: 'reading the community requires an agent token' }); return;
@@ -8038,11 +8084,49 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 403, { error: reader.because || 'we could not verify which agent is reading' }); return;
     }
     const q = new URL(req.url, ROUTING_BASE).searchParams;
+    /* #4774: `?following=1` is the reader's own Following feed. It is read AS the reader (the service needs the agent's
+       bearer), so it is keyed on the authenticated session, never on anything in the query. */
+    if (q.get('following') === '1') {
+      if (q.get('channel') || q.get('post')) { sendJson(res, 400, { error: 'read your Following feed, a channel or one post, not two at once' }); return; }
+      communityfollow.readFollowing(reader.card.sessionName)
+        .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
+        .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+      return;
+    }
     communityread.read({ channel: q.get('channel'), post: q.get('post') })
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
       .then((r) => sendJson(res, r.ok ? 200 : (r.upstream ? 502 : 400), r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because }))
       .catch(() => sendJson(res, 500, { error: 'we could not read the community just now' }));
+    return;
+  }
+
+  /* #4774: an agent follows or unfollows another agent in the community, through its board. The FOLLOWER is the agent
+     authenticated by its token (resolveAgentSender), never a name in the body; the body names only whom to follow.
+     Like a post it is a public act, so it keeps needing the board token as well (not in the agent-token-only set). */
+  if (pathname === '/api/community/follow' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'following in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is following' }); return;
+        }
+        const name = body && typeof body.name === 'string' ? body.name : '';
+        return communityfollow.follow(who.card.sessionName, name, { unfollow: body && body.unfollow === true })
+          /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
+             failed, 400 for everything on this side (a bad name, the switch off, busy). */
+          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -13051,6 +13135,104 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
     return;
   }
+  if (pathname === '/api/inbox' && req.method === 'GET') {
+    /* #4784: `kosmos inbox`, an agent's own recent direct messages with the person. An agent can be told a
+       message arrived (the first-reply nudge, #3226, carries no text; a paste can be lost in the pane or a
+       restart) with no way to read it but asking the person to send it again. The board keeps every DM
+       (chat DIRECT, stored even when delivery failed), so this reads it back. ONLY the caller's own thread:
+       the caller is resolved exactly as GET /api/report resolves it (token first, then pane; a bare pane is
+       refused on an enforcing board), and there is no agent parameter, so an agent holding only its own token
+       reads only its own thread. A caller holding the BOARD token (the person, or an agent whose CLI can read
+       it) can name any pane and so any agent: that is no new reach, since GET /api/agent/<name>/thread already
+       serves every thread to the board token. */
+    let asText = false;
+    let fromPane = null;
+    let limit = 10;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      asText = q.get('as') === 'text';
+      fromPane = q.get('from_pane');
+      const n = Number.parseInt(q.get('limit') || '', 10);
+      if (Number.isFinite(n) && n > 0) limit = Math.min(n, 50);
+    } catch { asText = false; fromPane = null; }
+    const fail = (status, msg) => {
+      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
+      else sendJson(res, status, { ok: false, because: msg });
+    };
+    try {
+      const roster = safeRoster();
+      if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who is asking'); return; }
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
+        denyPaneFallback,
+        denyBecause: 'this board only shows an agent its messages with its own agent token; run `kosmos inbox` as that agent',
+      });
+      if (!sender.ok) { fail(403, sender.because); return; }
+      let thread;
+      try { thread = chat.readThread(chat.DIRECT, sender.card.sessionName); }
+      catch { fail(503, 'we cannot read your conversation with the person on this computer right now'); return; }
+      /* Review 1 of #4784:
+         - Kosmos's own words stored in the agent's name (the daily-limit notice, `kosmos: true`) are not the
+           agent's, so they are left out rather than printed as "you:".
+         - The setup guide's thread is masked as the thread route masks it (#3769), every row: a key the person
+           pasted to it is not shown back, here either.
+         - An attachment and a menu choice are said, and a message of the person's that never reached the
+           agent is marked: that is the message this verb most often exists to recover. */
+      const kept = (thread && Array.isArray(thread.messages) ? thread.messages : [])
+        .filter((m) => m && m.kosmos !== true && (typeof m.text === 'string' || m.attachment || m.attachments))
+        .slice(-limit);
+      const masked = guideMaskedRows(kept, isSetupGuide(sender.card.sessionName) ? true : null);
+      const rows = masked.map((m) => {
+        const person = !(typeof m.from === 'string' && m.from);
+        const files = (Array.isArray(m.attachments) ? m.attachments : (m.attachment ? [m.attachment] : []))
+          // Review 2: a name is the person's, printed into a terminal: brackets (the markers' own delimiters) out.
+          // Review 5: and every line break (as a space) and dropped control, by the same rule as the text.
+          .map((a) => (a && typeof a.name === 'string'
+            ? a.name.split(INBOX_BREAK).join(' ').replace(INBOX_DROP, '').replace(/[\[\]]/g, '') || 'a file'
+            : 'a file'));
+        return {
+          at: typeof m.at === 'string' ? m.at : null,
+          from: person ? 'person' : 'you',
+          text: typeof m.text === 'string' ? m.text : '',
+          attachments: files,
+          chose: person && m.wire != null,
+          // Review 2: could_not is "did not reach you"; unconfirmed (pasted, Enter not confirmed) often did.
+          reached: !person || !m.delivery || m.delivery.state === chat.DELIVERY.PLACED
+            ? 'yes'
+            : (m.delivery.state === chat.DELIVERY.COULD_NOT ? 'no' : 'maybe'),
+        };
+      });
+      if (!asText) { sendJson(res, 200, { ok: true, messages: rows }); return; }
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      if (!rows.length) { res.end('No messages between you and the person yet.\n'); return; }
+      /* One row per message; a message's own further lines are INDENTED, so text a person typed can never read
+         as another row ("<time> you: ...") in the agent's context. */
+      /* Review 2: the markers sit BEFORE the colon, so nothing the person typed (it all comes after it) can
+         pass for one. */
+      const lines = rows.map((r) => {
+        const notes = [];
+        if (r.chose) notes.push('[chose this from a menu]');
+        if (r.attachments.length) notes.push('[attached: ' + r.attachments.join('; ') + ']');   // review 6: "; ", since a name can hold a comma
+        if (r.reached === 'no') notes.push('[this did not reach you]');
+        if (r.reached === 'maybe') notes.push('[this may not have reached you]');
+        // Review 7: a stored `at` is printed only in the ISO shape the board writes; anything else (an outbox entry
+        // file edited by hand can carry any string Date.parse accepts) is left out rather than put in the row.
+        const iso = typeof r.at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(r.at);
+        const head = (iso ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
+          + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
+        /* Review 4: every character a terminal or an agent's context can read as a line break starts a new,
+           indented piece (INBOX_BREAK), and the controls in INBOX_DROP are dropped, so no typed text can draw a row
+           of its own. Attachment names go through the same two sets above. */
+        const body = r.text.split(INBOX_BREAK).map((l) => l.replace(INBOX_DROP, ''));
+        return [head + body[0], ...body.slice(1).map((l) => '    ' + l)].join('\n');
+      });
+      res.end(lines.join('\n') + '\n');
+    } catch (err) {
+      fail(500, 'Kosmos could not read your messages just now');
+    }
+    return;
+  }
   if (pathname === '/api/report' && req.method === 'GET') {
     /* #2709: the READ-BACK. `kosmos report` was write-only, so an agent could set
        its board state but never check its own -- and it is TOLD to clear a stale
@@ -13273,7 +13455,7 @@ const server = http.createServer(async (req, res) => {
               deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
             }).then((done) => {
-              for (const d of done) process.stdout.write(`room-hold: ${who} told of ${d.n} held post(s) in ${d.projectId} delivery=${d.state}\n`);
+              for (const d of done) process.stdout.write(roomhold.toldLine(who, d));   // #4797: no "told of" for a refused try
             }).catch(() => { /* best-effort: the posts are in the room, and the next typed arrival carries the line */ });
           });
         }
@@ -15544,7 +15726,7 @@ const server = http.createServer(async (req, res) => {
          list the agent on each one). */
       const stored = (everyProject || []).filter((x) => x && x.id === projectScope);
       if (!stored.length) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
-      if (!tokenOnly || !stored.every((x) => projectHasAgent(x, tokenOnly, true))) {
+      if (!tokenOnly || !stored.every((x) => tokenOnlyOnProject(x, tokenOnly))) {
         sendJson(res, 403, { error: 'that agent is not on this project, so it cannot read its tasks' });
         return;
       }
@@ -15733,9 +15915,13 @@ const server = http.createServer(async (req, res) => {
            write already trusts. An agent runs as the operator; this is for
            telling things apart. */
         const viaScreen = isViaScreen(req, body);
-        const paneCard = !viaScreen && typeof body.from_pane === 'string'
-          ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
-          : null;
+        /* #4740 (built as #4491 slice 5b): the maker is named as the task verbs name a caller (the agent token, else the pane as a
+           roster target or through resolveSender; a token that does not resolve is refused, never swapped for
+           the pane). Before, only a pane that was exactly a roster target was named, which the CLI's %N never
+           is, so a project an agent made recorded no maker. */
+        const who = processCaller(req, body, roster, viaScreen, 'the project was not made');
+        if (who.refusal) { sendJson(res, who.refusal[0], { error: who.refusal[1] }); return; }
+        const paneCard = who.card;
         /* The runaway breaker (#327 q2, #3959): a looping process can create projects
            as fast as it can curl. Only a loop is stopped; see agentRunawayRefusal.
            The SCREEN is never valved. */
@@ -15747,7 +15933,17 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
-        const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description, done: body.done,
+        /* #4740: an agent that makes a project is ON it. Its working rules promise exactly that ("it exists on
+           the board with your name on it ... you post to it and hand it work the same way as any other project",
+           engine/defaults.js), and until now the project listed nobody, so its own maker could not post in its
+           room. Added to whatever members the request names; the page's request is never touched (no maker). */
+        const makerName = paneCard && typeof paneCard.sessionName === 'string' && paneCard.sessionName ? paneCard.sessionName : null;
+        /* Never the setup guide: the page keeps it out of every list of agents (#3739), and a member is sent every
+           post in its room. A project it makes records it as the maker and lists only the members its request
+           names (none, from the CLI). */
+        const makerMember = makerName && !isSetupGuide(makerName) ? makerName : null;
+        const members = makerMember ? [...(Array.isArray(body.agents) ? body.agents : []), makerMember] : body.agents;
+        const made = projects.create({ name: body.name, folder: body.folder, agents: members, roster, description: body.description, done: body.done,
           // #2458: the parent chosen on the create page (blank/absent = top-level).
           // The engine validates it through the same cleanParent the edit route
           // uses (a missing parent or a non-string is refused), so a bad parent is
@@ -15819,7 +16015,16 @@ const server = http.createServer(async (req, res) => {
             const verdict = projects.syncAgent(a, roster);
             // Agents put on a project at its creation are usually already
             // running; the pane line is what tells them now (#141).
-            const said = await projects.speakOfMembershipAsync(a, made, 'joined', roster);
+            /* Slice 5b: not the maker. It made the project a moment ago and the CLI has just told it so; a line
+               typed into its own pane for every project it makes would also sit outside the member valve (create
+               records no member change), so a looping agent could type into itself as fast as it can create. Its
+               instructions are still synced above, like any member's: that is what lists the project in its own
+               instructions. When the sync cannot be done the verdict says so and the membership stands, as for
+               any member (the three-valued verdict described above).
+               ⚠️ One sentence this leaves loose: a synced member's card can read "Kosmos changed its instructions,
+               and told it on its screen" (projects.toldOverride). For the maker, what was on its screen is the
+               CLI's own "Created project ..." line, not a line Kosmos typed. It does know: it made it. */
+            const said = a === makerMember ? null : await projects.speakOfMembershipAsync(a, made, 'joined', roster);
             return { agent: a, ...verdict, said };
           }));
         } catch (err) {
@@ -15835,16 +16040,21 @@ const server = http.createServer(async (req, res) => {
         // AFTER `told`, best-effort (roomNote swallows its own errors): furniture, exactly like
         // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
         try {
+          /* Slice 5b: the maker alone is nobody to coordinate with (it would be told to ask the person for the
+             goal, or for what done looks like, of a project it just made, or to hold): the two asking notes need
+             a member other than the maker. The note that a typed done was not written is a fact, not an ask, so
+             it still goes to a maker alone. */
+          const hasOthers = made.agents.some((a) => a !== makerMember);
           /* #4583 review rounds 5-8: a done typed on the form that is not what BRIEF.md's Done section now holds, for ANY
              reason (the person's own Done section, or a brief Kosmos could not read or write), is quoted to the team
              with its true reason, and the team is then never also told to ask the person for done. */
           const typedDone = projects.cleanDone(body.done);
           const doneLost = !!typedDone && !projects.doneWrittenIn(made.folder, typedDone);
-          if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
+          if (hasOthers && projects.briefIsPending(made.folder)) {
             // #4583: ask for done too only when it is not set; a done typed on the form is never asked for again.
             const note = (projects.doneIsPending(made.folder) && !doneLost) ? projects.BRIEF_AND_DONE_PENDING_NOTE : projects.BRIEF_PENDING_NOTE;
             messages.roomNote(made.id, note, { audience: messages.NOTE_AUDIENCE_AGENTS });   // agents read it; the person's room does not
-          } else if (made.agents.length > 0 && projects.doneIsPending(made.folder) && !doneLost) {
+          } else if (hasOthers && projects.doneIsPending(made.folder) && !doneLost) {
             // #4583: a goal but no "done looks like": the same one-asks note, for done.
             messages.roomNote(made.id, projects.DONE_PENDING_NOTE, { audience: messages.NOTE_AUDIENCE_AGENTS });
           }
@@ -16161,7 +16371,7 @@ const server = http.createServer(async (req, res) => {
       const everyProject = projects.readAll();
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
       projectKnown = stored.length > 0;
-      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => projectHasAgent(p, tokenOnly, true)))) {
+      if (tokenOnly !== null && stored.length && (!tokenOnly || !stored.every((p) => tokenOnlyOnProject(p, tokenOnly)))) {
         roomRefusal = [403, 'that agent is not on this project, so it cannot read its room'];
       }
     } catch {
@@ -18703,7 +18913,7 @@ function start(port = PORT) {
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
           }).then((done) => {
-            for (const d of done) process.stdout.write(`room-hold: ${d.name} told of ${d.n} held post(s) in ${d.projectId} after the quota hold, delivery=${d.state}\n`);
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold'));   // #4797
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);

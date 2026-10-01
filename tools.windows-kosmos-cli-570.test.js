@@ -391,14 +391,14 @@ test('room and task sanitize the project id the way install/kosmos does; the rea
   assert.equal(close.calls.length, 0);
 });
 
-test('project create: POST /api/projects with name+folder and the BOARD token (not the agent token); id -> 0; error -> 1; missing args -> 2', async () => {
+test('project create: POST /api/projects with name+folder, the BOARD token and the agent token (#4491 slice 5b); id -> 0; error -> 1; missing args -> 2', async () => {
   const okBody = { project: { id: 'my-project' }, told: [], id: 'my-project', agentsUnreadable: false };
   const ok = await run(['project', 'create', 'My Project', '/tmp/mp', 'a demo'], () => ({ body: okBody }));
   assert.equal(ok.code, 0);
   assert.equal(ok.calls[0].route, '/api/projects');
   assert.equal(ok.calls[0].method, 'POST');
   assert.deepEqual(ok.calls[0].body, { name: 'My Project', folder: '/tmp/mp', from_pane: '', description: 'a demo' });
-  assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], undefined, 'a board write: the create route does not name the sender from the agent token');
+  assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], AGENT, 'the create route names the maker from the agent token since #4491 slice 5b');
   assert.equal(ok.calls[0].headers['x-kosmos-board-token'], BOARD, 'an enforcing board would 403 without the board token');
   assert.equal(ok.out, 'Created project "My Project" (id: my-project). It\'s on your board now.');
 
