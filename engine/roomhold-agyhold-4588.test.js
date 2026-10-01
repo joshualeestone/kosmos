@@ -426,7 +426,7 @@ test('#4588 B review 6: flushReleased skips a STOPPED agy member holding posts (
 
 test('#4588 B clause: without an addressed id the #4624 line is byte-unchanged', () => {
   assert.equal(roomhold.clauseFor('p1', 'P one', ['m1']),
-    '[While you were working, 1 room post not addressed to you arrived in project P one (m1). Nothing is asked of you; read them with: kosmos room p1]');
+    '[Since you last heard from this room, 1 room post not addressed to you arrived in project P one (m1). Nothing is asked of you; read them with: kosmos room p1]');
   assert.equal(roomhold.plainId(roomhold.addressedId('m7')), 'm7');
   // The same id held again unmarked is kept once, with its mark.
   assert.equal(roomhold.hold('zed', 'p1', roomhold.addressedId('m7')), true);

@@ -103,17 +103,17 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
 /* Session names the fleet fixture gives these members (the paste target). */
 function sessionOf(board, name) { return board.agents.find((a) => a.sessionName === name).sessionName; }
 
-test('#4624: a working member is not typed a colleague\'s un-addressed post; an idle member is (control)', () => {
+test('#4624: a working member is not typed a colleague\'s un-addressed post; a never-reported member is (control)', () => {
   withFleet(room3(), (board) => {
     report('mara', 'working');
-    report('april', 'idle');
+    // april has never reported: a runner the board cannot read is typed as before (the H7 follow-up holds for idle too).
     armSender('leo-discord');
     const tmux = arm();
     const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud about the lease' }, board.agents, MEMBERS);
     assert.equal(sent.state, chat.DELIVERY.PLACED, 'a held post must read as placed to the sender, or it re-posts: ' + (sent.because || ''));
     assert.equal(sent.outcomes.mara, roomhold.HELD);
     assert.deepEqual(typedTo(tmux, sessionOf(board, 'mara')), [], 'the working member was typed a post not addressed to it');
-    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'CONTROL: the idle member must still be typed the post');
+    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'CONTROL: a never-reported member must still be typed the post');
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id]);
     const row = messages.record().rows.find((m) => m.id === sent.id);
     assert.ok(row.to.includes('mara'), 'a held member is still one the post went to (it is told about it)');
@@ -123,7 +123,6 @@ test('#4624: a working member is not typed a colleague\'s un-addressed post; an 
 test('#4624 with #4580: the same post sent again while it is held is folded into the first, and still reads as placed', () => {
   withFleet(room3(), (board) => {
     report('mara', 'working');
-    report('april', 'idle');
     armSender('leo-discord');
     const tmux = arm();
     const post = { fromPane: '%7', project: PROJECT, text: 'thinking out loud about the lease' };
@@ -133,8 +132,34 @@ test('#4624 with #4580: the same post sent again while it is held is folded into
     assert.equal(again.duplicate, true, 'the precondition: the second copy was folded into the first');
     assert.equal(again.id, first.id);
     assert.equal(again.state, chat.DELIVERY.PLACED, 'a folded retry of a held post read as not placed, so the sender would post it a third time');
-    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'the idle member was typed the post twice');
+    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'the never-reported member was typed the post twice');
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), [first.id], 'the working member holds it once');
+  });
+});
+
+test('#4624 follow-up (0.7.15 diagnostic H7): an IDLE member is not typed a colleague\'s un-addressed post either; it is told on its next typed arrival', () => {
+  withFleet(room3(), (board) => {
+    report('mara', 'idle');
+    report('april', 'needs_you');
+    armSender('leo-discord');
+    let tmux = arm();
+    const a = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'empty queue, nothing to pick up' }, board.agents, MEMBERS);
+    assert.equal(a.outcomes.mara, roomhold.HELD, 'an idle member was woken by a post that asks nothing of it');
+    assert.deepEqual(typedTo(tmux, sessionOf(board, 'mara')), []);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [a.id]);
+    // CONTROL: a member whose report is neither working nor idle (here needs_you) is typed as before.
+    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'CONTROL: a needs_you member is not held');
+    // An idle report of any age holds (the turn ended; nothing decays it), unlike a stale working one.
+    report('mara', 'idle', new Date(Date.now() - 24 * 3600 * 1000).toISOString());
+    const b = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'still thinking' }, board.agents, MEMBERS);
+    assert.equal(b.outcomes.mara, roomhold.HELD, 'an old idle report let a background post wake the member');
+    // The person's post, or one that names the member, still wakes it, carrying the held line once.
+    tmux = arm();
+    messages.sendPost({ operator: true, project: PROJECT, text: 'Mara, please pick up the lease' }, board.agents, MEMBERS);
+    const got = typedTo(tmux, sessionOf(board, 'mara'));
+    assert.equal(got.length, 1, 'the person\'s post did not reach the idle member');
+    assert.ok(got[0].includes('2 room posts not addressed to you') && got[0].includes(a.id + ', ' + b.id), got[0]);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
   });
 });
 
@@ -185,7 +210,8 @@ test('#4624: held posts ride on the member\'s next typed room arrival as one lin
     const b = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'second thought' }, board.agents, MEMBERS);
     report('mara', 'idle');
     const tmux = arm();
-    const c = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'third thought' }, board.agents, MEMBERS);
+    // Addressed, so it is typed whatever mara's state: the arrival the held line rides on.
+    const c = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara third thought' }, board.agents, MEMBERS);
     const got = typedTo(tmux, sessionOf(board, 'mara'));
     assert.equal(got.length, 1, 'one arrival, not one per held post');
     assert.ok(got[0].includes('third thought'), 'the arrival itself was lost');
@@ -213,7 +239,7 @@ test('#4624: an arrival that could not be typed keeps the held posts for the nex
       return tmux(args);
     };
     chat.setRunner(failing);
-    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'third thought' }, board.agents, MEMBERS);
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara third thought' }, board.agents, MEMBERS);
     assert.equal(sent.outcomes.mara, chat.DELIVERY.COULD_NOT, 'CONTROL: the arrival must really have failed for mara');
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), [a.id], 'a failed arrival forgot the held posts');
   });
@@ -290,7 +316,7 @@ test('#4624 round 1: an idle flush in flight and a typed arrival never both carr
     report('mara', 'idle');
     armSender('leo-discord');
     const tmux = arm();
-    messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'meanwhile' }, board.agents, MEMBERS);
+    messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara meanwhile' }, board.agents, MEMBERS);
     const got = typedTo(tmux, 'mara');
     assert.equal(got.length, 1);
     assert.ok(!got[0].includes('m90'), 'the arrival repeated a line the flush is already typing: ' + got[0]);
