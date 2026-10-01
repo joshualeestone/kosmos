@@ -83,3 +83,12 @@ different ones) and a caller's own is kept; every board boot in the runner names
   was lost from the reasons: FIXED, 97 is handled before the retry, named kosmos-4909-seed-copy:<check>, never retried.
 - N3 board_home runs in the background subshell for backgrounded boots: kept (the seed completes before node starts;
   no reader before wait_up). N4 the pseudo-label in FAILED-LIST: kept (CI never seeds). N5, N6: confirmed fine.
+
+## Review 5 (Opus, blind, source-only): 0 blockers, 0 warnings, 5 nits. CONVERGED.
+- Checked: on a normal unseeded cut nothing changes beyond the isolation (the runner writes nothing into the run home;
+  no positional check plants state for its board in a home; sb5/sb6's GitHub token lives in data, not home).
+- N1 exit 97 was handled with no seed: FIXED, only in a seeded run. N2 CDPATH could redirect the seed: FIXED. N3
+  plantSubscribedClaude threw the seed away: FIXED, it seeds its own home; the banner says checks naming their own home
+  are not. N4 a seed failure inside the mobile-shots wrappers or thread-server reads as that check: kept, stated (seeded
+  runs only). N5 release.sh and tools.cut-home-2724.test.js comments marked as pre-#4909 history.
+- What only a run settles (an accidental dependence on the shared home): the control's clean arm on this branch.

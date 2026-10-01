@@ -70,7 +70,7 @@ set -uo pipefail
 unset KOSMOS_BC_RUN_HOME KOSMOS_BC_RUN_SKILLS
 if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ -d "$KOSMOS_BC_SEED_HOME" ]; then
   # Review 4: a folder that exists but cannot be entered must refuse, never become an empty (unseeded) value.
-  _seed_abs="$(cd "$KOSMOS_BC_SEED_HOME" && pwd -P)" || { echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME cannot be entered; refusing a run that would only look seeded" >&2; exit 1; }
+  _seed_abs="$(CDPATH= cd -- "$KOSMOS_BC_SEED_HOME" && pwd -P)" || { echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME cannot be entered; refusing a run that would only look seeded" >&2; exit 1; }
   KOSMOS_BC_SEED_HOME="$_seed_abs"; export KOSMOS_BC_SEED_HOME
 fi
 # #3633: no board this script boots may download the agents' browser into the real
@@ -270,7 +270,7 @@ if [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then
   if [ -n "${AGENT_WORKFORCE_HOME:-}" ] && [ "${AGENT_WORKFORCE_HOME%/}" != "${HOME%/}" ]; then
     echo "browser-checks: KOSMOS_BC_SEED_HOME needs the run's own home, but AGENT_WORKFORCE_HOME is set; nothing would be seeded, so refusing" >&2; exit 1
   fi
-  echo "browser-checks: SEEDED RUN from $KOSMOS_BC_SEED_HOME (kosmos#4909 control): each board's and each self-booting check's own home starts with it"
+  echo "browser-checks: SEEDED RUN from $KOSMOS_BC_SEED_HOME (kosmos#4909 control): each board's own home and each self-booting check's fresh home start with it (a board or check that names its own home is not seeded)"
 fi
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
@@ -838,7 +838,7 @@ run_one() {
   fi
   # kosmos#4909: 97 is lib-sandbox-home.js saying the control's SEED could not be copied into this check's home. Not
   # the check: no retry, and named as the seed, so a control run never reads it as "this check reads unset state".
-  if [ "$rc" -eq 97 ]; then
+  if [ "$rc" -eq 97 ] && [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then   # review 5: only in a seeded run
     log "SEED NOT COPIED  $label (exit 97: the kosmos#4909 control's seed could not be copied into its home; not the check)"
     FAILED+=("kosmos-4909-seed-copy:$label")
     REASONS+=("kosmos-4909-seed-copy:$label:"$'\n'"           exit 97: the seed could not be copied into this check's own home; the check itself did not run.")

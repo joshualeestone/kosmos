@@ -98,6 +98,12 @@ function plantSubscribedClaude() {
      AGENT_WORKFORCE_CLAUDE_CONFIG, which a fixture points at its own empty file, while a
      secondary is judged by its own .claude.json. */
   const own = freshHome();
+  /* kosmos#4909 review 5: in a seeded control run this home starts with the seed too, as every fresh home does. */
+  const seed = process.env.KOSMOS_BC_SEED_HOME;
+  if (seed) {
+    try { fs.cpSync(seed, own, { recursive: true, verbatimSymlinks: true }); }
+    catch (e) { console.error('lib-sandbox-home: kosmos#4909 seed copy failed (' + ((e && e.message) || e) + '); this is the seed, not the check'); process.exit(97); }
+  }
   process.env.AGENT_WORKFORCE_HOME = own;
   const dir = path.join(own, '.claude-fixture');
   fs.mkdirSync(dir, { recursive: true });

@@ -957,6 +957,8 @@ _page_exit=0
 # That would change the behaviour of roughly 25 checks, and the page gate aborts the cut
 # on any red.
 #
+# (Everything from the count above to the end of this block is the pre-#4909 history; since kosmos#4909 every board
+# browser-checks.sh boots names its own home, so the exclusion now only keeps the cut home out of the page layer.)
 # ⚠️ SO THE CLASS THIS CARD IS ABOUT IS STILL OPEN HERE. It is excluded because it is
 # UNMEASURED, not because it is clean: the gate needs a real browser, which this change's
 # author could not run. Closing it means giving those boards their own sandbox home with
