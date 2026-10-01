@@ -60,3 +60,7 @@ at the start of a message; the stored text is unchanged and the header still sho
   Left NITs: a bare bold name with no separator ("**Dario**\n\nhello") is kept (conservative); pjMentionKeys twice; the
   source pins' fixed window.
 - Round 6 (sonnet): its one W (the ordinary-word name) repeats round 3's noted case; now named in the weakest premise. Converged.
+- Full validation on Mortals (236943820): 13,745 tests, 1 failed: engine/create.test.js's boot-file size canary (a pm
+  boot file under MAX_BYTES / 6). Measured: main passes it; this branch's new section (about 280 bytes) took it to 43,938
+  bytes of text against a 43,690 line. As on 2026-09-26 (/ 8 to / 6), the line is raised to / 5 with the measurement
+  written beside it; still about 6x under the real 262,144 cap. 214/214 create tests.

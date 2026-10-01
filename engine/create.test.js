@@ -2518,7 +2518,10 @@ test('a role-made boot file is nowhere near the size its reader refuses', () => 
   assert.ok(!text.includes(SANDBOX) && !text.includes(repo) && !text.includes(os.homedir()),
     'the boot file embeds another machine-specific path; add it to the swap above so the canary stays path-independent');
   const measured = Buffer.byteLength(text, 'utf8');
-  assert.ok(measured < instructions.MAX_BYTES / 6,
+  /* Raised from / 6 to / 5 on 2026-10-01 (kosmos#4873): the new section "Your name is already on your message" (about
+     280 bytes, intended new text) took a pm boot file from under 43,690 to 43,938 bytes of text. Still about 6x under
+     the real cap (262,144 / 43,938), so the fits-check stays unreachable; this line keeps flagging growth early. */
+  assert.ok(measured < instructions.MAX_BYTES / 5,
     'a role-made boot file has grown toward the cap; the fits-check may now be reachable and testable ('
     + measured + ' bytes of text, ' + bytes + ' as written on this machine)');
 });
