@@ -19,8 +19,8 @@ Decisions (each reversible in a commit):
   Rejected: phone width alone, because a narrow LOCAL window has no Kosmos+ session to log out of and no Kosmos+
   brand to show. Weakest premise: that nobody uses the board at phone width locally and wants the new menu there.
   What would change it: Josh asking for it locally; then drop the remote half of the class test.
-- The menu is a new full-screen layer (#pnav), separate from the existing burger dropdown (#tabs), which stays for
-  40rem-56rem and for local windows. The burger opens #pnav instead of #tabs only under the phone class.
+- The menu is a new full-screen layer (#pnav), opened by a new two-line button in the navy bar (#kplus-menu). The old
+  burger and its dropdown (#tabs) are hidden on the phone and stay for 40rem-56rem and for local windows.
 - Items mirror the real controls so they cannot drift: Agents/Projects/Tasks click the real tab buttons (Tasks shows
   only when its tab does, i.e. after 25 tasks, #3559); bubbles mirror #nav-badge-agents/-projects via setNavBadge;
   the Settings list is read from #s-nav's visible buttons each time it opens; Log out runs the Kosmos+ bar's own
@@ -36,5 +36,16 @@ Decisions (each reversible in a commit):
   computer line is left off until #4812 can show agents from several computers (the card says so).
   This overrides #3131's "status as ground colour, no word" for the phone only, by Josh's newer ruling.
 
-Validation: a new browser check at phone width with a remote host, light and dark, both menu levels, plus a local
-phone-width arm proving nothing changed. Controls: main's page fails the header and menu arms.
+- Appearance (light/dark) moves into the Settings level: its only tab-view home is the person's menu, which the phone
+  header hides (review round 1).
+- The computers are read when Settings is entered, not on every open (each read is a signed Kosmos+ call), and the
+  level refills when the answer lands.
+
+Validation: render-mobilenav-4823.js, Chromium and WebKit, light and dark, at 430x932 through remote.test: the header,
+all three menu levels, Tab, Escape, a double tap mid-move, reduced motion, the needs-you dot, Log out, the Agents page.
+Controls: the same size on 127.0.0.1 keeps today's board; 1280 wide restores it (and the saved grid).
+
+Review: R1 (opus) 2B 9W 1C 7N: Settings level empty from other tabs; "(needs you)" read into the label; focus out of
+the menu on a plain row; computers list frozen and fetched on every open; 16px band under the bar; Appearance lost;
+false specificity comment (fixed by doubling the id); A5 could not fail; Chromium only; risky paths unexercised; fixed
+sleeps. All fixed in round 1's commit.

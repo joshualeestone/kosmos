@@ -1372,7 +1372,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
    Numbers are measured off Josh's mock at 3x: mark 14px tall at 16px, lines 17px wide 9px apart at 16px. */
 .kplus-bar-menu { display: none; }
 @media (max-width: 40rem) {
-  html.kremote .kplus-bar { height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; }
+  html.kremote .kplus-bar { height: 48px; min-height: 48px; padding: 0 16px; border-bottom: 0; margin-bottom: 0; }
   html.kremote .kplus-bar-out, html.kremote .kplus-bar-msg { display: none; }
   html.kremote .kplus-bar-menu { display: flex; align-items: center; justify-content: center; width: 48px; height: 48px;
     margin-right: -16px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -1427,6 +1427,13 @@ html.pnav-up { overflow: hidden; }
 .pnav-small[hidden] { display: none; }
 .pnav-small:disabled { opacity: .6; cursor: default; }
 .pnav-msg { margin: 6px 24px 0 63px; font-size: 15px; color: #f2b8ae; }
+.pnav-level:focus { outline: none; }
+/* A Settings section that needs the person (the Settings page's own data-dot) shows the same red dot here. */
+.pnav-dot { width: 10px; height: 10px; border-radius: 50%; background: #db1515; margin-left: 12px; flex: none; }
+.pnav-theme { display: flex; align-items: baseline; gap: 16px; margin-left: 63px; }
+.pnav-theme-l { font-size: 17px; color: rgba(255,255,255,.55); }
+.pnav-theme .pnav-small { margin: 0; }
+.pnav-themeopt[aria-checked="true"] { color: #fff; text-decoration: underline; text-underline-offset: 4px; }
 .pnav-msg:empty { display: none; }
 .pnav-state { display: block; font-size: 15px; color: rgba(255,255,255,.62); margin-top: 2px; }
 .pnav-item.pnav-comp { flex-direction: column; align-items: flex-start; justify-content: center; padding-top: 6px; padding-bottom: 6px; }
@@ -10726,8 +10733,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* The canvases honour prefers-reduced-motion in JS (a single static frame, no
    rAF loop); this makes that intent visible to a source reader too. */
 /* #4823: the phone's Agents page, Josh's agents-listview-mock.png (on a phone through Kosmos+, html.kremote, the same
-   gate as the phone header). Last in the sheet on purpose: these must win over the new look's toolbar rules, which
-   are as specific. Measured off the mock at 3x: controls 44px, rows 74px rings, text 11px under a 17px name.
+   gate as the phone header). The toolbar rules carry two ids so they win over the new look's (one id, up to six
+   classes) in any order; the row rules carry one id, which beats the base .lrow rules and the 56rem one. Measured off the mock at 3x: controls 44px, rows 74px rings, text 11px under a 17px name.
    - No count tiles (Josh: "Remove all the count tiles").
    - No grid view on a phone: List and Org chart (the saved choice is kept; boardPhoneView shows a grid choice as
      the list here and gives it back on a wider screen).
@@ -10744,9 +10751,12 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
   html.kremote #boardbar > #new-agent .plus { width: auto; height: auto; background: none; font-size: 1.5rem; font-weight: 300; }
   html.kremote #boardbar > #new-agent .slab { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   html.kremote #boardbar.boardbar > .viewctl { flex-wrap: nowrap; gap: 12px; }
-  html.kremote #boardbar.boardbar .sortctl select { height: 44px; padding: 0 36px 0 14px; border-radius: 10px; }
-  html.kremote #boardbar.boardbar .viewtoggle { border-radius: 10px; }
-  html.kremote #boardbar.boardbar .viewtoggle .vt { width: 44px; height: 44px; border-radius: 0; }
+  /* Two ids: the new look's toolbar rules carry one id and up to six classes, and two ids beat any of them. */
+  html.kremote #boardbar#boardbar .sortctl select { height: 44px; padding: 0 36px 0 14px; border-radius: 10px; }
+  html.kremote #boardbar#boardbar .viewtoggle { border-radius: 10px; }
+  html.kremote #boardbar#boardbar .viewtoggle .vt { width: 44px; height: 44px; border-radius: 0; }
+  /* With the grid button gone the list button is the first one shown, so it loses the separator it drew from it. */
+  html.kremote #boardbar#boardbar .viewtoggle .vt[data-layout="list"] { border-left: 0; }
   html.kremote #boardbar.boardbar .viewtoggle .vt[data-layout="grid"] { display: none; }
   html.kremote #alist .lrow { grid-template-columns: 74px minmax(0, 1fr); column-gap: 14px; row-gap: 0;
     align-items: start; padding: 22px 16px 18px 6px; border-radius: 10px;
@@ -18207,17 +18217,22 @@ function pnavBuild() {
   nav.innerHTML = '<div class="pnav-top">'
     + '<button type="button" class="pnav-back" id="pnav-back" aria-label="Main menu" tabindex="-1">' + PNAV_SVG_BACK + '</button>'
     + '<button type="button" class="pnav-x" id="pnav-x" aria-label="Close menu">' + PNAV_SVG_X + '</button></div>'
-    + '<div class="pnav-level" data-level="main"><ul class="pnav-list">'
+    + '<div class="pnav-level" data-level="main" tabindex="-1"><ul class="pnav-list">'
     + '<li><button type="button" class="pnav-item" data-pnav-tab="agents"><span class="pnav-badge" id="nav-badge-agents-m" aria-hidden="true" hidden></span><span class="pnav-text">Agents</span></button></li>'
     + '<li><button type="button" class="pnav-item" data-pnav-tab="projects"><span class="pnav-badge" id="nav-badge-projects-m" aria-hidden="true" hidden></span><span class="pnav-text">Projects</span></button></li>'
     + '<li><button type="button" class="pnav-item" data-pnav-tab="tasks"><span class="pnav-text">Tasks</span></button></li>'
     + '<li><button type="button" class="pnav-item" data-pnav-go="settings"><span class="pnav-text">Settings</span></button></li>'
     + '</ul></div>'
-    + '<div class="pnav-level" data-level="settings" hidden><ul class="pnav-list" id="pnav-settings"></ul>'
+    + '<div class="pnav-level" data-level="settings" tabindex="-1" hidden><ul class="pnav-list" id="pnav-settings"></ul>'
     + '<div class="pnav-group"><button type="button" class="pnav-small" id="pnav-computers" data-pnav-go="computers" hidden>Switch Computers</button>'
+    /* The light/dark choice lives in the person's menu, which the phone header does not show, and in no Settings
+       section; so it comes here (review round 1). The page's own [data-theme-set] handler and painter serve it. */
+    + '<div class="pnav-theme" role="radiogroup" aria-label="Appearance"><span class="pnav-theme-l" aria-hidden="true">Appearance</span>'
+    + '<button type="button" class="pnav-small pnav-themeopt" data-theme-set="light" role="radio" aria-checked="false">Light</button>'
+    + '<button type="button" class="pnav-small pnav-themeopt" data-theme-set="dark" role="radio" aria-checked="false">Dark</button></div>'
     + '<button type="button" class="pnav-small" id="pnav-logout">Log out</button>'
     + '<p class="pnav-msg" id="pnav-msg" role="status"></p></div></div>'
-    + '<div class="pnav-level" data-level="computers" hidden><ul class="pnav-list" id="pnav-computer-list"></ul></div>';
+    + '<div class="pnav-level" data-level="computers" tabindex="-1" hidden><ul class="pnav-list" id="pnav-computer-list"></ul></div>';
   document.body.appendChild(nav);
   /* The bubbles start as the tab bubbles are now (setNavBadge keeps them together from here on). */
   for (const k of ['agents', 'projects']) {
@@ -18241,6 +18256,7 @@ function pnavBuild() {
       const real = document.querySelector('#tabs .tab[data-tab="' + tab.dataset.pnavTab + '"]');
       pnavClose(false);
       if (real) real.click();
+      document.getElementById('kplus-menu').focus({ preventScroll: true });
       return;
     }
     const go = e.target.closest('[data-pnav-go]');
@@ -18250,15 +18266,20 @@ function pnavBuild() {
       pnavClose(false);
       showTab('settings');
       settingsOpen(sec.dataset.pnavSec);
+      document.getElementById('kplus-menu').focus({ preventScroll: true });
     }
   });
-  nav.addEventListener('keydown', (e) => {
+  /* On the document, not the menu: focus can sit on a level itself (a level with nothing to press), and a key there
+     must still reach this (review round 1). Only while the menu is open. */
+  document.addEventListener('keydown', (e) => {
+    if (nav.hidden) return;
     if (e.key === 'Escape') { e.preventDefault(); if (nav.classList.contains('deep')) pnavBack(); else pnavClose(true); return; }
     if (e.key !== 'Tab') return;
     /* A modal: Tab stays inside it. */
     const f = [...nav.querySelectorAll('button, a[href]')].filter((el) => !el.disabled && el.getClientRects().length && el.tabIndex !== -1);
-    if (!f.length) return;
+    if (!f.length) { e.preventDefault(); return; }
     const i = f.indexOf(document.activeElement);
+    if (i === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }
     if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
     else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
   });
@@ -18282,6 +18303,9 @@ function boardPhoneView() {
 }
 /* The level on screen, and the trail back to the first one. */
 let PNAV_TRAIL = ['main'];
+let PNAV_OPENING_T = 0;
+/* The item that opened each deeper level, so Back returns focus to it (as apple.com's menu does). */
+let PNAV_FROM = [];
 function pnavLevel(name) { return document.querySelector('#pnav .pnav-level[data-level="' + name + '"]'); }
 function pnavOpen() {
   const nav = document.getElementById('pnav');
@@ -18291,18 +18315,20 @@ function pnavOpen() {
   const tasks = document.querySelector('#tabs .tab[data-tab="tasks"]');
   nav.querySelector('[data-pnav-tab="tasks"]').closest('li').hidden = !tasks || tasks.hidden;
   PNAV_TRAIL = ['main'];
+  if (typeof paintThemePicker === 'function') paintThemePicker();
   for (const lv of nav.querySelectorAll('.pnav-level')) { lv.hidden = lv.dataset.level !== 'main'; lv.className = 'pnav-level'; }
   nav.classList.remove('deep');
   document.getElementById('pnav-back').tabIndex = -1;
   [...nav.querySelectorAll('.pnav-level[data-level="main"] .pnav-list > li')].filter((li) => !li.hidden).forEach((li, i) => li.style.setProperty('--i', i));
   nav.hidden = false;
   nav.classList.add('opening');
-  setTimeout(() => nav.classList.remove('opening'), 700);
+  clearTimeout(PNAV_OPENING_T);
+  PNAV_OPENING_T = setTimeout(() => nav.classList.remove('opening'), 700);
   document.documentElement.classList.add('pnav-up');
   document.getElementById('kplus-menu').setAttribute('aria-expanded', 'true');
   const first = nav.querySelector('.pnav-level[data-level="main"] .pnav-item');
   if (first) first.focus({ preventScroll: true });
-  computersFetch().catch(() => {});   // so Switch Computers is offered from a fresh read (#4648)
+  PNAV_FROM = [];
 }
 function pnavClose(refocus) {
   const nav = document.getElementById('pnav');
@@ -18319,14 +18345,26 @@ function pnavFill(name) {
     const ul = document.getElementById('pnav-settings');
     ul.textContent = '';
     for (const b of document.querySelectorAll('#s-nav button[data-go]')) {
-      if (b.hidden || b.closest('[hidden]')) continue;
-      const label = b.textContent.replace(/\s+/g, ' ').trim();
+      /* Hidden within the section list only: the whole Settings panel is hidden whenever another tab is showing,
+         which is exactly when this menu is used (review round 1). */
+      if (b.hidden || b.closest('#s-nav [hidden]')) continue;
+      /* The words without the button's needs-you parts: its " (needs you)" is always in the DOM and shown only
+         while the button carries data-dot, which this mirrors below. */
+      const c = b.cloneNode(true);
+      c.querySelectorAll('.vh, .dot').forEach((el) => el.remove());
+      const label = c.textContent.replace(/\s+/g, ' ').trim();
       if (!label) continue;
       const li = document.createElement('li');
       const it = document.createElement('button');
       it.type = 'button'; it.className = 'pnav-item'; it.dataset.pnavSec = b.dataset.go;
       const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = label;
-      it.appendChild(t); li.appendChild(it); ul.appendChild(li);
+      it.appendChild(t);
+      if (b.hasAttribute('data-dot')) {
+        const d = document.createElement('span'); d.className = 'pnav-dot'; d.setAttribute('aria-hidden', 'true');
+        const v = document.createElement('span'); v.className = 'vh'; v.textContent = ' (needs you)';
+        it.append(d, v);
+      }
+      li.appendChild(it); ul.appendChild(li);
     }
     document.getElementById('pnav-computers').hidden = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
     document.getElementById('pnav-msg').textContent = '';
@@ -18357,8 +18395,12 @@ function pnavMove(from, to, dir) {
   const a = pnavLevel(from), b = pnavLevel(to), nav = document.getElementById('pnav');
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   a.className = 'pnav-level'; b.className = 'pnav-level';
+  const back = dir === 'back' ? PNAV_FROM.pop() : null;
   const swap = () => { a.hidden = true; a.className = 'pnav-level'; b.hidden = false; b.className = 'pnav-level ' + dir + '-in'; nav.scrollTop = 0;
-    const f = b.querySelector('.pnav-item, .pnav-small:not([hidden])'); if (f) f.focus({ preventScroll: true }); };
+    /* Back lands on the item that went forward; forward on the first thing to press, or the level itself when it has
+       nothing to press (a computers list of one plain row), so focus never falls out of the menu. */
+    const f = (back && b.contains(back) && back.getClientRects().length) ? back : b.querySelector('button.pnav-item, a.pnav-item, .pnav-small:not([hidden])');
+    (f || b).focus({ preventScroll: true }); };
   nav.classList.toggle('deep', PNAV_TRAIL.length > 1);
   document.getElementById('pnav-back').tabIndex = PNAV_TRAIL.length > 1 ? 0 : -1;
   if (reduce) { swap(); return; }
@@ -18373,9 +18415,26 @@ function pnavTo(name) {
   pnavSettle();
   const from = PNAV_TRAIL[PNAV_TRAIL.length - 1];
   if (from === name) return;
+  PNAV_FROM.push(document.activeElement);
   pnavFill(name);
   PNAV_TRAIL.push(name);
   pnavMove(from, name, 'fwd');
+  /* The computers are read when Settings is entered, not on every open (each read is a signed call to Kosmos+, which
+     #4815 backs off), and the levels refill when the answer lands, so neither shows a stale list. */
+  if (name === 'settings' && typeof computersFetch === 'function') computersFetch().then(pnavRefresh, () => {});
+}
+/* Refill the level on screen from the board as it is now (the computers' answer has landed). Settings refills only
+   the Switch Computers line, so a person mid-list does not lose their place. */
+function pnavRefresh() {
+  const nav = document.getElementById('pnav');
+  if (!nav || nav.hidden) return;
+  const on = PNAV_TRAIL[PNAV_TRAIL.length - 1];
+  if (on === 'settings') document.getElementById('pnav-computers').hidden = !(typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE);
+  if (on === 'computers') {
+    const had = nav.contains(document.activeElement) && document.activeElement.closest('.pnav-level[data-level="computers"]');
+    pnavFill('computers');
+    if (had) { const lv = pnavLevel('computers'); (lv.querySelector('a.pnav-item') || lv).focus({ preventScroll: true }); }
+  }
 }
 function pnavBack() {
   pnavSettle();
