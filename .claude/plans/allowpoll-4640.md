@@ -5,7 +5,7 @@ main on its own (see "Rebased onto main after the #4638 revert" below).
 
 ## Change (what this branch ships, rewritten after the 2026-10-01 re-review)
 - A second computer waiting for its other computer's Allow is a state of its own, not a failure:
-  engine/remote.js allowWaitSentence() reads the tunnel's refusal (the wait sentence plus code own_lineage, or the
+  engine/allowwait.js allowWaitSentence() (pure; remote.js and remote-report.js both ask it) reads the tunnel's refusal (the wait sentence plus code own_lineage, or the
   older code-less 403 on /v1/mac/relay-ticket); status() returns state 'waiting-allow' with that sentence.
   engine/remote-report.js classifies it 'waiting-allow' ahead of every coordinator code. Neither matches the
   device word, so the relay renaming "this Mac" does not break either.
@@ -246,3 +246,7 @@ is that review.
   supervisor". status() returns waiting-allow only past `if (!child)` (remote.js, a dead tunnel returns restarting there,
   which still maps to crashed) and only when the status file's pid is the live child's; so waiting-allow always means a
   live tunnel that keeps asking, the same as connecting, which main already maps to starting unconditionally.
+- Round 13 (opus): CONVERGED (0 new BLOCKER/WARNING/CONVENTION). Its WARNING is round 5's sticky wait from the report
+  side; the suggested fix (stuckOr upgrading waiting-allow past STUCK_DIALLING_MS) is rejected: during a GENUINE long wait
+  the tunnel keeps dialling and being refused, so dialingForMs grows and a real wait would be reported stuck-dialling.
+  FIXED NITs: stale file names in a test title and comment, this plan's Change section, the browser-checks README row.

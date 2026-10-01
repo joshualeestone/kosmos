@@ -165,7 +165,7 @@ test('kosmos#4640: waiting for the other computer\'s Allow is waiting-allow, not
     // Review: the device word is not part of the match, as in remote.js ALLOW_WAIT_LINE.
     ['Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage).', 'waiting-allow'],
     ['Kosmos+ refused this computer: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket).', 'waiting-allow'],
-    // Review: a recased sentence is not the wait here, exactly as remote.js allowWaitSentence (pinned below) reads it.
+    // Review: a recased sentence is not the wait here, exactly as engine/allowwait.js allowWaitSentence (pinned below) reads it.
     ['Kosmos+ refused this Mac: This' + ALLOW_SAID.slice(4) + ' (HTTP 403 on /v1/mac/relay-ticket, code own_lineage)', 'coordinator-refused'],
     // CONTROLS: the same words with another code, the same words on another path, and an ordinary refusal stay as before.
     ['Kosmos+ refused this Mac: ' + ALLOW_SAID + ' (HTTP 403 on /v1/mac/relay-ticket, code standing_lapsed)', 'coordinator-refused'],
@@ -295,7 +295,7 @@ test('commitHeal only moves forward: a slow send committing an older baseline do
   assert.equal(mk(5).heal, 'none', 'a late, older commit rolled the baseline back and re-reported a relaunch');
 });
 
-test('kosmos#4640 review 8: classify and remote.js allowWaitSentence agree on every raw line (one rule, not two copies)', () => {
+test('kosmos#4640 review 8: classify and engine/allowwait.js allowWaitSentence agree on every raw line (one rule, not two copies)', () => {
   const allowwait = require('./allowwait');   // review 11: the pure module, never remote.js (it would load the real store)
   const SAID = 'this computer is not allowed yet; allow it from your other computer first. If that computer is gone, retire it from your account page, then retire this computer and set it up again';
   const lines = [
