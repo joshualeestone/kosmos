@@ -16,15 +16,35 @@ converged: true
 **Converged:** Yes. Round 3 (fable) and round 4 (sonnet) returned no BLOCKER or WARNING.
 **Findings:** 4 WARNINGs, all taken; NITs taken or declined with a reason (the plan, .claude/plans/tokenclash-4763.md).
 
-### Per-iteration
-- **Round 1 (sonnet):** the paneless fallback re-admitted a clashed token by key: fixed (sendertoken.CLASH, kept by
-  resolveAgentSender). resolveName is key-level: filed as #4792 and pinned in the test.
-- **Round 2 (opus):** /api/agent-token minted a clashing name into a running pane agent's file: now 409. The
-  "never as the other's NAME" premise was false: corrected in the comment, the plan and #4792 (now the same
-  severity). The clash logs once.
-- **Round 3 (fable), converged:** NITs taken: the route fails closed on an unreadable roster (503), the
-  refusal words stop claiming "running", and the clash log re-arms.
-- **Round 4 (sonnet), converged:** NITs noted, not taken.
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer model:** sonnet
+- [WARNING] resolveAgentSender's paneless fallback re-admitted a clash-refused token by key --> FIXED (sendertoken.CLASH, kept by resolveAgentSender; test with a control)
+- [WARNING] resolveName (key-level callers: outbox keep-time sender, token-only reads) still treats the twins as one identity --> FILED #4792, pinned in the test
+- [NIT] the comment claimed to cover a stopped twin --> FIXED (reworded; in #4792)
+- [NIT] resolveName's answer for the clash unasserted --> FIXED
+
+#### Iteration 2
+**Reviewer model:** opus
+- [WARNING] POST /api/agent-token minted "mara" into running pane agent "Mara"'s file, resolving AS Mara --> FIXED (409; control: own spelling issued)
+- [WARNING] "never as the other's NAME" was false (the key IS mara's name) --> FIXED (comment, plan, #4792 corrected and raised)
+- [NIT] a clash leaves no trace --> FIXED (one log line per clash)
+- [NIT] the JSON leak assertion cannot fail while the mark is a Symbol --> FIXED (labelled a regression guard)
+
+#### Iteration 3
+**Reviewer model:** fable
+No BLOCKER or WARNING (converged).
+- [NIT] the route fails open on an unreadable roster --> FIXED (503, nothing written)
+- [NIT] "running" overclaims --> FIXED
+- [NIT] the clash log never re-arms --> FIXED
+
+#### Iteration 4
+**Reviewer model:** sonnet
+No BLOCKER or WARNING (converged).
+- [NIT] re-arm only on a clean resolve --> NOT TAKEN (only a later log line is lost; the refusal is unaffected)
+- [NIT] the 503 depends on snapshot() --> NOT TAKEN (fail-closed and retryable, by design)
+- [NIT] the log assertion matches on the quoted key --> NOT TAKEN (the key is unique to the test)
 
 ### Perturbations (each red by name)
 The server guard, the CLASH mark, the route guard, the 503 and the log re-arm: each removed reds exactly its arm.
