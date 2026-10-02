@@ -206,6 +206,23 @@ test('#5039 a codex launch writes NO Claude settings into its CODEX_HOME', () =>
   assert.equal(fs.existsSync(path.join(codexHome, 'settings.json')), false, 'Claude settings never land in an OpenAI agent home');
 });
 
+test('#5039 a codex launch on the default account leaves the default Claude settings alone', () => {
+  recordingSpawn();
+  const target = process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS;
+  try { fs.rmSync(target, { force: true }); } catch { /* absent */ }
+  launcher.launch({ name: 'bypass-codex-default', runner: 'codex', cwd: workdir('bypass-codex-default'), platform: 'win32' });
+  assert.equal(fs.existsSync(target), false, 'a codex agent never writes the shared Claude settings');
+});
+
+test('#5039 an unwritable settings file does NOT stop the launch (best-effort, never a gate)', () => {
+  const calls = recordingSpawn();
+  const configDir = path.join(SANDBOX, 'acct-broken');
+  fs.mkdirSync(path.join(configDir, 'settings.json'), { recursive: true });   // a DIRECTORY where the file belongs
+  const r = launcher.launch({ name: 'bypass-broken', runner: 'claude', cwd: workdir('bypass-broken'), configDir, platform: 'win32' });
+  assert.equal(r.ok, true, r.because || '');
+  assert.equal(calls.length, 1, 'the agent still started');
+});
+
 test('#5039 a streaming RESUME writes the Bypass settings too, so a restarted agent gains them', () => {
   launcher.setSpawn(() => ({ pid: 559, stdin: {}, unref() {} }));
   const configDir = path.join(SANDBOX, 'acct-resume');

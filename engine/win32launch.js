@@ -338,15 +338,17 @@ function launch(spec) {
      leaves the picker the agent would have met anyway, not a reason to refuse a launch whose
      folder is already vouched for. Same .claude.json trustFolder just wrote, so it is keyed
      the same way. */
-  /* Claude-only, matching the Mac create path's `if (provider !== 'openai')` fence: a codex
-     agent's `configDir` is a CODEX_HOME, and this is the CLAUDE .claude.json onboarding key -
-     writing it into a codex home would be Claude first-run state in an OpenAI agent's home. */
-  if (s.runner !== 'codex') {
+  /* Claude-only (#5039: positively, not "not codex", now that gemini/grok/antigravity runners
+     exist), matching the Mac create path's fence: a codex agent's `configDir` is a CODEX_HOME,
+     and these are CLAUDE first-run and settings keys - writing them into another runner's home
+     would be Claude state in an OpenAI (or other) agent's home. */
+  if (String(s.runner || 'claude') === 'claude') {
     try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* the picker is the agent's own first-run, not a failed launch */ }
-    /* #5039: and the Bypass consent + switchModelsOnFlag settings at EVERY launch, as the Mac's
-       ensure-launch-trust does, so a Windows agent made before a settings default gains it at
-       its next start instead of only on re-create or an account move. Best-effort and
-       idempotent (already:true, writes nothing; an explicit false is kept). */
+    /* #5039: and the Claude settings pre-accept at EVERY launch, as the Mac's ensure-launch-trust
+       does, so a Windows agent made before a settings default gains it at its next start, not
+       only on re-create or an account move. Today that re-asserts the Bypass consent (an explicit
+       false is overwritten, as at create and on the Mac); switchModelsOnFlag rides this same
+       write once #5042 lands. Best-effort and NON-gating: a failed write never stops a launch. */
     try { trust.preacceptBypass(s.configDir || null, !s.configDir); } catch { /* best-effort, as onboarding */ }
   }
 
@@ -493,7 +495,7 @@ function launchStreaming(spec) {
   if (!trusted.ok) return { ok: false, because: 'we did not start it, because we could not vouch for its folder first: ' + trusted.because };
   /* #3383: pre-accept first-run onboarding on resume too, best-effort, as in launch() -- the
      picker can reappear for an agent whose config was reset while it was down. */
-  if (s.runner !== 'codex') {
+  if (String(s.runner || 'claude') === 'claude') {
     try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* #3383: best-effort, as in launch() */ }
     try { trust.preacceptBypass(s.configDir || null, !s.configDir); } catch { /* #5039: best-effort, as in launch() */ }
   }
