@@ -163,7 +163,9 @@ const DLEFT_LOOK = `(() => {
     const L = getComputedStyle(left), F = getComputedStyle(files), H = getComputedStyle(head), O = getComputedStyle(on), X = getComputedStyle(off);
     return { found: true, ground: L.backgroundColor, radius: L.borderTopLeftRadius, width: Math.round(left.getBoundingClientRect().width),
       onBg: O.backgroundColor, onEdge: O.borderTopColor, onInk: O.color, offBg: X.backgroundColor, offEdge: X.borderTopColor, offInk: X.color,
-      filesBg: F.backgroundColor, filesRule: F.borderTopWidth, headCase: H.textTransform, headSpacing: H.letterSpacing };
+      filesBg: F.backgroundColor, filesRule: F.borderTopWidth, headCase: H.textTransform, headSpacing: H.letterSpacing,
+      padL: L.paddingLeft, talkOpen: !document.getElementById('d-sec-talk').hidden,
+      cut: [...document.querySelectorAll('#d-nav button:not([hidden]) .dnav-lab')].filter((l) => l.scrollWidth > l.clientWidth).map((l) => l.textContent.trim()) };
   } finally { files.hidden = filesHidden; if (panel) panel.hidden = wasHidden; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
@@ -438,13 +440,29 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, an agent's page: the composer is the grey pill with no stroke`, JSON.stringify(dmOn));
       const dlOn = await page.evaluate(DLEFT_LOOK);
       const CLEAR = 'rgba(0, 0, 0, 0)';
-      chk(dlOn.found && dlOn.ground === GREY_OF[theme] && dlOn.radius === '28px',
-        `${tag} On, an agent's page: the left column is the one grey box with 28px corners`, JSON.stringify(dlOn));
-      chk(dlOn.found && dlOn.onBg === PAGE_OF[theme] && dlOn.onEdge === CLEAR && dlOn.offBg === CLEAR && dlOn.offEdge === CLEAR && dlOn.onInk !== dlOn.offInk,
-        `${tag} On, an agent's page: the open section is a tile in the page's ground, the others lie flat, no edge and no gold, the open one in a different ink`, JSON.stringify(dlOn));
+      if (width > 640) {   // up to 40rem with the chat open is the phone chat, read at 375 below
+        chk(dlOn.found && dlOn.ground === GREY_OF[theme] && dlOn.radius === '28px',
+          `${tag} On, an agent's page: the left column is the one grey box with 28px corners`, JSON.stringify(dlOn));
+        chk(dlOn.found && dlOn.onBg === PAGE_OF[theme] && dlOn.onEdge === CLEAR && dlOn.offBg === CLEAR && dlOn.offEdge === CLEAR && dlOn.onInk !== dlOn.offInk,
+          `${tag} On, an agent's page: the open section is a tile in the page's ground, the others lie flat, no edge and no gold, the open one in a different ink`, JSON.stringify(dlOn));
+      }
       chk(dlOn.found && dlOn.filesBg === CLEAR && dlOn.filesRule === '1px' && dlOn.headCase === 'none' && (dlOn.headSpacing === 'normal' || dlOn.headSpacing === '0px'),
         `${tag} On, an agent's page: Files has no card, a hairline above it, and a sentence-case heading`, JSON.stringify(dlOn));
       if (width >= 1088) chk(dlOn.found && dlOn.width >= 300 && dlOn.width <= 380, `${tag} On, an agent's page: the left column is the project page's 300 to 380px`, JSON.stringify(dlOn));
+      chk(dlOn.found && dlOn.cut.length === 0, `${tag} On, an agent's page: no section button's label is cut off`, JSON.stringify(dlOn));
+      /* Round 1: between 56rem and 68rem the column was still 220px, which inside the box's padding left the file names
+         a few letters each; and the phone chat, sized to the pixel, lost 56px of its nav row to the box. Both read here. */
+      const atWidth = async (w) => { await page.setViewportSize({ width: w, height: 900 }); await page.waitForTimeout(150); return page.evaluate(DLEFT_LOOK); };
+      if (width === 1280) {
+        const dl1000 = await atWidth(1000);
+        chk(dl1000.found && dl1000.width >= 300 && dl1000.cut.length === 0, `${tag} On, an agent's page at 1000 wide: the wide column, and no label cut off`, JSON.stringify(dl1000));
+        await atWidth(width);
+      } else {
+        const dl375 = await atWidth(375);
+        chk(dl375.found && dl375.talkOpen && dl375.ground === 'rgba(0, 0, 0, 0)' && dl375.padL === '0px' && dl375.onBg === GREY_OF[theme] && dl375.cut.length === 0,
+          `${tag} On, the phone chat at 375: today's column geometry (no box, no padding), the open section a grey tile, no label cut off`, JSON.stringify(dl375));
+        await atWidth(width);
+      }
       const tk = await page.evaluate(TASK_ROWS);
       chk(tk.rows >= 3 && tk.boxed === 0 && tk.hashShown && tk.wordHidden && tk.claimShown,
         `${tag} On: tasks are compact rows (the number with a hash sign, no box), and the agent's claim line still shows`, JSON.stringify(tk));

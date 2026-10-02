@@ -10147,8 +10147,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    project page's) holds the name, the section buttons and Files, at the project page's column width on a
    desktop. The buttons lie flat on the box with no edge and no gold; the open one is a tile in the page's
    ground with its label in full ink, so it differs in shape as well as colour. Files drops its card and its
-   spaced capitals for the project page's heading under a hairline. The swarm button keeps its state tint. */
-@media (min-width: 68rem) {
+   spaced capitals for the project page's heading under a hairline. The swarm button keeps its state tint.
+   The wider column starts where this page stops being one column (56rem), not at the project page's 68rem:
+   at 220px the box's padding left the file names a few letters each. */
+@media (min-width: 56.01rem) {
   :root[data-look="new"] body:not(.consolidated) #panel-detail .dbody { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 40px; }
 }
 :root[data-look="new"] body:not(.consolidated) #panel-detail .dleft { background: var(--nl-grey); border-radius: 28px; padding: 24px 28px; }
@@ -10158,6 +10160,12 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on .dnav-ico { color: var(--k-ink); }
 :root[data-look="new"] body:not(.consolidated) #panel-detail #d-files.pjcard { border: 0; border-radius: 0; background: none; padding: 22px 0 0; margin-top: 22px; border-top: 1px solid var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #d-files .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
+/* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
+   there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { background: none; border-radius: 0; padding: 0; }
+  :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button:not(.dnav-swarm).on { background: var(--nl-grey); }
+}
 /* #4470: the header in the new look: the back chevron as a round button, then "Projects /
    <ancestors> / <name>" large, as the conversation's own header. The project name's h2 is
    visually hidden (still the page's heading for a screen reader), since the crumb now shows it. */
