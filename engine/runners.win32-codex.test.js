@@ -221,6 +221,7 @@ test('win32 A: a --version that fails while the exe is LOCKED leaves the runner 
     // follows meets a file Windows will not delete.
     prove: (bin, done) => { holdOpen(bin).then((c) => { held = c; done(new Error('exit code 1')); }); },
   });
+  let bodyFailed = false;
   try {
     await job.settled;
     assert.equal(job.phase, 'failed');
@@ -234,10 +235,15 @@ test('win32 A: a --version that fails while the exe is LOCKED leaves the runner 
       assert.equal(s.present, false, 'status must not call a never-run binary present');
       assert.equal(s.job && s.job.phase, 'failed', 'the failure stays so the screen shows it');
     }
-  } finally {
+  } catch (err) { bodyFailed = true; throw err; } finally {
     if (held) held.kill();
     await new Promise((r) => setTimeout(r, 500));
-    clearOpenai();
+    /* #5074: this is the strongest hold in the file (the exe ran until a moment ago). When an assertion above already
+       failed, a cleanup that gives up is reported on stderr and the assertion stays the red. */
+    try { clearOpenai(); } catch (cleanupErr) {
+      if (!bodyFailed) throw cleanupErr;
+      process.stderr.write('win32 A cleanup also failed: ' + cleanupErr.message + '\n');
+    }
   }
 });
 
