@@ -1136,6 +1136,7 @@ function avatarWanted(agentKey) {
   // store.saveAvatar writes the file in place: a picture that changed while it was read is half written. Left for
   // the next sweep rather than sent (the service would refuse the cut-short file) or read as "none".
   if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || bytes.length !== before.size) return { busy: true };
+  if (!bytes.length) return { busy: true };   // caught between the truncate and the write, which is not no picture
   const type = store.imageTypeOf(bytes);
   if (!AVATAR_TYPES.has(type)) return { id: null, why: 'type:' + (type || 'unknown') };
   return { id: crypto.createHash('sha256').update(bytes).digest('hex'), type, bytes };
@@ -1155,11 +1156,12 @@ async function sweepAvatars(keys, on, { removals }) {
     const w = avatarWanted(agentKey);
     if (w.busy) continue;
     const want = w.id;
+    // A picture set again: the next removal that cannot reach a shut-out agent is logged again.
+    if (want !== null && k.avatarRemoveUnreachable) { delete k.avatarRemoveUnreachable; saveJson(keysFile(), keys); }
     if (k.refused) {
       // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
       // so it is on record (as sweepIndustry does for a clear).
       const shown = (Object.prototype.hasOwnProperty.call(k, 'avatarSent') && k.avatarSent !== null) || k.avatarUnsure;
-      if (want !== null && k.avatarRemoveUnreachable) { delete k.avatarRemoveUnreachable; saveJson(keysFile(), keys); }
       if (want === null && shown && !k.avatarRemoveUnreachable) {
         k.avatarRemoveUnreachable = true;
         saveJson(keysFile(), keys);
@@ -1168,8 +1170,6 @@ async function sweepAvatars(keys, on, { removals }) {
       continue;
     }
     if (!w.why && k.avatarSkipLogged) { delete k.avatarSkipLogged; saveJson(keysFile(), keys); }
-    // A picture set again: the next removal that cannot reach a shut-out agent is logged again.
-    if (want !== null && k.avatarRemoveUnreachable) { delete k.avatarRemoveUnreachable; saveJson(keysFile(), keys); }
     if (w.why && k.avatarSkipLogged !== w.why) {
       k.avatarSkipLogged = w.why;
       saveJson(keysFile(), keys);
