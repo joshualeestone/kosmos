@@ -15,8 +15,10 @@ Josh noticed when the Fresh start status line grew the card (2026-10-01 22:17).
 - docs/browser-checks/render-dsec-gap-4961.js (+ README row, gated.txt).
 
 ## Evidence
-- Before: memory -> term 0px on chromium and webkit; every other pair 24px.
-- After: all pairs 24px, all checks pass. render-settings-nav, render-consolidated-settings-2842,
+- On the `+` rule: memory -> term 0px on chromium and webkit; every other pair 24px. The check, with
+  the rule swapped back to `+`: exactly the 4 memory -> term arms red (1280px and 390px, both
+  engines).
+- With `~`: every pair 24px at 1280px and at 390px (where Memory and Fresh start stack), 41 PASS lines. render-settings-nav, render-consolidated-settings-2842,
   render-agent-nav, render-dsec-ring-4961 also pass on this branch (Settings sections share .dsec).
 
 ## Weakest premise
