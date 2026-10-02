@@ -25,6 +25,8 @@ and drawn above the page (z-index 20), so the stuck nav sat under it. Found whil
   both engines.
 - On main: 32 FAIL (every placement and click arm, all 16 runs), no control red.
 - With the change: all pass (57 PASS lines).
+- Control, a fixed `top: 67px` (51 + 16): 8 FAIL, exactly the 900px arms in both layouts, so the
+  measured height is what makes 900px pass.
 
 ## Weakest premise
 That the header is the only thing drawn above the page at the top. A future sticky bar between the
