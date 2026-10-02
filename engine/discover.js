@@ -1735,10 +1735,13 @@ function createdHomeOf(canon, { store }) {
 let HELD_MEMO = { at: 0, set: null };
 function heldFolders({ store }) {
   const now = Date.now();
-  if (HELD_MEMO.set && now - HELD_MEMO.at < 2000) return HELD_MEMO.set;
+  // Review 10: keyed by the profiles folder, so two stores in one process (tests, a world switch) never share it.
+  let where = null;
+  try { where = store.PROFILES; } catch { where = null; }
+  if (HELD_MEMO.set && HELD_MEMO.where === where && now - HELD_MEMO.at < 2000) return HELD_MEMO.set;
   const got = folderHolders({ store });
   const set = got.ok ? new Set(got.holders.map((x) => x.canon)) : new Set();
-  HELD_MEMO = { at: now, set };
+  HELD_MEMO = { at: now, set, where };
   return set;
 }
 

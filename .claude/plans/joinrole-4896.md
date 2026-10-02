@@ -178,3 +178,14 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
 - NIT taken: the created-home sentence names the agent as the board shows it (Eve, not eve).
 - Not taken: discover.js sentences use the curly apostrophe like their siblings in that file; remove.js uses straight
   ones like its own siblings. Each matches its file.
+
+## Review 10 (23:42 CDT): 0 BLOCKER, 0 SHOULD-FIX = CONVERGED
+- It answered round 9's open questions: a safeKey'd name reaches the person only in the same-display-name restore
+  case ("Remove caseyjones first to restore Casey Jones": true and actionable); readIdentity is guarded and runs only
+  on the refusal path.
+- NIT taken: HELD_MEMO keyed by store.PROFILES, so two stores in one process never share it.
+- NIT not taken: connect's sentence says "already connected as Carl" to a person who typed carl-2, when both read one
+  file. True, and it names who has the folder; restore needed the swap because there the sentence named the person's
+  own agent back to them.
+- Focused: 138/138 (connect-onefolder, remove, connect-agent, discover, member-roles). Round 9 ran all 154 files that
+  require discover/remove/create: 2916 pass, 0 fail. Full suite next, on Mortals.
