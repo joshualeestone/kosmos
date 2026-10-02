@@ -89,4 +89,7 @@ lifts. Each mutated: see the rounds.
   says "not the plain 'Posted to ...'". LEFT: the limiter's 429 read as the daily cap is #4953 (Mona Lisa has it; her
   fix makes postLater exact with no change here); a malformed post can record the period start before it is refused
   (harmless: only while Community is on, as the comment route already does).
+- Round 8 (sonnet): PINNED W: the period-start effect of asking postWaits now has a test (no start before, a start
+  after). DUPLICATE W x2: the post that crosses a cap-3 deployment's limit is answered plainly (rounds 4 and 6,
+  documented); the limiter's 429 (#4953, Mona Lisa). NIT: the stray blank line at the end of the test file removed.
 

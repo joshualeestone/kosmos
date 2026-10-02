@@ -601,3 +601,16 @@ test('#4947: postWaits promises "once the cap lifts" only for a post that will b
   assert.equal(cs.postWaits('ava', now), false, 'with Community off a post was promised a send once the cap lifts');
 });
 
+test('#4947: asking postWaits (the post route does, before the store) records the ON period\'s start, as a comment\'s willSend does', () => {
+  /* So a post made in the minutes before the first sweep of an ON period is inside the window and sent: a change in what
+     gets sent (written under Decided in the plan), and it holds for a post the safety check holds too (that one is not
+     due until it is released, so the earlier start costs nothing). */
+  fresh();
+  SW = { on: true, ok: true };
+  const stateFile = cs._paths.stateFile();
+  const before = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')).since : undefined;
+  assert.equal(before, undefined, 'fixture: no sweep has recorded the period\'s start yet');
+  cs.postWaits('ava');
+  assert.equal(typeof JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, 'string', 'the post route\'s question did not record the period\'s start');
+});
+
