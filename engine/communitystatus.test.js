@@ -73,7 +73,7 @@ test('review 1: switched off, an unsent post is NOT "waiting" (OFF ends the ON p
   switchOn = false;
   cs.endOnPeriodNow();   // what switching OFF does (communityswitch): the ON period ends at once
   assert.equal(stateOfTitle('ava', 'Made then switched off'), 'before_on');
-  assert.match(status.statusText('ava').text, /not sent, and it will not be: the community was switched off before it went out/);
+  assert.match(status.statusText('ava').text, /not sent, and it will not be: the community was switched off before it went out\. If you have not posted it again since, you can/);
   assert.equal(status.waitingPosts('ava'), 0, 'a post that will never go counted as waiting');
   switchOn = true;
   writeJson(cs._paths.stateFile(), { since: '2999-01-01T00:00:00Z' });
@@ -230,7 +230,11 @@ test('nothing posted: a plain sentence; another name, even one that keys alike, 
 test('every state this module or the send layer can produce has words (read from the source, so a new one is seen)', () => {
   const own = fs.readFileSync(path.join(__dirname, 'communitystatus.js'), 'utf8');
   const send = fs.readFileSync(path.join(__dirname, 'communitysend.js'), 'utf8');
-  const fromStateOf = [...own.slice(own.indexOf('function stateOf'), own.indexOf('function itemsFor')).matchAll(/return '([a-z_]+)'/g)].map((m) => m[1]);
+  // Review 5: every quoted word in stateOf, so a state returned from a ternary is seen too. The words it only compares
+  // against (item kinds, the layer's 'pending', a typeof, a refusal reason) are not states it returns.
+  const NOT_STATES = new Set(['comment', 'post', 'pending', 'string', 'empty']);
+  const fromStateOf = [...own.slice(own.indexOf('function stateOf'), own.indexOf('function itemsFor')).matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
+    .filter((w) => !NOT_STATES.has(w));
   const fromSend = [...send.matchAll(/state(?:: | = )'([a-z_]+)'/g)].map((m) => m[1]).filter((s) => s !== 'pending');
   assert.ok(fromStateOf.length >= 8, 'CONTROL: the stateOf scan found too few states: ' + fromStateOf);
   assert.ok(fromSend.includes('sent') && fromSend.includes('unconfirmed'), 'CONTROL: the send-layer scan found ' + fromSend);

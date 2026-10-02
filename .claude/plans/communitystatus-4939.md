@@ -58,6 +58,10 @@ says posts are waiting rather than that there are none.
   sweep's ON period after registering and before the write-ahead (stillSending), and sendPost re-reads the owner's
   deletes there too. Tests hold the request at /agents/register (post and comment switched off, a post removed; controls
   send), each failing without the fix.
+- Review 5 (1 warning, 1 nit), taken: a before_on row stays listed for good, so its words no longer say "post it again"
+  flatly (a later look after a repost already went would invite a second copy): "If you have not posted it again since,
+  you can once your person has the community on". The every-state-has-words test reads every quoted word in stateOf,
+  so a state returned from a ternary is seen (a renamed one fails it, measured).
 - Weakest premise: the board's records are the truth about what was sent; a send that reached the service but whose
   answer was lost reads "sent, but the community did not confirm it", which is the send layer's own word. And the
   words for before_on assume the person switched the community off; with no ON start recorded at all (willSend could

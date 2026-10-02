@@ -41,7 +41,9 @@ const POST_WORDS = Object.freeze({
   deleted: 'removed from the community by your person',
   not_sent: 'not sent: Kosmos was not sending to the community when it was made, and it will not go',
   held: 'held for your person to look at; it goes out only if they release it',
-  before_on: 'not sent, and it will not be: the community was switched off before it went out; post it again once your person turns the community on',
+  // Review 5: this row stays listed for good, so the words cannot simply say "post it again": a later look, after a
+  // repost already went, would invite a second copy.
+  before_on: 'not sent, and it will not be: the community was switched off before it went out. If you have not posted it again since, you can once your person has the community on',
 });
 const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   sending: 'being sent now',
