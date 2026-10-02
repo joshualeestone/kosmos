@@ -313,7 +313,10 @@ function readThread(page, words) {
     await page.evaluate(() => { document.getElementById('d-say').value = 'a new thought'; window.__post.resolve({ delivery: { state: 'unconfirmed', because: 'we typed it and could not tell whether it arrived' }, recorded: false, recordedBecause: null }); });
     await page.waitForTimeout(300);
     chk((await box()) === 'a new thought', 'unconfirmed with new words typed: the new words stay in the box', JSON.stringify(await box()));
-    chk(/stays in this conversation, marked not sent/.test(await line()) && !/in the box below/.test(await line()), 'and the line does not promise the box', await line());
+    const l17 = await line();
+    chk(/stays in this conversation\./.test(l17) && !/not sent/.test(l17) && !/in the box below/.test(l17), 'and the line points at the conversation, neither promising the box nor calling it not sent', l17);
+    const pill17 = await page.evaluate(() => { const r = [...document.querySelectorAll('#d-dmthread .dm-pending')].pop(); const p = r && r.querySelector('.delivery'); return p ? p.textContent : null; });
+    chk(/^Not confirmed\./.test(pill17 || ''), 'and the bubble it points at says "Not confirmed", not "Not sent"', pill17);
 
     /* 18. Placed after the person retyped the same words and opened another agent: the retyped draft is new
        typing and is not retired. */
@@ -381,8 +384,9 @@ function readThread(page, words) {
       window.__post.resolve({ delivery: { state: 'placed', paneState: 'idle' }, recorded: false, recordedBecause: null });
     });
     await page.waitForTimeout(300);
-    const threw = await page.evaluate(() => { placedWords = window.__realPlaced; return document.getElementById('d-say').value; });
-    chk(threw === '', 'a throw after a placed verdict leaves the box empty (no second send armed)', JSON.stringify(threw));
+    const threw = await page.evaluate(() => { placedWords = window.__realPlaced; return { box: document.getElementById('d-say').value, line: document.getElementById('d-say-msg').textContent }; });
+    chk(/a paint broke after the verdict/i.test(threw.line), 'the stubbed paint really threw into the catch', JSON.stringify(threw.line));
+    chk(threw.box === '', 'a throw after a placed verdict leaves the box empty (no second send armed)', JSON.stringify(threw.box));
 
     /* 23. Unconfirmed, not kept, and no bubble (a search): the words never left the box, and the line says "still". */
     await reset(BASE);
@@ -392,6 +396,14 @@ function readThread(page, words) {
     await page.evaluate(() => window.__post.resolve({ delivery: { state: 'unconfirmed', because: 'we typed it and could not tell whether it arrived' }, recorded: false, recordedBecause: null }));
     await page.waitForTimeout(300);
     chk((await box()) === 'searched and unsure' && /still in the box below/.test(await line()), 'no bubble and unconfirmed: the words are still in the box, and the line says still', JSON.stringify({ box: await box(), line: await line() }));
+
+    /* 24. Words put back exactly as typed, blank lines and all, not trimmed. */
+    await reset(BASE);
+    await press('two\n\nlines', 'two\n\nlines\n');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => window.__post.reject(new TypeError('Failed to fetch')));
+    await page.waitForTimeout(300);
+    chk((await box()) === 'two\n\nlines\n', 'a failed send puts back exactly what was in the box', JSON.stringify(await box()));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

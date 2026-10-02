@@ -13,13 +13,16 @@ then the box and the line both emptied, which moved the thread.
    search filtering the thread, or no thread read yet for this agent, draws none) and the box holds exactly the sent
    text; retire a parked draft holding exactly that text. With no bubble, the box keeps the words and empties on a
    placed or kept verdict, as before (`clearSent`).
-2a. Words put back are re-parked in `TALK_DRAFTS`, since a programmatic write fires no input event.
-2. `restoreUnsent`: every arm that used to leave the words in the box puts them back: could_not, unconfirmed and not
-   recorded, and a failed POST. Never over words typed since. Into `TALK_DRAFTS[sentName]` when the flight moved.
+2. `restoreUnsent`: every arm that used to leave the words in the box puts them back, exactly as they were (not
+   trimmed), and re-parks them in `TALK_DRAFTS` (a programmatic write fires no input event): could_not, unconfirmed
+   and not recorded, and a failed POST with no placed-or-kept verdict. Never over words typed since. Into
+   `TALK_DRAFTS[sentName]` when the flight moved. When they cannot go back, the line says where they are
+   (`dmNotSentWhere`), and that attached files are still attached.
 3. The line under the box stays empty during the flight when the bubble is drawn (it still says "Sending…" when none
    is); "Sending…" also goes to the hidden `d-reply-say` announcer.
-4. The pending bubble draws the reply header (`dmReplyHead`), adjacency taken from the newest kept row, so the kept
-   row swaps in place.
+4. The pending bubble draws the reply header (`dmReplyHead`), adjacency from `dmReplyAdjacency` (shared with the kept
+   rows), so the kept row swaps in place.
+5. An unconfirmed bubble's pill says "Not confirmed." rather than "Not sent." (it may have arrived).
 
 ## Not in scope, decided
 - The project composers (`pj-post` room, `pj-say` thread) draw no pending bubble, so they never show the words
@@ -30,7 +33,7 @@ then the box and the line both emptied, which moved the thread.
   so the retry copy is what it always offered (check case 14).
 
 ## Validation
-- New: docs/browser-checks/render-dm-send-clears-4944.js (23 cases), listed in docs/browser-checks/gated.txt so the no-URL runner includes it. Queued with render-dm-send-shows-now, render-dm-sendjump-4639, render-dm-reply-4256, render-talk, render-talk-search,
+- New: docs/browser-checks/render-dm-send-clears-4944.js (24 cases), listed in docs/browser-checks/gated.txt so the no-URL runner includes it. Queued with render-dm-send-shows-now, render-dm-sendjump-4639, render-dm-reply-4256, render-talk, render-talk-search,
   render-voice-4409 and the selector test on Agent1s.
 - web.dm-send-shows-now, web.term-compose-967, web.links-everywhere unit tests pass; the inline scripts compile
   (negative control reds).

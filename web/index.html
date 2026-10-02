@@ -34841,8 +34841,10 @@ function dmPendingRow(p, name, adjacent) {
   const youAv = YOU_PIC
     ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
     : '<div class="msg-av mine" aria-hidden="true"></div>';
+  /* #4944: an unconfirmed send may have arrived, so its pill does not say "Not sent". */
   const pill = p.failed
-    ? '<span class="delivery failed">Not sent. ' + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
+    ? '<span class="delivery failed">' + (p.unsure ? 'Not confirmed. ' : 'Not sent. ')
+      + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
     : '<span class="delivery unsure">Sending…</span>';
   return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
@@ -35647,10 +35649,12 @@ function talkPaintPending(sessionName, name) {
 }
 
 /* #4944: where a message that did not go, and could not go back in the box, can be found. */
-function dmNotSentWhere(unsure) {
-  /* An unconfirmed send may have arrived, so its line does not call it "not sent". */
+function dmNotSentWhere(unsure, files) {
+  /* An unconfirmed send may have arrived, so its line does not call it "not sent". Files are cleared only
+     when a send goes or is kept, so after one of these they are still attached for another try. */
   return (unsure ? 'Your message stays in this conversation.' : 'Your message stays in this conversation, marked not sent.')
-    + (TALK_QUERY.trim() ? ' Clear the search to see it.' : '');
+    + (TALK_QUERY.trim() ? ' Clear the search to see it.' : '')
+    + (files ? ' The files are still attached, so you can send them again.' : '');
 }
 /**
  * Send one message to this agent, and say what became of it.
@@ -35727,19 +35731,20 @@ async function sendTalk(text, attachment) {
      agent, so the words are in the box when they come back. Says whether the box holds them now, so the
      sentence under it never promises a box it did not fill. */
   let tookBox = false;
-  let delivered = false;  // the board's verdict placed or kept it: from then on a throw must not re-arm the words
+  let rawBox = '';        // what the box held when the press emptied it, put back as it was
+  let delivered = false;  // placed, or kept and not refused: from then on a throw must not re-arm the words
   let sendGen = -1;       // this send's TALK_SEND_GEN, once it has said "Sending…"
   const restoreUnsent = () => {
     if (!tookBox) return !flightMoved() && say.value.trim() === text;
     if (flightMoved()) {
-      if (!(TALK_DRAFTS[sentName] || '').trim()) TALK_DRAFTS[sentName] = text;
+      if (!(TALK_DRAFTS[sentName] || '').trim()) TALK_DRAFTS[sentName] = rawBox || text;
       return false;
     }
     if (say.value.trim() === '') {
-      say.value = text; pjGrowComposer(say);
+      say.value = rawBox || text; pjGrowComposer(say);
       /* Parked as a keystroke would park it: a value written by the program fires no input event, and
          the press retired the old draft, so without this a switch to another agent would lose it. */
-      TALK_DRAFTS[sentName] = text;
+      TALK_DRAFTS[sentName] = say.value;
     }
     return say.value.trim() === text;
   };
@@ -35790,6 +35795,7 @@ async function sendTalk(text, attachment) {
     /* With no bubble, nothing on screen would say it is on its way, so the line under the box says it. */
     if (!drawn) msg.textContent = 'Sending…';
     if (tookBox) {
+      rawBox = say.value;
       say.value = ''; pjGrowComposer(say);
       if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
     }
@@ -35805,7 +35811,7 @@ async function sendTalk(text, attachment) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
     const d = body.delivery || {};
-    delivered = d.state === 'placed' || body.recorded === true;
+    delivered = d.state === 'placed' || (body.recorded === true && d.state !== 'could_not');
     /* The kept row takes over from the drawn one once the thread holds it. One the
        board did not keep stays drawn, as not sent, unless it reached the agent: then
        the line below says it was not kept, and the bubble goes. */
@@ -35813,7 +35819,7 @@ async function sendTalk(text, attachment) {
     if (flying) {
       if (body.recorded === true) flying.recorded = true;
       else if (d.state === 'placed') delete TALK_PENDING[sentName];
-      else { flying.failed = true; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
+      else { flying.failed = true; flying.unsure = d.state === 'unconfirmed'; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
     }
     const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
     /**
@@ -35873,7 +35879,7 @@ async function sendTalk(text, attachment) {
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
         + (inThread ? ' Your message is kept above.'
           : inBox ? (tookBox ? ' Your message is back in the box below.' : ' Your message is still in the box below.')
-          : ' ' + dmNotSentWhere(true));
+          : ' ' + dmNotSentWhere(true, pendingIds.length > 0));
     } else {
       /* #4944: nothing was typed, so the words go back into the box for the retry. Even when the board
          kept a record of the attempt: before #4944 this arm never emptied the box, so the retry copy is
@@ -35885,7 +35891,7 @@ async function sendTalk(text, attachment) {
          promise. The row in the thread carries the time. */
       line = 'We could not get that to ' + name + ': '
         + pjSentence(d.because || 'we could not reach them')
-        + (inBox || flightMoved() ? '' : ' ' + dmNotSentWhere());
+        + (inBox || flightMoved() ? '' : ' ' + dmNotSentWhere(false, pendingIds.length > 0));
     }
     // Delivering and keeping are two acts and two sentences. Said whenever the
     // record failed, on every verdict — a message that went through and could
@@ -35906,7 +35912,7 @@ async function sendTalk(text, attachment) {
        rule, whether or not a verdict had arrived. */
     const inBox = delivered ? true : restoreUnsent();
     if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that')
-      + (inBox ? '' : ' ' + dmNotSentWhere());
+      + (inBox ? '' : ' ' + dmNotSentWhere(false, pendingIds.length > 0));
   } finally {
     TALK_SENDING = false;
     TALK_FLIGHT = null;
