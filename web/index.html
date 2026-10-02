@@ -20979,12 +20979,14 @@ function paintLoginAdvisories(advs) {
   if (!slot) return;
   /* #5018 (Josh): a small X hides a notice until it says something new (fewer days, other agents, another account,
      or expired). The key is the notice's own state, kept per viewer in this browser. */
-  const advKey = (a) => [a.severity || '', a.daysLeft, a.expired ? 'x' : '', a.email || '', a.agents.slice().sort().join(',')].join(':');
+  /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
+     bring a closed notice back. */
+  const advKey = (a) => [a.severity || '', a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
   const hidden = loginAdvDismissed();
   const list = Array.isArray(advs)
     ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
-  const sig = list.map(advKey).join('|');
+  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')).join('|');   // repaint on a new name or email too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
@@ -21003,9 +21005,10 @@ function paintLoginAdvisories(advs) {
     const tail = a.expired
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
-    return '<div class="utoast login-adv ' + sev + '" role="status">'
+    // role=status on the words, not the notice, so the close button is not read out with every announcement.
+    return '<div class="utoast login-adv ' + sev + '">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
+      + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
       + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');

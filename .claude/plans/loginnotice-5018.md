@@ -43,7 +43,11 @@ cleared it. The new login DID reach the keychain (Settings showed Oct 31 after r
 - **The X returns the notice when the days count drops** (key includes daysLeft): Josh's card text asks for exactly
   that ("hidden until the state changes: fewer days left ..."). An expired login's daysLeft keeps falling, so a closed
   expired notice also returns daily. A rename of an agent does not bring it back (the key uses system names).
-- loginChanged fires only on the move into connected, so a caller re-writing connected cannot defeat both caches.
+- loginChanged fires on every write of connected (both writers are a person's action: the driver's finish and the
+  already-signed-in answer to a start) and also in finishConnected before its race exit, so a landed login is never
+  missed. (Round 5 limited it to the move into connected; round 7 showed that missed two real completions.)
+- The X's key uses the credential (a.service), not the email, so one failed email read cannot bring a closed notice
+  back; the repaint signature adds the email and names so the line still updates.
 - **The email rides on /api/status.** Same readers as GET /api/accounts, which already lists every account's email
   for Settings, behind the same board-token gate; no new audience.
 
@@ -54,8 +58,8 @@ finishConnected -> writeState({phase: CONNECTED}) -> loginexpiry.loginChanged().
 test asserts the bump on that path.
 
 ## Weakest premise
-That `writeState({phase: CONNECTED})` is the only completion point for a Claude sign-in that changes the credential.
-The early-exit at connect.js ~1743 (already connected) also bumps, which is harmless (one extra read).
+That connect.js's driver is the only way a Claude sign-in completes inside Kosmos (traced below for Settings > Sign in
+again). A sign-in outside Kosmos (a terminal `claude login`) still waits out the cache, at most 5 minutes.
 
 ## Verification
 - engine/loginexpiry-signin-5018.test.js (with a control holding the old value inside the window), connect.test.js

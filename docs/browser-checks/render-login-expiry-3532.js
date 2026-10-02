@@ -189,6 +189,23 @@ const CASES = [
       if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
       await shown();
     }
+    // Phone width (375): the notice, with its account line, still clears New agent and stays on screen.
+    await pg.setViewportSize({ width: 375, height: 812 });
+    await pg.waitForTimeout(400);
+    const phone = await pg.evaluate(() => {
+      const a = document.querySelector('#login-adv-slot .login-adv'); if (!a) return { rendered: false };
+      const r = a.getBoundingClientRect();
+      const b = document.getElementById('new-agent');
+      const c = b && b.getClientRects().length ? b.getBoundingClientRect() : null;
+      return { rendered: true, newAgentShown: !!c, overlap: !!c && r.left < c.right && c.left < r.right && r.top < c.bottom && c.top < r.bottom,
+        onScreen: r.left >= 0 && r.right <= document.documentElement.clientWidth, box: [r.left, r.top, r.width, r.height].map(Math.round) };
+    });
+    chk(phone.rendered && phone.newAgentShown, '5018: CONTROL: at 375 the notice and New agent both render', JSON.stringify(phone));
+    chk(phone.newAgentShown && !phone.overlap, '5018: at 375 the notice does not cover New agent', JSON.stringify(phone));
+    chk(phone.onScreen, '5018: at 375 the notice stays on screen', JSON.stringify(phone));
+    await pg.setViewportSize({ width: 1400, height: 800 });
+    await pg.waitForTimeout(300);
+
     // The X hides it, and it stays hidden across a reload while nothing changes.
     await pg.click('#login-adv-slot .login-adv .ux').catch((e) => errs.push('click: ' + e.message));
     chk(!(await pg.$('#login-adv-slot .login-adv')), '5018: the X hides the notice');

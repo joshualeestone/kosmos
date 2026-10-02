@@ -48,7 +48,10 @@ test('the Settings date is read again after a sign-in, inside its cache window',
 
 test('a read with no await (no keychain on this platform) still answers after a sign-in, never rejects', async () => {
   cl._clearForTest();
-  cl.setReaderForTests(() => null);   // synchronous: the read finishes before validUntil returns
+  // No reader under node --test (NODE_TEST_CONTEXT is set): the read takes the branch with no await at all, so it
+  // finishes before validUntil returns, the case that once threw on its own cleanup.
+  assert.ok(process.env.NODE_TEST_CONTEXT, 'run under node --test, or this does not reach the no-await branch');
+  cl.setReaderForTests(null);
   const row = { isDefault: false, dir: '/tmp/kosmos-5018-sync' };
   const t0 = Date.now();
   assert.equal(await cl.validUntil(row, t0), null);

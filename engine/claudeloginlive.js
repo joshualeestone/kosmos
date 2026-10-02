@@ -31,8 +31,8 @@ let reader = null;
 /** Tests only: inject the expiry reader, ccd -> number | null (or a promise of one). */
 function setReaderForTests(fn) { reader = typeof fn === 'function' ? fn : null; }
 
-const cache = new Map();      // service name -> { at, until }
-const inflight = new Map();   // service name -> the read under way
+const cache = new Map();      // service name -> { at, until, gen }: gen is the login generation it was read under (#5018)
+const inflight = new Map();   // service name -> { gen, read }: the read under way and its generation
 function _clearForTest() { cache.clear(); inflight.clear(); }
 
 /* The row's login expiry (epoch ms), or null when there is none to read. Never rejects. */
