@@ -189,3 +189,13 @@ happen while the person is messaging all of them directly.
 - Nits: the settings-nav failure message lists the new heading; messages.js says a cap hold's heldUntil is the next
   look, not a release time.
 - Related set: 44 files, 773 tests, all pass.
+
+## Review 10 (sonnet) and what changed
+- **Lapsed reservations for other names are pruned at the next reservation**, so an entry for a renamed or removed
+  session does not stay in memory. Tested with a control for a live entry; removing the prune reds it.
+- The heldForCap comment says a line to a working agent still reserves it.
+- Duplicates, already decided:
+  - the room-hold skip under a cap (reviews 2 and 6)
+  - person-initiated sends counting toward the limit (review 8)
+  - the defensive cap branches (review 4)
+- Theoretical, noted: givePart's noPage path (the assigner never sets it).

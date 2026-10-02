@@ -120,7 +120,7 @@ function heldForQuota(session, roster, now, memo = POOL_MEMO, env = process.env)
 /* #4588 ask 3: the cap (Settings > Automation, engine/agycap-setting.js). While `max` of our antigravity agents are
    working, an automatic line to ANOTHER one waits, so a team does not run more of them at once than the person chose.
    Returns when to look again (now + CAP_RECHECK_MS), or null. A line to an agent that is already working is not held:
-   it starts no new work beside the others. No limit (0, the default), the quota-hold brake, or a setting that cannot
+   it is already counted (the line still reserves it, see noteCapStart). No limit (0, the default), the quota-hold brake, or a setting that cannot
    be read holds nothing. A person's own message never comes here (chat.deliver is not gated). */
 const CAP_RECHECK_MS = 60 * 1000;
 /* Review 1 (a blocker): a card reads `working` only once the agent's next report lands, so a fan-out from one roster
@@ -173,6 +173,8 @@ function noteCapStart(session, roster, now, readCap = () => require('./agycap-se
   /* Review 3: an active reservation is left alone. Refreshing it let an idle agent that keeps receiving lines hold the
      slot for good, and a later line's failure would release the first one, which did reach the agent. */
   if (startedRecently(name, now)) return null;
+  // Review 10: lapsed entries for other names (a renamed or removed session) are pruned here, so the map stays small.
+  for (const k of [...CAP_STARTS.keys()]) startedRecently(k, now);
   CAP_STARTS.set(name, now);
   return { name, at: now };
 }

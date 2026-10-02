@@ -182,3 +182,14 @@ test('review 7: autoretell\'s re-check through the REAL heldForAgy, with the tic
   assert.equal(w.acted.has('agy-b'), false, 'the held member\'s retell was spent');
   q.CAP_STARTS.clear();
 });
+
+test('review 10: a lapsed reservation for another name (a renamed or removed session) is pruned at the next reservation', () => {
+  q.CAP_STARTS.clear();
+  const r = world({ 'agy-a': 'idle', 'agy-b': 'idle', 'agy-c': 'idle', 'claude-x': 'idle' });
+  q.CAP_STARTS.set('gone-session', NOW - q.CAP_START_MS - 1);
+  q.CAP_STARTS.set('fresh-other', NOW - 1000);
+  q.noteCapStart('agy-a', r, NOW, cap(1), NOENV);
+  assert.equal(q.CAP_STARTS.has('gone-session'), false, 'a lapsed entry for a name nobody checks again stayed in the map');
+  assert.equal(q.CAP_STARTS.has('fresh-other'), true, 'CONTROL: a live entry for another name is kept');
+  q.CAP_STARTS.clear();
+});
