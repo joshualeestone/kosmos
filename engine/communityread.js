@@ -356,15 +356,21 @@ function afterMark(x, mark, firstLook) {
 }
 /* Review 5: one --replies read at a time PER BOARD. Each is up to 40 unauthenticated service requests, and the service
    allows 200 a minute per address, so several agents reading at once could spend the board's whole budget. */
-let replyReadRunning = false;
+let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's read --replies) or 'fresh' (#4951's count)
+/* #4951 (review 1, Opus): an agent's own read WAITS for the nudge's count rather than being refused: the agent it has
+   just told reads at once, and a refusal there left the reply unanswered (the nudge does not repeat). Two agents' own
+   reads still refuse each other, as #4833 review 5 decided (the service's per-address budget). */
+const FRESH_WAIT_MS = 120 * 1000;
 
 async function readReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) {
     return { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
   }
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
+  const waitUntil = Date.now() + (Number.isFinite(opts.freshWaitMs) ? opts.freshWaitMs : FRESH_WAIT_MS);
+  while (replyReadRunning === 'fresh' && Date.now() < waitUntil) await new Promise((res) => setTimeout(res, 100));
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board; try again in a moment' };
-  replyReadRunning = true;
+  replyReadRunning = 'read';
   try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; }
 }
 
@@ -375,11 +381,16 @@ async function readReplies(sessionName, opts = {}) {
    service's per-address budget), and it MOVES NO MARK: only the agent's own read does. It shares the one-read-per-board
    lock, so a busy board answers { ok: false, busy: true } and the nudge tries again next pass.
    Returns { ok: true, posts: [{ remoteId, title, ids }] } (ids: the new items, oldest first), or { ok: false, because }. */
+const FRESH_PACE_MS = 500;
 async function freshReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) return { ok: false, because: 'the Kosmos+ community is switched off on this board' };
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };
-  replyReadRunning = true;
+  replyReadRunning = 'fresh';
+  /* Review 1 (Opus): PACED, one request at a time with FRESH_PACE_MS between them, so a pass over the fleet stays far
+     under the service's 200 a minute per address (about 2 a second here, leaving room for the agents' own reads). */
+  const pace = Number.isFinite(opts.paceMs) ? opts.paceMs : FRESH_PACE_MS;
+  let asked = 0;
   try {
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
@@ -390,6 +401,7 @@ async function freshReplies(sessionName, opts = {}) {
     const titles = postTitles(sessionName);
     const out = [];
     for (const p of posts) {
+      if (asked++ && pace > 0) await new Promise((res) => setTimeout(res, pace));
       const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
       const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
       if (!list) continue;   // gone, refused or unreadable: nothing to say about it this pass

@@ -45,3 +45,16 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
   replies (the read's own first-look window): that is the card's point (replies sitting unanswered), and it is one line
   per agent, inside the shared hour cap; (4) three tries that reached nothing give up on that batch until a new reply
   arrives or the board restarts, as the sibling nudges do.
+- Round 1 (Opus, blind): 1 BLOCKER, reproduced, fixed: the pass typed agent A's nudge and went on to read agent B
+  holding the read lock, so A's own `read --replies` a moment later was REFUSED busy, and A's ids were already recorded,
+  so A was never told again. Now: (a) READ FIRST, TYPE AFTER: every count is read, then the nudges are typed, so the lock
+  is free when a told agent reads (test pins the order: red when it types mid-reads); (b) an agent's own read WAITS (up
+  to 2 min) for the nudge's count instead of being refused (tested: it waits, its fetch does not run beside the count,
+  then it reads; red when it refuses, red when the count takes no lock). Two agents' own reads still refuse each other
+  (#4833 review 5). Should-fix, fixed: the counts are PACED (500 ms between requests, 1 s between agents), the hour cap is
+  checked BEFORE reading (no reads once it is met), the shared hour log takes the time each nudge went (not the pass's
+  start), the Prompter's own on/off gates it as it gates agentnudge (tested), the card is read again before typing (was
+  Sonnet's 1). Tests that could not fail, fixed: the lock direction (above), titles end to end (red with no titles),
+  the stood-down arm's `if` (now an assertion). Not taken: a post whose round-2 reply page keeps failing hides, in the
+  agent's own read, round-1 replies it was told about (older than this card: readReplies marks such a post failed).
+

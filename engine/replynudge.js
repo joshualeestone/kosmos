@@ -126,31 +126,45 @@ async function sweepOnce(o) {
     if (!o || !Array.isArray(o.roster)) return { results, skipped: 'roster unreadable' };
     const book = o.book instanceof Map ? o.book : new Map();
     const sent = Array.isArray(o.sent) ? o.sent : [];
-    const now = Number.isFinite(o.now) ? o.now : Date.now();
+    const clock = () => (typeof o.clock === 'function' ? o.clock() : Date.now());
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
-    while (sent.length && now - sent[0] >= HOUR_MS) sent.shift();
+    const prune = () => { const t = clock(); for (let i = sent.length - 1; i >= 0; i -= 1) if (t - sent[i] >= HOUR_MS) sent.splice(i, 1); };
     const cap = o.limit && o.limit.on === true && Number.isInteger(o.limit.perHour) ? o.limit.perHour : Infinity;
     const nudgeable = require('./agentnudge').nudgeableCard;
+    const gap = Number.isFinite(o.betweenAgentsMs) ? o.betweenAgentsMs : 1000;
+    /* Review 1 (Opus): READ FIRST, TYPE AFTER. Every agent's count is read (paced, the read lock held only while
+       reading), and only then is anything typed, so an agent that reads its replies the moment it is told never meets
+       this pass's lock. */
+    const counted = [];
+    prune();
     for (const card of o.roster) {
       const session = card && card.sessionName;
       if (!session || !nudgeable(card)) continue;   // nothing is read for an agent that would not be nudged
       if (stoodDown(session, o.projects)) continue;
-      const display = plainWords(card.name || session, 80);
+      if (sent.length + counted.length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
       try {
+        if ((counted.length || results.length) && gap > 0) await new Promise((res) => setTimeout(res, gap));
         const fresh = await o.fresh(session);
-        // Review 1: let anything waiting on the read lock (the agent's own read --replies) in between agents.
-        await new Promise((res) => setImmediate(res));
-        if (fresh && fresh.busy) { results.push({ session, name: display, act: 'busy', because: fresh.because }); continue; }
-        /* Review 1: the read took seconds, so the card is read AGAIN before anything is typed: an agent that started
-           working (or was stood down) meanwhile is left for the next pass, never typed into mid-turn (#4624). */
+        if (fresh && fresh.busy) { results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because }); continue; }
+        if (fresh && fresh.ok === true && Array.isArray(fresh.posts) && fresh.posts.length) counted.push({ session, fresh });
+      } catch (err) {
+        results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
+      }
+    }
+    for (const { session, fresh } of counted) {
+      try {
+        /* Review 1: the card is read AGAIN before anything is typed: an agent that started working (or was stood down)
+           while the counts were read is left for the next pass, never typed into mid-turn (#4624). */
         let roster = o.roster;
         let projects = o.projects;
-        if (typeof o.rosterNow === 'function') { try { const r = o.rosterNow(); if (Array.isArray(r)) roster = r; else continue; } catch { continue; } }
-        if (typeof o.projectsNow === 'function') { try { const r = o.projectsNow(); if (Array.isArray(r)) projects = r; else continue; } catch { continue; } }
-        const now2 = roster.find((a) => a && a.sessionName === session);
+        if (typeof o.rosterNow === 'function') { const r = o.rosterNow(); if (!Array.isArray(r)) continue; roster = r; }
+        if (typeof o.projectsNow === 'function') { const r = o.projectsNow(); if (!Array.isArray(r)) continue; projects = r; }
+        const card = roster.find((x) => x && x.sessionName === session);
+        const display = plainWords((card && card.name) || session, 80);
         const nudged = o.readNudged(session);
-        const p = plan(now2, fresh, nudged, book.get(session), projects);
+        const p = plan(card, fresh, nudged, book.get(session), projects);
         if (p.act !== 'nudge') continue;
+        prune();
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;
         let held = false;
@@ -166,14 +180,14 @@ async function sweepOnce(o) {
           for (const id of p.ids) nudged.add(id);
           o.writeNudged(session, nudged);
           book.delete(session);
-          sent.push(now);
+          sent.push(clock());   // review 1: when it went, not when the pass began (the log is shared with agentnudge)
         } else {
           book.set(session, { key: p.key, tries });
         }
         results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because });
         if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because });
       } catch (err) {
-        results.push({ session, name: display, act: 'error', because: String((err && err.message) || err) });
+        results.push({ session, name: session, act: 'error', because: String((err && err.message) || err) });
       }
     }
   } catch { /* never throws: a pass is best-effort */ }
@@ -190,6 +204,11 @@ async function tick(o) {
     let allowed = false;
     try { allowed = o.allowed() === true; } catch { allowed = false; }
     if (!require('./agentnudge').nudgeEnabled(allowed, o.env)) return null;
+    /* Review 1 (Opus): the Prompter's own on/off, as agentnudge's nudge reads it: a person who turned the Prompter off
+       gets nothing typed into their agents by this either. */
+    let prompterOn = false;
+    try { prompterOn = o.prompterOn() === true; } catch { prompterOn = false; }
+    if (!prompterOn) return null;
     let on = false;
     try { on = o.switchOn() === true; } catch { on = false; }
     if (!on) return null;

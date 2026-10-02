@@ -39,7 +39,7 @@ function rig(over) {
   const store = new Map();
   const typed = [];
   const o = Object.assign({
-    roster: [card('kim')], projects: [], book: new Map(), sent: [], limit: { on: false }, now: Date.parse('2026-10-01T12:00:00Z'),
+    roster: [card('kim')], projects: [], book: new Map(), sent: [], limit: { on: false }, betweenAgentsMs: 0,
     fresh: fresh([{ remoteId: P1, title: 'Shipping notes', ids: ['r1', 'r2'] }]),
     readNudged: (s) => new Set(store.get(s) || []), writeNudged: (s, set) => { store.set(s, [...set]); return true; },
     deliver: (s, text) => { typed.push({ s, text }); return { state: D.PLACED }; }, DELIVERY: D,
@@ -98,11 +98,10 @@ test('#4951 an agent stood down (every project it is in paused, or switched off 
   const paused = { id: 'p1', agents: ['kim'], tasks: [], paused: true };
   const live = { id: 'p2', agents: ['kim'], tasks: [] };
   assert.equal(rn.stoodDown('kim', [paused]), require('./projects').isPaused(paused), 'fixture: isPaused does not read this shape');
+  assert.equal(require('./projects').isPaused(paused), true, 'fixture: the paused project does not read as paused');
   const { o, typed } = rig({ projects: [paused] });
-  if (require('./projects').isPaused(paused)) {
-    await rn.sweepOnce(o);
-    assert.equal(typed.length, 0, 'a stood-down agent was nudged');
-  }
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 0, 'a stood-down agent was nudged');
   o.projects = [paused, live];
   await rn.sweepOnce(o);
   assert.equal(typed.length, 1, 'an agent with a live project was not nudged');
@@ -110,7 +109,7 @@ test('#4951 an agent stood down (every project it is in paused, or switched off 
 });
 
 test('#4951 Agent Communication\'s hour cap holds a nudge (shared log), and a busy board is tried next pass', async () => {
-  const now = Date.parse('2026-10-01T12:00:00Z');
+  const now = Date.now();
   const { o, typed } = rig({ limit: { on: true, perHour: 2 }, sent: [now - 1000, now - 2000] });
   const r = await rn.sweepOnce(o);
   assert.equal(typed.length, 0, 'a nudge went past the hour cap');
@@ -124,9 +123,9 @@ test('#4951 Agent Communication\'s hour cap holds a nudge (shared log), and a bu
 test('#4951 tick: inert unless live execution is allowed, the brake is off, the community is on and the projects read', async () => {
   const base = () => {
     const { o, typed } = rig();
-    return { typed, o: Object.assign(o, { allowed: () => true, env: {}, switchOn: () => true, roster: () => [card('kim')], readProjects: () => [], readLimit: () => ({ on: false }) }) };
+    return { typed, o: Object.assign(o, { allowed: () => true, env: {}, prompterOn: () => true, switchOn: () => true, roster: () => [card('kim')], readProjects: () => [], readLimit: () => ({ on: false }) }) };
   };
-  for (const [what, change] of [['not allowed', { allowed: () => false }], ['the brake', { env: { AGENT_WORKFORCE_AGENT_NUDGE_OFF: '1' } }],
+  for (const [what, change] of [['not allowed', { allowed: () => false }], ['the Prompter off', { prompterOn: () => false }], ['the brake', { env: { AGENT_WORKFORCE_AGENT_NUDGE_OFF: '1' } }],
     ['switched off', { switchOn: () => false }], ['projects unreadable', { readProjects: () => { throw new Error('x'); } }], ['roster unreadable', { roster: () => null }]]) {
     const b = base();
     const r = await rn.tick(Object.assign(b.o, change));
@@ -179,4 +178,13 @@ test('#4951 review 1: the card is read again after the replies are read; an agen
 test('#4951 review 1: a title\'s invisible characters (line separators, bidi, zero-width) do not reach the typed line', () => {
   const t = rn.nudgeText([{ title: 'ok\u2028next\u202eevil\u200bzw', ids: ['x'] }]);
   assert.ok(!/[\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/.test(t), 'an invisible character reached the line');
+});
+
+test('#4951 review 1: every count is read before anything is typed (the read lock is free when a told agent reads)', async () => {
+  const order = [];
+  const { o } = rig({ roster: [card('kim'), card('ann')],
+    fresh: async (s) => { order.push('read ' + s); return { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }; },
+    deliver: (s) => { order.push('type ' + s); return { state: D.PLACED }; } });
+  await rn.sweepOnce(o);
+  assert.deepEqual(order, ['read kim', 'read ann', 'type kim', 'type ann'], 'a nudge was typed while counts were still being read');
 });

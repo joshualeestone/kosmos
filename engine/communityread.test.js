@@ -965,3 +965,35 @@ test('#4951 freshReplies: switched off reads nothing; it shares the one-read-per
   assert.equal(during.busy, true, 'freshReplies ran beside a read --replies');
   release(); await first;
 });
+
+test('#4951 review 1: an agent\'s own read WAITS for the nudge\'s count (and then reads); two agents\' own reads still refuse each other', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  let release;
+  let calls = 0;
+  cr.setFetcher(() => { calls += 1; if (calls === 1) return new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }); return Promise.resolve({ status: 200, json: { comments: [] } }); });
+  const counting = cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  await new Promise((res) => setImmediate(res));
+  const own = cr.readReplies('Nia4951', { now: NOW });
+  await new Promise((res) => setTimeout(res, 150));
+  assert.equal(calls, 1, 'the agent\'s own read ran beside the nudge\'s count (the count held no lock)');
+  release();
+  await counting;
+  const r = await own;
+  assert.equal(r.ok, true, 'the agent\'s own read was refused while the nudge counted: ' + r.because);
+});
+
+test('#4951 review 1: freshReplies names each post by the board\'s own title', async () => {
+  on(); clearSeen();
+  const cstore = require('./communitystore');
+  const before = cstore.publishedPosts;
+  cstore.publishedPosts = () => [{ id: 'board-1', body: 'Shipping notes\nmore' }];
+  try {
+    writeSendState({ 'board-1': { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+    serve({ ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'hi' })] } }) });
+    const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+    assert.equal(f.posts.length, 1);
+    assert.equal(f.posts[0].title, cs.titleFor({ id: 'board-1', body: 'Shipping notes\nmore' }));
+    assert.ok(f.posts[0].title.length > 0, 'the title came back empty');
+  } finally { cstore.publishedPosts = before; }
+});

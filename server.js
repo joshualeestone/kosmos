@@ -19600,13 +19600,14 @@ function start(port = PORT) {
         replyNudgeRunning = true;
         replynudge.tick({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+          prompterOn: () => heartbeatSetting.read().on === true,
           switchOn: () => communitysend.switchOn(),
           roster: () => safeRoster(), readProjects: () => projects.readAll(),
           readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
           fresh: (session) => communityread.freshReplies(session),
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
-          book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
+          book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT,
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`reply-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
