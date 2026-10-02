@@ -505,14 +505,6 @@ function postTimesAll() {
   return out;
 }
 
-/* One agent's post times from postTimesAll: [] when it has none, null when the store cannot be read. */
-function postTimesBy(agentKey) {
-  const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
-  if (!want) return null;
-  const all = postTimesAll();
-  return all === null ? null : (all.get(want) || []);
-}
-
 // #4287: a post's status and author type, or null when there is no such post.
 function postMeta(id) {
   const key = String(id);
@@ -734,7 +726,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
-  postedBy, postTimesBy, postTimesAll,
+  postedBy, postTimesAll,
   postMeta,
   // trust
   trustState,

@@ -38,7 +38,7 @@ function args(over = {}) {
   return {
     roster: [card('ann'), card('bea'), card('cal'), card('dan')], projects: [],
     now: NOW, book: new Map(),
-    inCommunity: () => true, idleSince: () => NOW - H,
+    inCommunity: () => true, idleSince: () => NOW - H, seenIdle: new Set(['ann', 'bea', 'cal', 'dan']),
     postTimes: (s) => ({ ann: [ago(8 * H)], bea: [ago(4 * H)], cal: [ago(1 * H)], dan: [] }[s] || []),
     ...over,
   };
@@ -130,7 +130,7 @@ function tickArgs(over = {}) {
     allowed: () => true, env: {}, switchOn: () => true, prompterOn: () => true,
     roster: () => [card('ann'), card('bea')], readProjects: () => [], now: NOW, book: new Map(), sent: [],
     readLimit: () => ({ on: true, perHour: 20 }),
-    inCommunity: () => true, postTimes: () => [ago(6 * H)], idleSince: () => NOW - H,
+    inCommunity: () => true, postTimes: () => [ago(6 * H)], idleSince: () => NOW - H, idleSeen: new Set(['ann', 'bea']),
     deliver: (s, text) => { sent.push([s, text]); return { state: D.PLACED }; }, DELIVERY: D,
     ...over,
   } };
@@ -188,23 +188,22 @@ test('the line asks for a real post, names the daily maximum, and says to do not
   assert.ok(![0x2014, 0x2013].some((c) => ct.TURN_TEXT.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
 
-test('communitystore.postTimesBy: this agent\'s posts in any status, case-insensitive, agent posts only; [] when none; null when unreadable', () => {
+test('communitystore.postTimesAll: each agent\'s posts in any status, keyed lower-case, agent posts only; empty when none; null when unreadable', () => {
   const dir = path.join(require('./store').ROOT, 'community');   // communitystore's own dir()
   assert.ok(path.resolve(dir).startsWith(path.resolve(SANDBOX) + path.sep), dir);
-  assert.deepEqual(store.postTimesBy('Ann'), [], 'no file yet');
+  assert.equal(store.postTimesAll().size, 0, 'no file yet');
   const a = store.insertPost({ status: 'published', agent: 'ann', body: 'one' });
   const b = store.insertPost({ status: 'held', agent: 'ANN', body: 'two' });
   store.insertPost({ status: 'published', agent: 'bea', body: 'other' });
   store.insertPost({ status: 'published', agent: 'ann', author: { type: 'user', name: 'ann' }, body: 'a person' });
-  assert.deepEqual(store.postTimesBy('ann').sort(), [a.receivedAt, b.receivedAt].sort());
+  assert.deepEqual(store.postTimesAll().get('ann').sort(), [a.receivedAt, b.receivedAt].sort());
   // postedBy's guard: a corrupt-* sidecar means earlier posts are elsewhere, so no count is given.
   fs.writeFileSync(path.join(dir, 'posts.json.corrupt-1'), '[]');
-  assert.equal(store.postTimesBy('ann'), null, 'a count from the fresh file alone was given beside a corrupt sidecar');
-  assert.equal(store.postTimesAll(), null);
+  assert.equal(store.postTimesAll(), null, 'a count from the fresh file alone was given beside a corrupt sidecar');
   fs.rmSync(path.join(dir, 'posts.json.corrupt-1'));
   assert.equal(store.postTimesAll().get('bea').length, 1, 'CONTROL: without the sidecar the store reads');
   fs.writeFileSync(path.join(dir, 'posts.json'), '{not json');
-  assert.equal(store.postTimesBy('ann'), null);
+  assert.equal(store.postTimesAll(), null);
 });
 
 test('review 3: a busy pane is not booked (no try spent); a throw counts as unconfirmed, booked and in the hour log', () => {
@@ -215,4 +214,12 @@ test('review 3: a busy pane is not booked (no try spent); a throw counts as unco
   assert.equal(ct.tickOnce(threw.o)[0].act, 'prompted');
   assert.deepEqual(threw.o.book.get('ann'), [NOW]);
   assert.deepEqual(threw.o.sent, [NOW]);
+});
+
+test('review 4: an agent is due only if it was idle at the previous pass too; the tick keeps this pass\'s idle cards for the next', () => {
+  assert.deepEqual(ct.due(args({ seenIdle: new Set(['bea']) })).map((d) => d.session), ['bea']);
+  const first = tickArgs({ idleSeen: new Set() });
+  assert.deepEqual(ct.tickOnce(first.o), [], 'an agent seen idle for the first time was prompted');
+  assert.deepEqual([...first.o.idleSeen].sort(), ['ann', 'bea'], 'this pass\'s idle cards were not kept for the next');
+  assert.equal(ct.tickOnce(first.o).length, 2, 'CONTROL: idle at the previous pass too, they are prompted');
 });

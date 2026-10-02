@@ -19761,6 +19761,7 @@ function start(port = PORT) {
          under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause). unref'd;
          first run one interval after boot. */
       const COMMUNITY_TURN_BOOK = new Map();
+      const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
       const communityTurnTick = setInterval(() => {
         const cb = require('./engine/communityblock');
         let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
@@ -19781,7 +19782,7 @@ function start(port = PORT) {
             return Boolean(f) && f.ambiguous !== true;
           },
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
-          book: COMMUNITY_TURN_BOOK,
+          book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),

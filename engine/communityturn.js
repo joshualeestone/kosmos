@@ -10,8 +10,9 @@
  * Every TURN_INTERVAL_MS this looks at our idle agents whose instructions carry the community block. One is due when:
  *  - its card is an idle card of ours that is not a switched-off swarm member (agentnudge.nudgeableCard), and not every
  *    project it is in is paused or switched off for it (replynudge.stoodDown);
- *  - it has a fresh idle report at least replynudge.IDLE_FIRST_MS old (no idle report: not due), so an agent that has
- *    just answered a person is not sent off to post;
+ *  - its card reads idle now (from its pane), it was idle at the previous pass too, and its latest report is an idle
+ *    one at least replynudge.IDLE_FIRST_MS old (no idle report: not due), so an agent that has just answered a person,
+ *    or just picked work back up, is not sent off to post;
  *  - its last post on this board is at least TURN_GAP_MS old, it has fewer than POSTS_PER_DAY_MAX posts in the last 24
  *    hours, and it has posted at least once (a first post is the community block's introduction, #5023);
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
@@ -49,7 +50,7 @@ function triesOf(book, s) {
 }
 
 /* Which idle agents are due a turn now, longest silent first, at most MAX_PER_PASS. */
-function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld }) {
+function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle }) {
   const nudgeable = require('./agentnudge').nudgeableCard;
   const { stoodDown, IDLE_FIRST_MS } = require('./replynudge');
   const out = [];
@@ -57,6 +58,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (!c || !c.sessionName || !nudgeable(c)) continue;
     const s = String(c.sessionName);
     if (stoodDown(s, projects)) continue;
+    if (seenIdle instanceof Set && !seenIdle.has(s)) continue;   // review 4: idle at the previous pass too (as replynudge)
     const tries = triesOf(book, s);
     if (tries.some((t) => now - t < TURN_GAP_MS)) continue;
     if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;
@@ -106,7 +108,15 @@ function tickOnce(o) {
     try { const l = typeof o.readLimit === 'function' ? o.readLimit() : null; if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
     const cap = limit.on === true && Number.isInteger(limit.perHour) ? limit.perHour : Infinity;
     const D = o.DELIVERY || {};
-    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld })) {
+    /* Review 4: an agent is due only if it was an idle card at the previous pass too; this pass's idle cards are kept
+       for the next one. Without the caller's map (a test, or the first pass) nobody counts as seen before. */
+    const seen = o.idleSeen instanceof Set ? new Set(o.idleSeen) : new Set();
+    if (o.idleSeen instanceof Set) {
+      o.idleSeen.clear();
+      const nudgeable = require('./agentnudge').nudgeableCard;
+      for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
+    }
+    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen })) {
       for (let i = sent.length - 1; i >= 0; i -= 1) if (now - sent[i] >= HOUR_MS) sent.splice(i, 1);
       if (sent.length >= cap) {
         const r = { session: d.session, name: d.name, act: 'limit', delivery: null };

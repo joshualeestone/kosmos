@@ -40,6 +40,7 @@ test('review 1: it shares the board-wide hour log and Agent Communication\'s lim
   const pre = SRC.slice(SRC.lastIndexOf('const communityTurnTick', at), at);
   assert.match(pre, /postsNow = require\('\.\/engine\/communitystore'\)\.postTimesAll\(\)/, 'posts.json is not read once a pass');
   assert.match(w, /sent:\s*AGENT_NUDGE_SENT/);
+  assert.match(w, /idleSeen:\s*COMMUNITY_TURN_IDLE_SEEN/, 'review 4: idle at the previous pass is not wired');
   assert.match(w, /readLimit:\s*\(\)\s*=>\s*limits\.read\(\)/);
   assert.match(w, /readProjects:\s*\(\)\s*=>\s*projects\.readAll\(\)/);
   assert.match(w, /idleSince:\s*\(session\)\s*=>\s*\{ const r = selfreport\.read\(session\)/);

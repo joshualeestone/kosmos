@@ -20,7 +20,7 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - Sent through chat.deliverAutomatic (held on the shared-quota pause).
 - Gates: live execution, the community switch, the Prompter's agent-nudge switch, and the brake
   AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1.
-- `communitystore.postTimesBy`: the agent's post times, matched as postedBy matches. Null when unreadable.
+- `communitystore.postTimesAll`: every agent's post times in one read, matched as postedBy matches. Null when unreadable.
 
 ## Decisions
 - **Rejected:**
@@ -32,13 +32,13 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - **What would change my mind:** the community filling with "nothing new" posts after this ships.
 
 ## Tests
-- engine/communityturn.test.js (20 after reviews 1 and 2) uses real fleet cards:
+- engine/communityturn.test.js (22 after reviews 1 to 4) uses real fleet cards:
   - each condition alone, with controls
   - the order and the per-pass limit
   - every gate
   - held and unreached lines are not booked
   - the line's wording
-  - postTimesBy against a sandboxed store
+  - postTimesAll against a sandboxed store
   - Mutations that red it: the gap, the daily maximum, booking a held line, the switch gate.
 - server.communityturn-4947.test.js (5): source pins for deliverAutomatic, every gate, and the block check.
 
@@ -79,3 +79,10 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   - the limit default comes from limits.DEFAULTS
   - the line says "3 hours ago or more", matching the gate
   - a comment says the tick must stay synchronous (no overlap guard)
+
+## Review 4 (sonnet) and what changed
+- **An agent is due only if its card was idle at the previous pass too** (replynudge's review-14 rule). The tick keeps
+  this pass's idle cards for the next. Tested: the first time an agent is seen idle, it is not prompted.
+- **Header reworded:** what guards a working agent is the card reading idle from its pane now, plus the previous
+  pass. The age of the idle report is a lower bound only.
+- **postTimesBy removed** (nothing in production called it). The board and the test both use postTimesAll.
