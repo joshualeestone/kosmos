@@ -7679,7 +7679,10 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = await chat.deliverAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    /* #4959: the pickup is the board's own line after a restart (the handoff twin of the wake hello), so it goes
+       through the shared-quota gate like every automatic sender (#4588). A held verdict is COULD_NOT, answered 409
+       below, and the page shows its manual line. */
+    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
@@ -14690,6 +14693,20 @@ const server = http.createServer(async (req, res) => {
          */
         let chose = (typeof body.chose === 'string' && !chat.messageProblem(body.chose))
           ? body.chose : null;
+        /* #4959: `automatic: true` marks a message the board sends FOR the person (the restart wake 'hello'),
+           not one they typed. It goes through chat.deliverAutomaticAsync, the gate every other automatic sender
+           uses (#4588), so a Gemini (Google subscription) agent is not typed into while this machine's shared
+           quota is out. Exactly `true` or absent: any other value is refused rather than ignored (#4889: a flag
+           read loosely is a flag nobody can trust). And plain text only, since a menu answer, a reply or an
+           attachment is always the person's own act. */
+        if (body.automatic !== undefined && body.automatic !== true) {
+          throw new Error('automatic is true or left out');
+        }
+        const automatic = body.automatic === true;
+        if (automatic && (body.chose !== undefined || (body.reply_to !== undefined && body.reply_to !== null)
+          || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
+          throw new Error('an automatic message is plain text');
+        }
 
         // The write gate FIRST, then the expensive look. `knownAgent` is a
         // `list-panes`; `safeRoster` is that plus a `capture-pane` per agent —
@@ -14909,8 +14926,19 @@ const server = http.createServer(async (req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
-        const delivery = await chat.deliverAsync(name, body.text, roster, envelope,
-          (attachments.wireNote(files.recs) || '') + reactionNote);
+        const delivery = await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
+          envelope, (attachments.wireNote(files.recs) || '') + reactionNote);
+        /* #4959: answered 200 with the held verdict, like every delivery this route answers (the verdict, not the status,
+           says what happened). The handoff pickup route answers its held verdict 409, as it answers every COULD_NOT;
+           a client reads delivery.held on either. */
+        /* #4959: a held automatic message typed nothing, so it is not filed in the thread either (a 'hello' bubble
+           for a hello the agent never got would be the false record). The verdict goes back as it is, held and
+           heldUntil included, and the caller treats anything but placed as not said. */
+        if (automatic && delivery && delivery.held === true) {
+          sendJson(res, 200, { delivery, recorded: false,
+            recordedBecause: 'held: nothing was typed while the shared quota is out, so nothing was kept' });
+          return;
+        }
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case
            most likely to have lost it. Telling twice costs one extra note; not telling is

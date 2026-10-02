@@ -52734,6 +52734,18 @@ async function restartReadyWait(name, mine) {
   return false;
 }
 
+/* #4959: the wake (or the handoff pickup) was HELD because this computer's shared Google quota is out, so nothing was
+   typed. The site's own manual line still stands, and the reason follows it, promising nothing: nothing re-sends the
+   wake after the reset, so "Kosmos will say hello later" would be false. The time is #4588's own wording
+   (quotaResetWords); a missing or past time just says the quota is out. Guarded with typeof, so the lifted unit
+   tests (no page globals) still read. */
+function wakeHeldLine(manualText, delivery) {
+  const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
+  const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
+  return manualText + ' ' + (when
+    ? "This computer's shared Google quota is out until " + when + ', so Kosmos sent nothing.'
+    : "This computer's shared Google quota is out, so Kosmos sent nothing.");
+}
 /* Do the wake for one user-initiated restart: wait for readiness, then POST
    'hello' to the agent's thread and report the outcome. `report(text)` writes
    the site's own status line (a stale-notice element, or the doctrine dialog's
@@ -52765,14 +52777,14 @@ async function sendWakeHello(name, token, report, saidText, manualText, deliver)
           const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text: 'hello' }),
+            body: JSON.stringify({ text: 'hello', automatic: true }),   // #4959: held while the shared quota is out
           });
           const out = await res.json().catch(() => null);
           return (res.ok && out && out.delivery) ? out.delivery : null;
         })();
     if (token !== RESTART_HELLO_SEQ[name]) return;
     const placed = delivery && delivery.state === 'placed';
-    report(placed ? saidText : manualText);
+    report(placed ? saidText : (delivery && delivery.held === true) ? wakeHeldLine(manualText, delivery) : manualText);
   } catch {
     if (token !== RESTART_HELLO_SEQ[name]) return;
     report(manualText);
@@ -52787,7 +52799,8 @@ async function sendWakeHello(name, token, report, saidText, manualText, deliver)
 async function deliverPickup(name) {
   const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/pickup', { method: 'POST' });
   const out = await res.json().catch(() => null);
-  return (res.ok && out && out.delivery) ? out.delivery : null;
+  // #4959: a held pickup is answered 409; its verdict still comes back, so the person is told why.
+  return (out && out.delivery && (res.ok || out.delivery.held === true)) ? out.delivery : null;
 }
 
 async function autoHelloAfterRestart(name, report, saidText, manualText, deliver) {
