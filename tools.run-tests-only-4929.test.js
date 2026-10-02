@@ -42,10 +42,14 @@ const RUNNER_SET = ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL
   // instead of printing. The runs below are separate runs, so it goes too.
   'NODE_TEST_CONTEXT'];
 const PLAIN_TMP = fs.mkdtempSync(path.join(DIR, 'tmp-'));
+const SANDBOX_HOME = fs.mkdtempSync(path.join(DIR, 'home-'));
 const cleanEnv = (extra = {}) => {
   const e = { ...process.env };
   for (const k of RUNNER_SET) delete e[k];
   e.TMPDIR = PLAIN_TMP;
+  // Review 19: a sandbox HOME, so each inner run's #3011 check reads an empty LaunchAgents folder, not the live
+  // fleet's, where a board writing an agent's plist mid-run would red this test for nothing.
+  e.HOME = SANDBOX_HOME;
   e.KOSMOS_ONLY_4929_INNER = '1';
   return { ...e, ...extra };
 };
@@ -160,7 +164,7 @@ test('--only works when the runner is called by a relative path from outside the
   const relRunner = path.relative(above, RUNNER);
   // With CDPATH naming a folder that has the runner's own relative path in it: the REPO line's cd must not follow it.
   const cdp = fs.mkdtempSync(path.join(DIR, 'cdp2-'));
-  fs.mkdirSync(path.join(cdp, path.dirname(relRunner), '..'), { recursive: true });
+  fs.mkdirSync(path.join(cdp, path.dirname(relRunner)), { recursive: true });   // review 19: keep tools/ (join would drop it)
   const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', CDPATH: cdp });
   const r = spawnSync('perl', ['-e', GROUP, 'bash', relRunner, '--only', PROBE], { env, encoding: 'utf8', timeout: 120000, cwd: above });
   const out = (r.stdout || '') + (r.stderr || '');

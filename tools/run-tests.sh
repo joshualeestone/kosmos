@@ -101,7 +101,7 @@ if [ "${1:-}" = --only ]; then
     # One spelling per file (a.test.js, ./a.test.js, p/../a.test.js, a symlinked folder, its absolute path): the
     # folder's physical path plus the name.
     # CDPATH= : an exported CDPATH would send a relative cd into ANOTHER tree and print its path into the result.
-    _only_f="$(CDPATH= cd -- "$(dirname "$_only_f")" && pwd -P)/$(basename "$_only_f")"
+    _only_f="$(CDPATH= cd -P -- "$(dirname "$_only_f")" && pwd -P)/$(basename "$_only_f")"   # -P: through a symlink then .., the same file -f found
     # node --test reads each name as a glob: a path with [ * ? { ( ! or \ in it can match nothing (red, "Could not
     # find") or, with an extglob such as @(x), run zero tests and exit 0 (green, measured). So it is refused. A file
     # inside this repo goes to node by its repo-relative name (node runs from the repo root), so only that part is

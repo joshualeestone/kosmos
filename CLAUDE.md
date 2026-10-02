@@ -219,8 +219,8 @@ from a night in this codebase, kosmos#2616.)
    (`KOSMOS_TEST_FILES`), so the count and the run cannot drift. To run only some files, use
    `tools/run-tests.sh --only <file>...` (kosmos#4929), not a bare `node --test <file>`: it keeps the suite's
    environment and guards (the dead-port phone-home URLs, the fake gh and vercel, the temp root, the --require
-   guards) and skips only what belongs to the whole suite. It does not queue: run it inside a light queue turn, or it
-   can overlap a suite. It takes test files only (no node options; `--only=<file>` is refused). On a checkout from
+   guards) and skips only what belongs to the whole suite. It does not queue: run it inside a light queue turn (the
+   machine's queued-heavy.sh `--light`, kosmos#4609), or it can overlap a suite. It takes test files only (no node options; `--only=<file>` is refused). On a checkout from
    before #4929, whose runner has no `--only` (`grep -q 'only must come first' tools/run-tests.sh` finds nothing),
    it would run the whole suite, in either spelling.
 
