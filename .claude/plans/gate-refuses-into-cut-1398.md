@@ -11,7 +11,7 @@ Only a social rule ("no gates during a cut") held the line, and the obvious chec
 (`pgrep -f release.sh`) self-matches the asker's own command line, so a careful
 person breaks it.
 
-## Fix
+## Fix (SUPERSEDED: the first version below. The code now exits 75, asks BEFORE kosmos_mark_run, and the cut's own page layer passes by KOSMOS_IGNORE_MACHINE_CLAIM=1 on release.sh's launches, not by its cookie. See Review 1 and Review 2.)
 Mirror the machine-claim consult that `run-tests.sh` already does into
 `tools/browser-checks.sh`:
 
@@ -36,7 +36,7 @@ gate) avoids self-refusing the cut's own `yarn test`. Fail-open on a broken/abse
 claim file; escape hatch `KOSMOS_IGNORE_MACHINE_CLAIM=1`, the same one used everywhere
 else the claim guard runs.
 
-## Verification (both arms perturbed, per the card)
+## Verification (SUPERSEDED: the first version's test, replaced in Review 1 and Review 2)
 - ARM 1 (foreign claim -> REFUSE): forged a live foreign machine-claim in an isolated
   marker dir; browser-checks.sh exits non-zero with "reserved for a release" BEFORE
   booting a board. Red-capable: without the wiring the gate never refuses.
@@ -108,3 +108,8 @@ LANDS AFTER 0.7.17 IS SERVED (the 05:15 cut runs browser-checks.sh and release.s
   cut cannot hit it: it passes the override).
 Tests: test-browser-gate-cut-claim-1398.sh 9/9; sabotages red: no guard, refusal exits 1, cut launch without the
 override, guard moved after kosmos_mark_run; 1962 22/22, pw-version and parallel-region green; no leftovers.
+
+## Review 3 (opus, blind, whole diff, 2026-10-02 01:16): 0 blockers, 0 warnings, 3 nits, all taken. CONVERGED.
+Stale "waits" wording in release.sh's two launch comments (kept byte-identical for test-cut-parallel-region.sh) and
+in test-pw-version-assert.sh; the plan's first Fix and Verification sections marked superseded. Converged at
+iteration 3. Next: full validation, proof, PR; MERGE ONLY AFTER 0.7.17 IS SERVED.
