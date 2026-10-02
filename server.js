@@ -15157,7 +15157,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   /* #4930: the full-page preview's "Open in Finder": the attachment's own file, selected in its folder (never opened).
-     The file is the stored record's, found by id alone, so no path from the request reaches the opener. */
+     The file is the stored record's, found by id alone, so no path from the request reaches the opener.
+     A Kosmos+ remote caller is not refused here, as the sibling reveal routes do not refuse one: it is the person's
+     own signed-in session, and selecting a file opens nothing. The page shows Download instead for a remote session. */
   const attachReveal = pathname.match(/^\/api\/attachment\/([0-9a-f]{24})\/reveal$/);
   if (attachReveal && req.method === 'POST') {
     const rec = attachments.read(attachReveal[1]);

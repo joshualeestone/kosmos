@@ -59591,10 +59591,9 @@ function pvOpen(id, from) {
     act.replaceWith(b);
   }
   back.querySelector('#pv-x').addEventListener('click', pvClose);
-  // A click anywhere on the dark closes it: anything but the file itself, the X and the action. Only when the press
-  // began on the dark too, so selecting a text file's words and letting go past them does not close it.
-  /* The file, its controls, and the words a person may want to select or copy (the name, a note, an error)
-     keep the preview open; only the dark around them closes it. */
+  // A click on the dark closes it: anything but the file, the X, the action, and the words a person may want to
+  // select or copy (the name, a note, an error). Only when the press began on the dark too, so selecting a text
+  // file's words and letting go past them does not close it.
   const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do, .pv-name, .pv-msg, .pv-note'));
   let pressedOnFile = false;
   back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
