@@ -71,3 +71,11 @@ Review R3 (opus) 0B 2W 0C 4N:
   gold hover is; the long comment line rewrapped. NIT left: no arm for the kind picker's hover or a chosen card under
   the pointer (same selector).
 Validation now: 255/255 (round-2 control 252/255: the plain button's corners).
+
+Review R4 (sonnet) 0B 2W 0C 3N, CONVERGED:
+- WARNING deferred: forced-colors and the transparent resting edge. The same question was deferred in the dsec and
+  settings slices: in forced colors the edge comes back as a system colour, which the reviewer also calls harmless.
+- WARNING deferred: a pill could wrap to two lines on a narrow screen. Measured: the longest button label inside
+  #panel-create (lines 14665 to 15375) is 19 characters ("Upload an org chart"), about 140px, against a phone panel
+  of about 342px; none wraps.
+- NITs left: the hover probe's machinery; the kind picker read while its step is hidden (computed style answers).
