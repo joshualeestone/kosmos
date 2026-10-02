@@ -105,7 +105,7 @@ function paintWorld({ models = [], openai = null, rolesBody = null, waitMs = 0, 
   let paints = 0;
   const ctx = {
     document: { getElementById: (id) => els[id] || null, querySelectorAll: (q) => (q === '#tc-list .tc-retry' ? [retry] : []) },
-    CREATE_MODELS: models, TC: {}, TC_FILLING: 0, tcChoiceFixed: () => false, tcPaint: () => { paints += 1; },
+    CREATE_MODELS: models, TC: {}, TC_FILLING: 0, FR_AGY_READY: false, tcChoiceFixed: () => false, tcPaint: () => { paints += 1; },
     esc: (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
     vendorPicksModel: (p) => ['google', 'xai', 'antigravity', 'meta'].includes(p),
     switchKeyedWord: (p) => ({ google: 'Gemini', xai: 'Grok' })[p] || p,
@@ -266,4 +266,16 @@ test('#4935 a roles read that never answers gives up after the wait and releases
   assert.equal(w.sel.dataset.loading, '');
   assert.equal(w.sel.dataset.retry, '1', 'it falls into the failed-read path');
   assert.equal(w.go.disabled, false, 'Create still held after the wait');
+});
+
+/* Review 13: Gemini on a Google subscription that is not signed in gets the single create's own sign-in hint. */
+test('#4935 an Antigravity team that is not signed in is told how, as on the single create', () => {
+  const w = paintWorld();
+  w.ctx.paint('antigravity', '');
+  assert.match(w.why.textContent, /sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini\./);
+  // CONTROL: signed in, no hint.
+  const v = paintWorld();
+  v.ctx.FR_AGY_READY = true;
+  v.ctx.paint('antigravity', '');
+  assert.ok(!/sign in first/.test(v.why.textContent), v.why.textContent);
 });
