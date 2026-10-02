@@ -39,4 +39,9 @@ test then checks. Measured below.
   Also: a check with no line prints the line to add. Measured 18:30, each red by its own message: duplicate, swap, missing
   line (prints `'emoji-picker-2254.js': [1, 0],`); control green. 6/6. Confirmed by the reviewer: moving a site between two
   checks with the total unchanged is red now and was green under the old total.
-- Round 2: PENDING.
+- Round 2 (sonnet, blind): 0 BLOCKER, 0 SHOULD-FIX, 3 NIT, all taken (18:31). NIT1 (measured): the duplicate count read
+  only `  'name': [` lines, so a double-quoted copy hid; it now reads either quote at any indent. NIT2 (measured): a
+  reformatted line gave an empty "duplicate" message; a separate shape check now lists lines not written
+  `  '<check>.js': [n, n],`. NIT3: a missing table end is now a loud failure, not a slice of the whole file. Measured
+  18:31: double-quoted duplicate red naming contrast.js; double-quoted single line red as a shape; plain duplicate red;
+  control green. 6/6. CONVERGED (round 2 had no BLOCKER or SHOULD-FIX; its NITs are small and each measured).
