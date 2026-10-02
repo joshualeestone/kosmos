@@ -136,6 +136,7 @@ async function sweepOnce(o) {
        reading), and only then is anything typed, so an agent that reads its replies the moment it is told never meets
        this pass's lock. */
     const counted = [];
+    let readOne = false;   // review 2: the gap follows EVERY read that ran, not only one that counted something
     prune();
     for (const card of o.roster) {
       const session = card && card.sessionName;
@@ -143,7 +144,8 @@ async function sweepOnce(o) {
       if (stoodDown(session, o.projects)) continue;
       if (sent.length + counted.length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
       try {
-        if ((counted.length || results.length) && gap > 0) await new Promise((res) => setTimeout(res, gap));
+        if (readOne && gap > 0) await new Promise((res) => setTimeout(res, gap));
+        readOne = true;
         const fresh = await o.fresh(session);
         if (fresh && fresh.busy) { results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because }); continue; }
         if (fresh && fresh.ok === true && Array.isArray(fresh.posts) && fresh.posts.length) counted.push({ session, fresh });
@@ -180,7 +182,12 @@ async function sweepOnce(o) {
           for (const id of p.ids) nudged.add(id);
           o.writeNudged(session, nudged);
           book.delete(session);
-          sent.push(clock());   // review 1: when it went, not when the pass began (the log is shared with agentnudge)
+          /* Review 1: when it went, not when the pass began. Review 2: kept in time order (agentnudge prunes from the front,
+             assuming that order, and pushes its pass's start time). */
+          const at = clock();
+          let i = sent.length;
+          while (i > 0 && sent[i - 1] > at) i -= 1;
+          sent.splice(i, 0, at);
         } else {
           book.set(session, { key: p.key, tries });
         }

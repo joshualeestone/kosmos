@@ -58,3 +58,4 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
   the stood-down arm's `if` (now an assertion). Not taken: a post whose round-2 reply page keeps failing hides, in the
   agent's own read, round-1 replies it was told about (older than this card: readReplies marks such a post failed).
 
+- Round 2 (Sonnet, blind): 0 blockers, 1 should-fix, fixed: the 1 s gap between agents was skipped after agents with nothing new (the usual case), so reads ran back to back and an agent's own waiting read could starve: the gap now follows every read that ran (tested, red without it). Nit fixed: the shared hour log is kept in time order (agentnudge prunes from the front; tested). Not taken: an agent that read its replies itself between this pass's count and its nudge gets one line about replies it has read (once; ids then recorded).

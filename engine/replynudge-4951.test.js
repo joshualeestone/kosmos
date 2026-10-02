@@ -188,3 +188,16 @@ test('#4951 review 1: every count is read before anything is typed (the read loc
   await rn.sweepOnce(o);
   assert.deepEqual(order, ['read kim', 'read ann', 'type kim', 'type ann'], 'a nudge was typed while counts were still being read');
 });
+
+test('#4951 review 2: the gap follows every read that ran (agents with nothing new included), and the hour log stays in time order', async () => {
+  const gaps = [];
+  const realSetTimeout = global.setTimeout;
+  const { o } = rig({ roster: [card('kim'), card('ann'), card('bo')], betweenAgentsMs: 7, fresh: async () => ({ ok: true, posts: [] }) });
+  global.setTimeout = (fn, ms, ...a) => { if (ms === 7) gaps.push(ms); return realSetTimeout(fn, 0, ...a); };
+  try { await rn.sweepOnce(o); } finally { global.setTimeout = realSetTimeout; }
+  assert.equal(gaps.length, 2, 'the gap was skipped after agents with nothing new');
+  const later = Date.now() + 60000;
+  const s = rig({ sent: [later] });   // agentnudge pushed a later pass-start time already
+  await rn.sweepOnce(s.o);
+  assert.ok(s.o.sent.length === 2 && s.o.sent[0] <= s.o.sent[1], 'the shared hour log is out of time order: ' + JSON.stringify(s.o.sent));
+});
