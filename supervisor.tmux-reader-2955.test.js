@@ -40,7 +40,8 @@ function sandbox() {
 }
 /** TMUX_BIN and PATH after the reader, from a baked tmux and a list of known places. */
 function run(baked, known, own, noSocket, scriptPath, pathTmux) {
-  const script = `say() { :; }\nSESSION=a\nTMUX_BIN=${JSON.stringify(baked)}\n${fn()}\n_kosmos_supervisor_tmux\nprintf '%s\\n%s' "$TMUX_BIN" "$PATH"`;
+  // set -u, as the script runs (bin/agent-supervisor.sh sets it): an unbound variable in the function must fail here.
+  const script = `set -u\nsay() { :; }\nSESSION=a\nTMUX_BIN=${JSON.stringify(baked)}\n${fn()}\n_kosmos_supervisor_tmux\nprintf '%s\\n%s' "$TMUX_BIN" "$PATH"`;
   // Hermetic: an empty directory first and /bin (no tmux on any runner), so `command -v tmux` finds nothing real.
   const empty = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'supreader-path-'));
   // A socket on disk, as on Agent1s: 3.5a's wall words mean the wall only with one (with none they are its serverless voice).

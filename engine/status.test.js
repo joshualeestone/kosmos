@@ -6188,6 +6188,7 @@ test('#2955: readerTmux vouches only for a launcher pick whose last look worked 
   try {
     withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
       seams(status, m.reader, []);
+      assert.equal(status.readerTmux(), null, 'the board vouched for its tmux before any look had listed the server');
       status.setPaneSource(null);
       assert.notEqual(status.tmuxPanes(), null);
       assert.equal(status.readerTmux(), m.reader, 'a launcher pick that reads the server was not vouched for');

@@ -37,11 +37,11 @@ it twice. Rejected for those reasons; reopen if the adopt screen is ever dropped
    switches at start if the wall is still there, and a removed Homebrew tmux cannot strand it. An existing
    agent's plist rewrite passes its own baked path to plistFor and is not touched.
 2. bin/agent-supervisor.sh `_kosmos_supervisor_tmux`: the same rule, at each start of an agent's job, before its first
-   look: if the baked tmux meets the wall, the first tmux on PATH, in the known places, or Kosmos's own that can LIST the server
-   wins (Kosmos's own found through the engine-path pointer the board writes beside the installed supervisor, which
-   lives in Application Support with nothing else, measured on Agent1s), and goes first on the supervisor's PATH (its own later calls, and the -e PATH
-   it builds for some runners' panes). Plists are never rewritten, so this is where an old
-   agent's choice can be made.
+   look: if the baked tmux meets the wall (or is gone), the first tmux that can LIST the server wins, tried in the
+   board's order: the known places, then Kosmos's own (found through the engine-path pointer the board writes beside the
+   installed supervisor, which lives in Application Support with nothing else, measured on Agent1s), then this job's
+   PATH tmux. It goes first on the supervisor's PATH (its own later calls; a pane's PATH only when the server's own
+   PATH cannot be read). Plists are never rewritten, so this is where an old agent's choice can be made.
 3. engine/status.js `lookProblemFor`: at the wall the detail line says a different version may be running the sessions,
    and says what the search did: found nothing, waiting a minute to look again, or not allowed (an explicit choice).
 4. bin/agent-supervisor.sh twin_session_may_live: `printf | awk; $?` became `awk <<<"$_tl"; $?`, the same status (awk's
@@ -174,4 +174,11 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   supervisor dedupes by path, the board by real path. NOTED, operations: 0.7.16 auto-installed on Agent1s at 21:21
   and put the real 3.5a back at the bundled path (Angel's symlink gone, as she warned); the relaunched board picked
   Homebrew's (it could list the live server), so the board reads its agents.
+- Round 12 (sonnet): FIXED W: readerTmux vouched for the launcher's pick before any look (LAST_LOOK_PROBLEM starts
+  null), so Open in Terminal could attach through an unproven tmux; it now needs the tmux whose last look LISTED panes
+  (test: null before the first look; removing the guard reds it). FIXED W: the supervisor tests now run under set -u,
+  as the script does. DUPLICATE W x2: the blocking probes (2 s each, a minute's wait after a miss; round 8) and the
+  mid-life PATH move (decided in round 6). NIT taken: the plan states the supervisor's order as the code has it.
+  LEFT NIT: a harness that inherits all three launcher values consistently is treated as a launcher pick; it can only
+  change its own process.
 

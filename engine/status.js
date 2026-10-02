@@ -468,7 +468,7 @@ function tmuxPanes() {
   /* The wall, or the tmux itself gone (ran false and the file missing: a `brew uninstall`): either way another tmux may
      read the server. A run that timed out is also ran false but its file is there, so it starts no search. */
   if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
-  if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; return got.out; }
+  if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = tmuxBin(); return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
   // sessions" — and it is a different value from the `null` that means we never
@@ -540,12 +540,14 @@ const TMUX_REPICK_WAIT_MS = 60000;
 let TMUX_OWN_SEAM = null;
 function ownTmux() { return TMUX_OWN_SEAM || path.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'); }
 /** The tmux this board reads this computer's server through, when that is proven: the board is on its launcher's pick
-    or a switch from it, and its last look succeeded. For callers that would otherwise run an agent's baked tmux
+    or a switch from it, and its last look LISTED this server through it (before any look, or when the look found no
+    server, nothing is proven and the answer is null). For callers that would otherwise run an agent's baked tmux
     (Open in Terminal): a newer tmux reads an older server and not the other way round (measured 2026-10-01: Homebrew
     3.6a lists a 3.5a server; 3.5a against 3.6a says "server exited unexpectedly"), so a baked path can be the one that
     cannot. Null with an explicit choice (a test's stub) or a failed look: the baked path stays. */
+let TMUX_READ_BY = null;   // the tmux whose last look LISTED panes (not merely "no server"): set in tmuxPanes
 function readerTmux() {
-  return launcherPick() && LAST_LOOK_PROBLEM === null ? tmuxBin() : null;
+  return launcherPick() && LAST_LOOK_PROBLEM === null && TMUX_READ_BY && TMUX_READ_BY === tmuxBin() ? TMUX_READ_BY : null;
 }
 /** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher), AND only
     while the live value is still that pick or one this module switched to itself: an explicit value set later in
@@ -8452,7 +8454,7 @@ module.exports = {
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
   setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
-  tmuxRepick, tmuxPanes, launcherTmux, readerTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; }, shDetail,
+  tmuxRepick, tmuxPanes, launcherTmux, readerTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
