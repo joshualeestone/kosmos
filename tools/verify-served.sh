@@ -11,7 +11,7 @@
 #
 # ⚠️ DERIVED FROM THE CODE THAT FETCHES, not from memory:
 #   engine/update.js:82   GET  <base>/latest.json          (existing installs, every 15m)
-#   engine/update.js:189  runs <base minus /dist>/setup    (existing installs, on update)
+#   engine/update.js:189  runs <base minus /dist>/setup    (existing installs, on update; /setup-staging on a staging box, #5032)
 #   install/setup.sh:30   runs https://installkosmos.com/setup   (new installs)
 #   install/setup.sh:373  GET  <base>/tmux-$ARCH.tar.gz  + .sha256
 #   install/setup.sh:~390 GET  <base>/kosmos-$ARCH.tar.gz + .sha256
@@ -21,6 +21,14 @@ REPO=${REPO:-/Users/agent1/work/agent-workforce}
 HOST=${HOST:-https://installkosmos.com}
 fail=0
 say() { printf '  %-42s %s\n' "$1" "$2"; }
+
+# #5032: which installer. DEFAULT setup (prod), unchanged for every existing caller. A staging cut
+# passes KOSMOS_VERIFY_SETUP=setup-staging: that cut publishes /setup-staging and leaves /setup at the
+# prior prod installer, which install/setup.sh in this tree is then NOT (so checking /setup here would
+# fail a correct staging cut). Only the two names are accepted, so a typo cannot verify some other file;
+# checked before the network control, so a bad name is refused without a fetch.
+SETUP_NAME="${KOSMOS_VERIFY_SETUP:-setup}"
+case "$SETUP_NAME" in setup|setup-staging) ;; *) say "KOSMOS_VERIFY_SETUP" "must be setup or setup-staging (got '$SETUP_NAME')"; exit 1 ;; esac
 
 # ⚠️ THE CONTROL FIRST. An empty body and a missing file look identical, and a
 # wrong URL reads as an outage. Splinter hit exactly this within a minute of
@@ -44,8 +52,8 @@ check_200() {     # url  label
 }
 
 echo "== what a NEW install runs, and what an UPDATE re-runs =="
-check_bytes "$HOST/setup" "$REPO/install/setup.sh" "/setup"
-check_200   "$HOST/setup.sha256" "/setup.sha256"
+check_bytes "$HOST/$SETUP_NAME" "$REPO/install/setup.sh" "/$SETUP_NAME"
+check_200   "$HOST/$SETUP_NAME.sha256" "/$SETUP_NAME.sha256"
 # #568: the served installer must be a COMMITTED revision of the site, not
 # whatever the working tree held at deploy time; a script matching no
 # revision confounds the line-number diagnostic that found the 0.5.13
@@ -62,18 +70,18 @@ if [ -d "$SITE/.git" ]; then
   fetched=yes
   git -C "$SITE" fetch -q origin 2>/dev/null || fetched=no
   vtmp_s=$(mktemp); vtmp_c=$(mktemp)
-  if curl -fsS "$HOST/setup?v=$want" -o "$vtmp_s" && git -C "$SITE" show origin/main:setup > "$vtmp_c" 2>/dev/null && [ -s "$vtmp_s" ] && [ -s "$vtmp_c" ]; then
+  if curl -fsS "$HOST/$SETUP_NAME?v=$want" -o "$vtmp_s" && git -C "$SITE" show "origin/main:$SETUP_NAME" > "$vtmp_c" 2>/dev/null && [ -s "$vtmp_s" ] && [ -s "$vtmp_c" ]; then
     if cmp -s "$vtmp_s" "$vtmp_c"; then
-      say "/setup (history)" "matches origin/main of the site$([ "$fetched" = yes ] || printf ' (fetch failed; compared against the last-fetched origin/main)')"
+      say "/$SETUP_NAME (history)" "matches origin/main of the site$([ "$fetched" = yes ] || printf ' (fetch failed; compared against the last-fetched origin/main)')"
     else
-      say "/setup (history)" "SERVED SCRIPT IS NOT THE COMMITTED ONE (origin/main of the site)$([ "$fetched" = yes ] || printf '; and the fetch failed, so origin/main may be stale here')"; fail=1
+      say "/$SETUP_NAME (history)" "SERVED SCRIPT IS NOT THE COMMITTED ONE (origin/main of the site)$([ "$fetched" = yes ] || printf '; and the fetch failed, so origin/main may be stale here')"; fail=1
     fi
   else
-    say "/setup (history)" "COULD NOT COMPARE (the served script or origin/main:setup did not come back)"; fail=1
+    say "/$SETUP_NAME (history)" "COULD NOT COMPARE (the served script or origin/main:$SETUP_NAME did not come back)"; fail=1
   fi
   rm -f "$vtmp_s" "$vtmp_c"
 else
-  say "/setup (history)" "NO SITE CHECKOUT at $SITE, so the served script was not checked against history"; fail=1
+  say "/$SETUP_NAME (history)" "NO SITE CHECKOUT at $SITE, so the served script was not checked against history"; fail=1
 fi
 
 echo "== what an existing install polls =="

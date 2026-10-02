@@ -318,11 +318,22 @@ release_site_restore() {
   # cut committed it), a changed one is checked out back to its committed value like latest.json.
   # The UNTRACKED case -- a first staging cut that created it and then aborted -- is handled by
   # the remove arm just below, because `git checkout` cannot restore a file with no committed copy.
-  for f in dist/latest.json dist/latest-staging.json setup.sha256; do
+  # #5032: and the staging installer pair, which a staging cut writes in place of the /setup pair (the script
+  # too: promote-channel.sh refuses a modified one).
+  for f in dist/latest.json dist/latest-staging.json setup.sha256 setup-staging setup-staging.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
       if ! git -C "$site" diff --quiet -- "$f"; then
         git -C "$site" checkout -q -- "$f" && echo "   put back: $f (the cut had changed it; the site checkout no longer claims $v)"
       fi
+    fi
+  done
+  # #5032: an UNTRACKED /setup-staging pair was never served (a deploy serves only what is committed), so
+  # it is always an aborted first staging cut's leftover. Removed so a later promote, which copies the
+  # pair onto /setup, can never pick up an installer staging never served (promote-channel.sh also
+  # refuses an untracked or modified one).
+  for f in setup-staging setup-staging.sha256; do
+    if ! git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1 && [ -f "$site/$f" ]; then
+      rm -f "$site/$f" && echo "   removed: $f (never committed, so never served)"
     fi
   done
   # #2036: an UNTRACKED staging pointer this cut created (staging_ptr_had=0) and never served

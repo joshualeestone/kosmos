@@ -120,7 +120,7 @@ grep -q 'tar -xzOf "\$SITE/dist/kosmos-arm64.tar.gz" app/package.json' "$REPO/to
 grep -q 'KOSMOS_UPDATE_CHANNEL=staging curl' "$REPO/tools/release.sh" \
   && no "staging hand-off: the fresh-install command sets the channel var on curl (LEFT of pipe) - setup installs PROD" \
   || ok "staging hand-off: no channel-var-on-curl (the pipe-precedence bug is absent)"
-grep -qE 'curl -fsSL .*/setup \| KOSMOS_UPDATE_CHANNEL=staging sh' "$REPO/tools/release.sh" \
+grep -qE 'curl -fsSL .*/setup-staging \| KOSMOS_UPDATE_CHANNEL=staging sh' "$REPO/tools/release.sh" \
   && ok "staging hand-off: the fresh-install command puts the channel var on the sh (right of the pipe)" \
   || no "staging hand-off: the fresh-install command does not set the channel var on the sh"
 
