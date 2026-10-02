@@ -476,6 +476,12 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
+  /* #4470: Settings in the new look, for the side by side with 'settings'. */
+  { name: 'nl-settings', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await at(page, '?tab=settings');
+    await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
+  } },
   { name: 'nl-agent-profile', owner: 'Mona Lisa', go: async (page, data) => {
     await newLook(page);
     await at(page, '?tab=detail&agent=' + data.chatAgent);
