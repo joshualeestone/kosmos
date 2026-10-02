@@ -205,6 +205,8 @@ for (const [label, routes] of SURFACES) {
 test('#4997: a project that does not exist is a 404, not a read of some other folder', async () => {
   const r = await fetch(base() + '/api/project/no-such-project/file-preview?name=shot.png');
   assert.equal(r.status, 404);
+  // Review 15: the ROUTE's sentence, since any unknown /api path is a 404 too (this must fail if the route is gone).
+  assert.equal((await r.json()).because, 'there is no project by that name');
 });
 
 test('#4997 review 1: an agent whose Files folder is itself a link is refused for every new verb, with no bytes', async () => {

@@ -231,4 +231,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, setRenderer };   // #4997: imageTypeOf and renderPdf for engine/filepreview.js
+module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, setRenderer };   // #4997: imageTypeOf, renderPdf and hasRenderer for engine/filepreview.js
