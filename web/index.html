@@ -48643,6 +48643,7 @@ const TC_HELLO_TRIES = 3;
 let TC_AUTO_HELLO = true;     // a browser check whose arm is not about #4936 turns it off
 let TC_HELLO_GAP_MS = 3000;   // a browser check can shorten it
 let TC_HELLO_TIMEOUT_MS = 30000;   // review 6: a hello the board never answers is given up as unconfirmed
+const TC_HELLO_WAITS = 10;   // review 18: a member still starting is waited out up to this many gaps (about 30 s), apart from the sends
 async function tcHelloSend(name) {
   /* Review 6: a board that takes the request and never answers would leave the row "Saying hello…" for good and keep
      the team live. After TC_HELLO_TIMEOUT_MS it is given up as unconfirmed (it may have arrived), never re-sent. */
@@ -48700,11 +48701,14 @@ async function tcHelloOne(m, gen) {
   // Review 11: asked before EVERY try, not only the first: a member can draw a question between two tries.
   let got = 'failed';
   let why = null;
+  let waits = 0;
   for (let i = 0; i < TC_HELLO_TRIES && got === 'failed'; i++) {
     if (i) await new Promise((r) => setTimeout(r, TC_HELLO_GAP_MS));
     if (gen !== TC_GEN) return;
     const held = await tcHelloHeld(m.made.name);
     if (gen !== TC_GEN || !TC) return;
+    // Review 18: waiting for a member to start does not use up a send try; it has its own, longer allowance.
+    if (held && held.transient && ++waits < TC_HELLO_WAITS) { i--; TC_STATUS_READ = null; if (m.hello !== 'waiting') { m.hello = 'waiting'; tcPaint(); } continue; }
     // Review 14: "not ready yet" (just made, still starting) is waited out like a busy window, try after try; a
     // member that needs the person, is signed out or at its limit will not clear in seconds, so it stops at once.
     if (held && held.transient) { got = 'failed'; why = held.text; TC_STATUS_READ = null; m.hello = 'waiting'; tcPaint(); continue; }
@@ -48817,7 +48821,13 @@ function tcGoToTeam(auto) {
   const say = () => {
     const shown = sel && [...document.querySelectorAll(sel)].some((e) => e.offsetParent);
     if (!shown && ++looks < 7) { setTimeout(say, 250); return; }
-    if (!shown) where = (names.length === 1 ? 'Look for it on your board.' : 'Look for them on your board.');
+    if (!shown) {
+      where = (names.length === 1 ? 'Look for it on your board.' : 'Look for them on your board.');
+      // Review 18: no card to focus (the consolidated layout draws project rows): focus the agents view itself, not the page.
+      const at = document.activeElement;
+      const host = [document.getElementById('panel-cons-agents'), document.getElementById('panel-agents')].find((e) => e && e.offsetParent);
+      if (host && (!at || at === document.body || document.getElementById('panel-create').contains(at))) { host.tabIndex = -1; host.focus({ preventScroll: true }); }
+    }
     live.textContent = notSaid === 0 ? 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. ' : 'team. ') + where
       : (names.length === 1 ? 'Your agent' : (notSaid === 1 ? '1 of them' : notSaid + ' of them')) + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;
   };

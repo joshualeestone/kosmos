@@ -567,6 +567,40 @@ function chk(ok, label, extra) {
           await page.context().close();
         }
 
+        /* --- #4936 review 18: a member still starting reads "Waiting for it to start…", is not typed into, and is said hello
+           to once it is up; meanwhile another team picked is told this one is still saying hello -------------------- */
+        {
+          const { page, errs, hellos, stateOf, helloHold } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; TC_HELLO_GAP_MS = 400; });
+          stateOf.zed = 'unknown';
+          let releaseLead; helloHold.una = new Promise((res) => { releaseLead = res; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Una');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Vin');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Zed');
+          await page.click('#tc-go');
+          for (let i = 0; i < 80 && hellos.length === 0; i++) await page.waitForTimeout(100);
+          // The lead's hello is held: another team picked now is told this one is still saying hello, and does not open.
+          await page.evaluate(() => openTeamCreate('household'));
+          const busy = await page.evaluate(() => ({ msg: document.getElementById('tc-msg').textContent, title: document.getElementById('tc-title').textContent, team: TC && TC.key }));
+          chk(busy.msg === 'Kosmos is still saying hello to your Marketing Team. You can make another team once it finishes.' && busy.team === 'marketing',
+            `${E} #4936 another team picked while the hellos run is told this one is still saying hello, and this one is kept`, JSON.stringify(busy));
+          releaseLead();
+          await settle(page, () => /^Waiting for it to start/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          const waiting = await rows(page);
+          chk(waiting[2].state === 'Waiting for it to start…' && hellos.filter((h) => h.who === 'zed').length === 0,
+            `${E} #4936 a member the board cannot read yet shows "Waiting for it to start…" and is not typed into`, JSON.stringify([waiting[2], hellos.map((h) => h.who)]));
+          delete stateOf.zed;   // it comes up
+          await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
+          chk(hellos.filter((h) => h.who === 'zed').length === 1 && await page.evaluate(() => TC === null),
+            `${E} #4936 once it is up it is said hello to once, and with every hello placed the step leaves on its own`, JSON.stringify(hellos.map((h) => h.who)));
+          chk(errs.length === 0, `${E} no page errors (#4936 waiting arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
         /* --- #4936 review 9: a member asking something on its page is not typed into; a 409 (held) says the server's
            reason on the row; both offer Try again --------------------------------------------------------------- */
         {
