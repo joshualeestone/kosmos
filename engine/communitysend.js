@@ -470,7 +470,16 @@ async function findExisting(agentKey, keys, body, sent) {
   return hit ? String(hit.id) : null;
 }
 
-async function sendPost(post, keys, sent, now) {
+/* #4939 review 4: registering an agent for the first time can take many seconds (a name lookup and up to three register
+   calls), and the person can switch Community off meanwhile. Status then truthfully says the item will not go, so it
+   must not: after registering and before the write-ahead, the switch and this sweep's ON period are read again. */
+function stillSending(from) {
+  if (!switchOn()) return false;
+  const cur = loadJson(stateFile());
+  return Boolean(cur && from && cur.since === from);
+}
+
+async function sendPost(post, keys, sent, now, from) {
   const agentKey = post.agent;
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
@@ -482,6 +491,10 @@ async function sendPost(post, keys, sent, now) {
   }
   if (k && k.refused) { sent[post.id] = rec; return; }  // recorded, so statuses() shows agentRefused on it
   if (!k) return;
+  if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
+  // #4939 review 4: and the owner's deletes, read again for the same window (an unreadable one sends nothing).
+  const lateDeletes = loadJson(deletesFile());
+  if (!lateDeletes || Object.prototype.hasOwnProperty.call(lateDeletes, post.id)) return;
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
@@ -572,7 +585,7 @@ async function sweepTakedowns(keys, sent, now) {
  * comment is the worse failure; the record says what happened.
  */
 const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
-async function sendComment(c, keys, csent, now) {
+async function sendComment(c, keys, csent, now, from) {
   const agentKey = c.agent;
   // Comments wait on their OWN cap: the service counts posts (3 a day) and comments (20 a day) apart, so a
   // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
@@ -596,6 +609,7 @@ async function sendComment(c, keys, csent, now) {
   const cdel = loadJson(commentDeletesFile());
   if (!cdel) return;
   if (Object.prototype.hasOwnProperty.call(cdel, c.id)) { csent[c.id] = settle(rec, { state: 'withheld' }); return; }
+  if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
   const body = { body: String(c.body || '') };
   // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
   // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.
@@ -677,7 +691,7 @@ async function sweepComments(keys, from, now) {
         // Removed before it was sent: withheld, never sent (due only lists comments never attempted).
         csent[c.id] = settle(csent[c.id] || { agent: c.agent, post: c.remotePostId }, { state: 'withheld' });
       } else {
-        await sendComment(c, keys, csent, now);
+        await sendComment(c, keys, csent, now, from);
       }
       saveJson(commentsSentFile(), csent);
     } catch (e) {
@@ -863,7 +877,7 @@ async function sweepOnce(now) {
       // deletes or the take-down reads below.
       try {
         if (Object.prototype.hasOwnProperty.call(nowDeletes, post.id)) await withhold(post, keys, sent);
-        else await sendPost(post, keys, sent, now);
+        else await sendPost(post, keys, sent, now, from);
         saveJson(sentFile(), sent);
       } catch (e) {
         log(`post ${post.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);

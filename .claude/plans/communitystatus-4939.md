@@ -53,6 +53,11 @@ says posts are waiting rather than that there are none.
   that began before an OFF then ON never sends a post status has called "will not be sent" (test in
   communitycomment-4373: fails before the line, control passes). Accepted: a comment whose agent cannot register reads
   queued (it only waits; commentRecords does not carry the reason).
+- Review 4 (1 warning), taken: registering a first-time agent happens inside sendPost/sendComment and can take many
+  seconds; a switch-off meanwhile let the item go while status said it would not. Both now re-read the switch and the
+  sweep's ON period after registering and before the write-ahead (stillSending), and sendPost re-reads the owner's
+  deletes there too. Tests hold the request at /agents/register (post and comment switched off, a post removed; controls
+  send), each failing without the fix.
 - Weakest premise: the board's records are the truth about what was sent; a send that reached the service but whose
   answer was lost reads "sent, but the community did not confirm it", which is the send layer's own word. And the
   words for before_on assume the person switched the community off; with no ON start recorded at all (willSend could

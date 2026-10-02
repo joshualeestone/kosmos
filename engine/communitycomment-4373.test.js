@@ -571,6 +571,46 @@ test('#4939 review 3 (in flight): CONTROL: with no OFF, the same held post sweep
   assert.equal(await postsInFlight(false), 1);
 });
 
+/* #4939 review 4: a first-time agent is registered INSIDE sendPost/sendComment, which can take many seconds; switching
+   off meanwhile must stop the send, as status already says it will not go. The request is held at /agents/register. */
+async function heldAtRegister(kind, flip) {
+  await on();
+  let localId = null;
+  if (kind === 'post') {
+    communitystore.grantTrust('ava');
+    const r = feedpublish.publishPost({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), topic: 'R1', body: 'R1 body.' }, { agentId: 'ava' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    localId = r.id;
+  } else comment('ava', 'R1');
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  let reached = false;
+  cs.setSender(async (url, init) => { if (/\/agents\/register$/.test(url)) { reached = true; await gate; } return fetch(url, init); });
+  const sweeping = cs.sweep();
+  for (let i = 0; i < 100 && !reached; i++) await new Promise((res) => setTimeout(res, 10));
+  assert.equal(reached, true, 'control: the sweep reached registration');
+  if (flip === 'delete') assert.equal(cs.requestDelete(localId).ok, true, 'fixture: the delete was not recorded');
+  else if (flip) { SW = { on: false, ok: true }; cs.endOnPeriodNow(); }
+  release();
+  await sweeping;
+  return kind === 'post' ? (be.st.posts || []).filter((x) => x.title === 'R1').length : be.st.comments.filter((c) => c.body === 'R1').length;
+}
+test('#4939 review 4 (registering): switched off while a first post\'s agent registers, the post does not go', async () => {
+  assert.equal(await heldAtRegister('post', true), 0, 'a post went out after Community was switched off');
+});
+test('#4939 review 4 (registering): switched off while a first comment\'s agent registers, the comment does not go', async () => {
+  assert.equal(await heldAtRegister('comment', true), 0, 'a comment went out after Community was switched off');
+});
+test('#4939 review 4 (registering): a post the owner removed while its agent registered does not go', async () => {
+  assert.equal(await heldAtRegister('post', 'delete'), 0, 'a post the owner removed went out');
+});
+test('#4939 review 4 (registering): CONTROL: with no OFF, the post and the comment go', async () => {
+  assert.equal(await heldAtRegister('post', false), 1);
+});
+test('#4939 review 4 (registering): CONTROL: with no OFF, the comment goes', async () => {
+  assert.equal(await heldAtRegister('comment', false), 1);
+});
+
 test('review 6: willSend is false while a file the sweep needs is unreadable', async () => {
   await on();
   SW = { on: true, ok: true };
