@@ -2988,11 +2988,14 @@ function blockBody(projects, sessionName) {
   return [
     '## Your projects',
     '',
-    'Kosmos records which projects you are on, and this is where their folders are on this computer.',
+    'Kosmos records which projects you are on, and the folder it has recorded for each, on this computer.',
     /* #4927: an agent in a sandbox sees this computer's folders under its own mounts, whose names can change; Kosmos
-       cannot see those, so it says how to find the folder there. */
+       cannot see those, so it says how to find the folder there. Review 1: the heading names the RECORDED folder, so it
+       does not certify a path that may have moved since (the section is not re-checked against the disk on purpose:
+       a drive coming and going would rewrite every agent's file). */
     'If you work in a sandbox that shows this computer\'s folders under other paths (mount names can change between',
-    'sessions), find a project\'s folder there by its name, the last part of its path.',
+    'sessions), find a project\'s folder there by the folder\'s own name, the last part of its path (it can differ',
+    'from the project\'s name).',
     '',
     ...lines,
     ...(any ? [
@@ -3213,18 +3216,21 @@ function healColleagues(text) {
    an operator marker on a line no operator wrote would be a lie about who is
    speaking. Delivery states come back as chat.deliver's own; a stopped agent
    answers could_not, which is fine, because the file is its mechanism. */
-/* #4927: the folder as the join line names it. Checked on this computer first: a folder that is not there (moved,
-   removed, a drive not mounted) is said so, never handed over as a path to go and work in. The path is this
-   computer's; an agent in a sandbox may see it under another path (its section of the instructions says how to find
-   it there), which Kosmos cannot see. */
+/* #4927: the folder as the join line names it, read through the board's one folder check (folderState, as the
+   project page reads it, so the two never disagree). A folder that is not there (moved, removed, a drive not
+   connected) or is a file is said so, never handed over as a path to go and work in. One the board is not allowed to
+   read (a locked parent, macOS privacy for the board's own process) IS there, and the agent's window may well read it
+   (review 1). The path is this computer's; an agent in a sandbox may see it under another path, which Kosmos cannot
+   see (its section of the instructions says how to find it there). Like every folderState read, a synchronous stat. */
 function folderSentence(project) {
   if (!project || !project.folder) return '';
   const f = oneLine(project.folder);
-  let there = false;
-  try { there = fs.statSync(project.folder).isDirectory(); } catch { there = false; }
-  return there
-    ? ' Its folder on this computer is `' + f + '`.'
-    : ' Its folder `' + f + '` is not on this computer right now (moved, removed, or on a drive that is not connected), so ask your person where it is before you work in it.';
+  const st = folderState(project.folder).state;
+  if (st === FOLDER.READABLE) return ' Its folder on this computer is `' + f + '`.';
+  if (st === FOLDER.UNREADABLE) {
+    return ' Its folder on this computer is `' + f + '`; Kosmos could not look inside it just now, so check that you can open it before you work in it.';
+  }
+  return ' Its folder `' + f + '` is not on this computer right now (moved, removed, or on a drive that is not connected), so ask your person where it is before you work in it.';
 }
 function membershipLine(project, kind) {
   const name = oneLine((project && project.name) || 'a project');

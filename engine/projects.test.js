@@ -2828,8 +2828,21 @@ test('#4927: the join line says the folder is on this computer, and a folder tha
   assert.match(projects.membershipLine({ id: 'j1', name: 'Launch', folder: file }, 'joined'), /is not on this computer right now/, 'a file where the folder should be read as the folder');
 });
 
+test('#4927 review 1: a folder the board may not read is there, and is not called gone', () => {
+  const real = folder('locked-4927');
+  const denied = () => { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; };
+  projects.setFsWorldForTests({ realpath: (p) => p, stat: (p) => fs.statSync(p), access: denied });
+  try {
+    const line = projects.membershipLine({ id: 'j3', name: 'Locked', folder: real }, 'joined');
+    assert.ok(line.includes(' Its folder on this computer is `' + real + '`; Kosmos could not look inside it just now, so check that you can open it before you work in it.'), line);
+    assert.doesNotMatch(line, /not on this computer right now/, 'a folder the board may not read was called gone');
+  } finally { projects.setFsWorldForTests(null); }
+});
+
 test('#4927: "Your projects" says the paths are this computer\'s and how a sandboxed agent finds the folder', () => {
   const body = projects.blockBody([{ id: 'j2', name: 'Launch', folder: folder('block-4927'), agents: ['pia'], tasks: [] }], 'pia');
-  assert.match(body, /this is where their folders are on this computer\./);
-  assert.match(body, /If you work in a sandbox that shows this computer's folders under other paths \(mount names can change between\nsessions\), find a project's folder there by its name, the last part of its path\./);
+  const flat = body.replace(/\n/g, ' ');   // the wrap is not the meaning (review 1)
+  assert.match(flat, /Kosmos records which projects you are on, and the folder it has recorded for each, on this computer\./);
+  assert.match(flat, /If you work in a sandbox that shows this computer's folders under other paths \(mount names can change between sessions\), find a project's folder there by the folder's own name, the last part of its path \(it can differ from the project's name\)\./);
+  assert.doesNotMatch(flat, /this is where their folders are/, 'the heading still certifies a path that may have moved');
 });

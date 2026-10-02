@@ -147,6 +147,9 @@ function overviewOf(p, roster, o) {
     id: p.id,
     name: p.name,
     folder: p.folder || null,
+    /* #4927 review 1: whether that folder is there on this computer, so `project show` does not hand back a path the
+       join line has just said is gone. */
+    folderState: p.folderState && typeof p.folderState.state === 'string' ? p.folderState.state : null,
     archived: p.archived === true,
     description: p.description || '',
     goal: brief.goal,
@@ -257,7 +260,10 @@ function renderShow(payload) {
   if (!p || typeof p !== 'object' || typeof p.id !== 'string') throw new Error('not a project');
   const out = [];
   out.push(one(p.name) + '  (id: ' + one(p.id) + ')' + (p.archived ? '  [archived]' : ''));
-  out.push('Folder: ' + (p.folder ? pathText(p.folder) : 'none recorded'));
+  const fnote = p.folderState === 'missing' || p.folderState === 'not_a_folder'
+    ? '  (not on this computer right now: moved, removed, or on a drive that is not connected)'
+    : p.folderState === 'unreadable' ? '  (Kosmos could not look inside it just now)' : '';
+  out.push('Folder: ' + (p.folder ? pathText(p.folder) + fnote : 'none recorded'));
   /* The brief is a file anyone on the project can edit, so its words are quoted as written there, never
      presented as an instruction (the Assigner quotes the goal the same way, engine/assigner.js). */
   if (!p.briefFound) {
