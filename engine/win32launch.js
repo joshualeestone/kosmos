@@ -343,6 +343,11 @@ function launch(spec) {
      writing it into a codex home would be Claude first-run state in an OpenAI agent's home. */
   if (s.runner !== 'codex') {
     try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* the picker is the agent's own first-run, not a failed launch */ }
+    /* #5039: and the Bypass consent + switchModelsOnFlag settings at EVERY launch, as the Mac's
+       ensure-launch-trust does, so a Windows agent made before a settings default gains it at
+       its next start instead of only on re-create or an account move. Best-effort and
+       idempotent (already:true, writes nothing; an explicit false is kept). */
+    try { trust.preacceptBypass(s.configDir || null, !s.configDir); } catch { /* best-effort, as onboarding */ }
   }
 
   /* 2. PREPARE: mint the session id, write the ownership record, mint the token.
@@ -490,6 +495,7 @@ function launchStreaming(spec) {
      picker can reappear for an agent whose config was reset while it was down. */
   if (s.runner !== 'codex') {
     try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* #3383: best-effort, as in launch() */ }
+    try { trust.preacceptBypass(s.configDir || null, !s.configDir); } catch { /* #5039: best-effort, as in launch() */ }
   }
 
   let prepared;
