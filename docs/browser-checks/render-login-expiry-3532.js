@@ -137,27 +137,55 @@ const CASES = [
     chk(geo.tabsTop === bare.tabsTop, '5018: the navigation does not move', JSON.stringify({ geo, bare }));
     chk(geo.noteTop >= geo.headBottom, '5018: the notice floats below the header, over the page', JSON.stringify(geo));
     // On top, not just placed: the point at the notice's centre is the notice, in the tab view and in consolidated
-    // (whose header is position: static, so the stack competes with the page's own sticky layers).
+    // (whose header is position: static, so the stack competes with the page's own sticky layers). Consolidated is
+    // the board's real layout, read from GET /api/style (stubbed in this page only, as mobile-shots does), not a
+    // page-side toggle, so its panes are really there under the notice.
+    const onTop = () => pg.evaluate(() => {
+      const n = document.querySelector('#login-adv-slot .login-adv');
+      const r = n.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      // CONTROL: with the stack hidden, the same point is real page content, so "on top" can fail.
+      const stack = document.getElementById('topnotes');
+      stack.style.visibility = 'hidden';
+      const under = document.elementFromPoint(x, y);
+      stack.style.visibility = '';
+      const name = (el) => (el ? (el.id || String(el.className || '') || el.tagName) : null);
+      return { onTop: !!hit && n.contains(hit), hit: name(hit), layout: document.documentElement.getAttribute('data-layout'),
+        underIsContent: !!under && under !== document.body && under !== document.documentElement, under: name(under) };
+    });
+    // Over New agent never: the left column's primary action stays clickable (the reason the stack is centred).
+    const clearOfNew = await pg.evaluate(() => {
+      const a = document.querySelector('#login-adv-slot .login-adv').getBoundingClientRect();
+      const b = document.getElementById('new-agent'); if (!b || !b.getClientRects().length) return null;
+      const c = b.getBoundingClientRect();
+      return !(a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom);
+    });
+    chk(clearOfNew === true, '5018: the notice does not cover New agent', String(clearOfNew));
     for (const cons of [false, true]) {
-      const top = await pg.evaluate((cons) => {
-        document.documentElement.setAttribute('data-layout', cons ? 'consolidated' : 'tabs');
-        document.body.classList.toggle('consolidated', cons);
-        const n = document.querySelector('#login-adv-slot .login-adv');
-        const r = n.getBoundingClientRect();
-        const x = r.left + r.width / 2, y = r.top + r.height / 2;
-        const hit = document.elementFromPoint(x, y);
-        // CONTROL: with the stack hidden, the same point is real page content, so "on top" can fail.
-        const stack = document.getElementById('topnotes');
-        stack.style.visibility = 'hidden';
-        const under = document.elementFromPoint(x, y);
-        stack.style.visibility = '';
-        const name = (el) => (el ? (el.id || String(el.className || '') || el.tagName) : null);
-        return { onTop: !!hit && n.contains(hit), hit: name(hit),
-          underIsContent: !!under && under !== document.body && under !== document.documentElement, under: name(under) };
-      }, cons);
+      if (cons) {
+        await pg.route('**/api/style', async (r) => {
+          if (r.request().method() !== 'GET') return r.continue();
+          let resp; try { resp = await r.fetch(); } catch { return r.continue(); }
+          const j = await resp.json().catch(() => null);
+          return j ? r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } }) : r.fulfill({ response: resp });
+        });
+        await pg.reload({ waitUntil: 'load' });
+        if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+        await pg.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 }).catch(() => {});
+        await shown();
+      }
+      const top = await onTop().catch((e) => ({ error: e.message }));
       const where = cons ? 'consolidated' : 'tab view';
+      if (cons) chk(top.layout === 'consolidated', '5018: CONTROL: the consolidated layout is really on', JSON.stringify(top));
       chk(top.underIsContent, '5018: CONTROL: page content sits under the notice (' + where + ')', JSON.stringify(top));
       chk(top.onTop, '5018: the notice is on top of the page (' + where + ')', JSON.stringify(top));
+    }
+    if (true) {   // back to the tab view for the X arms below
+      await pg.unroute('**/api/style').catch(() => {});
+      await pg.reload({ waitUntil: 'networkidle' });
+      if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+      await shown();
     }
     // The X hides it, and it stays hidden across a reload while nothing changes.
     await pg.click('#login-adv-slot .login-adv .ux').catch((e) => errs.push('click: ' + e.message));

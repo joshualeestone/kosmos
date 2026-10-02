@@ -1204,9 +1204,9 @@ html { scroll-padding-top: 132px; }
   --utone: #b3261e;
   /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
      old float covered the agent-status stamp. Since #5018 (Josh 2026-10-02) the
-     notices float again, over the page under the header's left edge (.topnotes),
+     notices float again, over the page centred under the navigation (.topnotes),
      anchored to the header rather than a measured offset, so the header never
-     grows and the stamp on the right is clear. */
+     grows. */
   display: flex; align-items: center; gap: 11px;
   padding: 7px 8px 7px 12px; border-radius: 11px;
   background: var(--bg-elevated); border: 1px solid var(--utone);
@@ -1229,13 +1229,15 @@ html { scroll-padding-top: 132px; }
 .utoast.login-adv.notice .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
-/* #5018: the notices float over the page, under the header's left edge, instead of growing the header (Josh). The
-   header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks. */
+/* #5018: the notices float over the page, centred under the navigation, instead of growing the header (Josh). The
+   header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
+   Centred, not under the K mark: the left column holds the page's primary actions (New agent, the agents rail), and
+   a notice there covered New agent (render-update-toast). */
 .apphead header { position: relative; }
-.apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 0; z-index: 4;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+.apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 4;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content;
   max-width: min(460px, 100%); pointer-events: none; }
-.apphead .topnotes > div > * { pointer-events: auto; }
+.apphead .topnotes > div > * { pointer-events: auto; }   /* a notice goes in a slot div, never straight in #topnotes */
 /* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
    page, where the sticky project rail (z-index 4) comes later and would paint over it. Above the rail, below the
    reaction picker (20) and the header menus (40). */
@@ -11325,8 +11327,8 @@ window.kosmosMeasureScrollbarWidth();
          comment. The update chip renders only when a newer version is published; role=status per the pack. -->
     <!-- #5018 (Josh, 2026-10-02): "i hate that these push the navigation down.. i would much rather they appear over
          the content". The four notice slots float together just under the header, over the page, so the header
-         never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the float sits
-         on the left, under the K mark, clear of the agent-status stamp on the right. -->
+         never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the stack is
+         centred under the navigation, clear of the left column's primary actions. -->
     <div class="topnotes" id="topnotes">
     <div id="utoast-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the

@@ -139,18 +139,18 @@ const RELPORT = freePort();
     if (overlap(boxes.toast, boxes.newagent)) die('toast overlaps the New agent button');
 
     // The placement since #5018 (Josh: "i would much rather they appear over the content"): the notice lives in
-    // the floating stack under the header's left edge, below the header, and the header keeps its height. Without
+    // the floating stack centred under the navigation, below the header, and the header keeps its height. Without
     // this pin, the clear-of-controls checks pass any placement. (2026-08-17 to #5018 it sat inline beside the mark.)
     const headH = () => p.evaluate(() => document.querySelector('.apphead header').getBoundingClientRect().height);
     const placement = await p.evaluate(() => {
       const t = document.querySelector('.uchip');
       const hb = document.querySelector('.apphead header').getBoundingClientRect();
-      const k = document.getElementById('klink').getBoundingClientRect();
       const tb = t.getBoundingClientRect();
-      return { inStack: !!t.closest('#topnotes'), belowHeader: tb.top >= hb.bottom, underMark: Math.abs(tb.left - k.left) < 2 };
+      const centre = (b) => b.left + b.width / 2;
+      return { inStack: !!t.closest('#topnotes'), belowHeader: tb.top >= hb.bottom, centred: Math.abs(centre(tb) - centre(hb)) < 2 };
     });
-    if (!placement.inStack || !placement.belowHeader || !placement.underMark) {
-      die('desktop: the notice does not float under the header at the mark ' + JSON.stringify(placement));
+    if (!placement.inStack || !placement.belowHeader || !placement.centred) {
+      die('desktop: the notice does not float centred under the header ' + JSON.stringify(placement));
     }
 
     // A floating notice must not re-space anything: New agent stays where it is and the header keeps its height.
