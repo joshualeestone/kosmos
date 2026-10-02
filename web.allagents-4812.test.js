@@ -248,6 +248,20 @@ test('the section goes under the grid, else the list (a phone has no grid view),
   assert.equal(api.oaHost(), null, 'the org chart or another tab: nowhere, and nothing is read');
 });
 
+test('consolidated: #alist is the left rail, never a host; only the grid counts', () => {
+  const { api, d } = load();
+  const grid = d.add('grid');
+  const alist = d.add('alist');
+  d.document.body.classList.add('consolidated');
+  grid.hidden = true; alist.hidden = false;   // a consolidated tab that is not Agents: the rail shows, the grid does not
+  assert.equal(api.oaHost(), null, 'the rail is not the List view: nowhere, and nothing is read');
+  grid.hidden = false;
+  assert.equal(api.oaHost(), grid, 'control: the consolidated Agents view is the grid');
+  d.document.body.classList.remove('consolidated');
+  grid.hidden = true;
+  assert.equal(api.oaHost(), alist, 'control: in the tab layout the same #alist IS the List view');
+});
+
 test('group key: unchanged rounds give the same key, so focus is not taken off a card', () => {
   const { api } = load();
   const c = LIST.computers[1];
