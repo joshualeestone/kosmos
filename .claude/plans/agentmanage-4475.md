@@ -57,6 +57,9 @@ and cannot force a removal; the person (the board token) removes any agent exact
   name (before #4792), cannot remove; the person can.
 - A history that cannot be read refuses. A failed append is logged (best-effort, like the token revoke beside it);
   it is caught by nothing else, so the residual is a removal on a full disk.
+- Accepted premise: the wall clock orders a removal after the birth it ends (both are ISO times from it). A backward
+  clock step between the two, and a name reused inside that window, would keep ownership. Rejected: a shared sequence
+  number across the birth log and the removal history, more machinery than that window warrants.
 - Rejected: refusing every agent-token removal (today's behaviour): it keeps "PM, build me a team" from tidying up
   its own team, which #1279 made possible; and a general permission grid now (no asked-for need beyond this boundary).
 - Not done: a `kosmos` verb for removal. The doctrine tells agents to use a command or ask the person; with no verb,
