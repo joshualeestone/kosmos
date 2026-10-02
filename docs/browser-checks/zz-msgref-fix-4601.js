@@ -295,6 +295,12 @@ async function paintRoom(page) {
         const frFocus = await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'fr-pane-1-h2', null, { timeout: 2000 }).then(() => true, () => false);
         await page.evaluate(() => { if (document.activeElement && document.activeElement.id === 'fr-pane-1-h2') document.activeElement.blur(); });
         console.log('PROBE-4601 frFocus ' + frFocus);
+        // THE FIX under test, part 2 (#4601): after the fixture reveals the room, the page scrolls the document once
+        // (to scrollY 144 here) anywhere from 0.16s to 2.1s later on Linux; landing after the right-click it closes the
+        // menu (the page closes it on any scroll). Wait for that settle scroll (3s at most), then let it finish.
+        const settled = await page.waitForFunction(() => window.scrollY > 0, null, { timeout: 3000 }).then(() => true, () => false);
+        await page.waitForTimeout(200);
+        console.log('PROBE-4601 settleScroll ' + settled + ' at ' + (await page.evaluate(() => window.scrollY)));
         const settle = await page.evaluate(async () => { const start = performance.now(); let last = window.__sc.length, quietSince = performance.now();
           while (performance.now() - start < 5000) { await new Promise((r) => setTimeout(r, 50)); if (window.__sc.length !== last) { last = window.__sc.length; quietSince = performance.now(); } else if (performance.now() - quietSince >= 400) break; }
           return { waited: Math.round(performance.now() - start), before: window.__sc.slice(0, 12), count: window.__sc.length }; });
