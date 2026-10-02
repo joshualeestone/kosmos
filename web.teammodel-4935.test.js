@@ -199,3 +199,25 @@ test('#4935 a failed roles read marks a retry and does not fetch again by itself
   assert.equal(w.fetched.length, 1, 'one read, not a loop');
   assert.equal(w.paints(), 1);
 });
+
+/* Review 7: the recovery branch. After a failed roles read, a sync with the list now held repaints the menu. */
+test('#4935 after a failed roles read, the menu repaints once the list is held', () => {
+  const sel = { value: '', disabled: true, dataset: { retry: '1', fixed: '1' } };
+  const els = { 'tc-provider': { value: 'anthropic' }, 'tc-account': { value: '' }, 'tc-model': sel, 'cstep-teammake': { hidden: false } };
+  const painted = [];
+  const ctx = { document: { getElementById: (id) => els[id] || null }, tcChoiceFixed: () => false, TC_FILLING: 0, TC: {}, CREATE_MODELS: [],
+    tcPaintModel: (pv, ac) => { painted.push(pv + '|' + ac); } };
+  vm.runInNewContext('let TC_MODEL_FOR = "anthropic|";\n' + lift('tcSyncModel') + '\nthis.sync = tcSyncModel; this.fill = (m) => { CREATE_MODELS = m; };', ctx);
+  ctx.sync();
+  assert.equal(painted.length, 0, 'no list yet: no repaint (no loop)');
+  ctx.CREATE_MODELS = [{ key: 'sonnet', label: 'Sonnet', default: true }];
+  ctx.sync();
+  assert.deepEqual(painted, ['anthropic|'], 'the held list did not repaint the failed menu');
+});
+
+test('#4935 a provider the menu has no list for sends no model (never a Claude key)', () => {
+  const w = paintWorld({ models: [{ key: 'sonnet', label: 'Sonnet', default: true }] });
+  w.ctx.paint('mistral', '');
+  assert.equal(w.sel.value, '');
+  assert.ok(!/sonnet/.test(w.sel.innerHTML));
+});
