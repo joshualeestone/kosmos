@@ -62,7 +62,9 @@ const BOARD_LABEL = 'com.kosmos.board';
    spawned detached so it outlives the board it stops. Injectable so tests never
    spawn a real kosmos or probe a real install. */
 let installedCliFn = () => installedKosmosCli();
-function setInstalledCli(fn) { installedCliFn = fn; }
+function setInstalledCli(fn) {
+  installedCliFn = typeof fn === 'function' ? fn : () => fn;
+}
 let spawner = (cmd, args, opts) => spawn(cmd, args, opts);
 function setSpawner(fn) { spawner = fn; }
 
@@ -206,6 +208,7 @@ function launchctlKeepAlive() {
  */
 function canSelfRestart(platform = process.platform) {
   if (platform === 'win32') return win32CanRestart();
+  if (platform === 'linux') return linuxCanRestart();
   const la = launchctlKeepAlive();
   if (la.canRestart) return { canRestart: true, because: la.because, via: 'launchctl' };
   const cli = installedCliFn();
@@ -214,6 +217,21 @@ function canSelfRestart(platform = process.platform) {
   }
   // Neither path viable: surface the launchctl reason for the manual banner.
   return { canRestart: false, because: la.because, via: null };
+}
+
+function linuxCanRestart() {
+  let linuxBoard;
+  try { linuxBoard = require('./linuxboard'); }
+  catch (e) {
+    return { canRestart: false, via: null, because: `we could not check how this board is started on Linux (${String((e && e.message) || e)}); restart it by hand` };
+  }
+  const can = linuxBoard.canRestart();
+  if (can.canRestart) return can;
+  const cli = installedCliFn();
+  if (cli) {
+    return { canRestart: true, via: 'kosmos', cli, because: 'the installed board will be restarted with `kosmos restart` onto the new world' };
+  }
+  return { canRestart: false, because: can.because, via: null };
 }
 
 /**
@@ -328,6 +346,7 @@ function selfRestart(platform = process.platform, opts = {}) {
      engine/win32board.restart() owns the sequence and the measurement behind it.
      #2973: `port` is this board's, which the helper asks to confirm one came back. */
   if (can.via === 'schtasks') return boardOpsFn().restart({ port: opts && opts.port });
+  if (can.via === 'systemd') return require('./linuxboard').restart();
   if (can.via === 'kosmos') return kosmosRestart(can.cli);
   const u = uid();
   let r = runner('launchctl', ['stop', `gui/${u}/${BOARD_LABEL}`]);

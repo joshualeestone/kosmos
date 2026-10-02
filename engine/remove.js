@@ -509,6 +509,7 @@ function jobOps(platform) {
        Mac branch already gets this right because it acts on the world-keyed `job.label`. */
     return {
       win32: true,
+      linux: false,
       disable: (name, job) => Boolean(win32job.disable(name, job && job.worldId).ok),
       stopNow: (name, job) => Boolean(win32job.end(name, job && job.worldId).ok),
       enable: (name, job) => Boolean(win32job.enable(name, job && job.worldId).ok),
@@ -532,8 +533,31 @@ function jobOps(platform) {
       startableGone: (name, job) => win32job.status(name, job && job.worldId).registered !== true,
     };
   }
+  if ((platform || process.platform) === 'linux') {
+    const lj = require('./linuxjob');
+    return {
+      win32: false,
+      linux: true,
+      disable: (name, job) => Boolean(lj.disable(name, job && job.worldId).ok),
+      stopNow: (name, job) => Boolean(lj.stop(name, job && job.worldId).ok),
+      enable: (name, job) => Boolean(lj.enable(name, job && job.worldId).ok),
+      startNow: (name, job) => Boolean(lj.start(name, job && job.worldId).ok),
+      loaded: (name, job) => Boolean(lj.loaded(name, job && job.worldId)),
+      startableGone: (name, job) => !fs.existsSync(lj.unitPath(name, job && job.worldId)),
+      diagnose: (name, job) => {
+        const u = lj.unitPath(name, job && job.worldId);
+        const st = lj.status(name, job && job.worldId);
+        return {
+          label: lj.unitName(name, job && job.worldId),
+          unitExists: fs.existsSync(u),
+          status: st,
+        };
+      },
+    };
+  }
   return {
     win32: false,
+    linux: false,
     disable: (name, job) => {
       const off = run('/bin/launchctl', ['disable', `gui/${process.getuid()}/${job.label}`]);
       return Boolean(off && off.ok !== false);
@@ -663,6 +687,15 @@ function jobFor(name, platform, worldId) {
     const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
     const st = win32job.status(clean, wid);
     return st.registered ? { label: win32job.taskName(clean, wid), plist: null, ours: true, worldId: wid } : null;
+  }
+  if ((platform || process.platform) === 'linux') {
+    const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
+    const lj = require('./linuxjob');
+    const unit = lj.unitPath(clean, wid);
+    if (fs.existsSync(unit)) {
+      return { label: lj.unitName(clean, wid), unit, plist: unit, ours: true, worldId: wid };
+    }
+    return null;
   }
   const candidates = [
     { label: create.serviceLabel(clean, worldId), plist: create.plistPath(clean, worldId), ours: true },
