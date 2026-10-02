@@ -128,4 +128,16 @@ test('#4885 pictureStill: a still PNG or WebP is kept; an animated one, a JPEG, 
   assert.equal(pictureStill(riff(wchunk('ICCP', Buffer.alloc(5001)), wchunk('ANIM', Buffer.alloc(6)))), false);
   assert.equal(pictureStill(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])), false, 'a JPEG is never kept as chosen');
   assert.equal(pictureStill(new Uint8Array(0)), false);
+  const noIdat = new Uint8Array(Buffer.concat([PNG_SIG, chunk('IHDR', Buffer.alloc(13)), chunk('IEND', Buffer.alloc(0))]));
+  assert.equal(pictureStill(noIdat), false, 'a PNG with no picture data is kept as chosen');
+  const cut = png(chunk('IDAT', Buffer.alloc(20)));
+  assert.equal(pictureStill(cut.subarray(0, cut.length - 6)), false, 'a PNG whose last chunk is cut short is kept as chosen');
+});
+
+test('#4885: Settings re-reads the picture counts each time its Automation section opens, not only at page load', () => {
+  assert.match(HTML, /if \(section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING\) refreshIndustry\(\);/);
+});
+
+test('#4885: the agent page says when a chosen picture is too big to go to the community', () => {
+  assert.match(HTML, /msg\.textContent = pic === f && f\.size > PICTURE_MAX_BYTES\s*\? 'Saved\. It is too big to go to the community; choose a smaller picture to share it there\.' : 'Saved\.';/);
 });

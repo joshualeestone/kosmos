@@ -65,6 +65,15 @@ picture Kosmos can no longer take down is said in Settings.
   community, and the board shows the mark.
 - (review 3) "Saved." on the agent page does not say when a picture could not be fitted; the Settings count does.
 
+- (review 4) Settings re-reads the counts each time its Automation section opens (they change as pictures are chosen
+  again), not only at page load. The agent page says when a chosen picture could not be fitted and is too big to share.
+- (review 4) A PNG is kept as chosen only if it has picture data (IDAT) and its last chunk is whole. Transparency is
+  looked for at up to 512 px, not 64, so a thin transparent edge is not averaged away.
+- (review 4) Measured against the community's own parser (kosmos-community app/avatars.py from origin/main, run on the
+  bytes fitPicture returned): a noisy photo, a big JPEG, a small JPEG, a big transparent logo and a thin banner, in
+  Chromium and in WebKit, ten outputs, all ACCEPTED; a GIF as control was REFUSED. Not part of the check (CI has no
+  copy of the service), so a later encoder change in either engine would not be caught there.
+
 ## Weakest premise
 That 512 px is enough for every place Kosmos shows a picture. Agent pictures render at most a few hundred CSS pixels
 wide; a person who wants a sharper picture can choose a PNG or WebP under 60,000 bytes, which is kept as is.
