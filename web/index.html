@@ -17205,7 +17205,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos+ community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one. Each agent’s picture goes with it.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
@@ -17216,8 +17216,10 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
+      <!-- #4885: a picture the community shut an agent out with stays up, and only the board's log knew. -->
+      <p class="dhint" id="community-picture-stuck" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -30297,6 +30299,11 @@ function industryPaint(r, keepMsg) {
   }
   sel.value = unread ? '__unknown' : (r.industry || '');
   sel.hidden = false;
+  const stuck = document.getElementById('community-picture-stuck');
+  const ns = r && Number.isInteger(r.picturesStuck) && r.picturesStuck > 0 ? r.picturesStuck : 0;
+  stuck.hidden = !ns;
+  stuck.textContent = !ns ? '' : (ns === 1 ? 'One agent\u2019s picture' : ns + ' agents\u2019 pictures')
+    + ' may still show in the community. The community shut ' + (ns === 1 ? 'that agent' : 'those agents') + ' out, so Kosmos can no longer take ' + (ns === 1 ? 'it' : 'them') + ' down.';
   // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
   if (keepMsg) return;
   // Said by case: with the list here, any choice sets it again; without it, only None is offered.
@@ -39487,6 +39494,37 @@ document.getElementById('detail-back').addEventListener('click', () => {
   else showTab('agents');
 });
 
+/* #4885: an agent's picture travels with it to the Kosmos+ community, which takes a PNG, JPEG or WebP of at most
+   60,000 bytes. A PNG or WebP that already fits is kept exactly as chosen; any other (a big photo, a GIF, and every
+   JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is redrawn here,
+   longest side at most 512 px, as WebP (JPEG where the browser cannot write WebP), smaller until it fits. Every
+   picture Kosmos stores comes through here, so the board only ever has pictures it can send. Never throws: when a
+   picture cannot be redrawn, the original is kept (the board then sends nothing and the community shows its mark). */
+const PICTURE_MAX_BYTES = 60000;
+async function fitPicture(blob) {
+  try {
+    if (!blob) return blob;
+    if (blob.size <= PICTURE_MAX_BYTES && (blob.type === 'image/png' || blob.type === 'image/webp')) return blob;
+    const bmp = await createImageBitmap(blob);
+    const big = Math.max(bmp.width, bmp.height) || 1;
+    for (const side of [512, 384, 256, 192, 128]) {
+      const k = Math.min(1, side / big);
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(bmp.width * k));
+      cv.height = Math.max(1, Math.round(bmp.height * k));
+      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+      for (const q of [0.86, 0.72]) {
+        for (const type of ['image/webp', 'image/jpeg']) {
+          const out = await new Promise((r) => cv.toBlob(r, type, q));
+          // A browser that cannot write WebP hands back a PNG instead; only a blob of the asked-for type counts.
+          if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) return out;
+        }
+      }
+    }
+    return blob;
+  } catch { return blob; }
+}
+
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
@@ -39500,8 +39538,9 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
   const forAgent = CURRENT.sessionName;
   msg.textContent = 'Saving…';
   try {
+    const pic = await fitPicture(f);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar',
-      { method: 'PUT', headers: { 'content-type': f.type }, body: f });
+      { method: 'PUT', headers: { 'content-type': pic.type || f.type }, body: pic });
     const out = await res.json();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     // Say what to do, never surface an exception name.
@@ -48883,6 +48922,7 @@ async function tcPortrait(name, image, shown, team, slot) {
       blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
       if (!blob) return 'failed';
     }
+    blob = await fitPicture(blob);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': blob.type || 'image/webp' }, body: blob });
     return res.ok ? 'set' : 'failed';
   } catch { return 'failed'; }
@@ -51595,9 +51635,10 @@ function paintMade(steps, watching, projectOutcomes, revealed) {
  * throws, never gates the flow.
  */
 async function uploadPendingAvatar(name) {
-  const up = PENDING_AVATAR;
+  const chosen = PENDING_AVATAR;
   PENDING_AVATAR = null;
-  if (!up || !name) return false;
+  if (!chosen || !name) return false;
+  const up = await fitPicture(chosen);   // #4885
   const put = async (blob) => {
     for (let i = 0; i < 2; i++) {
       if (i) await new Promise((r) => setTimeout(r, 2000)); // between attempts, never after the last
@@ -51620,7 +51661,7 @@ async function uploadPendingAvatar(name) {
      person assumes their agent now has no picture). If even the mark fails,
      silence: the detail panel's uploader is the recovery path, and a
      reassurance nobody verified is worse than none. */
-  if (up === AVATAR_FILE && AVATAR_FILE) {
+  if (chosen === AVATAR_FILE && AVATAR_FILE) {
     try {
       const cv = document.createElement('canvas');
       cv.width = 144; cv.height = 144;

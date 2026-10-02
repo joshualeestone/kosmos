@@ -938,6 +938,11 @@ fi
 # check one day old.
 run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
+# --- #4885: an agent's picture fits the Kosmos+ community -------------------
+# Needs no board: it lifts fitPicture out of web/index.html and runs it in both engines (WebKit cannot write WebP,
+# so it is the engine that exercises the JPEG fallback).
+run_one "render-picture-fit-4885" env ENGINES=chromium,webkit node docs/browser-checks/render-picture-fit-4885.js
+
 # --- #718: the phone screenshot harness -----------------------------------
 # It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no
 # board above is needed. The slice is the frame, the accounts page and the

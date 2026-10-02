@@ -8031,7 +8031,11 @@ const server = http.createServer(async (req, res) => {
     const r = communityindustry.read();
     let unreachable = 0;
     try { unreachable = communitysend.industryUnreachable(); } catch { unreachable = null; }   // cannot tell: promise nothing
-    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable };
+    /* #4885: agents whose community picture Kosmos can no longer take down (the community shut them out). Read here
+       because Settings > Community reads this route when it opens. 0 on a board whose send layer has no pictures. */
+    let picturesStuck = 0;
+    try { picturesStuck = typeof communitysend.pictureUnreachable === 'function' ? (communitysend.pictureUnreachable() || 0) : 0; } catch { picturesStuck = 0; }
+    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck };
   };
   if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, industryBody()); }
