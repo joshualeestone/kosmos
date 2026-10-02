@@ -174,4 +174,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   regenerating; my first edit put the comment mid-expression and crashed the generator, caught because the table
   could not have been "unchanged" from a run that printed a stack); the generator's header says what the test catches
   and that interim branch rows carry their then-current number.
+- Round 21 (sonnet): NITs only. CONVERGED (after the merge: rounds 20 and 21 on the merged tree). It checked "born on
+  22 is offered 23" directly (planFor: refresh, updating, not edited; a plain v22 copy: refresh, replacing). LEFT NITs:
+  versions 1 and 2 have no numbered rows (the oldest block is labelled null; an agent on v1 or v2 keeps the
+  missing-headings rule); an import into a file already holding a doctrine marker records doctrineVersion for a plain
+  copy (planFor still treats it correctly).
 
