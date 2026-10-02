@@ -18,9 +18,15 @@ test('#3997: loginGood only for an unverified, signed-in row whose date is ahead
   assert.equal(m.loginGood({ ...good, checkLiveState: 'none' }), false, 'claude auth status says signed out');
 });
 
-test('#3997 ruling C: greenFromLogin is off while the switch is off', () => {
-  assert.equal(m.GREEN_FROM_LOGIN, false);
-  assert.equal(m.greenFromLogin({ badge: 'signed_in_unverified', checkLiveState: 'connected', until: Date.now() + 1e9 }), false);
+test('#3997 ruling A: the switch is on, and greenFromLogin follows loginGood exactly', () => {
+  assert.equal(m.GREEN_FROM_LOGIN, true);
+  const good = { badge: 'signed_in_unverified', checkLiveState: 'connected', until: Date.now() + 1e9 };
+  assert.equal(m.greenFromLogin(good), true);
+  // Every way loginGood says no, greenFromLogin says no too: a real failure is never painted green.
+  assert.equal(m.greenFromLogin({ ...good, until: 999 }), false, 'an expired login');
+  assert.equal(m.greenFromLogin({ ...good, until: null }), false, 'no date read');
+  assert.equal(m.greenFromLogin({ ...good, latestOutcome: '401' }), false, 'a rejection on record');
+  assert.equal(m.greenFromLogin({ ...good, checkLiveState: 'none' }), false, 'signed out');
 });
 
 test('#3997: validUntil skips a key account, maps the default to an unset CLAUDE_CONFIG_DIR, and caches', async () => {
