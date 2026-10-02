@@ -66,6 +66,5 @@ test('#725: the Settings section rides the address, You stays clean, and the sec
   // guard, or the hook creeps back), and that settingsGo still ends by syncing the URL.
   assert.doesNotMatch(SCRIPT, /section === 'styles'/, '#2618: no styles hook in settingsGo after the tab was removed');
   assert.match(SCRIPT, /syncPlusChrome\(\);\n  syncUrl\(\);\n\}/, 'settingsGo still ends by writing the URL');
-  // #4961: the nav click also says whether it came from the keyboard (the landing ring).
-  assert.match(SCRIPT, /settingsOpen\(b\.dataset\.go, \{ keyboard: e\.detail === 0 \}\);/, 'the nav click goes through the shared door');
+  assert.match(SCRIPT, /settingsOpen\(b\.dataset\.go\);/, 'the nav click goes through the shared door');
 });

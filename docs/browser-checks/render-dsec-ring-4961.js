@@ -18,8 +18,9 @@
  * button, so it cannot reproduce the Mac app's click by itself). The keyboard arm is the control:
  * it shows the instrument reads a real ring, so "no outline" is not its default.
  * Then the ring must not outlive the press: land on AI Settings from the keyboard, Tab inside, then
- * click the Model section's own heading (focus returns to the section): no outline, and on
- * chromium none with :focus-visible forced either.
+ * click the Model section's own heading (focus returns to the section): the kbd-landed class is gone,
+ * no outline, and on chromium none with :focus-visible forced either. And a scripted .click() on a
+ * pill after that (no key press, as a harness or an assistive tool sends) lands without the ring.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dsec-ring-4961.js
  */
@@ -152,13 +153,18 @@ const PAGES = [
             await page.locator('#d-sec-model .dlab').first().click();
             await page.waitForTimeout(150);
             const back = await readFocus(page);
+            const kept = await page.evaluate(() => document.getElementById('d-sec-model').classList.contains('kbd-landed'));
             chk(ring(landed) && left && back.sec === 'model',
               `${tag}: precondition: landed with the ring, Tab left the section, the heading click refocused it`, JSON.stringify({ landed, left, back }));
-            chk(!ring(back), `${tag}: after Tab and a click back on the section, no outline (the ring went with the keypress)`, JSON.stringify(back));
+            chk(!kept && !ring(back), `${tag}: after Tab and a click back on the section, no kbd-landed and no outline (the ring went with the keypress)`, JSON.stringify({ kept, back }));
             if (engineName === 'chromium') {
               const m = await forcedRead(page, '#panel-detail .dsec[data-sec="model"]');
               chk(!ring(m), `${tag}: and none with :focus-visible forced`, JSON.stringify(m));
             }
+            await page.evaluate(() => document.querySelector('#d-nav button[data-go="profile"]').click());
+            await page.waitForTimeout(150);
+            const scripted = await readFocus(page);
+            chk(scripted.sec === 'profile' && !ring(scripted), `${tag}: a scripted .click() on a pill lands without the ring`, JSON.stringify(scripted));
             outlived += 1;
           }
           chk(errs.length === 0, `[${theme}] ${engineName}: no page errors`, errs.join(' | '));
