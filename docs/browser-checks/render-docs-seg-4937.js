@@ -45,10 +45,12 @@ const shown = (page, sel) => page.evaluate((s) => {
           window.setInterval = () => 0; // refuse the app's tick
           const files = [{ name: 'plan.pdf', size: 2048, modified: '2026-10-01T10:00:00.000Z' }];
           const rows = wc ? [{ text: 'here it is', attachments: [{ id: 'a1', name: 'drop.png', size: 512, url: '/api/attachments/a1' }] }] : [{ text: 'no files' }];
-          window.fetch = async (url) => {
+          window.ROOM_HITS = 0;
+          window.fetch = async (url, init) => {
             const u = String(url);
+            if (u.includes('/reveal-folder')) return new Response(JSON.stringify({ error: 'we could not open that folder' }), { status: 500, headers: { 'content-type': 'application/json' } });
             if (u.includes('/documents')) return enc({ ok: true, total: 1, files, names: files.map((f) => f.name), stamp: 'x' });
-            if (u.includes('/room')) return enc({ rows });
+            if (u.includes('/room')) { window.ROOM_HITS += 1; return enc({ rows }); }
             if (u.includes('/api/status')) return enc({ agents: [], version: '0.2.0' });
             return enc({});
           };
@@ -79,11 +81,19 @@ const shown = (page, sel) => page.evaluate((s) => {
           await page.focus('#docs-seg [data-docseg="convo"]');
           await page.keyboard.press('ArrowRight');
           const afterKey = await page.evaluate(() => ({ seg: document.getElementById('pj-docs-view').dataset.docseg, focus: document.activeElement && document.activeElement.dataset.docseg }));
-          chk(afterKey.seg === 'folder' && afterKey.focus === 'folder', `${tag}: an arrow key moves and chooses, wrapping`, JSON.stringify(afterKey));
+          chk(afterKey.seg === 'folder' && afterKey.focus === 'folder' && await shown(page, '#docs-list .pj-doc') && !(await shown(page, '#docs-convo .pj-doc')),
+            `${tag}: an arrow key moves, chooses (wrapping) and swaps the lists`, JSON.stringify(afterKey));
+          await page.click('#docs-seg [data-docseg="convo"]');
+          await page.click('#docs-finder');
+          await page.waitForTimeout(150);
+          const fin = await page.evaluate(() => ({ seg: document.getElementById('pj-docs-view').dataset.docseg, msg: document.getElementById('docs-msg').textContent }));
+          chk(fin.seg === 'folder' && /could not open that folder/i.test(fin.msg) && await shown(page, '#docs-msg'),
+            `${tag}: a failed Open in Finder from the conversation's list shows its sentence (on the folder's segment)`, JSON.stringify(fin));
           await page.click('#docs-seg [data-docseg="convo"]');
           await open();
           chk(await page.evaluate(() => document.getElementById('pj-docs-view').dataset.docseg) === 'folder', `${tag}: opening the screen again starts on the folder`);
         } else {
+          chk(await page.evaluate(() => window.ROOM_HITS) >= 1, `${tag}: control: the conversation was read`);
           chk(!segShown, `${tag}: no switch (nothing to switch to)`);
           chk(await shown(page, '#docs-list .pj-doc'), `${tag}: the folder's list shows`);
         }
@@ -95,7 +105,44 @@ const shown = (page, sel) => page.evaluate((s) => {
       await browser.close();
     }
   }
-  chk(ran === 4, 'precondition: both engines, with and without conversation files', String(ran));
+  /* A phone: at 320px wide the switch fits without the page scrolling sideways, both segments on screen. */
+  let phones = 0;
+  for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
+    const browser = await engine.launch({ headless: process.env.HEADED === '0' });
+    try {
+      const page = await browser.newPage({ viewport: { width: 320, height: 700 } });
+      await page.addInitScript(() => {
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.setInterval = () => 0;
+        window.fetch = async (url) => {
+          const u = String(url);
+          if (u.includes('/documents')) return enc({ ok: true, total: 1, files: [{ name: 'plan.pdf', size: 2048, modified: '2026-10-01T10:00:00.000Z' }], names: ['plan.pdf'], stamp: 'x' });
+          if (u.includes('/room')) return enc({ rows: [{ text: 'x', attachments: [{ id: 'a1', name: 'drop.png', size: 5, url: '/api/attachments/a1' }] }] });
+          return enc({});
+        };
+      });
+      await page.goto(PAGE);
+      const r = await page.evaluate(async () => {
+        const fr = document.getElementById('firstrun');
+        if (fr) { fr.hidden = true; fr.style.display = 'none'; }
+        for (const el of document.querySelectorAll('[inert]')) el.inert = false;
+        showTab('projects');
+        await new Promise((res) => setTimeout(res, 50));
+        PROJECTS = [{ id: 'p1', name: 'Five Families' }];
+        PJ_CURRENT = 'p1';
+        await openDocsView();
+        await new Promise((res) => setTimeout(res, 150));
+        const seg = document.getElementById('docs-seg');
+        const btns = [...seg.querySelectorAll('button')].map((b) => b.getBoundingClientRect());
+        return { shown: !seg.hidden, sideways: document.documentElement.scrollWidth > innerWidth, right: Math.round(Math.max(...btns.map((b) => b.right))), vw: innerWidth };
+      });
+      chk(r.shown && !r.sideways && r.right <= r.vw, `${engineName} 320px: the switch fits without the page scrolling sideways`, JSON.stringify(r));
+      phones += 1;
+    } finally {
+      await browser.close();
+    }
+  }
+  chk(ran === 4 && phones === 2, 'precondition: both engines, with and without conversation files, and the phone arm', `ran=${ran} phones=${phones}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

@@ -26,12 +26,20 @@ the project folder" and delete or default to "In the project folder.""
 - No control when the conversation has no files: a switch to an empty list is a dead control.
 - Rejected: counts inside the segment labels (Josh's words are the labels).
 
+- Known trade-off: the switch appears after the conversation's read, which runs beside the folder's, so
+  when the room answers last the switch pushes the folder list down about 45px. Reserving its space would
+  shift the page the other way whenever the conversation has no files. Accepted.
+- A failed Open in Finder switches to the folder's segment, where its sentence lives (the button names
+  the folder). Below 400px wide the two segments share the row (at 320px the switch was 344px in a 296px
+  view and the page scrolled sideways, measured on both engines).
+
 ## Weakest premise
 That hiding the control when the conversation has no files is right. If Josh wants the switch always
 visible for consistency, the one `hidden` toggle goes and the empty segment needs a sentence.
 
 ## Evidence
-- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines): 23 PASS; red on main.
+- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 29 PASS;
+  red on main.
 - node --test browser-checks-*, web.*, tools.browser-checks-*: 2351/2351.
 - Surface gate: render-consolidated-nav-4345, render-subback-4586, render-subview-cleanup-3502 pass on
   this branch.

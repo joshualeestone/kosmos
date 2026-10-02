@@ -4137,6 +4137,11 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 .docs-seg { margin: 0 0 var(--space-5); }
 #pj-docs-view[data-docseg="convo"] :is(#docs-count, #docs-list, #docs-pager, #docs-msg) { display: none; }
 #pj-docs-view:not([data-docseg="convo"]) #docs-convo { display: none; }
+/* A phone: both segments share the row (measured: 344px of words in a 296px view at 320px wide). */
+@media (max-width: 400px) {
+  .docs-seg { display: flex; }
+  .docs-seg button { flex: 1 1 0; min-width: 0; height: auto; min-height: 30px; padding: 6px 8px; white-space: normal; line-height: 1.25; }
+}
 @media (max-width: 760px) {
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
@@ -15905,9 +15910,10 @@ window.kosmosMeasureScrollbarWidth();
          its own list. It shows only when the conversation has files: with none, there is nothing to
          switch to. The two sources stay said apart (#131): the control names them. -->
     <div class="cons-agents-lay docs-seg" id="docs-seg" role="radiogroup" aria-label="Which files to show" hidden>
-      <button type="button" role="radio" data-docseg="folder" aria-checked="true" tabindex="0">In the project folder</button>
-      <button type="button" role="radio" data-docseg="convo" aria-checked="false" tabindex="-1">From this conversation</button>
+      <button type="button" role="radio" data-docseg="folder" aria-checked="true" tabindex="0" aria-controls="docs-list">In the project folder</button>
+      <button type="button" role="radio" data-docseg="convo" aria-checked="false" tabindex="-1" aria-controls="docs-convo">From this conversation</button>
     </div>
+    <!-- The two headings stay in the page, always hidden, since #4937 (the switch names the sources). -->
     <h3 class="dlab" id="docs-convo-head" hidden>From the conversation</h3>
     <div id="docs-convo" class="pj-docs"></div>
     <h3 class="dlab" id="docs-folder-head" hidden>In the project folder</h3>
@@ -57855,8 +57861,8 @@ document.getElementById('docs-finder').addEventListener('click', async () => {
   const msg = document.getElementById('docs-msg');
   try {
     const r = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/reveal-folder', { method: 'POST' });
-    if (!r.ok) { const b = await r.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that folder'); }
-  } catch { msg.textContent = 'We could not reach Kosmos to open the folder.'; }
+    if (!r.ok) { docsSegShow('folder'); const b = await r.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that folder'); }   // #4937: the sentence lives on the folder's segment
+  } catch { docsSegShow('folder'); msg.textContent = 'We could not reach Kosmos to open the folder.'; }
 });
 /* The rows open files exactly like the tile's rows: same class, same route,
    delegated here because this list is its own element. */
