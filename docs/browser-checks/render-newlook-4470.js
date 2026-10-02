@@ -292,8 +292,12 @@ const CREATE_LOOK = `(() => {
   const radios = cards.map((c) => c.querySelector('input')), was = radios.map((r) => r && r.checked);
   try {
     radios.forEach((r) => { if (r) r.checked = false; }); if (radios[0]) radios[0].checked = true;
+    const kind = document.querySelector('#cstep-kind .nak-btn'), team = document.getElementById('team-seeded-go'), create = document.getElementById('create-go');
     return { found: true, chosenEdge: getComputedStyle(cards[0]).borderTopColor, restEdge: getComputedStyle(cards[1]).borderTopColor,
-      continueRadius: getComputedStyle(go).borderTopLeftRadius };
+      restHovered: cards[1].matches(':hover'), continueRadius: getComputedStyle(go).borderTopLeftRadius,
+      /* Round 1: the kind picker's cards, and Team's and Create's main buttons (Team matches Single, #4935). */
+      kindEdge: kind ? getComputedStyle(kind).borderTopColor : 'absent', teamRadius: team ? getComputedStyle(team).borderTopLeftRadius : 'absent',
+      createRadius: create ? getComputedStyle(create).borderTopLeftRadius : 'absent' };
   } finally { radios.forEach((r, i) => { if (r) r.checked = was[i]; }); cards.forEach((c, i) => { c.hidden = hid[i]; }); step.hidden = sh; panel.hidden = ph; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
@@ -589,9 +593,23 @@ const AGENTS_LOOK = `(() => {
       chk(setOn.found && setOn.boxEdge === CLEAR && setOn.boxRadius === '28px' && setOn.labelCase === 'none',
         `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
       const ctlOn = await page.evaluate(CTRL_LOOK);
+      await page.mouse.move(0, 0);   // round 1: no card under a leftover pointer for the resting read
       const crOn = await page.evaluate(CREATE_LOOK);
-      chk(crOn.found && crOn.restEdge === CLEAR && crOn.chosenEdge !== CLEAR && crOn.continueRadius === '999px',
-        `${tag} On, Create an agent: a resting option card has no edge, the chosen one keeps its outline, Continue is a pill`, JSON.stringify(crOn));
+      chk(crOn.found && !crOn.restHovered && crOn.restEdge === CLEAR && crOn.kindEdge === CLEAR && crOn.chosenEdge !== CLEAR
+        && crOn.continueRadius === '999px' && crOn.teamRadius === '999px' && crOn.createRadius === '999px',
+        `${tag} On, Create an agent: resting option cards (kind and role) have no edge, the chosen one keeps its outline, every main button is a pill (Team's too)`, JSON.stringify(crOn));
+      /* Round 1: a card under the pointer keeps today's edge (a real hover on the shown step, then all put back). */
+      const crHover = await page.evaluate(() => { const p = document.getElementById('panel-create'), st = document.getElementById('cstep-role');
+        const c = st && [...st.querySelectorAll('.pick2')].find((x) => !x.querySelector('input:checked'));
+        if (!p || !st || !c) return null; window.__crWas = [p.hidden, st.hidden, c.hidden]; p.hidden = false; st.hidden = false; c.hidden = false; c.id = c.id || 'cr-hover-probe'; return '#' + c.id; });
+      if (crHover) {
+        await page.hover(crHover, { timeout: 3000 }).catch(() => {});
+        const hv = await page.evaluate((sel) => { const c = document.querySelector(sel); return { hovered: c.matches(':hover'), edge: getComputedStyle(c).borderTopColor }; }, crHover);
+        await page.mouse.move(0, 0);
+        await page.evaluate((sel) => { const p = document.getElementById('panel-create'), st = document.getElementById('cstep-role'), c = document.querySelector(sel);
+          [p.hidden, st.hidden, c.hidden] = window.__crWas; if (c.id === 'cr-hover-probe') c.removeAttribute('id'); }, crHover);
+        if (width > 640) chk(hv.hovered && hv.edge !== CLEAR, `${tag} On, Create an agent: a card under the pointer keeps its edge`, JSON.stringify(hv));
+      }
       /* Round 3: a button's fill is above the box in both schemes (white in light; a step lighter than the box in dark,
          where the field is black), never the field's. */
       const RAISE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(58, 58, 60)' };
@@ -870,6 +888,7 @@ const AGENTS_LOOK = `(() => {
       const phOff = await page.evaluate(PHONE_LOOK);
       chk(phOff.found && phOff.room && phOff.dm && phOff.room.agentAvTopOff > 4 && phOff.dm.agentAvTopOff > 4 && phOff.newTaskRadius !== '999px',
         `${tag} Off: an agent's message keeps its avatar at the bubble's foot (room and DM) and New task its corners (the control)`, JSON.stringify(phOff));
+      await page.mouse.move(0, 0);
       const crOff = await page.evaluate(CREATE_LOOK);
       chk(crOff.found && crBefore.found && JSON.stringify(crOff) === JSON.stringify(crBefore) && crOff.restEdge !== 'rgba(0, 0, 0, 0)' && crOff.continueRadius !== '999px',
         `${tag} Off, Create an agent: today's edged cards and Continue, as before the switch was touched (the control)`, JSON.stringify({ off: crOff, before: crBefore }));

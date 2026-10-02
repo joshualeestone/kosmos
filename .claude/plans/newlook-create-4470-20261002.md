@@ -37,3 +37,16 @@ As built (14:40): items 1 and 3 as planned, scoped to #panel-create under the lo
 today's edge. render-newlook-4470 gains CREATE_LOOK (resting edge, chosen edge, Continue's corners; on in light, dark
 and 390, and the off control). 253/253; without the CSS exactly the 3 new on arms fail. mobile-shots gains
 nl-create-single (desktop and iPhone 15, light and dark, 0 overflow).
+
+Review R1 (opus) 0B 4W 0C 3N:
+- WARNING: "every step's main button is a pill" was false for Team (#team-seeded-go and the org chart's are plain
+  .btn.uprime, not .big), so Single and Team disagreed, against Josh's #4935 (Team matches Single). Now every
+  .btn.uprime in #panel-create. Arm: Team's and Create's buttons (round-0 CSS: Team 10px, red).
+- WARNING: the kind picker's cards (.nak-btn) kept their hairline while the next step dropped it. Now both, at rest.
+  Arm (round-0 CSS: the hairline, red).
+- WARNING: drift: this plan promised team shots and a badge read. The badge read is DROPPED (STEP 0 keeps the badge);
+  nl-create-team is now in mobile-shots (desktop and iPhone 15, 0 overflow).
+- WARNING: nothing guarded the hover edge or the other steps: a real hover on a resting card (edge kept, both themes),
+  the mouse parked before the resting read (NIT taken), the kind picker and Team/Create buttons read.
+- NIT taken: the comment records the role menu's own edged box (it holds fields) and the 1.09:1 resting boundary.
+Validation now: 255/255; round-0 control 252/255 (kind edge and Team's corners red).

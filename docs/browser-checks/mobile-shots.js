@@ -411,6 +411,13 @@ const SCREENS = [
     await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
   } },
+  /* #4470: Create a Team in the new look, for the side by side with 'create-team'. */
+  { name: 'nl-create-team', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
+  } },
   { name: 'create-swarm', owner: 'Angel', go: async (page) => {
     // Shown only when the board can run swarms; a board that cannot fails this shot (the card is hidden).
     await page.click('#new-agent', { timeout: 5000 });
