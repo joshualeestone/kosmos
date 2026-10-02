@@ -282,3 +282,26 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
 - NIT (kept): the old-wrapper marker checks match `queued-heavy` by name; the new cookie check does not depend on the
   name, so it now carries that case.
 - NIT (kept): a side claim's liveness is kill -0, so a reused pid holds it to expiry (at most ~17 min), as the machine claim.
+
+## Round 17 (Sonnet, blind): 0 blockers, 3 warnings, 4 nits.
+- WARNING (reproduced) FIXED: an older queued-heavy.sh labels EVERY turn "release (not a cut) queued one-off", light ones
+  too, so its light turn read as a heavy holder and a new light run took a side turn beside it (two light runs).
+  kosmos_light_side_clear now accepts only a holder labelled "queued run (not a cut)" (this generation, whose label says
+  [light]); any other label is "class cannot be read", no side turn. Cost: none beside an older wrapper's turn during
+  the rollout. Test arm + mutant killed; the test's claim helper and the dry harness now write this generation's label.
+- WARNING (MINE, disclosed): at about 22:57 I edited queued-heavy.sh.4911-new IN PLACE (a python rewrite for the round-17
+  unset), and the reviewer's run of it died with a syntax error at a shifted offset (bulletin
+  editing-a-running-script-kills-it). No real queue run used that file (it is not the live wrapper). From then on every
+  wrapper edit is a temp copy, bash -n, then mv (done that way for the _qh_scan nit below). The rollout swap was always mv.
+  Also: my real dry-harness run at that time was contaminated by the same edits (and by the label change mid-run); I
+  stopped it and reran on the final code.
+- WARNING (kept, rollout note): aging is off while any 4/5-line marker is live (cycle safety), and side turns are held
+  off while any old queued-heavy.sh waits. Say both in the PR body so nobody expects aging at once.
+- NIT FIXED (wrapper, via mv): _qh_scan now also catches corepack's yarn@1/npm@/pnpm@, the .cmd shims, and yarn.js /
+  yarn-*.cjs run by node. Four dry forms added. (run-tests.sh's own refusal already caught these visibly.)
+- NIT (kept, pre-existing): the stale-claim rm in _kosmos_machine_claim_active is not compare-then-rm; the side claim's
+  is, with a microsecond window. Not reproduced.
+- NIT (kept): a side-capable waiter with a stricter KOSMOS_SIDE_MAX_LOAD / MIN_HOLD holds the side lane for newer ones.
+- NIT (kept, stated before): SIGKILL of the wrapper leaves its capper; it stops the command at the cap.
+- CONTROL RESULT (clean, 23:05, harness fixed to send the detached child's output away): against the pre-round-16 wrapper
+  the 9 round-16 _qh_scan forms AND "a yield stops a detached descendant too" all print BAD. Proven both arms.
