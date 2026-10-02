@@ -277,6 +277,7 @@ function endedSince(names, sinceIso, opts = {}) {
   const create = require('./create');   // lazy: create.js requires this file
   const slug = (n) => { try { return create.slugFor(n); } catch { return null; } };
   const want = new Set((names || []).map(slug).filter(Boolean));
+  if (want.size === 0) return null;   // no name to look for: refuse rather than answer "nothing ended"
   const since = String(sinceIso);
   let raw;
   try { raw = fs.readFileSync(endedLogFile(), 'utf8'); } catch (e) { return (e && e.code === 'ENOENT') ? false : null; }

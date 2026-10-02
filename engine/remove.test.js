@@ -364,6 +364,7 @@ test('#4475: a removal ends the agent in the history sendertoken.revoke keeps, a
   remove.setDryRun(false);
   assert.equal(mac.restore(name).outcome, remove.OUTCOME.RESTORED);
   assert.equal(sendertoken.endedSince([name], before), true, 'the restore erased the history, so ownership would come back');
+  assert.equal(sendertoken.endedSince([], before), null, 'asked about no name at all, it answered "nothing ended" instead of refusing');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
