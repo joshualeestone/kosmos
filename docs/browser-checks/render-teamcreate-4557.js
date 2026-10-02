@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg tc-model tc-model-row tc-model-why tc-model-field tc-model-lab cstep-team team-seeded
+// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg tc-model tc-model-row tc-model-why tc-model-field tc-model-lab cstep-team team-seeded just-made
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -17,6 +17,9 @@
  *    again on the lead releases them;
  *  - two seats with one name, or a name already taken on this computer (an agent's folder exists), are
  *    refused BEFORE anything is made, project included;
+ *  - #4936: once every member runs, Kosmos says hello to each (lead first); placed rows read Said hello, a not-placed
+ *    one is retried then offers Try again and the step stays with Go to your team; all placed, it goes to the
+ *    agents view with the new members' cards marked. TC_AUTO_HELLO is off in arms that are not about it.
  *  - round 1: Try again during a run is made by the one run (nobody posted twice), focus stays on the
  *    person's row through repaints, progress is a polite live region, a member reads "Made, starting"
  *    until the board sees it running (then Running), "ready" only when all are, and a member renamed on
@@ -127,6 +130,9 @@ function chk(ok, label, extra) {
           const specsFail = { n: 0 };   // how many of the RUN's spec reads fail (the names pre-check never does)
           const specsMangle = { slot: null, reads: 0 };   // a slot whose spec comes back under another name than was sent
           const checkHold = { p: null };   // the names pre-check held until the arm releases it (review 27)
+          const stateOf = {};   // #4936 review 9: name -> the board state a member shows (default idle)
+          const pictureFail = new Set();   // #4936 review 7: names whose picture upload is refused
+          const pictureHold = {};   // #4936 review 23: name -> a promise its picture upload's answer waits for
           const pictures = [];             // every picture PUT: { name, type }. The members here are not real agents, so it is answered here.
           const portraitAsks = [];         // #4720: every /api/catalogue/portrait read, as "team/slot"
           const staticAsks = [];           // #4720: any read of a catalogue image path under the board (must stay empty)
@@ -147,7 +153,10 @@ function chk(ok, label, extra) {
           await page.route('**/api/agent/*/avatar', async (r) => {
             if (r.request().method() !== 'PUT') return r.continue();
             // `URL` in this file is the board's address (a string), so the agent's name is cut from the path by hand.
-            pictures.push({ name: decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]), type: r.request().headers()['content-type'] || '' });
+            const pname = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
+            pictures.push({ name: pname, type: r.request().headers()['content-type'] || '' });
+            if (pictureHold[pname]) await pictureHold[pname];
+            if (pictureFail.has(pname)) return r.fulfill({ status: 500, json: { error: 'no' } });
             return r.fulfill({ status: 200, json: { ok: true } });
           });
           await page.route('**/api/teams/seeded/*/specs', async (r) => {
@@ -194,12 +203,40 @@ function chk(ok, label, extra) {
             const resp = await r.fetch();
             const j = await resp.json().catch(() => null);
             if (!j || !Array.isArray(j.agents)) return r.fulfill({ response: resp });
-            for (const n of made) if (!hidden.has(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: 'idle' });
+            for (const n of made) if (!hidden.has(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] || 'idle' });
+            // #4936 review 10: names only in stateOf are board agents too, for asking the page about a state directly.
+            for (const n of Object.keys(stateOf)) if (!made.includes(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] });
             return r.fulfill({ response: resp, json: j });
+          });
+          /* #4936: the step says hello to every member itself. The members here are not real agents, so the hello
+             is answered here: placed, or (for a name in helloFail) not placed. Every hello is recorded, in order. */
+          const hellos = [];
+          const helloFail = new Set();
+          const helloHold = {};   // name -> a promise its hello's answer waits for (to see the lead go first, alone)
+          const helloUnsure = new Set();   // names whose hello comes back unconfirmed (it may have arrived)
+          const helloStatus = {};   // name -> an HTTP status its hello is refused with (a 4xx before delivery, a 5xx)
+          const helloHang = new Set();   // names whose hello the board takes and never answers
+          const helloHeld = new Set();   // #4959: names whose hello the server holds on the shared quota (could_not, held:true)
+          await page.route('**/api/agent/*/thread', async (r) => {
+            if (r.request().method() !== 'POST') return r.continue();
+            const who = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
+            const sentBody = JSON.parse(r.request().postData() || '{}');
+            hellos.push({ who, text: sentBody.text, automatic: sentBody.automatic });   // #4959: the hello must go as automatic
+            if (helloHold[who]) await helloHold[who];
+            if (helloHang.has(who)) return;   // never answered: the page must give up on its own
+            if (helloStatus[who]) return r.fulfill({ status: helloStatus[who], json: { error: 'refused here' } });
+            if (helloHeld.has(who)) {
+              return r.fulfill({ status: 200, json: { ok: true, recorded: false, delivery: { state: 'could_not', held: true,
+                heldUntil: new Date(Date.now() + 40 * 60e3).toISOString(), because: "held: this machine's Google account's shared Antigravity quota is out" } } });
+            }
+            const state = helloFail.has(who) ? 'could_not' : (helloUnsure.has(who) ? 'unconfirmed' : 'placed');
+            return r.fulfill({ status: 200, json: { ok: true, delivery: { state } } });
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks };
+          // #4936: off unless an arm is about it (the others settle on rows reading Running); fast retries, a long mark.
+          await page.evaluate(() => { TC_AUTO_HELLO = false; TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloHeld, helloFail, helloHold, helloUnsure, helloStatus, helloHang, pictureFail, stateOf, pictureHold };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -265,7 +302,8 @@ function chk(ok, label, extra) {
 
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
-          const { page, errs, posted, script, checkHold, pictures, portraitAsks, staticAsks } = await newPage(1280);
+          const { page, errs, posted, script, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHeld } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });   // #4936 is this arm's subject
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const view = await page.evaluate(() => ({
@@ -304,7 +342,7 @@ function chk(ok, label, extra) {
           releaseCheck();
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /Running|Not made/.test(s.textContent)));
           const r1 = await rows(page);
-          chk(!view.hello && await page.evaluate(() => { const b = document.getElementById('tc-hello'); return !b || b.hidden; }), `${E} no Say Hello before the team is made, nor while a member is not made`, String(view.hello));
+          chk(!view.hello && await page.evaluate(() => { const b = document.getElementById('tc-hello'); return !b || b.hidden; }), `${E} no Go to your team before the team is made, nor while a member is not made`, String(view.hello));
           const made = projects.readAll().filter((p) => p.name === wantName);
           chk(projects.readAll().length === projectsBefore + 1 && made.length === 1, `${E} pressing the button made the project, for real`, String(projects.readAll().length - projectsBefore));
           const pid = made[0] && made[0].id;
@@ -318,22 +356,28 @@ function chk(ok, label, extra) {
           chk(r1[1].state === 'Not made' && r1[1].why === 'An agent called Leo already exists.' && r1[1].retry && r1[1].editable,
             `${E} the failed one says why on its own row, keeps its name editable and offers Try again`, JSON.stringify(r1[1]));
 
+          chk(hellos.length === 0, `${E} #4936 no hello while a member is not made`, JSON.stringify(hellos));
+          helloFail.add('ana');   // #4936: Ana's hello will not be placed, so the step must stay and offer a retry
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Leo Two');
           await page.click('#tc-list li[data-slot="content"] .tc-retry');
-          await settle(page, () => /Running/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Said hello|Could not say hello)$/.test(s.textContent)));
           const r2 = await rows(page);
           chk(posted.length === 4 && posted[3].name === 'Leo Two' && posted[3].reportsTo === 'maya-okafor' && posted[3].projects[0] === pid,
             `${E} Try again makes only that one, with its new name, the lead and the project`, JSON.stringify(posted.slice(3)));
-          chk(r2.every((r) => r.state === 'Running') && /Your team is ready/.test(await page.textContent('#tc-note')), `${E} all running, and the step says the team is ready`, JSON.stringify(r2.map((r) => r.state)));
+          chk(hellos.length >= 3 && hellos[0].who === 'maya-okafor' && hellos.every((h) => h.text === 'hello' && h.automatic === true),
+            `${E} #4936 once all are running, Kosmos says "hello" to each itself, the lead first`, JSON.stringify(hellos));
+          chk(hellos.filter((h) => h.who === 'ana').length === 3 && hellos.filter((h) => h.who === 'leo-two').length === 1,
+            `${E} #4936 a hello that is not placed is tried three times; a placed one once`, JSON.stringify(hellos.map((h) => h.who)));
+          chk(r2.map((r) => r.state).join() === 'Said hello,Said hello,Could not say hello' && r2[2].retry,
+            `${E} #4936 each row says whether its member was said hello to; the one that was not has Try again`, JSON.stringify(r2.map((r) => [r.state, r.retry])));
+          const stay = await page.evaluate(() => ({ note: document.getElementById('tc-note').textContent, step: TC !== null && !document.getElementById('panel-create').hidden,
+            go: (document.getElementById('tc-hello') || { textContent: null }).textContent, shown: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
+          chk(stay.step && /1 of them may not have started: look at its row\./.test(stay.note) && stay.shown && stay.go === 'Go to your team',
+            `${E} #4936 with one not started, the step stays, says so, and offers Go to your team`, JSON.stringify(stay));
           chk(/still know it as Leo\b/.test(r2[1].why), `${E} a member renamed on Try again says its made teammates still know the old name`, r2[1].why);
           chk(await page.evaluate(() => document.getElementById('tc-note').getAttribute('aria-live') === 'polite'), `${E} the step's progress line is a polite live region`);
-          /* Review 27: the step ends the way the single create does: the invitation, and one button that
-             goes straight to the agent (the lead). And every member got a picture: this team ships no
-             portraits, so each is the generated mark, a PNG. */
-          const end = await page.evaluate(() => ({ note: document.getElementById('tc-note').textContent, hello: (document.getElementById('tc-hello') || { textContent: null }).textContent,
-            shown: !(document.getElementById('tc-hello') || { hidden: true }).hidden, wide: document.documentElement.scrollWidth > innerWidth }));
-          chk(end.shown && end.hello === 'Say Hello to Maya Okafor' && /Say “hello” to each of them to activate it on Kosmos, starting with Maya Okafor\.$/.test(end.note) && !end.wide,
-            `${E} a ready team invites a hello and offers one button, to the lead by its name`, JSON.stringify(end));
+          chk(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${E} the finished step does not scroll sideways`);
+          /* Every member got a picture: this team ships no portraits for two of them, so each is the generated mark, a PNG. */
           await settle(page, () => typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0);
           const pic = Object.fromEntries(pictures.map((x) => [x.name, x.type]));
           chk(pictures.map((x) => x.name).sort().join() === 'ana,leo-two,maya-okafor',
@@ -346,21 +390,362 @@ function chk(ok, label, extra) {
           chk(staticAsks.length === 0, `${E} #4720: the page never reads a catalogue image path under the board`, JSON.stringify(staticAsks));
           chk(r2.every((r) => !/not set/.test(r.state)), `${E} and no row says its picture was not set`, JSON.stringify(r2.map((r) => r.state)));
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
-          const went = await page.evaluate(() => {
-            window.openDetail = (who) => { window.__tcOpened = who; };
-            const b = document.getElementById('tc-hello'); if (b) b.click();
-            return { opened: window.__tcOpened || null, team: TC === null };
-          });
-          chk(went.opened === 'maya-okafor' && went.team, `${E} Say Hello goes straight to the lead and leaves no team behind to resume`, JSON.stringify(went));
-          /* Review 28: opening a team after that must not show the finished team's Say Hello while the new
+          /* #4936: Try again on Ana while it still is not placed: tried three more times, and the step still stays. */
+          await page.focus('#tc-list li[data-slot="social"] .tc-retry'); await page.keyboard.press('Enter');   // review 15: a click does not focus a button on webkit
+          // Review 13: the count is node's; the page condition waits for the row to settle again after its retries.
+          await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || '')
+            && !document.querySelector('#tc-list li[data-slot="social"] .tc-state').textContent.includes('Saying'));
+          for (let i = 0; i < 40 && hellos.filter((h) => h.who === 'ana').length < 6; i++) await page.waitForTimeout(100);
+          chk(hellos.filter((h) => h.who === 'ana').length === 6, `${E} #4936 a Try again that fails is tried three more times`, String(hellos.filter((h) => h.who === 'ana').length));
+          chk(await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden), `${E} #4936 a Try again that fails again keeps the step`);
+          chk(await page.evaluate(() => (document.activeElement || {}).matches && document.activeElement.matches('#tc-list li[data-slot="social"] .tc-retry')),
+            `${E} #4936 after a Try again fails again, focus is on the new Try again, not dropped on the row`, await page.evaluate(() => (document.activeElement || {}).outerHTML || '').then((h) => h.slice(0, 120)));
+          /* #4959: Try again while the shared quota is out: the server holds the hello (could_not, held). Tried ONCE (another
+             try cannot land before the reset), the row says the quota sentence and keeps Try again, and the step stays. */
+          helloFail.delete('ana'); helloHeld.add('ana');
+          await page.focus('#tc-list li[data-slot="social"] .tc-retry'); await page.keyboard.press('Enter');
+          for (let i = 0; i < 40 && hellos.filter((h) => h.who === 'ana').length < 7; i++) await page.waitForTimeout(100);
+          await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          await page.waitForTimeout(400);   // TC_HELLO_GAP_MS is 50 here: a second try would have gone by now
+          const heldRow = (await rows(page))[2];
+          chk(hellos.filter((h) => h.who === 'ana').length === 7, `${E} #4959 a hello held on the shared quota is tried once, not three times`, String(hellos.filter((h) => h.who === 'ana').length));
+          chk(heldRow.state === 'Could not say hello' && heldRow.retry && /shared Google quota is out until .+, so Kosmos sent nothing\./.test(heldRow.why) && !/T\d\d:\d\d:\d\d/.test(heldRow.why),
+            `${E} #4959 a held hello's row says the quota is out until a local time, keeps Try again`, JSON.stringify(heldRow));
+          chk(await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden), `${E} #4959 a held hello keeps the step`);
+          helloHeld.delete('ana'); helloFail.add('ana');   // the arms below expect Ana's hello refused as before
+          /* Review 5: Back, then the same team again: a member not said hello to keeps the team, so it is resumed with
+             its rows and Try again, not dropped for a new team. */
+          await page.click('#tc-back');
+          const backed = await page.evaluate(() => ({ team: TC !== null, step: !document.getElementById('cstep-teammake').hidden }));
+          await page.evaluate(() => openTeamCreate('marketing'));
+          const howAnother = await page.evaluate(() => { const m = document.getElementById('tc-msg'); return m.hidden ? '' : m.textContent; });
+          chk(howAnother === 'You just made this Marketing Team. To make another, choose Go to your team first.', `${E} #4936 the same team picked again says how to make another`, howAnother);
+          await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          const re = await rows(page);
+          chk(backed.team && !backed.step && re.map((r) => r.state).join() === 'Said hello,Said hello,Could not say hello' && re[2].retry,
+            `${E} #4936 Back and the same team again resume it, the failed hello still with its Try again`, JSON.stringify({ backed, re: re.map((r) => [r.state, r.retry]) }));
+          chk(await page.evaluate(() => { const s = document.querySelector('#tc-list li[data-slot="social"] .tc-state'); return s.classList.contains('failed') && !s.classList.contains('made'); }),
+            `${E} #4936 a hello that failed is shown in the failure colour, not the success green`);
+          /* "Go to your team": to the agents view (Josh: "take me to my agent view wherever I was and show me"), not into
+             one agent's page, the new members' board cards marked, no team left to resume. */
+          await page.evaluate(() => { window.openDetail = (who) => { window.__tcOpened = who; }; });
+          await page.click('#tc-hello');
+          await settle(page, () => document.querySelectorAll('.just-made').length >= 3);
+          const went = await page.evaluate(() => ({ team: TC === null, panel: !document.getElementById('panel-create').hidden, opened: window.__tcOpened || null,
+            marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort(),
+            // Review 29: focus is on the card's "Open <name>" button; the card it sits in names the agent.
+            focus: (((document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-agent]')) || {}).dataset || {}).agent || null,
+            named: !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('.namego, [data-agent]')) }));
+          await settle(page, () => /may not have started/.test((document.getElementById('tc-done-live') || { textContent: '' }).textContent));
+          const wentSaid = await page.evaluate(() => (document.getElementById('tc-done-live') || { textContent: '' }).textContent);
+          chk(wentSaid === '1 of them may not have started: look at its page. The new agents are marked on your board.',
+            `${E} #4936 with a member not greeted, the screen reader is told so, never "said hello to your team"`, wentSaid);
+          chk(went.team && !went.panel && !went.opened && went.marked.join() === 'ana,leo-two,maya-okafor' && went.marked.includes(went.focus) && went.named,
+            `${E} #4936 Go to your team leaves the create view for the agents view, the new members' cards marked and one focused, no team left to resume`, JSON.stringify(went));
+          /* Review 5: the board rebuilds its cards every poll; focus must come back to the new card, not stay on the page. */
+          await page.evaluate(() => { const c = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-agent]'); if (c) c.__before = 1; });
+          // Review 13: wait for an actual rebuild (the board's poll, up to 12 s), not a fixed time; then give the mark loop
+          // its 500 ms to put focus back.
+          await page.waitForFunction(() => ![...document.querySelectorAll('.acard, .lrow')].some((e) => e.__before), null, { timeout: 12000 }).catch(() => null);
+          await page.waitForTimeout(700);
+          const kept = await page.evaluate(() => { const a = document.activeElement; const c = a && a.closest && a.closest('[data-agent]');
+            return { focus: (c && c.dataset.agent) || null, body: a === document.body, rebuilt: !!c && !c.__before }; });
+          chk(kept.rebuilt && !kept.body && ['ana', 'leo-two', 'maya-okafor'].includes(kept.focus), `${E} #4936 after a board poll rebuilt the cards, focus is on a new member's card`, JSON.stringify(kept));
+          /* Review 28: opening a team after that must not show the finished team's Go to your team while the new
              one loads. The load is never answered here, so this is the screen as it stands mid-load. */
           await page.route('**/api/teams/seeded/marketing', () => {});
           await page.evaluate(() => { openTeamCreate('marketing'); });
           await settle(page, () => /Loading the team/.test(document.getElementById('tc-title').textContent));
           const loading = await page.evaluate(() => ({ title: document.getElementById('tc-title').textContent, hello: !(document.getElementById('tc-hello') || { hidden: true }).hidden,
             options: document.getElementById('tc-project').options.length, tell: !(document.getElementById('tc-tell') || { disabled: true }).disabled }));
-          chk(/Loading the team/.test(loading.title) && !loading.hello && loading.options === 0 && !loading.tell, `${E} while another team loads, the finished team's Say Hello, project menu and choice are not on offer`, JSON.stringify(loading));
+          chk(/Loading the team/.test(loading.title) && !loading.hello && loading.options === 0 && !loading.tell, `${E} while another team loads, the finished team's Go to your team, project menu and choice are not on offer`, JSON.stringify(loading));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});   // review 16: status reads in flight at close
           await page.close();
+        }
+
+        /* --- #4936: every hello placed: the step takes the person to the agents view on its own ------------------- */
+        {
+          const { page, errs, hellos, helloHold } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          let releaseLead; helloHold.mia = new Promise((res) => { releaseLead = res; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Mia');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Lou');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Ari');
+          await page.click('#tc-go');
+          // The lead's hello is held: nobody else is said hello to until it is answered.
+          for (let i = 0; i < 60 && hellos.length === 0; i++) await page.waitForTimeout(100);
+          await page.waitForTimeout(600);
+          chk(hellos.map((h) => h.who).join() === 'mia', `${E} #4936 while the lead's hello is unanswered, no other member is said hello to`, JSON.stringify(hellos.map((h) => h.who)));
+          releaseLead();
+          await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
+          const auto = await page.evaluate(() => ({ panel: !document.getElementById('panel-create').hidden,
+            marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort(),
+            said: (document.getElementById('tc-done-live') || { textContent: '' }).textContent }));
+          chk(hellos.length === 3 && hellos[0].who === 'mia' && hellos.slice(1).map((h) => h.who).sort().join() === 'ari,lou',
+            `${E} #4936 the lead is said hello to first, then the others, once each`, JSON.stringify(hellos.map((h) => h.who)));
+          chk(!auto.panel && auto.marked.join() === 'ari,lou,mia', `${E} #4936 all placed: the step leaves for the agents view on its own, the new members marked`, JSON.stringify(auto));
+          await settle(page, () => /Kosmos said hello to your team\./.test((document.getElementById('tc-done-live') || { textContent: '' }).textContent));
+          const said = await page.evaluate(() => { const l = document.getElementById('tc-done-live'); return l ? [l.textContent, l.getAttribute('aria-live')] : null; });
+          chk(said && said[0] === 'Kosmos said hello to your team. The new agents are marked on your board.' && said[1] === 'polite',
+            `${E} #4936 a screen reader is told the team started and where the members are`, JSON.stringify(said));
+          chk(errs.length === 0, `${E} no page errors (#4936 all-placed arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936 review 5: Back while the hellos run: they finish, and the screen is NOT moved to the agents view --- */
+        {
+          const { page, errs, hellos, helloHold } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          let releaseLead; helloHold.rue = new Promise((res) => { releaseLead = res; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Rue');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Tam');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Vic');
+          await page.click('#tc-go');
+          for (let i = 0; i < 60 && hellos.length === 0; i++) await page.waitForTimeout(100);
+          const live = await page.evaluate(() => TC !== null && tcLive());
+          await page.click('#tc-back');
+          releaseLead();
+          await settle(page, () => typeof TC !== 'undefined' && TC === null);
+          await page.waitForTimeout(600);   // room for a wrong move to the agents view
+          const stayed = await page.evaluate(() => ({ team: TC === null, panel: !document.getElementById('panel-create').hidden,
+            pick: !document.getElementById('cstep-team').hidden, marked: document.querySelectorAll('.just-made').length }));
+          chk(live && hellos.length === 3 && stayed.team && stayed.panel && stayed.pick && stayed.marked === 0,
+            `${E} #4936 Back while the lead's hello is held: the team stays live, the hellos finish, and the person is left where they went`, JSON.stringify({ live, hellos: hellos.map((h) => h.who), stayed }));
+          chk(errs.length === 0, `${E} no page errors (#4936 Back-while-greeting arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936: an UNCONFIRMED hello may have arrived: never sent again, the row says to look, the step stays --- */
+        {
+          const { page, errs, hellos, helloUnsure } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          helloUnsure.add('kit');
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Bo');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Kit');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Cy');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Said hello|Hello not confirmed)$/.test(s.textContent)));
+          await page.waitForTimeout(300);   // room for a wrong retry to show
+          const u = await rows(page);
+          const kept = await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden);
+          chk(hellos.filter((h) => h.who === 'kit').length === 1, `${E} #4936 an unconfirmed hello is sent once, never again (it may have arrived)`, JSON.stringify(hellos.map((h) => h.who)));
+          chk(u[1].state === 'Hello not confirmed' && !u[1].retry && /Look at its page/.test(u[1].why || ''), `${E} #4936 its row says to look, with no Try again`, JSON.stringify(u[1]));
+          chk(kept, `${E} #4936 with one unconfirmed, the step stays`);
+          /* Review 5/6: an unconfirmed hello has no retry, so it does not keep the team: Back drops it and the same team
+             picked again is a new one, not the finished one resumed. */
+          await page.click('#tc-back');
+          const dropped = await page.evaluate(() => TC === null);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3 && !document.getElementById('tc-go').hidden);
+          const fresh = await rows(page);
+          chk(dropped && fresh.every((r) => r.editable && r.state === ''), `${E} #4936 Back after an unconfirmed hello drops the team; the same team again starts fresh`, JSON.stringify({ dropped, fresh: fresh.map((r) => [r.state, r.editable]) }));
+          chk(errs.length === 0, `${E} no page errors (#4936 unconfirmed arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936 review 23: every hello placed while a picture is still going up: the step says it is setting the
+           pictures and does not leave until it lands, then leaves on its own -------------------------------------- */
+        {
+          const { page, errs, hellos, pictureHold } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          let releasePic; pictureHold.pia = new Promise((res) => { releasePic = res; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Pia');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Rex');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Sol');
+          await page.click('#tc-go');
+          await settle(page, () => /Setting their pictures, then taking you to them/.test((document.getElementById('tc-note') || {}).textContent || ''));
+          await page.waitForTimeout(800);   // room for a wrong leave while the picture is held
+          const held = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden, note: document.getElementById('tc-note').textContent }));
+          chk(hellos.length === 3 && held.team && held.panel && /Setting their pictures, then taking you to them…/.test(held.note),
+            `${E} #4936 with a picture still going up, the step says so and does not leave yet`, JSON.stringify({ held, hellos: hellos.map((h) => h.who) }));
+          releasePic();
+          await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
+          chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 once the picture lands, the step leaves for the agents view on its own`);
+          chk(errs.length === 0, `${E} no page errors (#4936 held-picture arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936 review 7: every hello placed but a picture failed: the step stays so its row can say so ----------- */
+        {
+          const { page, errs, hellos, pictureFail } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          pictureFail.add('lu'); pictureFail.add('jo');   // the lead's too: its row has the longest seat ("leads the team")
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Jo');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Lu');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Mo');
+          await page.click('#tc-go');
+          // Review 13: `hellos` lives here in node, never inside the page condition (it would throw, and the wait return at once).
+          await settle(page, () => typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0
+            && [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^Said hello/.test(s.textContent)));   // review 15: every hello landed
+          chk(hellos.length === 3, `${E} #4936 every member was said hello to once (picture-failed arm)`, JSON.stringify(hellos.map((h) => h.who)));
+          await page.waitForTimeout(600);   // room for a wrong move to the agents view
+          const pf = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden,
+            row: (document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || '', marked: document.querySelectorAll('.just-made').length,
+            note: document.getElementById('tc-note').textContent, go: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
+          chk(pf.team && pf.panel && pf.row === 'Said hello (picture not set)' && pf.marked === 0 && /2 pictures were not set: see their rows\./.test(pf.note) && pf.go,
+            `${E} #4936 all hellos placed but two pictures failed: the step stays, the row and the note say so (counted), and Go to your team is offered`, JSON.stringify(pf));
+          /* Review 10: on a phone the longer hello states fit: nothing scrolls sideways and the status stays inside its row. */
+          await page.setViewportSize({ width: 390, height: 844 });
+          await page.waitForTimeout(200);
+          const narrow = await page.evaluate(() => { const li = document.querySelector('#tc-list li[data-slot="lead"]'); const st = li.querySelector('.tc-state'); const seat = li.querySelector('.tc-seat');
+            const a = st.getBoundingClientRect(), b = li.getBoundingClientRect(), c = seat.getBoundingClientRect();
+            // Review 20: the boxes can sit apart while the seat's TEXT overflows its box, so the text is measured too.
+            return { fits: document.documentElement.scrollWidth <= innerWidth, inside: a.right <= b.right + 1 && a.left >= b.left - 1, apart: c.right <= a.left + 1,
+              seatText: seat.scrollWidth <= seat.clientWidth + 1, state: st.textContent }; });
+          chk(narrow.fits && narrow.inside && narrow.apart && narrow.seatText && narrow.state === 'Said hello (picture not set)',
+            `${E} #4936 at phone width the lead's long hello state and its "leads the team" seat do not overlap, and nothing scrolls sideways`, JSON.stringify(narrow));
+          await page.setViewportSize({ width: 1280, height: 900 });
+          await page.click('#tc-hello');
+          await settle(page, () => TC === null && document.querySelectorAll('.just-made').length >= 3);
+          chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 and Go to your team leaves for the agents view`);
+          chk(errs.length === 0, `${E} no page errors (#4936 picture-failed arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936 review 18: a member still starting reads "Waiting for it to start…", is not typed into, and is said hello
+           to once it is up; meanwhile another team picked is told this one is still saying hello -------------------- */
+        {
+          const { page, errs, hellos, stateOf, helloHold } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; TC_HELLO_GAP_MS = 600; });   // 10 waits: about 6 s of room
+          // The check's catalogue knows only Marketing, so Household cannot load here: what is asserted is that the page
+          // ASKED for it (and did not go to the agents view), not that it rendered.
+          let householdAsked = 0;
+          await page.route('**/api/teams/seeded/household*', (r) => { householdAsked += 1; return r.continue(); });
+          stateOf.zed = 'unknown';
+          let releaseLead; helloHold.una = new Promise((res) => { releaseLead = res; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Una');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Vin');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Zed');
+          await page.click('#tc-go');
+          for (let i = 0; i < 80 && hellos.length === 0; i++) await page.waitForTimeout(100);
+          // The lead's hello is held: another team picked now is told this one is still saying hello, and does not open.
+          await page.evaluate(() => openTeamCreate('household'));
+          const busy = await page.evaluate(() => ({ msg: document.getElementById('tc-msg').textContent, title: document.getElementById('tc-title').textContent, team: TC && TC.key }));
+          chk(busy.msg === 'Kosmos is still saying hello to your Marketing Team. You can make another team once it finishes.' && busy.team === 'marketing',
+            `${E} #4936 another team picked while the hellos run is told this one is still saying hello, and this one is kept`, JSON.stringify(busy));
+          releaseLead();
+          await settle(page, () => /^Waiting for it to start/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          const waiting = await rows(page);
+          chk(waiting[2].state === 'Waiting for it to start…' && hellos.filter((h) => h.who === 'zed').length === 0,
+            `${E} #4936 a member the board cannot read yet shows "Waiting for it to start…" and is not typed into`, JSON.stringify([waiting[2], hellos.map((h) => h.who)]));
+          // Review 19/25: still unknown for 1.5 s (2.5 gaps): the review-19 loop burned all its looks back to back by now.
+          await page.waitForTimeout(1500);
+          const still = await rows(page);
+          chk(still[2].state === 'Waiting for it to start…' && hellos.filter((h) => h.who === 'zed').length === 0,
+            `${E} #4936 it is still waited for after more than three gaps, and still not typed into`, JSON.stringify([still[2], hellos.map((h) => h.who)]));
+          delete stateOf.zed;   // it comes up
+          // Review 23: the person asked for Household meanwhile, so once every hello is placed THAT team opens, not the
+          // agents view.
+          const before = householdAsked;   // picking it while Marketing was in flight loaded nothing; opening it after does
+          for (let i = 0; i < 100 && householdAsked === before; i++) await page.waitForTimeout(100);
+          await page.waitForTimeout(400);
+          const after = await page.evaluate(() => ({ marketing: !!(TC && TC.key === 'marketing'), panel: !document.getElementById('panel-create').hidden, marked: document.querySelectorAll('.just-made').length,
+            said: (document.getElementById('tc-done-live') || { textContent: '' }).textContent }));
+          chk(hellos.filter((h) => h.who === 'zed').length === 1 && householdAsked > before && !after.marketing && after.panel && after.marked === 0
+            && after.said === 'Kosmos said hello to your Marketing Team. It is on your board.',
+            `${E} #4936 once it is up it is said hello to once, and the team asked for meanwhile opens (not the agents view)`, JSON.stringify({ after, hellos: hellos.map((h) => h.who) }));
+          chk(errs.length === 0, `${E} no page errors (#4936 waiting arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936 review 9: a member asking something on its page is not typed into; a 409 (held) says the server's
+           reason on the row; both offer Try again --------------------------------------------------------------- */
+        {
+          const { page, errs, hellos, helloStatus, stateOf } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          stateOf.ned = 'needs_you'; helloStatus.oz = 409;
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Pam');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Ned');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Oz');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Said hello|Could not say hello)$/.test(s.textContent)));
+          const q = await rows(page);
+          const sentQ = (n) => hellos.filter((h) => h.who === n).length;
+          chk(q[1].state === 'Could not say hello' && q[1].retry && /waiting on something on its page/.test(q[1].why) && sentQ('ned') === 0,
+            `${E} #4936 a member asking something is not typed into: its row says why, with Try again`, JSON.stringify([q[1], sentQ('ned')]));
+          chk(q[2].state === 'Could not say hello' && q[2].retry && /refused here/i.test(q[2].why) && sentQ('oz') === 3,
+            `${E} #4936 a 409 is tried three times and the row says the server's reason`, JSON.stringify([q[2], sentQ('oz')]));
+          /* Answered: Try again now says hello, and with every hello placed the step leaves on its own. */
+          delete stateOf.ned;
+          await page.click('#tc-list li[data-slot="content"] .tc-retry');
+          await settle(page, () => /Said hello/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
+          chk(sentQ('ned') === 1 && await page.evaluate(() => TC !== null), `${E} #4936 Try again after the question is answered says hello once; Oz still not greeted keeps the step`, String(sentQ('ned')));
+          delete helloStatus.oz;
+          await page.click('#tc-list li[data-slot="social"] .tc-retry');
+          await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
+          chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 a Try again that places the last hello leaves for the agents view on its own`);
+          /* Review 10: every held state the page knows says its own reason; a state not held, and a board that cannot be
+             read, say nothing, so the hello goes ahead. */
+          // Review 27: the held states go straight into the page's shared board read, never into /api/status, so the
+          // board never draws cards for these fake agents (a card for a state it was never given could throw).
+          const heldSay = await page.evaluate(async () => {
+            const fake = (n, state) => ({ sessionName: n, name: n, isAgentSession: true, isNamedOurs: true, state });
+            const agents = [fake('h-auth', 'auth_failed'), fake('h-rate', 'rate_limited'), fake('h-stop', 'stopped'), fake('h-lost', 'connection_lost'), fake('h-unk', 'unknown'), fake('h-idle', 'idle')];
+            const ask = async (n) => { TC_STATUS_READ = { at: Date.now(), p: Promise.resolve(agents) }; return tcHelloHeld(n); };
+            return { auth: await ask('h-auth'), rate: await ask('h-rate'), stop: await ask('h-stop'), lost: await ask('h-lost'), unk: await ask('h-unk'), idle: await ask('h-idle'), none: await ask('nobody-here') };
+          });
+          const txt = (h) => (h && h.text) || '';
+          chk(/sign-in failed/.test(txt(heldSay.auth)) && !heldSay.auth.transient && /at its limit/.test(txt(heldSay.rate)) && !heldSay.rate.transient
+            && /is stopped/.test(txt(heldSay.stop)) && !heldSay.stop.transient && /not ready/.test(txt(heldSay.lost)) && heldSay.lost.transient
+            && /not ready/.test(txt(heldSay.unk)) && heldSay.unk.transient
+            && heldSay.idle === null && heldSay.none === null, `${E} #4936 each held state says why (not ready is waited out, the rest stop); an idle member and one the board does not list hold nothing`, JSON.stringify(heldSay));
+          await page.route('**/api/status*', (r) => r.fulfill({ status: 500, body: 'no' }));
+          chk(await page.evaluate(() => { TC_STATUS_READ = null; return tcHelloHeld('h-auth'); }) === null, `${E} #4936 a board that cannot be read holds nothing (the hello goes ahead)`);
+          chk(errs.length === 0, `${E} no page errors (#4936 held-member arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936 review 6: the refusals: a 404 (before delivery) is tried 3 times and offers Try again; a 400 and a hello
+           the board never answers may have arrived (a 400 is the route's catch-all), so each is sent once, never again --------------------------- */
+        {
+          const { page, errs, hellos, helloStatus, helloHang } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; TC_HELLO_TIMEOUT_MS = 800; });
+          helloHang.add('gus'); helloStatus.hal = 404; helloStatus.ivy = 400;
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Gus');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Hal');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Ivy');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Could not say hello|Hello not confirmed)$/.test(s.textContent)));
+          await page.waitForTimeout(400);   // room for a wrong resend
+          const st = await rows(page);
+          const sent = (n) => hellos.filter((h) => h.who === n).length;
+          chk(st[0].state === 'Hello not confirmed' && !st[0].retry && sent('gus') === 1, `${E} #4936 a hello the board never answers is given up as not confirmed, sent once`, JSON.stringify([st[0], sent('gus')]));
+          chk(st[1].state === 'Could not say hello' && st[1].retry && sent('hal') === 3, `${E} #4936 a 4xx refusal (before delivery) is tried three times, then offers Try again`, JSON.stringify([st[1], sent('hal')]));
+          chk(st[2].state === 'Hello not confirmed' && !st[2].retry && sent('ivy') === 1, `${E} #4936 a 400 is the route's catch-all, which may follow a delivery: sent once, never again`, JSON.stringify([st[2], sent('ivy')]));
+          chk(errs.length === 0, `${E} no page errors (#4936 refusals arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
         }
 
         /* --- #4557 round 30: the REAL way in (New Agent > Team > pick > Create, no page.evaluate), focus, Back idle -- */
@@ -480,21 +865,23 @@ function chk(ok, label, extra) {
 
         /* --- round 1: "Made" is not "running" until the board sees it -------------------------------- */
         {
-          const { page, errs, hidden } = await newPage(1280);
-          await page.evaluate(() => { TC_WATCH_MS = 3000; openTeamCreate('marketing'); });
+          const { page, errs, hidden, hellos } = await newPage(1280);
+          // #4936 review 7: hellos on, so this arm can see one go out too early (a member made but not seen running).
+          await page.evaluate(() => { TC_AUTO_HELLO = true; TC_WATCH_MS = 3000; openTeamCreate('marketing'); });
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
           hidden.add('ana');
           await page.click('#tc-go');
           await settle(page, () => /Made, starting/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
           const starting = await rows(page);
-          chk(starting[2].state === 'Made, starting…' && !/ready/.test(await page.textContent('#tc-note')),
+          chk(starting[2].state === 'Made, starting…' && !/said hello|Saying hello|running on your board/i.test(await page.textContent('#tc-note')),
             `${E} a member the board cannot see yet reads "Made, starting", and the team is not called ready`, JSON.stringify(starting.map((r) => r.state)));
           await settle(page, () => /not seen running/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
           const after = await rows(page);
-          chk(after[2].state === 'Made, not seen running yet' && after[0].state === 'Running' && !/ready/.test(await page.textContent('#tc-note')),
-            `${E} after the wait it says so plainly, and still does not claim the team is ready`, JSON.stringify(after.map((r) => r.state)) + ' | ' + await page.textContent('#tc-note'));
+          chk(after[2].state === 'Made, not seen running yet' && after[0].state === 'Running' && !/said hello|Saying hello|running on your board/i.test(await page.textContent('#tc-note')) && hellos.length === 0,
+            `${E} after the wait it says so plainly, does not claim the team is ready, and says hello to nobody (#4936)`, JSON.stringify(after.map((r) => r.state)) + ' | ' + await page.textContent('#tc-note'));
           chk(errs.length === 0, `${E} no page errors (unseen arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});   // #4936: this arm now sends status reads
           await page.close();
         }
 
@@ -539,17 +926,21 @@ function chk(ok, label, extra) {
         /* --- round 3: what create reports as not done is said on the row ------------------------------ */
         {
           const { page, errs, warnSteps } = await newPage(1280);
-          await page.evaluate(() => openTeamCreate('marketing'));
+          // #4936 review 17: with the hellos on, as in production: every hello placed must not carry the person off this row.
+          await page.evaluate(() => { TC_AUTO_HELLO = true; openTeamCreate('marketing'); });
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
           warnSteps.Ana = 'could not add the reports-to section to its instructions';
           await page.click('#tc-go');
-          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => s.textContent === 'Running'));
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^Said hello/.test(s.textContent)) && typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0);
+          await page.waitForTimeout(600);   // room for a wrong move to the agents view
           const r = await rows(page);
           const note = await page.textContent('#tc-note');
-          chk(/could not add the reports-to section/.test(r[2].why) && /something to look at/.test(note),
-            `${E} a step create reports as not done is said on its row, and the ready line points at it`, r[2].why + ' | ' + note);
+          const stays = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden, go: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
+          chk(/could not add the reports-to section/.test(r[2].why) && /something to look at/.test(note) && stays.team && stays.panel && stays.go,
+            `${E} a step create reports as not done is said on its row, the note points at it, and the step stays with Go to your team though every hello was placed`, r[2].why + ' | ' + note + ' | ' + JSON.stringify(stays));
           chk(errs.length === 0, `${E} no page errors (steps arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.close();
         }
 
