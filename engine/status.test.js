@@ -4142,7 +4142,7 @@ test('#5039: the safeguards model-switch menu says what it is asking, not only t
   assert.notEqual(r.because, ASKING_GENERIC, 'the board still says only that it is asking, not what');
   assert.match(r.because, /safeguards/, 'the reason does not say the safeguards flagged it: ' + r.because);
   assert.match(r.because, /Opus 5\.5/, 'the reason does not name the model it would leave: ' + r.because);
-  assert.match(r.evidence || '', /Switch automatically/, 'the evidence does not name the choice: ' + r.evidence);
+  assert.match(r.evidence || '', /Switch automatically.*Stay on Opus 5\.5/, 'the evidence does not name the choice and the model: ' + r.evidence);
   assert.doesNotMatch(r.because + ' ' + (r.evidence || ''), /—/, 'an em dash reached a person-facing string');
 
   /* Controls. Another drawn menu keeps the generic reason; the modal's words in an agent's PROSE, with no menu drawn,
@@ -4153,6 +4153,19 @@ test('#5039: the safeguards model-switch menu says what it is asking, not only t
      capture). Same first option, not a safeguards stop: it keeps the generic reason. */
   const SETTING = ' How should model switches work?\n ❯ 1. Switch automatically\n   2. Ask each time\n';
   assert.equal(classify(pane, SETTING).because, ASKING_GENERIC, 'a menu whose second option is not "Stay on" was named a safeguards stop');
+  /* Review round 1: the modal's rows ABOVE a live, different menu (an agent writing about it, or an old answered one)
+     are not the live menu, so the live permission prompt keeps the generic reason. */
+  const ABOVE = '⏺ The choices are:\n  1. Switch automatically\n  2. Stay on Opus 5.5\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  const above = classify(pane, ABOVE);
+  assert.equal(above.state, STATE.NEEDS_YOU);
+  assert.equal(above.because, ASKING_GENERIC, 'a live permission prompt was named the safeguards menu: ' + above.because);
+  /* Review round 1, decided: a live safeguards menu leads over the agent's own standing question, because the agent
+     is stopped on the menu, not on its question. */
+  const { reconcileReport: reconcile } = require('./status');
+  const now = Date.now();
+  const asked = reconcile({ found: true, state: 'needs_you', because: 'should I squash these commits?', by: 'agent', at: now - 60000, reportedAt: now - 60000, ts: now - 60000 }, r, now);
+  assert.equal(asked.state, STATE.NEEDS_YOU);
+  assert.match(asked.evidence || '', /Switch automatically/, 'the live safeguards menu did not lead over the agent\'s standing question');
   const PROSE = '● The modal offers "1. Switch automatically" and "2. Stay on Opus 5.5"; I picked neither.\n\n> ready\n';
   assert.notEqual(classify(pane, PROSE).state, STATE.NEEDS_YOU, 'the modal\'s words in prose read as the modal');
 });

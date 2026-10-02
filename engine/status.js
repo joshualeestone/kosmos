@@ -2319,17 +2319,22 @@ const ASKING_GENERIC = 'it is asking you something';
        2. Stay on Opus 5.5
    The board already read it as needs_you (a drawn menu); this says WHAT it asks, so the person knows it is a model
    choice and not a permission prompt. Keyed on the two option rows, not the sentence above them, which differs
-   ("flagged this session" seen live, "flagged this message" in the binary). Only called once a menu is drawn, so the
-   words in an agent's prose are not this. Kosmos never presses it: the choice is the person's (#5039). */
+   ("flagged this session" seen live, "flagged this message" in the binary). Only called once a menu is drawn, and
+   "1. Switch automatically" must be the LAST "1." row on screen, so it is the live menu: the words in an agent's
+   prose, or an old answered menu, above a live permission prompt are not this (review round 1). When it is live it
+   carries evidence, so it leads over an agent's own standing question (the agent really is stopped on it). Kosmos
+   never presses it: the choice is the person's (#5039). */
 function safeguardsMenu(tail) {
   const rows = String(tail == null ? '' : tail).split('\n').map((r) => r.replace(/^[\s│❯›>]+/, '').trimEnd());
   const first = rows.findIndex((r) => /^1\. Switch automatically$/.test(r));
   if (first < 0) return null;
+  const lastOne = rows.reduce((at, r, i) => (/^1\.\s/.test(r) ? i : at), -1);
+  if (lastOne !== first) return null;
   const stay = rows.slice(first + 1, first + 4).map((r) => /^2\. Stay on (\S.{0,40})$/.exec(r)).find(Boolean);
   if (!stay) return null;
   const model = stay[1];
   return {
-    because: `Claude Code's safeguards stopped it on ${model}, and it is asking whether to switch models automatically or stay on ${model}`,
+    because: `${model}'s safeguards stopped it, and it is asking whether to switch models automatically or stay on ${model}`,
     evidence: `1. Switch automatically / 2. Stay on ${model}`,
   };
 }
