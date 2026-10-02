@@ -249,8 +249,8 @@ function othersTokens(held, sessionName) {
 }
 
 /* #4475: the history of names whose tokens were revoked, appended and never rewritten: the name and when. That is
-   every name whose agent was removed or had what was left of it deleted, and every name create was asked to make
-   (create revokes a name after its name checks, so a create refused by a later check can write a line too). A
+   every name whose agent was removed or had what was left of it deleted, and every name create got past its name
+   checks for (create revokes there, so a create refused by a later check writes a line too). A
    restart retires one run and does not come here. The removal route reads it so an agent's ownership of an agent it
    created ends at the first line for either name after it was made. NOT covered, because these mint without
    revoking: a name freed by deleting an agent's files by hand, outside Kosmos, and then adopted; and a remote token

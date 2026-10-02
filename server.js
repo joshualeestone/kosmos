@@ -2620,8 +2620,8 @@ function agentBirthOf(name) {
      whole key, so it would also end that other agent (a remote "Dr.Kip" issued beside a made "drkip");
    - neither identity has ended since (sendertoken.endedSince: the history `revoke` writes, which every path that
      ends an agent goes through: removing it, deleting what is left of it, and creating an agent of that name). The
-     target from after its birth (its own creation revokes its name before the birth is written); the creator
-     from the moment it asked, so a creator removed while its request ran is caught. A later agent under either name
+     target is checked from after its birth (its own creation revokes its name before the birth is written); the
+     creator from the moment it asked, so a creator removed while its request ran is caught. A later agent under either name
      is then never the one the birth is about. The agent profile id does not show this: it survives a removal and
      is carried to a new agent of the same name. Ownership does not come back on restore. */
 function tokenOnlyMayRemove(caller, target) {
@@ -3968,7 +3968,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board
    token. Removing an agent is in the patterns (#4475), narrowed in its handler to the caller's own creations.
    The header only, never `token` in the body: this gate runs before the body is read, and the handlers resolve the
-   header first (presentedAgentToken), so both see the same caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
+   header first (presentedAgentToken), so both see the same caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT
+   network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
    does not see it: what stops an internet caller there is the tunnel itself, which forwards only
    for an admitted device and then presents the person's board token anyway (read from

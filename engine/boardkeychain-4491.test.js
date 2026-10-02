@@ -250,8 +250,29 @@ test('#4475: every agent\'s sender-token folder is Read-denied (current, legacy 
     assert.ok(s.sandbox.filesystem.denyRead.includes(realOrLeaf(tokens)), 'the sender-token folder is not in sandbox denyRead under ' + root);
   }
   // CONTROL: the token-only list (read by the supervisor, outside the sandbox) and the agent's own folder are not denied.
-  assert.ok(!s.permissions.deny.some((r) => r.includes('agent-token-only.json')), 'the token-only list was denied');
+  assert.ok(!s.permissions.deny.some((r) => r.startsWith('Read(') && r.includes('agent-token-only.json')), 'the token-only list was Read-denied');
   assert.ok(path.dirname(sendertoken.tokenOnlyFile()) === store.ROOT, 'CONTROL: the token-only list moved into a denied folder');
+});
+
+test('#4475: the records the board trusts, and the sender-token folder, are write-denied (permission and sandbox)', () => {
+  const dir = agentDir('pilot-trusted');
+  const legacy = path.join(SANDBOX, 'tr-legacy', 'Kosmos');
+  setup.guardTokenOnlyFolder(dir, 'pilot-trusted', { ...DEPS, legacyRoots: [legacy] });
+  const s = readSettings(dir);
+  for (const root of [store.ROOT, legacy]) {
+    for (const f of ['created.jsonl', 'ended-agents.jsonl', 'agent-token-only.json']) {
+      const p = path.join(root, f);
+      assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(p)})`), f + ' under ' + root + ' is writable: a forged birth or an erased end');
+      assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(p)), f + ' under ' + root + ' is not in sandbox denyWrite');
+    }
+    const tokens = path.join(root, 'sendertokens');
+    assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(tokens)}/**)`), 'the sender-token folder is writable under ' + root);
+    assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(tokens)), 'the sender-token folder is not in sandbox denyWrite under ' + root);
+  }
+  // CONTROL: these are the same files the board writes and reads, so a test of the right paths can fail.
+  assert.equal(require('./create').createdLogFile(), path.join(store.ROOT, 'created.jsonl'));
+  assert.equal(sendertoken.endedLogFile(), path.join(store.ROOT, 'ended-agents.jsonl'));
+  assert.equal(sendertoken.tokenOnlyFile(), path.join(store.ROOT, 'agent-token-only.json'));
 });
 
 test('realOrLeaf: resolves an existing leaf (incl a symlink), a symlinked parent of an absent leaf, and an all-missing path', () => {

@@ -512,6 +512,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      (KOSMOS_AGENT_TOKEN, minted by the supervisor before launch), never from this folder; another agent's token read
      from it would let this agent act as that agent, including removing the agents that one made. */
   const senderTokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
+  /* #4475: and the records the board trusts about who made and who ended which agent, written only by the board and
+     the supervisor (outside this sandbox): a token-only agent that could write them could forge a birth naming itself
+     the creator, erase an ended identity, list itself token-only or not, or plant a token for another name. */
+  const trustedFiles = tokenRoots.flatMap((r) => ['created.jsonl', 'ended-agents.jsonl', 'agent-token-only.json'].map((f) => path.join(r, f)));
   // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
   // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
   const concreteHomes = accountConfigHomes(home);
@@ -523,9 +527,11 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
     ...senderTokenDirs.map((p) => `Read(${ruleAbs(p)}/**)`),
+    ...senderTokenDirs.map((p) => `Edit(${ruleAbs(p)}/**)`),
+    ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
-  return { deny, settingsDir, tokenPaths, tokenTmps, senderTokenDirs, settingsFiles };
+  return { deny, settingsDir, tokenPaths, tokenTmps, senderTokenDirs, trustedFiles, settingsFiles };
 }
 
 /*
@@ -580,7 +586,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
       const denyReadPaths = [...rules.tokenPaths, ...rules.senderTokenDirs].map(realOrLeaf);
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf)];
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.senderTokenDirs.map(realOrLeaf), ...rules.trustedFiles.map(realOrLeaf)];
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },

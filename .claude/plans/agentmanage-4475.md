@@ -46,7 +46,9 @@ and cannot force a removal; the person (the board token) removes any agent exact
   board token (#4491 keeps it unreadable, slice 9 stops it sending one). It also must not present ANOTHER agent's
   token: those are files under `sendertokens/`, readable by the same Mac user, so the token-only guard
   (`setup-assistant.tokenOnlySettingsRules`) now Read-denies that folder under every data root, in the permission
-  layer and the macOS sandbox (review 13). Its own token comes in its environment from the supervisor. The tests
+  layer and the macOS sandbox (review 13), and write-denies it and the records the check trusts (created.jsonl,
+  ended-agents.jsonl, agent-token-only.json), which only the board and the supervisor write, so it cannot forge a
+  birth, erase an end or plant a token (review 14). Its own token comes in its environment from the supervisor. The tests
   assert the config written; Seatbelt enforcing a folder deny was measured by hand for board.token's file only. An agent that can still read the board
   token is indistinguishable from the person, so for it this stays advisory (step 1's doctrine). It widens as
   token-only becomes the default.
@@ -97,13 +99,16 @@ and cannot force a removal; the person (the board token) removes any agent exact
   the person still removes from the board. A verb is a follow-up if a PM agent needs it.
 - Not bounded: `ended-agents.jsonl` is append-only, written on creates and removals only (not restarts), and read
   whole on each token-only removal. Low volume today; a follow-up if it grows.
+- Not atomic: create reads `tookTokens` before its own revoke, unlocked; a remote token issued for the name inside
+  that window is revoked by the create without the flag. Narrow (the person issuing a remote token for a name an
+  agent is creating at that moment), accepted.
 - Weakest premise: that every way an agent's identity ends goes through `sendertoken.revoke`. True for removal,
   deleting what is left, and create (the token module's own header requires it of any caller that recreates or
   deletes an agent). A person deleting an agent's files by hand outside Kosmos, then adopting a new agent of that
   name (adopt mints without revoking), is not seen.
 
 ## Validation
-- `engine/boardkeychain-4491.test.js` 18/18 (the sender-token folder denied), `server.agent-remove-4475.test.js` 31/31, `server.team-agent-token-1279.test.js` 23/23, `engine/remove.test.js` 93/93,
+- `engine/boardkeychain-4491.test.js` 19/19 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 31/31, `server.team-agent-token-1279.test.js` 23/23, `engine/remove.test.js` 93/93,
   `engine/delete-leftover.test.js` 15/15, `engine/team.newrole-4474.test.js` 22/22,
   `server.agent-token-gate-4491.test.js` 25/25, `server.agent-token-sender-570.test.js` 7/7.
 - Mutants, each failing only its own cases: revoke not writing the history (the delete-leftover and end-to-end tests),
