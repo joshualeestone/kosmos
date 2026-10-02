@@ -26,8 +26,9 @@ Only one other head uses `.sub-back`: #pj-docs-view .pjtitle, a grid with the ch
 ## Decisions (reversible)
 - Phone layout per Mona Lisa (#5053): "+ New task" below always (it stays in one place), title full width.
   Earlier version (New task beside a 4-line title) superseded.
-- line-height 1.2 only at phone width, so the desktop title keeps its height. Weakest premise: a desktop title long
-  enough to wrap (about 60 characters) still has 20px lines; rare, left.
+- The title's line-height is 1.2 at every width; the desktop head stays one button tall (pinned at 1280).
+- The chevron sits at the row's top on desktop and the grid's top on a phone, so beside a wrapped title it marks the
+  first line. Weakest premise: the 4px top tolerance holds at larger default font sizes (reasoned by review 3, not run).
 
 ## Verification
 - render-subback-4586 on this Mac: 44/0 with the fix. CONTROL: the same check on main's CSS, 6 FAILED, exactly the
@@ -51,3 +52,12 @@ CONVENTIONs taken: the plan rewritten for the new design; the stale "may wrap" c
 Verified by the reviewer: no other rule overrides the grid or placements (the touch min-height on #tsk-new is
 compatible); the hidden chevron leaves the title unindented; render-tasks-view-3559's 16-32px gap stays in band.
 Left: the loose long-name "(right of or below)" arm; a future third child would auto-place into row 3.
+
+### Iteration 3 (opus, blind): 0 blockers, 2 warnings. Taken.
+1. On desktop the chevron was centred on a wrapped title's block (iteration 1's fix was phone-only). Now
+   align-self: flex-start. Control: centring it again fails only the new 700 "chevron at the first line" rule.
+2. The 700 arm probably never wrapped. It now uses a name long enough to wrap at 700 and asserts it did (h > 36).
+CONVENTION taken: the plan's stale line-height decision. NIT taken: the CSS comment names both button heights.
+Left: the 390/360 "|chevTop - titleTop| < 24" belt-and-braces (the 4px phoneHead rule is the real one).
+Verified by the reviewer: DOM, visual and tab order match; no JS measures the head; 640px exactly gets the grid;
+a no-space title breaks at 320; the new-look rules do not touch the head. Check: 48/0.

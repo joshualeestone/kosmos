@@ -159,15 +159,22 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
     const was = [project.name, tasks.map((t) => t.projectName)];
     project.name = LONG; tasks.forEach((t) => { t.projectName = LONG; });
     try {
-      /* 700: above the phone breakpoint the head is a row again, and a long name wraps in the title's own box. */
+      /* 700: above the phone breakpoint the head is a row again, and a name too long for it wraps in the title's own
+         box (this one is long enough to wrap at 700: the arm asserts it did). */
       {
+        const LONGER = 'Five Families Holdings and Partners International Group';
+        project.name = LONGER; tasks.forEach((t) => { t.projectName = LONGER; });
         const tv = await boot('tabs', 700);
         await tv.page.evaluate(() => openProjectTasks('p1'));
         await tv.page.waitForTimeout(800);
         const d = await tv.page.evaluate(() => { const t = document.getElementById('tsk-title'), r = t.getBoundingClientRect(), c = document.getElementById('tsk-back').getBoundingClientRect(), n = document.getElementById('tsk-new').getBoundingClientRect();
-          return { h: Math.round(r.height), lh: parseFloat(getComputedStyle(t).lineHeight), gap: Math.round(r.left - c.right), newRight: n.left >= r.right, inView: n.right <= innerWidth + 1 }; });
+          return { h: Math.round(r.height), lh: parseFloat(getComputedStyle(t).lineHeight), gap: Math.round(r.left - c.right), newRight: n.left >= r.right, inView: n.right <= innerWidth + 1,
+            chevTopAtTitle: Math.abs(c.top - r.top) <= 4, c: Math.round(c.top), t: Math.round(r.top) }; });
+        say('#5053 long name at 700: the title really wraps (the arm tests something)', d.h > 36, JSON.stringify(d));
         say('#5053 long name at 700: the chevron, the title and "+ New task" share the row; wrapped lines do not touch', d.gap >= 0 && d.gap <= 24 && d.newRight && d.inView && d.lh >= 27.6, JSON.stringify(d));
+        say('#5053 long name at 700: the chevron\'s top is at the title\'s first line', d.chevTopAtTitle, JSON.stringify(d));
         await tv.ctx.close();
+        project.name = LONG; tasks.forEach((t) => { t.projectName = LONG; });
       }
       for (const width of [390, 360]) {
         const tv = await boot('tabs', width);

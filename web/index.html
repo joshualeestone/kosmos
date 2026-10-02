@@ -3945,10 +3945,11 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
             color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
 .sub-back[hidden] { display: none; }
-#panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
+/* #5053: at the row's top, so beside a wrapped title it marks the first line, not the middle of the block. */
+#panel-tasks .tsk-head > .sub-back { align-self: flex-start; margin-right: -4px; }
 /* .panel h2's 20px line-height was set for 15px text; at this title's 24px, wrapped lines would touch. A wrapped title
    is now possible at any width (the row no longer moves it to the next line), so this holds everywhere. The row is
-   already the 34px button's height, so a one-line title does not make the head taller. */
+   already at least the button's height (34px, 44px on touch), so a one-line title does not make the head taller. */
 #panel-tasks .tsk-head > #tsk-title { margin-right: auto; min-width: 0; overflow-wrap: anywhere; line-height: 1.2; }
 #panel-tasks .tsk-head > #tsk-new { flex: none; }
 /* #5053, at phone width (Mona Lisa's design call): the chevron and the title share the first row, the title taking
