@@ -496,24 +496,24 @@ test('#5000: the folder\'s own name is reset when it is asked for in another cas
 
 test('#5000: a folder that cannot be moved still leaves the name reset, because the reset comes first', () => {
   const cs = require('./communitystore');
-  leftoverAgent('halfgone', { job: false });
-  cs.grantTrust('halfgone');
+  leftoverAgent('resetfirst', { job: false });
+  cs.grantTrust('resetfirst');
   const realRename = fs.renameSync;
   const realRm = fs.rmSync;
-  const folder = create.workerDir('halfgone');
+  const folder = create.workerDir('resetfirst');
   fs.renameSync = (from, to) => { if (from === folder) throw new Error('busy'); return realRename(from, to); };
   fs.rmSync = (target, o) => { if (target === folder) throw new Error('busy'); return realRm(target, o); };
   let done;
   try {
     quiet();
-    done = mac.del('halfgone');
+    done = mac.del('resetfirst');
   } finally {
     fs.renameSync = realRename;
     fs.rmSync = realRm;
   }
   assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'control: the folder was meant to be stuck');
   assert.ok(done.steps.some((x) => x.step === 'its community standing' && x.ok), 'the standing step did not run');
-  assert.equal(cs.trustState('halfgone'), 'untrusted', 'a partial delete left the standing in place');
+  assert.equal(cs.trustState('resetfirst'), 'untrusted', 'a partial delete left the standing in place');
   /* The sentence the person reads: true about what happened, and no card number in it. */
   assert.match(done.because, /None of its files were moved\. Its standing in the community was reset/, done.because);
   assert.ok(!/#\d/.test(done.because), 'a card number reached the person: ' + done.because);

@@ -436,7 +436,7 @@ function del(name, opts) {
           ? `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.filter((x) => x !== 'its community account').join(' or ')}`
             + (stuck.includes('its community account') ? ', or retire its community account yet' : '')
           : 'we could not retire its community account yet. Making a new agent with this name retires it first, or refuses')
-          + '. ' + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `Its community standing was reset, but none of its files were ${p.toTrash ? 'moved' : 'deleted'}.`),
+          + '. ' + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`),
       steps,
     };
   }
