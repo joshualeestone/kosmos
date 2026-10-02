@@ -8325,7 +8325,6 @@ const server = http.createServer(async (req, res) => {
         }
         candidate.agent = agentId;
         let r;
-        try { communitysend.recordPeriodStart(); } catch { /* #4938, as for a post */ }
         try { r = feedpublish.publishComment(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
@@ -8333,7 +8332,6 @@ const server = http.createServer(async (req, res) => {
         // Collapse quarantined -> held for the SUBMITTER, findings never echoed. Since
         // #3485 auto-publish the scrub's yes/no is observable here too; see the post route.
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
-        if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
@@ -19426,8 +19424,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       // One sweep soon after boot, so a switch turned on just before a restart does not
-      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a comment or release
-      // request recorded the period's start first: #4373 part B).
+      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a post, comment or
+      // release request recorded the period's start first: #4373 part B, #4938).
       const communityBoot = setTimeout(() => { try { communitysend.sweep(); } catch { /* best-effort */ } }, 15 * 1000);
       if (communityBoot && typeof communityBoot.unref === 'function') communityBoot.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.

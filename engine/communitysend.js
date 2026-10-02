@@ -149,7 +149,7 @@ function switchOn() {
   } catch { return false; }
 }
 
-// `since` for this ON period: recorded by the first sweep, or comment or release request, that finds the switch ON.
+// `since` for this ON period: recorded by the first sweep, or post, comment or release request, that finds the switch ON.
 function sinceForOnPeriod(st) {
   if (typeof st.since === 'string') return st.since;
   // FIRST WRITER WINS (#4373 part B review 5): the route's willSend can record the start while a sweep holds an older
@@ -916,7 +916,7 @@ function sweep(now = Date.now()) {
 let followUp = null;
 function sendSoon() {
   if (!running) return sweep();
-  if (!followUp) followUp = running.then(() => { followUp = null; return sweep(); }, () => { followUp = null; return sweep(); });
+  if (!followUp) followUp = running.then(() => { followUp = null; return sweep(); });   // running never rejects (sweep's catch)
   return followUp;
 }
 
