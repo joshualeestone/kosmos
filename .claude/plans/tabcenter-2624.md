@@ -44,3 +44,7 @@ That the file:// page lays out the header as the served board does. The switcher
 (no worlds over file://), as the existing #2624 check does; a served board with two real Kosmoses is not measured here.
 - Review 5: the check also compares the K mark's and the You cluster's left edges and the tabs' top in both views
   (a top-only compare stayed green when the one-screen padding was changed: padding 40px reds klinkX and youX).
+- Review 6, a known limit, measured: past the switcher's 220px cap (forced to 581px with a long name, at 960, 1100
+  and 1440) the two views still agree to the pixel (tabs x 675.1 in both), but the tabs leave the centre because the
+  left 1fr track cannot shrink below the left cluster. The 220px cap is what keeps them centred; the long-name arm
+  reds if the cap is lifted (the "moved with the Kosmos name's width" lines). A larger system text size is not measured.
