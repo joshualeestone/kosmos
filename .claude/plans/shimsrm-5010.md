@@ -38,3 +38,8 @@ fs.rmSync of its temp root (main 1e1236781, PR #5009, PR #5001 at 04:07), in PRs
   this card; 'close' waits on any holder of stdout, which would change what the no-hang tests time).
   Controls after the fixes: six mutants (no retry, flat pause, retry any code, ignore tries, no default pause, bare
   final error), each red on its own test.
+- Round 2 (Opus, blind, source-only): 0 BLOCKER, 0 WARNING, 3 NIT. CONVERGED. Taken: a cleanup that needed more than
+  one try now says so on stderr (so a process that outlived its run is seen, not just waited out; the stdin close
+  could otherwise hide one); the give-up message says "still busy or denied, <code>" (EACCES can be a read-only
+  file, not a holder). Kept: the cleanup error replacing the body's (as round 1).
+

@@ -44,10 +44,15 @@ function removeTree(dir, opts) {
   const pause = o.pause || ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms));
   const tries = o.tries ?? 8;
   for (let attempt = 1; ; attempt += 1) {
-    try { rm(dir); return attempt; } catch (err) {
+    try {
+      rm(dir);
+      // Say so when it took more than one try: something outlived the run it belongs to.
+      if (attempt > 1 && !o.quiet) process.stderr.write('#5010: cleanup of ' + dir + ' took ' + attempt + ' tries\n');
+      return attempt;
+    } catch (err) {
       if (!REMOVE_RETRY_CODES.has(err && err.code)) throw err;
       if (attempt >= tries) {
-        const e = new Error('cleanup could not remove ' + dir + ' after ' + attempt + ' tries (a process still holds it): ' + err.message);
+        const e = new Error('cleanup could not remove ' + dir + ' after ' + attempt + ' tries (still busy or denied, ' + err.code + '): ' + err.message);
         e.code = err.code;
         throw e;
       }
@@ -341,7 +346,7 @@ function failingRm(codes) {
 test('#5010: cleanup retries EPERM and EBUSY with a growing pause, then removes', () => {
   const { rm, calls } = failingRm(['EPERM', 'EBUSY']);
   const pauses = [];
-  const attempts = removeTree('X', { rm, pause: (ms) => pauses.push(ms) });
+  const attempts = removeTree('X', { rm, pause: (ms) => pauses.push(ms), quiet: true });
   assert.equal(attempts, 3);
   assert.deepEqual(calls, ['X', 'X', 'X']);
   assert.deepEqual(pauses, [250, 500]);
@@ -349,14 +354,14 @@ test('#5010: cleanup retries EPERM and EBUSY with a growing pause, then removes'
 
 test('#5010: cleanup gives up after its tries and throws the last error', () => {
   const { rm, calls } = failingRm(['EPERM', 'EPERM', 'EPERM', 'EPERM']);
-  assert.throws(() => removeTree('X', { rm, pause: () => {}, tries: 3 }), { code: 'EPERM', message: /^cleanup could not remove X after 3 tries/ });
+  assert.throws(() => removeTree('X', { rm, pause: () => {}, tries: 3 }), { code: 'EPERM', message: /^cleanup could not remove X after 3 tries \(still busy or denied, EPERM\)/ });
   assert.equal(calls.length, 3);
 });
 
 test('#5010: the default pause really waits before the next try', () => {
   const { rm, calls } = failingRm(['EBUSY']);
   const started = Date.now();
-  assert.equal(removeTree('X', { rm }), 2);
+  assert.equal(removeTree('X', { rm, quiet: true }), 2);
   assert.ok(Date.now() - started >= 200, 'the second try came without the first pause');
   assert.equal(calls.length, 2);
 });
