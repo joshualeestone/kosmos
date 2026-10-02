@@ -956,9 +956,9 @@ keychain_note() {
   { /usr/bin/perl -e 'alarm 3; exec @ARGV' "$_sec" show-keychain-info >/dev/null 2>&1; } 2>/dev/null || _rc=$?
   [ "$_rc" = 36 ] || return 0
   if _invoked_by_agent; then
-    say "Note: this Kosmos is starting in a session that cannot read this Mac's Keychain, so it may show Claude accounts that are signed in on this Mac as not signed in. Tell the person who runs this computer: running \`kosmos restart\` in Terminal on the Mac itself fixes it."
+    say "Note: this Kosmos is starting in a session that cannot read this computer's Keychain, so it may show Claude accounts that are signed in on this computer as not signed in. Tell the person who runs this computer: running \`kosmos restart\` in Terminal on the Mac itself fixes it."
   else
-    say "Note: this Kosmos is starting in a session that cannot read this Mac's Keychain (a remote SSH session is the usual reason), so it may show Claude accounts that are signed in on this Mac as not signed in. To fix that, run \`kosmos restart\` in Terminal on the Mac itself."
+    say "Note: this Kosmos is starting in a session that cannot read this computer's Keychain (a remote SSH session is the usual reason), so it may show Claude accounts that are signed in on this computer as not signed in. To fix that, run \`kosmos restart\` in Terminal on the Mac itself."
   fi
   return 0
 }

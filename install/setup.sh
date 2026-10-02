@@ -3880,7 +3880,7 @@ else
   # has just stopped the old one; a fresh install never had one), so a Kosmos that holds the port without
   # answering is a stale build, not a busy one (the #3079 reclaim frees it, as it did before #4466).
   # kosmos#2600: no Keychain note here; this direct-path board is handed to launchd a few steps below.
-  KOSMOS_SAY_INDENT="     " KOSMOS_RECLAIM_BUSY=1 KOSMOS_NO_KEYCHAIN_NOTE=1 "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
+  KOSMOS_SAY_INDENT="     " KOSMOS_NO_KEYCHAIN_NOTE=1 KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
   _kosmos_paused_board=no   # #4818: the new board started, so a later failure restarts nothing
 fi
 ok

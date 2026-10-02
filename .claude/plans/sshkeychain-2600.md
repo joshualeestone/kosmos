@@ -70,3 +70,11 @@ lists scrub KOSMOS_NO_KEYCHAIN_NOTE like KOSMOS_RECLAIM_BUSY; the Change section
 A person's wording is asserted (and the agent's absent); `[ -x /usr/bin/perl ]` guards the cut (a missing perl gives no
 note, the safe side); the missing-security arm says it covers the outcome, not the guard. Converged at iteration 4.
 Next: full validation, proof, PR, merge.
+
+## Full validation after the rebase (baba71755, 08:19): 13,983 pass / 2 fail, both mine, fixed
+- cli.busy-health-4466: it pins `KOSMOS_RECLAIM_BUSY=1 "$KOSMOS_HOME/bin/kosmos" start --force`, and I had put
+  KOSMOS_NO_KEYCHAIN_NOTE=1 between them. It now goes before KOSMOS_RECLAIM_BUSY=1. My own test pinned the opposite
+  adjacency; it now asserts the variable is on the installer's start line without pinning its place.
+- install.this-computer-1290: "this Mac's Keychain" and "signed in on this Mac" -> "this computer's Keychain" and
+  "signed in on this computer" (the app's one word; the sentence is not about macOS itself). "in Terminal on the Mac"
+  stays (it names where to act). Re-run green: own test all arms, 4466 53/53, 1290 3/3.
