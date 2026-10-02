@@ -2,13 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: avatar-4885
-diff_hash: 7e28871e6d323d281bbf13b78d8c6704a48a596a4e5e4a7d6bc8c6906e5ffa67
+diff_hash: cc8d4079b4453c863374846e89aa1cab6dce2e0116c26ec62a1fddedb2aa798f
 validation: pending (full suite queued on Agent1s and on Mortals at 21:33-21:35 CDT 2026-10-01; PR CI runs the same tools/run-tests.sh)
 subdir_audit: not run (no subdir CLAUDE.md in this diff)
 timestamp: 2026-10-02T02:36:00Z
 iterations: 12
 converged: true
 ---
+
+## Rebase onto main, 2026-10-02 17:13 CDT (after the loop converged)
+
+The page half (#4949) merged at 147ceba35, so this rebased onto main (127 behind). Conflicts were in
+engine/communitysend.js only, with #4922's install-group pass and #4953's rate-limit change: the install group runs
+before the new-pictures pass, since a failing picture route costs a timeout per agent and must not hold back the install
+group either; the exports keep main's list plus pictureUnreachable and pictureUnsendable. **Not re-reviewed by the
+loop:** checked by every test that reads communitysend or the picture code (75 files, 2016 pass, 0 fail, 2 skipped) at
+the rebased head. PR CI is the full run of this exact tree, and the merge waits for its green. diff_hash is the rebased diff.
 
 ## [CHALLENGE-LOOP] Summary
 
