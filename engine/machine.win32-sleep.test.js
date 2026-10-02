@@ -231,9 +231,10 @@ test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUN
 test('#3324 the foreground helper is launched hidden and NOT detached: a detached powershell.exe exits without running it', () => {
   const liveExecution = require('./live-execution');
   const spawned = [];
+  let unrefs = 0;
   explorer.setSpawnForTests((exe, args, opts) => {
     spawned.push({ exe, args, opts });
-    return { on() {}, unref() {} };
+    return { on() {}, unref() { unrefs += 1; } };
   });
   liveExecution.allowLiveExecution();
   try {
@@ -242,6 +243,10 @@ test('#3324 the foreground helper is launched hidden and NOT detached: a detache
     assert.match(spawned[0].exe, /\\powershell\.exe$/i);
     assert.equal(spawned[0].opts.detached, false, 'a detached PowerShell never runs the helper');
     assert.equal(spawned[0].opts.windowsHide, true, 'the helper must not flash a console');
+    assert.deepEqual(spawned[0].opts, { detached: false, stdio: 'ignore', windowsHide: true, shell: false },
+      'no stdio held by the board, and no shell between it and PowerShell');
+    assert.equal(spawned[0].opts, explorer.FOREGROUND_SPAWN_OPTIONS, 'the launch uses the one documented options object');
+    assert.equal(unrefs, 1, 'the board never waits on the helper');
   } finally {
     liveExecution.resetForTests();
     explorer.setSpawnForTests(null);

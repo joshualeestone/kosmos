@@ -35,13 +35,23 @@ leaves the window behind:
 - Matching the frame by title "Settings": localized.
 
 ## Weakest part
-The live proof ran from my agent's process tree (started by a logon scheduled task),
-not from the board process itself, with Notepad or File Explorer in front rather than
+The live proof called the engine's own `foregroundSettings()` with the real
+`child_process.spawn` and the frozen options (scratch driver requiring
+engine/win32explorer.js), but from my agent's process tree (started by a logon
+scheduled task), not from inside the board process itself, with Notepad or File Explorer in front rather than
 the Kosmos app window. The foreground lock could in principle treat the board
 differently. A full first-run visual check through a board is the follow-up proof.
 Also: if a suspended Settings CoreWindow is ever detached from its frame, FrameOf finds
 nothing and the helper gives up after 5 s (the pre-fix state). Settings already open and
 minimized was checked live and restored + raised; the board check should repeat it.
+**So the PR says Addresses #3324, not Closes: the issue closes only after the board-level
+first-run check passes on this box** (Turn On, Settings in front; Settings maximized
+stays maximized; Settings minimized comes back).
+
+Rejected in review: a second fallback that raises any EMPTY ApplicationFrameWindow (the
+suspended-frame case). It cannot tell Settings' empty frame from another packaged app's,
+so it could raise the wrong window; doing nothing leaves the pre-fix state, the safer
+failure.
 
 ## Review-loop changes
 - Restore (SW_RESTORE) only when IsIconic, so a maximized Settings is not shrunk.
