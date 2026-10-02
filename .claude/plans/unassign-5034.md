@@ -57,7 +57,7 @@ Second: `by: 'operator'` on an agent-made removal is not literally a person. Acc
 
 ## Tests
 
-`server.leave-leftovers-5034.test.js` (7): the clear and the card leaving decision (with a before-control that the
+`server.leave-leftovers-5034.test.js` (11; 1-7 first, 8-11 from reviews): the clear and the card leaving decision (with a before-control that the
 card WAS a decision); a departed holder raising the question again does not re-red the card; controls that must NOT
 clear (another project's question, an automatic wait); held posts dropped for this project and kept for another; a
 repeat leave touches nothing; engine rule unchanged with no members.
@@ -85,3 +85,12 @@ Wider run: 205 files touching roomhold / waitingOnPerson / selfreport / member r
 - ALL SABOTAGES RE-RUN on a84d77183 (each against a restored tree): A no cleanup -> #1 #3 #4 #5 #8 #10 red;
   B members not passed -> #1 #2; C forgetProject no-op -> #5 #9; D same-project check gone -> #3; E auto guard gone
   -> #4; F inherited check gone -> #8; G removal-route call gone -> #9.
+- Review 3 (opus, blind): 0 B, 2 W, 4 N. W1 the clear's idle kept carrying the left project, so a later automatic
+  prompt (no project) was tied to it -> selfreport lines can carry `left`; read() ends the carry when `left` matches
+  (written only by clearLeftovers; test 1 asserts project null after the clear and after an auto wait). W2 membersOf
+  kept one record per id -> merged across records with that id (test 11). N1 plan test count. N2 clear wording ->
+  "its question about it" / "what it was blocked on there". N3 accepted residual: a project removal cleans only
+  CURRENT members; an agent that left before this shipped may still hold posts or a report for that id (one-time old
+  data; the members filter keeps cards right). N4 test 2 now has a before-control (old rule counts the holder).
+- ALL SABOTAGES RE-RUN on d65f53f81: A -> #1 #3 #4 #5 #8 #10; B -> #2; C -> #5 #9; D -> #3; E -> #4; F -> #8;
+  G -> #9; H (left handling gone) -> #1; I (last-record-wins map) -> #11.
