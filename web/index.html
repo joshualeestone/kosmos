@@ -10477,6 +10477,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select:hover { background: var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .vt + .vt { border-left-color: transparent; }
+/* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the toggle already clips
+   its fill), as on the Agents page. */
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:first-child { border-radius: 999px 0 0 999px; }
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:last-child { border-radius: 0 999px 999px 0; }
 :root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row { border-radius: 24px; }

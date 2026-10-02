@@ -428,6 +428,10 @@ async function projectsLook(page) {
       tile: ts.borderTopColor, tileBg: ts.backgroundColor, newBorder: getComputedStyle(document.getElementById('pj-new')).borderTopStyle,
       plus: { w: Math.round(plus.getBoundingClientRect().width), round: ps.borderRadius, bg: ps.backgroundColor },
       seg: on ? getComputedStyle(on).backgroundColor : 'absent' };
+    /* The Issue and Messages tiles are hidden on this fixture: shown for the read, then hidden again. */
+    const shown = (id) => { const t = document.getElementById(id); if (!t) return null; const was = t.hidden; t.hidden = false;
+      const c = getComputedStyle(t); const v = { border: c.borderTopColor, bg: c.backgroundColor }; t.hidden = was; return v; };
+    r.issueTile = shown('st-pjattn-tile'); r.msgTile = shown('st-pjdm-tile');
     const a = card.cloneNode(true); a.classList.add('attn'); a.removeAttribute('data-project'); card.after(a);
     r.attn = getComputedStyle(a).borderTopColor; a.remove();
     return r;
@@ -440,6 +444,28 @@ async function projectsLook(page) {
   await page.evaluate(() => showTab('agents'));
   await page.waitForTimeout(300);
   return out;
+}
+/* #4470 (#718's phone row): with the look on, Add Project must not run under the sort or the view toggle on a phone.
+   A touch phone context of its own (so the page takes its touch sizes, the sort at 16px), the look stored before
+   load; reads the boxes of Add Project, the sort and the toggle and reports any horizontal overlap on a shared line. */
+async function projectsPhoneRow(browser, url, width) {
+  const ctx = await browser.newContext({ viewport: { width, height: 800 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await ctx.newPage();
+    await page.addInitScript(() => { try { localStorage.setItem('kosmos-look', 'new'); } catch {} });
+    await page.goto(url, { waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    await page.evaluate(() => { showTab('projects'); pjView('list'); });
+    await page.waitForSelector('#pj-new', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(300);
+    return await page.evaluate(() => {
+      const box = (q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; };
+      const a = box('#pj-new'), s = box('#pj-list-view .sortctl'), v = box('#pj-list-view .viewtoggle');
+      const hit = (x, y) => !!x && !!y && x.l < y.r - 0.5 && y.l < x.r - 0.5 && x.t < y.b - 0.5 && y.t < x.b - 0.5;
+      return { look: document.documentElement.getAttribute('data-look'), add: a, sort: s, toggle: v,
+        overlap: hit(a, s) || hit(a, v), wide: document.documentElement.scrollWidth > innerWidth + 1 };
+    });
+  } finally { await ctx.close(); }
 }
 /* The list view (#4470's next page): switch the Agents board to the list, read the plain idle row (and the same
    row under the pointer), then switch back to the grid so the later arms read the cards. */
@@ -877,6 +903,13 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Tasks: Needs Your Decision holding tasks keeps its red edge, a filtering tile its gold`, JSON.stringify(tkOn));
       chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'missed' && tkOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Tasks: Needs Your Decision at zero is drawn like the others (no border), and a tile under the pointer shows its border`, JSON.stringify(tkOn));
+      if (width < 600) {
+        for (const w of [360, 390]) {
+          const row = await projectsPhoneRow(browser, URL, w);
+          chk(row.look === 'new' && row.add && row.sort && row.toggle && !row.overlap && !row.wide,
+            `${tag} On, Projects at ${w} on a touch phone: Add Project does not run under the sort or the view toggle (#718)`, JSON.stringify(row));
+        }
+      }
       const plOn = await projectsLook(page);
       chk(plOn.found && plOn.card === 'rgba(0, 0, 0, 0)' && plOn.shadow === 'none' && plOn.radius === '24px',
         `${tag} On, Projects: a plain project card loses its border and shadow and takes 24px corners`, JSON.stringify(plOn));
@@ -884,6 +917,8 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Projects: the Projects tile has no box and Add Project is a 40px round button with no dashed edge`, JSON.stringify(plOn));
       chk(plOn.found && plOn.attn !== 'rgba(0, 0, 0, 0)' && plOn.hover && plOn.hover !== 'missed' && plOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Projects: a needs-you card keeps its red edge, and a card under the pointer shows its border (a sign it opens)`, JSON.stringify(plOn));
+      chk(plOn.found && plOn.issueTile && plOn.msgTile && plOn.issueTile.border !== 'rgba(0, 0, 0, 0)' && plOn.msgTile.border === 'rgba(0, 0, 0, 0)' && plOn.msgTile.bg === 'rgba(0, 0, 0, 0)',
+        `${tag} On, Projects: the Issue tile keeps its red outline, the Messages count has no box`, JSON.stringify({ issue: plOn.issueTile, msg: plOn.msgTile }));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
