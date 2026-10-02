@@ -37,6 +37,9 @@ QH=$S/qh
 # real suite (a stray one joined the real queue once, from an unquoted heredoc that built the harness).
 mkdir -p $S/bin; for t in yarn npm pnpm bun deno npm-run-all run-s run-p node npx; do printf '#!/bin/sh\necho "FAKE-%s $*"\n' "$t" > $S/bin/$t; chmod +x $S/bin/$t; done
 export PATH="$S/bin:$PATH"
+# The cases also spell real scripts by relative path (`bash tools/test-install.sh`): run from an empty dir, where no such
+# path exists, so a refusal that ever lapsed could not start the real install harness.
+mkdir -p $S/cwd && cd $S/cwd || { echo "FAIL  tools/test-queued-heavy-4977.sh: cannot enter $S/cwd"; exit 1; }
 printf '#!/bin/sh\nexit 1\n' > $S/quiet; printf '#!/bin/sh\necho "2.0 10"\n' > $S/load; chmod +x $S/quiet $S/load
 # The guards are this tree's own (tools/lib/cut-guard.sh beside this file), so the test pins the pair as committed.
 export KOSMOS_RUN_MARKER_DIR=$S/m QUEUED_HEAVY_LIB=$ROOT KOSMOS_CUT_PROBE=$S/quiet KOSMOS_HARNESS_PROBE=$S/quiet \
