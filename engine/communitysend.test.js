@@ -134,6 +134,7 @@ test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.se
 // #3485 (2026-09-30): an agentId now publishes straight away, so a HELD fixture asks the choke
 // for the hold explicitly (trusted: false), standing for a row held before that update.
 function agentPost(agent, fields, { trusted = true } = {}) {
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, agent), { recursive: true });   // a real agent has a folder (#4922)
   if (trusted) communitystore.grantTrust(agent);
   const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), ...fields }, trusted ? { agentId: agent } : { trusted: false });
   assert.equal(r.ok, true, JSON.stringify(r));
@@ -1671,7 +1672,8 @@ test('4922: an agent whose leftovers were DELETED (off the removed list, folder 
     fs.writeFileSync(removedFile, JSON.stringify([{ name: 'yan' }]));
     await cs.sweep();
     assert.equal(yan().installGroup, null, 'premise: the removal sent the clear');
-    fs.rmSync(removedFile, { force: true });   // delete-leftover: remove.forget drops it from the list; no folder
+    fs.rmSync(removedFile, { force: true });   // delete-leftover: remove.forget drops it from the list,
+    fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'yan'), { recursive: true, force: true });   // folder to Trash
     await cs.sweep(); await cs.sweep();
     assert.equal(yan().installGroup, null, 'an agent whose leftovers were deleted was put back in the group');
   } finally { fs.rmSync(removedFile, { force: true }); }
@@ -1693,6 +1695,18 @@ test('4922: a later refusal does not drop the mark an earlier LOST PATCH left (i
     await cs.sweep();
     assert.ok(readKeys().zoe.installGroupUnsure, 'a 405 on the retry dropped the mark the lost PATCH left');
   } finally { be.st.mode.groupHang = false; be.st.mode.groupNoMethod = false; cs.setTimeoutMs(2000); }
+});
+
+test('4922: removed and deleted between two passes (never seen removed): a grouped agent is cleared, an ungrouped one never sent it', async () => {
+  await on();
+  for (const n of ['ava', 'gil', 'hux']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const svc = (n) => [...be.st.agents.values()].find((a) => a.name === n);
+  const k = readKeys(); delete k.hux.installGroupSent; writeKeys(k); svc('HUX').installGroup = null;   // hux never grouped
+  for (const n of ['gil', 'hux']) fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true, force: true });
+  await cs.sweep();
+  assert.equal(svc('GIL').installGroup, null, 'a grouped agent deleted between passes stayed grouped');
+  assert.ok(!svc('HUX').installGroup, 'an ungrouped agent deleted between passes was grouped');
 });
 
 test('4922: registration reads the removed list fail-closed (unreadable: no id)', async () => {

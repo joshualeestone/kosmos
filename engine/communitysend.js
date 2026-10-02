@@ -800,7 +800,7 @@ function serviceRefusedIndustry(r) {
 /**
  * #4922: send this install's group id to each agent registered before it existed, once, by PATCH /agents/me
  * { install_group }, while Community is on and the id file is usable. A REMOVED agent (the removed list read
- * fail-closed) is never sent it; one that was grouped (or whose id PATCH may have landed, written ahead as
+ * fail-closed), or one whose worker folder is gone (its leftovers deleted), is never sent it; one that was grouped (or whose id PATCH may have landed, written ahead as
  * installGroupUnsure) is sent the clear { install_group: null }, whatever the switch says. A refused key is skipped
  * (said once for a removed, grouped agent, which cannot be cleared from here). What the service answers, and what
  * the pass then does:
@@ -856,12 +856,11 @@ async function sweepInstallGroup(keys, on) {
     if (Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
-    /* Review 13: deleting a removed agent's leftovers takes it OFF the removed list (delete-leftover calls
-       remove.forget) and moves its folder to the Trash. So an agent once seen removed while grouped is remembered
-       (installGroupOff), and while its folder is gone it is still treated as removed: never sent the id again, and
-       cleared if it was not yet. Its folder back means it was restored: it is sent the id again. */
-    const removedNow = removedSet.has(clean(agentKey)) || (Boolean(k.installGroupOff) && !workerFolderExists(agentKey));
-    if (!removedNow && k.installGroupOff) { delete k.installGroupOff; saveJson(keysFile(), keys); }   // restored
+    /* Review 13/14: deleting a removed agent's leftovers takes it OFF the removed list (delete-leftover calls
+       remove.forget) and moves its folder to the Trash, with or without a pass in between. So an agent with no worker
+       folder is treated as removed too (fail-closed): never sent the id, and cleared if it may be grouped. Its folder
+       back means it was restored. */
+    const removedNow = removedSet.has(clean(agentKey)) || !workerFolderExists(agentKey);
     if (k.refused) {
       // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
       if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
@@ -876,7 +875,6 @@ async function sweepInstallGroup(keys, on) {
     // removed is sent the clear (the service: "send null to clear one"), or its group would keep listing it.
     // installGroupUnsure: an id PATCH whose answer was lost may have landed (review 11), so it counts as grouped.
     const maybeGrouped = Boolean(k.installGroupSent || k.installGroupUnsure);
-    if (removedNow && maybeGrouped && !k.installGroupOff) { k.installGroupOff = true; saveJson(keysFile(), keys); }   // before the clear
     if (removedNow && !maybeGrouped) continue;
     if (!removedNow && k.installGroupSent === group) continue;
     const want = removedNow ? null : group;
@@ -922,7 +920,8 @@ async function sweepInstallGroup(keys, on) {
       saveJson(keysFile(), keys);
     } else {
       // #4922 review 7: every agent sends the same id, so a refusal of it (400 invalid_input, 413, a value 422) hits
-      // them all: the whole pass waits, not just this agent.
+      // them all: the whole pass waits, not just this agent. (A clear refused here is rare: the service's only
+      // per-agent refusal is a 401, handled above; it waits with the rest.)
       installGroupPassAt.set(ep, Date.now() + INSTALL_GROUP_RETRY_MS);
       stopHere();
       if (k.installGroupRetrying !== group) {

@@ -79,6 +79,7 @@ test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.se
 
 // An agent is registered with the service when its first post goes (the send layer's rule).
 async function registered(agent) {
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, agent), { recursive: true });   // a real agent has a folder (#4922)
   communitystore.grantTrust(agent);
   const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), topic: 't', body: 'hello from ' + agent }, { agentId: agent });
   assert.equal(r.status, 'published');
