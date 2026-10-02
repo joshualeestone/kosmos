@@ -18,6 +18,10 @@
  * scrolled halfway and to the end, either the nav is not sticky (it scrolls with the page) or every
  * pill is between the header and the window's bottom (control: the page scrolled).
  *
+ * Just above the threshold (1200x565, 900x565) the nav stays sticky with every pill between the header
+ * and the bottom. And a header that changes height after load: Mac at 1200x600, scrolled to the end,
+ * then the window narrowed to 900px (the header wraps to two lines): every pill moves below it.
+ *
  * Then the consolidated view itself (Settings opened from the user menu while body.consolidated is
  * on, where Settings is its own scroll box and the header does not stick): on the Mac section, at
  * the panel's top and scrolled to its end, the nav stays within the panel's top padding plus 16px,
@@ -59,6 +63,8 @@ function chk(ok, label, extra) {
   let ran = 0;
   let consRan = 0;
   let shortRan = 0;
+  let aboveRan = 0;
+  let resizeRan = 0;
   try {
     for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
@@ -120,6 +126,48 @@ function chk(ok, label, extra) {
           }
           await page.close();
         }
+        /* Just above the short-window threshold: still sticky, and everything fits. */
+        for (const [width, height] of [[1200, 565], [900, 565]]) {
+          const page = await browser.newPage({ viewport: { width, height } });
+          await page.goto(URL + '/?tab=settings&sec=mac');
+          await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
+          await page.waitForTimeout(300);
+          await page.evaluate(() => window.scrollTo(0, Math.round((document.documentElement.scrollHeight - innerHeight) / 2)));
+          await page.waitForTimeout(150);
+          const r = await page.evaluate(() => {
+            const hb = document.querySelector('.apphead').getBoundingClientRect().bottom;
+            const pills = [...document.querySelectorAll('#s-nav button[data-go]')].filter((x) => !x.hidden && x.getClientRects().length).map((x) => x.getBoundingClientRect());
+            return { y: Math.round(scrollY), navPos: getComputedStyle(document.getElementById('s-nav')).position, headBottom: Math.round(hb),
+              underHeader: pills.filter((p) => p.top < hb - 0.5).length, offBottom: pills.filter((p) => p.bottom > innerHeight + 0.5).length };
+          });
+          chk(r.y > 0 && r.navPos === 'sticky' && r.underHeader === 0 && r.offBottom === 0,
+            `${engineName} just above the threshold ${width}x${height} mac, scrolled halfway: sticky, and every pill is between the header and the bottom`, JSON.stringify(r));
+          aboveRan += 1;
+          await page.close();
+        }
+        /* A header that changes height after load: narrow the window until it wraps. */
+        {
+          const page = await browser.newPage({ viewport: { width: 1200, height: 600 } });
+          await page.goto(URL + '/?tab=settings&sec=mac');
+          await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
+          await page.waitForTimeout(300);
+          await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+          await page.waitForTimeout(150);
+          const before = await page.evaluate(() => Math.round(document.querySelector('.apphead').getBoundingClientRect().height));
+          await page.setViewportSize({ width: 900, height: 600 });
+          await page.waitForTimeout(400);
+          await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+          await page.waitForTimeout(150);
+          const r = await page.evaluate(() => {
+            const head = document.querySelector('.apphead').getBoundingClientRect();
+            const tops = [...document.querySelectorAll('#s-nav button[data-go]')].filter((x) => !x.hidden && x.getClientRects().length).map((x) => Math.round(x.getBoundingClientRect().top));
+            return { headH: Math.round(head.height), headBottom: Math.round(head.bottom), tops, navPos: getComputedStyle(document.getElementById('s-nav')).position };
+          });
+          chk(r.headH > before && r.navPos === 'sticky', `${engineName} resized 1200 -> 900px: control: the header grew after load and the nav is still sticky`, JSON.stringify({ before, ...r }));
+          chk(r.tops.every((t) => t >= r.headBottom), `${engineName} resized 1200 -> 900px: every pill moved below the taller header`, JSON.stringify({ headBottom: r.headBottom, tops: r.tops }));
+          resizeRan += 1;
+          await page.close();
+        }
         /* The consolidated view: Settings from the user menu, inside Projects, its own scroll box. */
         await fetch(URL + '/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) });
         for (const width of [1000, 1280]) {
@@ -158,7 +206,7 @@ function chk(ok, label, extra) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 16 && shortRan === 8 && consRan === 4, 'precondition: every engine, layout, width and section ran, the short windows and the consolidated view on both engines', `ran=${ran} shortRan=${shortRan} consRan=${consRan}`);
+  chk(ran === 16 && shortRan === 8 && aboveRan === 4 && resizeRan === 2 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} consRan=${consRan}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

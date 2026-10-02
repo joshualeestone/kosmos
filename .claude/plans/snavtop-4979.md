@@ -40,16 +40,18 @@ while fixing #4961 (c).
   the same with either layout saved, on both engines.
 - Consolidated view, measured on main: the nav sticks 40px below the panel's top (24px padding + 16)
   at the top and scrolled to the end. An unscoped offset moved it to 91px and 70px.
-- The check, three ways: with the change, all pass (69 PASS lines). On main, 32 FAIL, exactly the
+- The check, several ways: with the change, all pass (93 PASS lines, re-measured after the last arms). On main, 32 FAIL, exactly the
   Settings-tab placement and click arms, no consolidated-view arm red. With the offset unscoped (no
   body:not(.consolidated)), exactly the 4 consolidated-view arms red. A fixed `top: 67px` reds exactly
-  the 900px arms. Without the short-window rule, exactly the 8 short-window arms red.
+  the 900px arms. Without the short-window rule, exactly the 8 short-window arms red. Without the
+  ResizeObserver, exactly the 2 resize arms red. With the threshold raised to 40rem, the 4
+  near-threshold arms red (and every 600px-tall arm, which that threshold makes short).
 - Short windows, measured on main and with the offset alone: at 1200x480 and 900x520 the stuck nav
   hid pills (under the header on main everywhere; off the bottom mid-scroll and under the header at
   the end with the offset), which is what the short-window rule removes.
 
 ## Weakest premise
-Two. The 35rem threshold is measured for today's 11 pills: more pills, or a larger text size, need a
+Two. The 35rem threshold is measured for today's 11 pills at the default text size: more pills, or a larger text size, need a
 taller window before the nav sticks safely (the short-window arms would then catch a stuck nav that
 hides a pill at 1200x480 or 900x520, but not between those heights and 35rem). And that `body.consolidated` is the only state where the header does not stick above Settings. The
 agent page's Talk view also makes the header static, but #s-nav is not on that page. A new state that

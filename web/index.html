@@ -3335,7 +3335,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    56rem .snav is static and none of this applies. */
 body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + 16px); }
 /* #4979: a window too short to hold the whole nav below the header (11 pills, 434px, under a header
-   of up to 77px, with 16px either side: 543px) would hang its last pills off the bottom while it is
+   of up to 77px, with 16px either side: 543px, at the default text size) would hang its last pills off the bottom while it is
    stuck, and at the page's end push its first ones back under the header. There the nav scrolls
    with the page instead, as the agent page's does. */
 @media (max-height: 35rem) { body:not(.consolidated) #s-nav { position: static; } }
