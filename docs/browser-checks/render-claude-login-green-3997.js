@@ -9,6 +9,7 @@
  *   - boss (the default account): login good for 20 days  -> GREEN, "Signed in · login good until <date>"
  *   - aria: login good for 20 days, but Anthropic rejected it (recorded for its folder) -> NOT green, says Not connected
  *   - cleo: login ran out yesterday -> NOT green, and no "login good" date
+ *   - then boss's Check now FAILS (a 403 refusal) -> the row is NOT green at once, and its button says so
  *
  * Control, measured: on main (the switch off, ruling C) boss renders the grey "acct-loginok" pill, so the first arm
  * fails there.
@@ -54,6 +55,7 @@ const subscription = require('../../engine/subscription');
 subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true, subscriptionType: 'max' }), err: null }));
 const claudeloginlive = require('../../engine/claudeloginlive');
 const observed = require('../../engine/observed');
+const create = require('../../engine/create');
 const DAY = 86400000;
 claudeloginlive.setReaderForTests((ccd) => (ccd === CLEO_DIR ? Date.now() - DAY : Date.now() + 20 * DAY));
 const srv = require('../../server.js');
@@ -119,6 +121,7 @@ async function rows(page) {
       try {
         observed._clearForTest();
         claudeloginlive._clearForTest();
+        create.setClaudeProbe(null);
         // aria's sign-in was refused by Anthropic (as Check now or an agent would record it): its login date is still ahead.
         observed.sawDir(observed.PROVIDER.ANTHROPIC, ARIA_DIR, observed.OUTCOME.REJECTED, Date.now());
         const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
@@ -135,6 +138,28 @@ async function rows(page) {
         chk(r.aria && /Not connected/.test(r.aria.text), `${tag} control: the rejected account says why`, JSON.stringify(r.aria && r.aria.text));
         chk(r.cleo && r.cleo.cls !== 'acct-connected' && !/login good/.test(r.cleo.text),
           `${tag} control: an expired login is NOT green and claims no good date`, JSON.stringify(r.cleo));
+        /* Review 3: Check now that FAILS (a 403 refusal, not a dead sign-in and not capacity) takes the green away on
+           the page too, at once, with the button saying so; not green beside "Could not check". */
+        create.setClaudeProbe(async () => ({ exitCode: 1, out: 'API Error: 403 {"type":"error","error":{"type":"permission_error","message":"This organization has been disabled."}}' }));
+        try {
+          await page.evaluate((em) => {
+            const box = [...document.querySelectorAll('#s-sec-accounts .acct-box')].find((b) => (b.querySelector('.acct-who b') || {}).textContent === em);
+            box.querySelector('[data-check-claude]').click();
+          }, BOSS);
+          await page.waitForFunction((em) => {
+            const box = [...document.querySelectorAll('#s-sec-accounts .acct-box')].find((b) => (b.querySelector('.acct-who b') || {}).textContent === em);
+            const btn = box && box.querySelector('[data-check-claude]');
+            return btn && /Could not check/.test(btn.textContent);
+          }, BOSS, { timeout: 8000 }).catch(() => {});
+          const after = await pill(page, BOSS);
+          const btnText = await page.evaluate((em) => {
+            const box = [...document.querySelectorAll('#s-sec-accounts .acct-box')].find((b) => (b.querySelector('.acct-who b') || {}).textContent === em);
+            const btn = box && box.querySelector('[data-check-claude]');
+            return btn ? btn.textContent : null;
+          }, BOSS);
+          chk(after && after.cls !== 'acct-connected', `${tag} a failed Check now takes the green away on the page at once`, JSON.stringify(after));
+          chk(/Could not check/.test(btnText || ''), `${tag} and the button says the check failed`, JSON.stringify(btnText));
+        } finally { create.setClaudeProbe(null); }
         chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
       } finally {
         await browser.close();
