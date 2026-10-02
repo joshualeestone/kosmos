@@ -34,8 +34,9 @@
  * ruling on #3485), belong to engine/communityswitch.js (#4288). This layer only reads
  * it, at send time. Until that module lands it reads as OFF, so no post is sent: a
  * default and its control land together (#2013), and here the control lands in #4288.
- * Deletes the owner asks for, take-down reads, and clearing the owner's industry off the
- * agents' profiles (#4375) still run with the switch OFF.
+ * Deletes the owner asks for, take-down reads, clearing the owner's industry off the
+ * agents' profiles (#4375), and clearing a removed agent's install group (#4922) still run
+ * with the switch OFF.
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records

@@ -47,6 +47,8 @@ function backend() {
         if (!a) return send(401, { detail: 'invalid or expired token' });
         const extra = Object.keys(body).filter((k) => !['industry', 'install_group'].includes(k));
         if (extra.length) return send(400, { error: 'unknown_fields', fields: extra });
+        // As the service: only the fields sent change (#4922: an install_group-only body is not an industry body).
+        if (!('industry' in body)) { if ('install_group' in body) a.installGroup = body.install_group; res.writeHead(204); return res.end(); }
         if (st.mode.refuse || (body.industry !== null && !KNOWN.has(body.industry))) return send(400, { detail: 'unknown industry' });
         if (st.mode.status) return send(st.mode.status, st.mode.json || { detail: 'no' });
         a.industry = body.industry;
