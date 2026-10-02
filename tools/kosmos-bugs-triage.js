@@ -77,9 +77,19 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function scrub(text, names) {
   let t = normal(text);
   t = t.replace(/<!--[\s\S]*?-->/g, '[comment removed]');
+  /* Review 4: a home folder names its user ("/Users/jsmith/x", "C:\\Users\\Maria Lopez\\x", "/home/bob/x"). */
+  t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/g, '$1[user]');
+  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\n]+/g, '$1[user]');
+  /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
+  t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,})/g, '[secret removed]');
+  t = t.replace(/\b[A-Za-z0-9+/_-]{40,}={0,2}/g, '[secret removed]');
   t = t.replace(/[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu, '[email removed]');
   t = t.replace(/\b(?:https?:\/\/|www\.)\S+/gi, '[link removed]');
+  /* Review 4: a bare domain with a path ("github.com/jsmith/repo") is a profile or a repo, so it goes too; and IPs. */
+  t = t.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/\S*/gi, '[link removed]');
+  t = t.replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[address removed]');
   t = t.replace(/(^|[^\p{L}\p{N}_])@[A-Za-z0-9][A-Za-z0-9-]*/gu, '$1[handle removed]');
+  t = t.replace(/\b[\w.-]+\/[\w.-]+#(\d+)\b/g, 'issue $1');   // review 4: owner/repo#4, a cross-repo back-reference
   t = t.replace(/(^|[^\p{L}\p{N}_&])#(\d+)\b/gu, '$1issue $2');
   for (const n of names) {
     const name = normal(n).trim();
@@ -106,7 +116,8 @@ function authorNames(posts) {
 
 /* A fence longer than any run of backticks in the text, so the report cannot close it. */
 function fence(text) {
-  const longest = Math.max(2, ...(String(text).match(/`+/g) || ['']).map((r) => r.length));
+  let longest = 2;
+  for (const run of String(text).match(/`+/g) || []) if (run.length > longest) longest = run.length;
   const f = '`'.repeat(longest + 1);
   return f + 'text\n' + text + '\n' + f;
 }
@@ -172,10 +183,30 @@ function cardState(number, { repo, gh }) {
 
 /* seen: post id -> true (grouped once). groups: id -> { posts:[{id,title,created_at}], status, card, matches, draft }.
    replied: post id -> when. Null-prototype maps, so a post id can never be a prototype key. */
+/* Review 4, BLOCKER: one verb at a time. Without it a `read` overlapping a `file` saved its older copy over the person's
+   decision (the group went back to pending and could be filed twice). A mkdir lock is atomic; a second verb refuses. */
+function withLock(stateFile, fn) {
+  const lock = stateFile + '.lock';
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  try { fs.mkdirSync(lock); } catch (e) {
+    if (e && e.code === 'EEXIST') throw new Error('another triage run holds ' + lock + '; wait for it (or remove the folder if no run is going)');
+    throw e;
+  }
+  const release = () => { try { fs.rmdirSync(lock); } catch { /* best effort */ } };
+  let out;
+  try { out = fn(); } catch (e) { release(); throw e; }
+  if (out && typeof out.then === 'function') return out.finally(release);
+  release(); return out;
+}
+
+/* Review 4: only a MISSING state file is a fresh start. A corrupt or unreadable one stops the run: starting over would
+   reissue group ids the person has already noted for different reports. */
 function loadState(file) {
   const fresh = () => ({ seen: Object.create(null), groups: Object.create(null), replied: Object.create(null), next: 1 });
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') return fresh(); throw e; }
   let s;
-  try { s = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fresh(); }
+  try { s = JSON.parse(raw); } catch { throw new Error('the state file ' + file + ' is not valid JSON; fix or move it aside before running again'); }
   const st = fresh();
   Object.assign(st.seen, s.seen || {}); Object.assign(st.groups, s.groups || {}); Object.assign(st.replied, s.replied || {});
   st.next = Number(s.next) || 1;
@@ -194,34 +225,48 @@ function writeDigest(o, state, extra) {
   const lines = [`# Kosmos bugs triage, ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`, ''];
   if (extra.read) lines.push(`Reports in the channel: ${extra.read.reports}; new this run: ${extra.read.fresh}, in ${extra.read.groups} new group(s).`
     + (extra.read.truncated ? ' ⚠️ The read stopped at its page limit, so older reports were not read.' : ''), '');
-  lines.push(`## Pending (decide each: file <group>, dup <group> <card>, or skip <group>): ${pending.length}`, '');
+  lines.push(`## Pending (decide each: file <group>, dup <group> <card>, or skip <group>): ${pending.length}`,
+    'Before `file`: read the draft yourself for names, secrets and security holes. The scrub is not a guarantee; a security',
+    'problem never goes in a public card.', '');
   for (const [id, g] of pending) {
     lines.push(`### Group ${id}: ${g.draft.title}`, `Posts: ${g.posts.map((p) => p.id).join(', ')}`,
       `Maybe already a card: ${g.matches && g.matches.length ? g.matches.map((c) => '#' + c.number + ' [' + c.state + '] ' + c.title).join('; ') : 'none found'}`,
       '', 'Draft body:', '', g.draft.body, '');
   }
   lines.push(`## Reply due (its card is closed; reply on the post as an agent, then: replied <post>): ${extra.replyDue.length}`);
+  if (extra.lookupFailed) lines.push(`⚠️ ${extra.lookupFailed} card state lookup(s) failed, so this list may be short.`);
   for (const r of extra.replyDue) lines.push(`- post ${r.postId}: card #${r.card} closed`);
+  const reopen = Object.entries(state.groups).filter(([, g]) => g.linkedWhileClosed && g.status === 'dup');
+  if (reopen.length) lines.push('', `## Linked to a card that was already closed (check the bug is not back): ${reopen.length}`, ...reopen.map(([id, g]) => `- ${id}: #${g.card}, posts ${g.posts.map((p) => p.id).join(', ')}`));
   const digest = lines.join('\n') + '\n';
   if (o.digest) { fs.mkdirSync(path.dirname(o.digest), { recursive: true }); fs.writeFileSync(o.digest, digest); }
   return digest;
 }
 
+/* Posts whose filed or linked card has closed and that have not been answered. A lookup that fails is COUNTED (review
+   4: it read as "0 due"); a group linked to a card that was ALREADY closed is never "fixed" by that closure. */
 function repliesDue(state, { repo, gh }) {
-  const due = []; const closed = new Map();
+  const due = []; const closed = new Map(); let failed = 0;
   for (const g of Object.values(state.groups)) {
-    if (!g.card || (g.status !== 'filed' && g.status !== 'dup')) continue;
+    if (!g.card || (g.status !== 'filed' && g.status !== 'dup') || g.linkedWhileClosed) continue;
     const open = g.posts.filter((p) => !(p.id in state.replied));
     if (!open.length) continue;
-    if (!closed.has(g.card)) closed.set(g.card, cardState(g.card, { repo, gh }) === 'CLOSED');
+    if (!closed.has(g.card)) {
+      const st = cardState(g.card, { repo, gh });
+      if (st === null) failed += 1;
+      closed.set(g.card, st === 'CLOSED');
+    }
     if (closed.get(g.card)) for (const p of open) due.push({ postId: p.id, card: g.card });
   }
-  return due;
+  return { due, failed };
 }
 
 /* The daily run. Files nothing. */
 async function read(opts = {}) {
   const o = { ...DEFAULTS, ...opts };
+  return withLock(o.state, () => readLocked(o));
+}
+async function readLocked(o) {
   const gh = o.gh || ghRun;
   const state = loadState(o.state);
   const { posts, truncated } = await fetchReports({ base: o.base, channel: o.channel, maxPages: o.maxPages, fetchFn: o.fetchFn || fetch });
@@ -236,14 +281,15 @@ async function read(opts = {}) {
     for (const p of g.posts) state.seen[p.id] = true;
     saveState(o.state, state);
   }
-  const replyDue = repliesDue(state, { repo: o.repo, gh });
-  const digest = writeDigest(o, state, { read: { reports: posts.length, fresh: fresh.length, groups: groups.length, truncated }, replyDue });
-  return { digest, state, replyDue, reports: posts.length, fresh: fresh.length, truncated };
+  const { due: replyDue, failed: lookupFailed } = repliesDue(state, { repo: o.repo, gh });
+  const digest = writeDigest(o, state, { read: { reports: posts.length, fresh: fresh.length, groups: groups.length, truncated }, replyDue, lookupFailed });
+  return { digest, state, replyDue, lookupFailed, reports: posts.length, fresh: fresh.length, truncated };
 }
 
 function pendingGroup(state, id) {
   const g = state.groups[id];
   if (!g) throw new Error(`no group ${id}`);
+  if (g.status === 'filing') throw new Error(`group ${id} was being filed when a run stopped; look for its card, then dup ${id} <card> (or skip ${id})`);
   if (g.status !== 'pending') throw new Error(`group ${id} is already ${g.status}${g.card ? ' (#' + g.card + ')' : ''}`);
   return g;
 }
@@ -251,9 +297,14 @@ function pendingGroup(state, id) {
 /* The triager files a group's draft, after reading it. --title replaces a title they had to fix by hand. */
 function file(id, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
+  return withLock(o.state, () => fileLocked(id, o));
+}
+function fileLocked(id, o) {
   const gh = o.gh || ghRun;
   const state = loadState(o.state);
   const g = pendingGroup(state, id);
+  /* Review 4: marked BEFORE the card is made, so a run that dies between the two leaves "filing", which refuses a retry. */
+  g.status = 'filing'; saveState(o.state, state);
   const title = o.title ? normal(o.title) : g.draft.title;
   const f = path.join(o.tmpDir || os.tmpdir(), 'card-' + process.pid + '-' + Date.now() + '.md');
   fs.writeFileSync(f, g.draft.body, { mode: 0o600 });
@@ -264,9 +315,12 @@ function file(id, opts = {}) {
     const m = /\/issues\/(\d+)\s*$/.exec(r.stdout.trim());
     if (!m) throw new Error('gh issue create printed no card url: ' + r.stdout.trim());
     number = Number(m[1]);
+  } catch (e) {
+    if (number === undefined) { g.status = 'pending'; saveState(o.state, state); }   // gh made nothing: back to pending
+    throw e;
   } finally { try { fs.unlinkSync(f); } catch { /* best effort */ } }
   Object.assign(g, { status: 'filed', card: number, at: new Date().toISOString() });
-  saveState(o.state, state);
+  try { saveState(o.state, state); } catch (e) { throw new Error(`filed #${number} but could not record it (${e.message}); run: dup ${id} ${number}`); }
   return number;
 }
 
@@ -274,24 +328,34 @@ function dup(id, card, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   const n = Number(card);
   if (!Number.isInteger(n) || n < 1) throw new Error('dup needs a card number');
-  const state = loadState(o.state);
-  Object.assign(pendingGroup(state, id), { status: 'dup', card: n, at: new Date().toISOString() });
-  saveState(o.state, state);
+  return withLock(o.state, () => {
+    const state = loadState(o.state);
+    const g = pendingGroup(state, id);
+    /* Review 4: a fresh report on a card that is ALREADY closed is more likely the bug coming back than a fix. */
+    const linkedWhileClosed = cardState(n, { repo: o.repo, gh: o.gh || ghRun }) === 'CLOSED';
+    Object.assign(g, { status: 'dup', card: n, linkedWhileClosed, at: new Date().toISOString() });
+    saveState(o.state, state);
+    return linkedWhileClosed;
+  });
 }
 
 function skip(id, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
-  const state = loadState(o.state);
-  Object.assign(pendingGroup(state, id), { status: 'skipped', at: new Date().toISOString() });
-  saveState(o.state, state);
+  return withLock(o.state, () => {
+    const state = loadState(o.state);
+    Object.assign(pendingGroup(state, id), { status: 'skipped', at: new Date().toISOString() });
+    saveState(o.state, state);
+  });
 }
 
 function replied(postId, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
-  const state = loadState(o.state);
-  if (!Object.values(state.groups).some((g) => g.posts.some((p) => p.id === postId))) throw new Error(`no post ${postId} in any group`);
-  state.replied[postId] = new Date().toISOString();
-  saveState(o.state, state);
+  return withLock(o.state, () => {
+    const state = loadState(o.state);
+    if (!Object.values(state.groups).some((g) => g.posts.some((p) => p.id === postId))) throw new Error(`no post ${postId} in any group`);
+    state.replied[postId] = new Date().toISOString();
+    saveState(o.state, state);
+  });
 }
 
 const USAGE = 'usage: kosmos-bugs-triage.js [read] | file <group> [--title T] | dup <group> <card> | skip <group> | replied <post>'
@@ -311,9 +375,13 @@ function parseArgs(argv) {
 
 async function main(argv) {
   const { verb, args, opts } = parseArgs(argv);
+  if (opts.title !== undefined && verb !== 'file') throw new Error('--title is only for file. ' + USAGE);
   if (verb === 'read' && !args.length) return (await read(opts)).digest;
   if (verb === 'file' && args.length === 1) return `filed ${args[0]} as #${file(args[0], opts)}\n`;
-  if (verb === 'dup' && args.length === 2) { dup(args[0], args[1], opts); return `linked ${args[0]} to #${args[1]}\n`; }
+  if (verb === 'dup' && args.length === 2) {
+    const wasClosed = dup(args[0], args[1], opts);
+    return `linked ${args[0]} to #${args[1]}${wasClosed ? ' (that card is CLOSED: check the bug is not back, and reopen it if so)' : ''}\n`;
+  }
   if (verb === 'skip' && args.length === 1) { skip(args[0], opts); return `skipped ${args[0]}\n`; }
   if (verb === 'replied' && args.length === 1) { replied(args[0], opts); return `recorded the reply on post ${args[0]}\n`; }
   throw new Error(USAGE);
