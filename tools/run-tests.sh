@@ -100,6 +100,8 @@ if [ "${1:-}" = --only ]; then
     # folder's physical path plus the name.
     # CDPATH= : an exported CDPATH would send a relative cd into ANOTHER tree and print its path into the result.
     _only_f="$(CDPATH= cd -- "$(dirname "$_only_f")" && pwd -P)/$(basename "$_only_f")"
+    # node --test reads each name as a glob, so a path with [ * ? { in it would match nothing and run nothing.
+    case "$_only_f" in *'['*|*'*'*|*'?'*|*'{'*) echo "run-tests: --only cannot take '$_only_f': node --test reads [ * ? { as a pattern, so it would run nothing" >&2; exit 2 ;; esac
     _only_dup=0
     for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
     [ "$_only_dup" = 1 ] || KOSMOS_ONLY_FILES+=("$_only_f")   # a file named twice runs once
@@ -295,7 +297,8 @@ KOSMOS_QUEUE_CLASS=heavy
 # case after four bounds plus one per waiter ahead at entry (#4574; tools/lib/cut-guard.sh,
 # kosmos_wait_until_clear). A run that skips the suite check (the override or a run inside a test,
 # below) does not queue, and waits 20 minutes from its start. KOSMOS_NO_WAIT=1
-# refuses at once; this runner's arguments all go to node --test (with a leading --only, none do), so it has no --no-wait flag.
+# refuses at once; this runner's arguments all go to node --test (with a leading --only, the named files replace the suite list and
+# nothing else is passed through), so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
 _rt_suite_check=1

@@ -71,6 +71,8 @@ test('probe', () => {
   }));
 });
 `);
+const GLOBBY = path.join(fs.mkdtempSync(path.join(DIR, 'g[1]-')), 'a.test.js');   // a real file whose path node globs
+fs.writeFileSync(GLOBBY, `require('node:test')('globby', () => {});\n`);
 const RED = path.join(DIR, 'red.test.js');
 fs.writeFileSync(RED, `'use strict';\nrequire('node:test')('red', () => { throw new Error('red on purpose'); });\n`);
 
@@ -167,6 +169,7 @@ test('--only refuses, before anything runs: no files, an option, a non-test file
     // Not first, node --test would take --only as its own option and run the whole suite.
     [[PROBE, '--only'], {}, /--only must come first/],
     [['--only=' + PROBE], {}, /not --only=<file>/],
+    [['--only', GLOBBY], {}, /reads \[ \* \? \{ as a pattern/],
   ]) {
     assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
     // A misplaced --only on a runner that does not refuse it would run the whole suite: read before running that arm.
