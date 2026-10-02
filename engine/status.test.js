@@ -4107,6 +4107,57 @@ test('#966: the Fable 5 promo banner does not read as a spent limit', () => {
     'the real 2026-08-21 block regression stopped matching');
 });
 
+test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limited, not idle', () => {
+  /**
+   * 🛑 VERBATIM FROM THREE CAPPED PANES, 2026-10-02 09:55 CDT (donnie, irma,
+   * jennika, all on one spent account), and the modal menu the same sessions
+   * showed at 2026-10-01 22:41. Josh's Guide hit this and went silent (#5029).
+   *
+   *   You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
+   *
+   * Two of the three panes had a second line, "/usage-credits to finish what
+   * you're working on.", which the 2026-08-21 marker catches. JENNIKA'S DID
+   * NOT, and neither does the modal: "hit your" is not "reached your", so the
+   * card read idle, guideFailure saw nothing, and the hosted fallback (#3660)
+   * never switched on. Both shapes are pinned whole, as observed.
+   */
+  const pane = { session: 'guide', name: 'guide', claim: 'guide', command: '2.1.239', title: '✳ Claude Code' };
+  const RULE = '────────────────────────────────────────────────────────────────────────────────\n';
+  const STATUS = RULE + '❯ \n' + RULE + '  guide · Opus 4.8 · 7d 100%\n'
+    + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
+  const NO_CREDITS_LINE = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Sautéed for 0s · done 10:35 PM\n' + STATUS;
+  const MODAL = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Cooked for 0s · done 10:35 PM\n'
+    + '   What do you want to do?\n'
+    + '   ❯ 1. Stop and wait for limit to reset\n'
+    + '     2. Wait here, then continue automatically at Oct 5 at 12am\n'
+    + '     3. Switch to usage credits\n'
+    + '   Enter to confirm · Esc to cancel\n';
+  const WITH_CREDITS_LINE = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     /usage-credits to finish what you’re working on.\n'
+    + '✻ Cogitated for 0s · done 8:20 AM\n' + STATUS;
+
+  for (const [label, text] of [['no /usage-credits line', NO_CREDITS_LINE], ['the modal menu', MODAL], ['with the /usage-credits line', WITH_CREDITS_LINE]]) {
+    const r = classify(pane, text);
+    assert.equal(r.state, STATE.RATE_LIMITED, label + ': a capped Claude Code still reads as ' + r.state);
+    assert.match(r.evidence, /^You've hit your weekly limit · resets Oct 5 at 12am/,
+      label + ': the vendor line (and its reset time) is not the evidence: ' + JSON.stringify(r.evidence));
+  }
+
+  /* 🔑 THE CONTROLS. The 2026-08-26 promo says "If you hit your limit" about a
+     FEATURE on a healthy agent and must stay calm (#966), and an agent merely
+     talking about limits in prose must not pause. */
+  const PROMO = 'Fable 5 is now a standard part of your Max plan\n'
+    + 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit\n'
+    + 'your limit, you can continue on Fable 5 with usage credits...\n\n> ready\n';
+  assert.notEqual(classify(pane, PROMO).state, STATE.RATE_LIMITED, 'the promo banner is pausing a healthy agent');
+  assert.notEqual(classify(pane, 'Worked for 1m\n> ready\n').state, STATE.RATE_LIMITED, 'a healthy pane reads as capped');
+});
+
 test('#887: the prompt glyph ❯ (and Codex\'s ›) is stripped from the evidence line', () => {
   /* Observed live on 0.5.31's #880 walk: the API's stateEvidence read
      "❯ 401 {...}" because the strip class covered ASCII > and the box glyphs
