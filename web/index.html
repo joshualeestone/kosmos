@@ -3957,8 +3957,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .tsk-crumb:empty { min-height: 0; margin: 0; }
 #tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
 #tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
-/* #5072: the dot and Open project wrap as one, so the dot never dangles at a line end on a phone. */
+/* #5072 (Mona Lisa's call): wider than a phone, the dot and Open project wrap as one, so the dot never dangles at a
+   line end. At 30rem and below, Open project always takes its own line and the dot is not drawn: a dot starting a line
+   reads as a stray mark, and phone names wrap almost always, so one fixed layout. */
 .tsk-crumb-open { white-space: nowrap; }
+@media (max-width: 30rem) {
+  .tsk-crumb-open { display: block; }
+  .tsk-crumb-sep { display: none; }
+}
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
@@ -56728,10 +56734,10 @@ function tskPaint() {
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   document.getElementById('tsk-crumb').innerHTML = picked
-    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' <span class="tsk-crumb-open">· <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep">·</span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
     : '';
-  /* #5072: the separator travels with Open project. On a phone the button wraps to its own line, and a bare
-     ' · ' left the dot dangling at the end of the line above. */
+  /* #5072: the separator and Open project are one unit, so the phone rule can put Open project on its own line and
+     drop the dot together (see .tsk-crumb-open). */
   /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
      panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
   const back = document.getElementById('tsk-back');

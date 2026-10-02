@@ -151,6 +151,22 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
       t: [Math.round(t.left), Math.round(t.top), Math.round(t.bottom)], n: [Math.round(n.left), Math.round(n.top)], c: c ? [Math.round(c.left), Math.round(c.top)] : null };
   });
 
+  /* #5072 (Mona Lisa's call): at 30rem and below Open project takes its own line and the separator dot is not drawn;
+     wider, the dot is drawn on Open project's line. Dots are found as characters and counted as drawn when their box
+     has width, so one reading serves the old markup (expected to fail at phone width) and the new. */
+  const crumbGeom = (page) => page.evaluate(() => {
+    const box = document.getElementById('tsk-crumb'), all = box.querySelector('[data-proj=""]'), openEl = box.querySelector('[data-open-project]');
+    if (!all || !openEl) return { shown: false };
+    const b = box.getBoundingClientRect(), first = all.getBoundingClientRect(), open = openEl.getBoundingClientRect();
+    const dots = []; const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) for (let i = n.data.indexOf('\u00b7'); i >= 0; i = n.data.indexOf('\u00b7', i + 1)) {
+      const rg = document.createRange(); rg.setStart(n, i); rg.setEnd(n, i + 1); const r = rg.getBoundingClientRect(); if (r.width > 0) dots.push(r); }
+    const mid = (r) => (r.top + r.bottom) / 2;
+    return { shown: true, openBelow: open.top >= first.bottom - 1, openAtLeft: Math.abs(open.left - b.left) <= 2, dotsDrawn: dots.length,
+      dotOnOpenLine: dots.length === 1 && mid(dots[0]) >= open.top && mid(dots[0]) <= open.bottom,
+      box: [Math.round(b.left), Math.round(b.width)], first: [Math.round(first.left), Math.round(first.top), Math.round(first.bottom)], open: [Math.round(open.left), Math.round(open.top), Math.round(open.bottom)] };
+  });
+
   // ---- #5053: a LONG project name at phone widths. The fixture's own name left only 29px of room at 390 on a Mac
   // (and overflowed by 3px on Linux), so the head row wrapped and left the chevron alone on its line. A name that
   // cannot fit must make the TITLE wrap inside its own box, never separate the chevron from it. ----
@@ -173,6 +189,8 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
         say('#5053 long name at 700: the title really wraps (the arm tests something)', d.h > 36, JSON.stringify(d));
         say('#5053 long name at 700: the chevron, the title and "+ New task" share the row; wrapped lines do not touch', d.gap >= 0 && d.gap <= 24 && d.newRight && d.inView && d.lh >= 27.6, JSON.stringify(d));
         say('#5053 long name at 700: the chevron\'s top is at the title\'s first line', d.chevTopAtTitle, JSON.stringify(d));
+        const cg7 = await crumbGeom(tv.page);
+        say('#5072 at 700 (wider than a phone): the separator dot is drawn, on Open project\'s line', cg7.shown && cg7.dotsDrawn === 1 && cg7.dotOnOpenLine, JSON.stringify(cg7));
         await tv.ctx.close();
         project.name = LONG; tasks.forEach((t) => { t.projectName = LONG; });
       }
@@ -188,24 +206,9 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
         say(`#5053 long name at ${width}: the wrapped title's lines do not touch (line-height at least 1.15 x its 24px)`, lh >= 27.6, String(lh));
         say(`#5053 long name at ${width}: the chevron stays beside the title, on its first line`, g.display !== 'none' && g.gap >= 0 && g.gap <= 24 && g.overlapY > 10 && Math.abs(t.chevTop - t.titleTop) < 24, JSON.stringify({ g, t }));
         say(`#5053 long name at ${width}: the title stays on screen`, t.right <= t.inner, JSON.stringify(t));
-        /* #5072: when the crumb wraps, its ' · ' must go to the next line WITH Open project, never dangle at the end of
-           the line above. The dot is found as a character, wherever it sits, so one assert reads both the old markup
-           (expected to fail) and the new. The arm only counts when the name ends on All tasks' line and Open project
-           wraps alone: that is the one shape where the old markup strands the dot. */
-        const cr = await tv.page.evaluate(() => {
-          const box = document.getElementById('tsk-crumb'), first = box.querySelector('[data-proj=""]').getBoundingClientRect(), open = box.querySelector('[data-open-project]').getBoundingClientRect();
-          const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT); let n, dot = null;
-          while ((n = w.nextNode())) { const i = n.data.indexOf('\u00b7'); if (i >= 0) { const rg = document.createRange(); rg.setStart(n, i); rg.setEnd(n, i + 1); dot = rg.getBoundingClientRect(); break; } }
-          const mid = (r) => (r.top + r.bottom) / 2;
-          // The name's last letter: the text right after All tasks, less any trailing spaces and dot.
-          const nameNode = box.querySelector('[data-proj=""]').nextSibling, s = nameNode && nameNode.nodeType === 3 ? nameNode.data : '';
-          const end = s.replace(/[\s\u00b7]+$/, '').length;
-          let last = null; if (end > 0) { const rg = document.createRange(); rg.setStart(nameNode, end - 1); rg.setEnd(nameNode, end); last = rg.getBoundingClientRect(); }
-          return { wrapped: open.top >= first.bottom - 1 && !!last && Math.abs(mid(last) - mid(first)) < 8, dotFound: !!dot, dotWithOpen: dot ? Math.abs(mid(dot) - mid(open)) < 8 : false,
-            dot: dot ? [Math.round(dot.left), Math.round(mid(dot))] : null, last: last ? [Math.round(last.left), Math.round(mid(last))] : null, open: [Math.round(open.left), Math.round(mid(open))], first: [Math.round(first.left), Math.round(mid(first))] };
-        });
-        say(`#5072 long name at ${width}: the name ends on All tasks' line and Open project wraps alone (the arm tests something)`, cr.wrapped, JSON.stringify(cr));
-        say(`#5072 long name at ${width}: the crumb's dot is on Open project's line, not dangling above it`, cr.dotFound && cr.dotWithOpen, JSON.stringify(cr));
+        const cg = await crumbGeom(tv.page);
+        say(`#5072 long name at ${width}: Open project takes its own line, at the crumb's left edge`, cg.shown && cg.openBelow && cg.openAtLeft, JSON.stringify(cg));
+        say(`#5072 long name at ${width}: no separator dot is drawn on a phone`, cg.shown && cg.dotsDrawn === 0, JSON.stringify(cg));
         const nb = await tv.page.evaluate(() => {
           const n = document.getElementById('tsk-new').getBoundingClientRect(), tr = document.getElementById('tsk-title').getBoundingClientRect();
           return { rightOfTitle: n.left >= tr.right, below: n.top >= tr.bottom - 2, inView: n.right <= window.innerWidth + 1 };

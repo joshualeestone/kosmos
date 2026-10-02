@@ -8,25 +8,28 @@ render-subback-4586.js). Merges after #5053.
 For one project the Tasks crumb is `All tasks › <name> · Open project`. On a phone, when Open project wraps to the
 next line, the ` · ` stays at the end of the first line and dangles.
 
-## Decision
-Wrap `· Open project` in one `<span class="tsk-crumb-open">` with `white-space: nowrap`, so the dot moves with the
-button. Desktop (no wrap) renders the same text on one line.
+## Decision (Mona Lisa's design call, 2026-10-02 18:08, reasoning on the card)
+At 30rem and below: Open project always on its own line, and the separator dot is not drawn (a dot starting a line
+reads as a stray mark; phone names wrap almost always, so one fixed layout). Wider: the dot stays, and `· Open project`
+is one nowrap unit so the dot never dangles at a line end.
 
-Rejected: dropping the dot at phone width (needs a breakpoint guess; a short name that fits on one line would lose its
-separator); a pseudo-element dot (moves the character out of the text, so copy and screen readers change).
+Markup: `name <span class="tsk-crumb-open"><span class="tsk-crumb-sep">·</span> <button ...>Open project</button></span>`.
+The phone rule (`@media (max-width: 30rem)`, the room's phone query) sets the open span to block and hides the sep.
 
-Weakest premise: the leading dot on the second line (`· Open project`) reads fine. That is a design call; Mona Lisa
-can override it to "no dot when wrapped", which CSS alone cannot detect.
+Superseded: my first build (dot leads line 2). Rejected by the designer.
+
+Weakest premise: 30rem is the line. Between 30rem and 40rem (the repo's other phone breakpoint) a long name can still
+wrap, and there the nowrap unit applies (dot kept, moves with the button).
 
 ## Pin
-render-subback-4586.js, the #5053 long-name loop at 390 and 360: (a) the crumb really wraps (the arm tests
-something); (b) the `·` character (found by a text walk, wherever it sits, so the assert reads the same on old markup)
-is on Open project's line. Expected to FAIL on the unmodified markup: run both arms when a test slot is free.
-
-Selectors other checks use (`#tsk-crumb button`, `#tsk-crumb [data-open-project]`, `[data-proj=""]`, the crumb's
-`textContent === ''` when no project) are descendant/textual and unaffected by the span.
+render-subback-4586.js, crumbGeom(): dots found as characters and counted as drawn when their box has width.
+- 390 and 360 (phone): Open project below All tasks, at the crumb's left edge; zero dots drawn. Expected to FAIL on the
+  old markup (the dot is drawn there).
+- 700: exactly one dot drawn, on Open project's line.
+Other checks' selectors (`#tsk-crumb button`, `[data-open-project]`, `[data-proj=""]`, empty-crumb textContent) are
+descendant/textual and unaffected. textContent is unchanged.
 
 ## Status
-- Fix + pin committed; design shots at ~/work/design-shots/kosmos-5072 show the dot on the second line, desktop same.
+- Fix + pin committed. Shots in ~/work/design-shots/kosmos-5072 show the SUPERSEDED first build: retake.
 - Both static gates pass.
-- TODO: blind review; run render-subback-4586.js on the fix and on the old markup (control) in a free slot; validation.
+- TODO: retake shots; blind review; run render-subback-4586.js on the fix and on the old markup (control) in a free slot; validation.
