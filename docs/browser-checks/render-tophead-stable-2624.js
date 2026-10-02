@@ -82,7 +82,7 @@ async function measure(page, view, notice, name) {
       // Left edges too (review 5): a top-only compare stays green if a side cluster moves sideways when the view flips.
       klinkX: left('.apphead header .klink'), youX: left('.apphead header .headright'), tabsTop: top('.apphead header .tabs'),
       // The center tabs' left edge, and the switcher's width (so a long-name arm can prove the name widened it).
-      tabsX: (() => { const t = document.querySelector('.apphead header .tabs'); if (!t) return null; const r = t.getBoundingClientRect(); return r.width > 0 ? Math.round(r.left * 10) / 10 : null; })(),
+      tabsX: left('.apphead header .tabs'),
       worldswW: (() => { const w = document.querySelector('.apphead header .worldsw'); return w ? Math.round(w.getBoundingClientRect().width * 10) / 10 : null; })(),
       // #4345: the center tabs now show in the consolidated view too, so they cannot tell the two
       // views apart. What the consolidated CSS still does, and only when its layout attribute and

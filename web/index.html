@@ -4826,7 +4826,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
          only visible header content and its margin separated it from the board. The
          header is now a real bar with its own border-bottom, and the notices ride inside
          it exactly as they do in the tab view -- so a consolidated-only bottom margin
-         made a shown notice the tallest item in the header's flex row, growing and
+         made a shown notice the tallest item in the header's row (then a flex row), growing and
          misaligning the bar. Dropping them keeps the notices consistent across views
          (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
          :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
