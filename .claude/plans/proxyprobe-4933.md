@@ -21,9 +21,10 @@ stopped board still reads as stopped, never as "another app".
   when a proxy curl uses for http:// is set (http_proxy, all_proxy, ALL_PROXY), one direct probe (1 s to connect, 2 s
   in all, curl -v, LC_ALL=C), memoised for the run:
   - "Connected to": direct (a busy board connects and then waits; review 1 found the first version read it as blocked);
-  - refused: one request through the proxy; only a Kosmos health body ("app":"kosmos") picks the proxy (a network
-    namespace whose loopback is its own), so the empty answer of #4466's proxy keeps direct (the board is down);
-  - anything else (not permitted, a connect timeout): the proxy.
+  - anything else (refused, not permitted, a connect timeout): one request through the proxy; only a Kosmos health
+    body ("app":"kosmos") picks the proxy. Review 2: without that proof on EVERY arm, a saturated board timing out
+    behind a corporate proxy would have sent the board and agent tokens to that proxy. An unproven "direct" is not
+    remembered, so kosmos start asks again once the board is up. The probe is 1.2 s at most.
 - The proxy route is PER CALL: curl --noproxy '' (measured: it overrides NO_PROXY and uses the proxy), on the CLI's
   own three curls. Nothing in the environment is rewritten (review 1: a stripped list would have reached every agent).
 - KOSMOS_LOOPBACK_PROBE_URL: a test seam for the probe target.
