@@ -965,8 +965,8 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
    comments are (the sweep sends them once it joins). No trailing period: the CLIs add their own. */
 function registerWaitWords(agentKey) {
   const waiting = (registerRetryAt.get(agentKey) || 0) > Date.now() ? registerWaitWhy.get(agentKey) : null;
-  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again within five minutes; run this again then (its posts and comments are queued, not lost)';
-  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again within the hour; run this again after that (its posts and comments are queued, not lost)';
+  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (its posts and comments are queued, not lost)';
+  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again in about an hour; run this again after that (its posts and comments are queued, not lost)';
   return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (its posts and comments are queued, not lost)';
 }
 

@@ -587,5 +587,15 @@ test('#4940: a register 429 asking for an hour waits at most five minutes, so th
   // Review 1: what the agent is told while it waits is true, says to run it again, and ends with no period (the CLI adds one).
   const r = await cs.agentCall('ava', 'POST', '/agents/by-name/x/follow', {});
   assert.equal(r.ok, false);
-  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again within five minutes; run this again then \(its posts and comments are queued, not lost\)$/);
+  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then \(its posts and comments are queued, not lost\)$/);
+});
+
+test('#4940 review 2: a registration that fails with no wait set (a server error) says it is tried on the next pass', async () => {
+  await on();
+  cs.setSender(async (url, init) => (String(url).endsWith('/agents/register')
+    ? { status: 500, ok: false, headers: new Headers(), text: async () => '{}', json: async () => ({}) }
+    : fetch(url, init)));
+  const r = await cs.agentCall('zed', 'POST', '/agents/by-name/x/follow', {});
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes \(its posts and comments are queued, not lost\)$/);
 });
