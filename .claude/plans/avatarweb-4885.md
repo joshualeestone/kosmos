@@ -37,10 +37,19 @@ picture Kosmos can no longer take down is said in Settings.
 ## Decided, not missed (review 1)
 - A picture of pure noise with transparency cannot be kept transparent within 60,000 bytes in WebKit (no WebP); it
   comes back on white. A real logo or illustration compresses and stays transparent (F6b).
-- The animated-picture test (an acTL or ANIM chunk in the first 4 KB) has no browser-check arm: building a valid
-  animated PNG in the page needs a CRC writer. The community refuses one it misses, and the board then shows the mark.
-- The create flow's fallback mark and the setup assistant's guide picture skip fitPicture: both are small stills
-  made by Kosmos, not chosen by the person.
+- (review 2) What is kept as chosen is decided by the bytes (pictureStill), never the file's name or type: a PNG
+  with no acTL/fcTL/fdAT chunk anywhere, or a WebP with no ANIM/ANMF chunk and the VP8X animation flag clear, as the
+  community reads them. Tested on crafted bytes in node (an animation chunk past 4 KB included) and in the browser
+  (F9, a JPEG whose file says PNG).
+- Only the fallback mark in uploadPendingAvatar's failure branch, and the setup assistant's guide picture (saved by
+  the board), skip fitPicture: both are small stills made by Kosmos. The default generated marks go through it.
+- (review 2) A very large photo is decoded whole before it is shrunk; if the browser cannot hold it, fitPicture
+  returns it as it was, the same result as before this change. Decoding at a reduced size would have to keep the
+  rotation tag's effect, which createImageBitmap's resize options do not promise everywhere.
+- (review 2) While the board half is still a draft, Settings says pictures go with the agents and they do not yet.
+  Both merge before the next cut, the board half promptly after this one; a release carrying only this half would
+  need the board half added or this line held.
+- (review 2) A failed Settings read hides the stuck-picture line until the next good read, as the industry line does.
 
 ## Weakest premise
 That 512 px is enough for every place Kosmos shows a picture. Agent pictures render at most a few hundred CSS pixels

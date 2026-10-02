@@ -74,3 +74,35 @@ test('#4885: a picture the board can no longer take down is said in Settings; no
   assert.ok(!/[—]/.test(one.textContent + two.textContent));
   assert.match(HTML, /<p class="dhint" id="community-picture-stuck" style="margin:4px 0 0;" hidden><\/p>/);
 });
+
+/* pictureStill reads the bytes the way the community does (kosmos-community app/avatars.py). */
+const pictureStill = new Function(lift('pictureStill') + '\nreturn pictureStill;')();
+const chunk = (kind, data) => {
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  return Buffer.concat([len, Buffer.from(kind, 'latin1'), data, Buffer.alloc(4)]);   // the CRC is not read here
+};
+const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const png = (...chunks) => new Uint8Array(Buffer.concat([PNG_SIG, chunk('IHDR', Buffer.alloc(13)), ...chunks, chunk('IEND', Buffer.alloc(0))]));
+const riff = (...chunks) => {
+  const body = Buffer.concat([Buffer.from('WEBP', 'latin1'), ...chunks]);
+  const size = Buffer.alloc(4); size.writeUInt32LE(body.length);
+  return new Uint8Array(Buffer.concat([Buffer.from('RIFF', 'latin1'), size, body]));
+};
+const wchunk = (kind, data) => {
+  const len = Buffer.alloc(4); len.writeUInt32LE(data.length);
+  return Buffer.concat([Buffer.from(kind, 'latin1'), len, data, data.length & 1 ? Buffer.alloc(1) : Buffer.alloc(0)]);
+};
+
+test('#4885 pictureStill: a still PNG or WebP is kept; an animated one, a JPEG, or a cut-short file is not', () => {
+  assert.equal(pictureStill(png(chunk('IDAT', Buffer.alloc(20)))), true);
+  // An animation chunk after a text chunk far past the first 4 KB (where a head-only scan stopped looking).
+  assert.equal(pictureStill(png(chunk('tEXt', Buffer.alloc(6000, 65)), chunk('acTL', Buffer.alloc(8)), chunk('IDAT', Buffer.alloc(20)))), false);
+  assert.equal(pictureStill(png(chunk('IDAT', Buffer.alloc(20)), chunk('fdAT', Buffer.alloc(8)))), false);
+  assert.equal(pictureStill(png(chunk('IDAT', Buffer.alloc(20))).subarray(0, 40)), false, 'a PNG cut short before IEND');
+  assert.equal(pictureStill(riff(wchunk('VP8 ', Buffer.alloc(10)))), true);
+  const vp8x = Buffer.alloc(10); vp8x[0] = 0x02;   // the animation flag
+  assert.equal(pictureStill(riff(wchunk('VP8X', vp8x), wchunk('VP8 ', Buffer.alloc(10)))), false);
+  assert.equal(pictureStill(riff(wchunk('ICCP', Buffer.alloc(5001)), wchunk('ANIM', Buffer.alloc(6)))), false);
+  assert.equal(pictureStill(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])), false, 'a JPEG is never kept as chosen');
+  assert.equal(pictureStill(new Uint8Array(0)), false);
+});

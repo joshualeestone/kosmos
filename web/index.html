@@ -39506,10 +39506,34 @@ const PICTURE_MAX_BYTES = 60000;
 const PICTURE_MIN_SIDE = 16;
 const PICTURE_MAX_SIDE = 2048;
 let PICTURE_WEBP = null;   // whether this browser can write WebP (WebKit cannot); asked once
-function pictureAnimated(bytes) {
-  // An animated PNG has an acTL chunk, an animated WebP an ANIM chunk; either near the start of the file.
-  const head = String.fromCharCode.apply(null, bytes.subarray(0, Math.min(bytes.length, 4096)));
-  return head.includes('acTL') || head.includes('ANIM');
+/* Whether `bytes` are a still PNG or WebP, read from the bytes (never the file name), the way the community reads
+   them (app/avatars.py): a PNG with no acTL, fcTL or fdAT chunk anywhere; a WebP with no ANIM or ANMF chunk and the
+   VP8X animation flag clear. Anything else, or anything cut short, is not kept as chosen. */
+function pictureStill(bytes) {
+  const tag = (at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+  const u32be = (at) => ((bytes[at] << 24) >>> 0) + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3];
+  const u32le = (at) => bytes[at] + (bytes[at + 1] << 8) + (bytes[at + 2] << 16) + ((bytes[at + 3] << 24) >>> 0);
+  const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= 8 && PNG_SIG.every((b, i) => bytes[i] === b)) {
+    for (let at = 8; at + 8 <= bytes.length;) {
+      const kind = tag(at + 4);
+      if (kind === 'acTL' || kind === 'fcTL' || kind === 'fdAT') return false;
+      if (kind === 'IEND') return true;
+      at += 12 + u32be(at);
+    }
+    return false;
+  }
+  if (bytes.length >= 12 && tag(0) === 'RIFF' && tag(8) === 'WEBP') {
+    for (let at = 12; at + 8 <= bytes.length;) {
+      const kind = tag(at);
+      if (kind === 'ANIM' || kind === 'ANMF') return false;
+      if (kind === 'VP8X' && at + 8 < bytes.length && (bytes[at + 8] & 0x02)) return false;
+      const len = u32le(at + 4);
+      at += 8 + len + (len & 1);
+    }
+    return true;
+  }
+  return false;
 }
 async function fitPicture(blob) {
   let bmp = null;
@@ -39517,8 +39541,7 @@ async function fitPicture(blob) {
     if (!blob) return blob;
     bmp = await createImageBitmap(blob);
     const sidesOk = (w, h) => Math.min(w, h) >= PICTURE_MIN_SIDE && Math.max(w, h) <= PICTURE_MAX_SIDE;
-    if (blob.size <= PICTURE_MAX_BYTES && (blob.type === 'image/png' || blob.type === 'image/webp')
-        && sidesOk(bmp.width, bmp.height) && !pictureAnimated(new Uint8Array(await blob.arrayBuffer()))) return blob;
+    if (blob.size <= PICTURE_MAX_BYTES && sidesOk(bmp.width, bmp.height) && pictureStill(new Uint8Array(await blob.arrayBuffer()))) return blob;
     if (PICTURE_WEBP === null) {
       const probe = document.createElement('canvas');
       probe.width = probe.height = 1;
@@ -39527,7 +39550,9 @@ async function fitPicture(blob) {
     }
     const types = (PICTURE_WEBP ? ['image/webp'] : []).concat(['image/png', 'image/jpeg']);
     const big = Math.max(bmp.width, bmp.height) || 1;
-    for (const side of [512, 384, 256, 192, 128]) {
+    // Sides to try, largest first; a picture smaller than a step is tried once at its own size.
+    const sides = [...new Set([512, 384, 256, 192, 128].map((x) => Math.min(x, big)))];
+    for (const side of sides) {
       const k = Math.min(1, side / big);
       const w = Math.max(1, Math.round(bmp.width * k));
       const h = Math.max(1, Math.round(bmp.height * k));

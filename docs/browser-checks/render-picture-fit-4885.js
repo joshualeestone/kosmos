@@ -5,9 +5,10 @@
  * bytes, and every picture Kosmos stores passes through fitPicture in web/index.html first. This lifts that function
  * out of the real page and runs it in a real browser, because it is a canvas and an image decoder that do the work
  * and neither exists in node:
- *   F1  a big photo (a noisy 2000 x 1500 PNG, far over the cap) comes back as WebP or JPEG, at most 60,000 bytes,
+ *   F1  a big photo (a noisy 2000 x 1500 PNG, far over the cap) comes back as WebP, PNG or JPEG (WebKit cannot write
+ *       WebP, so it gets PNG or JPEG), at most 60,000 bytes,
  *       longest side at most 512 px, and it still decodes;
- *   F2  a GIF comes back as WebP or JPEG (the community takes no GIF);
+ *   F2  a GIF comes back as WebP, PNG or JPEG (the community takes no GIF);
  *   F3  a picture that already fits is returned untouched, the very same object;
  *   F4  something that is not a picture is returned as it was, and nothing throws;
  *   F5  a JPEG that already fits is still redrawn, and comes back within the cap;
@@ -16,6 +17,7 @@
  *   F6b a transparent logo too big to keep (2,500 px) stays transparent in every engine;
  *   F7  a phone JPEG with a rotation tag (EXIF Orientation 6) comes back upright, its sides swapped;
  *   F8  a thin banner is padded to the community's 16 px minimum, never squeezed under it;
+ *   F9  a JPEG whose file says PNG is still redrawn: what is kept is decided by the bytes, never the name;
  *   and every picture that comes back (F1, F2, F5 to F8) has each side from 16 to 2,048 px.
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
@@ -130,12 +132,16 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
         thin.getContext('2d').fillRect(0, 0, 3000, 20);
         const banner = await new Promise((res) => thin.toBlob(res, 'image/png'));
         const thinOut = await window.fitPicture(banner);
+        // F9: the F7 JPEG labelled as a PNG.
+        const lying = new Blob([plain], { type: 'image/png' });
+        const lyingOut = await window.fitPicture(lying);
         // F5: a small JPEG.
         const jpg = await new Promise((res) => small.toBlob(res, 'image/jpeg', 0.9));
         const jpgOut = await window.fitPicture(jpg);
         return {
           logoType: logoOut.type, logoSize: logoOut.size, logoSame: logoOut === logo, logoCorner: await corner(logoOut),
           transIn: trans.size, transType: transOut.type, transSize: transOut.size, transCorner: await corner(transOut),
+          lyingRedrawn: lyingOut !== lying, lyingType: lyingOut.type,
           rotDims: await decode(rotOut), thinDims: await decode(thinOut), thinSame: thinOut === banner,
           sides: await Promise.all([fit, gifOut, jpgOut, transOut, logoOut, rotOut, thinOut].map(decode)),
           jpgIn: jpg.type + ' ' + jpg.size, jpgRedrawn: jpgOut !== jpg, jpgType: jpgOut.type, jpgSize: jpgOut.size,
@@ -159,6 +165,7 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
       say(r.logoCorner[3] === 0 && r.logoSize <= 60000 && !r.logoSame, engine + ' F6b: a transparent logo too big to keep stays transparent', r.logoType + ' ' + r.logoSize + ' ' + JSON.stringify(r.logoCorner));
       say(r.rotDims.w === 100 && r.rotDims.h === 200, engine + ' F7: a phone JPEG with a rotation tag comes back upright', r.rotDims.w + 'x' + r.rotDims.h);
       say(!r.thinSame && Math.min(r.thinDims.w, r.thinDims.h) >= 16, engine + ' F8: a thin banner is padded to at least 16 px', r.thinDims.w + 'x' + r.thinDims.h);
+      say(r.lyingRedrawn, engine + ' F9: a JPEG whose file says PNG is redrawn, not kept', r.lyingType);
       const badSide = r.sides.filter((d) => Math.min(d.w, d.h) < 16 || Math.max(d.w, d.h) > 2048);
       say(badSide.length === 0, engine + ': every picture that comes back is 16 to 2,048 px on each side', JSON.stringify(r.sides));
       say(errors.length === 0, engine + ': no page errors', errors.join(' | '));
