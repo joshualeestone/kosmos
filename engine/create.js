@@ -2901,6 +2901,11 @@ function boardPort() {
 }
 
 function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
+  /* #2955: the board may have switched tmux at runtime (status.tmuxRepick) to read a newer server it met. A NEW agent
+     still bakes Kosmos's own tmux, the launcher's pick: its supervisor makes the same switch at start if the wall is
+     still there, and if that newer tmux is ever removed or upgraded the baked path is still Kosmos's. Only a value
+     that came from the switch is mapped back; an explicit path passed in stays as it is. */
+  if (process.env.KOSMOS_TMUX_BIN_ORIGINAL && tmuxBin === process.env.AGENT_WORKFORCE_TMUX_BIN) tmuxBin = process.env.KOSMOS_TMUX_BIN_ORIGINAL;
   /* #1704: the Kosmos this agent belongs to is the board's own world. The launchd
      label and the tmux session name are BOTH keyed by it (launchidentity.launchKey),
      so a named world's agent is `com.kosmos.agent.<name>+<world>` with a tmux session

@@ -502,30 +502,43 @@ function isVersionWall(got) {
    the board picked the bundled 3.5a at launch (no server yet), and three seconds later the fleet's Homebrew 3.6a
    started the server; the launcher's pick is made once, so the board read no agent until a person repointed the
    bundled path. Now the board asks again when it meets the wall: the first tmux that can LIST the live server wins,
-   for the whole process (every engine module reads AGENT_WORKFORCE_TMUX_BIN at call time, and a bare `tmux` follows
-   PATH). The agents' supervisors make the same choice the same way (bin/agent-supervisor.sh, _kosmos_supervisor_tmux).
+   for the whole process (the engine's readers and writers read AGENT_WORKFORCE_TMUX_BIN at call time, and a bare
+   `tmux` follows PATH; tmuxsignin and musesignin cache it, harmlessly, on their own private sockets). The agents'
+   supervisors make the same choice the same way (bin/agent-supervisor.sh, _kosmos_supervisor_tmux).
+   🔄 IT CAN GO BACK. The launcher's own pick is kept as KOSMOS_TMUX_BIN_ORIGINAL at the first switch and stays a
+   candidate, so when the newer server goes and Kosmos's own tmux starts the next one, the board follows it back.
+   ⏳ A SEARCH THAT FOUND NOTHING WAITS A MINUTE before it runs again: each candidate is a process, and a lasting wall
+   would otherwise spawn them on every look.
    ⚠️ ONLY OVER THE LAUNCHER'S OWN PICK (KOSMOS_TMUX_BIN_PICKED=1). An explicit AGENT_WORKFORCE_TMUX_BIN is a choice:
    the harness's stubs, a sandbox's inert tmux, a person's. Replacing one would put a test on the live fleet.
    KOSMOS_TMUX_KNOWN is a harness seam only, as in install/kosmos. Returns true when it switched. */
 let TMUX_CANDIDATES_SEAM = null;
+let TMUX_REPICK_MISSED_AT = 0;
+const TMUX_REPICK_WAIT_MS = 60000;
 function tmuxRepick() {
   if (process.env.KOSMOS_TMUX_BIN_PICKED !== '1') return false;
+  if (TMUX_REPICK_MISSED_AT && Date.now() - TMUX_REPICK_MISSED_AT < TMUX_REPICK_WAIT_MS) return false;
   const current = tmuxBin();
   const known = process.env.KOSMOS_TMUX_KNOWN !== undefined
     ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
     : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
-  const cands = TMUX_CANDIDATES_SEAM || known;
+  const cands = (TMUX_CANDIDATES_SEAM || known).concat(process.env.KOSMOS_TMUX_BIN_ORIGINAL || []);
   for (const c of cands) {
     if (!c || c === current) continue;
     try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
     const tried = shDetail(c, ['list-sessions']);
     if (tried.ran && tried.status === 0) {
+      if (!process.env.KOSMOS_TMUX_BIN_ORIGINAL) process.env.KOSMOS_TMUX_BIN_ORIGINAL = current;
       process.env.AGENT_WORKFORCE_TMUX_BIN = c;
-      process.env.PATH = path.dirname(c) + path.delimiter + (process.env.PATH || '');
+      TMUX_REPICK_MISSED_AT = 0;
+      // First on PATH, once: a board that switches back and forth must not grow PATH without end.
+      const dirs = String(process.env.PATH || '').split(path.delimiter).filter((d) => d && d !== path.dirname(c));
+      process.env.PATH = [path.dirname(c)].concat(dirs).join(path.delimiter);
       try { console.error(`[status] #2955: this computer's tmux server belongs to a different version than ${current}; reading through ${c}, which can`); } catch { /* no console */ }
       return true;
     }
   }
+  TMUX_REPICK_MISSED_AT = Date.now();
   return false;
 }
 /* The detail line for a look that failed. PURE, for the tests. #2955: the version wall gets a cause, said as likely
@@ -8349,7 +8362,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; }, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,

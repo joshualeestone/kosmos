@@ -5968,7 +5968,7 @@ function wallMachine() {
   return { sb, old, reader, refuser, sock };
 }
 function withEnv(vars, fn) {
-  const keys = ['AGENT_WORKFORCE_TMUX_BIN', 'KOSMOS_TMUX_BIN_PICKED', 'TMUX_TMPDIR', 'PATH'];
+  const keys = ['AGENT_WORKFORCE_TMUX_BIN', 'KOSMOS_TMUX_BIN_PICKED', 'KOSMOS_TMUX_BIN_ORIGINAL', 'TMUX_TMPDIR', 'PATH'];
   const was = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   try { for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } return fn(); }
   finally { for (const k of keys) { if (was[k] === undefined) delete process.env[k]; else process.env[k] = was[k]; } }
@@ -6014,3 +6014,49 @@ test('#2955: the board\'s look reads through the switch in the same call (no res
     });
   } finally { status.setTmuxCandidates(null); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
+test('#2955: the board follows the server back to Kosmos\'s own tmux, and PATH does not grow', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_TMUX_BIN_PICKED: '1', KOSMOS_TMUX_BIN_ORIGINAL: undefined, TMUX_TMPDIR: m.sock }, () => {
+      status.setTmuxCandidates([m.reader]);
+      assert.equal(status.tmuxRepick(), true);
+      assert.equal(process.env.KOSMOS_TMUX_BIN_ORIGINAL, m.old, 'the launcher\'s own pick was not kept');
+      // The newer server goes; Kosmos's own tmux starts the next one: the reader now meets the wall, the old one lists.
+      fs.writeFileSync(m.reader, '#!/bin/sh\necho "server exited unexpectedly" >&2; exit 1\n');
+      fs.writeFileSync(m.old, '#!/bin/sh\nexit 0\n');
+      status.setTmuxCandidates([m.reader]);
+      assert.equal(status.tmuxRepick(), true, 'the board could not follow the server back to Kosmos\'s own tmux');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.old);
+      const seen = process.env.PATH.split(nodePath.delimiter).filter((d) => d === m.sb).length;
+      assert.equal(seen, 1, 'PATH grew with each switch: ' + seen);
+    });
+  } finally { status.setTmuxCandidates(null); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: a search that found nothing waits before it runs again (no spawns on every look)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_TMUX_BIN_PICKED: '1', KOSMOS_TMUX_BIN_ORIGINAL: undefined, TMUX_TMPDIR: m.sock }, () => {
+      status.setTmuxCandidates([m.refuser]);
+      assert.equal(status.tmuxRepick(), false);
+      fs.writeFileSync(m.refuser, '#!/bin/sh\nexit 0\n');   // it could list now, but the wait has not passed
+      assert.equal(status.tmuxRepick(), false, 'a failed search ran again at once');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.old);
+    });
+  } finally { status.setTmuxCandidates(null); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: after a switch, a new agent still bakes Kosmos\'s own tmux into its job', () => {
+  const create = require('./create');
+  withEnv({ AGENT_WORKFORCE_TMUX_BIN: '/opt/homebrew/bin/tmux', KOSMOS_TMUX_BIN_ORIGINAL: '/k/tmux/bin/tmux' }, () => {
+    const switched = create.plistFor('ann', '/bin/claude', process.env.AGENT_WORKFORCE_TMUX_BIN);
+    assert.match(switched, /<string>\/k\/tmux\/bin\/tmux<\/string>/, 'the switched tmux was baked into a new agent\'s job');
+    assert.ok(!/opt\/homebrew\/bin\/tmux/.test(switched));
+    const explicit = create.plistFor('ann', '/bin/claude', '/somewhere/tmux');
+    assert.match(explicit, /<string>\/somewhere\/tmux<\/string>/, 'an explicit path was mapped');
+  });
+  withEnv({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux/bin/tmux', KOSMOS_TMUX_BIN_ORIGINAL: undefined }, () => {
+    assert.match(create.plistFor('ann', '/bin/claude', '/k/tmux/bin/tmux'), /<string>\/k\/tmux\/bin\/tmux<\/string>/);
+  });
+});
+

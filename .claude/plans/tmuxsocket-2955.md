@@ -20,7 +20,12 @@ it twice. Rejected for those reasons; reopen if the adopt screen is ever dropped
    /usr/local/bin/tmux) and switches the whole process to the first that can LIST the server: AGENT_WORKFORCE_TMUX_BIN
    (every engine module reads it at call time) and PATH (for bare `tmux` calls). Then the look is retried, in the same
    call: no restart. Only over the launcher's own pick (KOSMOS_TMUX_BIN_PICKED=1): an explicit choice (a harness stub,
-   a sandbox's inert tmux, a person's) is never replaced.
+   a sandbox's inert tmux, a person's) is never replaced. The launcher's pick is kept (KOSMOS_TMUX_BIN_ORIGINAL) and
+   stays a candidate, so the board follows the server back to Kosmos's own tmux. A search that found nothing waits a
+   minute before it runs again. PATH gets the directory first once, never twice.
+1b. engine/create.js plistFor: after a switch a NEW agent still bakes Kosmos's own tmux (the launcher's pick), not the
+   switched one; its supervisor switches at start if the wall is still there, and a removed or upgraded Homebrew tmux
+   cannot strand it.
 2. bin/agent-supervisor.sh `_kosmos_supervisor_tmux`: the same rule, at each start of an agent's job, before its first
    look: if the baked tmux meets the wall, the first tmux on PATH or in the known places that can LIST the server wins,
    and goes first on PATH so a bare tmux in the pane agrees. Plists are never rewritten, so this is where an old
@@ -52,3 +57,16 @@ the look succeeding in the same call, the wall's detail and its controls. superv
 switch at the wall (both wordings) with PATH; a working tmux, no server, a permission refusal and an unlisting
 candidate all keep the baked path; the reader is called before the first look. Every guard mutated, each reds its
 test. 115 test files that read the supervisor or the status engine pass.
+## Review rounds
+- Round 1 (opus): my first design (a launch-time preference for the system tmux, recorded in a file for supervisors)
+  REPLACED by the runtime rule above; see "Rejected in review round 1".
+- Round 2 (sonnet): FIXED W: the switch was one-way (the bundled tmux was never a candidate), so a board that had moved
+  to Homebrew's could not follow a later Kosmos-started server back; the launcher's pick is kept and stays a
+  candidate (test: switch and switch back). FIXED W: a failed search ran on every look (a process per candidate, up
+  to 5 s each, on the event loop); it now waits a minute (test). FIXED W: after a switch, new agents baked Homebrew's
+  tmux into their jobs, the brew-upgrade exposure this design avoids elsewhere; plistFor maps the switched value back
+  to the launcher's pick, an explicit path untouched (test). NOTED W (premise, already named): a supervisor asks once
+  per start; its candidate set (PATH plus the two known places) is a superset of the board's. NITs taken: the "every
+  module reads it at call time" comment names the two that cache (on private sockets); PATH no longer grows on
+  repeated switches. LEFT NIT: one console line per switch, unthrottled (a switch is rare by construction).
+
