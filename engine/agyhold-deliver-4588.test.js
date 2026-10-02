@@ -176,3 +176,21 @@ test('#4588 ask 3: two parallel automatic sends from one roster at cap 1: exactl
     assert.equal(q.CAP_STARTS.has('agy-paused'), false, 'a COULD_NOT delivery gives the reservation back');
   } finally { fs.rmSync(capSetting.FILE, { force: true }); require('./agyquota').CAP_STARTS.clear(); }
 });
+
+test('#4588 ask 3 review 3: a send after the person\'s own click ({ cap: false }) is not held by the cap; the quota still holds it', () => {
+  const capSetting = require('./agycap-setting');
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    const r = heldRoster(null).map((c) => (c.sessionName === 'agy-paused' ? { ...c, state: 'working' } : c));
+    SPAWNED.length = 0;
+    const capped = chat.deliverAutomatic('agy-idle', 'hello', r);
+    assert.equal(capped.held, true, 'CONTROL: the same send without the exemption is held by the cap');
+    require('./agyquota').CAP_STARTS.clear();
+    const exempt = chat.deliverAutomatic('agy-idle', 'hello', r, undefined, undefined, { cap: false });
+    assert.notEqual(exempt.held, true, 'the person-initiated send was held by the cap');
+    const until = new Date(Date.now() + 30 * 60e3).toISOString();
+    const quota = chat.deliverAutomatic('agy-idle', 'hello', heldRoster(until), undefined, undefined, { cap: false });
+    assert.equal(quota.held, true, 'the shared-quota hold still applies to it');
+    assert.equal(quota.heldBy, 'quota');
+  } finally { fs.rmSync(capSetting.FILE, { force: true }); require('./agyquota').CAP_STARTS.clear(); }
+});

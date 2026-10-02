@@ -125,3 +125,25 @@ test('review 1: the resume sweep is capped too, and spends no try while it waits
   assert.equal(q.CAP_STARTS.has('agy-b'), true, 'a resume that reached the pane reserves its slot');
   q.CAP_STARTS.clear();
 });
+
+test('review 3: an active reservation is not refreshed, so a later failed line cannot release it and the window runs from the first start', () => {
+  q.CAP_STARTS.clear();
+  const r = world({ 'agy-a': 'idle', 'agy-b': 'idle', 'agy-c': 'idle', 'claude-x': 'idle' });
+  const first = q.noteCapStart('agy-a', r, NOW, cap(1));
+  assert.deepEqual(first, { name: 'agy-a', at: NOW });
+  const second = q.noteCapStart('agy-a', r, NOW + 2 * 60e3, cap(1));
+  assert.equal(second, null, 'a second line to a reserved agent takes no new reservation');
+  q.releaseCapStart(second);   // the second line reached nothing
+  assert.equal(q.heldForCap('agy-b', r, NOW + 2 * 60e3, cap(1), NOENV), NOW + 2 * 60e3 + q.CAP_RECHECK_MS, 'the first reservation still holds the slot');
+  assert.equal(q.heldForCap('agy-b', r, NOW + q.CAP_START_MS, cap(1), NOENV), null, 'the window ran from the FIRST start, not the second line');
+  q.CAP_STARTS.clear();
+});
+
+test('review 3: nothing is reserved under the quota-hold brake', () => {
+  q.CAP_STARTS.clear();
+  const r = world({ 'agy-a': 'idle', 'agy-b': 'idle', 'agy-c': 'idle', 'claude-x': 'idle' });
+  assert.equal(q.noteCapStart('agy-a', r, NOW, cap(1), { AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '1' }), null);
+  assert.equal(q.CAP_STARTS.size, 0);
+  assert.deepEqual(q.noteCapStart('agy-a', r, NOW, cap(1), NOENV), { name: 'agy-a', at: NOW }, 'CONTROL: without the brake it reserves');
+  q.CAP_STARTS.clear();
+});

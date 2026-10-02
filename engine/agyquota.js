@@ -158,7 +158,8 @@ function heldForCap(session, roster, now, readCap = () => require('./agycap-sett
 }
 /* Reserve `session`'s slot for an automatic line about to be typed (only our antigravity agents). Returns a token for
    releaseCapStart, or null. */
-function noteCapStart(session, roster, now, readCap = () => require('./agycap-setting').read()) {
+function noteCapStart(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env) {
+  if (quotaHoldOff(env)) return null;   // the brake lifts the cap, so nothing is reserved under it either
   let max = 0;
   try { max = Number(readCap().maxWorking) || 0; } catch { max = 0; }
   if (max <= 0) return null;
@@ -166,6 +167,9 @@ function noteCapStart(session, roster, now, readCap = () => require('./agycap-se
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
   if (!isOurAgy(card)) return null;
   const name = String(card.sessionName);
+  /* Review 3: an active reservation is left alone. Refreshing it let an idle agent that keeps receiving lines hold the
+     slot for good, and a later line's failure would release the first one, which did reach the agent. */
+  if (startedRecently(name, now)) return null;
   CAP_STARTS.set(name, now);
   return { name, at: now };
 }

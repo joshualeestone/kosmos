@@ -203,7 +203,12 @@ function chk(ok, label, extra) {
       ).then(() => true).catch(() => false);
       chk(saved, `[${theme}] choosing 2 agents on screen saves it (the route reads 2 back)`, String(saved));
       await page.selectOption('#agycap-max', '0');
-      await page.waitForTimeout(400);
+      // The next theme reads "No limit by default", so the restore must land before it starts (review 3).
+      const restored = await page.waitForFunction(
+        async () => { const r = await fetch('/api/agycap-setting', { cache: 'no-store' }); const j = await r.json(); return j.maxWorking === 0; },
+        null, { timeout: 8000, polling: 200 },
+      ).then(() => true).catch(() => false);
+      chk(restored, `[${theme}] choosing No limit again saves it (the route reads 0 back)`, String(restored));
     }
   } finally {
     await browser.close();

@@ -458,6 +458,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
   if (!out.ok) { require('./engine/agyquota').releaseCapStart(capSlot); return { ok: false, status: 400, because: out.because }; }
+  if (!out.changed) require('./engine/agyquota').releaseCapStart(capSlot);   // nothing new was given, so no slot is held
   const r = roster || safeRoster();
   let heard;
   if (noPage) {
@@ -7694,7 +7695,8 @@ const server = http.createServer(async (req, res) => {
     /* #4959: the pickup is the board's own line after a restart (the handoff twin of the wake hello), so it goes
        through the shared-quota gate like every automatic sender (#4588). A held verdict is COULD_NOT, answered 409
        below, and the page shows its manual line. */
-    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    // #4588 ask 3: the person's own restart click started this, so the Gemini cap does not hold it (the quota does).
+    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined, { cap: false }); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
@@ -14988,8 +14990,10 @@ const server = http.createServer(async (req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
+        /* #4588 ask 3: the automatic hello is the page's wake after the person's own restart or team-create click, so the
+           Gemini cap does not hold it (cap: false); the shared-quota hold still does. */
         const delivery = await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
-          envelope, (attachments.wireNote(files.recs) || '') + reactionNote);
+          envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
         /* #4959: answered 200 with the held verdict, like every delivery this route answers (the verdict, not the status,
            says what happened). The handoff pickup route answers its held verdict 409, as it answers every COULD_NOT;
            a client reads delivery.held on either. */
@@ -19299,7 +19303,7 @@ function start(port = PORT) {
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926
           }).then((done) => {
-            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold'));   // #4797
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold or the Gemini limit'));   // #4797; #4588 ask 3
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
       }, 60 * 1000);

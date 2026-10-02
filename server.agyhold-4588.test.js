@@ -333,3 +333,12 @@ test('#4588 B pin: the quota-held room retry runs in the minute sweep beside swe
   assert.ok(sweep > -1 && at - sweep < 400, 'the retry is not in the nudge sweep\'s minute timer');
   assert.match(windowAfter('roomhold.flushReleased(r, {'), /isAgy:\s*\(c\)\s*=>\s*c\.runner === 'antigravity'/);
 });
+
+test('#4588 ask 3 review 3 pin: the restart pickup and the wake hello (sends after the person\'s own click) pass { cap: false }; no timer does', () => {
+  assert.match(CODE, /chat\.deliverAutomaticAsync\(name, handoffRestart\.pickupPrompt\(snap\.path\), safeRoster\(\), undefined, undefined, \{ cap: false \}\)/,
+    'the handoff pickup is held by the Gemini cap');
+  assert.match(CODE, /\(automatic \? chat\.deliverAutomaticAsync : chat\.deliverAsync\)\(name, body\.text, roster,\s*envelope, [^;]*\.\.\.\(automatic \? \[\{ cap: false \}\] : \[\]\)\)/,
+    'the wake hello is held by the Gemini cap');
+  const exempt = CODE.match(/\{ cap: false \}/g) || [];
+  assert.equal(exempt.length, 2, 'only those two sends may skip the cap, got ' + exempt.length);
+});

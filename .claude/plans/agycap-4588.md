@@ -94,3 +94,23 @@ happen while the person is messaging all of them directly.
   - isViaScreen is advisory, and the route comment says so.
 - Nothing is reserved while the cap is off.
 - The room-hold comment now names the behaviour change for every held post while a cap is set.
+
+## Review 3 (opus) and what changed
+- **An active reservation is no longer refreshed.** A refresh let an idle agent that keeps getting lines hold the slot
+  for good, and a later failed line released the first reservation, which had reached the agent. The window now runs
+  from the first start. Tested, and putting the refresh back reds it. Nothing is reserved under the brake.
+- **Sends that follow the person's own click skip the cap** (`{ cap: false }`): the restart pickup and the wake hello,
+  including the team-create step's hellos. The quota hold still applies. Tested at chat level, with a source pin that
+  exactly these two pass it.
+- **Not covered by the cap, by decision:** sends an agent makes itself:
+  - a task message to the task's assignees
+  - a part one agent gives another (givePart's process branch)
+  - membership lines
+
+  Refusing an agent's own deliberate action is a different product call from holding Kosmos's own automatic senders.
+  The Settings copy is narrowed to say "its own automatic messages, room posts and the tasks it hands out".
+
+  Weakest premise, added: in a team, agents giving each other work directly bypasses the cap. What would change my
+  mind: lockouts in a team that works mostly by agent-to-agent task messages.
+- givePart releases its slot when the give changed nothing. The flush log says "after the quota hold or the Gemini
+  limit". The browser check confirms its restore to No limit before the next theme.
