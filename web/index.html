@@ -52859,13 +52859,56 @@ function importNamesKept(box) {
   return kept;
 }
 function importNamesRestore(box, kept) {
-  if (!box || !kept || !kept.size || !box.querySelectorAll) return;
+  if (!box || !box.querySelectorAll) return;
   for (const row of Array.from(box.querySelectorAll('.fr-importrow'))) {
-    const k = kept.get(row.getAttribute('data-import-file'));
+    const k = kept && kept.get(row.getAttribute('data-import-file'));
     const f = k && row.querySelector('.fr-importinput');
-    if (!f) continue;
-    f.value = k.value;
-    if (k.focused && typeof f.focus === 'function') f.focus();
+    if (f) {
+      f.value = k.value;
+      if (k.focused && typeof f.focus === 'function') f.focus();
+    }
+    importRowApply(row);   // an add in flight or done shows as such on the new row (review 2)
+  }
+}
+
+/* kosmos#4962 (review 2): an add's state lives HERE, keyed by file, not only on the row that was pressed,
+   because both lists are redrawn whole. A redraw re-applies it (importNamesRestore), and an add that
+   finishes applies it to whichever copy of the row is on screen now, so a receipt is never lost and a row
+   is never offered again one keypress from a duplicate. */
+const IMPORT_ADDS = new Map();   // file -> { state: 'adding' | 'added', name }
+function importRowApply(row) {
+  if (!row || !row.querySelector) return;
+  const st = IMPORT_ADDS.get(row.getAttribute('data-import-file'));
+  if (!st) return;
+  const go = row.querySelector('.fr-importgo');
+  const field = row.querySelector('.fr-importinput');
+  if (field) { field.disabled = true; if (st.name && !field.value) field.value = st.name; }
+  if (!go) return;
+  go.disabled = true;
+  if (st.state === 'added') {
+    go.textContent = 'Added to Kosmos';
+    go.setAttribute('aria-label', 'Added to Kosmos, ' + st.name);
+    if (go.classList) go.classList.add('added');
+    if (row.classList) row.classList.add('done');
+    const shown = field && row.querySelector('.fr-importname');
+    if (shown) shown.textContent = st.name;
+  } else {
+    go.textContent = 'Adding\u2026';
+  }
+}
+function importRowsSync(file) {
+  for (const id of ['import-found', 'fr-fleet']) {
+    const box = document.getElementById(id);
+    if (!box || !box.querySelectorAll) continue;
+    for (const row of Array.from(box.querySelectorAll('.fr-importrow'))) {
+      if (row.getAttribute('data-import-file') !== file) continue;
+      if (IMPORT_ADDS.has(file)) { importRowApply(row); continue; }
+      /* the add failed: a copy redrawn meanwhile goes back to ready (the pressed row's own fail() handles it) */
+      const go = row.querySelector('.fr-importgo');
+      const field = row.querySelector('.fr-importinput');
+      if (go && go.textContent !== 'Add to Kosmos') { go.disabled = false; go.textContent = 'Add to Kosmos'; }
+      if (field) field.disabled = false;
+    }
   }
 }
 
@@ -52947,13 +52990,22 @@ async function addImportedInPlace(file, btn, row) {
     return;
   }
   const was = btn.textContent;
-  /* A refusal puts the cursor back in the Name field (disabling it while adding dropped focus to the
-     page) and marks it invalid; the reason is read with it through aria-describedby. */
-  const fail = (msg) => {
+  /* A refusal re-enables the Name field. Only a refusal ABOUT THE NAME (the engine says field:'name')
+     marks it invalid and puts the cursor back in it, the reason read with it through aria-describedby;
+     a missing account, a file that is not an agent, or a network failure is not the name's fault
+     (review 2). */
+  const fail = (msg, aboutName) => {
+    IMPORT_ADDS.delete(file);
     btn.disabled = false; btn.textContent = was;
     if (said) said.textContent = msg;
-    if (field) { field.disabled = false; field.setAttribute('aria-invalid', 'true'); field.focus(); }
+    if (field) {
+      field.disabled = false;
+      if (aboutName) { field.setAttribute('aria-invalid', 'true'); field.focus(); }
+      else field.removeAttribute('aria-invalid');
+    }
+    importRowsSync(file);
   };
+  IMPORT_ADDS.set(file, { state: 'adding', name: typed });
   if (field) field.disabled = true;
   btn.disabled = true;
   btn.textContent = 'Adding…';
@@ -53037,7 +53089,7 @@ async function addImportedInPlace(file, btn, row) {
      from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
      is "not made", so it re-enables and shows its reason like any other failure; this
      one-click add has no made-screen to advance a partial to. */
-  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.'); return; }
+  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.', out.field === 'name'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several
@@ -53055,12 +53107,15 @@ async function addImportedInPlace(file, btn, row) {
   btn.classList.add('added');
   if (row) row.classList.add('done');
   if (said) said.textContent = '';
-  /* kosmos#4962: the row now names what was made, rather than still saying it has no name. */
+  /* kosmos#4962: the row now names what was made, rather than still saying it has no name; and any copy
+     of the row a redraw put on screen meanwhile shows the receipt too. */
   if (field && row) {
     const shown = row.querySelector('.fr-importname');
     if (shown) shown.textContent = typed;
     field.removeAttribute('aria-invalid');
   }
+  IMPORT_ADDS.set(file, { state: 'added', name: typed || name });
+  importRowsSync(file);
   /* #2419: NO Undo on an import row, deliberately (Josh's spec for this screen is add +
      a green check: "add, add, add"). The sibling found/scan rows offer Undo, but their
      Add is a CONNECT (discover.disconnect puts the folder back); an imported agent is a
@@ -53086,7 +53141,7 @@ document.addEventListener('click', (e) => {
    invalid mark a refusal set. defaultPrevented is checked so a screen that already acted on this Enter
    (first run's Enter-means-Continue, which now exempts this field) never gets a second action. */
 function importNameEnter(e) {
-  if (e.key !== 'Enter' || e.isComposing || e.defaultPrevented || !e.target || !e.target.closest) return;
+  if (e.key !== 'Enter' || e.repeat || e.isComposing || e.defaultPrevented || !e.target || !e.target.closest) return;
   const field = e.target.closest('.fr-importinput');
   if (!field) return;
   const row = field.closest('.fr-importrow');
@@ -69788,11 +69843,13 @@ function frEnterSubmit(e) {
   if (!next || next.hidden || next.disabled || next.getAttribute('aria-disabled') === 'true') return;
   e.preventDefault();
   // ⚠️ preventDefault only, NOT stopPropagation -- deliberately. The Enter still
-  // bubbles to document; every document-level keydown handler in this file guards
-  // on Escape/Tab, so none double-acts on it today. This is the intentional
-  // asymmetry with fr-openai-key above, which DOES stopPropagation because it has
-  // a competing Enter gesture on the SAME field. If a document-level Enter handler
-  // is ever added, revisit this line before it double-triggers while the wizard is open.
+  // bubbles to document. A document-level Enter handler DOES exist: importNameEnter
+  // (kosmos#4962) presses a found file's row Add from its Name field. The two cannot
+  // both act on one Enter: this handler returns early for `.fr-importinput` (above),
+  // and importNameEnter ignores an Enter whose default is already prevented (this
+  // line). Any NEW document-level Enter handler must do the same. This is the
+  // intentional asymmetry with fr-openai-key above, which DOES stopPropagation
+  // because it has a competing Enter gesture on the SAME field.
   next.click();
 }
 document.getElementById('firstrun').addEventListener('keydown', frEnterSubmit);

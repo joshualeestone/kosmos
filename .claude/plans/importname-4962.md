@@ -48,3 +48,12 @@ id carries the surface (cf / fr) so both lists in the page cannot share ids; a t
 a redraw (importNamesKept / importNamesRestore at both draw sites). Nits: the Enter tests run the handlers; maxlength
 is the engine's 32; a row that was added names what was made; the keydown handler sits after the click handler
 it no longer interrupts; the test count corrected. 7 more sabotages red, one of them the blocker itself.
+
+## Review 2 (opus, blind, 2026-10-01 23:05): 0 blockers, 2 warnings, 3 nits, all taken
+W1: only a refusal ABOUT THE NAME (the engine's `field: 'name'`) marks the field invalid and moves the cursor
+into it; a missing account, a non-agent file or a network failure re-enables the field and says nothing about
+the name. W2: an add's state lives in IMPORT_ADDS, keyed by file; a redraw re-applies it (adding / added) and a
+finished add applies its receipt to whichever copy of the row is on screen, so a redraw mid-add never offers the
+row again one keypress from a duplicate (named rows' lost receipt is fixed by the same change). Nits: a held
+Enter (key repeat) does not press Add again; the adopt exemption is tested; frEnterSubmit's comment names
+importNameEnter and the rule that keeps the two apart. Unit 16/16; 6 more sabotages red.
