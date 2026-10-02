@@ -134,7 +134,10 @@ test('--only runs a file named twice once', () => {
 test('--only reads a relative name from the runner\'s tree, whatever the caller\'s folder, and says so', () => {
   // This file by its relative name: inside the run it stands down at once (KOSMOS_ONLY_4929_INNER), so it is quick.
   const rel = path.relative(path.join(__dirname), __filename);
-  const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
+  // An exported CDPATH naming a folder with its own tools/ must not send the relative cd there (review 13).
+  const cdp = fs.mkdtempSync(path.join(DIR, 'cdp-'));
+  fs.mkdirSync(path.join(cdp, 'tools'));
+  const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', CDPATH: cdp });
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
   const r = spawnSync('perl', ['-e', GROUP, 'bash', RUNNER, '--only', rel, './' + rel, 'tools/../' + rel, __filename], { env, encoding: 'utf8', timeout: 120000, cwd: DIR });
   const out = (r.stdout || '') + (r.stderr || '');
