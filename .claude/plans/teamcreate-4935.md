@@ -106,6 +106,17 @@ statuses change, and Project/Model look locked while making.
   write for it), so a reload drops the team and there is nothing to resume; an in-page resume returns from
   openTeamCreate before the menu reset, so TC.model and the menu both stay as they were.
 
+## Review 11 changes
+- A timed-out OpenAI read answers as "did not return", so the note says "could not reach OpenAI", not "once this
+  account is signed in" (the account is signed in; it was slow). The /api/roles read is bounded by the same wait and
+  falls into the failed-read path. Both tested with a read that never answers.
+- Deferred: re-asking OpenAI automatically after a timeout. tcPaint runs from the read's own callback, so an
+  automatic retry would re-read every 8 s while the step is open; the note now says plainly it could not reach
+  OpenAI and the team uses OpenAI's default, and a provider or account change asks again. Would change my mind:
+  seeing a cold read this slow in practice.
+- A fixed one-line model menu is not dimmed (it is a sentence, as on the single create); the wait's comment names
+  the test that shortens it; the browser-check README row names the #4935 arm.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 
