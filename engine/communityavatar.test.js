@@ -493,3 +493,100 @@ test('a picture that vanishes between the lookup and the read is looked at again
   await cs.sweep();
   assert.ok(held().raw.equals(png(2)));
 });
+
+test('saving over a picture whose name differs only in case keeps the new picture (macOS and Windows ignore case)', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  const dir = path.dirname(store.avatarPath('ava'));
+  fs.renameSync(store.avatarPath('ava'), path.join(dir, 'ava.JPG'));   // a JPEG saved elsewhere with a capital extension
+  fs.writeFileSync(path.join(dir, 'ava.JPG'), JPEG);
+  const ignoresCase = fs.existsSync(path.join(dir, 'ava.jpg'));
+  store.saveAvatar('ava', 'image/jpeg', Buffer.concat([JPEG, Buffer.from([1])]));
+  const left = fs.readdirSync(dir).filter((f) => f.toLowerCase().startsWith('ava.'));
+  assert.equal(left.length, 1, 'expected one picture, found ' + JSON.stringify(left) + (ignoresCase ? ' (this disk ignores case)' : ''));
+  assert.ok(fs.readFileSync(path.join(dir, left[0])).equals(Buffer.concat([JPEG, Buffer.from([1])])), 'the new picture is not what is on disk');
+  assert.ok(store.avatarPath('ava'), 'the save left no picture at all');
+});
+
+const readKeys = () => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+const writeKeys = (k) => fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(k));
+const keyOf = (keys) => Object.keys(keys).find((a) => keys[a] && keys[a].apiKey);
+
+test('backoff: once the wait is over the picture is tried again; the wait never exceeds six hours', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { status: 503 };
+  store.saveAvatar('ava', 'image/png', png(1));
+  for (let i = 0; i < 4; i++) await cs.sweep();
+  assert.equal(puts().length, 3);
+  let keys = readKeys();
+  const a = keyOf(keys);
+  assert.ok(keys[a].avatarNextTry > Date.now(), 'no wait was set');
+  keys[a].avatarNextTry = Date.now() - 1;           // the wait is over
+  keys[a].avatarFails = 30;                         // and it has failed many times
+  writeKeys(keys);
+  await cs.sweep();
+  assert.equal(puts().length, 4, 'not tried again after the wait');
+  keys = readKeys();
+  const wait = keys[a].avatarNextTry - Date.now();
+  assert.ok(wait > 5.9 * 3600e3 && wait <= 6 * 3600e3 + 1000, 'the wait is not capped at six hours: ' + wait);
+  be.st.mode = {};
+  keys[a].avatarNextTry = Date.now() - 1; writeKeys(keys);
+  await cs.sweep();
+  assert.ok(held().raw.equals(png(1)));
+  assert.equal(readKeys()[a].avatarFails, undefined, 'a landed picture left its failure count');
+});
+
+test('a 404 for the picture route says it was not taken: the write-ahead mark is put back', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { status: 404 };
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  const keys = readKeys();
+  assert.equal(keys[keyOf(keys)].avatarUnsure, undefined, 'a 404 left the picture counted as maybe sent');
+  be.st.mode = { status: 503 };
+  store.saveAvatar('ava', 'image/png', png(2));
+  await cs.sweep();
+  const k2 = readKeys();
+  assert.equal(k2[keyOf(k2)].avatarUnsure, true, 'control: a 503 may have landed, so the mark stays');
+});
+
+test('a picture that changes while it is read is left for the next sweep, neither sent nor taken down', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  store.saveAvatar('ava', 'image/png', png(2));
+  const file = store.avatarPath('ava');
+  const realStat = fs.statSync;
+  let calls = 0;
+  fs.statSync = (f, ...rest) => {
+    const st = realStat(f, ...rest);
+    if (String(f) !== file) return st;
+    calls += 1;
+    return calls % 2 === 0 ? Object.assign(Object.create(Object.getPrototypeOf(st)), st, { ctimeMs: st.ctimeMs + 1 }) : st;
+  };
+  try { await cs.sweep(); } finally { fs.statSync = realStat; }
+  assert.ok(calls >= 2, 'control: the file was stat\'d twice');
+  assert.equal(puts().length, 1, 'a picture that changed while it was read was sent');
+  assert.equal(deletes().length, 0);
+  await cs.sweep();
+  assert.ok(held().raw.equals(png(2)));
+});
+
+test('pictureUnsendable counts pictures that cannot go as they are, and stops counting once one can', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/gif', GIF);
+  await cs.sweep();
+  assert.equal(cs.pictureUnsendable(), 1);
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  assert.equal(cs.pictureUnsendable(), 0);
+  be.st.mode = { refuse: true };
+  store.saveAvatar('ava', 'image/png', png(2));
+  await cs.sweep();
+  assert.equal(cs.pictureUnsendable(), 1, 'a picture the community refused is not counted');
+});

@@ -5629,7 +5629,8 @@ const server = http.createServer(async (req, res) => {
     let file = null;
     try { file = store.avatarPath(name); } catch { /* invalid name */ }
     if (!file) { sendJson(res, 404, { error: 'no picture for that agent' }); return; }
-    const ext = path.extname(file);
+    // #4885: the lookup also takes `.jpeg` and any case, so the type is read the same way.
+    const ext = path.extname(file).toLowerCase().replace(/^\.jpeg$/, '.jpg');
     const type = Object.keys(store.ALLOWED_IMAGES).find((k) => store.ALLOWED_IMAGES[k] === ext) || 'application/octet-stream';
     // Three things have to hold here, and each failed a different way before.
     //
@@ -5640,8 +5641,8 @@ const server = http.createServer(async (req, res) => {
     //    exists to remove.
     // 2. `open` succeeding is not enough: a directory opens fine and fails on
     //    first read, past the header. So the entry is stat'd and must be a
-    //    regular file. `store.avatarPath` prefix-scans the directory and will
-    //    return any matching entry, including a directory.
+    //    regular file. `store.avatarPath` returns any entry named like a
+    //    picture, including a directory.
     // 3. `pipeline` rather than `pipe`, because `pipe` neither forwards the
     //    source's errors (an unhandled 'error' event exits the process) nor
     //    destroys the source when the client goes away (60 aborted requests

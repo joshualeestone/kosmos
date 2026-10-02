@@ -428,8 +428,16 @@ function saveAvatar(name, contentType, buffer) {
   }
   // Replace rather than accumulate: one avatar per agent, and an old .png
   // left beside a new .jpg would win or lose by directory order.
-  // The new picture is already in place, so a failure here is not a failed save.
-  if (existing && existing !== dest) { try { fs.unlinkSync(existing); } catch { /* left beside it; the lookup takes one */ } }
+  // The new picture is already in place, so a failure here is not a failed save. On a disk that ignores case (the
+  // default on macOS and Windows) `ava.JPG` and `ava.jpg` are one file, and the rename has just replaced it: removing
+  // the old name would remove the new picture. So only a different file is removed.
+  if (existing && existing !== dest) {
+    try {
+      const a = fs.statSync(existing);
+      const b = fs.statSync(dest);
+      if (a.ino !== b.ino || a.dev !== b.dev) fs.unlinkSync(existing);
+    } catch { /* gone already, or left beside it; the lookup takes one */ }
+  }
   return dest;
 }
 

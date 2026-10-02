@@ -57,8 +57,13 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
   pictures after comments, so a failing picture route never delays comment posting and no take-down waits.
 - pictureUnreachable() counts agents whose picture is stuck up because the service refused their key, as
   industryUnreachable does; the web half shows it beside the industry line.
-- The "file changed while read" guard has no test: forcing a write between two stats needs an fs stub in a module
-  that reads fs directly. It can only ever skip a sweep, never send.
+- (review 11) The "file changed while read" guard is tested with an fs.statSync stub (the earlier note said it could
+  not be; it could).
+- (review 11) On a disk that ignores case, a save to `ava.jpg` over `ava.JPG` is one file: the old name is removed
+  only when it is a different file (inode and device), or the save would delete the picture it just wrote.
+- (review 11) A 4xx that says the request was not taken (not 408 or 429) puts the write-ahead mark back.
+- pictureUnsendable() counts pictures that cannot go as they are (over the cap, not a still picture, or refused), for
+  the web half's Settings line.
 
 - (review 4) No code-level gate holds the uploads until the web half ships. The draft status does, and gh refuses
   to merge a draft; a flag in the code would outlive the one-time ordering it exists for.

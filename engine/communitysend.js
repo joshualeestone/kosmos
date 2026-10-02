@@ -1243,6 +1243,9 @@ async function sweepAvatars(keys, on, { removals }) {
       saveJson(keysFile(), keys);
       log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes${sent !== null || wasUnsure ? ', and the one it showed before will be taken down from the next sweep' : ''}`);
     } else {
+      // An answer that says the request was not taken (a route that is not there, a body a proxy refused) puts the
+      // write-ahead mark back as it was; only a timeout, a 5xx, a 408 or a 429 may have landed.
+      if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429 && !wasUnsure) delete k.avatarUnsure;
       const first = k.avatarRetrying !== target;
       k.avatarRetrying = target;
       if (target !== null) {
@@ -2075,6 +2078,17 @@ function pictureUnreachable() {
   return Object.values(keys).filter((k) => k && k.refused && ((typeof k.avatarSent === 'string' && k.avatarSent) || k.avatarUnsure)).length;
 }
 
+/* #4885: how many registered agents' pictures cannot go as they are (over the cap, not a still PNG, JPEG or WebP, or
+   refused by the community), for the page to say so and to say that choosing it again in Kosmos fits it. null when the
+   sweep cannot run at all. */
+function pictureUnsendable() {
+  const keys = loadJson(keysFile());
+  if (!keys || !endpointAllowed()) return null;
+  return Object.values(keys).filter((k) => k && k.apiKey && !k.refused && (
+    (typeof k.avatarSkipLogged === 'string' && /^(too-big|type):/.test(k.avatarSkipLogged))
+    || (typeof k.avatarRefused === 'string' && k.avatarRefused))).length;
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
@@ -2084,7 +2098,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed,
