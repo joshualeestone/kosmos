@@ -9,9 +9,10 @@ This branch starts from origin/queueside-4911 (ebd450ba9): the wrapper calls 7 f
 The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, and CI runs a test that pins its behaviour; the test can never put a copy in the real queue.
 
 ## Change
-- `tools/queued-heavy.sh`: PigeonPete's reviewed #4911 wrapper (`~/.cache/claude-handoffs/queued-heavy.sh.4911-new`, round 20), with two edits:
+- `tools/queued-heavy.sh`: PigeonPete's reviewed #4911 wrapper (`~/.cache/claude-handoffs/queued-heavy.sh.4911-new`, round 20), with these edits:
   - the guards' checkout defaults to `$HOME/work/kosmos-bc-main-4610` (was a path under one user's home), still overridable by `QUEUED_HEAVY_LIB`;
-  - its header says the repo file is the source and `~/.cache/claude-handoffs/queued-heavy.sh` is the installed copy.
+  - its header says the repo file is the source and `~/.cache/claude-handoffs/queued-heavy.sh` is the installed copy;
+  - behaviour fixes found by this test's reviews (rounds 2-4): the side turn's two temp files are named under `${TMPDIR:-/tmp}` (macOS `mktemp -t` ignores TMPDIR; a stale TMPDIR falls back to /tmp); a killed wrapper's capper removes them; a killed but unreaped (zombie) wrapper counts as killed, so its command is stopped rather than run on unclaimed to the cap; `_qh_end` removes the stop file after the capper is gone.
 - `tools/test-queued-heavy-4977.sh`: Pete's dry harness (74 arms: side turns, yields, TERM and SIGKILL handling, nested turns, claim labels, which commands take an ordinary turn), run against this tree's own lib, plus:
   - every run of the wrapper goes through a shim that refuses (exit 99) unless KOSMOS_RUN_MARKER_DIR is inside the test's own mktemp dir; a control arm proves the shim refuses;
   - fake package managers first on PATH (as the harness had);
@@ -27,7 +28,7 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 
 ## Decisions
 - The repo copy keeps reading the guards from ONE main checkout, not the worktree it runs from: every worktree reading its own branch's lib is how several lib generations end up in one queue (item 1's cause).
-- Not done here: installing the repo copy over ~/.cache (rollout stays Pete's #4911 step: mv over the live one). After #4911's rollout the two are the same bytes but for the two edits above.
+- Not done here: installing the repo copy over ~/.cache (rollout stays Pete's #4911 step: mv over the live one). Because the repo copy carries the behaviour fixes above, the rollout should install THIS file (or the live copy gets them later by the same mv); told Pete.
 - Weakest premise: that the single main checkout stays updated; if not, every waiter reads the same stale lib (as today).
 
 ## Validation
