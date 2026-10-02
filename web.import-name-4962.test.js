@@ -36,7 +36,8 @@ test('a nameless row carries a labelled Name field with its helper; a named row 
   const m = /<input class="tk-inp fr-importinput" id="([^"]+)"/.exec(rows[0]);
   assert.ok(m, 'the nameless row has a Name field');
   assert.match(rows[0], new RegExp('<label class="fr-importlab" for="' + m[1] + '">Name</label>'), 'the field has a label tied to it');
-  assert.match(rows[0], new RegExp('aria-describedby="' + m[1] + '-help"'), 'the helper describes the field');
+  assert.match(rows[0], new RegExp('aria-describedby="' + m[1] + '-help ' + m[1] + '-said"'), 'the helper and the error line describe the field');
+  assert.match(rows[0], new RegExp('class="fr-importsaid"[^>]*id="' + m[1] + '-said"'), 'the error line carries that id');
   assert.match(rows[0], /What should we call it\? You can rename it anytime\./);
   assert.doesNotMatch(rows[1], /fr-importinput/, 'control: a row with a name asks for nothing');
 });
@@ -56,7 +57,11 @@ function rig({ withField, parsed, created }) {
   const cls = () => ({ add(c) { this.el.className += ' ' + c; } });
   row.classList = Object.assign(cls(), { el: row });
   let field = null;
-  if (withField) { field = t.create('input'); field.className = 'tk-inp fr-importinput'; row.appendChild(field); }
+  if (withField) {
+    field = t.create('input'); field.className = 'tk-inp fr-importinput';
+    field.removeAttribute = function (k) { delete this.attrs[k]; };
+    row.appendChild(field);
+  }
   const btn = t.create('button'); btn.className = 'btn uprime fr-importgo'; btn.textContent = 'Add to Kosmos';
   btn.classList = Object.assign(cls(), { el: btn });
   const said = t.create('p'); said.className = 'fr-importsaid';
@@ -80,6 +85,7 @@ test('an empty Name field asks for a name, sends nothing, and puts the cursor in
   assert.equal(r.calls.length, 0, 'nothing was sent');
   assert.equal(r.said.textContent, 'Give this agent a name first.');
   assert.equal(r.d.focused(), r.field);
+  assert.equal(r.field.getAttribute('aria-invalid'), 'true');
   assert.equal(r.btn.disabled, false, 'the button stays usable');
 });
 
@@ -110,19 +116,84 @@ test('a name the engine refuses shows its reason, and the field and button work 
   assert.match(r.said.textContent, /use letters, numbers, hyphens and underscores/);
   assert.equal(r.field.disabled, false);
   assert.equal(r.btn.disabled, false);
+  assert.equal(r.d.focused(), r.field, 'the cursor is back in the field to correct it (review 1)');
+  assert.equal(r.field.getAttribute('aria-invalid'), 'true', 'and the field is marked invalid');
 });
 
-test('Enter in the Name field presses that row\'s Add', () => {
-  const src = PAGE.slice(PAGE.indexOf('/* kosmos#4962: Enter in a nameless row'), PAGE.indexOf("document.addEventListener('click', (e) => {\n  const btn = e.target.closest('.fr-importgo');"));
-  assert.ok(src.length > 0 && src.length < 1200, 'the Enter handler moved; re-anchor this test');
-  assert.match(src, /e\.key !== 'Enter'/);
-  assert.match(src, /closest\('\.fr-importinput'\)/);
-  assert.match(src, /go\.click\(\)/);
-});
 
 test('what the person typed is the label even when the file carries a display name of its own', async () => {
   const r = rig({ withField: true, parsed: { ...PARSED_NAMELESS, displayName: 'Template Bot' }, created: CREATED });
   r.field.value = 'Claude Pip';
   await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
   assert.equal(r.calls[1].body.label, 'Claude Pip', 'the row asked them, so their word wins');
+});
+
+/* The two Enter handlers, run for real against fake events (review 1: the source-text test could not see
+   first run's Enter-means-Continue firing as well). */
+function enterRig() {
+  const t = makeDom();
+  const fr = t.add('firstrun');
+  const next = t.add('fr-next', 'button');
+  let nextClicks = 0; next.click = () => { nextClicks += 1; };
+  const row = t.create('div'); row.className = 'fr-importrow';
+  const field = t.create('input'); field.className = 'tk-inp fr-importinput';
+  const go = t.create('button'); go.className = 'btn uprime fr-importgo';
+  let goClicks = 0; go.click = () => { goClicks += 1; };
+  row.append(field, go); fr.appendChild(row);
+  const other = t.create('input'); other.className = 'tk-inp'; other.type = 'text'; fr.appendChild(other);
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', slice('frEnterSubmit') + '\n' + slice('importNameEnter') + '\nreturn { frEnterSubmit, importNameEnter };')(t.document);
+  const ev = (target, extra) => Object.assign({ key: 'Enter', target, defaultPrevented: false, isComposing: false, repeat: false,
+    preventDefault() { this.defaultPrevented = true; } }, extra || {});
+  return { api, field, go, other, ev, counts: () => ({ next: nextClicks, go: goClicks }) };
+}
+
+test('Enter in the Name field on first run adds that row and does NOT press Continue', () => {
+  const r = enterRig();
+  const e = r.ev(r.field);
+  r.api.frEnterSubmit(e);      // #firstrun's handler runs first (it is on an ancestor)
+  r.api.importNameEnter(e);    // then the document's
+  assert.deepEqual(r.counts(), { next: 0, go: 1 });
+});
+
+test('control: Enter in an ordinary first-run text field still presses Continue, and does not add', () => {
+  const r = enterRig();
+  const e = r.ev(r.other);
+  r.api.frEnterSubmit(e);
+  r.api.importNameEnter(e);
+  assert.deepEqual(r.counts(), { next: 1, go: 0 });
+});
+
+test('Enter while composing, or with Add disabled, or already handled, does nothing', () => {
+  const r = enterRig();
+  r.api.importNameEnter(r.ev(r.field, { isComposing: true }));
+  r.go.disabled = true; r.api.importNameEnter(r.ev(r.field)); r.go.disabled = false;
+  r.api.importNameEnter(r.ev(r.field, { defaultPrevented: true }));
+  assert.deepEqual(r.counts(), { next: 0, go: 0 });
+});
+
+test('the two surfaces give the same file different field ids (both can be in the page)', () => {
+  const items = [{ file: '/Users/p/Downloads/pip.md', name: '' }];
+  const id = (h) => /class="tk-inp fr-importinput" id="([^"]+)"/.exec(h)[1];
+  assert.notEqual(id(foundImportRowsHtml(items, 'cf')), id(foundImportRowsHtml(items, 'fr')));
+});
+
+test('a typed name and the cursor survive a redraw of the list', () => {
+  const t = makeDom();
+  const box = t.add('import-found');
+  const build = () => {
+    box.textContent = '';
+    const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/Users/p/Downloads/pip.md');
+    const f = t.create('input'); f.className = 'tk-inp fr-importinput'; row.appendChild(f); box.appendChild(row);
+    return f;
+  };
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\nreturn { importNamesKept, importNamesRestore };')(t.document);
+  const f1 = build(); f1.value = 'Claude Pip'; f1.focus();
+  const kept = api.importNamesKept(box);
+  const f2 = build();
+  assert.equal(f2.value, '', 'control: the redraw alone empties it');
+  api.importNamesRestore(box, kept);
+  assert.equal(f2.value, 'Claude Pip');
+  assert.equal(t.focused(), f2);
 });

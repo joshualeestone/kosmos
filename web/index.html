@@ -52812,7 +52812,7 @@ async function finishImport(data, gen, btn) {
    The row keeps `data-import-file` (the click handler reads it to add the file by path) but
    shows none of it. The Add is one click, in place -- addImportedInPlace, not a jump to the
    create form -- and the `.fr-importsaid` line is empty until something goes wrong. */
-function foundImportRowsHtml(items) {
+function foundImportRowsHtml(items, scope) {
   return (items || []).map((c, i) => {
     const file = String(c && c.file ? c.file : '');
     const name = String(c && c.name ? c.name : '');
@@ -52822,12 +52822,14 @@ function foundImportRowsHtml(items) {
        name only, so two of them are still tellable apart to assistive tech. */
     const label = name || file;
     /* kosmos#4962: a file that does not say what to call the agent asks for a name right here. The id
-       carries the row's index as well as the path, because cssId keeps only the last 60 characters and
-       two files can share a tail. */
-    const fid = 'importname-' + i + '-' + cssId(file);
+       carries the surface (both the create form and first run draw these rows, from the same scan, and
+       both can be in the page at once) and the row's index as well as the path, because cssId keeps only
+       the last 60 characters and two files can share a tail. maxlength is the engine's own 32 (create.js
+       nameProblem), so the field cannot take a name the engine will refuse for length. */
+    const fid = 'importname-' + String(scope || 'x') + '-' + i + '-' + cssId(file);
     const ask = name ? '' : '<label class="fr-importlab" for="' + esc(fid) + '">Name</label>'
-      + '<input class="tk-inp fr-importinput" id="' + esc(fid) + '" type="text" autocomplete="off" maxlength="60"'
-      + ' placeholder="e.g. Site monitor" aria-describedby="' + esc(fid) + '-help">'
+      + '<input class="tk-inp fr-importinput" id="' + esc(fid) + '" type="text" autocomplete="off" maxlength="32"'
+      + ' placeholder="e.g. Site monitor" aria-describedby="' + esc(fid) + '-help ' + esc(fid) + '-said">'
       + '<span class="fr-importhelp" id="' + esc(fid) + '-help">What should we call it? You can rename it anytime.</span>';
     return '<div class="fr-importrow" data-import-file="' + esc(file) + '">'
       + '<span class="fr-importtext">'
@@ -52838,9 +52840,33 @@ function foundImportRowsHtml(items) {
       + '<button class="btn uprime fr-importgo" type="button"'
       + ' aria-label="Add to Kosmos, ' + esc(label) + '">Add to Kosmos</button>'
       + '</span>'
-      + '<p class="fr-importsaid" role="status" aria-live="polite"></p>'
+      + '<p class="fr-importsaid" role="status" aria-live="polite"' + (name ? '' : ' id="' + esc(fid) + '-said"') + '></p>'
       + '</div>';
   }).join('');
+}
+
+/* kosmos#4962: a nameless row's Name field is the one form control in these lists, and both lists are
+   redrawn whole (the import scan's two phases, first run's re-scans). Keep what was typed, and the cursor,
+   across a redraw, keyed by the row's file. */
+function importNamesKept(box) {
+  const kept = new Map();
+  if (!box || !box.querySelectorAll) return kept;
+  for (const f of Array.from(box.querySelectorAll('.fr-importinput'))) {
+    const row = f.closest && f.closest('.fr-importrow');
+    const file = row && row.getAttribute('data-import-file');
+    if (file && (f.value || document.activeElement === f)) kept.set(file, { value: f.value, focused: document.activeElement === f });
+  }
+  return kept;
+}
+function importNamesRestore(box, kept) {
+  if (!box || !kept || !kept.size || !box.querySelectorAll) return;
+  for (const row of Array.from(box.querySelectorAll('.fr-importrow'))) {
+    const k = kept.get(row.getAttribute('data-import-file'));
+    const f = k && row.querySelector('.fr-importinput');
+    if (!f) continue;
+    f.value = k.value;
+    if (k.focused && typeof f.focus === 'function') f.focus();
+  }
 }
 
 /* Fetches the disk scan and paints the importable files into the import panel. Called
@@ -52869,8 +52895,10 @@ async function populateFoundImports() {
     const tccHint = tccOut
       ? '<p class="fr-scanhint">Could not scan Documents, Downloads, or Desktop this time.</p>' : '';
     if (!items.length) { wrap.innerHTML = tccHint; wrap.hidden = false; return; }
+    const kept = importNamesKept(wrap);   // kosmos#4962: a typed name survives the second phase's repaint
     wrap.innerHTML = '<p class="flabel">Agent files found on this computer</p>'
-      + foundImportRowsHtml(items) + more + tccHint;
+      + foundImportRowsHtml(items, 'cf') + more + tccHint;
+    importNamesRestore(wrap, kept);
     wrap.hidden = false;
   };
   let body = null;
@@ -52914,11 +52942,18 @@ async function addImportedInPlace(file, btn, row) {
   const typed = field ? field.value.trim() : '';
   if (field && !typed) {
     if (said) said.textContent = 'Give this agent a name first.';
+    field.setAttribute('aria-invalid', 'true');
     field.focus();
     return;
   }
   const was = btn.textContent;
-  const fail = (msg) => { btn.disabled = false; btn.textContent = was; if (field) field.disabled = false; if (said) said.textContent = msg; };
+  /* A refusal puts the cursor back in the Name field (disabling it while adding dropped focus to the
+     page) and marks it invalid; the reason is read with it through aria-describedby. */
+  const fail = (msg) => {
+    btn.disabled = false; btn.textContent = was;
+    if (said) said.textContent = msg;
+    if (field) { field.disabled = false; field.setAttribute('aria-invalid', 'true'); field.focus(); }
+  };
   if (field) field.disabled = true;
   btn.disabled = true;
   btn.textContent = 'Adding…';
@@ -53020,6 +53055,12 @@ async function addImportedInPlace(file, btn, row) {
   btn.classList.add('added');
   if (row) row.classList.add('done');
   if (said) said.textContent = '';
+  /* kosmos#4962: the row now names what was made, rather than still saying it has no name. */
+  if (field && row) {
+    const shown = row.querySelector('.fr-importname');
+    if (shown) shown.textContent = typed;
+    field.removeAttribute('aria-invalid');
+  }
   /* #2419: NO Undo on an import row, deliberately (Josh's spec for this screen is add +
      a green check: "add, add, add"). The sibling found/scan rows offer Undo, but their
      Add is a CONNECT (discover.disconnect puts the folder back); an imported agent is a
@@ -53033,16 +53074,6 @@ async function addImportedInPlace(file, btn, row) {
    the create form's import panel (#import-found) AND the find-agents screen
    (#fr-fleet, via frPaintScan). One handler, one behaviour on both: add the file in
    place (addImportedInPlace), never jump to the create form. */
-/* kosmos#4962: Enter in a nameless row's Name field presses that row's Add. */
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' || e.isComposing || !e.target || !e.target.closest) return;
-  const field = e.target.closest('.fr-importinput');
-  if (!field) return;
-  const go = field.closest('.fr-importrow') && field.closest('.fr-importrow').querySelector('.fr-importgo');
-  if (!go || go.disabled) return;
-  e.preventDefault();
-  go.click();
-});
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.fr-importgo');
   if (!btn || btn.disabled) return;
@@ -53050,6 +53081,24 @@ document.addEventListener('click', (e) => {
   const file = row && row.getAttribute('data-import-file');
   if (!file) return;
   addImportedInPlace(file, btn, row);
+});
+/* kosmos#4962: Enter in a nameless row's Name field presses that row's Add; typing again clears the
+   invalid mark a refusal set. defaultPrevented is checked so a screen that already acted on this Enter
+   (first run's Enter-means-Continue, which now exempts this field) never gets a second action. */
+function importNameEnter(e) {
+  if (e.key !== 'Enter' || e.isComposing || e.defaultPrevented || !e.target || !e.target.closest) return;
+  const field = e.target.closest('.fr-importinput');
+  if (!field) return;
+  const row = field.closest('.fr-importrow');
+  const go = row && row.querySelector('.fr-importgo');
+  if (!go || go.disabled) return;
+  e.preventDefault();
+  go.click();
+}
+document.addEventListener('keydown', importNameEnter);
+document.addEventListener('input', (e) => {
+  const f = e.target && e.target.closest && e.target.closest('.fr-importinput');
+  if (f) f.removeAttribute('aria-invalid');
 });
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
@@ -69729,6 +69778,10 @@ function frEnterSubmit(e) {
     // that box did nothing; keep it that way. A blanket INPUT carve-out is wrong
     // (About-you's text inputs DO want Enter=Continue), so this is scoped to search.
     if (tag === 'INPUT' && String(t.type).toLowerCase() === 'search') return;
+    /* kosmos#4962: a row's Name field has its own Enter (it presses that row's Add, the document handler
+       below), so Enter there must not also press Continue and end setup in the middle of the add. The
+       first-run adopt field had the same problem and gets the same exemption. */
+    if (t.closest && (t.closest('.fr-importinput') || t.closest('.fr-adoptinput'))) return;
   }
   if (document.getElementById('firstrun').hidden) return;
   const next = document.getElementById('fr-next');
@@ -70395,11 +70448,13 @@ function frPaintScan() {
   // time (the app-identity hatch did not answer). Some agents were found elsewhere; say the rest
   // could not be reached rather than implying the found set is everything.
   const tccOut = !!(FR_SCAN && FR_SCAN.bounded && FR_SCAN.bounded.tccUnavailable);
+  const kept = importNamesKept(box);   // kosmos#4962: a typed name survives a re-scan's repaint
   box.innerHTML = '<p>These are on this computer but not yet in Kosmos. Add the ones '
     + 'that are yours.' + (more ? ' There may be more than shown here.' : '') + '</p>'
     + (cand.length ? '<div class="fr-found">' + scanRowsHtml(cand) + '</div>' : '')
-    + (imp.length ? '<div class="fr-found fr-found-import">' + foundImportRowsHtml(imp) + '</div>' : '')
+    + (imp.length ? '<div class="fr-found fr-found-import">' + foundImportRowsHtml(imp, 'fr') + '</div>' : '')
     + (tccOut ? '<p class="fr-scanhint">Could not scan Documents, Downloads, or Desktop this time.</p>' : '');
+  importNamesRestore(box, kept);
   /* 🛑 `Continue`, NOT "Take me to my agents" -- the same reason `frPaintFound` gives:
      nothing is added until a button is pressed, so the board still shows what tmux
      shows, and a person who added nothing must not be promised a fleet. */
