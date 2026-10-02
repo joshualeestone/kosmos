@@ -43,7 +43,7 @@ happen while the person is messaging all of them directly.
 
 ## Tests
 - engine/agycap-setting.test.js (6): default, the set, round trip, refusals write nothing, a bad file reads no limit.
-- engine/agycap-gate-4588.test.js (12, after reviews 1 and 3 added the reservation, resume-sweep and brake arms),
+- engine/agycap-gate-4588.test.js (14 after reviews 1, 3 and 7 added the reservation, resume-sweep, brake and stale-clock arms),
   with real fleet cards:
   - held at the cap
   - not held under it or with no limit
@@ -54,7 +54,7 @@ happen while the person is messaging all of them directly.
   - heldForAgy's order
 - engine/agyhold-deliver-4588.test.js: deliverAutomatic at the cap is COULD_NOT plus held with the cap reason, and no
   process runs.
-- server.agycap-4588.test.js (5):
+- server.agycap-4588.test.js (5, the first boots the board):
   - GET defaults
   - a PUT from the screen round-trips
   - a PUT from a process gets 403 and the value stays
@@ -166,3 +166,14 @@ happen while the person is messaging all of them directly.
 
   Putting the old clause back reds both.
 - The room-hold capOn rule respects the quota-hold brake.
+
+## Review 8 (sonnet) and what changed
+- **Check-then-reserve is atomic only because no await sits between them:** now pinned in source (comments stripped).
+  A real await there reds the pin and the parallel-send test.
+- **The assigner at the cap:** a held give is refunded. Within one tick at most the second and later agents get the
+  409. From the next tick the first agent's reservation makes step() skip them, so the cost is one "not given" log line
+  per burst, not one per tick.
+- **The copy says a restart or new team you start "counts toward" the limit.** It still reserves, because it is real
+  work.
+- Not changed (nits): one setting read per call (small sync reads); the shared .tmp name (identical tiny writes);
+  ready() is called twice per member (it is idempotent).

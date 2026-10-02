@@ -208,3 +208,17 @@ test('#4588 ask 3 review 4 pin: deliverAutomatic and its async twin give the cap
     assert.match(body.slice(tryAt), /catch \(err\) \{ require\('\.\/agyquota'\)\.releaseCapStart\(slot\); throw err; \}/, fn + ' does not release on a throw');
   }
 });
+
+test('#4588 ask 3 review 8 pin: no await between the cap gate and the reservation (that is what makes check-then-reserve atomic)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  for (const fn of ['function deliverAutomatic(', 'async function deliverAutomaticAsync(']) {
+    const at = src.indexOf(fn);
+    assert.notEqual(at, -1, fn);
+    const body = src.slice(at, src.indexOf('\n}\n', at));
+    const gate = body.indexOf('quotaHeldVerdict(');
+    const reserve = body.indexOf('noteCapStart(');
+    assert.ok(gate > -1 && reserve > gate, fn + ': the reservation must follow the gate');
+    const code = body.slice(gate, reserve).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');   // comments may say "await"
+    assert.doesNotMatch(code, /\bawait\b/, fn + ': an await between the gate and the reservation lets a parallel send through');
+  }
+});
