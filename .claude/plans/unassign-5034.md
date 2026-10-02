@@ -62,9 +62,8 @@ card WAS a decision); a departed holder raising the question again does not re-r
 clear (another project's question, an automatic wait); held posts dropped for this project and kept for another; a
 repeat leave touches nothing; engine rule unchanged with no members.
 
-Sabotage, each run against a restored tree (all red as expected): A no cleanup -> 4 fail; B members not passed ->
-test 2 fails; C forgetProject no-op -> test 5 fails; D same-project check removed -> test 3 fails; E auto guard
-removed -> test 4 fails.
+Sabotage: see the review log; the CURRENT record is the last "ALL SABOTAGES RE-RUN" line (earlier runs went stale
+when a later fix changed what a test depended on, review 2 W1).
 
 Wider run: 205 files touching roomhold / waitingOnPerson / selfreport / member routes / server.js text:
 3673 tests, 3623 pass, 0 fail, 50 skipped.
@@ -77,3 +76,12 @@ Wider run: 205 files touching roomhold / waitingOnPerson / selfreport / member r
   screen. N1 read/write race and N2 flush-restore race documented in the helper. N3 "(by an agent)" -> "(not from the
   screen)". N4 members map built once per request. Sabotage F (inherited check removed) -> test 8 red; G (delete-route
   call removed) -> test 9 red.
+- Review 2 (sonnet, blind): 0 B, 2 W, 4 N. W1 (MY RECORD WAS STALE): test 4's auto wait inherited the project, so after
+  review 1's inherited check it no longer needed the auto guard, and sabotage E had not been re-run -> the wait now
+  names the project (fixture asserts projectInferred false). W2 project-removal cleanup ran after the tell's await, so
+  a same-name project made and joined meanwhile could lose its question -> moved before the await. N1 "by the person"
+  is as strong as isViaScreen -> said in the comment. N2 the members filter covers trust waits too -> said in the
+  doc comment. N3 process wording untested -> test 10. N4 roomhold header sentence split.
+- ALL SABOTAGES RE-RUN on a84d77183 (each against a restored tree): A no cleanup -> #1 #3 #4 #5 #8 #10 red;
+  B members not passed -> #1 #2; C forgetProject no-op -> #5 #9; D same-project check gone -> #3; E auto guard gone
+  -> #4; F inherited check gone -> #8; G removal-route call gone -> #9.
