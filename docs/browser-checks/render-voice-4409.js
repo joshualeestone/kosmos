@@ -638,6 +638,14 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       await phone.waitForFunction(() => !VOICE.btn);
       own[k] = await phone.evaluate(async () => { await new Promise((r) => setTimeout(r, 30)); window.__recStopErr = ''; return document.getElementById('d-say-msg').textContent; });
     }
+    // P8f (round 20): an iPhone's speech refusal names Dictation (a device setting), not a per-browser permission.
+    await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    await phone.evaluate(() => window.__recLast.onerror({ error: 'service-not-allowed' }));
+    await phone.waitForFunction(() => !VOICE.btn);
+    const denied = await phone.evaluate(() => ({ who: voicePhoneWho(), line: document.getElementById('d-say-msg').textContent }));
+    chk(denied.who === 'Apple' && /Dictation/.test(denied.line) && !/under the browser/.test(denied.line), 'P8f an Apple phone\'s speech refusal names Dictation', JSON.stringify(denied));
     // P8e (round 19): on a phone, audio-capture means the mic is held by something else, not that there is none.
     await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
     await phone.tap('#d-mic');

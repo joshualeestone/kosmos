@@ -222,4 +222,10 @@ press stops through voiceStop and marks the stop.
   the hidden dialog status is not created only to be emptied; voiceStop's comment names the 300 s cap. LEFT NITs: the
   fake's stop answers as a fresh list (the at-index path is covered by P2); dlgSaid keeps a stale value (the page never
   writes that string).
+- Round 20 (sonnet): FIXED W1: an iPhone or iPad's speech refusal is Dictation switched off (a device setting), so on
+  an Apple phone it says to turn Dictation on (check P8f, strict on the vendor; the choice removed reddens only P8f).
+  FIXED W2: a line the bar no longer owns is never cleared by it later (voiceSay forgets dlgSaid). DECIDED W3: during
+  our own stop's wait, an abort the person did not cause is still not said: they already asked to stop and the words
+  are kept; only a refusal, no-speech or network loss is said there. LEFT NITs: the source-shape unit assertion;
+  voiceBridge per paint (cached); the listening-line comparison is safe because the bridge is built once.
 

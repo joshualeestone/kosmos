@@ -60204,6 +60204,8 @@ const VOICE_SAYS_PHONE = {
   'mic-denied': 'This browser is not allowed to use the microphone. Allow it in this browser\'s settings for this site, or in the phone\'s Settings app under the browser.',
   'speech-denied': 'Speech recognition is turned off for this browser (allow it in the phone\'s Settings app under the browser), or not available in a page added to the home screen (open it in the browser instead).',
   network: 'The speech service could not be reached. Check the connection and try again.',
+  // On an iPhone or iPad the refusal is Dictation switched off, a device setting, not one per browser (round 20).
+  'speech-denied-apple': 'Dictation is turned off on this device. Turn it on in the Settings app (General, Keyboard), then try again. In a page added to the home screen, open it in Safari instead.',
   // A phone always has a microphone: it is held by something else (a call, a voice memo, another app).
   'no-mic': 'The microphone is in use by something else, such as a call or another app. Try again when it is free.',
 };
@@ -60408,7 +60410,7 @@ function voicePaint(btn, state) {
 }
 function voiceSay(btn, line) {
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
-  if (el) el.textContent = line;
+  if (el) { el.textContent = line; VOICE.dlgSaid = ''; }   // the line is no longer the bar's, so the bar must not clear it later
 }
 /* The listening line is ours to clear; an error line said after it is not. */
 const VOICE_LISTENING = 'Listening. Press Escape to stop.';
@@ -60555,7 +60557,8 @@ function voiceOnEvent(ev) {
     // "Nothing was heard", and the words are in the box, so it says nothing.
     if (ev.reason === 'nothing-heard' && VOICE.heard) return;
     const b = voiceBridge();
-    voiceSay(btn, (b && b.phone && VOICE_SAYS_PHONE[ev.reason]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer);
+    const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
+    voiceSay(btn, (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer);
     return;
   }
   if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); voiceUnsay(btn); }
