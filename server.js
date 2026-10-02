@@ -480,7 +480,11 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
   };
-  return heard && typeof heard.then === 'function' ? heard.then(finish) : finish(heard);
+  /* #4588 ask 3 review 6: DEFENSIVE. heardBy turns a rejected tell into a failed verdict today, so finish runs and gives
+     the slot back; this handler only matters if heardBy ever lets a rejection through. */
+  return heard && typeof heard.then === 'function'
+    ? heard.then(finish, (err) => { require('./engine/agyquota').releaseCapStart(capSlot); throw err; })
+    : finish(heard);
 }
 function engineFreshness() {
   const now = Date.now();

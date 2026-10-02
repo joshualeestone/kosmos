@@ -148,6 +148,33 @@ test('#4588 ask 3: two assigner gives back to back at cap 1: the first is given 
   }
 });
 
+test('#4588 ask 3 review 6: an async assigner give whose tell REJECTS fails, is taken back, and keeps no cap slot', async () => {
+  const capSetting = require('./engine/agycap-setting');
+  const q = require('./engine/agyquota');
+  q.CAP_STARTS.clear();
+  const board = fleet.install([fleet.agent('caprej', { state: 'idle' })]);
+  const p = projects.create({ name: 'Agy Cap Reject ' + (++seq) });
+  projects.addAgent(p.id, 'caprej', board.agents);
+  const t = tasks.create(p.id, { sentence: 'tidy the notes', made: { via: 'screen' } });
+  const n = t.task ? t.task.number : t.number;
+  const realAsync = chat.deliverAsync;
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    let reached = false;
+    chat.deliverAsync = async () => { reached = true; throw new Error('the pane went away'); };
+    // heardBy turns the rejection into a failed verdict, so the give is refused and taken back (the #3595 rule).
+    const g = await givePart(p.id, n, 1, 'caprej', { assigner: true, roster: [idleAgy('caprej')], asyncDelivery: true });
+    assert.equal(reached, true, 'fixture: the async tell was not the one that rejected');
+    assert.equal(g.ok, false, 'a give whose tell rejected counted as given');
+    assert.equal(q.CAP_STARTS.has('caprej'), false, 'a rejected tell kept its cap reservation');
+  } finally {
+    chat.deliverAsync = realAsync;
+    fs.rmSync(capSetting.FILE, { force: true });
+    q.CAP_STARTS.clear();
+    board.restore();
+  }
+});
+
 /* ---- source pins on server.js ---- */
 
 const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');

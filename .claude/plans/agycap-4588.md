@@ -141,3 +141,14 @@ happen while the person is messaging all of them directly.
   - The firstreply and agentnudge log lines say which hold.
 - **Not changed, decided:** a line to an agent that is already working still reserves it. That line becomes its next
   turn, so counting it is the conservative side.
+
+## Review 6 (sonnet) and what changed
+- **W1, an async rejection leaks the slot:** measured, not real today. heardBy turns a rejected tell into a failed
+  verdict, so finish runs, takes the part back and releases the slot. The new test pins that (a rejecting deliverAsync:
+  the give fails, no slot is kept), and removing the release in finish reds it. A rejection handler stays as a
+  defensive guard, with a comment saying it is one.
+- **W2, the cap changes non-Gemini timing:** not so. flushReleased skips every card isAgy refuses before the cap rule.
+  The comment now says so.
+- **W3:** a comment on why the resume sweep's head-of-line stop is safe with a single cap count.
+- Deferred, already recorded: reserving a working target (review 5); the defensive cap branches in wakeHeldLine and
+  recordedBecause (review 4); the source pin for the throw path (review 4).

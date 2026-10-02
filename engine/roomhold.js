@@ -278,7 +278,8 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
          as on every other runner; this minute retry is for posts the quota held that name it. That includes posts held
          while it worked whose turn-end line the quota refused: since the follow-up they wait for the next wake too. */
       /* #4588 ask 3 (review 1): under the Gemini cap a post is held while its member is IDLE, so no wake will come for it;
-         while a cap is set, those posts flush here once the cap lets the member through. That changes every held post
+         while a cap is set, those posts flush here once the cap lets the member through (only Gemini members: this loop
+         skips every card isAgy refuses, above, so no other runner's timing changes). That changes every held post
          while a cap is set, including one held because its member was working: it is told at the next minute the
          member is idle and let through, rather than at its next wake. */
       let capOn = false;

@@ -260,7 +260,8 @@ function sweepOnce(o) {
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));
     const d = due[0];
     /* #4588 ask 3 (review 1): the person's cap applies to resumes too. At the cap, nobody is resumed this tick and no
-       try is spent; the next tick looks again. */
+       try is spent; the next tick looks again. Stopping at the first due agent is safe because the cap is one count for
+       every agent here (a due agent is never one already counted busy); a per-agent cap would need to look further. */
     if (heldForCap(d.session, o.roster, now, o.readCap, o.env === undefined ? process.env : o.env) !== null) {
       return { results, skipped: 'the Gemini agents are at the limit set for working at once' };
     }
