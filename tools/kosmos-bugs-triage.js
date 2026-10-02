@@ -82,7 +82,7 @@ function scrub(text, names) {
   t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/g, '$1[user]');
   t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+(?: [^\\\s]+)?(?=\\)/g, '$1[user]');   // "C:\\Users\\Maria Lopez\\x": one or two words, up to the next \\
   t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+/g, '$1[user]');
-  t = t.replace(/(^|\s)~[a-z_][\w.-]*/gi, '$1~[user]');   // ~jsmith/notes
+  t = t.replace(/(?<![\p{L}\p{N}])~[a-z_][\w.-]*/giu, '~[user]');   // ~jsmith/notes, (~jsmith), "~jsmith/x" (review 6)
   /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
   t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret removed]');
   /* A long unbroken run with upper and lower case AND digits reads as a secret. Not a path (no "/"), and not plain hex: a
@@ -95,7 +95,7 @@ function scrub(text, names) {
   t = t.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.([a-z]{2,})\/\S*/gi, (m, tld) => (FILE_EXT.has(tld.toLowerCase()) ? m : '[link removed]'));
   t = t.replace(/(?<![vV]|version |Version )\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[address removed]');
   /* A shell prompt names its user and machine ("jsmith@Johns-MacBook-Pro ~ %"); the email rule needs a dot after the @. */
-  t = t.replace(/\b[\w.-]+@[A-Za-z0-9][\w-]*(?![\w.@])/g, '[user]@[host]');
+  t = t.replace(/[\p{L}\p{N}._-]+@[\p{L}\p{N}][\p{L}\p{N}_-]*(?:\.[\p{L}\p{N}_-]+)*/gu, '[user]@[host]');   // review 6: the whole host, then any sentence dot
   t = t.replace(/(^|[^\p{L}\p{N}_])@[A-Za-z0-9][A-Za-z0-9-]*/gu, '$1[handle removed]');
   t = t.replace(/\b[\w.-]+\/[\w.-]+#(\d+)\b/g, 'issue $1');   // review 4: owner/repo#4, a cross-repo back-reference
   t = t.replace(/(^|[^\p{L}\p{N}_&])#(\d+)\b/gu, '$1issue $2');
@@ -193,21 +193,46 @@ function cardState(number, { repo, gh }) {
    replied: post id -> when. Null-prototype maps, so a post id can never be a prototype key. */
 /* Review 4, BLOCKER: one verb at a time. Without it a `read` overlapping a `file` saved its older copy over the person's
    decision (the group went back to pending and could be filed twice). A mkdir lock is atomic; a second verb refuses. */
-function withLock(stateFile, fn) {
+function withLock(stateFile, fn, hooks = {}) {   // hooks.afterStaleCheck: a test seam for the takeover race
   const lock = stateFile + '.lock';
   fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-  const take = () => { fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid, since: new Date().toISOString() })); };
+  const take = () => {
+    fs.mkdirSync(lock);
+    try { fs.writeFileSync(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid, since: new Date().toISOString() })); }
+    catch (e) { try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ } throw e; }   // review 6: never leave an ownerless lock
+  };
+  /* Review 5: a run killed mid-way leaves the lock. A dead owner's lock (or one with no owner, older than 10 s: a crash
+     between mkdir and the owner write) is stale; a live owner refuses. */
+  const stale = () => {
+    let owner = null; try { owner = JSON.parse(fs.readFileSync(path.join(lock, 'owner'), 'utf8')); } catch { owner = null; }
+    if (!owner || !owner.pid) {
+      let age = 0; try { age = Date.now() - fs.statSync(lock).mtimeMs; } catch { return { stale: false, owner }; }
+      return { stale: age > 10000, owner };
+    }
+    let alive = true; try { process.kill(owner.pid, 0); } catch (err) { alive = !(err && err.code === 'ESRCH'); }
+    return { stale: !alive, owner };
+  };
   try { take(); } catch (e) {
     if (!e || e.code !== 'EEXIST') throw e;
-    /* Review 5: a run killed mid-way leaves the lock. Its owner says who; a dead owner's lock is taken over, a live one refuses. */
-    let owner = null; try { owner = JSON.parse(fs.readFileSync(path.join(lock, 'owner'), 'utf8')); } catch { owner = null; }
-    let alive = true; try { if (owner && owner.pid) process.kill(owner.pid, 0); } catch (err) { alive = !(err && err.code === 'ESRCH'); }
-    if (owner && owner.pid && !alive) {
-      try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
-      take();
-    } else {
-      throw new Error('another triage run holds ' + lock + (owner ? ` (pid ${owner.pid} since ${owner.since})` : ' (owner unknown)') + '; wait for it');
+    const s = stale();
+    if (hooks.afterStaleCheck) hooks.afterStaleCheck();
+    if (!s.stale) throw new Error('another triage run holds ' + lock + (s.owner ? ` (pid ${s.owner.pid} since ${s.owner.since})` : ' (owner unknown, under 10 s old)') + '; wait for it');
+    /* Review 6, BLOCKER: two runs that both found the dead owner both removed and took the lock (measured 10 of 25). The
+       takeover itself is now one-at-a-time: only the run that creates `.steal` may take over, and it checks again inside. */
+    const steal = lock + '.steal';
+    try { fs.mkdirSync(steal); } catch (err) {
+      if (err && err.code === 'EEXIST') {
+        let age = 0; try { age = Date.now() - fs.statSync(steal).mtimeMs; } catch { /* gone */ }
+        if (age > 60000) { try { fs.rmdirSync(steal); } catch { /* best effort */ } }   // a taker that died mid-takeover
+        throw new Error('another triage run is taking over a stale lock at ' + lock + '; try again');
+      }
+      throw err;
     }
+    try {
+      if (!stale().stale) throw new Error('another triage run took ' + lock + ' first; wait for it');
+      fs.rmSync(lock, { recursive: true, force: true });
+      take();
+    } finally { try { fs.rmdirSync(steal); } catch { /* best effort */ } }
   }
   const release = () => { try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ } };
   let out;
@@ -426,4 +451,4 @@ if (require.main === module) {
     .catch((e) => { process.stderr.write('kosmos-bugs-triage: ' + (e && e.message ? e.message : e) + '\n'); process.exit(1); });
 }
 
-module.exports = { read, file, dup, skip, replied, main, parseArgs, groupReports, similar, scrub, cardFor, words, authorNames, DEFAULTS };
+module.exports = { read, file, dup, skip, replied, main, withLock, parseArgs, groupReports, similar, scrub, cardFor, words, authorNames, DEFAULTS };

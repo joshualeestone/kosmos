@@ -248,3 +248,57 @@ test('#5062 review 5: a channel the site does not have is an error, never a sile
   const s = site([], { channels: ['general'] });
   await assert.rejects(t.read(opts('x', { fetchFn: s.fetchFn, gh: fakeGh().gh })), /has no kosmos-bugs channel/);
 });
+
+test('#5062 review 6: two runs that find the same dead owner never both hold the lock', async () => {
+  const { spawn } = require('node:child_process');
+  const state = path.join(DIR, 'race.json');
+  const log = path.join(DIR, 'race.log');
+  const tool = path.join(__dirname, 'tools', 'kosmos-bugs-triage.js');
+  const child = `const t=require(${JSON.stringify(tool)});const fs=require('fs');
+    try{t.withLock(${JSON.stringify(state)},()=>{fs.appendFileSync(${JSON.stringify(log)},'in\\n');const e=Date.now()+300;while(Date.now()<e){}fs.appendFileSync(${JSON.stringify(log)},'out\\n');});}catch(e){fs.appendFileSync(${JSON.stringify(log)},'refused\\n');}`;
+  for (let trial = 0; trial < 6; trial += 1) {
+    fs.rmSync(log, { force: true });
+    fs.mkdirSync(state + '.lock', { recursive: true });
+    fs.writeFileSync(path.join(state + '.lock', 'owner'), JSON.stringify({ pid: 999999, since: 'then' }));   // dead
+    const run = () => new Promise((resolve) => spawn(process.execPath, ['-e', child], { stdio: 'ignore' }).on('exit', resolve));
+    await Promise.all([run(), run()]);
+    const lines = fs.readFileSync(log, 'utf8').trim().split('\n');
+    const body = lines.filter((l) => l !== 'refused');
+    for (let i = 0; i + 1 < body.length; i += 2) assert.deepEqual(body.slice(i, i + 2), ['in', 'out'], 'two runs overlapped inside the lock: ' + lines.join(','));
+    assert.ok(body.length >= 2, 'neither run got the lock: ' + lines.join(','));
+    fs.rmSync(state + '.lock', { recursive: true, force: true });
+  }
+});
+
+test('#5062 review 6: an ownerless lock older than 10 s is taken over; a fresh one refuses', () => {
+  const state = path.join(DIR, 'own.json');
+  fs.mkdirSync(state + '.lock', { recursive: true });
+  assert.throws(() => t.withLock(state, () => 1), /owner unknown, under 10 s old/);
+  const old = new Date(Date.now() - 60000);
+  fs.utimesSync(state + '.lock', old, old);
+  assert.equal(t.withLock(state, () => 7), 7);
+  assert.equal(fs.existsSync(state + '.lock'), false);
+});
+
+test('#5062 review 6: skip settles a "filing" group too; a failed read writes FAILED into the digest', async () => {
+  const s = site([post('z1', 'Board idle', 'x', 'A1')]);
+  const o = opts('z', { fetchFn: s.fetchFn });
+  await t.read({ ...o, gh: fakeGh().gh });
+  const st = JSON.parse(fs.readFileSync(o.state, 'utf8')); st.groups.g1.status = 'filing'; fs.writeFileSync(o.state, JSON.stringify(st));
+  t.skip('g1', o);
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1.status, 'skipped');
+  const dig = path.join(DIR, 'failed.md');
+  await assert.rejects(t.main(['read', '--base', 'http://127.0.0.1:1', '--state', path.join(DIR, 'failed.json'), '--digest', dig]));
+  assert.match(fs.readFileSync(dig, 'utf8'), /^# Kosmos bugs triage FAILED/);
+});
+
+test('#5062 review 6: a takeover checks the owner again, so a run that found it stale cannot take a lock another run just took', () => {
+  const state = path.join(DIR, 'seam.json');
+  fs.mkdirSync(state + '.lock', { recursive: true });
+  fs.writeFileSync(path.join(state + '.lock', 'owner'), JSON.stringify({ pid: 999999, since: 'then' }));   // dead
+  // Between this run's stale check and its takeover, another run (this live process) takes the lock.
+  const other = () => { fs.writeFileSync(path.join(state + '.lock', 'owner'), JSON.stringify({ pid: process.pid, since: 'now' })); };
+  assert.throws(() => t.withLock(state, () => 1, { afterStaleCheck: other }), /took .* first/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(state + '.lock', 'owner'), 'utf8')).pid, process.pid, 'the other run lost its lock');
+  fs.rmSync(state + '.lock', { recursive: true, force: true });
+});
