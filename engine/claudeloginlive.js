@@ -42,8 +42,10 @@ function validUntil(row, now = Date.now()) {
   if (!row.isDefault && !ccd) return Promise.resolve(null);
   const service = loginexpiry.serviceNameFor(ccd);
   const hit = cache.get(service);
-  if (hit && now - hit.at < (hit.until == null ? MISS_CACHE_MS : CACHE_MS)) return Promise.resolve(hit.until);
-  if (inflight.has(service)) return inflight.get(service);
+  const gen = loginexpiry.loginGeneration();   // #5018: a sign-in since this was read makes it stale
+  if (hit && hit.gen === gen && now - hit.at < (hit.until == null ? MISS_CACHE_MS : CACHE_MS)) return Promise.resolve(hit.until);
+  const busy = inflight.get(service);
+  if (busy && busy.gen === gen) return busy.read;
   const read = (async () => {
     let until = null;
     try {
@@ -54,11 +56,12 @@ function validUntil(row, now = Date.now()) {
       }
     } catch { until = null; }
     until = Number.isFinite(until) ? until : null;
-    cache.set(service, { at: now, until });
-    inflight.delete(service);
+    const prev = cache.get(service);
+    if (!prev || !(prev.gen > gen)) cache.set(service, { at: now, until, gen });   // an older read never overwrites a newer one
+    if (inflight.get(service) && inflight.get(service).read === read) inflight.delete(service);
     return until;
   })();
-  inflight.set(service, read);
+  inflight.set(service, { read, gen });
   return read;
 }
 

@@ -174,15 +174,25 @@ function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, war
  * for the whole TTL. Pure and injectable (pass a fake now/compute) so the cache behaviour is
  * tested without standing up a board. */
 function cachedAdvisories({ cache, now = Date.now(), ttlMs, compute } = {}) {
-  if (cache && cache.at && (now - cache.at) < ttlMs) return cache.value;
+  if (cache && cache.at && (now - cache.at) < ttlMs && cache.gen === loginGen) return cache.value;
+  const gen = loginGen;
   let value;
   try { value = compute(); }
   catch { return cache ? cache.value : []; }  // keep last-good, do NOT advance `at` -> retry next tick
-  if (cache) { cache.at = now; cache.value = value; }
+  if (cache) { cache.at = now; cache.value = value; cache.gen = gen; }
   return value;
 }
 
+/* #5018 (Josh: "i relogged in ... it didnt clear the message out", cleared only by closing the app): a sign-in
+ * that completes moves the login's date, and every cache of that date must be read again at once, not after its
+ * TTL. A sign-in calls loginChanged(); each cache (cachedAdvisories above, claudeloginlive's per-account dates)
+ * stores the generation it was read under and treats any other as stale. A counter, not a listener list, so no
+ * module has to require another to be told. */
+let loginGen = 0;
+function loginChanged() { loginGen += 1; }
+function loginGeneration() { return loginGen; }
+
 module.exports = {
   serviceNameFor, refreshExpiryFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
-  cachedAdvisories, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
+  cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
 };
