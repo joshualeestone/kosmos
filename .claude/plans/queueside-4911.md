@@ -139,6 +139,27 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   the side lane shut while it waits (those are test seams, not settings anyone queues with); a take that keeps
   losing restarts its wait's bound each time (it can only keep losing to a side claim it cannot write: a broken
   marker dir, which breaks the main lane too).
+- Round 9 (Opus + Sonnet, blind): no blocker. Fixed: (1) the capper printed before it killed, so a reader that had gone
+  (`| head`) killed it with SIGPIPE and the yield and the cap never stopped the command (reproduced): it now stops the
+  command FIRST, ignores SIGPIPE, and writes WHY into the stop file, which the script reports after the command has
+  gone (killing first had let the script stop the capper before its message; caught by the dry harness); cleanup
+  ignores SIGPIPE and removes the stop file. (2) round 8's fixture drop never fired for the local suite (the stand-in's
+  cwd was the repo): the stand-ins start in $TMPDIR (run-tests.sh's kt sandbox), and an arm drives the intruder with
+  the REAL matcher narrowed to this file's stand-ins: a kt-cwd stand-in does not make it yield, the same one elsewhere
+  does (red without the drop). (3) the argument match is one rule over every WORD of every argument (sh -c 'npm t',
+  'yarn -s test', 'npm run-script test', double spaces, 'yarn run release'); dry run 38/38. (4) the "clear box is an
+  ordinary turn" arm uses a side check that passes. Not taken: a side command that SPAWNS a release.sh-looking
+  process yields to it (not in the argument match; it only costs the light run); KOSMOS_NO_WAIT=1 never gets a side
+  turn (it refuses on the first pass, before the run holds a queue place; by design).
+- ADDED SCOPE (Splinter 20:40, after Angel's #4921 report): (a) every queued turn was labelled "release (not a cut)
+  queued one-off", which read as release reservations jumping the queue. The lib now takes KOSMOS_CLAIM_LABEL; the new
+  queued-heavy.sh labels an ordinary turn "queued run (not a cut): <what>" (not exported to its command), and the
+  refusal and status say "held by an ordinary queued turn"; a cut's claim still reads as a release (tested both ways;
+  test-install-gate-control.sh's busy-box regex knows both new wordings; heavy-gate treats any non-free line as held).
+  (b) MEASURED 20:40: #4921's waiter (queued 18:38) was FIFTH, behind four older waiters, the front one (17:36) behind
+  #4909's control (queued 16:50, holding since 19:49). No jump: the still-waiting note printed only the FIRST refusing
+  check, which while any run holds the box is always the claim, so position never showed. It now says "N queued ahead
+  of this run" (tested). The real starvation on the board was a LIGHT waiter at 367 min, which this card's aging fixes.
 - KNOWN LIMIT, measured 19:35: an agent's long-lived Playwright browser (one had run 5 h 50 min) is a Playwright
   browser, so it holds side turns off while it runs. That is the safe direction; it means the side lane opens less
   often than the load figures alone suggest. The before/after measurement shows how much.

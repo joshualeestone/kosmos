@@ -151,8 +151,10 @@ KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this light run" --suite-queue --sid
 { [ "$rc" -eq 1 ] && has "$(cat "$T/w3")" "--side needs a side check and then the check"; } && pass "--side with nothing after it is refused, not run as the check" \
   || fail "--side with no check after it was not refused (rc=$rc, $(cat "$T/w3"))"
 yes_() { return 0; }
-KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this run" --suite-queue --side nope yes_ 2>/dev/null; rc=$?
-{ [ "$rc" -eq 0 ] && [ "$KOSMOS_WAIT_LANE" = main ] && [ ! -e "$M/suitewait.$$" ]; } && pass "a clear box is an ordinary main turn even with --side" \
+rm -f "$T/sidecalls"
+KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this run" --suite-queue --side sideok yes_ 2>/dev/null; rc=$?
+# Review 9: with a side check that PASSES (the first draft's always refused, so it could not show the order).
+{ [ "$rc" -eq 0 ] && [ "$KOSMOS_WAIT_LANE" = main ] && [ ! -e "$M/suitewait.$$" ] && [ ! -e "$T/sidecalls" ]; } && pass "a clear box is an ordinary main turn even with --side (the side check is not even asked)" \
   || fail "a clear box did not give a main turn (rc=$rc, lane=$KOSMOS_WAIT_LANE)"
 
 # Review 3: a queued-heavy.sh from before #4911 waiting (its marker names queued-heavy and has no side/aware line)
@@ -244,11 +246,13 @@ cp /bin/sleep "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell"; cp /bin
 if command -v codesign >/dev/null 2>&1; then
   codesign -s - -f "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" >/dev/null 2>&1
 fi
-"$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" 61 </dev/null >/dev/null 2>&1 & PB=$!
-"$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" 62 </dev/null >/dev/null 2>&1 & PX=$!
+# Started from $TMPDIR, which run-tests.sh makes its kt<digits> sandbox, so when this file runs inside a heavy holder's
+# suite the stand-ins read as that suite's fixtures and no real side turn yields to them (review 9).
+( cd "${TMPDIR:-/tmp}" && exec "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" 61 ) </dev/null >/dev/null 2>&1 & PB=$!
+( cd "${TMPDIR:-/tmp}" && exec "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" 62 ) </dev/null >/dev/null 2>&1 & PX=$!
 # No exec: the path must stay on this process's command line (an exec'd sleep drops it, and the arm passed whatever
 # the matcher did; review 8 restored the loose match and this stayed green).
-sh -c 'sleep 63; :' "$PWD_/chromium_headless_shell-9/mentioned" </dev/null >/dev/null 2>&1 & PM=$!
+( cd "${TMPDIR:-/tmp}" && exec sh -c 'sleep 63; :' "$PWD_/chromium_headless_shell-9/mentioned" ) </dev/null >/dev/null 2>&1 & PM=$!
 sleep 0.3; seen="$(_kosmos_playwright_browsers | awk '{print $1}')"
 # Every stand-in must be ALIVE, or a "left out" arm passes because the process is gone (the first draft did).
 for p in "$PB" "$PX" "$PM"; do kill -0 "$p" 2>/dev/null || fail "the real-matcher fixture: stand-in $p is not running"; done
@@ -257,6 +261,44 @@ case "$(ps -ww -o command= -p "$PM")" in *ms-playwright/*) ;; *) fail "the real-
 { ! printf '%s\n' "$seen" | grep -qx "$PX"; } && pass "the real matcher leaves out a WebKit XPC helper" || fail "the real matcher listed a WebKit XPC helper"
 { ! printf '%s\n' "$seen" | grep -qx "$PM"; } && pass "the real matcher leaves out a command that only mentions the folder" || fail "the real matcher listed a mention"
 kill "$PB" "$PX" "$PM" 2>/dev/null; wait "$PB" "$PX" "$PM" 2>/dev/null
+# Review 9: the fixture drop on the Playwright list, through the intruder, with the REAL matcher narrowed to this
+# file's own stand-ins (another agent's real browser on the box would otherwise answer). A stand-in whose cwd is a
+# run-tests.sh-shaped sandbox (T/kt<digits>) is a suite's fixture: no yield. CONTROL: the same one elsewhere yields.
+mkdir -p "$T/T/kt4911" "$T/elsewhere"
+printf '#!/bin/bash\n. "%s"\n_kosmos_playwright_browsers | grep -F "%s/"\nexit 0\n' "$HERE/lib/cut-guard.sh" "$PWD_" > "$T/pw-real-mine"; chmod +x "$T/pw-real-mine"
+sleep 60 </dev/null >/dev/null 2>&1 & R2=$!
+for where in kt elsewhere; do
+  d="$T/T/kt4911"; [ "$where" = elsewhere ] && d="$T/elsewhere"
+  ( cd "$d" && exec "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" 64 ) </dev/null >/dev/null 2>&1 & PF=$!
+  sleep 0.3
+  out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/pw-real-mine" kosmos_light_side_intruder "$R2")"; rc=$?
+  if [ "$where" = kt ]; then
+    [ "$rc" -eq 1 ] && pass "a suite's Playwright stand-in (cwd in its kt sandbox) does not make a side turn yield" \
+      || fail "a suite's own stand-in made a side turn yield ($out)"
+  else
+    [ "$rc" -eq 0 ] && pass "CONTROL: the same stand-in outside a suite sandbox does" || fail "CONTROL: a foreign stand-in did not make it yield (rc=$rc)"
+  fi
+  kill "$PF" 2>/dev/null; wait "$PF" 2>/dev/null
+done
+kill "$R2" 2>/dev/null; wait "$R2" 2>/dev/null
+
+# #4911 (Splinter 20:40): an ordinary queued turn is not labelled a release. KOSMOS_CLAIM_LABEL names it; the refusal
+# and the status say "an ordinary queued turn". CONTROL: with no label, a claim still reads as a release (a cut's own).
+( export KOSMOS_MACHINE_CLAIM_COOKIE=""; KOSMOS_CLAIM_LABEL="queued run (not a cut): a full suite" kosmos_claim_machine 5 )
+out="$( unset KOSMOS_MACHINE_CLAIM_COOKIE; kosmos_refuse_if_machine_claimed "this run" 2>&1)"; st="$(kosmos_machine_claim_status)"
+{ has "$out" "held by an ordinary queued turn" && ! has "$out" "reserved for a release" && has "$st" "held by an ordinary queued turn"; } \
+  && pass "an ordinary queued turn's claim says so, not 'reserved for a release'" || fail "an ordinary turn read as a release ($out | $st)"
+rm -f "$M/machine-claim"
+( export KOSMOS_MACHINE_CLAIM_COOKIE=""; V="0.9.99"; kosmos_claim_machine 5 )
+out="$( unset KOSMOS_MACHINE_CLAIM_COOKIE; kosmos_refuse_if_machine_claimed "this run" 2>&1)"
+has "$out" "reserved for a release (release 0.9.99" && pass "CONTROL: a cut's claim still reads as a release" || fail "CONTROL: a cut's claim lost its release wording ($out)"
+rm -f "$M/machine-claim"
+# The still-waiting note names the queue position (the reason alone is the first check that refused, the claim).
+printf '%s %s\n%s\n%s\n%s\nheavy\n\n' "$((NOW - 100))" "$OTHER" "$(ps -ww -o command= -p "$OTHER")" "$(_kosmos_pid_started_local "$OTHER")" "$(_kosmos_pid_started "$OTHER")" > "$M/suitewait.$OTHER"
+held() { echo "the machine is held" >&2; return 1; }
+KOSMOS_WAIT_SLEEP=: KOSMOS_WAIT_MAX_S=400 KOSMOS_WAIT_QUEUE_CEIL_S=100000 kosmos_wait_until_clear "this run" --suite-queue held 2>"$T/wpos"; rc=$?
+has "$(cat "$T/wpos")" "1 queued ahead of this run" && pass "the still-waiting note says how many are queued ahead" || fail "the still-waiting note gave no queue position ($(grep 'still waiting' "$T/wpos" | head -1))"
+rm -f "$M/suitewait.$OTHER"; kosmos_unmark_suite_waiting
 
 # Aging: a light waiter past the starve line is rank 0 like a heavy one, so an OLDER starving light waiter goes ahead of
 # a starving heavy one (before #4911 the heavy one went first, and the light lane stood still all afternoon).

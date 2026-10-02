@@ -871,7 +871,13 @@ kosmos_wait_until_clear() {
       fi
       said=1
     elif [ "$waited" -ge "$next_note" ]; then
-      echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      # #4911: say the queue position too. The reason above is the FIRST check that refused, so while any run holds the
+      # box it is always the claim, and a waiter fifth in line read as if it were at the front (Angel, #4921, 20:38).
+      if [ "$queue" = 1 ] && [ -n "$prev" ]; then
+        echo "still waiting (${waited}s so far; ${prev} queued ahead of this run): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      else
+        echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      fi
       [ -n "$side" ] && [ -n "$side_err" ] && echo "  no side turn either: $(printf '%s' "$side_err" | head -1 | cut -c1-160)" >&2
       next_note=$((next_note + 300))
     fi
@@ -997,7 +1003,10 @@ kosmos_claim_machine() {
   # over the target, so a concurrent consult reads either the old line or the
   # new one, never a partial one.
   tmp="$dir/.machine-claim.$$.tmp"
-  printf '%s %s %s %s %s\n' "$cookie" "$$" "$exp" "$host" "release ${V:-cut}" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  # #4911: KOSMOS_CLAIM_LABEL names a claim that is NOT a release (queued-heavy.sh's ordinary turns: "queued run (not a
+  # cut): <what>"). Before, every queued turn was labelled "release (not a cut) queued one-off", which read as a release
+  # reservation jumping the queue (Splinter's 20:38 rule, withdrawn at 20:40). A cut's own claim is unchanged.
+  printf '%s %s %s %s %s\n' "$cookie" "$$" "$exp" "$host" "${KOSMOS_CLAIM_LABEL:-release ${V:-cut}}" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
   mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
   return 0
 }
@@ -1035,7 +1044,9 @@ kosmos_refuse_if_machine_claimed() {
   exp="$(printf '%s'   "$active" | awk '{print $3}')"
   host="$(printf '%s'  "$active" | awk '{print $4}')"
   label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
-  echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp"); $what would share the box and could corrupt both results (a gate that passes alone fails under a concurrent one). Wait for it to finish (kosmos_machine_claim_status, or tools/who-has-the-box.sh, says when), or KOSMOS_IGNORE_MACHINE_CLAIM=1 to run anyway." >&2
+  local held="reserved for a release (${label:-a cut}"
+  case "$label" in "queued run"*) held="held by an ordinary queued turn (${label#queued run (not a cut)}" ;; esac
+  echo "the machine is ${held}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp"); $what would share the box and could corrupt both results (a gate that passes alone fails under a concurrent one). Wait for it to finish (kosmos_machine_claim_status, or tools/who-has-the-box.sh, says when), or KOSMOS_IGNORE_MACHINE_CLAIM=1 to run anyway." >&2
   return 1
 }
 
@@ -1077,7 +1088,10 @@ kosmos_machine_claim_status() {
   exp="$(printf '%s'   "$active" | awk '{print $3}')"
   host="$(printf '%s'  "$active" | awk '{print $4}')"
   label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
-  echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")."
+  case "$label" in
+    "queued run"*) echo "the machine is held by an ordinary queued turn (${label#queued run (not a cut)}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")." ;;
+    *) echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")." ;;
+  esac
   return 0
 }
 
