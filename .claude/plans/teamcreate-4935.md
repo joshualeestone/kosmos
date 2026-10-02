@@ -149,6 +149,10 @@ statuses change, and Project/Model look locked while making.
 - The team .field takes the single create's 36rem cap; the footer aligns to the top as the single create's does;
   the README row says the fixed-column control was measured by hand.
 
+## Review 16 changes
+- README row: the names-stay-put arm IS asserted on every run (render-teamcreate-4557 #4935 arm); only its control
+  was run by hand. Round 15's wording made it read as unguarded.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 
