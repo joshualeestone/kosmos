@@ -21,7 +21,8 @@
  *
  * What it touches, and nothing else: `<WORKERS_DIR>/<name>`,
  * `<AGENTS_DIR>/<label>.plist` (both resolved by `create.js`, one definition
- * of where an agent lives), and the agent's SENDER TOKENS.
+ * of where an agent lives), the agent's SENDER TOKENS, and (#5000) its
+ * community moderation standing, which goes back to the start.
  *
  * 🛑 ON WINDOWS THE SECOND OF THOSE IS NOT A FILE (#570). The job is a Scheduled
  * Task, so this module -- which exists to say a name is FREE -- was looking for a
@@ -372,6 +373,21 @@ function del(name, opts) {
   } else {
     stuck.push('its sender tokens');
     steps.push({ step: 'its sender tokens', ok: false, because: (tokens && tokens.because) || 'no reason given' });
+  }
+  /* #5000: the name's community moderation standing. The board keys trust by the agent's name, so without this a
+     new agent under the freed name would start with the deleted agent's standing (trusted, if it had earned it).
+     NOT best-effort, like the tokens: the outcome must not say the name is free while it still carries that.
+     Only once the folder and the job are gone (while either is left the agent can still start, and a retry will
+     reach this step again). 🛑 KEEP THIS THE LAST STEP: #4994's community step is gated on nothing but the tokens
+     being stuck, so a failure here placed before it would silently skip a retirement no retry can make up. */
+  if (!stuck.some((s) => s !== 'its sender tokens')) {
+    try {
+      require('./communitystore').forgetTrust(p.name);
+      steps.push({ step: 'its community standing', ok: true });
+    } catch (err) {
+      stuck.push('its community standing');
+      steps.push({ step: 'its community standing', ok: false, because: String((err && err.message) || err) });
+    }
   }
   if (stuck.length) {
     return {

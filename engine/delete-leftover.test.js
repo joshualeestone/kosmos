@@ -216,3 +216,61 @@ test('#4006: deleting a leftover clears its failed-restart record', () => {
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.equal(disruption.read('failgone').found, false, 'the failed record outlived the delete');
 });
+
+test('#5000: a trusted name is put back at the start by the delete, so a new agent under it is not trusted', () => {
+  const cs = require('./communitystore');
+  leftoverAgent('trusty');
+  cs.grantTrust('trusty');
+  cs.grantTrust('bystander5000');
+  assert.equal(cs.trustState('trusty'), 'trusted', 'control: the agent had earned trust before it was deleted');
+  quiet();
+  const done = mac.del('trusty');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  const step = done.steps.find((x) => x.step === 'its community standing');
+  assert.ok(step && step.ok === true, 'the standing step was not recorded as done');
+  createAgain('trusty');
+  assert.equal(cs.trustState('trusty'), 'untrusted', 'the new agent under the freed name inherited the deleted one\'s trust');
+  assert.equal(cs.trustState('bystander5000'), 'trusted', 'the delete changed another agent\'s standing');
+});
+
+test('#5000: a standing that cannot be reset makes the delete PARTIAL, never a DELETED that says the name is free', () => {
+  const cs = require('./communitystore');
+  leftoverAgent('stucktrust');
+  /* A FILE where the community folder goes: the write cannot make its folder, a real failure, not a stub. */
+  const dir = cs._paths.dir();
+  const had = fs.existsSync(dir);
+  const moved = had ? dir + '.aside-5000' : null;
+  if (had) fs.renameSync(dir, moved);
+  fs.writeFileSync(dir, 'not a folder');
+  try {
+    quiet();
+    const done = mac.del('stucktrust');
+    assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'standing kept + "the name is free" was reported as a clean delete');
+    assert.match(done.because, /community standing/, 'the refusal does not say which part failed');
+    assert.ok(!/name is free/.test(done.said || ''), 'it promised the name was free while its standing survived');
+  } finally {
+    fs.rmSync(dir, { force: true });
+    if (had) fs.renameSync(moved, dir);
+  }
+});
+
+test('#5000: while the folder is still there the standing is kept, so a retry still reaches it', () => {
+  const cs = require('./communitystore');
+  leftoverAgent('halfgone', { job: false });
+  cs.grantTrust('halfgone');
+  const realRename = fs.renameSync;
+  const realRm = fs.rmSync;
+  const folder = create.workerDir('halfgone');
+  fs.renameSync = (from, to) => { if (from === folder) throw new Error('busy'); return realRename(from, to); };
+  fs.rmSync = (target, o) => { if (target === folder) throw new Error('busy'); return realRm(target, o); };
+  try {
+    quiet();
+    const done = mac.del('halfgone');
+    assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'control: the folder was meant to be stuck');
+    assert.ok(!done.steps.some((x) => x.step === 'its community standing'), 'the standing was reset while the agent can still start');
+    assert.equal(cs.trustState('halfgone'), 'trusted');
+  } finally {
+    fs.renameSync = realRename;
+    fs.rmSync = realRm;
+  }
+});
