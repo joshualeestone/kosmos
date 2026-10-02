@@ -448,3 +448,52 @@ test('#5062 review 13: a name with a digit after it, and an unclosed HTML commen
   assert.ok(!out.includes('hidden part'), out);
   assert.ok(t.scrub('Bobby is a word', ['Bob']).includes('Bobby'), 'a longer word was cut');
 });
+
+test('#5062 review 14: a redraft scrubs every author name ever seen, across runs, not only those still in the feed', async () => {
+  const z = post('n1', 'Board idle when typing', 'it froze', 'Zorblax Quux');
+  const q = post('n2', 'Board idle when typing again', 'same as Zorblax said', 'Quill Penn');
+  const o = opts('r14a', {});
+  await t.read({ ...o, fetchFn: site([z, q]).fetchFn, gh: fakeGh().gh });
+  // A new process: only the state file carries what the first run saw.
+  const r = await t.read({ ...o, fetchFn: site([q]).fetchFn, gh: fakeGh().gh });
+  const g = Object.values(r.state.groups).find((x) => x.status === 'pending');
+  assert.deepEqual(g.posts.map((p) => p.id), ['n2']);
+  assert.ok(!/zorblax/i.test(g.draft.body + g.draft.title), 'the redraft named an author whose post had left');
+  assert.ok(!/zorblax/i.test(r.digest));
+});
+
+test('#5062 review 14: a withdrawn report that comes back is pending again, redrafted and re-searched; nothing is lost', async () => {
+  const a = post('b1', 'Board idle when typing', 'first', 'A1');
+  const b = post('b2', 'Font tiny everywhere', 'second', 'B1');
+  const o = opts('r14b', {});
+  await t.read({ ...o, fetchFn: site([a, b]).fetchFn, gh: fakeGh().gh });
+  const gone = await t.read({ ...o, fetchFn: site([]).fetchFn, gh: fakeGh().gh });   // an empty feed, or every agent hidden
+  assert.deepEqual(Object.values(gone.state.groups).map((g) => g.status), ['withdrawn', 'withdrawn']);
+  assert.ok(Object.values(gone.state.groups).every((g) => g.posts.length === 0 && !g.draft), 'a withdrawn group kept text');
+  const known = [{ number: 77, title: 'Font tiny on phones', state: 'OPEN' }];
+  const back = await t.read({ ...o, fetchFn: site([b]).fetchFn, gh: fakeGh({ known }).gh });
+  const g = Object.values(back.state.groups).find((x) => x.status === 'pending');
+  assert.ok(g, 'a report that came back stayed lost');
+  assert.deepEqual(g.posts.map((p) => p.id), ['b2']);
+  assert.match(g.draft.body, /second/);
+  assert.deepEqual(g.matches.map((m) => m.number), [77], 'the redraft kept its old search');
+  assert.match(back.digest, /1 report\(s\) came back/);
+});
+
+test('#5062 review 14: the deadline covers gh and says it is the deadline; a digit-only name part is not a name; --retry refuses a draft whose report left', async () => {
+  const o = opts('r14c', { deadlineMs: 300 });
+  const slow = (args) => { const end = Date.now() + 400; while (Date.now() < end) { /* gh hanging */ } return fakeGh().gh(args); };
+  await assert.rejects(t.read({ ...o, fetchFn: site([post('d1', 'Board idle', 'x', 'A1'), post('d2', 'Font tiny', 'y', 'B1')]).fetchFn, gh: slow }),
+    /ran past its 0.3 s deadline \(while searching cards\)/);
+  const late = async (url, init) => {
+    if (new URL(url).pathname === '/api/channels') { await new Promise((res) => setTimeout(res, 200)); return { ok: true, status: 200, json: async () => [{ slug: 'kosmos-bugs' }] }; }
+    return { ok: true, status: 200, json: () => new Promise((_, rej) => init.signal.addEventListener('abort', () => rej(init.signal.reason))) };
+  };
+  await assert.rejects(t.read({ ...opts('r14d', { deadlineMs: 400 }), fetchFn: late, gh: fakeGh().gh }), /ran past its 0.4 s deadline \(waiting on \/api\/posts\/feed\)/);
+  assert.equal(t.scrub('Error 4200 in v1.42.3', t.authorNames([post('u', 't', 'b', 'Unit-42')])), 'Error 4200 in v1.42.3');
+  const o2 = opts('r14e', {});
+  await t.read({ ...o2, fetchFn: site([post('f1', 'Board idle', 'x', 'A1')]).fetchFn, gh: fakeGh().gh });
+  const st = JSON.parse(fs.readFileSync(o2.state, 'utf8')); st.groups.g1.status = 'filing'; fs.writeFileSync(o2.state, JSON.stringify(st));
+  await t.read({ ...o2, fetchFn: site([]).fetchFn, gh: fakeGh().gh });
+  assert.throws(() => t.file('g1', { ...o2, retry: true, gh: fakeGh().gh }), /left the channel; do not file it/);
+});
