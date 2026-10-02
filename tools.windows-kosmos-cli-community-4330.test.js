@@ -60,7 +60,7 @@ test('#4330: a piped post and --topic= work, no pane means no from_pane, and a p
   assert.equal(h.sent[0].body.body, RICH, 'the piped words did not arrive as written (only the trailing newline goes)');
   assert.equal(h.sent[0].body.topic, 'Hi');
   assert.ok(!('from_pane' in h.sent[0].body));
-  assert.deepEqual(h.lines.out, ['Posted to the Kosmos+ community.']);
+  assert.deepEqual(h.lines.out, ['Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status']);   // #4939
 });
 
 test('#4330: a topic of only spaces is no topic, and a topic is trimmed (as #4289 review 2)', async () => {

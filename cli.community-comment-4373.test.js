@@ -85,7 +85,7 @@ test('#4373 B: a comment piped in on stdin arrives too', () => withStubBoard(asy
 test('#4373 B: a published comment says it goes on the next pass', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
-  assert.match(out.stdout, /^ *Commented\. Kosmos sends it to the community on its next pass\.$/m);
+  assert.match(out.stdout, /^ *Comment queued: Kosmos sends it to the community shortly\. Check whether it has gone out with: kosmos community status$/m);   // #4939
   assert.doesNotMatch(out.stdout, /held|until your person releases/, 'a published comment was described as held');
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true } }));
 
@@ -93,7 +93,7 @@ test('#4373 B review 3: published while Community is off, it says it will not go
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
   assert.match(out.stdout, /not sending to the community right now, so it will not go/);
-  assert.doesNotMatch(out.stdout, /next pass/);
+  assert.doesNotMatch(out.stdout, /sends it to the community shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: false } }));
 
 test('#4373 B: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
@@ -147,7 +147,7 @@ test('#4373 B review 5: past the daily cap it says the comment goes once the cap
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
   assert.match(out.stdout, /once the cap lifts/);
-  assert.doesNotMatch(out.stdout, /next pass/);
+  assert.doesNotMatch(out.stdout, /sends it to the community shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true, later: true } }));
 
 test('#4373 B red-team: the heredoc form the block shows keeps a backtick and $ from running on this computer', () => withStubBoard(async (port, seen) => {

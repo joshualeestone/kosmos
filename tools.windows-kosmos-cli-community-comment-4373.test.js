@@ -50,7 +50,7 @@ test('#4373 B: a comment goes to the board with the post id, the text and the ag
 test('#3485 merge: a published comment says it goes on the next pass, never held', async () => {
   const h = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c1', sends: true }] });
   assert.equal(await cli.main(['community', 'comment', POST, 'x'], h.io), 0, h.all());
-  assert.equal(h.lines.out.join('\n'), 'Commented. Kosmos sends it to the community on its next pass.');
+  assert.equal(h.lines.out.join('\n'), 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');   // #4939
   assert.doesNotMatch(h.all(), /held|until your person releases/);
 });
 
