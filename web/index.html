@@ -27882,7 +27882,9 @@ function oaNote(c, seen, now) {
   if (st === 'notin') return 'This browser is not let in on ' + c.name + ' yet. Open it to sign in.';
   const kept = seen && seen.agents ? ' Showing what this page last read.' : '';
   const when = kept && last ? ' This page last read it ' + last + '.' : '';
-  if (st === 'blocked') return c.name + ' is online but did not let this page read its agents.' + kept + when;
+  /* Most often an older Kosmos on that computer (no sibling answer yet), which signing in there cannot fix: so the
+     words name the likely cause rather than a refusal the person might try to clear. */
+  if (st === 'blocked') return c.name + ' is online, but its agents cannot be read from here yet. It may need the latest Kosmos.' + kept + when;
   return 'Not connected' + (last ? ', this page last read it ' + last : '') + '.' + kept;
 }
 /* An agents list this page read, but longer ago than two rounds (the section was off screen meanwhile): shown greyed
