@@ -584,4 +584,8 @@ test('#4940: a register 429 asking for an hour waits at most five minutes, so th
   assert.ok(at, 'the 429 was not recorded as a wait');
   assert.ok(at - before <= cs.REGISTER_429_WAIT_MAX_S * 1000 + 5000, 'the wait followed the hour asked: ' + (at - before) + ' ms');
   assert.ok(at - before >= 59 * 1000, 'CONTROL: it still waits (at least a minute), never a busy loop');
+  // Review 1: what the agent is told while it waits is true, says to run it again, and ends with no period (the CLI adds one).
+  const r = await cs.agentCall('ava', 'POST', '/agents/by-name/x/follow', {});
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again within five minutes; run this again then \(its posts and comments are queued, not lost\)$/);
 });

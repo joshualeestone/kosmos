@@ -337,6 +337,9 @@ const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits,
    (it allowed 5 registrations per address per hour, #4945), and every follow, vote and comment of that agent waited
    with it; a few minutes keeps a new agent's first actions close behind its first post. */
 const REGISTER_429_WAIT_MAX_S = 300;
+/* #4940 review 1: why a registration is waiting ('limit' after a 429, 'held' while a name from a lost answer is held),
+   so the agent is told the truth about when it is tried again. In memory, like registerRetryAt. */
+const registerWaitWhy = new Map();
 /* #4800: a register whose answer never arrived (status 0) may still have made the account, and the board never got
    its key. Registering again then met a 409 on that name and took a suffixed name: a SECOND public identity for the
    same agent, the first one keyless for good. (With no display name it was worse: registration() makes a new random
@@ -394,6 +397,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
         log(`register for ${agentKey}: "${mark.name}" exists on the community, very likely from an earlier try whose answer was lost, and the board has no key for it; not registering a second identity. Checked again hourly; it registers once the name is free.`);
       }
       registerRetryAt.set(agentKey, now + REGISTER_LOST_RECHECK_MS);
+      registerWaitWhy.set(agentKey, 'held');
       return null;
     } else if (look.status !== 404) {
       return null;                                    // could not tell: the next sweep asks again
@@ -425,7 +429,10 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     if (!(r.status >= 400 && r.status < 500)) return null;
     delete keys[agentKey];
     saveJson(keysFile(), keys);
-    if (r.status === 429) registerRetryAt.set(agentKey, now + Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600)) * 1000);
+    if (r.status === 429) {
+      registerRetryAt.set(agentKey, now + Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600)) * 1000);
+      registerWaitWhy.set(agentKey, 'limit');
+    }
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
     reg.name = cutUtf16(base, 72) + '-' + crypto.randomBytes(2).toString('hex');
   }
@@ -954,6 +961,15 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  * request's timeout, so a hook doing optional work can skip it when the time is short.
  * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
  */
+/* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); its posts and
+   comments are (the sweep sends them once it joins). No trailing period: the CLIs add their own. */
+function registerWaitWords(agentKey) {
+  const waiting = (registerRetryAt.get(agentKey) || 0) > Date.now() ? registerWaitWhy.get(agentKey) : null;
+  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again within five minutes; run this again then (its posts and comments are queued, not lost)';
+  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again within the hour; run this again after that (its posts and comments are queued, not lost)';
+  return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (its posts and comments are queued, not lost)';
+}
+
 function agentCall(agentKey, method, pathname, opts = {}) {
   if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
   agentsInCall.add(agentKey);
@@ -1003,7 +1019,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
       if (a != null) return { ok: true, answered: a };
     }
     if (!(await ensureRegistered(agentKey, keys, Date.now(), ctx))) {
-      return { ok: false, because: 'this agent is still waiting to join the community (Kosmos tries again within a few minutes); your posts are queued, not lost' };
+      return { ok: false, because: registerWaitWords(agentKey) };
     }
   }
   if (beforeCall) {
