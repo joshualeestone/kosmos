@@ -16,6 +16,9 @@
  *   P6  a PDF shows its first page with "The first page"; a text file shows its opening as text (markup in it is not
  *       run); any other file shows its name and size;
  *   P7  at 390 x 844 (a phone) the X and the action are inside the window and at least 40 px tall to tap;
+ *   P8  with the "Kosmos has been updated" window open under it, one Escape closes only the preview, and the window
+ *       under it does not take focus while the preview is up;
+ *   P9  a card drawn by the real message rows (the project thread panel's pjMsg and the DM's dmRow) opens the preview;
  *   and no page errors from the preview's own code.
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
@@ -105,7 +108,7 @@ async function runOn(engine, base, say) {
       say(m.actText === 'Open in Finder', tag + ' P1: the action is Open in Finder on this computer', m.actText);
       if (label === 'phone') {
         // P7
-        say(m.x.r <= m.vw && m.x.h >= 40 && m.act.b <= m.vh && m.act.h >= 34, tag + ' P7: the X and the action are inside the window and big enough to tap', JSON.stringify({ x: m.x, act: m.act }));
+        say(m.x.r <= m.vw && m.x.h >= 40 && m.act.b <= m.vh && m.act.h >= 40, tag + ' P7: the X and the action are inside the window and big enough to tap', JSON.stringify({ x: m.x, act: m.act }));
       }
 
       // P3
@@ -126,6 +129,22 @@ async function runOn(engine, base, say) {
       await pg.click(card(IMG_ID));
       await pg.mouse.click(m.vw - 4, Math.round(m.vh / 2));   // at the very edge, where the scrollbar strip was
       say(!(await open()), tag + ' P2: a click on the dark closes it');
+      await pg.click(card(IMG_ID));
+      const bar = await pg.evaluate(() => { const b = document.querySelector('#pv-preview .pv-bar').getBoundingClientRect(); return { x: Math.round(b.right - 6), y: Math.round(b.top + b.height / 2) }; });
+      await pg.mouse.click(bar.x, bar.y);
+      say(!(await open()), tag + ' P2: a click on the dark bottom bar closes it too');
+
+      // P8
+      await pg.click(card(IMG_ID));
+      await pg.evaluate(() => wnOpen('9.9.9', [{ icon: 'star', title: 'A thing', line: 'It changed.' }]));
+      await pg.waitForTimeout(100);
+      const under = await pg.evaluate(() => ({ wn: !!document.getElementById('whatsnew'), focusInPreview: document.getElementById('pv-preview').contains(document.activeElement) }));
+      await pg.keyboard.press('Tab');
+      const afterTab = await pg.evaluate(() => document.getElementById('pv-preview').contains(document.activeElement));
+      await pg.keyboard.press('Escape');
+      const after = await pg.evaluate(() => ({ pv: !!document.getElementById('pv-preview'), wn: !!document.getElementById('whatsnew') }));
+      say(under.wn && under.focusInPreview && afterTab && !after.pv && after.wn, tag + ' P8: the update window under it waits: focus stays in the preview, one Escape closes only the preview', JSON.stringify({ under, afterTab, after }));
+      await pg.evaluate(() => { if (typeof wnClose === 'function') wnClose(); });
 
       // P5
       // The click must land on the card (a control that counts it), or this would pass on a click that never happened.
@@ -135,6 +154,32 @@ async function runOn(engine, base, say) {
       const mod = await pg.evaluate(() => ({ clicks: window.__cardClicks, open: !!document.getElementById('pv-preview') }));
       say(mod.clicks === 1 && !mod.open, tag + ' P5: a Cmd-click lands on the card, keeps the download and opens no preview', JSON.stringify(mod));
       await pg.evaluate(() => { const b = document.getElementById('pv-preview'); if (b) b.remove(); });
+
+      // P9
+      const rows = await pg.evaluate((IMG_ID) => {
+        const att = { name: 'shot.png', type: 'image/png', size: 2048, kind: 'image', url: '/api/attachment/' + IMG_ID, preview: '/api/attachment/' + IMG_ID + '/preview' };
+        const out = {};
+        for (const [k, draw] of [['pjMsg', () => pjMsg({ text: 'here it is', attachments: [att], ts: new Date().toISOString() }, 'Ava')],
+          ['dmRow', () => dmRow({ from: 'Ava', to: 'You', text: 'here it is', attachments: [att], ts: new Date().toISOString() }, 'Ava')]]) {
+          const box = document.createElement('div');
+          box.setAttribute('data-pv-rows', k);
+          box.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:56;background:#fff;';   // over the test strip, inside a phone's width
+          try { box.innerHTML = draw(); out[k] = !!box.querySelector('a.att[data-att]'); } catch (e) { out[k] = 'threw: ' + e.message; }
+          document.body.appendChild(box);
+        }
+        return out;
+      }, IMG_ID);
+      for (const k of ['pjMsg', 'dmRow']) {
+        let opened = false;
+        if (rows[k] === true) {
+          await pg.evaluate((k) => { for (const b of document.querySelectorAll('[data-pv-rows]')) b.style.display = b.getAttribute('data-pv-rows') === k ? '' : 'none'; }, k);
+          await pg.click('[data-pv-rows="' + k + '"] a.att[data-att]');
+          opened = await open();
+          await pg.keyboard.press('Escape');
+        }
+        say(rows[k] === true && opened, tag + ' P9: a card in a real ' + k + ' row opens the preview', JSON.stringify(rows[k]));
+      }
+      await pg.evaluate(() => { for (const b of document.querySelectorAll('[data-pv-rows]')) b.remove(); });
 
       // P6
       await pg.click(card(PDF_ID));

@@ -32,6 +32,15 @@ Every place the page shows a person's file was printed, not counted (a search ag
 5. While the preview is up the page drops its scrollbar strip (html.pv-open): Chromium, the Windows app's engine,
    never paints a fixed layer over a `scrollbar-gutter: stable` strip, so the dark stopped 15 px short of the edge.
 
+## Review 1
+- The update window ("Kosmos has been updated") counts the preview as a window over it (wnCovered), and the preview's
+  keys stand aside for first run, the update overlay and the restart screen: one Escape closes only the top one (P8).
+- Any click on the dark closes it, the bottom bar's too; focus finds the card again if a poll redrew its row; a click
+  another handler already cancelled does not open it; the action is at least 40 px tall (P7); focus rings on the dark.
+- The reveal route answers like its siblings (409, { ok: false, because }); File Explorer's refusal speaks of showing,
+  not opening.
+- P9: cards drawn by the real message rows (pjMsg, dmRow) open it, not only cards drawn alone.
+
 ## Rejected / not in this PR
 - The Files lists: they show no images and have no route that serves a file's bytes; a preview there needs one.
 - Arrows and swipe to step through a conversation's images (the card marks it optional).
