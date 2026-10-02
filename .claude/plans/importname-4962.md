@@ -28,6 +28,11 @@ That one field is enough on a phone through Kosmos+: the field is 13px (`.tk-inp
 under 16px. The project page has a touch-only 16px rule (#718) that does not reach this panel; the first-run
 adopt field is 14px and has the same exposure. Not fixed here; stated.
 
+Second weakest premise (review 3): two nameless rows look the same on screen ("An agent file with no name in
+it"), so a sighted person could type a name into the wrong one. Josh's 0.6.45 ruling for these rows is "no
+markdown file, no path", so the file is NOT shown; it is in each field's and button's accessible name only.
+What would change it: a tester naming the wrong file, or Josh saying the file may be shown on a nameless row.
+
 ## Tests
 - web.import-name-4962.test.js (12; review 1 added the Enter handlers run for real, the first-run exemption,
   per-surface ids, a typed name kept across a redraw, focus and aria-invalid after a refusal): the nameless row's field, label and helper (a named row has none); distinct
@@ -57,3 +62,11 @@ finished add applies its receipt to whichever copy of the row is on screen, so a
 row again one keypress from a duplicate (named rows' lost receipt is fixed by the same change). Nits: a held
 Enter (key repeat) does not press Add again; the adopt exemption is tested; frEnterSubmit's comment names
 importNameEnter and the rule that keeps the two apart. Unit 16/16; 6 more sabotages red.
+
+## Review 3 (opus, blind, 2026-10-01 23:10): 0 blockers, 4 warnings, 2 nits, all taken
+A refusal that lands after a redraw shows its reason on the copy on screen, which is ready again (and marked
+invalid with the cursor in it when it is about the name); that reset is now tested. A receipt belongs to one
+visit to the list (importAddsNewVisit at each new populate generation), so a page left open does not block a
+legitimate re-add. Each nameless field's accessible name carries its file ("Name, <file>"); the visual sameness
+is recorded above as a premise. Typing clears the old reason with the invalid mark. Enter in a first-run adopt
+field adds its row. Unit 21/21; 7 more sabotages red.
