@@ -520,6 +520,8 @@ function isVersionWall(got) {
    own value, so the two disagree and nothing is replaced.
    🔄 KOSMOS'S OWN tmux IS ALWAYS A CANDIDATE (<KOSMOS_HOME>/tmux/bin/tmux), so the board follows a server back to it
    whichever tmux it started on.
+   ⚠️ "Reads" means list and drive (new-session, send-keys, capture-pane, has-session, kill-session: measured), NOT
+   attach: an interactive client must match the server's version exactly (attachTmux).
    🔢 THE ORDER is the known places, then Kosmos's own, then the launcher's pick; the supervisor tries the known places
    and Kosmos's own in the same order (then its PATH tmux). Either side lands on a tmux that can read the server.
    📍 ONLY THE LOOK (tmuxPanes) triggers it. The other readers and writers (list-sessions, display-message,
@@ -548,6 +550,27 @@ function ownTmux() { return TMUX_OWN_SEAM || path.join(__dirname, '..', '..', 't
     3.6a lists a 3.5a server; 3.5a against 3.6a says "server exited unexpectedly"), so a baked path can be the one that
     cannot. Null with an explicit choice (a test's stub) or a failed look: the baked path stays. */
 let TMUX_READ_BY = null;   // the tmux whose last look LISTED panes (not merely "no server"): set in tmuxPanes
+/** The tmux to ATTACH an interactive client with (Open in Terminal). ⚠️ Attach needs the SAME version as the server:
+    measured 2026-10-01 on private sockets, 3.6a cannot attach to a 3.5a server and 3.5a cannot attach to 3.6a, though
+    3.6a drives 3.5a in every other way. So: ask the server its version through a tmux that can read it (the board's
+    proven reader, else the agent's baked one), then the first candidate whose own -V says that version; the baked path
+    first, so nothing changes when it already matches. Anything unproven answers the baked path, as before. */
+function attachTmux(baked) {
+  const via = readerTmux() || baked;
+  if (!via) return baked || null;
+  const got = shDetail(via, ['list-sessions', '-F', '#{version}'], 2000);
+  const want = got.ran && got.status === 0 ? String(got.out).split('\n')[0].trim() : '';
+  if (!want) return baked || null;
+  const seen = new Set();
+  for (const c of [baked, via, tmuxBin(), ownTmux(), launcherPick(), '/opt/homebrew/bin/tmux', '/usr/local/bin/tmux']) {
+    if (!c || seen.has(c)) continue;
+    seen.add(c);
+    try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
+    const v = shDetail(c, ['-V'], 2000);
+    if (v.ran && v.status === 0 && String(v.out).trim().replace(/^tmux\s+/, '') === want) return c;
+  }
+  return baked || null;
+}
 function readerTmux() {
   return launcherPick() && LAST_LOOK_PROBLEM === null && TMUX_READ_BY && TMUX_READ_BY === tmuxBin() ? TMUX_READ_BY : null;
 }
@@ -610,7 +633,7 @@ function tmuxRepick() {
     const own = ownTmux();
     try {
       if (fs.statSync(own).isFile()) {
-        tmuxSwitchTo(own, `${current} is gone and no server is running; using Kosmos's own tmux, ${own}`);
+        tmuxSwitchTo(own, `${current} is gone and nothing here could list a server; using Kosmos's own tmux, ${own}`);
         return true;
       }
     } catch { /* no own tmux either */ }
@@ -8453,7 +8476,7 @@ module.exports = {
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
   setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
-  tmuxRepick, tmuxPanes, launcherTmux, readerTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
+  tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,

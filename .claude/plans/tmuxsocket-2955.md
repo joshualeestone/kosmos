@@ -15,6 +15,9 @@ mismatch", kept as the explicit spelling).
 And for driving, not only listing (measured 21:59, same pair, private socket): 3.6a against a 3.5a server ran
 new-session, send-keys, capture-pane (the keys were there), has-session and kill-session, all rc 0, and 3.5a still read
 its own server after. So a board or supervisor switched to the newer tmux can do every operation Kosmos does.
+But NOT attach (measured by a reviewer, 2026-10-01, private sockets, one `script` harness for every arm): 3.5a/3.5a and
+3.6a/3.6a attach; 3.6a cannot attach to a 3.5a server ("open terminal failed: not a terminal") and 3.5a cannot attach
+to 3.6a. So Open in Terminal attaches with a tmux whose version matches the server's (engine/status.js attachTmux).
 
 ## Decided: NOT a private socket (the card's option 1)
 Kosmos shares the person's tmux server ON PURPOSE: install/kosmos and install.tmux-pick.test.js record why (the adopt
@@ -217,4 +220,12 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   under launchd, no -L); the comment says so. DUPLICATE W: the PATH move (round 6). NITs left: test seams exported
   (excused by name); ownTmux names a sibling of a checkout (skipped when absent); the header's last-candidate wording
   (round 15).
+- Round 17 (opus): FIXED B (measured by the reviewer): a newer tmux cannot ATTACH to an older server, so Open in
+  Terminal through the board's reader broke whenever the board's tmux was newer than the server; Terminal now uses
+  status.attachTmux: the server's version (asked through the reader, else the baked tmux), then the first candidate
+  whose -V matches, the baked path first, the baked path when nothing matches (tests: a 3.6a reader and baked tmux
+  with a 3.5a server attach through a 3.5a one; a matching baked tmux is kept; nothing matching keeps the baked path;
+  Terminal hands attachTmux its baked path). FIXED W: the comments say "reads" is list and drive, not attach. FIXED
+  CONVENTION: Terminal's comment no longer claims the supervisor moved to the reader. NITs taken: the gone-tmux log
+  lines say what happened (nothing could list; the baked tmux is gone).
 

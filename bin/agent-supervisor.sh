@@ -122,7 +122,8 @@ _kosmos_supervisor_tmux() {
     case "$_tried" in *" $_cand "*) continue ;; esac   # once per path (command -v usually repeats a known place)
     _tried="$_tried$_cand "
     if "$_cand" list-sessions >/dev/null 2>&1; then
-      say "$SESSION: this computer's tmux server belongs to a different version than $TMUX_BIN; using $_cand, which can read it (#2955)"
+      if [ -n "$_gone" ]; then say "$SESSION: $TMUX_BIN is gone; using $_cand, which can read this computer's tmux server (#2955)"
+      else say "$SESSION: this computer's tmux server belongs to a different version than $TMUX_BIN; using $_cand, which can read it (#2955)"; fi
       TMUX_BIN="$_cand"
       # This supervisor's own later bare tmux and node lookups (and a pane's PATH only when the server's own PATH cannot
       # be read: the -e PATH below is built from the server's). It moves the whole directory ahead, Homebrew's node and

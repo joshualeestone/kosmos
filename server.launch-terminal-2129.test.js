@@ -115,18 +115,19 @@ test('a live agent: opens Terminal attached to its session, command is shell-quo
     'the tmux binary is not present or not single-quoted: ' + script);
 });
 
-test('#2955: when the board is proven to read the server through its tmux, Terminal attaches with that one, not the baked one', async () => {
+test('#2955: Terminal attaches with the tmux whose version matches the server (status.attachTmux), given the agent\'s baked one', async () => {
   lastRun = null;
   const name = 'lt-switched';
   born(name);
-  const real = status.readerTmux;
-  status.readerTmux = () => '/k/switched/tmux';   // the board reads this computer's server through this one
+  const real = status.attachTmux;
+  let given;
+  status.attachTmux = (baked) => { given = baked; return '/k/matching/tmux'; };   // a newer tmux cannot attach to an older server
   try {
     const r = await launch(name);
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    const script = lastRun.args[1];
-    assert.ok(script.includes("exec '/k/switched/tmux'"), 'Terminal attached with the baked tmux, which cannot read the server: ' + script);
-  } finally { status.readerTmux = real; }
+    assert.equal(given, TMUX_BIN, 'attachTmux was not given the agent\'s baked tmux to prefer');
+    assert.ok(lastRun.args[1].includes("exec '/k/matching/tmux'"), 'Terminal did not attach with the version-matched tmux: ' + lastRun.args[1]);
+  } finally { status.attachTmux = real; }
 });
 
 test('a stopped agent: refuses, and NO terminal is opened', async () => {

@@ -99,12 +99,14 @@ function openTerminal(name) {
 
   // The agent's OWN tmux binary (the recorded path is the working one), falling
   // back to a bare `tmux` on PATH only when the job is unreadable.
-  // #2955: EXCEPT when the board is proven to read this computer's server through its own tmux (status.readerTmux): a
-  // baked path can be an older tmux that cannot, and the agent's supervisor moved to the reader at its start.
+  // #2955: EXCEPT that an attach needs the SAME tmux version as the server (a newer one can drive an older server but
+  // cannot attach to it, measured): status.attachTmux asks the server its version and returns the baked path when it
+  // matches, else a tmux on this computer that does, else the baked path as before.
   const job = create.readJob(clean);
-  let reader = null;
-  try { reader = require('./status').readerTmux(); } catch { /* no status module: the baked path */ }
-  const tmuxBin = reader || (job && job.tmux) || 'tmux';
+  const baked = (job && job.tmux) || null;
+  let matched = null;
+  try { matched = require('./status').attachTmux(baked); } catch { /* no status module: the baked path */ }
+  const tmuxBin = matched || baked || 'tmux';
 
   // The command Terminal runs: attach a viewer to the running session. `exec`
   // so the window's shell becomes the tmux client and the window closes with

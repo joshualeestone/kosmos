@@ -6248,4 +6248,24 @@ test('#2955: each look\'s detail says only what that look\'s search did, and a s
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
+test('#2955: attachTmux picks a tmux whose version matches the server (attach needs the same version), the baked one first', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const fake = (name, version, extra) => { const f = nodePath.join(m.sb, name); fs.writeFileSync(f, `#!/bin/sh\ncase "$1" in -V) echo "tmux ${version}";; list-sessions) echo "${extra || ''}";; esac\nexit 0\n`); fs.chmodSync(f, 0o755); return f; };
+    const reader36 = fake('reader36', '3.6a', '3.5a');      // the board's reader: 3.6a, and the server says 3.5a
+    const baked36 = fake('baked36', '3.6a', '3.5a');
+    const own35 = fake('own35', '3.5a', '3.5a');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: reader36, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, reader36, []);
+      status.setOwnTmux(own35);
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null);
+      assert.equal(status.attachTmux(baked36), own35, 'a 3.6a tmux was handed to attach to a 3.5a server');
+      assert.equal(status.attachTmux(own35), own35, 'a baked tmux that matches was not kept');
+      status.setOwnTmux('/nonexistent/own/tmux');
+      assert.equal(status.attachTmux(baked36), baked36, 'with nothing matching, the baked path is not kept as before');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
 
