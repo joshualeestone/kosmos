@@ -8348,7 +8348,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   font: var(--text-callout) var(--font-ui); color: var(--label); cursor: pointer; }
 /* #4557: the prebuilt team step. One row per agent: its seat, its name (editable until it is made),
    where it stands, and Try again when it failed. The same card as the org chart preview. */
-.tc-h { margin: 0 0 4px; font: var(--text-title3, 600 1.1rem/1.3 var(--font-ui)); color: var(--label); }
+.tc-h { margin: 0 0 4px; font: 600 var(--text-title-3) var(--font-ui); color: var(--label); }   /* #4935: the token was misspelled (title3), so its fallback size showed */
 .tc-list { margin: var(--space-2) 0; padding: 12px 12px 12px 2.2em; list-style: decimal;
   background: var(--field-fill); border: 0.5px solid var(--border-strong);
   border-radius: var(--radius-control); display: flex; flex-direction: column; gap: 8px; }
@@ -8370,6 +8370,37 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-teammake .flabel[for="tc-project"] { margin-top: var(--space-6); }
 .tc-leads { white-space: nowrap; }
 @media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
+/* #4935 (Josh, 0.7.16: "Some of the styling just doesn't feel like the Create an Agent styling" and "some of
+   the input fields are touching the labels"). The team steps take the single create's own numbers, the
+   #cstep-name rules above, rather than a second set: a field is 20px from the one above with no rule line,
+   a label sits 6px over its control, the menus are 18rem, the Model block steps the same way, and the
+   footer is its one row. The member box keeps its own top margin as the gap below the purpose line. */
+#cstep-teammake .field { border-top: 0; padding-top: 0; margin-top: var(--space-7); }
+#cstep-teammake .flabel[for="tc-project"] { margin-top: 0; }
+#cstep-team .flabel, #cstep-teammake .flabel { margin-bottom: var(--space-3); }
+#cstep-teammake #tc-project, #cstep-teammake #tc-provider, #cstep-teammake #tc-account,
+#cstep-teammake #tc-model { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
+#cstep-teammake .mstep:has(> #tc-account-row[hidden]) { padding-left: 0; }
+#cstep-teammake .mstep:has(> #tc-account-row[hidden])::before { content: none; }
+#cstep-teammake .tc-list { margin: var(--space-6) 0 0; }
+#cstep-teammake #tc-note { margin-top: var(--space-7); }
+#cstep-teammake .sfoot { justify-content: space-between; align-items: center; gap: var(--space-6); margin-top: var(--space-7); }
+.tc-btns { display: flex; gap: var(--space-4); flex: 0 0 auto; }
+/* "On the team selection can we make the dropdown about half as wide?": the single create's 18rem, which is
+   about half this column, in place of .nak-team-opt's full width. */
+#cstep-team #team-seeded { width: 18rem; max-width: 100%; }
+#cstep-team #team-seeded-desc { margin-top: var(--space-4); }
+#cstep-team .importrow { margin-top: var(--space-6); }
+/* Item 7: the status column is a fixed width, so a row's name does not move sideways as its status changes
+   ("Making…" to "Made, starting…" to "Running"); a longer status wraps inside it instead. */
+#cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 11rem; }
+#cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
+  justify-content: flex-end; gap: var(--space-3); }
+#cstep-teammake .tc-state .spin { flex: none; }
+@media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
+/* Item 8: while the team is being made, the Project and Model menus are fixed (tcPaint disables them); they
+   say so by looking it, not only by refusing a click. */
+#cstep-teammake select:disabled { opacity: .55; cursor: default; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -14727,25 +14758,44 @@ window.kosmosMeasureScrollbarWidth();
     <h2 class="tc-h" id="tc-title" tabindex="-1"></h2>
     <p class="rolehelp" id="tc-purpose"></p>
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
-    <label class="flabel" for="tc-project">Project</label>
-    <select id="tc-project"></select>
+    <!-- #4935 (Josh: "Some of the styling just doesn't feel like the Create an Agent styling"): the same
+         structure as that screen, .field > .flabel + .frow, and its stepped Model block (.msteps/.mstep), so
+         the spacing and widths are its rules (extended to this step in the CSS), not a second set. -->
+    <div class="field">
+      <label class="flabel" for="tc-project">Project</label>
+      <div class="frow"><select id="tc-project"></select></div>
+    </div>
     <!-- #4719: ONE provider and account for the whole team, the same choice the single-agent form offers
-         (fillCreateAccounts fills both; the account row shows only at two or more accounts, #2097). -->
-    <label class="flabel" for="tc-provider">Model <span class="flabel-soft">(for every agent in the team; you can change each later)</span></label>
-    <div class="frow"><select id="tc-provider"></select></div>
-    <div class="frow" id="tc-account-row" hidden><select id="tc-account" aria-label="Account"></select></div>
+         (fillCreateAccounts fills both; the account row shows only at two or more accounts, #2097).
+         #4935: and ONE model, the list the single-agent form offers for that provider (tcPaintModel). -->
+    <div class="field" id="tc-model-field">
+      <label class="flabel" for="tc-provider" id="tc-model-lab">Model <span class="flabel-soft">(for every agent in the team; you can change each later)</span></label>
+      <div class="msteps" role="group" aria-labelledby="tc-model-lab">
+        <div class="frow"><select id="tc-provider"></select></div>
+        <div class="mstep">
+          <div class="frow" id="tc-account-row" hidden><select id="tc-account" aria-label="Account"></select></div>
+          <div class="mstep">
+            <div class="frow" id="tc-model-row"><select id="tc-model" aria-label="Model"></select></div>
+            <p class="dhint" id="tc-model-why" style="margin:8px 0 0;" hidden></p>
+          </div>
+        </div>
+      </div>
+    </div>
     <p class="rolehelp" id="tc-note" role="status" aria-live="polite"></p>
     <!-- Review 27: the team step obeyed the single create's "Let Kosmos know" box, which is on another
          step and cannot be seen from here. This is that same choice, shown where it is used (kept equal
          to #create-tell, which stays the one the creates read). `for` names the box, as it does there. -->
-    <label class="tellrow" for="tc-tell">
-      <input type="checkbox" id="tc-tell">
-      <span id="tc-tell-say"></span>
-    </label>
-    <div class="importrow">
-      <button class="btn uprime" type="button" id="tc-go"></button>
-      <button class="btn uprime" type="button" id="tc-hello" hidden></button>
-      <button class="btn" type="button" id="tc-back">Back</button>
+    <!-- #4935: the single create's one-row footer (.sfoot): the box on the left, the buttons on the right. -->
+    <div class="sfoot">
+      <label class="tellrow" for="tc-tell">
+        <input type="checkbox" id="tc-tell">
+        <span id="tc-tell-say"></span>
+      </label>
+      <div class="tc-btns">
+        <button class="btn" type="button" id="tc-back">Back</button>
+        <button class="btn uprime big" type="button" id="tc-go"></button>
+        <button class="btn uprime big" type="button" id="tc-hello" hidden></button>
+      </div>
     </div>
     <p class="rolelimit" id="tc-msg" role="status" aria-live="polite" hidden></p>
   </div>
@@ -24325,6 +24375,7 @@ function agyAsk() {
         paintAgyOption(sel, cur);
       }
       if (typeof tcProviderSettle === 'function') tcProviderSettle();   // #4719: a subscription pick no longer allowed
+      if (typeof tcSyncModel === 'function') tcSyncModel();   // #4935: and the team's model list follows it
       // The first-run Gemini row names the subscription only where it is offered (review round 9).
       const tag = document.querySelector && document.querySelector('#fr-gemini-connect');
       const small = tag && tag.parentElement && tag.parentElement.querySelector('.llm-w small');
@@ -24376,6 +24427,7 @@ function museCreateAsk() {
         paintMuseOption(sel, cur);
       }
       if (typeof tcProviderSettle === 'function') tcProviderSettle();   // #4719: a Meta pick Muse no longer allows
+      if (typeof tcSyncModel === 'function') tcSyncModel();   // #4935: and the team's model list follows it
       // A Meta pick this read turned off is undone and said.
       const pv = document.getElementById('create-provider');
       if (pv && pv.value === 'meta') createPickGone(CREATE_ACCOUNTS_KNOWN);
@@ -48413,8 +48465,73 @@ async function tcFillProviderNow(gen) {
   TC_PROVIDER_START = copied === 'anthropic' ? sel.value : '\u0000';
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed(); }
 }
-document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); });
-document.getElementById('tc-account').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; });
+document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); tcSyncModel(); });
+document.getElementById('tc-account').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; tcSyncModel(); });
+
+/* #4935 (Josh: "is it possible for me to pick a model for all of the agents? ... it'd be great if I could
+   default all of them to a single model"): one model for the whole team, the list the single-agent form
+   offers for that provider. Claude: the engine's list (CREATE_MODELS, from /api/roles), its default chosen.
+   OpenAI: that account's models with "Let OpenAI choose" first, or that sentence alone when the account
+   cannot list them. Gemini, Grok, Antigravity and Muse pick their own: the row is hidden and the reason
+   said, as on the single form. An empty value sends no model, so create uses its own default. Repainted
+   only when the provider or account changed (tcSyncModel), so a person's pick survives the 2 s repaints. */
+let TC_MODEL_FOR = null;   // the provider|account the model menu was last painted for
+let TC_MODEL_GEN = 0;      // a newer paint supersedes a list still being read
+function tcSyncModel() {
+  const sel = document.getElementById('tc-model');
+  if (!sel) return;
+  const pv = (document.getElementById('tc-provider') || {}).value || '';
+  const ac = (document.getElementById('tc-account') || {}).value || '';
+  /* A member exists: the team's model is the one it was made on (TC.model), shown and fixed. */
+  if (TC_MODEL_FOR !== pv + '|' + ac && !tcChoiceFixed()) { TC_MODEL_FOR = pv + '|' + ac; tcPaintModel(pv, ac); }
+  sel.disabled = tcChoiceFixed() || TC_FILLING > 0 || sel.dataset.fixed === '1';
+}
+function tcPaintModel(pv, ac) {
+  const gen = ++TC_MODEL_GEN;
+  const row = document.getElementById('tc-model-row');
+  const sel = document.getElementById('tc-model');
+  const why = document.getElementById('tc-model-why');
+  const prev = sel.value;
+  const show = (html, fixed, note, keep) => {
+    sel.innerHTML = html;
+    sel.dataset.fixed = fixed ? '1' : '';
+    if (keep && prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;   // a round trip keeps a pick
+    sel.disabled = fixed || tcChoiceFixed() || TC_FILLING > 0;
+    if (why) { why.textContent = note || ''; why.hidden = !note; }
+  };
+  if (vendorPicksModel(pv)) {
+    row.hidden = true;
+    show('<option value="" selected></option>', true, switchKeyedWord(pv) + ' picks its own model.', false);
+    return;
+  }
+  row.hidden = false;
+  if (pv === 'openai') {
+    const openaiOwn = '<option value="" selected>OpenAI picks its own model for now</option>';
+    if (!ac) { show(openaiOwn, true, openaiNoModelsNote(null), false); return; }
+    show('<option value="">Loading this account\'s models…</option>', true, '', false);
+    fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      .then((out) => {
+        if (gen !== TC_MODEL_GEN) return;
+        if (out && out.ok && Array.isArray(out.models) && out.models.length) {
+          show('<option value="" selected>Let OpenAI choose (recommended)</option>'
+            + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join(''), false, '', true);
+        } else show(openaiOwn, true, openaiNoModelsNote(out && out.because), false);
+      });
+    return;
+  }
+  const claude = () => show(CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>'
+    + esc(m.label) + '</option>').join(''), false, '', true);
+  if (CREATE_MODELS.length) { claude(); return; }
+  /* The team step can open before the create form has read the roles: read them the way the form does. Until
+     they come, nothing is chosen, so a team made meanwhile gets create's default, which is the same model. */
+  show('<option value="" selected>Loading the models…</option>', true, '', false);
+  Promise.resolve().then(() => fetchRoles()).catch(() => null).then(() => {
+    if (gen !== TC_MODEL_GEN) return;
+    if (CREATE_MODELS.length) claude();
+    else show('<option value="" selected>Kosmos\'s default model</option>', true, '', false);
+  });
+}
 
 /* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
 function tcFinished() {
@@ -48512,6 +48629,9 @@ function tcPaint() {
     li.append(row);
     return li;
   }));
+  /* #4935 item 5 (Josh: "the one that's making should have the inline spinner spinning"): the Kosmos spinner
+     beside "Making…". It carries no text (aria-hidden, empty <i>), so the row still reads "Making…". */
+  for (const making of list.querySelectorAll('.tc-state.creating')) making.insertAdjacentHTML('afterbegin', pjSpin());
   if (hadSlot && !list.contains(had)) {
     const row = list.querySelector('li[data-slot="' + CSS.escape(hadSlot) + '"]');
     const back = row && ((hadKind === 'retry' && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
@@ -48543,6 +48663,7 @@ function tcPaint() {
   /* #4719: ONE rule (tcChoiceFixed) for the lock, the settle and the late account list. */
   tcApplyLateAccounts();
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed() || TC_FILLING > 0; }
+  tcSyncModel();   // #4935: the model list follows the provider and account, and locks with them
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
@@ -48621,7 +48742,9 @@ function tcModel() {
   const a = document.getElementById('tc-account');
   const provider = p ? String(p.value || '') : '';
   const account = a ? String(a.value || '') : '';
-  const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
+  const md = document.getElementById('tc-model');   // #4935: empty (not chosen, or the vendor picks) sends none
+  const model = md ? String(md.value || '') : '';
+  const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}), ...(model ? { model } : {}) };
   if (TC) TC.model = m;   // what the members made from here on are made on
   return m;
 }

@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
+// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg tc-model tc-model-row tc-model-why tc-model-field tc-model-lab cstep-team team-seeded
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -30,6 +30,10 @@
  *    with no account menu for one account, and every member is made on it in one press; the choice is
  *    fixed once it starts; an account list slower than the step's 5 s wait still sets the default when
  *    it lands; the menus lock at the click and open again if the click is refused;
+ *  - #4935: both team steps take the single create's spacing and 18rem menus (the ready-made team menu
+ *    about half the column), one MODEL from the single create's list is sent for every member, the row
+ *    being made shows the Kosmos spinner, the names do not move as statuses change, and the Project and
+ *    Model menus look locked while the team is made;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  * POST /api/agents is INTERCEPTED with a scripted outcome per name, so nothing here makes a real agent or
@@ -750,6 +754,76 @@ function chk(ok, label, extra) {
           chk(posted.length === 3 && posted.every((b) => b.notifyCreated === false), `${E} with the box unticked, every member is made with notifyCreated false`, JSON.stringify(posted.map((b) => b.notifyCreated)));
           chk(await page.evaluate(() => { const b = document.getElementById('tc-tell'); return !!b && b.disabled; }), `${E} the choice cannot be changed once the team is being made`);
           chk(errs.length === 0, `${E} no page errors (tell-box arm)`, errs.join(' | '));
+          await page.close();
+        }
+
+        /* --- #4935 (Josh, 0.7.16 test): the team steps look like Create an Agent, the whole team takes one
+           MODEL, the row being made spins, the names do not move as the statuses change, and the menus look
+           locked while the team is being made. ---------------------------------------------------------- */
+        {
+          const { page, errs, posted, holdCreate } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await settle(page, () => document.getElementById('tc-model').options.length > 1 && !document.getElementById('tc-model').disabled);
+          // Step 1's ready-made team menu, measured with that step shown in the same sheet (it is the step before this one).
+          const one = await page.evaluate(() => {
+            const team = document.getElementById('cstep-team'), make = document.getElementById('cstep-teammake');
+            team.hidden = false; make.hidden = true;
+            const sel = document.getElementById('team-seeded'), lab = document.querySelector('label[for="team-seeded"]');
+            const out = { w: sel.getBoundingClientRect().width, col: team.getBoundingClientRect().width,
+              gap: sel.getBoundingClientRect().top - lab.getBoundingClientRect().bottom };
+            team.hidden = true; make.hidden = false;
+            return out;
+          });
+          chk(one.w > 0 && one.w <= one.col * 0.6 && one.gap >= 5, `${E} #4935 the ready-made team menu is about half the column, off its label`, JSON.stringify(one));
+          const look = await page.evaluate(() => {
+            const box = (q) => document.querySelector(q).getBoundingClientRect();
+            const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+            return {
+              rem,
+              project: box('#tc-project').width, provider: box('#tc-provider').width, model: box('#tc-model').width,
+              labelGap: box('#tc-project').top - box('label[for="tc-project"]').bottom,
+              modelLabelGap: box('#tc-provider').top - box('#tc-model-lab').bottom,
+              fieldGap: box('#tc-model-lab').top - box('#tc-project').bottom,
+              rungGap: box('#tc-model').top - box('#tc-provider').bottom,
+              foot: getComputedStyle(document.querySelector('#cstep-teammake .sfoot')).display,
+            };
+          });
+          chk([look.project, look.provider, look.model].every((w) => Math.abs(w - 18 * look.rem) < 1),
+            `${E} #4935 Project, provider and model are the single create's 18rem`, JSON.stringify(look));
+          chk(look.labelGap >= 5 && look.modelLabelGap >= 5 && look.fieldGap >= 18 && look.rungGap >= 10 && look.foot === 'flex',
+            `${E} #4935 no label touches its menu and no field touches the next (the single create's spacing)`, JSON.stringify(look));
+          // The model menu is the single create's Claude list, on its default; a different pick is made for every member.
+          const models = await page.evaluate(() => ({ offered: [...document.getElementById('tc-model').options].map((o) => o.value),
+            value: document.getElementById('tc-model').value, list: CREATE_MODELS.map((m) => m.key), def: (CREATE_MODELS.find((m) => m.default) || {}).key }));
+          chk(models.list.length > 1 && JSON.stringify(models.offered) === JSON.stringify(models.list) && models.value === models.def,
+            `${E} #4935 the team's Model menu offers the single create's models, on its default`, JSON.stringify(models));
+          const want = models.list.find((k) => k !== models.def);
+          await page.selectOption('#tc-model', want);
+          await page.selectOption('#tc-project', 'none');
+          const releaseLeo = holdCreate('Leo');   // Leo stays "Making…" until measured
+          const xs = () => page.evaluate(() => [...document.querySelectorAll('#tc-list .tc-name')].map((i) => Math.round(i.getBoundingClientRect().left)));
+          const before = await xs();
+          await page.click('#tc-go');
+          await settle(page, () => /Making/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
+          const during = await page.evaluate(() => {
+            const st = document.querySelector('#tc-list li[data-slot="content"] .tc-state');
+            const locked = ['tc-project', 'tc-provider', 'tc-model'].map((id) => { const e = document.getElementById(id); return { id, disabled: e.disabled, opacity: +getComputedStyle(e).opacity }; });
+            return { text: st.textContent, spin: !!st.querySelector('.spin.spin-sweep[aria-hidden="true"]'),
+              others: [...document.querySelectorAll('#tc-list .tc-state:not(.creating) .spin')].length, locked };
+          });
+          const mid = await xs();
+          chk(during.text === 'Making…' && during.spin && during.others === 0,
+            `${E} #4935 the row being made shows the Kosmos spinner beside "Making…", and only that row`, JSON.stringify(during));
+          chk(during.locked.every((l) => l.disabled && l.opacity < 1), `${E} #4935 Project and Model look locked while the team is made`, JSON.stringify(during.locked));
+          releaseLeo();
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
+          const after = await xs();
+          chk(JSON.stringify(before) === JSON.stringify(mid) && JSON.stringify(mid) === JSON.stringify(after),
+            `${E} #4935 the names stay put as each row's status changes`, JSON.stringify({ before, mid, after }));
+          chk(posted.length === 3 && posted.every((b) => b.model === want), `${E} #4935 every member is made on the one model chosen`, JSON.stringify(posted.map((b) => [b.name, b.model])));
+          chk(errs.length === 0, `${E} no page errors (#4935 arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.close();
         }
 
