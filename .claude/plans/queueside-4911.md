@@ -265,3 +265,20 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   by pid, after which the arm printed OK, so that printed line is NOT a control result. The evidence is the hang and the
   live strays under the old wrapper versus no stray and no hang under the new one (66/66 at 22:3x). Harness weakness noted:
   the arm should send the detached child's output away from the $( ) so a failure reads BAD instead of hanging.
+
+## Round 17 (Opus, blind): 1 blocker, 3 nits. (Sonnet round 17 still running at this entry.)
+- BLOCKER (reproduced, repro1.sh/repro1b.sh in the reviewer's folder) FIXED at 6f03ad2c3: an older queued-heavy.sh that
+  arrives at an EMPTY queue passes its first check and writes no suitewait marker, so neither the take nor the
+  intruder's marker check sees it; when the holder released, it claimed the box and ran a main turn beside the side
+  turn to the end. Fix: the side take records the holder's machine-claim cookie (KOSMOS_SIDE_HOLDER_COOKIE, exported;
+  the capper inherits it; the wrapper unsets an inherited one), and the intruder yields when a live claim with ANOTHER
+  cookie holds the box. Renewals and a cut relabel keep the holder's cookie (the cut is caught by its own check). Test
+  arms: the take records the holder (exit 5 if not); another claim -> yield; CONTROLS: the holder's own claim -> stay,
+  and the same foreign claim with no recorded holder -> stay (so the yield is the cookie's). 87/87. Both mutants killed.
+  Wrapper backup before this edit: queued-heavy.sh.4911-new.r17-backup.
+- NIT (kept, goes in the rollout note): aging is off while any 5-line (#4609) marker is live, and at review time all 15
+  live markers were 5-line (wrappers load the lib from kosmos-bc-main-4610). The starvation fix does nothing until that
+  checkout is updated and those waiters drain; an early long light wait is not a regression.
+- NIT (kept): the old-wrapper marker checks match `queued-heavy` by name; the new cookie check does not depend on the
+  name, so it now carries that case.
+- NIT (kept): a side claim's liveness is kill -0, so a reused pid holds it to expiry (at most ~17 min), as the machine claim.
