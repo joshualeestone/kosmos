@@ -48499,6 +48499,7 @@ function tcPaint() {
       made: made + (m.portrait === 'failed' ? ' (picture not set)' : ''), failed: 'Not made' })[m.state] || '';
     // #4936: once it is running, Kosmos says hello to it; the row says where that is.
     if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', started: 'Said hello', failed: 'Could not say hello', unsure: 'Hello not confirmed' })[m.hello] || st.textContent;
+    if (m.state === 'made' && m.hello && m.portrait === 'failed') st.textContent += ' (picture not set)';   // review 7: still said
     // Review 5: and in its own colour: only "Said hello" is the success green; a failed hello is red, the rest plain.
     if (m.state === 'made' && m.hello && m.hello !== 'started') st.className = 'tc-state' + (m.hello === 'failed' ? ' failed' : '');
     row.append(seat, input, st);
@@ -48592,7 +48593,7 @@ function tcPaint() {
     // "Said hello", not "started": placed means the hello reached the agent; its first turn is measured live (0.7.17).
     if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look;
     else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
-      : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at its row.') + look;
+      : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at ' + (notN === 1 ? 'its row.' : 'their rows.')) + look;
     else {
       // Review 5: during a Try again only some are being said hello to, so the note says how many.
       const sayingN = TC.members.filter((m) => m.hello === 'sending').length;
@@ -48630,7 +48631,10 @@ async function tcHelloSend(name) {
   const timer = ctl ? setTimeout(() => ctl.abort(), TC_HELLO_TIMEOUT_MS) : null;
   try {
     const r = await postWakeHello(name, ctl ? ctl.signal : undefined);   // the same request sendWakeHello makes
-    if (!r.ok) return r.status >= 500 ? 'unsure' : 'failed';   // a 5xx may have placed it already
+    /* Review 7: only the refusals the route makes BEFORE any keystroke are retried: 404 (no such agent yet) and 409
+       (held). A 400 cannot be the request check for "hello"; it is the route's catch-all, which could follow a
+       delivery, so it and every other status may have placed it already and are never re-sent. */
+    if (!r.ok) return (r.status === 404 || r.status === 409) ? 'failed' : 'unsure';
     const state = r.delivery && r.delivery.state;
     return state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure');
   } catch { return 'unsure'; }   // the request may have reached the board
@@ -48660,8 +48664,19 @@ async function tcSayHello() {
   await Promise.all(TC.members.filter((m) => m !== lead).map((m) => tcHelloOne(m, gen)));
   if (gen !== TC_GEN || !TC) return;
   TC.greeting = TC.members.some((m) => m.hello === 'sending');   // a Try again pressed meanwhile may still be going
-  if (TC.members.every((m) => m.hello === 'started')) tcGoToTeam(true);
+  if (TC.members.every((m) => m.hello === 'started')) tcLeaveWhenSettled(gen);
   else tcPaint();
+}
+/* Review 7: every hello placed, but a picture may still be going up. Leaving drops the team, and with it the row that
+   would say "(picture not set)", so wait for the pictures (bounded), and if one failed stay so its row can say so. */
+async function tcLeaveWhenSettled(gen) {
+  if (!TC || TC.leaving) return;
+  TC.leaving = true;
+  for (let i = 0; i < 75 && TC && gen === TC_GEN && TC.members.some((m) => m.portraitBusy); i++) await new Promise((r) => setTimeout(r, 200));
+  if (gen !== TC_GEN || !TC) return;
+  TC.leaving = false;
+  if (TC.members.some((m) => m.portrait === 'failed' || m.portraitBusy)) { tcPaint(); return; }
+  tcGoToTeam(true);
 }
 function tcHelloRetry(slot) {
   const m = TC && TC.members.find((x) => x.slot === slot);
@@ -48671,7 +48686,7 @@ function tcHelloRetry(slot) {
   tcHelloOne(m, gen).then(() => {
     if (gen !== TC_GEN || !TC) return;
     TC.greeting = TC.members.some((x) => x.hello === 'sending');
-    if (TC.members.every((x) => x.hello === 'started')) tcGoToTeam(true);
+    if (TC.members.every((x) => x.hello === 'started')) tcLeaveWhenSettled(gen);
   });
 }
 /* #4936 (Josh: "It should take me to my agent view wherever I was and show me. I should be able to go see the new
@@ -48730,13 +48745,9 @@ function tcGoToTeam(auto) {
       : (names.length === 1 ? 'Your agent' : (notSaid === 1 ? '1 of them' : notSaid + ' of them')) + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;
   }, 100);
 }
-/* The lead as the list marks it ("leads the team"), and the name it was made under. */
+/* The lead as the list marks it ("leads the team"). */
 function tcLead() {
   return (TC && (TC.members.find((m) => m.slot === TC.leadSlot) || TC.members[0])) || null;
-}
-function tcLeadShown() {
-  const lead = tcLead();
-  return (lead && lead.made && (lead.made.shownAs || lead.made.name)) || '';
 }
 
 /* What to say for a caught error: a fetch that never reached the board throws the browser's own words
@@ -48993,8 +49004,9 @@ async function tcWatchLoop(gen) {
       /* Review 27: every member gets a picture, as every single agent does: the catalogue's portrait
          when the team ships one, otherwise the generated mark for its name. */
       TC_UPLOADING += 1;
+      m.portraitBusy = true;   // #4936 review 7: the step does not leave on its own while this is going up
       tcPortrait(m.made.name, m.made.image, m.made.shownAs, TC.key, m.slot).then((r) => { m.portrait = r; if (r === 'set') tick(); })
-        .finally(() => { TC_UPLOADING -= 1; tcPaint(); });
+        .finally(() => { m.portraitBusy = false; TC_UPLOADING -= 1; tcPaint(); });
       for (const pr of (m.made.projects || [])) {
         if (!pr || !pr.added) continue;
         fetch('/api/project/' + encodeURIComponent(pr.id) + '/agent/' + encodeURIComponent(m.made.name), {
