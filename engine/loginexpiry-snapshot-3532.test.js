@@ -9,6 +9,16 @@
  * Pane fixtures use test-support/fleet.line (never hand-typed tab lines -- fixture-discipline). */
 const { test } = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+/* #5018: computeLoginAdvisories now reads each agent's display name and the account's email. Sandbox both roots
+   BEFORE requiring status, so the tests that pass no name/email seam read an empty sandbox, never this Mac's files. */
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'le-snapshot-'));
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 const status = require('./status');
 const fleet = require('../test-support/fleet');
 
@@ -93,4 +103,24 @@ test('computeLoginAdvisories: no ours panes -> empty (nothing to warn about)', (
     cache: { at: 0, value: [] },
   });
   assert.deepEqual(out, []);
+});
+
+test('#5018: each advisory names the provider, the account email and the agents by their given names', () => {
+  const now = 1_000_000_000_000;
+  const panes = [paneOf({ session: 'amara-discord', pane: '0.0' }), paneOf({ session: 'ben-discord', pane: '0.1' }),
+    paneOf({ session: 'cleo-discord', pane: '0.2' })];
+  const ccdByName = { amara: '/acct/one', ben: '/acct/one', cleo: '/acct/two' };
+  const readCcd = (a) => ccdByName[a.name];
+  const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
+  const displayName = (n) => ({ amara: 'Amara Singh', ben: 'Ben' }[n] || n);
+  const emailOf = (ccd) => (ccd === '/acct/one' ? 'one@example.com' : null);
+  const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, displayName, emailOf, cache: { at: 0, value: [] } });
+  assert.equal(out.length, 2, 'one advisory per account');
+  const one = out.find((a) => a.email === 'one@example.com');
+  const two = out.find((a) => a.email === null);
+  assert.ok(one && two, JSON.stringify(out));
+  assert.equal(one.provider, 'Claude');
+  assert.deepEqual(one.names, one.agents.map(displayName), 'names follow agents, in the same order');
+  assert.ok(one.names.includes('Amara Singh'));
+  assert.deepEqual(two.names, ['cleo'], 'no display name: the system name, never blank');
 });

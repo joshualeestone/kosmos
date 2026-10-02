@@ -1236,6 +1236,9 @@ html { scroll-padding-top: 132px; }
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
   max-width: min(460px, calc(100vw - 32px)); pointer-events: none; }
 .apphead .topnotes > div > * { pointer-events: auto; }
+/* The consolidated header is position: static, so the stack stacks with the page, where the sticky project rail
+   (z-index 4) comes later and would paint over it. Above the rail, below the header menus (40). */
+html[data-layout="consolidated"] body.consolidated > .apphead .topnotes { z-index: 30; }
 .utoast .ux { flex: 0 0 auto; width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 7px; cursor: pointer;
   background: none; color: var(--label-2); font-size: 1.125rem; line-height: 1; }
 .utoast .ux:hover { background: var(--bg); color: var(--label); }
@@ -1347,14 +1350,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .sfoot-live { align-items: center; gap: var(--space-4); }
 #pjs-save-live { margin: 0; min-height: 0; }
 #pjs-save-live:empty { display: none; }
-/* Narrow screens: in-flow like everywhere else now (the float this rule
-   used to break against is retired). The version line hides and the left
-   group wraps the notice onto its own row -- "the header grows when an
-   update is waiting" is the harm a person can live with, per the original
-   trade. */
+/* Narrow screens drop the update notice's version line. */
 @media (max-width: 720px) {
-  /* Inline everywhere now; narrow screens just drop the version line and
-     let the header's left group wrap the notice onto its own row. */
   .headleft { flex-wrap: wrap; }
   .utoast .utxt small { display: none; }
   /* #5018: the login notice's line is who and which account, the point of it; it floats, so it costs no header room. */
@@ -1427,7 +1424,7 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
-     so the navy bar is the whole header (the mock). A notice that shows still takes its own row. */
+     so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }
   html.kremote .apphead header { padding: 0; gap: 0; }
   html.kremote .apphead header .headleft { gap: 8px; }
@@ -1553,7 +1550,9 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
    view's bottom padding makes its bottom rule land where consolidated's does (y=50).
    Measured after, both widths, notices on and off: K mark top 8, switcher and You 9,
    rule at 50, in both views. render-tophead-stable-2624 pins it. Below 960px there is
-   only the tab view, so nothing there can jump and it keeps its own spacing. */
+   only the tab view, so nothing there can jump and it keeps its own spacing.
+   Since #5018 the notices float over the page (.topnotes), so they no longer sit in this
+   row or grow the bar; the top alignment stays. */
 @media (min-width: 960px) {
   body:not(.consolidated) > .apphead { padding-top: 0; }
   body:not(.consolidated) > .apphead header { padding-top: 8px; padding-bottom: 4px; }
@@ -21019,6 +21018,8 @@ function paintLoginAdvisories(advs) {
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
     paintLoginAdvisories(advs);
+    const next = slot.querySelector('.ux');   // keyboard focus stays on the notices while any is left
+    if (next) next.focus();
   }));
 }
 /* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides

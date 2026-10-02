@@ -6,7 +6,8 @@
  * the top." #2282 put one header on every view; this pins that it also sits in ONE
  * place: the K mark, the Kosmos switcher, the You menu and the header's bottom rule
  * land on the same pixels in the tab view and the consolidated view, with and without
- * a tall notice (update / login advisory) in the header.
+ * a tall notice (update / login advisory) showing. Since #5018 the notice floats over the
+ * page below the header, and this also asserts it does not grow the header.
  *
  * ⚠️ WHY A BROWSER. Every number here is layout: padding, grid/flex alignment, and how
  * a wrapped notice sizes the row. No source grep can say where a control lands. This

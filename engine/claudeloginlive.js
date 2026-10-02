@@ -46,7 +46,11 @@ function validUntil(row, now = Date.now()) {
   if (hit && hit.gen === gen && now - hit.at < (hit.until == null ? MISS_CACHE_MS : CACHE_MS)) return Promise.resolve(hit.until);
   const busy = inflight.get(service);
   if (busy && busy.gen === gen) return busy.read;
-  const read = (async () => {
+  // The entry is in the map BEFORE the read starts: a read with no await (no keychain on this platform) runs to its
+  // end synchronously, and its cleanup must find its own entry, not a binding that does not exist yet.
+  const entry = { gen, read: null };
+  inflight.set(service, entry);
+  entry.read = (async () => {
     let until = null;
     try {
       if (reader) until = await reader(ccd);
@@ -58,11 +62,10 @@ function validUntil(row, now = Date.now()) {
     until = Number.isFinite(until) ? until : null;
     const prev = cache.get(service);
     if (!prev || !(prev.gen > gen)) cache.set(service, { at: now, until, gen });   // an older read never overwrites a newer one
-    if (inflight.get(service) && inflight.get(service).read === read) inflight.delete(service);
+    if (inflight.get(service) === entry) inflight.delete(service);
     return until;
   })();
-  inflight.set(service, { read, gen });
-  return read;
+  return entry.read;
 }
 
 /* validUntil, waited on for at most budgetMs: null when the read has not answered by then (it goes on). */

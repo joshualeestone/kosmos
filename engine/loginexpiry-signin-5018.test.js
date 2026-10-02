@@ -45,3 +45,36 @@ test('the Settings date is read again after a sign-in, inside its cache window',
   cl.setReaderForTests(null);
   cl._clearForTest();
 });
+
+test('a read with no await (no keychain on this platform) still answers after a sign-in, never rejects', async () => {
+  cl._clearForTest();
+  cl.setReaderForTests(() => null);   // synchronous: the read finishes before validUntil returns
+  const row = { isDefault: false, dir: '/tmp/kosmos-5018-sync' };
+  const t0 = Date.now();
+  assert.equal(await cl.validUntil(row, t0), null);
+  le.loginChanged();
+  assert.equal(await cl.validUntil(row, t0 + 1000), null, 'rejected after a sign-in');
+  le.loginChanged();
+  assert.equal(await cl.validUntil(row, t0 + 2000), null);
+  cl.setReaderForTests(null);
+  cl._clearForTest();
+});
+
+test('an older read still in flight across a sign-in is not reused, and does not overwrite the newer answer', async () => {
+  cl._clearForTest();
+  let release;
+  const slow = new Promise((ok) => { release = ok; });
+  let calls = 0;
+  cl.setReaderForTests(() => { calls += 1; return calls === 1 ? slow : Date.UTC(2026, 9, 31); });
+  const row = { isDefault: false, dir: '/tmp/kosmos-5018-race' };
+  const t0 = Date.now();
+  const old = cl.validUntil(row, t0);               // in flight, old generation
+  le.loginChanged();
+  assert.equal(await cl.validUntil(row, t0 + 10), Date.UTC(2026, 9, 31), 'reused the pre-sign-in read');
+  release(Date.UTC(2026, 9, 8));
+  assert.equal(await old, Date.UTC(2026, 9, 8));
+  assert.equal(await cl.validUntil(row, t0 + 20), Date.UTC(2026, 9, 31), 'the older read overwrote the newer date');
+  assert.equal(calls, 2);
+  cl.setReaderForTests(null);
+  cl._clearForTest();
+});

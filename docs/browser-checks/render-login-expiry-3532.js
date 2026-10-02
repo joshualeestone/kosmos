@@ -103,11 +103,13 @@ const CASES = [
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];
+    let served = 0;   // advisory-carrying /api/status replies, so an absence is read only after one was served
     pg.on('pageerror', (e) => errs.push(e.message));
     await pg.route('**/api/status', async (route) => {
       let res, data;
       try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
       data.loginAdvisories = adv;
+      served += 1;
       await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
     });
     await pg.goto(URL, { waitUntil: 'networkidle' });
@@ -134,12 +136,28 @@ const CASES = [
     chk(Math.abs(geo.headH - bare.headH) < 0.5, '5018: the header does not grow while the notice shows', JSON.stringify({ geo, bare }));
     chk(geo.tabsTop === bare.tabsTop, '5018: the navigation does not move', JSON.stringify({ geo, bare }));
     chk(geo.noteTop >= geo.headBottom, '5018: the notice floats below the header, over the page', JSON.stringify(geo));
+    // On top, not just placed: the point at the notice's centre is the notice, in the tab view and in consolidated
+    // (whose header is position: static, so the stack competes with the page's own sticky layers).
+    for (const cons of [false, true]) {
+      const top = await pg.evaluate((cons) => {
+        document.documentElement.setAttribute('data-layout', cons ? 'consolidated' : 'tabs');
+        document.body.classList.toggle('consolidated', cons);
+        const n = document.querySelector('#login-adv-slot .login-adv');
+        const r = n.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { onTop: !!hit && n.contains(hit), hit: hit ? (hit.id || hit.className || hit.tagName) : null };
+      }, cons);
+      chk(top.onTop, '5018: the notice is on top of the page (' + (cons ? 'consolidated' : 'tab view') + ')', JSON.stringify(top));
+    }
     // The X hides it, and it stays hidden across a reload while nothing changes.
     await pg.click('#login-adv-slot .login-adv .ux').catch((e) => errs.push('click: ' + e.message));
     chk(!(await pg.$('#login-adv-slot .login-adv')), '5018: the X hides the notice');
+    const before = served;
     await pg.reload({ waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
-    await pg.waitForTimeout(2500);
+    // Two advisory replies after the reload: the first has certainly been painted by the time the second is asked for.
+    for (let i = 0; i < 60 && served < before + 2; i++) await pg.waitForTimeout(250);
+    chk(served >= before + 2, '5018: the reloaded page read the advisory (so the next line is not a vacuous absence)', 'served ' + (served - before));
     chk(!(await pg.$('#login-adv-slot .login-adv')), '5018: still hidden after a reload, nothing changed');
     // A change (fewer days left) brings it back.
     adv = [{ ...adv[0], daysLeft: 4 }];
