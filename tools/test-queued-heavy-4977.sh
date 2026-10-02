@@ -6,11 +6,15 @@
 # Processes this test starts are stopped by exact match on a sleep length unique to this run (never a broad pattern).
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
-U=$((50000 + ($$ % 9000) * 10))   # sleep lengths U+1..U+9 belong to this run alone (copies differ in pid, so by >= 10)
+U=$((1000000 + $$ * 10))   # sleep lengths U+1..U+9 belong to this run alone: live pids are unique, so two copies differ by >= 10
 REAL_QH="$HERE/queued-heavy.sh"
-S=$(mktemp -d); mkdir -p $S/m
+S=$(mktemp -d); mkdir -p $S/m $S/tmp
+export TMPDIR=$S/tmp   # review 2: the wrapper's own mktemp files stay inside this test's dir
 BG=""   # every background wrapper this test starts, stopped by pid on exit
-trap 'for p in $BG ${H:-}; do kill $p 2>/dev/null; done; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill $p 2>/dev/null; done; done; rm -rf "${S:?}"' EXIT
+# Review 2: a pid in BG is stopped only while it still runs this test's shim or wrapper (a pid reused by another agent's
+# process since is left alone), and the sleeps by KILL (two arms make them ignore TERM).
+ours() { case "$(ps -o command= -p "$1" 2>/dev/null)" in *"$S/qh"*|*queued-heavy.sh*) return 0;; *) return 1;; esac; }
+trap 'for p in $BG; do ours $p && kill $p 2>/dev/null; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"' EXIT
 # Review 1: the queue's own settings from the shell that runs this must not change the outcome (as test-light-side-4911).
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SIDE_MIN_HOLD_S KOSMOS_LIGHT_SIDE_COOKIE \
@@ -103,9 +107,11 @@ ok "a side turn yields when a foreign browser starts, exit 75" '[[ "$o" == *"SID
 # SIGPIPE: the output piped into a reader that has gone (head -2); the yield must still stop the command.
 mkdir -p $S/m4; cp $S/m3/machine-claim $S/m4/ 2>/dev/null || cp $S/m/machine-claim $S/m4/
 ( until_true 60 '! gone $((U+4))' && touch $S/pw-on-4 ) &
-KOSMOS_RUN_MARKER_DIR=$S/m4 KOSMOS_WAIT_MAX_S=120 KOSMOS_PW_PROBE=$S/pwflip-4 QUEUED_HEAVY_SIDE_POLL_S=1 /bin/bash $QH --light "z" sleep $((U+4)) 2>&1 | head -2 >/dev/null
+# Review 2: the reader goes only once the side turn runs (head -2 left at the first two queue lines, so the wrapper
+# died of SIGPIPE before the command ever started and the arm passed on a sleep that never existed).
+KOSMOS_RUN_MARKER_DIR=$S/m4 KOSMOS_WAIT_MAX_S=120 KOSMOS_PW_PROBE=$S/pwflip-4 QUEUED_HEAVY_SIDE_POLL_S=1 /bin/bash $QH --light "z" sleep $((U+4)) 2>&1 | sed '/SIDE TURN: running/q' >/dev/null
 until_true 30 'gone $((U+4))'
-ok "a yield still stops the command when the output reader has gone (SIGPIPE)" 'gone $((U+4))'
+ok "a yield still stops the command when the output reader has gone (SIGPIPE)" '[ -e $S/pw-on-4 ] && gone $((U+4))'   # pw-on-4: the command did run
 hold
 o=$(KOSMOS_NO_WAIT=1 /bin/bash $QH --light "bc" true tools/browser-checks.sh 2>&1)
 ok "a light run of browser-checks.sh takes an ordinary turn, never a side turn" '[[ "$o" == *"takes an ordinary turn"* && "$o" != *"SIDE TURN"* && "$o" == *REFUSED* ]]'
@@ -128,23 +134,23 @@ mkdir -p $S/m5; NOW=$(date +%s); printf "%s-%s-1 %s %s host queued run (not a cu
 o=$( ( until_true 60 '! gone $((U+5))' && touch $S/pw-on-5 ) & KOSMOS_RUN_MARKER_DIR=$S/m5 KOSMOS_WAIT_MAX_S=120 KOSMOS_PW_PROBE=$S/pwflip-5 QUEUED_HEAVY_SIDE_POLL_S=1 /bin/bash $QH --light "det" perl -e 'use POSIX; if (fork() == 0) { POSIX::setsid(); open(STDOUT, ">/dev/null"); open(STDERR, ">/dev/null"); exec "sleep", $ARGV[0] } sleep 600' $((U+5)) 2>&1)
 sleep 1
 ok "round 16: a yield stops a detached descendant too" '[[ "$o" == *"SIDE TURN YIELDED"* ]] && gone $((U+5))'
-for p in $(pgrep -f "^sleep $((U+5))$"); do kill $p; done   # a survivor (the failing case) is not left running
+for p in $(pgrep -f "^sleep $((U+5))$"); do kill -KILL $p; done   # a survivor (the failing case) is not left running
 o=$(/bin/bash $QH --light "ctl" sh -c 'node --test engine/x.test.js' 2>&1)
 ok "CONTROL: a direct node --test still gets its side turn" '[[ "$o" == *"SIDE TURN"* ]]'
 # Round 18 (Opus): a command that traps TERM and exits 0 after a yield is a stop (75), not a pass.
 mkdir -p $S/m6; NOW=$(date +%s); printf "%s-%s-1 %s %s host queued run (not a cut): fake heavy\n" $H $((NOW-300)) $H $((NOW+1800)) > $S/m6/machine-claim
 o=$( ( until_true 60 '! gone $((U+6))' && touch $S/pw-on-6 ) & KOSMOS_RUN_MARKER_DIR=$S/m6 KOSMOS_WAIT_MAX_S=120 KOSMOS_PW_PROBE=$S/pwflip-6 QUEUED_HEAVY_SIDE_POLL_S=1 /bin/bash $QH --light "trap0" bash -c "trap 'echo CLEANED; exit 0' TERM; sleep $((U+6)) & wait \$!; echo FINISHED-ALL" 2>&1)
 ok "round 18: a command that exits 0 on the yield's TERM reads 75, not a pass" '[[ "$o" == *"SIDE TURN YIELDED"* && "$o" == *"END rc=75"* && "$o" != *FINISHED-ALL* ]]'
-for p in $(pgrep -f "^sleep $((U+6))$"); do kill $p; done
+for p in $(pgrep -f "^sleep $((U+6))$"); do kill -KILL $p; done
 # Round 18 (Opus): a wrapper killed with SIGKILL (no EXIT trap) does not leave its side command running unclaimed.
 mkdir -p $S/m7; NOW=$(date +%s); printf "%s-%s-1 %s %s host queued run (not a cut): fake heavy\n" $H $((NOW-300)) $H $((NOW+1800)) > $S/m7/machine-claim
 KOSMOS_RUN_MARKER_DIR=$S/m7 KOSMOS_WAIT_MAX_S=120 KOSMOS_PW_PROBE=$S/quiet QUEUED_HEAVY_SIDE_POLL_S=1 /bin/bash $QH --light "k9" sleep $((U+7)) > $S/k9.out 2>&1 &
 K=$!; BG="$BG $K"
-for _ in $(seq 1 30); do grep -q "SIDE TURN: running" $S/k9.out 2>/dev/null && pgrep -f "^sleep $((U+7))$" >/dev/null && break; sleep 0.5; done
+until_true 60 'grep -q "SIDE TURN: running" $S/k9.out 2>/dev/null && ! gone $((U+7))'
 ok "round 18 (fixture): the wrapper took its side turn" 'grep -q "SIDE TURN: running" $S/k9.out && pgrep -f "^sleep $((U+7))$" >/dev/null'
 kill -9 $K; until_true 30 'gone $((U+7))'
 ok "round 18: a SIGKILLed wrapper's side command is stopped by its capper, not left to the cap" 'gone $((U+7))'
-for p in $(pgrep -f "^sleep $((U+7))$"); do kill $p; done
+for p in $(pgrep -f "^sleep $((U+7))$"); do kill -KILL $p; done
 
 
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
