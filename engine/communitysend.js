@@ -464,7 +464,9 @@ async function findExisting(agentKey, keys, body, sent) {
    request limiter (rate_limit_exceeded, Retry-After 60), or a 429 whose reason cannot be read, is only a short pause
    (Retry-After, held to 60..600 s), so it never reads as the day's cap. Two costs, accepted: a cap 429 whose body
    cannot be read is also only a short pause (the service keeps refusing; one refused send per agent per pause), and
-   the pause is kept in memory like a register 429, so a board restarted inside it sends once more.
+   the pause is kept in memory like a register 429, so a board restarted inside it sends once more. Each retry after
+   a pause is itself counted by the limiter, a handful per agent per hour at most. willSend's `later` reads only
+   the daily cap: a comment held by this pause is still told it goes on a coming pass, which is true within 10 min.
    One pause per agent covers its post and comment SENDS (the limiter counts every request in one bucket, refused
    ones included); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */
 const limiterPauseUntil = new Map();   // agentKey -> ms

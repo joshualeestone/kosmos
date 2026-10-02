@@ -36,6 +36,10 @@ costs requests but never claims a false cap. The fake backends pin both shapes.
   is still paused at +590 s and is sent at +601 s (the 600 s ceiling).
 - The pause comment says the other calls under the agent's token neither set it nor wait for it.
 
+## Review 4
+- Comment only: each retry after a pause is counted by the service's limiter (bounded); willSend's `later` reads
+  only the daily cap, so a comment held by the short pause is told "a coming pass", true within 10 minutes.
+
 ## Checks
 - Review 1: the comment test now sweeps inside the minute and asserts nothing is sent (control: removing the comment
   pause fails it); the comment no longer says a route reads retryAt (only willSend reads commentRetryAt on main;
