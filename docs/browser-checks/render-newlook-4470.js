@@ -430,7 +430,7 @@ async function projectsLook(page) {
       seg: on ? getComputedStyle(on).backgroundColor : 'absent' };
     /* The Issue and Messages tiles are hidden on this fixture: shown for the read, then hidden again. */
     const shown = (id) => { const t = document.getElementById(id); if (!t) return null; const was = t.hidden; t.hidden = false;
-      const c = getComputedStyle(t); const v = { border: c.borderTopColor, bg: c.backgroundColor }; t.hidden = was; return v; };
+      try { const c = getComputedStyle(t); return { border: c.borderTopColor, bg: c.backgroundColor }; } finally { t.hidden = was; } };
     r.issueTile = shown('st-pjattn-tile'); r.msgTile = shown('st-pjdm-tile');
     const a = card.cloneNode(true); a.classList.add('attn'); a.removeAttribute('data-project'); card.after(a);
     r.attn = getComputedStyle(a).borderTopColor; a.remove();
@@ -440,6 +440,14 @@ async function projectsLook(page) {
     await page.hover('#pj-list.asgrid .pj-row:not(.attn)'); await page.waitForTimeout(200);
     out.hover = await page.evaluate(() => { const h = document.querySelector('#pj-list.asgrid .pj-row:not(.attn):hover'); return h ? getComputedStyle(h).borderTopColor : 'missed'; });
     await page.mouse.move(1, 1);
+    /* The roadmap rows, read on the roadmap and compared with the look off by the caller; then back to the grid. */
+    await page.evaluate(() => { const r = document.querySelector('#pj-list-view .vt[data-layout="roadmap"]'); if (r) r.click(); });
+    await page.waitForTimeout(400);
+    out.roadmap = await page.evaluate(() => { const row = document.querySelector('#pj-list:not(.asgrid) .pj-row');
+      if (!row) return null; const c = getComputedStyle(row);
+      return { border: c.borderTopWidth + ' ' + c.borderTopStyle, shadow: c.boxShadow, radius: c.borderTopLeftRadius, padding: c.padding }; });
+    await page.evaluate(() => { const g = document.querySelector('#pj-list-view .vt[data-layout="grid"]'); if (g) g.click(); });
+    await page.waitForTimeout(300);
   }
   await page.evaluate(() => showTab('agents'));
   await page.waitForTimeout(300);
@@ -998,6 +1006,10 @@ const AGENTS_LOOK = `(() => {
         `${tag} Off, Projects: today's bordered card with 12px corners, boxed Projects tile and dashed Add Project tile (the control)`, JSON.stringify(plOff));
       chk(plOn.found && plOff.found && plOn.attn === plOff.attn && plOn.seg === plOff.seg && plOff.seg !== 'rgba(0, 0, 0, 0)' && plOff.seg !== 'absent',
         `${tag} Projects: the needs-you edge and the current view's gold are today's with the look on`, JSON.stringify({ on: [plOn.attn, plOn.seg], off: [plOff.attn, plOff.seg] }));
+      chk(plOn.found && plOff.found && plOn.hover === plOff.hover && plOff.hover !== 'missed',
+        `${tag} Projects: a card under the pointer shows today's hover border with the look on`, JSON.stringify({ on: plOn.hover, off: plOff.hover }));
+      chk(plOn.roadmap && plOff.roadmap && JSON.stringify(plOn.roadmap) === JSON.stringify(plOff.roadmap),
+        `${tag} Projects: the roadmap rows are exactly today's with the look on (no border, same ring, corners and padding)`, JSON.stringify({ on: plOn.roadmap, off: plOff.roadmap }));
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
          colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
          over the surface, and the needs-you red, which is a fixed colour in both looks. */
