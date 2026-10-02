@@ -20,8 +20,9 @@ while fixing #4961 (c).
 - `html.snav-loose body:not(.consolidated) #s-nav { position: static; }`: when the whole nav does not
   fit below the header, it scrolls with the page.
 - One small script beside the #s-nav click handler measures the header's and the nav's border boxes:
-  it writes the header's height into `--apphead-h` and sets `snav-loose` on the root when
-  header + nav + 32px is taller than the window. Observers on both boxes and a window resize
+  it writes the header's height into `--apphead-h` and sets `snav-loose` on the root when the
+  header, the nav and 16px above and below it are taller than the window (517px at 1200 wide, 543px
+  at 900, measured by the check). Observers on both boxes and a window resize
   recompute it, so a header that wraps, or gains the Kosmos+ bar or an update or offline notice,
   is followed. It skips anything without a real numeric size (two web.* harnesses run the page
   against a stub document).
@@ -45,12 +46,15 @@ while fixing #4961 (c).
   the same with either layout saved, on both engines. The nav is 434px tall (11 pills).
 - Consolidated view, measured on main: the nav sticks 40px below the panel's top (24px padding + 16)
   at the top and scrolled to the end. An unscoped offset moved it to 91px and 70px.
-- The check, with the change: all pass (109 PASS lines, re-measured after the last arms).
+- The check, with the change: all pass (121 PASS lines, re-measured after the last arms). Either side
+  of the fit: 6px taller (1200x523, 900x549) the nav is sticky and fits; 6px shorter (1200x511,
+  900x537) it is static.
 - Controls, each measured red in exactly its arms: main (32, the Settings-tab placement and click
   arms, no consolidated arm); an offset not scoped to body:not(.consolidated) (the 4 consolidated
   arms); a fixed `top: 67px` (the 900px arms); no ResizeObserver (the 2 resize arms); the fixed 35rem
   threshold instead of the measured fit (the 4 header +100px arms); no fit rule at all (the 8 short-
-  window and the 4 header +100px arms).
+  window and the 4 header +100px arms); the nav always static (the 6px-taller arms, and every arm
+  that needs it sticky).
 
 ## Weakest premise
 That the app header is the only thing drawn above Settings at the top. A new sticky bar between the

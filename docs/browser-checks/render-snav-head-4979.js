@@ -18,8 +18,9 @@
  * scrolled halfway and to the end, either the nav is not sticky (it scrolls with the page) or every
  * pill is between the header and the window's bottom (control: the page scrolled).
  *
- * Just above where it stops fitting (1200x565, 900x565) the nav stays sticky with every pill between
- * the header and the bottom. And a header that changes height after load: Mac at 1200x600, scrolled to the end,
+ * Either side of where it stops fitting (header + nav + 32px: 517px at 1200 wide, 543px at 900, where
+ * the header wraps): 6px taller (1200x523, 900x549) the nav stays sticky with every pill between the
+ * header and the bottom; 6px shorter (1200x511, 900x537) it scrolls with the page. And a header that changes height after load: Mac at 1200x600, scrolled to the end,
  * then the window narrowed to 900px (the header wraps to two lines): every pill moves below it.
  *
  * A taller header (a Kosmos+ bar or a notice, stood in for by a block added inside .apphead) at
@@ -131,8 +132,8 @@ function chk(ok, label, extra) {
           }
           await page.close();
         }
-        /* Just above the short-window threshold: still sticky, and everything fits. */
-        for (const [width, height] of [[1200, 565], [900, 565]]) {
+        /* Either side of where the nav stops fitting: 6px taller it is sticky and fits, 6px shorter it is not sticky. */
+        for (const [width, height, fits] of [[1200, 523, true], [900, 549, true], [1200, 511, false], [900, 537, false]]) {
           const page = await browser.newPage({ viewport: { width, height } });
           await page.goto(URL + '/?tab=settings&sec=mac');
           await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
@@ -140,13 +141,16 @@ function chk(ok, label, extra) {
           await page.evaluate(() => window.scrollTo(0, Math.round((document.documentElement.scrollHeight - innerHeight) / 2)));
           await page.waitForTimeout(150);
           const r = await page.evaluate(() => {
-            const hb = document.querySelector('.apphead').getBoundingClientRect().bottom;
+            const hb = document.querySelector('.apphead').getBoundingClientRect();
+            const nb = document.getElementById('s-nav').getBoundingClientRect();
             const pills = [...document.querySelectorAll('#s-nav button[data-go]')].filter((x) => !x.hidden && x.getClientRects().length).map((x) => x.getBoundingClientRect());
-            return { y: Math.round(scrollY), navPos: getComputedStyle(document.getElementById('s-nav')).position, headBottom: Math.round(hb),
-              underHeader: pills.filter((p) => p.top < hb - 0.5).length, offBottom: pills.filter((p) => p.bottom > innerHeight + 0.5).length };
+            return { y: Math.round(scrollY), need: Math.round(hb.height + nb.height + 32), vh: innerHeight, navPos: getComputedStyle(document.getElementById('s-nav')).position,
+              underHeader: pills.filter((p) => p.top < hb.bottom - 0.5).length, offBottom: pills.filter((p) => p.bottom > innerHeight + 0.5).length };
           });
-          chk(r.y > 0 && r.navPos === 'sticky' && r.underHeader === 0 && r.offBottom === 0,
-            `${engineName} just above the threshold ${width}x${height} mac, scrolled halfway: sticky, and every pill is between the header and the bottom`, JSON.stringify(r));
+          const tag = `${engineName} ${fits ? '6px taller than' : '6px shorter than'} the nav needs, ${width}x${height} mac, scrolled halfway`;
+          chk(r.y > 0 && Math.abs(r.vh - r.need) <= 8, `${tag}: control: the page scrolled and the window is within 8px of what the nav needs`, JSON.stringify(r));
+          if (fits) chk(r.navPos === 'sticky' && r.underHeader === 0 && r.offBottom === 0, `${tag}: sticky, and every pill is between the header and the bottom`, JSON.stringify(r));
+          else chk(r.navPos === 'static', `${tag}: the nav scrolls with the page`, JSON.stringify(r));
           aboveRan += 1;
           await page.close();
         }
@@ -235,7 +239,7 @@ function chk(ok, label, extra) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 16 && shortRan === 8 && aboveRan === 4 && resizeRan === 2 && tallRan === 8 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize, taller-header and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} tallRan=${tallRan} consRan=${consRan}`);
+  chk(ran === 16 && shortRan === 8 && aboveRan === 8 && resizeRan === 2 && tallRan === 8 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize, taller-header and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} tallRan=${tallRan} consRan=${consRan}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
