@@ -167,9 +167,14 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do case "$(ps -ww -o command= -p "$QH")" in *queu
 printf '%s %s\n%s\n%s\n%s\nheavy\n' "$((NOW - 50))" "$QH" "$(ps -ww -o command= -p "$QH")" "$(_kosmos_pid_started_local "$QH")" "$(_kosmos_pid_started "$QH")" > "$M/suitewait.$QH"
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "older than #4911"; } && pass "an older queued-heavy.sh waiting holds side turns off" || fail "a side turn while an old queued-heavy waits (rc=$rc, $out)"
+# Round 16 (Sonnet): one that queues AFTER the side turn took (the take could not see it) makes the side turn yield.
+out="$(KOSMOS_CUT_PROBE="$T/quiet" KOSMOS_HARNESS_PROBE="$T/quiet" KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$HOLDER")"; rc=$?
+{ [ "$rc" -eq 0 ] && has "$out" "older than #4911"; } && pass "intruder check: an older queued-heavy.sh that queued after the take -> yield" || fail "intruder check: an old waiter queued beside a side turn (rc=$rc, $out)"
 printf 'aware\n' >> "$M/suitewait.$QH"
 out="$(side)"; rc=$?
 [ "$rc" -eq 0 ] && pass "CONTROL: a side-aware heavy waiter does not" || fail "CONTROL: an aware waiter held side turns off (rc=$rc, $out)"
+out="$(KOSMOS_CUT_PROBE="$T/quiet" KOSMOS_HARNESS_PROBE="$T/quiet" KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$HOLDER")"; rc=$?
+[ "$rc" -eq 1 ] && pass "CONTROL: intruder check: a side-aware waiter -> stay" || fail "CONTROL: the intruder yielded to a side-aware waiter (rc=$rc, $out)"
 kill "$QH" 2>/dev/null; wait "$QH" 2>/dev/null; rm -f "$M/suitewait.$QH"; kosmos_unmark_suite_waiting
 
 # kosmos_light_side_take: the take a caller makes under its lock. A win claims and drops the queue marker; a loss

@@ -1159,7 +1159,8 @@ _kosmos_light_side_active() {
   case "$exp" in ''|*[!0-9]*) return 0 ;; esac
   now="$(_kosmos_now_epoch)"
   if [ "$exp" -le "$now" ] 2>/dev/null || ! kill -0 "$pid" 2>/dev/null; then
-    rm -f "$f" 2>/dev/null
+    # Round 16 (Sonnet): only the line read is removed; a fresh claim moved in since (under the take lock) stays.
+    [ "$(cat "$f" 2>/dev/null)" = "$line" ] && rm -f "$f" 2>/dev/null
     return 0
   fi
   printf '%s\n' "$line"
@@ -1327,6 +1328,7 @@ kosmos_light_side_clear() {
     l6="$(sed -n '6p' "$f" 2>/dev/null)" || l6=""
     # Review 3: a queued-heavy.sh from before #4911 checks no side claim when it takes a main turn, so while one waits
     # a side turn could find a main turn started beside it. No side turn until every such waiter has gone (rollout).
+    # Round 16: the intruder asks the same (_kosmos_old_qh_waiter_live), for one that queues after the take.
     case "$(sed -n '2p' "$f" 2>/dev/null)" in *queued-heavy*)
       if [ "$l6" != side ] && [ "$l6" != aware ] && _kosmos_suite_waiter_live "$pid"; then
         echo "a queued run from a queued-heavy.sh older than #4911 is waiting (pid $pid); it would not wait for a side turn, so none is taken until it has gone." >&2; return 1
@@ -1377,9 +1379,30 @@ kosmos_holds_light_side() {
 # browser-checks.sh that does not wait for a side turn. Yielding protects that holder whatever it runs; the light run
 # takes the red, which is the side turn's bargain. Same probes as the start gate (KOSMOS_BC_PROBE, KOSMOS_PW_PROBE),
 # plus the run markers. A probe that cannot answer is an intruder (the safe side: the light run stops).
+# _kosmos_old_qh_waiter_live: 0 (echoing its pid) while a queued-heavy.sh older than #4911 (a 'suitewait' marker whose
+# line 2 names queued-heavy and whose line 6 is neither side nor aware) is waiting. Such a waiter takes a main turn
+# without asking about a side turn (round 16, Sonnet): the take refuses while one waits, and the intruder yields to one
+# that queued after the take, before it can take a turn beside this one.
+_kosmos_old_qh_waiter_live() {
+  local f pid l6
+  for f in "$(_kosmos_marker_dir)"/suitewait.*; do
+    [ -e "$f" ] || continue
+    case "${f##*/}" in *.tmp.*) continue ;; esac
+    pid="${f##*.}"; case "$pid" in ''|*[!0-9]*) continue ;; esac
+    [ "$pid" = "$$" ] && continue
+    case "$(sed -n '2p' "$f" 2>/dev/null)" in *queued-heavy*) ;; *) continue ;; esac
+    l6="$(sed -n '6p' "$f" 2>/dev/null)" || l6=""
+    [ "$l6" = side ] || [ "$l6" = aware ] && continue
+    _kosmos_suite_waiter_live "$pid" || continue
+    echo "$pid"; return 0
+  done
+  return 1
+}
+
 kosmos_light_side_intruder() {
   local root="${1:-}" lines rc l pid f
   case "$root" in ''|*[!0-9]*) echo "no side command to protect"; return 0 ;; esac
+  if pid="$(_kosmos_old_qh_waiter_live)"; then echo "a queued-heavy.sh older than #4911 queued (pid $pid); it would take a turn beside this one"; return 0; fi
   # Review 6: a cut or an install harness that starts during the side turn is an intruder too (the start gate saw
   # neither, and one on a branch older than #4911 does not wait for a side turn).
   if ! kosmos_refuse_if_cut_live "a side turn" >/dev/null 2>&1; then echo "a cut started"; return 0; fi

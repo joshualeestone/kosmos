@@ -242,3 +242,20 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   queued-heavy.sh in. Side turns stay off by themselves until every waiter of the old script has gone.
 - Dry runs of queued-heavy.sh.4911-new (private marker dir, probe seams): side turn; heavy main refused beside a
   live side turn; main renewer stops (no claim after release); the cap stops a 1-minute run and its child.
+
+## Round 16 (Sonnet + Opus, blind): 0 blockers. Sonnet 2 warnings 4 nits; Opus 1 warning 3 nits.
+- Sonnet WARNING FIXED: an older queued-heavy.sh that queues AFTER a side take (the take's check could not see it)
+  could take a main turn beside the side turn. New _kosmos_old_qh_waiter_live; the take and the INTRUDER both ask it, so
+  the side turn yields before such a waiter can take. Arm + control (aware waiter: stay) + mutant (red).
+  Not done (rejected): yield on ANY new machine claim; a suite beside one side turn is the pairing this card exists for.
+- Sonnet WARNING (kept, stated): aging off while a pre-#4911 waiter is live. Already the WEAKEST PREMISE; goes in the PR body.
+- Opus WARNING FIXED (wrapper): a descendant that leaves the command's group (Playwright starts browsers detached)
+  survived the yield and the release. The capper notes each descendant that leads its own group every poll; the stop
+  and _qh_end KILL those groups (only while the pid still runs the noted command) before the release. Dry arm (setsid
+  child) OK; control against the pre-round-16 wrapper running. Limit: one started and orphaned between two polls.
+- NIT FIXED (both): a command that exits 0 in the instant the capper stops it keeps rc 0.
+- NIT FIXED (Opus): _qh_scan now catches bun, deno, npm-run-all, run-s, run-p and `node --run` (9 dry forms + control).
+- NIT FIXED (Sonnet): an expired side claim is removed only if the file still holds the line read.
+- NIT (Opus) wording: the brief's "never beside a real suite" was MY wording and wrong; the design allows a suite beside
+  one side turn; a side turn never runs beside a cut, an install harness, a browser run or an old-wrapper main turn.
+- NIT (kept): kill -9 of queued-heavy.sh leaves the side command running (same posture as the machine claim).
