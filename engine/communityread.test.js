@@ -1480,36 +1480,55 @@ test('#4941: read --post shows a long post whole; the same post in the feed is c
 });
 
 /* #4941 (C6): the reader's own comment on a post that has not gone out yet is not in the thread and has no id to reply
-   to: one line after the frame says so. Only the reader's, agent-authored; a sent one is in the thread and not counted. */
-test('#4941: read --post says how many of the reader\'s own comments on it are not in the community yet', async () => {
+   to: a line after the frame says so, for comments still on their way only (review 1: never one that will not go). */
+test('#4941: read --post counts only the reader\'s own comments on it that are still on their way; held ones are promised nothing', async () => {
   on();
   const communitystore = require('./communitystore');
   const feedpublish = require('./feedpublish');
+  const OTHER = '2b2c3d4e-0000-4000-8000-000000000002';
   serve({ ['/posts/' + ID]: () => ({ status: 200, json: post() }), ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
+  const writeJson = (f, o) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(o)); };
+  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
   const mk = (agent, text, onPost = ID) => {
     communitystore.grantTrust(agent);
     const r = feedpublish.publishServiceComment({ kind: 'community_post', agent, at: new Date().toISOString(), body: text, servicePostId: onPost }, { agentId: agent });
     assert.equal(r.ok, true, JSON.stringify(r));
     return r;
   };
-  const none = await cr.read({ post: ID, reader: 'quill' });
-  assert.doesNotMatch(none.text, /not in the community yet/, 'CONTROL: nothing of quill\'s');
-  const a = mk('quill', 'first of mine');
-  mk('quill', 'second of mine');
-  mk('quill', 'on another post', '2b2c3d4e-0000-4000-8000-000000000002');
+  const line = async (reader = 'quill') => { const r = await cr.read({ post: ID, reader }); assert.equal(r.ok, true, r.because); return r.text.slice(r.text.lastIndexOf(cr.FRAME_CLOSE) + cr.FRAME_CLOSE.length); };
+  assert.equal(await line(), '', 'CONTROL: nothing of quill\'s');
+  const going = mk('quill', 'first of mine');
+  mk('quill', 'on another post', OTHER);
   mk('other', 'not quill\'s');
-  const r = await cr.read({ post: ID, reader: 'quill' });
-  assert.ok(r.text.lastIndexOf(cr.FRAME_CLOSE) < r.text.indexOf('You have 2 comments on this post that are not in the community yet'), 'the line is missing or inside the frame:\n' + r.text);
-  assert.match(r.text, /once Kosmos has sent it/);
-  assert.doesNotMatch(r.text, /first of mine|second of mine/, 'the reader\'s own words were echoed');
-  fs.mkdirSync(path.dirname(cs._paths.commentsSentFile()), { recursive: true });
-  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify({ [a.id]: { state: 'sent', agent: 'quill', post: ID, remoteId: 'r1' } }));
-  assert.match((await cr.read({ post: ID, reader: 'quill' })).text, /You have 1 comment on this post that is not in the community yet/);
-  assert.doesNotMatch((await cr.read({ post: ID })).text, /not in the community yet/, 'no reader, no line');
-  assert.doesNotMatch((await cr.read({ post: ID, reader: 'Quill' })).text, /not in the community yet/, 'a name that only keys alike saw quill\'s');
+  assert.match(await line(), /You have 1 comment on this post that is on its way to the community, so it is not shown above\. Once Kosmos has sent one, it is in this post's thread, with the id to reply to/);
+  assert.doesNotMatch(await line(), /first of mine/, 'the reader\'s own words were echoed');
+  assert.equal(await line('Quill'), '', 'a name that only keys alike saw quill\'s');
+  assert.doesNotMatch((await cr.read({ post: ID })).text, /on its way/, 'no reader, no line');
+  // Every final state, one comment each: none is counted (review 1 measured five of these counted and promised).
+  const finals = { sent: { state: 'sent', remoteId: 'r1' }, deleted: { state: 'deleted' }, refused: { state: 'refused', reasons: ['thread_full'] },
+    withheld: { state: 'withheld' }, not_sent: { state: 'not_sent' }, unconfirmed: { state: 'pending', attempted: true } };
+  const csent = {};
+  for (const [name, rec] of Object.entries(finals)) csent[mk('quill', 'final ' + name).id] = { agent: 'quill', post: ID, ...rec };
+  csent[going.id] = { state: 'sent', agent: 'quill', post: ID, remoteId: 'r0' };
+  writeJson(cs._paths.commentsSentFile(), csent);
+  assert.equal(await line(), '', 'a comment that will not go (or is already there) was counted');
+  // Marked never to send, and an agent the community refused: not counted either.
+  const marked = mk('quill', 'marked');
+  communitystore.markServiceCommentNotSent(marked.id);
+  assert.equal(await line(), '');
+  mk('quill', 'refused agent');
+  writeJson(cs._paths.keysFile(), { quill: { refused: true } });
+  assert.equal(await line(), '', 'a refused agent\'s comment was promised a place');
+  writeJson(cs._paths.keysFile(), {});
+  assert.match(await line(), /1 comment on this post that is on its way/, 'CONTROL: refusal lifted, it is on its way again');
+  // Held: promised nothing.
+  const held = mk('quill', 'Write to me at someone@example.com about it.');
+  assert.notEqual(held.status, 'published', 'fixture: the safety check did not stop it');
+  assert.match(await line(), /You have 1 comment on this post held for your person to look at\.$/);
+  // A long thread: the sent comment may be past the comments shown.
+  serve({ ['/posts/' + ID]: () => ({ status: 200, json: post() }), ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [], next_cursor: 'x' } }) });
+  assert.match(await line(), /perhaps past the comments shown here/);
   fs.writeFileSync(cs._paths.commentsSentFile(), '{corrupt');
-  const broken = await cr.read({ post: ID, reader: 'quill' });
-  assert.equal(broken.ok, true, 'unreadable send records cost the post');
-  assert.doesNotMatch(broken.text, /not in the community yet/, 'unreadable records still counted');
-  fs.rmSync(cs._paths.commentsSentFile());
+  assert.equal(await line(), '', 'unreadable records still counted');
+  for (const f of [cs._paths.commentsSentFile(), cs._paths.keysFile(), cs._paths.stateFile()]) fs.rmSync(f, { force: true });
 });

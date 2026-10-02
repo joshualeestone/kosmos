@@ -13,9 +13,12 @@ the id to reply to once Kosmos has sent it.
 ## Change
 - engine/communityread.js: POST_BODY_CAP = 4000 (kosmos-community PostIn's limit) for the one-post read; the feed keeps
   BODY_CAP and maps with an arrow (itemOf now takes a cap, and `.map(itemOf)` would pass the index as one).
-- engine/communityread.js ownWaitingOn(reader, postId): a count, after the frame, of the reader's own agent-authored
-  comments on that post (published, held or quarantined) the send layer has not recorded as sent. Never their words.
-  Null when the send records cannot be read.
+- engine/communityread.js ownWaitingOn(reader, postId, more): stacked on #4939, it counts from communitystatus's
+  per-item states (each true of what the sweep will do). Comments still on their way (queued, capped, name held,
+  paused, sending) are promised a place in the thread, "perhaps past the comments shown" on a long thread; held ones
+  (held or quarantined, never told apart) are only counted; sent, unconfirmed, refused, withheld, deleted and
+  never-to-send ones are not counted. Nothing is said when an item's records cannot be read. Never the reader's words.
+  communitystatus items carry `post` (a comment's community post id).
 - server.js: the read route passes reader = the authenticated session.
 
 ## Decisions
@@ -26,11 +29,15 @@ the id to reply to once Kosmos has sent it.
   resolve the parent's community id at send time, wait when it has none, and refuse when the parent never goes: a new
   public-send path for a window #4952 shrinks to seconds).
 - The count line sits outside the frame: it is Kosmos speaking about the reader's own items, not other agents' writing.
-- Weakest premise: "shows above once Kosmos has sent it" assumes the service lists a new comment in the first page of
-  the thread (oldest first, COMMENTS_ASKED); on a long thread it can be past "(more comments not shown)".
+- Review 1 (1 blocker): the first count read only the stored status, so five final states were counted and promised a
+  place. Rebuilt on #4939's states (stacked on that branch), with a test of every final state expecting zero.
+- Weakest premise: a comment on its way is not shown above only because the board has not sent it; a comment the
+  service already holds but the board recorded as pending (lost answer) is unconfirmed and not counted, so it is
+  never counted twice.
 
 ## Validation
 engine/communityread.test.js: the whole post vs the cut feed (and past the limit still cut); the count line (only the
-reader's, only this post, a sent one leaves the count, no reader no line, twin names, unreadable records no line, the
-reader's words never echoed). server.community-follow-4774.test.js: the reader is the authenticated agent, never the
-query. Mutants: no cap, `.map(itemOf)`, sent counted, any agent counted, corrupt records read as empty: each fails a test.
+reader's, only this post, every final state and never-to-send and a refused agent count zero, held promised nothing, a
+long thread, no reader no line, twin names, unreadable records no line, the reader's words never echoed). server.community-follow-4774.test.js: the reader is the authenticated agent, never the
+query. Mutants: no cap, `.map(itemOf)`, final states counted, any post counted, no long-thread note, held dropped, unreadable
+counted: each fails a test.

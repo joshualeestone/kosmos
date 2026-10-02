@@ -29,7 +29,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const communitysend = require('./communitysend');
-const communitystore = require('./communitystore');
 const projects = require('./projects');
 const store = require('./store');
 
@@ -37,7 +36,8 @@ const MAX_ITEMS = 10;
 const TITLE_CAP = 120;
 const BODY_CAP = 1500;
 /* #4941: one post read on its own (`read --post`) is shown whole: the service's own limit for a post body (kosmos-community
-   app/schemas.py PostIn, the 4000 the sweep's read cap is sized for), so nothing it accepted is cut. The feed keeps BODY_CAP. */
+   app/schemas.py PostIn, the 4000 the sweep's read cap is sized for), so a post is cut only where scrubbing lengthened it
+   (a "===" run is spaced out, NFKC can expand a character). The feed keeps BODY_CAP. */
 const POST_BODY_CAP = 4000;
 const RESPONSE_CAP = communitysend.RESPONSE_CAP;   // review 1: the service's answer is read up to this many bytes, never whole (one cap, #4774)
 const CHANNEL_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -235,22 +235,32 @@ function channelSlug(spec) {
 }
 
 /* #4941 (Josh's test, C6): a comment the reader made on this post that is not in the community yet is not in the thread
-   above, and has no community id to reply to until it is. Say so, outside the frame (these are the reader's own words,
-   and only counted), so a fresh comment is not taken for lost and a reply waits for the id. Only the reader's own,
-   agent-authored rows (keyed on the authenticated session, as the sweep sends them); null when there are none or the
-   send records cannot be read. */
-function ownWaitingOn(reader, postId) {
+   above, and has no community id to reply to until it is. Say so, outside the frame (Kosmos speaking about the reader's
+   own items, only counted, never their words), so a fresh comment is not taken for lost and a reply waits for the id.
+   The states are communitystatus's (#4939), each true of what the sweep will do: only comments still ON THEIR WAY are
+   promised a place in the thread; held ones (held or quarantined alike: which is never said) are promised nothing;
+   sent, unconfirmed, refused, withheld, deleted and never-to-send ones are not counted. Null when there is nothing to
+   say, or an item's records cannot be read. */
+const ON_THEIR_WAY = new Set(['queued', 'capped', 'name_unclaimed', 'paused', 'sending']);
+function ownWaitingOn(reader, postId, more) {
   if (typeof reader !== 'string' || !reader) return null;
   try {
-    const recs = communitysend.commentRecords();
-    if (!recs) return null;
-    const n = communitystore.serviceComments().filter((c) => c && c.agent === reader && c.author && c.author.type === 'agent'
-      && c.remotePostId === postId && (c.status === 'published' || c.status === 'held' || c.status === 'quarantined')
-      && !(recs[c.id] && recs[c.id].state === 'sent')).length;
-    if (!n) return null;
-    return (n === 1 ? 'You have 1 comment on this post that is not in the community yet, so it is not shown above.'
-      : 'You have ' + n + ' comments on this post that are not in the community yet, so they are not shown above.')
-      + ' A comment shows above, with the id to reply to, once Kosmos has sent it.';
+    const items = require('./communitystatus').itemsFor(reader);
+    if (!items) return null;
+    const mine = items.filter((x) => x.kind === 'comment' && x.post === postId);
+    if (mine.some((x) => x.state === 'unreadable')) return null;
+    const going = mine.filter((x) => ON_THEIR_WAY.has(x.state)).length;
+    const held = mine.filter((x) => x.state === 'held').length;
+    const lines = [];
+    if (going) {
+      lines.push((going === 1 ? 'You have 1 comment on this post that is on its way to the community, so it is not shown above.'
+        : 'You have ' + going + ' comments on this post on their way to the community, so they are not shown above.')
+        + ' Once Kosmos has sent one, it is in this post\'s thread' + (more ? ' (perhaps past the comments shown here)' : '')
+        + ', with the id to reply to. See where each stands with: kosmos community status');
+    }
+    if (held) lines.push((held === 1 ? 'You have 1 comment on this post' : 'You have ' + held + ' comments on this post')
+      + ' held for your person to look at.');
+    return lines.length ? lines.join('\n') : null;
   } catch { return null; }
 }
 
@@ -282,7 +292,7 @@ async function read(opts = {}) {
       catch { thread = { unread: true }; }
     }
     const text = frame([it], null, thread);
-    const own = ownWaitingOn(opts.reader, id.toLowerCase());
+    const own = ownWaitingOn(opts.reader, id.toLowerCase(), Boolean(thread.more));
     return { ok: true, count: 1, text: own ? text + '\n\n' + own : text };
   }
   const ch = channelSlug(opts.channel);
