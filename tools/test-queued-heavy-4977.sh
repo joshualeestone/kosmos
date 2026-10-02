@@ -152,7 +152,7 @@ mkdir -p $S/m7; NOW=$(date +%s); printf "%s-%s-1 %s %s host queued run (not a cu
 KOSMOS_RUN_MARKER_DIR=$S/m7 KOSMOS_WAIT_MAX_S=120 KOSMOS_PW_PROBE=$S/quiet QUEUED_HEAVY_SIDE_POLL_S=1 /bin/bash $QH --light "k9" sleep $((U+7)) > $S/k9.out 2>&1 &
 K=$!; BG="$BG $K"
 until_true 60 'grep -q "SIDE TURN: running" $S/k9.out 2>/dev/null && ! gone $((U+7))'
-ok "round 18 (fixture): the wrapper took its side turn" 'grep -q "SIDE TURN: running" $S/k9.out && pgrep -f "^sleep $((U+7))$" >/dev/null'
+ok "round 18 (fixture): the wrapper took its side turn, its temp files in this test's TMPDIR" 'grep -q "SIDE TURN: running" $S/k9.out && pgrep -f "^sleep $((U+7))$" >/dev/null && ls $S/tmp/qh-stopped.* $S/tmp/qh-desc.* >/dev/null 2>&1'
 kill -9 $K; wait $K 2>/dev/null; until_true 30 'gone $((U+7))'
 ok "round 18: a SIGKILLed wrapper's side command is stopped by its capper, not left to the cap" 'gone $((U+7))'
 # #4977 review 3: and its capper removes the wrapper's temp files (in this test's TMPDIR) once it has stopped it.
