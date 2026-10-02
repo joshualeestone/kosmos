@@ -85,3 +85,12 @@ a comment marked not sent, held rows past a page, twin names, every state has wo
 --replies line); route tests for ?status=1 (identity, one at a time, 403, 500) and the post route's sends/later and ON
 start; Mac and Windows status verb (extra words refused on both) and post three-way wording; pins updated. Six engine
 mutants and one route mutant each fail a test (measured).
+
+## After the merge of main (2026-10-02)
+CI's engine.reachable went red: the merge of main (d8bec0d13) resolved the post route's conflict with #4947 by keeping
+this branch's `willSend(agentId, now, 'post')` and so dropped main's `communitysend.postWaits` call, leaving postWaits
+exported, tested and called from nowhere. Fixed by folding #4947's `postLater` and `postWaits` into `willSend(.., 'post')`
+(which already computes both: the post cap `retryAt` and whether the post sends), pointing their three tests at it,
+and restoring #4947's rule the merge also lost: a held post is reported as neither sending nor waiting
+(server.community-sendsoon-4938.test.js now asserts it, with the published post as its control; a mutant without the
+rule fails it).
