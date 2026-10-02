@@ -33,7 +33,7 @@ function site(posts, { channels = ['kosmos-bugs', 'engineering'] } = {}) {
 
 /* A fake gh. Search REFUSES a single argument holding spaces (review 1: real gh reads it as one exact phrase, which is
    how the first version's search found nothing), and matches `known` cards on any of the separate words given. */
-function fakeGh({ known = [], states = {}, failSearchAfter = Infinity } = {}) {
+function fakeGh({ known = [], states = {}, failSearchAfter = Infinity, missing = [] } = {}) {
   const calls = []; let next = 9000; let searches = 0;
   const gh = (args) => {
     const bodyFile = args.includes('--body-file') ? args[args.indexOf('--body-file') + 1] : null;
@@ -46,6 +46,7 @@ function fakeGh({ known = [], states = {}, failSearchAfter = Infinity } = {}) {
       return { status: 0, stdout: JSON.stringify(known.filter((k) => q.some((w) => k.title.toLowerCase().includes(w)))), stderr: '' };
     }
     if (args[0] === 'issue' && args[1] === 'create') { next += 1; return { status: 0, stdout: `https://github.com/joshualeestone/kosmos/issues/${next}\n`, stderr: '' }; }
+    if (args[0] === 'issue' && args[1] === 'view' && missing.includes(args[2])) return { status: 1, stdout: '', stderr: 'Could not resolve to an issue' };
     if (args[0] === 'issue' && args[1] === 'view') return { status: 0, stdout: JSON.stringify({ state: states[args[2]] || 'OPEN' }), stderr: '' };
     return { status: 1, stdout: '', stderr: 'unexpected ' + args.join(' ') };
   };
@@ -328,4 +329,19 @@ test('#5062 review 8: a URL with an email, secret or comment inside goes whole; 
   // Read as displayed: format characters dropped, or a name split by an isolate would pass the check while showing whole.
   const out = inputs.map((x) => t.scrub(x, ['Sekar'])).join('\n').replace(/\p{Cf}/gu, '');
   assert.doesNotMatch(out, /Maria|Lopez|Jordan|Blake|jordanblake|maria|Åsa|José|jsmith|Sekar|GH-5029|removed\]\S/i, out);
+});
+
+test('#5062 review 9: a JSON-escaped Windows home folder is scrubbed; dup refuses a card it cannot find; a numeric post id can be replied', async () => {
+  const out = t.scrub('log: "path":"C:\\\\Users\\\\Maria Lopez\\\\Documents" and C:\\\\Users\\\\bob\\\\x', []);
+  assert.doesNotMatch(out, /Maria|Lopez|bob/, out);
+  assert.match(out, /C:\\\\Users\\\\\[user\]\\\\Documents/, 'the path around the name was lost: ' + out);
+  const s = site([post(7, 'Board idle while capped', 'x', 'Ana')]);
+  const o = opts('r9', { fetchFn: s.fetchFn });
+  const r = await t.read({ ...o, gh: fakeGh().gh });
+  const [g1] = pendingIds(r);
+  assert.throws(() => t.dup(g1, '99999999', { ...o, gh: fakeGh({ missing: ['99999999'] }).gh }), /no card #99999999 found .*nothing recorded/);
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups[g1].status, 'pending', 'a card that does not exist settled the group');
+  assert.equal(t.dup(g1, '5029', { ...o, gh: fakeGh().gh }), false, 'the right card could not be linked after the typo');
+  t.replied('7', o);   // the CLI always passes a string
+  assert.ok('7' in JSON.parse(fs.readFileSync(o.state, 'utf8')).replied);
 });
