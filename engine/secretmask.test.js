@@ -1814,7 +1814,12 @@ test('#3995 gap 4 review round 27: hex-dense numbered lines do not assemble a he
 
 test('#3995 gap 4 review round 29: a held value that is itself hex is walked in short chunks; hex text around it is not masked', () => {
   const crypto = require('node:crypto');
-  const tokens = Array.from({ length: 50 }, () => crypto.randomBytes(16).toString('hex'));
+  /* #5012: the held tokens are drawn from a seeded generator, as round 27's are. Random ones sometimes came out mostly
+     digits, and a key whose short chunks read as plain numbers is outside the short walk by design (secretmask.js's
+     limits: fewer than SHORT_WALK_MIN_KEYLIKE key-like chunks), so the test failed on an unlucky draw (CI run
+     36972500674). The text around them below stays random: those parts skip a draw that really contains a token. */
+  const gen = (seed) => { let x = seed; let out = ''; for (let i = 0; i < 32; i += 1) { x = (x * 1103515245 + 12345) % 2147483648; out += '0123456789abcdef'[(x >>> 16) % 16]; } return out; };
+  const tokens = Array.from({ length: 50 }, (_, i) => gen(2900 + i));
   setKnownSecrets(tokens);
   try {
     for (const tok of tokens.slice(0, 5)) {
