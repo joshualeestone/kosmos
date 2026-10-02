@@ -7,12 +7,17 @@
  * 16px below the header, whose height is measured (51px on a wide window, 77px at 900px, where it
  * wraps).
  *
- * Boots a sandboxed board. On chromium and webkit, in both layouts (tabs, consolidated), at 900 and
- * 1200px wide, opens two long Settings sections (Mac, Connections) and scrolls to the end. Every nav
- * pill's top must be at or below the header's bottom, and the point at the first pill's centre must be
- * the pill (so a click lands on it). Controls: the page scrolled further than the nav's own top
- * (so the nav is stuck, not resting where it was drawn), the nav is still sticky, and the header is
- * showing.
+ * Boots a sandboxed board. On chromium and webkit, with each saved layout (tabs, consolidated), at
+ * 900 and 1200px wide, opens the Settings TAB on two long sections (Mac, Connections) and scrolls to
+ * the end. Every nav pill's top must be at or below the header's bottom, and the point at the first
+ * pill's centre must be the pill (so a click lands on it). Controls: body.consolidated is off (this
+ * is the tab view, whatever layout is saved), the header shows, the nav is sticky, and the page
+ * scrolled further than the nav's own top (so the nav is stuck, not resting where it was drawn).
+ *
+ * Then the consolidated view itself (Settings opened from the user menu while body.consolidated is
+ * on, where Settings is its own scroll box and the header does not stick): on the Mac section, at
+ * the panel's top and scrolled to its end, the nav stays within the panel's top padding plus 16px,
+ * as before #4979 (control: body.consolidated is on and the panel itself scrolled).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-snav-head-4979.js
  */
@@ -48,6 +53,7 @@ function chk(ok, label, extra) {
   const URL = 'http://127.0.0.1:' + server.address().port;
   await fetch(URL + '/api/first-run/complete', { method: 'POST' });
   let ran = 0;
+  let consRan = 0;
   try {
     for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
@@ -73,11 +79,11 @@ function chk(ok, label, extra) {
                 const tops = pills.map((b) => Math.round(b.getBoundingClientRect().top));
                 const fb = pills[0].getBoundingClientRect();
                 const hit = document.elementFromPoint(fb.left + fb.width / 2, fb.top + fb.height / 2);
-                return { layout: document.documentElement.getAttribute('data-layout') || 'tabs', headBottom: Math.round(hb.bottom), headShown: hb.height > 0,
+                return { layout: document.documentElement.getAttribute('data-layout') || 'tabs', cons: document.body.classList.contains('consolidated'), headBottom: Math.round(hb.bottom), headShown: hb.height > 0,
                   navPos: getComputedStyle(document.getElementById('s-nav')).position, y: Math.round(window.scrollY), tops, firstHit: !!(hit && pills[0].contains(hit)) };
               });
-              chk(r.layout === layout && r.headShown && r.navPos === 'sticky' && r.y > drawnTop,
-                `${tag}: control: the layout is ${layout}, the header shows, the nav is sticky and the page scrolled past it`, JSON.stringify({ drawnTop: Math.round(drawnTop), ...r }));
+              chk(r.layout === layout && !r.cons && r.headShown && r.navPos === 'sticky' && r.y > drawnTop,
+                `${tag}: control: ${layout} saved, the tab view (no body.consolidated), the header shows, the nav is sticky and the page scrolled past it`, JSON.stringify({ drawnTop: Math.round(drawnTop), ...r }));
               chk(r.tops.length > 0 && r.tops.every((t) => t >= r.headBottom), `${tag}: every pill sits below the app header`, JSON.stringify({ headBottom: r.headBottom, tops: r.tops }));
               chk(r.firstHit, `${tag}: a click at the first pill lands on it, not on the header`);
               ran += 1;
@@ -85,6 +91,36 @@ function chk(ok, label, extra) {
             chk(errs.length === 0, `${engineName} ${layout} ${width}px: no page errors`, errs.join(' | '));
             await page.close();
           }
+        }
+        /* The consolidated view: Settings from the user menu, inside Projects, its own scroll box. */
+        await fetch(URL + '/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) });
+        for (const width of [1000, 1280]) {
+          const page = await browser.newPage({ viewport: { width, height: 600 } });
+          const errs = [];
+          page.on('pageerror', (e) => errs.push(e.message));
+          const tag = `${engineName} consolidated view ${width}px mac`;
+          await page.goto(URL + '/?tab=projects');
+          await page.waitForSelector('#userpop-settings', { state: 'attached', timeout: 20000 });
+          await page.evaluate(() => document.getElementById('userpop-settings').click());
+          await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 });
+          await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
+          await page.waitForTimeout(300);
+          const read = () => page.evaluate(() => {
+            const p = document.getElementById('panel-settings');
+            const pb = p.getBoundingClientRect();
+            return { cons: document.body.classList.contains('consolidated'), inProjects: p.parentElement && p.parentElement.id === 'panel-projects',
+              scrolled: Math.round(p.scrollTop), limit: Math.round(parseFloat(getComputedStyle(p).paddingTop) + 16),
+              navFromPanel: Math.round(document.getElementById('s-nav').getBoundingClientRect().top - pb.top) };
+          });
+          const atTop = await read();
+          await page.evaluate(() => { const p = document.getElementById('panel-settings'); p.scrollTop = p.scrollHeight; });
+          await page.waitForTimeout(200);
+          const atEnd = await read();
+          chk(atTop.cons && atTop.inProjects && atEnd.scrolled > 0, `${tag}: control: the consolidated view, Settings inside Projects, and the panel itself scrolled`, JSON.stringify({ atTop, atEnd }));
+          chk(atTop.navFromPanel <= atTop.limit && atEnd.navFromPanel <= atEnd.limit, `${tag}: the nav stays within the panel's top padding plus 16px, at the top and scrolled to the end`, JSON.stringify({ atTop, atEnd }));
+          chk(errs.length === 0, `${tag}: no page errors`, errs.join(' | '));
+          consRan += 1;
+          await page.close();
         }
       } finally {
         await browser.close();
@@ -94,7 +130,7 @@ function chk(ok, label, extra) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 16, 'precondition: every engine, layout, width and section ran', String(ran));
+  chk(ran === 16 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the consolidated view on both engines', `ran=${ran} consRan=${consRan}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
