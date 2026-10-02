@@ -44,3 +44,4 @@ describe the product as it will be); if the measurement fails, line 1 comes out 
 - 12:45 after #5042 merged (b758acddb): Homer's Windows half #5044 (f95fe8dea) is ALSO on main, so win32launch.js now
   calls trust.preacceptBypass at every Windows launch and existing Windows agents get the key too. Line 1's "On Windows,
   new agents only" became untrue: removed. Line 1 now: "...switches to Opus 4.8 and keeps going instead of stopping." Round 4 re-checks it.
+- Round 4 (sonnet): CONVERGED, no NITs. Line 1 true on both platforms (Mac launch via ensure-launch-trust, Windows launch and resume via win32launch, create; an account move takes it at the next relaunch).
