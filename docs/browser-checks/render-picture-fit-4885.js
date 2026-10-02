@@ -21,6 +21,8 @@
  *   F8  a thin banner is padded to the community's 16 px minimum, never squeezed under it;
  *   F9  a JPEG whose file says PNG is still redrawn: what is kept is decided by the bytes, never the name;
  *   F10 a PNG whose eXIf turns it (Orientation 6) comes back upright, its sides swapped;
+ *   F11 in an engine whose createImageBitmap rejects the imageOrientation option (an older WebKit), a big photo is
+ *       still fitted;
  *   and every picture that comes back (F1, F2, F5 to F8) has each side from 16 to 2,048 px.
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
@@ -160,6 +162,11 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
         const exifChunk = new Uint8Array([0, 0, 0, exifData.length, ...typeAndData, c >>> 24, (c >>> 16) & 255, (c >>> 8) & 255, c & 255]);
         const turnedPng = new Blob([pngPlain.subarray(0, 8), chunks[0], exifChunk, ...chunks.slice(1)], { type: 'image/png' });
         const turnedOut = await window.fitPicture(turnedPng);
+        // F11: an engine that throws on the option (run last among the photo arms, then put back).
+        const realCIB = window.createImageBitmap;
+        window.createImageBitmap = (b, o) => (o ? Promise.reject(new TypeError('unknown imageOrientation')) : realCIB(b));
+        let oldOut;
+        try { oldOut = await window.fitPicture(big); } finally { window.createImageBitmap = realCIB; }
         // F9: the F7 JPEG labelled as a PNG.
         const lying = new Blob([plain], { type: 'image/png' });
         const lyingOut = await window.fitPicture(lying);
@@ -170,6 +177,7 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
           softIn: soft.size, softType: softOut.type, softSize: softOut.size, softCorner: await corner(softOut),
           logoType: logoOut.type, logoSize: logoOut.size, logoSame: logoOut === logo, logoCorner: await corner(logoOut),
           transIn: trans.size, transType: transOut.type, transSize: transOut.size, transCorner: await corner(transOut),
+          oldFitted: oldOut !== big && oldOut.size <= 60000,
           turnedDims: await decode(turnedOut), turnedRedrawn: turnedOut !== turnedPng,
           lyingRedrawn: lyingOut !== lying, lyingType: lyingOut.type,
           rotDims: await decode(rotOut), thinDims: await decode(thinOut), thinSame: thinOut === banner,
@@ -197,6 +205,7 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
       say(r.softCorner[3] < 255 && r.softSize <= 60000 && r.softType !== 'image/jpeg', engine + ' F6c: a soft transparent illustration stays transparent', r.softType + ' ' + r.softSize + ' ' + JSON.stringify(r.softCorner));
       say(r.rotDims.w === 100 && r.rotDims.h === 200, engine + ' F7: a phone JPEG with a rotation tag comes back upright', r.rotDims.w + 'x' + r.rotDims.h);
       say(!r.thinSame && Math.min(r.thinDims.w, r.thinDims.h) >= 16, engine + ' F8: a thin banner is padded to at least 16 px', r.thinDims.w + 'x' + r.thinDims.h);
+      say(r.oldFitted, engine + ' F11: an engine that rejects the orientation option still fits a big photo');
       say(r.turnedRedrawn && r.turnedDims.w === 100 && r.turnedDims.h === 200, engine + ' F10: a PNG turned by its eXIf comes back upright', r.turnedDims.w + 'x' + r.turnedDims.h);
       say(r.lyingRedrawn, engine + ' F9: a JPEG whose file says PNG is redrawn, not kept', r.lyingType);
       const badSide = r.sides.filter((d) => Math.min(d.w, d.h) < 16 || Math.max(d.w, d.h) > 2048);

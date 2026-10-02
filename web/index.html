@@ -17205,7 +17205,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos+ community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one. Their profiles show each agent’s picture too.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
@@ -37008,7 +37008,8 @@ function settingsGo(section, opts) {
      taken before the save landed. */
   if (section === 'automation' && typeof refreshCommunity === 'function' && !COMMUNITY_SAVING) refreshCommunity();
   if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
-  /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. */
+  /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
+     repaints the industry row too, so an earlier save message there is cleared. */
   if (section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING) refreshIndustry();
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
@@ -39520,6 +39521,8 @@ let PICTURE_WEBP = null;   // whether this browser can write WebP (WebKit cannot
 const PICTURE_FITS = new WeakSet();
 /* Whether EXIF data (a TIFF header and its first directory) carries an Orientation other than 1, upright. */
 function pictureTurned(exif) {
+  // Some writers put JPEG's "Exif\0\0" before the TIFF header in a PNG eXIf too.
+  if (exif.length >= 6 && exif[0] === 0x45 && exif[1] === 0x78 && exif[2] === 0x69 && exif[3] === 0x66 && !exif[4] && !exif[5]) exif = exif.subarray(6);
   if (exif.length < 8) return false;
   const le = exif[0] === 0x49 && exif[1] === 0x49;
   if (!le && !(exif[0] === 0x4d && exif[1] === 0x4d)) return false;
@@ -39540,7 +39543,7 @@ function pictureTurned(exif) {
    (the community drops eXIf, and with it the turn, so such a PNG is redrawn upright; WebKit writes an eXIf with no
    turn into every PNG it makes); a WebP with no ANIM or ANMF chunk and the
    VP8X animation flag clear. Anything else, or anything cut short, is not kept as chosen. */
-function pictureStill(bytes) {
+function pictureStill(bytes, pngOnly) {
   const tag = (at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
   const u32be = (at) => ((bytes[at] << 24) >>> 0) + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3];
   const u32le = (at) => bytes[at] + (bytes[at + 1] << 8) + (bytes[at + 2] << 16) + ((bytes[at + 3] << 24) >>> 0);
@@ -39562,7 +39565,7 @@ function pictureStill(bytes) {
   }
   // fitPicture keeps only a still PNG today (every WebP is redrawn); the WebP reading is kept so this stays one
   // reading of both formats, the community's.
-  if (bytes.length >= 12 && tag(0) === 'RIFF' && tag(8) === 'WEBP') {
+  if (!pngOnly && bytes.length >= 12 && tag(0) === 'RIFF' && tag(8) === 'WEBP') {
     for (let at = 12; at + 8 <= bytes.length;) {
       const kind = tag(at);
       if (kind === 'ANIM' || kind === 'ANMF') return false;
@@ -39578,12 +39581,12 @@ async function fitPicture(blob) {
   let bmp = null;
   try {
     if (!blob) return blob;
-    bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+    // An engine that does not know the option throws on it; current engines turn the picture by default.
+    try { bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(blob); }
     const sidesOk = (w, h) => Math.min(w, h) >= PICTURE_MIN_SIDE && Math.max(w, h) <= PICTURE_MAX_SIDE;
-    const bytes = new Uint8Array(await blob.arrayBuffer());
     // Only a still PNG is kept as chosen: a WebP is always redrawn, so the community's WebP checks only ever see this
-    // browser's own encoder output.
-    if (blob.size <= PICTURE_MAX_BYTES && sidesOk(bmp.width, bmp.height) && bytes[0] === 0x89 && pictureStill(bytes)) {
+    // browser's own encoder output. The bytes are read only when the size could allow keeping it.
+    if (blob.size <= PICTURE_MAX_BYTES && sidesOk(bmp.width, bmp.height) && pictureStill(new Uint8Array(await blob.arrayBuffer()), true)) {
       PICTURE_FITS.add(blob);
       return blob;
     }
@@ -39661,7 +39664,7 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
     if (!res.ok) throw new Error(out.error || 'that did not work');
     // #4885: a picture that could not be fitted is kept as chosen, but the community will not take it.
     msg.textContent = PICTURE_FITS.has(pic) ? 'Saved.'
-      : 'Saved. Kosmos could not fit it for the community; choose a PNG, JPEG or WebP to share it there.';
+      : 'Saved. Kosmos could not fit this picture for the community, so it will not show there.';
     await tick();
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.

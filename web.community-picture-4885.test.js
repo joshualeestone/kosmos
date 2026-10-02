@@ -29,7 +29,7 @@ function lift(name) {
 
 test('#4885: Settings > Community says each agent\'s picture goes with it, and that a picture stays up until removed', () => {
   const f = flat(HTML);
-  assert.ok(f.includes('if you pick one. Their profiles show each agent’s picture too.</p>'), 'the picture line is missing from the switch\'s description');
+  assert.ok(f.includes('Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one.</p>'), 'the picture line is missing from the switch\'s description');
   assert.ok(f.includes('stays there until you pick None, and a picture stays until you remove it from the agent.'), 'the off note says nothing about pictures');
 });
 
@@ -123,6 +123,9 @@ test('#4885 pictureStill: a still PNG or WebP is kept; an animated one, a JPEG, 
   assert.equal(pictureStill(png(chunk('eXIf', exif(1)), chunk('IDAT', Buffer.alloc(20)))), true, 'an upright eXIf is redrawn for nothing');
   const webkit = Buffer.from([77,77,0,42,0,0,0,8,0,1,135,105,0,4,0,0,0,1,0,0,0,26,0,0,0,0,0,3,160,1,0,3,0,0,0,1,0,1,0,0,160,2,0,4,0,0,0,1,0,0,0,96,160,3,0,4,0,0,0,1,0,0,0,96,0,0,0,0]);
   assert.equal(pictureStill(png(chunk('sRGB', Buffer.alloc(1)), chunk('eXIf', webkit), chunk('IDAT', Buffer.alloc(20)))), true, 'a WebKit PNG is redrawn for nothing');
+  const prefixed = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), exif(6)]);
+  assert.equal(pictureStill(png(chunk('eXIf', prefixed), chunk('IDAT', Buffer.alloc(20)))), false, 'an Exif-prefixed eXIf that turns the PNG is missed');
+  assert.equal(pictureStill(riff(wchunk('VP8 ', Buffer.alloc(10))), true), false, 'a WebP is kept when only a PNG may be');
   const ii = Buffer.from([0x49, 0x49, 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0]);
   assert.equal(pictureStill(png(chunk('eXIf', ii), chunk('IDAT', Buffer.alloc(20)))), false, 'little-endian EXIF is read too');
   assert.equal(pictureStill(png(chunk('IDAT', Buffer.alloc(20))).subarray(0, 40)), false, 'a PNG cut short before IEND');
@@ -147,7 +150,7 @@ test('#4885: Settings re-reads the picture counts each time its Automation secti
 });
 
 test('#4885: the agent page says when a chosen picture could not be fitted for the community', () => {
-  assert.match(HTML, /msg\.textContent = PICTURE_FITS\.has\(pic\) \? 'Saved\.'\s*: 'Saved\. Kosmos could not fit it for the community; choose a PNG, JPEG or WebP to share it there\.';/);
+  assert.match(HTML, /msg\.textContent = PICTURE_FITS\.has\(pic\) \? 'Saved\.'\s*: 'Saved\. Kosmos could not fit this picture for the community, so it will not show there\.';/);
   // fitPicture vouches for what it returns kept or redrawn, and only that.
   const fit = lift('fitPicture');
   assert.equal((fit.match(/PICTURE_FITS\.add\(/g) || []).length, 2, 'fitPicture vouches for something other than a kept or redrawn picture');

@@ -11,7 +11,8 @@ bytes, 16 to 2,048 px a side, upright) whenever the browser can redraw it; and a
 picture Kosmos can no longer take down is said in Settings.
 
 ## Call
-1. Copy, in the Community box: the switch's description ends "Their profiles show each agent's picture too."; the off note adds
+1. Copy, in the Community box: the switch's description reads "Their public profiles show each agent's picture, and the
+   kind of business you pick below, if you pick one."; the off note adds
    "and a picture stays until you remove it from the agent."
 2. fitPicture(blob) in web/index.html: a still PNG within the cap with each side from 16 to 2,048 px (the
    community's limits, app/avatars.py) is kept exactly; anything else (a big photo, a GIF, an animated picture, a tiny
@@ -89,12 +90,16 @@ picture Kosmos can no longer take down is said in Settings.
   pins the two counts on the route: 0 without the picture pass, null when it throws, the count otherwise, on GET and
   on PUT.
 
+- (review 7) An engine that rejects createImageBitmap's imageOrientation option is retried without it (current
+  engines turn by default), so an older WKWebView does not silently stop every picture being fitted. The agent page's
+  message is true whatever the cause: "Kosmos could not fit this picture for the community, so it will not show there."
+
 ## Weakest premise
 That 512 px is enough for every place Kosmos shows a picture. Agent pictures render at most a few hundred CSS pixels
 wide; a person who wants a sharper picture can choose a PNG or WebP under 60,000 bytes, which is kept as is.
 
 ## Verified
-- docs/browser-checks/render-picture-fit-4885.js, Chromium and WebKit, all good (F1 to F9, F6b, F6c); the size-first
+- docs/browser-checks/render-picture-fit-4885.js, Chromium and WebKit, all good (F1 to F10, F6b, F6c); the size-first
   order makes WebKit F6c red; a no-op fitPicture makes
   F1 and F2 red; removing the white fill makes WebKit F6 red (corner [0,0,0,255]); removing the padding makes F8 red. Wired in tools/browser-checks.sh and the README (browser-checks-indexed and -wired tests pass).
 - web.community-picture-4885.test.js; all web.*.test.js 2,284/2,284 with the industry route test and both wiring
