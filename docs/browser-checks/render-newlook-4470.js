@@ -169,8 +169,11 @@ const DLEFT_LOOK = `(() => {
       /* Slice 3: a Profile box and its first field label (computed style answers under the hidden section). */
       ...(() => { const bx = document.querySelector('#d-sec-profile .dbox'), lb = bx && bx.querySelector('.flabel');
         if (!bx || !lb) return { boxFound: false };
-        const B = getComputedStyle(bx), Lb = getComputedStyle(lb);
-        return { boxFound: true, boxEdge: B.borderTopColor, boxRadius: B.borderTopLeftRadius, labelCase: Lb.textTransform, labelSpacing: Lb.letterSpacing }; })(),
+        const B = getComputedStyle(bx), Lb = getComputedStyle(lb), hd = document.querySelector('#d-sec-model .dbox .dlab');
+        return { boxFound: true, boxEdge: B.borderTopColor, boxRadius: B.borderTopLeftRadius, labelCase: Lb.textTransform, labelSpacing: Lb.letterSpacing,
+          headCase2: hd ? getComputedStyle(hd).textTransform : 'absent',
+          /* Round 1: the box rule reached the conversation's box too; it must keep today's square edge (#3414). */
+          talkRadius: getComputedStyle(document.getElementById('d-talk-box')).borderTopLeftRadius }; })(),
       cut: [...document.querySelectorAll('#d-nav button:not([hidden]) .dnav-lab')].filter((l) => l.scrollWidth > l.clientWidth).map((l) => l.textContent.trim()) };
   } finally { files.hidden = filesHidden; if (panel) panel.hidden = wasHidden; }
 })()`;
@@ -458,6 +461,8 @@ const AGENTS_LOOK = `(() => {
       chk(dlOn.found && dlOn.cut.length === 0, `${tag} On, an agent's page: no section button's label is cut off`, JSON.stringify(dlOn));
       chk(dlOn.boxFound && dlOn.boxEdge === CLEAR && dlOn.boxRadius === '28px' && dlOn.labelCase === 'none' && (dlOn.labelSpacing === 'normal' || dlOn.labelSpacing === '0px'),
         `${tag} On, an agent's Profile: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(dlOn));
+      chk(dlOn.boxFound && dlOn.headCase2 === 'none' && dlOn.talkRadius === '0px',
+        `${tag} On, an agent's AI Settings: box headings sentence case, and the conversation's box still square`, JSON.stringify(dlOn));
       /* Round 1: between 56rem and 68rem the column was still 220px, which inside the box's padding left the file names
          a few letters each; and the phone chat, sized to the pixel, lost 56px of its nav row to the box. Both read here. */
       const atWidth = async (w) => { await page.setViewportSize({ width: w, height: 900 }); await page.waitForTimeout(150); return page.evaluate(DLEFT_LOOK); };
@@ -684,7 +689,7 @@ const AGENTS_LOOK = `(() => {
       /* Equal to the before-switch reading AND today's values pinned: the open button's gold edge, a closed one's
          edge, and FILES in capitals. */
       chk(dlOff.found && dlBefore.found && JSON.stringify(dlOff) === JSON.stringify(dlBefore) && dlOff.onEdge !== 'rgba(0, 0, 0, 0)' && dlOff.offEdge !== 'rgba(0, 0, 0, 0)'
-        && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme] && dlOff.boxEdge !== 'rgba(0, 0, 0, 0)' && dlOff.labelCase === 'uppercase',
+        && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme] && dlOff.boxEdge !== 'rgba(0, 0, 0, 0)' && dlOff.labelCase === 'uppercase' && dlOff.headCase2 === 'uppercase',
         `${tag} Off, an agent's page: exactly today's left column (edged buttons, FILES in capitals), as before the switch was touched (the control)`, JSON.stringify({ off: dlOff, before: dlBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
