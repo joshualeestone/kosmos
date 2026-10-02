@@ -5,8 +5,8 @@ kosmos-relay `siblingcors-4812` (a computer answers `GET /api/status` to a LISTE
 account, with CORS and its board token, only for a browser it already lets in).
 
 ## What this changes
-- `engine/account-computers.js`: `parseComputers` passes the coordinator's `last_seen` through as `lastSeen`
-  (seconds, or null). Nothing else about the route changes.
+- No engine change. (An earlier version passed the coordinator's `last_seen` through; review 1 showed it is
+  refreshed only daily or on a reconnect, the page stopped showing it, and review 2 had the dead field removed.)
 - `web/index.html`: a section below the agent cards, "Your other computers", one group per OTHER computer:
   - Read by THIS BROWSER from `https://<address>/api/status` with `credentials: 'include'`, never by the board.
     The card's rule: each computer decides who reads it. A browser that computer has not let in gets its
@@ -18,12 +18,16 @@ account, with CORS and its board token, only for a browser it already lets in).
     putting another computer's agents in `LAST` would let Restart or Remove act on the wrong computer. Each card
     is a link that opens the agent on its own computer: `https://<address>/?agent=<sessionName>` (the existing
     deep link). Marked with the computer's name.
-  - Sorted with today's sort (`sortAgents`, `AGENT_SORT`), projects empty (they are this board's).
-  - Unreachable (network error, timeout, 5xx): the last list this browser read from it, greyed, with "Last seen"
-    from the coordinator's `lastSeen`. Never read before: the group says not connected, with Last seen.
+  - Sorted through today's sort (`sortAgents`, `AGENT_SORT`), projects empty. The rows carry only sessionName,
+    name and state, so in practice that is name order, or Needs you first.
+  - Unreachable (network error, timeout, 5xx): the last list this browser read from it, greyed, with the time
+    THIS PAGE last read it. Never read here: "Not connected." with no time.
+  - A list read longer ago than two rounds (the section was off screen) shows greyed with "Reading its
+    agents...", and a read starts at once when the grid comes back on screen.
+  - Repaints are per group and only when what the group shows changed; a note's time words are written in place.
   - "This computer only" checkbox, remembered per browser (`kosmos.agents.thisOnly`), hides the section.
   - Reads: computers every 60 s (the route probes each computer), each other computer's status every 15 s,
-    each read cut at 10 s, only while the tab is visible and the Agents tab shows.
+    each read (the computers route too) cut at 10 s, only while the tab is visible and the grid is on screen.
 
 ## Decided, and rejected
 - Rejected merging into `LAST`/the main grid: wrong-computer actions (above). The cost: other computers' agents
@@ -33,13 +37,19 @@ account, with CORS and its board token, only for a browser it already lets in).
 - Rejected showing the section in the app's 127.0.0.1 board with a "sign in" link per computer: the page cannot
   read them from there whatever the person does. The app loading its own Kosmos+ address is the separate piece.
 
+- GRID ONLY (review 2, W3): the section shows under the card grid, so in the tab view with the Agents layout on
+  list or org it is hidden and nothing is read. Chosen because the list and the chart are this board's own
+  structures (rows with actions, a hierarchy) and another computer's agents have neither; a section under each
+  is three placements to keep in step. Weakest premise: that list-layout people will switch to the grid to see
+  other computers; nothing tells them to. What would change it: Josh or a tester asking where the other
+  computers went in the list. Reversible: render the same section under #alist.
+
 ## Weakest premise
 That `/api/status` from another computer can be rendered safely. It is that computer's own data, but this page
 treats it as untrusted: every string goes in through textContent, every URL is built from the coordinator's
 validated address (computerAddressOk) and an encoded sessionName, never from the answer.
 
 ## Tests
-- engine: lastSeen passed through, null when absent or not a number (control: a number passes).
 - web unit (lifted functions): eligibility (own address over https only; 127.0.0.1, http, another computer's
   address refused), classification (200 json with agents = ok; 401/403 or non-json = not let in; throw/abort/5xx =
   unreachable), a stale list kept and greyed on unreachable, dropped on not-let-in, link building (encoded, from
@@ -73,3 +83,12 @@ unchanged (focus kept); the not-connected note uses this page's own last good re
 the unit test asserts the request's exact options (no headers, no body); the browser check's CORS comment is
 corrected and its preflight row relabelled as not a guard. New browser arm S4 (consolidated). Nits NOT taken:
 the 60 s computers poll while "This computer only" is on, and the Open link during a first pending read.
+
+### Review 2 taken (opus, blind, 2026-10-01 21:17): 0 blockers, 3 warnings, 7 nits
+W1 per-group keys without time words (oaGroupKey), notes updated in place; W2 stale lists greyed (oaStale, 30 s)
+and a read at once when the grid comes back; W3 grid-only recorded above as a decision. Nits taken: dead lastSeen
+field removed; catch comment says the probe can be a minute old; a round asked for mid-round runs after it
+(OA_AGAIN); the key uses a fixed agent order; the sort claim corrected; S4 waits out OA_BUSY and asserts
+oaGridShown directly; the computers fetch is cut at 10 s. Review 1's third nit (catch comment) is the one taken here.
+Unit 13/13; 7 sabotages RED-OK (time words in key, never stale, unsorted key, stale not greyed, projection,
+gridShown, fetch headers).
