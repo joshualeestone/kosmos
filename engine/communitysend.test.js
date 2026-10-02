@@ -23,6 +23,7 @@ const feedpublish = require('./feedpublish');
 const cs = require('./communitysend');
 
 const CHANNELS = new Set(['general', 'engineering', 'operations']);
+const SUB_CHANNELS = { 'kosmos-bugs': 'engineering' };   // kosmos#5062
 
 // A fake kosmos-community. `mode` bends one behaviour per test.
 function backend() {
@@ -71,6 +72,11 @@ function backend() {
         const extra = Object.keys(body).filter((k) => !['channel', 'sub_channel', 'title', 'body'].includes(k));
         if (extra.length) return send(400, { error: 'unknown_fields', fields: extra });
         if (!CHANNELS.has(body.channel)) return send(400, { detail: 'unknown channel' });
+        // kosmos#5062: as the real service: a sub-channel must exist under the channel (its migration 0011 adds
+        // engineering/kosmos-bugs; `noBugs` plays a site deployed before it).
+        if (body.sub_channel != null && (st.mode.noBugs || SUB_CHANNELS[body.sub_channel] !== body.channel)) {
+          return send(400, { detail: 'unknown sub_channel for this channel' });
+        }
         if (st.mode.refuse) return send(422, { detail: { error: 'refused_by_feedguard', reasons: ['email'] } });
         if (st.mode.cap) return send(429, { detail: { error: 'daily_post_limit', limit: 3 } }, { 'retry-after': '7200' });
         if (st.mode.limiter) return send(429, { error: 'rate_limit_exceeded', retry_after: 60 }, { 'retry-after': '60' });   // #4953
@@ -387,6 +393,33 @@ test('an unknown board falls back to general once; a name clash registers with a
   assert.deepEqual(posts().map((p) => p.body.channel), ['no-such-channel', 'general']);
   assert.equal(cs.statuses()[r.id].state, 'sent');
   assert.match(be.st.seen.filter((s) => s.url === '/agents/register').at(-1).body.name, /^Mo-[0-9a-f]{4}$/);
+});
+
+test('#5062: a Kosmos bug report is sent to engineering/kosmos-bugs; a site without it gets it in general', async () => {
+  /* The board stores a --kosmos-bug post with board 'kosmos-bugs' (the agent route maps the yes/no to it). The send turns
+     that into the site's sub-channel under its parent; a site deployed before the channel answers "unknown sub_channel",
+     and the existing fallback resends it to general with no sub-channel, so the report is not lost. */
+  await on();
+  be.st.agents.set('b', { id: 'b', name: 'Bo', key: 'k', token: 't', active: true });
+  store.writeProfile('bo', { displayName: 'Bo' });
+  communitystore.grantTrust('bo');
+  const report = () => feedpublish.publishPost({ kind: 'community_post', agent: 'bo', at: new Date().toISOString(), topic: 'Board shows idle while capped', body: 'I asked, it said idle, I expected out of usage. Kosmos 0.7.18.' }, { agentId: 'bo', board: cs.KOSMOS_BUGS_SLUG });
+  const r = report();
+  await cs.sweep();
+  const sent = posts().map((p) => [p.body.channel, p.body.sub_channel]);
+  assert.deepEqual(sent.at(-1), ['engineering', 'kosmos-bugs'], 'the report did not go to its channel: ' + JSON.stringify(sent));
+  assert.equal(cs.statuses()[r.id].state, 'sent');
+  // An ordinary post beside it still goes to general with no sub-channel.
+  assert.deepEqual([cs.payload({ body: 'x', topic: 't' }).channel, cs.payload({ body: 'x', topic: 't' }).sub_channel], ['general', null]);
+  // A site that does not know the channel yet: one refusal, then general, then sent.
+  be.st.mode.noBugs = true;
+  const before = posts().length;
+  const r2 = report();
+  await cs.sweep();
+  const tries = posts().slice(before).map((p) => [p.body.channel, p.body.sub_channel]);
+  assert.deepEqual(tries, [['engineering', 'kosmos-bugs'], ['general', null]], 'the fallback did not resend to general: ' + JSON.stringify(tries));
+  assert.equal(cs.statuses()[r2.id].state, 'sent');
+  be.st.mode.noBugs = false;
 });
 
 test('a post with no topic takes its title from the first line of its body, cut at 120 UTF-16 units', () => {

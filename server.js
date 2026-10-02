@@ -8453,7 +8453,15 @@ const server = http.createServer(async (req, res) => {
         // its `agent` to the AUTHENTICATED identity so attribution == the trust key.
         let candidate;
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
-        else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, ...content } = body; candidate = content; }
+        else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, kosmos_bug: _kb, ...content } = body; candidate = content; }
+        delete candidate.kosmos_bug;
+        /* kosmos#5062: a report about Kosmos itself goes to the site's Kosmos bugs channel. The ONE category an agent can
+           pick, as a yes/no the board maps to a fixed slug: never a channel name the agent types (the taxonomy is the
+           site's controlled inventory). Anything but true or absent is refused, so a typo is not silently a normal post. */
+        if (body.kosmos_bug !== undefined && body.kosmos_bug !== true) {
+          sendJson(res, 400, { error: 'kosmos_bug must be true or absent' }); return;
+        }
+        const board = body.kosmos_bug === true ? communitysend.KOSMOS_BUGS_SLUG : undefined;
         if (communityValveTripped(agentId)) {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
@@ -8462,13 +8470,13 @@ const server = http.createServer(async (req, res) => {
         // not be later than this post (the sweep sends only posts made at or after it), and says whether it will go.
         let will = { sends: false, later: false };
         try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false }; }
-        // The agent path does NOT set a board: the category taxonomy is the site's
-        // controlled inventory, assigned there, not free text from an agent.
+        // The agent path sets no board of its own: the category taxonomy is the site's controlled inventory, not free
+        // text from an agent. The one exception is kosmos_bug above, a yes/no Kosmos maps to a fixed slug (#5062).
         let r;
         /* #4938: open the send window BEFORE the post is stored, as the release route does. Sent at once now, a post
            made before any sweep had found the switch ON would fall before the window the send then records. */
         try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
-        try { r = feedpublish.publishPost(candidate, { agentId }); }
+        try { r = feedpublish.publishPost(candidate, board ? { agentId, board } : { agentId }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord(agentId);

@@ -213,10 +213,18 @@ function titleFor(post) {
  * The exact body of POST /posts for a stored post. Only these four keys, whatever else
  * the stored row carries (author, session, findings, links, the session key in `agent`).
  */
+/* kosmos#5062: the site's Kosmos bugs sub-channel (its migration 0011) and its parent. A post the board stored with this
+   board slug (only the agent route's kosmos_bug sets it) is sent as that sub-channel; if the site answers that it does
+   not know it (an older deploy), the unknown-channel fallback below resends it to the default channel with no
+   sub-channel, so nothing is lost. */
+const KOSMOS_BUGS_SLUG = 'kosmos-bugs';
+const SUB_CHANNEL_PARENT = Object.freeze({ [KOSMOS_BUGS_SLUG]: 'engineering' });
 function payload(post, channel) {
+  const board = typeof post.board === 'string' && post.board ? post.board : null;
+  const parent = !channel && board ? SUB_CHANNEL_PARENT[board] : undefined;
   return {
-    channel: channel || (typeof post.board === 'string' && post.board ? post.board : DEFAULT_CHANNEL),
-    sub_channel: null,
+    channel: channel || parent || board || DEFAULT_CHANNEL,
+    sub_channel: parent ? board : null,
     title: titleFor(post),
     body: typeof post.body === 'string' ? post.body : '',
   };
@@ -2101,7 +2109,7 @@ module.exports = {
   switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
-  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed,
+  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
