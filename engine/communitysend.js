@@ -1293,7 +1293,9 @@ function unsentCount(agentKey) {
       + communitystore.serviceComments().filter((c) => mine(c) && due(c, csent, cdeletes)).length;
   } catch { return 1; }
 }
-function retiredName(key) { return String(key).slice(RETIRED_PREFIX.length).split(':')[0]; }   // names hold no colon (create.js NAME_RE)
+// The name between the prefix and the time (names hold no colon, create.js NAME_RE). A match, not a split: a literal ':'
+// separator reads as a PATH delimiter to the #1732 Windows guards.
+function retiredName(key) { const m = /^retired:([^:]*):/.exec(String(key)); return m ? m[1] : ''; }
 // Whether the name may hold a community account on any service, for the delete's confirmation. Read-only. Keys that
 // cannot be read count as yes: the confirmation must not promise everything comes back when it cannot tell.
 function hasAccount(agentKey) {
