@@ -13,7 +13,9 @@ At 30rem and below: Open project always on its own line, and the separator dot i
 reads as a stray mark; phone names wrap almost always, so one fixed layout). Wider: the dot stays, and `· Open project`
 is one nowrap unit so the dot never dangles at a line end.
 
-Markup: `name <span class="tsk-crumb-open"><span class="tsk-crumb-sep">·</span> <button ...>Open project</button></span>`.
+Markup: see the crumb in renderTasks (web/index.html, search tsk-crumb-sep). The dot is aria-hidden with a vh comma
+beside it (the .pj-crumb-sep pairing); on a phone the dot is hidden and the comma stays on purpose, so a screen
+reader still hears a pause before Open project.
 The phone rule (`@media (max-width: 30rem)`, the same query the project room's phone CSS uses; the Tasks head's own phone grid is 40rem) sets the open span to block and hides the sep.
 
 Superseded: my first build (dot leads line 2). Rejected by the designer.
@@ -29,7 +31,7 @@ render-subback-4586.js, crumbGeom(): dots found as characters and counted as dra
   project's line (the nowrap unit; expected to fail on the old markup, where the dot fits on line 1).
 - 30rem to 40rem: no viewport arm; the same above-30rem rule as 700. Touch (hover: none, 44px buttons) is reasoned, not run.
 Other checks' selectors (`#tsk-crumb button`, `[data-open-project]`, `[data-proj=""]`, empty-crumb textContent) are
-descendant/textual and unaffected. textContent is unchanged.
+descendant selectors or an empty-text test.
 
 ## Status
 - Fix + pin committed. Shots in ~/work/design-shots/kosmos-5072 show the SUPERSEDED first build: retake.

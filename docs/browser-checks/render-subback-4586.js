@@ -221,7 +221,7 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
         say(`#5053 long name at ${width}: the chevron stays beside the title, on its first line`, g.display !== 'none' && g.gap >= 0 && g.gap <= 24 && g.overlapY > 10 && Math.abs(t.chevTop - t.titleTop) < 24, JSON.stringify({ g, t }));
         say(`#5053 long name at ${width}: the title stays on screen`, t.right <= t.inner, JSON.stringify(t));
         const cg = await crumbGeom(tv.page);
-        say(`#5072 long name at ${width}: Open project takes its own line, at the crumb's left edge`, cg.shown && cg.openBelow && cg.openAtLeft, JSON.stringify(cg));
+        say(`#5072 long name at ${width}: Open project starts a line below All tasks, at the crumb's left edge`, cg.shown && cg.openBelow && cg.openAtLeft, JSON.stringify(cg));
         say(`#5072 long name at ${width}: no separator dot is drawn on a phone`, cg.shown && cg.dotsDrawn === 0, JSON.stringify(cg));
         const nb = await tv.page.evaluate(() => {
           const n = document.getElementById('tsk-new').getBoundingClientRect(), tr = document.getElementById('tsk-title').getBoundingClientRect();
