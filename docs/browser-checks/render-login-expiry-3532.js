@@ -99,7 +99,7 @@ const CASES = [
   /* #5018 (Josh): the account it runs under, the names he gave the agents, a close X that holds until the notice says
      something new, and a notice that floats over the page instead of pushing the navigation down. */
   {
-    let adv = [{ agents: ['amara-singh', 'ben-okafor'], names: ['Amara', 'Ben'], provider: 'Claude',
+    let adv = [{ agents: ['roo-lane', 'pixel-moss'], names: ['Roo', 'Pixel'], provider: 'Claude',
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];
@@ -117,8 +117,8 @@ const CASES = [
     const shown = () => pg.waitForFunction(() => document.querySelector('#login-adv-slot .login-adv'), null, { timeout: 12000 }).then(() => true, () => false);
     chk(await shown(), '5018: the notice renders');
     const txt = await pg.$eval('#login-adv-slot', (el) => el.innerText).catch(() => '');
-    chk(/On Claude, owner@example\.com: Amara, Ben\./.test(txt), '5018: names the provider, the account and the given names', JSON.stringify(txt));
-    chk(!/amara-singh|ben-okafor/.test(txt), '5018: no system names', JSON.stringify(txt));
+    chk(/On Claude, owner@example\.com: Roo, Pixel\./.test(txt), '5018: names the provider, the account and the given names', JSON.stringify(txt));
+    chk(!/roo-lane|pixel-moss/.test(txt), '5018: no system names', JSON.stringify(txt));
     await pg.screenshot({ path: path.join(OUT, 'login-expiry-5018-overlay.png') });
     // Overlay: the header is the same height with the notice as without it, and the notice sits below the header.
     const geo = await pg.evaluate(() => {

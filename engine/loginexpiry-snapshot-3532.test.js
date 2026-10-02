@@ -107,12 +107,12 @@ test('computeLoginAdvisories: no ours panes -> empty (nothing to warn about)', (
 
 test('#5018: each advisory names the provider, the account email and the agents by their given names', () => {
   const now = 1_000_000_000_000;
-  const panes = [paneOf({ session: 'amara-discord', pane: '0.0' }), paneOf({ session: 'ben-discord', pane: '0.1' }),
+  const panes = [paneOf({ session: 'roo-discord', pane: '0.0' }), paneOf({ session: 'pixel-discord', pane: '0.1' }),
     paneOf({ session: 'cleo-discord', pane: '0.2' })];
-  const ccdByName = { amara: '/acct/one', ben: '/acct/one', cleo: '/acct/two' };
+  const ccdByName = { roo: '/acct/one', pixel: '/acct/one', cleo: '/acct/two' };
   const readCcd = (a) => ccdByName[a.name];
   const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
-  const displayName = (n) => ({ amara: 'Amara Singh', ben: 'Ben' }[n] || n);
+  const displayName = (n) => ({ roo: 'Roo Lane', pixel: 'Pixel' }[n] || n);
   const emailOf = (ccd) => (ccd === '/acct/one' ? 'one@example.com' : null);
   const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, displayName, emailOf, cache: { at: 0, value: [] } });
   assert.equal(out.length, 2, 'one advisory per account');
@@ -121,6 +121,6 @@ test('#5018: each advisory names the provider, the account email and the agents 
   assert.ok(one && two, JSON.stringify(out));
   assert.equal(one.provider, 'Claude');
   assert.deepEqual(one.names, one.agents.map(displayName), 'names follow agents, in the same order');
-  assert.ok(one.names.includes('Amara Singh'));
+  assert.ok(one.names.includes('Roo Lane'));
   assert.deepEqual(two.names, ['cleo'], 'no display name: the system name, never blank');
 });
