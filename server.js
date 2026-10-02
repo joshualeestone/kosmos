@@ -8380,7 +8380,7 @@ const server = http.createServer(async (req, res) => {
         const str = (v) => (typeof v === 'string' ? v : '');
         const takingBack = body.takeBack === true;
         if (!takingBack && communityValveTripped(agentId)) {
-          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
+          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts, comments and endorsements. Do not try again this hour' }); return;
         }
         const work = takingBack
           ? communityendorse.takeBack(agentId, str(body.name))

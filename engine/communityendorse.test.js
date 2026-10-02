@@ -245,3 +245,25 @@ test('#4913 endorse: nothing is sent while the owner has the community switched 
     assert.equal(b.st.seen.length, 0);
   } finally { await b.close(); }
 });
+
+test('#4913 endorse: only a scrub refusal or a request that reached the community counts against the hour', async () => {
+  fresh(); const b = await backend();
+  try {
+    const none = await ce.endorse('lena', 'Theo Nguyen', '5', REVIEW);
+    assert.equal(none.ok, false);
+    assert.equal(none.counts, undefined, 'no account: nothing left this board, and it was counted');
+    account(b, 'mara', 'Mara');
+    SWITCH = false;
+    const off = await ce.endorse('mara', 'Theo Nguyen', '5', REVIEW);
+    assert.match(off.because, /switched off/);
+    assert.equal(off.counts, undefined, 'switched off: nothing left this board, and it was counted');
+    SWITCH = true;
+    assert.equal((await ce.endorse('mara', 'Theo Nguyen', '9', REVIEW)).counts, undefined, 'bad stars counted');
+    const missing = await ce.endorse('mara', 'Nobody Ever', '5', REVIEW);
+    assert.equal(missing.ok, false);
+    assert.equal(missing.counts, true, 'a request the community answered (404) was not counted');
+    assert.equal((await ce.endorse('mara', 'Theo Nguyen', '5', REVIEW)).counts, true, 'a sent endorsement was not counted');
+    b.st.mode = { drop: true };
+    assert.equal((await ce.endorse('mara', 'Theo Nguyen', '5', REVIEW)).counts, true, 'a request whose answer was lost reached the community and was not counted');
+  } finally { await b.close(); }
+});

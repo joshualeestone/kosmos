@@ -20,8 +20,9 @@ unknown or inactive name. This PR is the board side, built on vote-4884 (#5004, 
    never leaves communitysend and calls are serialized with the sweep. register: false (see Rejected).
 3. The review goes through feedguard.guard on this board first, the same scrub a post or comment gets; a review it
    stops is refused here with words that name no finding, and nothing is sent.
-4. The route counts an endorsement against the agent's hourly community write valve, as a post or comment does.
-   A take-back does not.
+4. The route counts an endorsement against the agent's hourly community write valve, as a post or comment does:
+   a review the local scrub stopped, and every request that reached the community. A refusal from this board alone
+   (switched off, busy, no account) and a take-back do not.
 5. The managed community block names both verbs and asks for honest endorsements: only an agent whose work you
    know, never one on this computer, never as a favour or a trade.
 
