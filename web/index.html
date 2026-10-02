@@ -3334,11 +3334,13 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    Projects there and the header does not stick, so the nav keeps 16px from the panel's top. Below
    56rem .snav is static and none of this applies. */
 body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + 16px); }
-/* #4979: a window too short to hold the whole nav below the header (11 pills, 434px, under a header
-   of up to 77px, with 16px either side: 543px, at the default text size) would hang its last pills off the bottom while it is
-   stuck, and at the page's end push its first ones back under the header. There the nav scrolls
-   with the page instead, as the agent page's does. */
-@media (max-height: 35rem) { body:not(.consolidated) #s-nav { position: static; } }
+/* #4979: on a window too short to hold the whole nav below the header, a stuck nav hangs its last
+   pills off the bottom and, at the page's end, pushes its first ones back under the header. There
+   it scrolls with the page instead, as the agent page's does. Whether it fits is measured, not a
+   fixed height: the header grows with the Kosmos+ bar, an update or offline notice, or a wrap, so
+   the script beside the #s-nav handler sets snav-loose on the root when header + nav + 32px is
+   taller than the window. */
+html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 /* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
    side padding, because that centered full-width pill was the longest label and word-wrapped.
    #3500 supersedes it: the pill is relabelled "AI Settings" (shorter), the buttons are flex
@@ -37930,20 +37932,32 @@ function settingsOpen(sec, opts) {
   if (sec === 'connect') { paintConnLive(); paintConnShelf(); }
   if (sec === 'usage') paintUsage();
 }
-/* #4979: the app header's height, for the sticky Settings nav's top (see the #s-nav rule). One
-   observer on its border box, so a header that wraps or unwraps on a resize moves the nav with it. */
+/* #4979: the app header's height, for the sticky Settings nav's top, and whether the whole nav
+   fits below it (see the #s-nav rules). Observers on the header's and the nav's border boxes and a
+   window resize recompute both, so a header that wraps or gains a bar or a notice moves the nav,
+   and a window too short for it lets the nav scroll with the page. */
 (() => {
   const head = document.querySelector('.apphead');
-  if (!head || typeof head.getBoundingClientRect !== 'function') return;
+  const nav = document.getElementById('s-nav');
+  if (!head || !nav || typeof head.getBoundingClientRect !== 'function' || typeof nav.getBoundingClientRect !== 'function') return;
+  const root = document.documentElement;
   const write = () => {
     try {
       const h = head.getBoundingClientRect().height;
-      if (typeof h === 'number' && Number.isFinite(h)) document.documentElement.style.setProperty('--apphead-h', h + 'px');
-    } catch { /* unmeasured: the nav keeps the old 16px */ }
+      if (typeof h !== 'number' || !Number.isFinite(h)) return;
+      root.style.setProperty('--apphead-h', h + 'px');
+      const n = nav.getBoundingClientRect().height;   // 0 while Settings is not showing: nothing to fit
+      root.classList.toggle('snav-loose', n > 0 && h + n + 32 > window.innerHeight);
+    } catch { /* unmeasured: the nav keeps the old 16px and stays sticky */ }
   };
   write();
   try {
-    if (typeof ResizeObserver === 'function') new ResizeObserver(write).observe(head, { box: 'border-box' });
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(write);
+      ro.observe(head, { box: 'border-box' });
+      ro.observe(nav, { box: 'border-box' });
+    }
+    if (typeof window.addEventListener === 'function') window.addEventListener('resize', write);
   } catch { /* not a real element (a test harness's stub): the one measurement above stands */ }
 })();
 document.getElementById('s-nav').addEventListener('click', (e) => {

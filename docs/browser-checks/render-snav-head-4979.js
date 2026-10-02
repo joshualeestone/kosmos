@@ -18,9 +18,13 @@
  * scrolled halfway and to the end, either the nav is not sticky (it scrolls with the page) or every
  * pill is between the header and the window's bottom (control: the page scrolled).
  *
- * Just above the threshold (1200x565, 900x565) the nav stays sticky with every pill between the header
- * and the bottom. And a header that changes height after load: Mac at 1200x600, scrolled to the end,
+ * Just above where it stops fitting (1200x565, 900x565) the nav stays sticky with every pill between
+ * the header and the bottom. And a header that changes height after load: Mac at 1200x600, scrolled to the end,
  * then the window narrowed to 900px (the header wraps to two lines): every pill moves below it.
+ *
+ * A taller header (a Kosmos+ bar or a notice, stood in for by a block added inside .apphead) at
+ * 1200x600: grown by 100px the whole nav no longer fits, so it must scroll with the page or show every
+ * pill; grown by 40px it still fits, so it stays sticky with every pill below the taller header.
  *
  * Then the consolidated view itself (Settings opened from the user menu while body.consolidated is
  * on, where Settings is its own scroll box and the header does not stick): on the Mac section, at
@@ -65,6 +69,7 @@ function chk(ok, label, extra) {
   let shortRan = 0;
   let aboveRan = 0;
   let resizeRan = 0;
+  let tallRan = 0;
   try {
     for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
@@ -168,6 +173,30 @@ function chk(ok, label, extra) {
           resizeRan += 1;
           await page.close();
         }
+        /* A taller header: grown by 100px the nav no longer fits; grown by 40px it still does. */
+        for (const extra of [100, 40]) {
+          const page = await browser.newPage({ viewport: { width: 1200, height: 600 } });
+          await page.goto(URL + '/?tab=settings&sec=mac');
+          await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
+          await page.evaluate((px) => { const d = document.createElement('div'); d.style.height = px + 'px'; d.dataset.check4979 = '1'; document.querySelector('.apphead').appendChild(d); }, extra);
+          await page.waitForTimeout(300);
+          for (const where of ['halfway', 'the end']) {
+            const tag = `${engineName} header +${extra}px, 1200x600 mac, scrolled ${where}`;
+            await page.evaluate((wh) => { const m = document.documentElement.scrollHeight - innerHeight; window.scrollTo(0, wh === 'the end' ? m : Math.round(m / 2)); }, where);
+            await page.waitForTimeout(150);
+            const r = await page.evaluate(() => {
+              const hb = document.querySelector('.apphead').getBoundingClientRect();
+              const pills = [...document.querySelectorAll('#s-nav button[data-go]')].filter((x) => !x.hidden && x.getClientRects().length).map((x) => x.getBoundingClientRect());
+              return { y: Math.round(scrollY), headH: Math.round(hb.height), navPos: getComputedStyle(document.getElementById('s-nav')).position,
+                underHeader: pills.filter((p) => p.top < hb.bottom - 0.5).length, offBottom: pills.filter((p) => p.bottom > innerHeight + 0.5).length };
+            });
+            chk(r.y > 0 && r.headH >= 51 + extra, `${tag}: control: the header grew and the page scrolled`, JSON.stringify(r));
+            if (extra === 100) chk(r.navPos !== 'sticky' || (r.underHeader === 0 && r.offBottom === 0), `${tag}: the nav no longer fits, so it scrolls with the page or shows every pill`, JSON.stringify(r));
+            else chk(r.navPos === 'sticky' && r.underHeader === 0 && r.offBottom === 0, `${tag}: it still fits: sticky, every pill below the taller header and above the bottom`, JSON.stringify(r));
+            tallRan += 1;
+          }
+          await page.close();
+        }
         /* The consolidated view: Settings from the user menu, inside Projects, its own scroll box. */
         await fetch(URL + '/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) });
         for (const width of [1000, 1280]) {
@@ -206,7 +235,7 @@ function chk(ok, label, extra) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 16 && shortRan === 8 && aboveRan === 4 && resizeRan === 2 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} consRan=${consRan}`);
+  chk(ran === 16 && shortRan === 8 && aboveRan === 4 && resizeRan === 2 && tallRan === 8 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the short, near-threshold, resize, taller-header and consolidated arms on both engines', `ran=${ran} shortRan=${shortRan} aboveRan=${aboveRan} resizeRan=${resizeRan} tallRan=${tallRan} consRan=${consRan}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
