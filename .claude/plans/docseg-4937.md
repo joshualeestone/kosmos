@@ -33,11 +33,16 @@ the project folder" and delete or default to "In the project folder.""
   the folder). Intended: it changes the person's chosen segment without a click, to show why the folder
   did not open. Rejected: a second message line on the conversation's segment (two places for one
   sentence).
-- Each open counts itself; a room read from an earlier open does not paint (a reopen while one was out
-  appended its rows twice). Below 400px wide the two segments share the row (at 320px the switch was 344px in a 296px
+- Each open counts itself; neither read from an earlier open (the conversation's or the folder's) paints.
+  A reopen while the room read was out appended its rows twice (check arm: 2 rows without the guard, 1 with,
+  both engines, measured).
+- The conversation's segment has no count or pager: it never had one, so "its own count/paging" there is none. Below 400px wide the two segments share the row (at 320px the switch was 344px in a 296px
   view and the page scrolled sideways, measured on both engines).
 
 ## Weakest premise
+Second: that opening on the folder is right even when the folder is empty and the conversation has files (the
+screen says "Nothing here yet" beside a switch that holds files). The card says default to the folder.
+
 That hiding the control when the conversation has no files is right. If Josh wants the switch always
 visible for consistency, the one `hidden` toggle goes and the empty segment needs a sentence.
 

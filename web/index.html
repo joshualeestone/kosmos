@@ -57838,7 +57838,7 @@ async function openDocsView() {
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/documents?limit=500', { cache: 'no-store' });
     const body = await res.json();
-    if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs') return;
+    if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs' || docsOpen !== DOCS_OPEN_GEN) return;   // #4937: only this open paints
     if (body.ok === false) { msg.textContent = pjSentence(body.because || 'we cannot read that folder right now'); return; }
     const files = Array.isArray(body.files) ? body.files : [];
     PJ_DOCS_VIEW_PARTIAL = body.truncated === true;
@@ -57854,7 +57854,7 @@ async function openDocsView() {
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
     if (body.truncated === true) msg.textContent = PJ_DOCS_PARTIAL;
   } catch {
-    if (PJ_CURRENT === forProject && PJ_VIEW === 'docs') msg.textContent = 'We could not reach Kosmos to list the documents.';
+    if (PJ_CURRENT === forProject && PJ_VIEW === 'docs' && docsOpen === DOCS_OPEN_GEN) msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
 }
 document.getElementById('docs-back').addEventListener('click', () => { pjView('one'); });
