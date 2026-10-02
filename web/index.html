@@ -4132,6 +4132,11 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 .cons-agents-lay button[aria-checked="true"] { background: var(--gold-bright); color: #14161a; }
 .cons-agents-lay button:focus-visible { outline: 2px solid var(--label); outline-offset: -3px; }
 .cons-agents-lay button[aria-checked="true"]:focus-visible { outline-color: #14161a; }
+/* #4937: the Documents screen's In the project folder | From this conversation switch. Each segment shows
+   only its own parts; the folder's count, pager and sentence go with the folder. */
+.docs-seg { margin: 0 0 var(--space-5); }
+#pj-docs-view[data-docseg="convo"] :is(#docs-count, #docs-list, #docs-pager, #docs-msg) { display: none; }
+#pj-docs-view:not([data-docseg="convo"]) #docs-convo { display: none; }
 @media (max-width: 760px) {
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
@@ -15894,6 +15899,15 @@ window.kosmosMeasureScrollbarWidth();
          CONVERSATION live in the attachment store, not the folder, so a
          folder read alone misses exactly the files a person dropped into the
          room. Neither list pretends to be the other. -->
+    <!-- #4937 (Josh, 2026-10-01 20:56): the conversation's files no longer stack above the folder's
+         and push them down a long page. One segmented control (the app's own, as the agents' Grid/Org
+         chart switch), "In the project folder" first and chosen on every open; each segment shows only
+         its own list. It shows only when the conversation has files: with none, there is nothing to
+         switch to. The two sources stay said apart (#131): the control names them. -->
+    <div class="cons-agents-lay docs-seg" id="docs-seg" role="radiogroup" aria-label="Which files to show" hidden>
+      <button type="button" role="radio" data-docseg="folder" aria-checked="true" tabindex="0">In the project folder</button>
+      <button type="button" role="radio" data-docseg="convo" aria-checked="false" tabindex="-1">From this conversation</button>
+    </div>
     <h3 class="dlab" id="docs-convo-head" hidden>From the conversation</h3>
     <div id="docs-convo" class="pj-docs"></div>
     <h3 class="dlab" id="docs-folder-head" hidden>In the project folder</h3>
@@ -57731,6 +57745,40 @@ function pjDocsPaintPage() {
 document.getElementById('docs-prev').addEventListener('click', () => { PJ_DOCS_PAGE -= 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
 document.getElementById('docs-next').addEventListener('click', () => { PJ_DOCS_PAGE += 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
 
+/* #4937: which of the Documents screen's two lists shows. The view's data-docseg drives the CSS that
+   hides the other segment's parts; the radios carry aria-checked and the roving tabindex. */
+function docsSegShow(which) {
+  const view = document.getElementById('pj-docs-view');
+  const seg = document.getElementById('docs-seg');
+  if (!view || !seg) return;
+  view.dataset.docseg = which === 'convo' ? 'convo' : 'folder';
+  for (const b of seg.querySelectorAll('[data-docseg]')) {
+    const on = b.dataset.docseg === view.dataset.docseg;
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+  }
+}
+(() => {
+  const seg = document.getElementById('docs-seg');
+  if (!seg) return;
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-docseg]');
+    if (b) docsSegShow(b.dataset.docseg);
+  });
+  /* A radio group's keys, as the agents' Grid/Org chart switch (#4594): Left/Right (and Up/Down) move AND
+     choose, wrapping; Home and End go to the first and last; focus follows. */
+  seg.addEventListener('keydown', (e) => {
+    const b = e.target.closest('[data-docseg]');
+    if (!b || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const all = [...seg.querySelectorAll('[data-docseg]')];
+    const i = all.indexOf(b);
+    const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]
+      : all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
+    e.preventDefault();
+    docsSegShow(to.dataset.docseg);
+    to.focus();
+  });
+})();
 async function openDocsView() {
   PJ_DOCS_VIEW_PARTIAL = false; // #2245: a failed read must not inherit the last project's flag
   const p = pjById(PJ_CURRENT);
@@ -57746,6 +57794,8 @@ async function openDocsView() {
   const convoHead = document.getElementById('docs-convo-head');
   convo.textContent = ''; convoHead.hidden = true;
   document.getElementById('docs-folder-head').hidden = true;
+  docsSegShow('folder');                                        // #4937: every open starts on the folder
+  document.getElementById('docs-seg').hidden = true;             // until the conversation has files
   pjView('docs');
   const forProject = PJ_CURRENT;
   /* The conversation's files, from the room record (#131): every attachment
@@ -57774,8 +57824,7 @@ async function openDocsView() {
         const w = document.createElement('span'); w.className = 'pj-doc-w'; w.textContent = pjSize(a.size);
         b.append(n, w); convo.append(b);
       }
-      convoHead.hidden = false;
-      document.getElementById('docs-folder-head').hidden = false;
+      document.getElementById('docs-seg').hidden = false;      // #4937: the switch names the two sources
     } catch { /* the folder half stands alone */ }
   })();
   try {
