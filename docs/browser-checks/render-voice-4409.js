@@ -43,7 +43,8 @@
  *       P2f a repeat cannot cascade or hide behind punctuation; P11 a dialog mic
  *       says who hears inside the dialog; P12 no bar, no audio; P13 a stop with no end still ends; P14 the composer
  *       fits a phone with the mic in it; P15 a cancel then a new start survives the old one's late events; P16 Escape
- *       on a phone says Finishing too
+ *       on a phone says Finishing too; P17 a phone mic stops itself at 300 s; P18 the Mac bridge wins on any screen;
+ *       P19 a stop before listening began keeps Finishing; P20 the Kosmos+ privacy line names the exception
  *   P4 (slice 3) read aloud is offered and speaks on a phone
  *   V1b in a browser (no bridge) the Name field fills its row exactly as with no wrapper: wrapping changes nothing
  *
@@ -531,7 +532,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       'P2a who hears the audio is shown (readable: in the top half of the visible screen, clear of the mic) in the tap itself, before listening begins, and goes when listening ends', JSON.stringify({ atStart, barAfter: p2.barAfter }));
     // P2 taps via click() in the page for its start (a click is what a tap delivers; the stand-in records the event).
     chk(JSON.stringify(p2.rec) === '["new","start","stop"]' && mid === 'call the' && p2.box === 'call the client' && p2.focusedBox === false && /Apple hears this audio/.test(line) && !/Escape/.test(line),
-      'P2 a tap starts the recognizer within the tap\'s user activation (no keyboard opened), the line says Apple hears the audio, words from two results land spaced, and the next tap stops it', JSON.stringify({ ...p2, mid, line }));
+      'P2 a tap starts the recognizer from the click handler, not the press (no keyboard opened), the line says Apple hears the audio, words from two results land spaced, and the next tap stops it', JSON.stringify({ ...p2, mid, line }));
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
     await phone.evaluate(() => { window.__recLast.onerror({ error: 'not-allowed' }); window.__recLast.onend(); });
@@ -687,7 +688,9 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const ended = await phone.evaluate(() => ({ btn: !!VOICE.btn, bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
     await phone.evaluate(() => { window.__recNoEnd = false; });
     chk(held && !ended.btn && !ended.bar, 'P13 a stop with no end after it still ends listening after a wait, and the bar goes', JSON.stringify({ held, ended }));
-    // P14: the composer row still fits a phone with the mic in it: nothing overflows, and the mic is on screen.
+    /* P14: the composer row still fits a phone with the mic in it: nothing overflows, and the mic is on screen. This is
+       the row's own width at 390 px in this file:// page, which lays the rest of the phone screen out unfaithfully (see
+       P4): it says the row fits, not where the row sits. */
     const fit = await phone.evaluate(() => {
       const mic = document.getElementById('d-mic'), row = mic.parentElement;
       const m = mic.getBoundingClientRect(), r = row.getBoundingClientRect();
@@ -710,6 +713,19 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       return t;
     });
     chk(/^Finishing\. Apple/.test(esc), 'P16 Escape on a phone stops through the same path and says Finishing', esc);
+    // P19: a stop before the recognizer says it started: its late 'listening' does not undo "Finishing".
+    const early19 = await phone.evaluate(() => {
+      window.__recNoEnd = true;
+      const m = document.getElementById('d-mic'); m.click(); m.click();   // on, and off again before onstart
+      return null;
+    });
+    await phone.waitForTimeout(80);
+    const p19 = await phone.evaluate(() => ({ who: document.getElementById('voice-who').textContent, pressed: document.getElementById('d-mic').getAttribute('aria-pressed') }));
+    await phone.evaluate(() => { window.__recNoEnd = false; voiceCancel(); });
+    chk(/^Finishing/.test(p19.who), 'P19 a stop before listening began keeps saying Finishing when the late start arrives', JSON.stringify({ p19, early19 }));
+    // P20: the Kosmos+ privacy line names the one exception.
+    const priv = await phone.evaluate(() => (document.querySelector('.plus-privacy') || {}).textContent || '');
+    chk(/Your work stays on this computer/.test(priv) && /talking to type on a phone/i.test(priv) && /Apple|Google/.test(priv), 'P20 the Kosmos+ privacy line names talking to type on a phone as its exception', priv);
     // P15: a cancel and an immediate new start: the old recognizer's late 'aborted' and end do not end the new session.
     await phone.evaluate(() => { document.getElementById('d-mic').click(); });
     await phone.waitForFunction(() => VOICE.listening === true);
@@ -738,6 +754,36 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const heard = await phone.evaluate(() => window.__spoken.filter((x) => !x.cancel).map((x) => x.text).join(' '));
     chk(spk && heard === 'The fix is in. Run this: Code block. then tell me.', 'P4 read aloud is offered and speaks on a phone', JSON.stringify({ spk, heard }));
     await phoneCtx.close();
+    // P17: a phone mic left on stops itself after 300 s, as the Mac app's does. A fake clock, its own context.
+    const capCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+    const capPg = await capCtx.newPage();
+    await capPg.addInitScript(harness(false), [false]);
+    await capPg.addInitScript(SR);
+    await capPg.addInitScript(asWebKit);
+    await capPg.clock.install();
+    await capPg.goto(PAGE);
+    await capPg.evaluate(() => document.getElementById('d-mic').click());
+    await capPg.clock.runFor(1000);
+    const capOn = await capPg.evaluate(() => ({ btn: !!VOICE.btn, listening: VOICE.listening }));
+    await capPg.clock.runFor(298000);
+    const capStill = await capPg.evaluate(() => window.__rec.slice());
+    await capPg.clock.runFor(2000);
+    const capOff = await capPg.evaluate(() => ({ btn: !!VOICE.btn, rec: window.__rec.slice() }));
+    await capCtx.close();
+    chk(capOn.btn && capOn.listening && !capStill.includes('stop') && capOff.rec.includes('stop') && !capOff.btn,
+      'P17 a phone mic left on stops itself at 300 s, not before', JSON.stringify({ capOn, capStill, capOff }));
+    // P18: on a phone-shaped screen with BOTH the Mac app's bridge and a browser recognizer, the Mac bridge wins: no shim.
+    const bothCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+    const both = await bothCtx.newPage();
+    await both.addInitScript(harness(true), [true]);
+    await both.addInitScript(SR);
+    await both.addInitScript(asWebKit);
+    await both.goto(PAGE);
+    const p18 = await both.evaluate(() => ({ phone: !!(voiceBridge() && voiceBridge().phone), bar: !!document.getElementById('voice-who'), voice: document.documentElement.classList.contains('has-voice') }));
+    await bothCtx.close();
+    chk(p18.voice && !p18.phone && !p18.bar, 'P18 with the Mac app\'s bridge present, a phone-shaped screen still uses it, not the browser\'s recognizer', JSON.stringify(p18));
 
     chk(errs.length === 0, 'V9 no page errors', errs.join(' | '));
   } finally {

@@ -17549,7 +17549,7 @@ window.kosmosMeasureScrollbarWidth();
         <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a1.9 1.9 0 003.4 0"/></svg></span><div><b>Know when you're needed</b><span>Get notified when an agent finishes, hits a blocker, or asks a question.</span></div></li>
         <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.7-5 5.5-5s5.5 2 5.5 5"/><path d="M18.5 8.5v5M16 11h5"/></svg></span><div><b>Work with others</b><span>Invite people and their agents into selected projects. Remove access at any time.</span></div></li>
       </ul>
-      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval.</span></div></div>
+      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval. One exception: talking to type on a phone, where the phone's own speech service (Apple's or Google's) hears it, and Kosmos says so while it listens.</span></div></div>
       <!-- #476, #567: the door is the trust sentence and it is BUILT, so
            it is said as a fact. "Nothing to install" left this paragraph
            on 2026-08-24: the installer ships no connector yet, and the
@@ -60165,7 +60165,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, dlgSaid: '' };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, dlgSaid: '', stopping: false };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -60214,11 +60214,13 @@ function voiceBridge() {
 /* #4409 slice 3 (Josh, 2026-10-01 17:16: "Can we do it in mobile too?"): on a PHONE with no app bridge, the browser's
    own recognizer, behind the same interface as the Mac's (postMessage {op} in, kosmosVoiceEvent out), so tapping and
    the dialogs work unchanged. On iPhone Safari Apple hears the audio; on Android Chrome, Google. Slice 1 kept browser
-   recognition out on privacy grounds, an agent's call. Sending phone audio to Apple or Google is Splinter's call on the
-   card (overridable by Josh), resting on Josh's standing ruling of 2026-09-14 that he does not care about privacy;
-   Josh's 17:16 question asked for voice on phones, not for this. The bar says who hears it. The Mac app keeps its
+   recognition out on privacy grounds, an agent's call. Sending phone audio to Apple or Google is Splinter's call, in
+   the card's comment of 2026-10-01 17:16 (it cites its own grounds there; Josh may override it, and if he says to keep
+   phone audio on the phone only this shim goes). Josh's 17:16 question asked for voice on phones, not for this. The
+   bar says who hears it, and the Kosmos+ privacy line names the exception. The Mac app keeps its
    on-device bridge, and a computer's browser (a fine pointer) gets no mic. */
-const VOICE_PHONE_STOP_MS = 5000;   // as long as the Mac app waits for the last words after a stop
+const VOICE_PHONE_STOP_MS = 5000;
+const VOICE_PHONE_CAP_MS = 300000;   // as the Mac app: a mic left on by mistake does not listen forever (its audio leaves the phone)   // as long as the Mac app waits for the last words after a stop
 let VOICE_PHONE = undefined;   // the shim, built once at load and never rebuilt: an iPad that later gains a trackpad keeps it, and one that starts with a trackpad never gets it, until the page reloads; null where none
 function voicePhoneWho() {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
@@ -60256,8 +60258,11 @@ function voicePhoneBridge() {
        (which says Macintosh, with touch) or Android. And a secure page: elsewhere the recognizer refuses every start,
        which would read as a refused microphone. */
     if (voicePhoneWho() === '' || window.isSecureContext === false) return null;
-    let rec = null, id = null, stopTimer = 0;
-    const unwait = () => { if (stopTimer) { clearTimeout(stopTimer); stopTimer = 0; } };
+    let rec = null, id = null, stopTimer = 0, capTimer = 0;
+    const unwait = () => {
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = 0; }
+      if (capTimer) { clearTimeout(capTimer); capTimer = 0; }
+    };
     const emit = (ev) => { if (typeof window.kosmosVoiceEvent === 'function') window.kosmosVoiceEvent(Object.assign({ id }, ev)); };
     const REASON = { 'not-allowed': 'mic-denied', 'service-not-allowed': 'speech-denied', 'audio-capture': 'no-mic', 'no-speech': 'nothing-heard', network: 'network' };
     VOICE_PHONE = {
@@ -60335,7 +60340,8 @@ function voicePhoneBridge() {
             emit({ kind: 'stopped' });
           };
           mine.onend = () => { if (rec === mine) { unwait(); rec = null; emit({ kind: 'stopped' }); } };
-          try { mine.start(); } catch { fail(); }   // in the tap's click: a phone starts the microphone only from a gesture
+          try { mine.start(); } catch { fail(); return; }   // in the tap's click: a phone starts the microphone only from a gesture
+          capTimer = setTimeout(() => { capTimer = 0; if (rec === mine) voiceStop(VOICE_PHONE); }, VOICE_PHONE_CAP_MS);
         } else if (op === 'stop') {
           const was = rec;
           if (!was || stopTimer) return;   // already stopping: one wait, not one per tap
@@ -60439,6 +60445,7 @@ function voiceWho(line, forBtn) {
 /* Every stop goes through here (a second tap, letting go of a hold, Escape). Slice 3: on a phone the audio may still be
    on its way until the last words come back, so the bar stays, saying so. */
 function voiceStop(h) {
+  VOICE.stopping = true;   // a late 'listening' (a stop before the recognizer said it started) must not undo this line
   if (h.phone) voiceWho('Finishing. ' + voicePhoneWho() + ' is turning the last of this audio into words.');
   h.postMessage({ op: 'stop' });
 }
@@ -60457,7 +60464,7 @@ function voiceToggle(btn) {
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
   VOICE.seq += 1;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false });
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false, stopping: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
   voicePaint(btn, 'asking');
   if (h.phone) voiceWho('Starting the microphone. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.');   // before a word can be sent
@@ -60489,7 +60496,7 @@ function voiceOnEvent(ev) {
     VOICE.listening = true;
     voicePaint(btn, 'on');
     const hb = voiceBridge();
-    if (hb && hb.phone) voiceWho(voiceListeningLine());   // slice 3: on a phone the line is the bar (and a dialog's line)
+    if (hb && hb.phone) { if (!VOICE.stopping) voiceWho(voiceListeningLine()); }   // slice 3: the bar (and a dialog's line)
     else if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());   // never over another message's line
     return;
   }

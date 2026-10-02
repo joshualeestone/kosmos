@@ -35,13 +35,21 @@ Chrome repeats results and iOS restarts its list (and whether either resends a l
 finals once by resultIndex and handle the reported shapes, each pinned both ways, but none is measured.
 
 ## Tests
-docs/browser-checks/render-voice-4409.js P1-P4 on an emulated iPhone (touch, coarse pointer, iPhone user agent, a
-recording recognizer): P1 the mic is drawn on the phone and NOT in a computer's browser with the same recognizer; P2 a
-tap starts it inside the tap, the line names Apple and has no Escape, partial and final words land, the next tap stops
-it; P3 a refusal points at the phone's settings; P4 read aloud is drawn and speaks with the on-device voice (pressed
-directly: reaching the #718 tap-to-open bar is unchanged and this file:// harness cannot lay a phone out faithfully).
-Mutations: the phone gate (P1, V1, V1b red), the phone line (P2), the phone refusal (P3). web.voice-4409.test.js 21/21,
-pinning that the recognizer is reached only in the phone shim and the Mac bridge comes first.
+docs/browser-checks/render-voice-4409.js, on an emulated iPhone (touch, coarse pointer, an iPhone user agent, no
+navigator.userAgentData as on WebKit) with a recording stand-in recognizer that behaves as a real one does on abort:
+- Who can get the mic: P1 (phone yes; a computer's browser, a touch-screen Windows computer and another engine on an
+  iPhone no), P1b (Android Chrome by brand yes; Samsung, Brave and a rebranded Chromium no), P18 (the Mac app's bridge
+  wins on any screen), P12 (no bar, no audio).
+- Saying who hears it: P1 (every mic's label from load, the Guide's too), P2a (the bar in the tap itself, readable in
+  the top half), P5 (another message line untouched), P10 (the bar follows the visible area), P11 (inside a modal
+  dialog too), P16 and P19 (Finishing on every stop), P20 (the Kosmos+ privacy line names the exception).
+- Words: P2 (two results, spaced), P2c to P2f (repeats, resends, list restarts, real speech kept; the one declared loss
+  pinned).
+- Ending: P3, P3b (refusals and retry), P6 to P9, P8b, P13 (errors, throws, a stop with no end), P7 (ends by itself),
+  P15 (a cancel then a new start), P17 (stops itself at 300 s, on a fake clock).
+- P4 read aloud on a phone; P14 the DM composer fits at 390 px.
+Every fix was mutated and each mutation reds its check with a non-zero exit (listed per round below).
+web.voice-4409.test.js 21/21: the recognizer is reached only inside the phone shim, after the Mac bridge.
 
 ## Review rounds
 - Round 1 (opus): FIXED B: after a refusal the retry kept the refusal on screen and never said who hears the audio;
@@ -140,4 +148,12 @@ pinning that the recognizer is reached only in the phone shim and the Mac bridge
   loss). NITs taken: a stale comment from slice 2 deleted; P2d, P2e and P2f each print only their own arms. LEFT
   NITs: a same-task abort-then-start across mics on a real browser (P15 is a stand-in); no listening time cap on a
   phone (the browser's own, and the bar stays up); the node pins are source matches.
+- Round 11 (opus): FIXED W: a phone mic had no listening cap where the Mac app stops at 300 s; it now stops itself at
+  300 s (P17, on a fake clock: not before, and at). FIXED W: the comment paraphrased a Josh ruling a reader could not
+  check; it now points at Splinter's card comment and paraphrases nobody. FIXED W: the Kosmos+ "Private by design"
+  line said your work stays on this computer, which phone voice now qualifies; it names the exception (P20). The copy
+  is mine and reversible, written on the card for Josh to swap. NITs taken: a stop before the recognizer says it
+  started no longer lets the late start undo "Finishing" (P19); P2's label says what it proves (the click handler);
+  P14 says it measures the row, not the screen; a behavioural check that the Mac bridge wins (P18); this Tests section
+  brought up to date.
 
