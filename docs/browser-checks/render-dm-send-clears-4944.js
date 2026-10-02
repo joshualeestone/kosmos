@@ -299,6 +299,26 @@ function readThread(page, words) {
     await page.waitForTimeout(300);
     chk((await box()) === 'refused but recorded', 'could not deliver, though recorded: the words are back in the box for the retry', JSON.stringify(await box()));
 
+    /* 15. No bubble (a search is filtering) and the send is placed: the box empties then, as it always
+       did, so delivered words are never left armed for a second send. */
+    await reset(BASE);
+    await page.evaluate(() => { TALK_QUERY = 'zzz-no-match'; });
+    await press('placed while searching');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate((fx) => { window.__fx = fx; window.__post.resolve({ delivery: { state: 'placed', paneState: 'idle' }, recorded: true, recordedBecause: null }); },
+      keptWith(BASE, { at: new Date().toISOString(), text: 'placed while searching', delivery: { state: 'placed', paneState: 'idle' } }));
+    await page.waitForTimeout(400);
+    chk((await box()) === '', 'no bubble and placed: the box empties when the send is answered', JSON.stringify(await box()));
+
+    /* 16. Words put back after a failure are parked too, so opening another agent and coming back keeps them. */
+    await reset(BASE);
+    await press('park me again');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => window.__post.reject(new TypeError('Failed to fetch')));
+    await page.waitForTimeout(300);
+    const parked = await page.evaluate(() => TALK_DRAFTS.april || null);
+    chk(parked === 'park me again', 'words put back in the box are parked under the agent as well', JSON.stringify(parked));
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {

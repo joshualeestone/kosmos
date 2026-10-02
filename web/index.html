@@ -34832,8 +34832,8 @@ function dmReplyStart(at) {
 }
 
 /* The in-flight (or not-kept) message, in the person's own bubble. The pill is
-   the thread's delivery pill: dashed while it is on its way, red if it did not go. */
-/* #4944: the same bubble the kept row is (dmRow's own-message arm), with the reply header the kept row will
+   the thread's delivery pill: dashed while it is on its way, red if it did not go.
+   #4944: the same bubble the kept row is (dmRow's own-message arm), with the reply header the kept row will
    carry, so the swap when the thread holds it happens in place rather than as a jump. `name` and `adjacent`
    are dmReplyHead's. */
 function dmPendingRow(p, name, adjacent) {
@@ -35717,7 +35717,12 @@ async function sendTalk(text, attachment) {
       if (!(TALK_DRAFTS[sentName] || '').trim()) TALK_DRAFTS[sentName] = text;
       return false;
     }
-    if (say.value.trim() === '') { say.value = text; pjGrowComposer(say); }
+    if (say.value.trim() === '') {
+      say.value = text; pjGrowComposer(say);
+      /* Parked as a keystroke would park it: a value written by the program fires no input event, and
+         the press retired the old draft, so without this a switch to another agent would lose it. */
+      TALK_DRAFTS[sentName] = text;
+    }
     return say.value.trim() === text;
   };
   /**
@@ -35747,7 +35752,7 @@ async function sendTalk(text, attachment) {
      * #4944 (Josh, 0.7.16): "as soon as i hit POST, it shows in both places for a second and then shifts
      * around". The box kept the words until the POST answered, so for the whole flight they were in the
      * thread AND in the box, and then the box emptied under them. The box empties in the same frame the
-     * bubble is drawn, and only if a bubble was drawn. Only when it holds exactly what this send took: an attachment-only send carries
+     * bubble is drawn, if one was drawn, and only when the box holds exactly what this send took: an attachment-only send carries
      * the files' names, which were never in the box. The parked draft goes too, or the repaint at the
      * end of the flight would put the words straight back.
      *
@@ -35759,7 +35764,9 @@ async function sendTalk(text, attachment) {
     /* Only once the bubble is really on screen. A search filtering the thread draws no bubble, and nor
        does a send made before this agent's first thread read has landed; emptying the box then would
        show the words nowhere for the whole flight. In those two cases the box keeps them as before. */
-    const drawn = !!document.querySelector('#d-dmthread .dm-pending');
+    const th = document.getElementById('d-dmthread');
+    const drawn = !!(th && th.__lastSession === sentName
+      && th.querySelector('.dm-pending[data-mid="pending:' + TALK_PENDING[sentName].startedAt + '"]'));   // startedAt is a number
     tookBox = drawn && say.value.trim() === text;
     if (tookBox) {
       say.value = ''; pjGrowComposer(say);
@@ -35807,10 +35814,12 @@ async function sendTalk(text, attachment) {
      */
     const inThread = body.recorded === true;
     const clearSent = () => {
-      /* #4944: the box was emptied at the press, so there is nothing of this send's left in it: words
-         there now were typed during the flight and belong to the next message, even when they are the
-         same words. Only a draft parked since, holding exactly these, is retired. */
-      if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
+      /* #4944: when the press emptied the box, words there now were typed during the flight and belong
+         to the next message, even when they are the same words. When it did not (no bubble was drawn),
+         the box still holds this send's words and empties now, as it always did. */
+      if (!tookBox && !flightMoved() && say.value.trim() === text) { say.value = ''; pjGrowComposer(say); }
+      /* The parked draft is retired only when it is not also what the box holds now. */
+      if ((TALK_DRAFTS[sentName] || '').trim() === text && (flightMoved() || say.value.trim() !== text)) delete TALK_DRAFTS[sentName];
       /* The files follow the words' rule exactly: cleared for the agent they
          were sent to, on the same verdicts, so an unconfirmed-and-unrecorded
          send keeps them for the retry the sentence invites. */
