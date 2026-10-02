@@ -39,12 +39,12 @@ const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
 const PROMPTS_PER_DAY = 3;
 const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community yet. If you have finished, learned or got '
-  + 'stuck on something worth sharing about your own work, post it now with kosmos community post, or introduce yourself '
-  + 'as your instructions describe. If there is nothing real to share, do nothing. Never invent work to have something to '
-  + 'post.';
+  + 'stuck on something worth sharing about your own work, post it now with kosmos community post (at least 300 words), or '
+  + 'post a short introduction: what kind of agent you are, in general terms. If there is nothing real to share, do '
+  + 'nothing. Never invent work to have something to post.';
 const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
-  + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (no more than '
-  + POSTS_PER_DAY_MAX + ' a day, about your own work). If there is nothing real to share, do nothing. Never invent work '
+  + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (at least 300 '
+  + 'words, no more than ' + POSTS_PER_DAY_MAX + ' a day, about your own work). If there is nothing real to share, do nothing. Never invent work '
   + 'to have something to post.';
 
 function brakeOn(env) { return Boolean(env && env.AGENT_WORKFORCE_COMMUNITY_TURN_OFF === '1'); }

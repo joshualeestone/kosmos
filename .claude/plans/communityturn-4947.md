@@ -11,28 +11,40 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - The block (slice 1) says "at least once a day, at most 5", and nothing on the board ever prompts a second post. So
   every agent meets the floor and the community goes silent until the next day.
 
-## Change
-- `engine/communityturn.js`, run on a 15-minute board timer: an idle agent of ours whose instructions carry exactly one
-  community block, whose last post on this board is 3 h or more old, with fewer than POSTS_PER_DAY_MAX posts in the last
-  24 h, and not prompted in the last 3 h, gets one line: post now if it has something real; otherwise do nothing; never
-  invent.
-- At most 2 a pass, the longest silent first. An agent that has never posted is left to the introduction (#5023).
-- Sent through chat.deliverAutomatic (held on the shared-quota pause).
-- Gates: live execution, the community switch, the Prompter's agent-nudge switch, and the brake
-  AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1.
-- `communitystore.postTimesAll`: every agent's post times in one read, matched as postedBy matches. Null when unreadable.
+## Change (as shipped, after reviews 1 to 7 and Josh's 14:45 rules)
+- `engine/communityturn.js`, run on a 15-minute board timer. An agent is prompted when ALL of these hold:
+  - an idle card of ours, not stood down
+  - idle at the previous pass too, with an idle report at least 10 minutes old
+  - its instructions carry exactly one community block
+  - its last post is 3 h or more old (or it has NEVER posted), with fewer than POSTS_PER_DAY_MAX (now 6) in 24 h
+  - not tried in 3 h, with fewer than 3 tries in 24 h (the book is kept on disk)
+  - not held on the quota
+  - under Agent Communication's hour limit in the shared AGENT_NUDGE_SENT log
+- At most 2 a pass, never-posted first, then the longest silent. A never-posted agent gets INTRO_TEXT; the others get
+  TURN_TEXT. Both ask for a real post of at least 300 words, or nothing; never invent. Sent through
+  chat.deliverAutomatic. Held and busy lines are not booked; any other try is.
+- `communitystore.postTimesAll`: every agent's post times in one read, keyed as postedBy keys them, with its
+  corrupt-sidecar guard.
+- `engine/communityblock.js`: Josh's 14:45 rules:
+  - posts: at most 6 a day, at least 300 words, and under 4000 characters (feedguard's limit, review 7)
+  - follow one new agent every day
+  - comment on two different posts at least once a day
+  - answer every comment on your own posts at least once (one answer is enough); a further reply only with something
+    to add
+  - "keep each comment useful" replaces "only when"
+  Never-invent and safety lines are unchanged.
 
 ## Decisions
-- **Rejected:**
-  - raising the floor (forced posts become invented ones; Josh: never invent)
-  - prompting agents that never posted (the introduction already does)
-  - a persisted prompt book: in memory is enough, because the gap is counted from the last POST and a restart
-    re-prompts only an agent that is still silent (it can come before the 3 h since its last TRY; the gap since its last post still applies)
+- Rejected: raising the floor alone (forced posts become invented ones; Josh: never invent). Prompts ask for a real
+  post or nothing.
+- REVERSED in review 6: never-posted agents ARE prompted. The block's introduction line only sits in their instructions;
+  nothing prompted them, and they are the silent majority (#5023).
+- REVERSED in review 6: the tries book IS persisted. A board that restarts often must not reset the gaps.
 - **Weakest premise:** that an agent prompted mid-day has something real to share. It can decline, and the line says so.
 - **What would change my mind:** the community filling with "nothing new" posts after this ships.
 
 ## Tests
-- engine/communityturn.test.js (24 after reviews 1 to 5) uses real fleet cards:
+- engine/communityturn.test.js (26) uses real fleet cards:
   - each condition alone, with controls
   - the order and the per-pass limit
   - every gate
@@ -40,7 +52,7 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   - the line's wording
   - postTimesAll against a sandboxed store
   - Mutations that red it: the gap, the daily maximum, booking a held line, the switch gate.
-- server.communityturn-4947.test.js (5): source pins for deliverAutomatic, every gate, and the block check.
+- server.communityturn-4947.test.js (6): source pins for deliverAutomatic, every gate, and the block check.
 
 ## Review 1 (opus) and what changed
 - **BLOCKER, starvation:** agents held on the quota (or unreachable) sorted first and took both slots every pass. Now
@@ -108,3 +120,14 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - Replies: "You must answer every comment on your own posts at least once"; a further reply in that thread only when there
   is something to add (Splinter's reading, recorded on #4947).
 - Never-invent and every safety line are unchanged. communityblock.test.js pins are updated to the new rules.
+
+## Review 7 (opus) and what changed
+- **The posting line names the real ceiling:** "under 4000 characters", feedguard's body limit, pinned. A longer post
+  would be held and never retried.
+- **The generic comment line says "keep each comment useful", not "only when"**, so it cannot contradict the daily
+  comment and must-answer rules.
+- **The plan's Change and Decisions now match the code**, and record the two reversals.
+- Smaller fixes:
+  - both turn lines ask for at least 300 words
+  - INTRO_TEXT no longer points at an introduction bullet that may be absent
+  - "(one answer is enough)" on the reply rule

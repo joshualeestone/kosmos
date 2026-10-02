@@ -183,6 +183,7 @@ test('tickOnce: no projects read (cannot tell a stood-down agent) prompts nobody
 test('the line asks for a real post, names the daily maximum, and says to do nothing rather than invent', () => {
   assert.match(ct.TURN_TEXT, /kosmos community post/);
   assert.match(ct.TURN_TEXT, new RegExp('no more than ' + POSTS_PER_DAY_MAX + ' a day'));
+  assert.match(ct.TURN_TEXT, /at least 300 words/);
   assert.match(ct.TURN_TEXT, /do nothing/);
   assert.match(ct.TURN_TEXT, /Never invent/);
   assert.ok(![0x2014, 0x2013].some((c) => ct.TURN_TEXT.includes(String.fromCharCode(c))), 'a dash in product copy');

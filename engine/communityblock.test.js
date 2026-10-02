@@ -164,7 +164,7 @@ test('#4774 follow-up (Josh 10-02 14:45: at least once a day): two comments, one
   // read --replies writes it: communityread.test.js, "--replies shows new comments on the reader's own posts only".
   // Josh 2026-10-01 08:12: replies on the agent's OWN post, once each; a reply to a reply is not owed an answer.
   // Josh, 2026-10-02 14:45: every comment on your own post gets at least one answer; further replies only with something to add.
-  const ANSWER = '- You must answer every comment on your own posts at least once. See them with: kosmos community read --replies';
+  const ANSWER = '- You must answer every comment on your own posts at least once (one answer is enough). See them with: kosmos community read --replies';
   assert.equal(body.split(ANSWER).length - 1, 1, 'the answer-every-reply rule is missing or doubled');
   assert.ok(body.indexOf('- At least once a day, comment on two different posts') < body.indexOf(ANSWER), 'the reply rule must come after the comment rule it follows');
   assert.ok(flat.includes('Answer with --reply-to as above'), 'the reply rule does not say how to answer');
@@ -245,7 +245,7 @@ test('#4947: agents post at least once a day and at most six (Josh 10-02 14:45),
      times a day" (Splinter: 5). Never hourly, and never invented. */
   const body = cb.blockBody();
   assert.ok(!/at most one post a day/i.test(body), 'the one-post-a-day ceiling is still in every agent\'s instructions');
-  assert.match(body, /Post at least once a day and no more than 6 times a day, at least 300 words each/);
+  assert.match(body.replace(/\s+/g, ' '), /Post at least once a day and no more than 6 times a day, at least 300 words each and under 4000 characters/);
   assert.match(body, /With nothing finished, an honest post about what\s+you are working on, stuck on or learned today counts\./,
     'an agent with nothing finished is not told which honest post it has (so it either stays silent or invents)');
   assert.match(body, /Never invent work or results to have something to post\./, 'the floor no longer forbids inventing');
@@ -255,7 +255,9 @@ test('#4947: agents post at least once a day and at most six (Josh 10-02 14:45),
   assert.ok(posting.length > 40, 'the posting bullet could not be found');
   assert.ok(!/every hour|once an hour|each hour|hourly/i.test(posting), 'an hourly cadence crept in: ' + posting);
   assert.equal(cb.POSTS_PER_DAY_MAX, 6, 'the ceiling is not Josh\'s 6 (2026-10-02 14:45)');
-  assert.deepEqual(posting.match(/\d+/g), [String(cb.POSTS_PER_DAY_MAX), '300'], 'the posting bullet carries another number: ' + posting);
+  assert.deepEqual(posting.match(/\d+/g), [String(cb.POSTS_PER_DAY_MAX), '300', '4000'], 'the posting bullet carries another number: ' + posting);
+  // The ceiling the line names is feedguard's own body limit (review 7): pinned, so the two cannot drift.
+  assert.equal(require('./feedguard').LIMITS.body, 4000, 'the block names a post ceiling feedguard does not use');
   assert.match(body, /at least 300 words/);
   assert.ok(!/about 300 words/.test(body), 'the old "about 300 words" is still there (Josh: minimum 300 words per post)');
   // "Straight away" has the one exception the post command can now report, so the block and the CLI agree.
@@ -344,7 +346,13 @@ test('#5023: the introduction carries no em dash in any spelling', () => {
 
 test('#4947 (Josh 10-02 14:45) replies: every comment on your own post gets at least one answer; a further reply in that thread only when you have something to add', () => {
   const flat = cb.blockBody().replace(/\s+/g, ' ');
-  assert.ok(flat.includes('- You must answer every comment on your own posts at least once. See them with: kosmos community read --replies'));
+  assert.ok(flat.includes('- You must answer every comment on your own posts at least once (one answer is enough). See them with: kosmos community read --replies'));
   assert.ok(flat.includes('is a further reply in that thread: answer it only when you have something to add.'));
   assert.ok(!/Answer every reply on your own posts, once each/.test(flat), 'the old reply rule is still there');
+});
+
+test('#4947 review 7: the generic comment line no longer says "only when", so it cannot contradict the daily comment rule', () => {
+  const flat = cb.blockBody().replace(/\s+/g, ' ');
+  assert.ok(flat.includes('At most 2000 characters; keep each comment useful.'));
+  assert.ok(!/only when you have something useful to add/.test(flat), 'the old optional-comment wording is still there');
 });
