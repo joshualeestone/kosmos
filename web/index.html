@@ -36227,13 +36227,13 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   // Only on the agent it was for: the person may have switched agents while this was in flight.
   if (msg && CURRENT && CURRENT.sessionName === who) msg.textContent = say;
 });
-document.getElementById('d-files-all') && document.getElementById('d-files-all').addEventListener('click', () => {
+document.getElementById('d-files-all') && document.getElementById('d-files-all').addEventListener('click', (e) => {
   if (!CURRENT) return;
-  detailGo('files');
+  detailGo('files', { keyboard: e.detail === 0 });   // #4961: the landing ring is keyboard-only
 });
-document.getElementById('d-files-back') && document.getElementById('d-files-back').addEventListener('click', () => {
+document.getElementById('d-files-back') && document.getElementById('d-files-back').addEventListener('click', (e) => {
   if (!CURRENT) return;
-  detailGo('talk');
+  detailGo('talk', { keyboard: e.detail === 0 });
 });
 document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
   if (!CURRENT) return;
@@ -37119,6 +37119,12 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
   /* #4961: a click from Enter or Space carries detail 0; a pointer click carries its click count. */
   detailGo(b.dataset.go, { keyboard: e.detail === 0 });   // the Skills lazy-load lives in detailGo, beside the group reveal (#4550)
 });
+/* #4961: the landing ring belongs to the keyboard press that moved focus in. Once focus leaves the
+   section (a Tab inside, a click elsewhere), drop it, so a later click on the section's own
+   background refocuses it without a ring. Covers Settings' sections too. */
+document.addEventListener('focusout', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('kbd-landed')) e.target.classList.remove('kbd-landed');
+});
 /* kosmos#1918: wire the agent page's "Sign in again" affordance ONCE (paintDetail
    only toggles its visibility). It opens Settings -> Accounts, the existing re-auth
    surface, so a person looking at an agent whose sign-in is broken has an in-product
@@ -37137,7 +37143,7 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    needs to act on. */
 (() => {
   const rb = document.getElementById('d-reauth');
-  if (rb) rb.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts'); });
+  if (rb) rb.addEventListener('click', (e) => { showTab('settings'); settingsOpen('accounts', { keyboard: e.detail === 0 }); });
 })();
 /* Settings has the same shape: seven sections, one on screen, the nav says
    which. No arrival work here (nothing in Settings measures layout or
@@ -38452,7 +38458,7 @@ async function paintConnLive() {
     const go = document.createElement('button');
     go.type = 'button'; go.className = 'linkish';
     go.textContent = 'see them on the Accounts tab';
-    go.addEventListener('click', () => settingsGo('accounts'));
+    go.addEventListener('click', (e) => settingsGo('accounts', { keyboard: e.detail === 0 }));
     el.append(go, document.createTextNode('.'));
   } catch {
     // Could-not-check is not the same claim as nothing-connected.
@@ -71857,7 +71863,7 @@ function asbSayNotMade(made) {
     go.className = 'linkish';
     go.id = 'asb-row-models';
     go.textContent = 'Open AI Models';
-    go.addEventListener('click', () => settingsGo('accounts'));
+    go.addEventListener('click', (e) => settingsGo('accounts', { keyboard: e.detail === 0 }));
     m.append(' ', go);
   }
 }

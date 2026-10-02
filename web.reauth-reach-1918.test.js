@@ -87,14 +87,14 @@ test('the button is wired to open the re-auth surface, PANEL first (run the clic
      section open; it stayed green while the button did nothing, because it pinned the
      callee instead of the user-visible navigation. Observing showTab is what makes it
      red-capable for the real reachability contract. */
-  const m = SCRIPT.match(/\(\(\) => \{\s*const rb = document\.getElementById\('d-reauth'\);\s*if \(rb\) rb\.addEventListener\('click', \(\) => \{ showTab\('settings'\); settingsOpen\('accounts'\); \}\);\s*\}\)\(\);/);
+  const m = SCRIPT.match(/\(\(\) => \{\s*const rb = document\.getElementById\('d-reauth'\);\s*if \(rb\) rb\.addEventListener\('click', \(e\) => \{ showTab\('settings'\); settingsOpen\('accounts', \{ keyboard: e\.detail === 0 \}\); \}\);\s*\}\)\(\);/);
   assert.ok(m, 'the one-time wiring for #d-reauth moved or changed shape; restate this pin');
   const btn = fakeButton();
   const calls = [];
   const wire = new Function('document', 'showTab', 'settingsOpen', m[0]);
   wire(stubDoc(btn), (t) => calls.push(['showTab', t]), (sec) => calls.push(['settingsOpen', sec]));
   assert.ok(typeof btn._click === 'function', 'nothing listens to the re-auth button');
-  btn._click();
+  btn._click({ detail: 1 });   // a pointer click (#4961: the handler reads e.detail)
   assert.deepEqual(calls, [['showTab', 'settings'], ['settingsOpen', 'accounts']],
     'the click does not switch to the settings PANEL before opening the accounts section (dead control)');
 });

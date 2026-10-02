@@ -75,7 +75,7 @@ test('only Talk is on screen before a click, and every section can be reached fr
   for (const s of secs) {
     if (DOOR[s.key]) {
       assert.ok(PANEL.includes('id="' + DOOR[s.key] + '"'), s.key + ' has lost its door ' + DOOR[s.key]);
-      assert.match(PAGE, new RegExp("getElementById\\('" + DOOR[s.key] + "'\\)\\.addEventListener\\('click', \\(\\) => \\{\\s*if \\(!CURRENT\\) return;\\s*detailGo\\('" + s.key + "'\\)"), DOOR[s.key] + ' no longer opens ' + s.key);
+      assert.match(PAGE, new RegExp("getElementById\\('" + DOOR[s.key] + "'\\)\\.addEventListener\\('click', \\((?:e)?\\) => \\{\\s*if \\(!CURRENT\\) return;\\s*detailGo\\('" + s.key + "'[,)]"), DOOR[s.key] + ' no longer opens ' + s.key);
       continue;
     }
     const pill = FOLD[s.key] || s.key;
