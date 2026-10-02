@@ -75,11 +75,13 @@ function stuckRow(a) {
 }
 
 /* Project id -> member session names, for live (non-archived) projects only, from
-   projects.readAll() records. A project missing here is one the Recommender does not act in. */
+   projects.readAll() records. A project missing here is one the Recommender does not act in.
+   #4771: nor a paused one. Nothing in a paused project is nudged, and convening its members is nudging them.
+   `paused === true` is projects.isPaused's own rule (kept inline: this module stays pure, with no store). */
 function membersFrom(records) {
   const out = new Map();
   for (const p of Array.isArray(records) ? records : []) {
-    if (!p || typeof p.id !== 'string' || p.archived === true) continue;
+    if (!p || typeof p.id !== 'string' || p.archived === true || p.paused === true) continue;
     out.set(p.id, Array.isArray(p.agents) ? p.agents.filter((a) => typeof a === 'string') : []);
   }
   return out;

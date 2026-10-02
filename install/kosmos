@@ -640,7 +640,7 @@ board_token() {
 # else (the switch off, which is the default; no token; a malformed one) is board_token, exactly as before.
 # Used ONLY by verbs whose route answers to the agent's token alone (server.js AGENT_TOKEN_ROUTES and its
 # patterns, the report and reply routes, and the team route). The person's verbs keep board_token: open,
-# connections, connect, project create, room reopen, community post (and community read until its route joins
+# connections, connect, project create, project pause, room reopen, community post (and community read until its route joins
 # the set). There is NO fallback: a board that refuses the token alone is told to the agent in the board's own
 # words. Falling back to the board token would put the person's credential back in the request the switch exists
 # to keep it out of. Call it the same way: _bt="$(agent_board_token || true)".
@@ -3068,7 +3068,7 @@ kosmos_command_list() {
   printf '  kosmos feedback      write or read the daily feedback report\n'
   printf '  kosmos community     post to or read the Kosmos+ community\n'
   printf '  kosmos task          a project'"'"'s tasks: list, add, close, message, mark built\n'
-  printf '  kosmos project       list, show or create projects\n'
+  printf '  kosmos project       list, show, create or pause projects\n'
   printf '  kosmos agent         make an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
@@ -3614,10 +3614,11 @@ cmd_project() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos project <list|show|create>"
+      say "Usage: kosmos project <list|show|create|pause>"
       say "  kosmos project list                                             every project: members, model families, tasks"
       say "  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member's family and summary"
       say "  kosmos project create \"<name>\" <folder> [\"<description>\"]   make a new project (it shows on your board, tagged as made by you)"
+      say "  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)"
       say "  <folder> is a path on this machine; the project's files live there."
       exit 2 ;;
     list)
@@ -3632,13 +3633,22 @@ cmd_project() {
     # "not running").
     create)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos project create \"<name>\" <folder> [\"<description>\"]   (quote the name; folder is a path)"; exit 2; } ;;
+    # #4771 (Josh's 0.7.15 report): a pause said in the room never reached the Prompter, because only the screen could
+    # set it, so an agent held every task by hand. An agent pauses when its person asks; resuming stays on the screen
+    # (Splinter's call on #4771): the board refuses an agent lifting the person's own pause (engine/projects.js), and
+    # there is no verb here to lift an agent's either.
+    pause)
+      { [ -n "${1:-}" ] && [ $# -eq 1 ]; } || { say "Usage: kosmos project pause <project-id>   (it is resumed on the screen)"; exit 2; }
+      require_valid_project_id "$1"
+      case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac ;;
     *)
-      say "Unknown: kosmos project $sub. Try: list | show | create"
+      say "Unknown: kosmos project $sub. Try: list | show | create | pause"
       exit 2 ;;
   esac
   if ! healthy; then
     case "$sub" in   # #4466's say_not_up: a busy board is running, and must not be told to start
       create) say_not_up "a project cannot be created" ;;
+      pause) say_not_up "the project cannot be paused" ;;
       *) say_not_up "its projects cannot be read" ;;
     esac
     exit 1
@@ -3675,6 +3685,24 @@ cmd_project() {
         say "Kosmos gave an answer we could not read, so nothing is shown."
         exit 1
       fi
+      exit 0
+      ;;
+    pause)
+      # The agent's own token rides too, so the board records an agent's pause (never the person's, which only the
+      # screen sets). The board token opens the route, as for create.
+      local _atok="" _pbt rc=0 body because
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _atok="$KOSMOS_AGENT_TOKEN" ;; esac
+      _pbt="$(board_token || true)"
+      body=$(kosmos_curl "$_pbt" "$_atok" -sS -m 15 -X PUT "$URL/api/project/$1" \
+        -H 'content-type: application/json' --data '{"paused":true}' 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "pause that project" "$rc" write; exit 1; }
+      case "$body" in
+        '{"project":'*) say "Paused $1. Kosmos will not nudge anyone about its tasks or hand them out until it is resumed on the screen. Do not resume it yourself." ;;
+        '{"error":'*)
+          because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not pause that project: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when pausing that project."; exit 1 ;;
+      esac
       exit 0
       ;;
     create)

@@ -16295,7 +16295,8 @@ const server = http.createServer(async (req, res) => {
         // ⚠️ A missing project is a 404 here as it is on GET and DELETE. It
         // used to be a 400 for the identical condition, which told a caller
         // its request was malformed when the request was fine.
-        if (!projects.readAll().some((p) => p.id === id)) {
+        const before = projects.readAll().find((p) => p.id === id);
+        if (!before) {
           const missing = new Error('there is no project by that name');
           missing.status = 404;
           throw missing;
@@ -16325,12 +16326,31 @@ const server = http.createServer(async (req, res) => {
         /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
            a paused project's tasks, and the members' instructions mark them, so a pause re-tells the members (below). */
         if (body.paused !== undefined) { fields.paused = body.paused; fields.viaScreen = isViaScreen(req, body); }
+        /* #4771 review 3/4: an agent's pause silences every member, and the Prompter's nudge now names the verb to an
+           idle agent. So a pause or a resume that did not come from the screen is said in the project's room, naming
+           the agent when its token says exactly which (its display name), else "Someone" (a person's own terminal
+           sends no agent token). Only on a change, so a repeat says nothing; only after the edit landed. */
+        const wasPaused = projects.isPaused(before);
         /* #1994: parent is a carried field like the rest -- the engine's edit
            validates it (self-parent, a missing parent, and cycles are refused)
            before its single write, so a body mixing parent with name or
            description applies whole or not at all. null or '' un-groups. */
         if (body.parent !== undefined) fields.parent = body.parent;
         projects.edit(id, fields);
+        if (fields.paused !== undefined && fields.viaScreen !== true && fields.paused !== wasPaused) {
+          let who = null;
+          try {
+            /* The board's one token-to-card resolver (review 6): a pane agent by its exact name, a paneless one (every
+               Windows agent) by key, and no card when two names share a key (#4792). The card's display name is
+               `name` (engine/status.js), the name the board shows for it. No card: "Someone". */
+            const res = sendertoken.resolve(presentedAgentToken(req, body), safeRoster());
+            const card = (res && res.ok === true && res.card) ? res.card : null;
+            who = (card && typeof card.name === 'string' && card.name.trim()) || null;
+          } catch { who = null; }
+          messages.roomNote(id, fields.paused
+            ? (who || 'Someone') + ' paused this project: nobody is nudged about its tasks or handed them. The person can resume it on the project\'s page.'
+            : (who || 'Someone') + ' resumed this project, not from the project\'s page: its tasks can be nudged about and handed out again.');
+        }
         // The block names the project, so a rename has to reach the agents that
         // were told the old name -- otherwise their instructions describe a
         // project that no longer goes by that. Archiving does NOT re-tell: the
