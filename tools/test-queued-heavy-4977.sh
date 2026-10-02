@@ -21,7 +21,8 @@ trap 'w=""; for p in $BG; do ours $p && kill $p 2>/dev/null && w="$w $p"; done; 
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SIDE_MIN_HOLD_S KOSMOS_LIGHT_SIDE_COOKIE \
   KOSMOS_MACHINE_CLAIM_COOKIE KOSMOS_QUEUE_CLASS KOSMOS_QUEUE_STARVE_S KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_SIDE_AWARE \
-  QUEUED_HEAVY_SIDE_MIN QUEUED_HEAVY_SIDE_POLL_S QUEUED_HEAVY_RENEW_SEC QUEUED_HEAVY_MAX_RENEWALS 2>/dev/null
+  QUEUED_HEAVY_SIDE_MIN QUEUED_HEAVY_SIDE_POLL_S QUEUED_HEAVY_RENEW_SEC QUEUED_HEAVY_MAX_RENEWALS QUEUED_HEAVY_CLAIM_MIN \
+  KOSMOS_CLAIM_KEEP_LABEL 2>/dev/null
 QH_DEADLINE="${QH_DEADLINE:-240}"   # review 1: no wrapper run in this test outlives this; a hang reads BAD, never a stuck job
 # The shim: the only way this test runs the wrapper.
 cat > $S/qh <<SHIM
@@ -172,10 +173,14 @@ ok "#4977: a lib checkout without cut-guard.sh exits 3, names QUEUED_HEAVY_LIB, 
 mkdir -p $S/oldlib/tools/lib && { cat $ROOT/tools/lib/cut-guard.sh; echo 'unset -f kosmos_release_machine'; } > $S/oldlib/tools/lib/cut-guard.sh
 o=$(QUEUED_HEAVY_LIB=$S/oldlib /bin/bash $QH "oldlib" touch $S/oldlib-ran 2>&1); rc=$?
 ok "#4977: a lib missing kosmos_release_machine exits 3 and names it, runs nothing" '[ "$rc" = 3 ] && [[ "$o" == *"has no kosmos_release_machine"* ]] && [ ! -e $S/oldlib-ran ]'
+# A lib with the side lane's gate (kosmos_light_side_clear) but not its release stops too, rather than failing in the trap.
+mkdir -p $S/halflib/tools/lib && { cat $ROOT/tools/lib/cut-guard.sh; echo 'unset -f kosmos_release_light_side'; } > $S/halflib/tools/lib/cut-guard.sh
+o=$(QUEUED_HEAVY_LIB=$S/halflib /bin/bash $QH --light "halflib" touch $S/halflib-ran 2>&1); rc=$?
+ok "#4977: a lib with the side gate but no kosmos_release_light_side exits 3 and names it, runs nothing" '[ "$rc" = 3 ] && [[ "$o" == *"has no kosmos_release_light_side"* ]] && [ ! -e $S/halflib-ran ]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
-EXPECTED=78   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, two lib arms
+EXPECTED=79   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

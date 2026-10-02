@@ -6,7 +6,7 @@ Card: kosmos#4977 (follow-up to #4911; moved from PigeonPete to Angel by Splinte
 Built on #4911's branch, because the wrapper calls 7 functions #4911 added to `tools/lib/cut-guard.sh`. #4911 merged as #5005 (2026-10-02), and this branch was rebased onto main with only this card's commits (one package.json conflict: this test added to main's current `test:shell` line). Item 1 (aging while 5-line markers are live) is built next, on main.
 
 ## Done looks like (item 3)
-The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, and CI runs a test that pins its behaviour; the test can never put a copy in the real queue.
+The reviewed source of the queue wrapper is a file in the repo, and CI runs a test that pins its behaviour; the test can never put a copy in the real queue. Installing it over the copy agents run (`~/.cache/claude-handoffs/queued-heavy.sh`) is a separate rollout step, and until it happens the live copy lacks this branch's behaviour fixes.
 
 ## Change
 - `tools/queued-heavy.sh`: PigeonPete's reviewed #4911 wrapper (`~/.cache/claude-handoffs/queued-heavy.sh.4911-new`, round 20), with these edits:
@@ -17,7 +17,7 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
   - every run of the wrapper goes through a shim that refuses (exit 99) unless KOSMOS_RUN_MARKER_DIR is inside the test's own mktemp dir; a control arm proves the shim refuses;
   - fake package managers first on PATH (as the harness had);
   - stray processes are stopped only by an exact `^sleep <N>$` match on lengths unique to this run (no broad pkill); an EXIT trap stops the background wrappers it started (a wrapper run inside a command substitution ends by its own arm's wait and the shim's 240 s deadline);
-  - it counts: 0 BAD and exactly 78 OK, else it fails (74 seeded arms, the shim control, the killed wrapper's temp files, and two lib arms: a missing checkout and a lib missing a function both exit 3).
+  - it counts: 0 BAD and exactly 79 OK, else it fails (74 seeded arms, the shim control, the killed wrapper's temp files, and three lib arms: a missing checkout, a lib missing a main-lane function, and one with the side gate but no side release all exit 3).
 - `package.json`: `test:shell` runs it (tools.every-test-runs.test.js would otherwise flag it as orphaned).
 
 ## Review rounds
@@ -33,6 +33,7 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 - Iteration 4: an arm for a lib checkout without cut-guard.sh (exit 3, nothing runs); `bash -n` of both scripts in `test:shell`; the plan's cleanup line says what the trap stops. Left as found: the test writes the machine-claim line in the lib's format by hand; if that format changes the hold arms go red, not green.
 - Iteration 5: this validation section still read 76 after the 77th arm (updated); the header named a run-tests.sh line number, now the function.
 - Iteration 6: the load check named only kosmos_wait_until_clear, so a stale lib missing another function the wrapper calls would have waited out the queue bound; it now checks each (exit 3), with an old-lib arm (78). This section's stale 76 lines merged.
+- Iteration 7: the load check now also covers the side lane's unguarded functions (take, publish, release) whenever its gate exists, by `declare -F` (a PATH executable no longer satisfies it), with a half-lib arm (79); the test unsets QUEUED_HEAVY_CLAIM_MIN and KOSMOS_CLAIM_KEEP_LABEL too; the done-sentence says installing is a separate step.
 
 ## Decisions
 - The repo copy keeps reading the guards from ONE main checkout, not the worktree it runs from: every worktree reading its own branch's lib is how several lib generations end up in one queue (item 1's cause).
