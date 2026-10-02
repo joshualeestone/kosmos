@@ -1409,12 +1409,16 @@ uninstall() {
   _support="$(_kosmos_data_root)"
   if [ "$(uname -s)" = "Linux" ]; then
     _unit_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
-    _unit_file="$_unit_dir/kosmos-board.service"
+    _unit_name="kosmos-board.service"
+    if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+      _unit_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
+    fi
+    _unit_file="$_unit_dir/$_unit_name"
     if [ -f "$_unit_file" ]; then
       info "removing the systemd service for the board"
       if command -v systemctl >/dev/null 2>&1; then
-        systemctl --user stop kosmos-board.service 2>/dev/null || true
-        systemctl --user disable kosmos-board.service 2>/dev/null || true
+        systemctl --user stop "$_unit_name" 2>/dev/null || true
+        systemctl --user disable "$_unit_name" 2>/dev/null || true
       fi
       rm -f "$_unit_file"
       if command -v systemctl >/dev/null 2>&1; then
@@ -4006,7 +4010,11 @@ if [ "$(uname -s)" = "Linux" ]; then
     step "Keeping Kosmos running with systemd."
   fi
   _unit_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
-  _unit_file="$_unit_dir/kosmos-board.service"
+  _unit_name="kosmos-board.service"
+  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+    _unit_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
+  fi
+  _unit_file="$_unit_dir/$_unit_name"
   mkdir -p "$_unit_dir" 2>/dev/null || true
   cat > "$_unit_file" <<UNIT
 [Unit]
@@ -4017,11 +4025,14 @@ ConditionPathExists=!$KOSMOS_HOME/board.stopped
 [Service]
 Type=simple
 ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run
+WorkingDirectory=$KOSMOS_HOME
 Restart=always
 RestartSec=5
 Environment=HOME=$HOME
-Environment=PATH=$KOSMOS_HOME/tmux/bin:/usr/local/bin:/usr/bin:/bin
-Environment=LANG=en_US.UTF-8
+Environment=KOSMOS_HOME=$KOSMOS_HOME
+Environment=PATH=$KOSMOS_HOME/tmux/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+Environment=LANG=C.UTF-8
+Environment=PORT=$PORT
 Environment=KOSMOS_PORT=$PORT
 StandardOutput=append:$KOSMOS_HOME/logs/board.log
 StandardError=append:$KOSMOS_HOME/logs/board.log
@@ -4034,10 +4045,10 @@ UNIT
   if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload 2>/dev/null || true
     if [ "$_kosmos_board_off" = yes ]; then
-      systemctl --user enable kosmos-board.service 2>/dev/null || true
+      systemctl --user enable "$_unit_name" 2>/dev/null || true
       info "Kosmos will not start itself at login $(_kosmos_off_why)"
     else
-      systemctl --user enable kosmos-board.service 2>/dev/null || true
+      systemctl --user enable "$_unit_name" 2>/dev/null || true
       info "Kosmos will start itself when you log in"
     fi
   else
