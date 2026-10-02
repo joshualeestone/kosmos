@@ -529,3 +529,66 @@ test('#5062 review 15: --retry is blocked only while a post IN the draft is gone
   const d = await t.read({ ...opts('r15c', {}), fetchFn: site([a, a]).fetchFn, gh: fakeGh().gh });
   assert.equal(d.reports, 1, 'one post on two pages read as two reports');
 });
+
+test('#5062 review 16: a name learned after a draft was made is scrubbed from the digest and from what is filed', async () => {
+  const o = opts('r16a', {});
+  await t.read({ ...o, fetchFn: site([post('a1', 'Board idle when typing', 'same as Zorblax said', 'Ana Ruiz')]).fetchFn, gh: fakeGh().gh });
+  const later = { ...post('a2', 'Font tiny everywhere', 'x', 'Zorblax Quux'), created_at: '2026-10-03T09:00:00Z' };
+  const r = await t.read({ ...o, fetchFn: site([later, post('a1', 'Board idle when typing', 'same as Zorblax said', 'Ana Ruiz')]).fetchFn, gh: fakeGh().gh });
+  assert.ok(!/zorblax/i.test(r.digest), 'the digest printed a name learned after the draft was made');
+  const g = fakeGh();
+  t.file('g1', { ...o, gh: g.gh });
+  const sent = g.created()[0];
+  assert.ok(!/zorblax/i.test(sent.body + sent.args.join(' ')), 'file published a name learned after the draft was made');
+});
+
+test('#5062 review 16: a failed search during a redraft never leaves a gone post in the draft; the digest says the search did not finish', async () => {
+  const a = post('c1', 'Board idle when typing', 'kept text', 'A1');
+  const b = post('c2', 'Board idle when typing fast', 'TAKENDOWNTEXT', 'B1');
+  const o = opts('r16b', {});
+  await t.read({ ...o, fetchFn: site([a, b]).fetchFn, gh: fakeGh().gh });
+  await assert.rejects(t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh({ failSearchAfter: 0 }).gh }), /gh search failed/);
+  const g = JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1;
+  assert.ok(!g.draft.body.includes('TAKENDOWNTEXT'), 'a search failure left a gone post in the saved draft');
+  assert.equal(g.matchesStale, true);
+  const r = await t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh().gh });
+  assert.ok(!r.digest.includes('TAKENDOWNTEXT'));
+});
+
+test('#5062 review 16: past the deadline, card-state lookups count as failed instead of running; a page-limited read reconciles newer groups', async () => {
+  const o = opts('r16c', {});
+  const ps = ['e1', 'e2', 'e3'].map((id, k) => post(id, ['Board idle', 'Font tiny', 'Sound loud'][k], 'x', 'A' + k));
+  await t.read({ ...o, fetchFn: site(ps).fetchFn, gh: fakeGh().gh });
+  const filer = fakeGh();   // one fake, so the three cards get three numbers (a fresh fake restarts at #9001)
+  for (const id of ['g1', 'g2', 'g3']) t.file(id, { ...o, gh: filer.gh });
+  let views = 0;
+  const slowView = (args) => { if (args[1] === 'view') { views += 1; const end = Date.now() + 250; while (Date.now() < end) { /* gh hanging */ } } return fakeGh().gh(args); };
+  const r = await t.read({ ...o, deadlineMs: 400, fetchFn: site(ps).fetchFn, gh: slowView });
+  assert.ok(views < 3, `ran ${views} lookups past the deadline`);
+  assert.ok(r.lookupFailed >= 1, 'lookups skipped at the deadline were not counted as failed');
+  // Page-limited: a group newer than the oldest report read is still reconciled.
+  const old = post('k1', 'Sound loud', 'x', 'C1');
+  const mid = { ...post('k2', 'Font tiny', 'y', 'D1'), created_at: '2026-10-03T10:00:00Z' };
+  const fresh = { ...post('k3', 'Board idle', 'GONETEXT', 'E1'), created_at: '2026-10-03T12:00:00Z' };
+  const newest = { ...post('k4', 'Window black', 'z', 'F1'), created_at: '2026-10-03T13:00:00Z' };
+  const o2 = opts('r16d', {});
+  await t.read({ ...o2, fetchFn: site([newest, fresh, mid, old]).fetchFn, gh: fakeGh().gh });
+  const r2 = await t.read({ ...o2, maxPages: 1, fetchFn: site([newest, mid, old]).fetchFn, gh: fakeGh().gh });   // k3 gone; read stops at newest, mid
+  assert.ok(r2.truncated);
+  const byPost = (pid) => Object.values(r2.state.groups).find((g) => g.posts.some((p) => p.id === pid) || (g.gone || []).includes(pid));
+  assert.equal(byPost('k3').status, 'withdrawn', 'a page-limited read left a gone post in a newer draft');
+  assert.equal(byPost('k1').status, 'pending', 'a page-limited read withdrew a group older than anything it read');
+});
+
+test('#5062 review 16: a report back after its group was filed says so beside its new draft, and is counted once', async () => {
+  const a = post('h1', 'Board idle when typing', 'x', 'A1');
+  const b = post('h2', 'Board idle when typing fast', 'y', 'B1');
+  const o = opts('r16e', {});
+  await t.read({ ...o, fetchFn: site([a, b]).fetchFn, gh: fakeGh().gh });
+  await t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh().gh });
+  t.file('g1', { ...o, gh: fakeGh().gh });
+  const r = await t.read({ ...o, fetchFn: site([a, b]).fetchFn, gh: fakeGh().gh });
+  assert.match(r.digest, /came back after group g1 was filed as #\d+/);
+  assert.match(r.digest, /1 report\(s\) came back after their group was decided/);
+  assert.ok(!/in their drafts again/.test(r.digest), 'a return to a decided group was also counted as back in its draft');
+});
