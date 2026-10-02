@@ -13113,6 +13113,13 @@ window.kosmosMeasureScrollbarWidth();
           </div>
           <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="acct-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
         </div>
+        <!-- #4960: Antigravity's terms, asked HERE: the links, and its optional data-sharing box as Antigravity has it.
+             Kosmos presses nothing on them until the person answers. -->
+        <div id="acct-gemini-sub-terms-row" hidden style="margin-top:8px;">
+          <p class="dhint" style="margin:0 0 6px;">Antigravity asks you to accept Google's <a id="acct-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="acct-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
+          <label class="dhint" for="acct-gemini-sub-terms-share" style="display:flex;gap:8px;align-items:flex-start;margin:0;"><input type="checkbox" id="acct-gemini-sub-terms-share" style="margin-top:3px;"><span>Also let Google collect and use my Antigravity interactions to improve it. Optional: you can change this later in Antigravity's settings.</span></label>
+          <div class="frow" style="margin-top:8px;"><button class="btn uprime" id="acct-gemini-sub-terms-go" type="button">Agree and continue</button></div>
+        </div>
         <div class="frow" id="acct-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-show" type="button">Show the sign-in window</button></div>
         <div class="frow" id="acct-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
       </div>
@@ -14237,6 +14244,13 @@ window.kosmosMeasureScrollbarWidth();
                       <button class="btn uprime" id="fr-gemini-sub-paste-go" type="button">Continue</button>
                     </div>
                     <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="fr-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+                  </div>
+                  <!-- #4960: Antigravity's terms, asked HERE: the links, and its optional data-sharing box as Antigravity has it.
+                       Kosmos presses nothing on them until the person answers. -->
+                  <div id="fr-gemini-sub-terms-row" hidden style="margin-top:8px;">
+                    <p class="dhint" style="margin:0 0 6px;">Antigravity asks you to accept Google's <a id="fr-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="fr-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
+                    <label class="dhint" for="fr-gemini-sub-terms-share" style="display:flex;gap:8px;align-items:flex-start;margin:0;"><input type="checkbox" id="fr-gemini-sub-terms-share" style="margin-top:3px;"><span>Also let Google collect and use my Antigravity interactions to improve it. Optional: you can change this later in Antigravity's settings.</span></label>
+                    <div class="frow" style="margin-top:8px;"><button class="btn uprime" id="fr-gemini-sub-terms-go" type="button">Agree and continue</button></div>
                   </div>
                   <div class="frow" id="fr-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-show" type="button">Show the sign-in window</button></div>
                   <div class="frow" id="fr-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
@@ -29071,6 +29085,8 @@ function agySubDriver(pre, onReady) { return {
   sendingCode: false,   // #3998: a code is on its way (a second press is ignored)
   codeError: '',   // #3998: why the last pasted code was refused, until the person types again
   windowOpen: false,   // #3998 round 26: the sign-in's window is open and the person is driving it
+  termsFor: '',    // #4960: the sign-in whose terms the box was last set for (set once, then it is the person's)
+  sendingTerms: false,   // #4960: an answer to the terms is on its way
   /* Round 28: the person pressed Stop this sign-in. That stops it even with its window open (only the
      passive ways out, closing the dialog or switching provider, leave an open window running). */
   stop() {
@@ -29091,19 +29107,20 @@ function agySubDriver(pre, onReady) { return {
     this.winLeave();   // #3568 (Windows): its own sign-in ends the same way
   },
   /* #3998: the paste box (with "Open Google's page again") and the last-resort window button. */
-  rows(paste, show, url) {
-    const pr = this.el('paste-row'); const sr = this.el('show-row');
+  rows(paste, show, url, terms) {
+    const pr = this.el('paste-row'); const sr = this.el('show-row'); const tr = this.el('terms-row');
     /* A row hidden with focus inside it would drop focus to the page behind the dialog (round 8): move
        it to Stop, or to the step itself. */
     const active = typeof document !== 'undefined' ? document.activeElement : null;
     const leaving = (row, keep) => row && !keep && active && typeof row.contains === 'function' && row.contains(active);
-    if (leaving(pr, paste) || leaving(sr, show)) {
+    if (leaving(pr, paste) || leaving(sr, show) || leaving(tr, terms)) {
       const cancel = this.el('cancel'); const cr = this.el('cancel-row');
       const to = cancel && cr && !cr.hidden ? cancel : this.el('step');
       if (to) { if (to !== cancel && to.setAttribute && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); if (to.focus) to.focus(); }
     }
     if (pr) pr.hidden = !paste;
     if (sr) sr.hidden = !show;
+    if (tr) tr.hidden = !terms;
     const pg = this.el('page'); if (pg) { pg.hidden = !url; pg.setAttribute('href', url || '#'); }
     // Its paragraph too (round 18): an empty paragraph keeps its margin in the layout.
     const pgp = pg && pg.closest ? pg.closest('p') : null; if (pgp) pgp.hidden = !url;
@@ -29138,11 +29155,24 @@ function agySubDriver(pre, onReady) { return {
            same as the first and must bring the cursor back too (round 7). */
         const refusalMark = String(st.refusals || 0) + '|' + (st.because || '');
         if (focusedFor === null || refusalMark !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = refusalMark; }
+      } else if (state === 'terms') {
+        /* #4960: Antigravity's terms, asked here. The box starts as Antigravity has it, once per sign-in; after that it
+           is the person's (a poll never overwrites what they ticked). */
+        this.rows(false, false, '', true);
+        const tm = (st && st.terms) || {};
+        const link = (a, href) => { if (!a) return; if (href) a.setAttribute('href', href); else if (a.removeAttribute) a.removeAttribute('href'); };
+        link(this.el('terms-tos'), tm.termsUrl); link(this.el('terms-privacy'), tm.privacyUrl);
+        if (this.termsFor !== this.signinId) {
+          this.termsFor = this.signinId;
+          const box = this.el('terms-share'); if (box) box.checked = tm.dataUse === true;
+          const go = this.el('terms-go'); if (go && go.focus) go.focus();
+        }
+        this.say("Almost done. Antigravity asks you to accept Google's terms, and whether to share your usage data (optional).", '', false);
       } else if (state === 'checking' || state === 'setup') {
         this.rows(false, false);
         // "checking" is also Kosmos asking Antigravity whether it is signed in (round 9): the code only after one was sent.
         this.say(state === 'checking' ? (st.step === 'code-sent' ? 'Checking the code with Google…' : 'Checking with Antigravity…')
-          : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
+          : "Finishing Antigravity's setup…", '', false);
       } else if (state === 'stuck' && st.shown && st.showFailed) {
         // The window did not open: say so and offer it again (round 10).
         this.rows(false, true);
@@ -29189,6 +29219,16 @@ function agySubDriver(pre, onReady) { return {
     this.codeError = frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.';
     this.say(this.codeError, '', false);
   },
+  /* #4960: the person's answer to Antigravity's terms, with their choice for the optional data sharing. */
+  async agreeTerms() {
+    if (this.sendingTerms) return;
+    const box = this.el('terms-share');
+    this.sendingTerms = true;
+    const r = await this.post('/api/antigravity/signin/agree', { id: this.signinId, dataUse: !!(box && box.checked) });
+    this.sendingTerms = false;
+    if (r && r.ok) { this.rows(false, false); this.say("Finishing Antigravity's setup…", '', false); return; }
+    this.say(frCap((r && r.error) || 'Kosmos could not pass your answer on just now') + '.', '', false);
+  },
   async showWindow() {
     const r = await this.post('/api/antigravity/signin/show', { id: this.signinId });
     if (!(r && r.ok)) this.say(frCap((r && r.error) || 'Kosmos could not open the sign-in window') + '.', '', false);
@@ -29198,6 +29238,7 @@ function agySubDriver(pre, onReady) { return {
     const i = this.el('paste'); if (i) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.sendCode(); } });
     if (i) i.addEventListener('input', () => { this.codeError = ''; });   // typing again retires the refusal
     const sh = this.el('show'); if (sh) sh.addEventListener('click', () => this.showWindow());
+    const tg = this.el('terms-go'); if (tg) tg.addEventListener('click', () => this.agreeTerms());
     return this;
   },
   /* #3568 on Windows: no Terminal. Kosmos runs agy's sign-in out of sight (POST

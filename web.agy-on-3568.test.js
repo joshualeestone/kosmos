@@ -582,3 +582,40 @@ test('#3998 round 28: Stop this sign-in stops it even with its window open', asy
   assert.match(page, /getElementById\('fr-gemini-sub-cancel'\)[\s\S]{0,200}FR_AGY_SUB\.stop\(\)/, 'the first-run Stop button does not stop');
   assert.match(page, /getElementById\('acct-gemini-sub-cancel'\)[\s\S]{0,120}ACCT_AGY_SUB\.stop\(\)/, 'the Settings Stop button does not stop');
 });
+
+test('#4960: the terms are asked in Kosmos\'s panel: the links, the box as Antigravity has it, and the person\'s answer is sent', async () => {
+  const TERMS_ST = { id: 'a1b2c3d4e5f60718', state: 'terms', step: 'terms', terms: { dataUse: true, termsUrl: 'https://antigravity.google/terms', privacyUrl: 'https://policies.google.com/privacy' } };
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: false }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'a1b2c3d4e5f60718', state: 'starting' }],
+    'GET /api/antigravity/signin': [TERMS_ST],
+    '/api/antigravity/signin/agree': [{ ok: true, state: 'setup' }],
+    '/api/antigravity/signin/stop': [{ ok: true }],
+  });
+  try {
+    await f.FR_AGY_SUB.start();
+    await f.FR_AGY_SUB.start();   // Sign in with Google
+    await f.settle(() => !f.el('fr-gemini-sub-terms-row').hidden);
+    assert.equal(f.el('fr-gemini-sub-terms-row').hidden, false, 'the terms were not shown to the person');
+    assert.match(f.view().text, /accept Google's terms, and whether to share your usage data \(optional\)/);
+    assert.equal(f.el('fr-gemini-sub-terms-tos').attrs.href, 'https://antigravity.google/terms');
+    assert.equal(f.el('fr-gemini-sub-terms-privacy').attrs.href, 'https://policies.google.com/privacy');
+    assert.equal(f.el('fr-gemini-sub-terms-share').checked, true, 'the box did not start as Antigravity has it');
+    assert.equal(f.active(), f.el('fr-gemini-sub-terms-go'), 'focus did not go to Agree and continue');
+    f.el('fr-gemini-sub-terms-share').checked = false;   // the person unticks it
+    const before = f.posts.length;
+    await f.settle(() => f.posts.length > before + 3);
+    assert.equal(f.el('fr-gemini-sub-terms-share').checked, false, 'a poll ticked the box again over the person\'s answer');
+    await f.FR_AGY_SUB.agreeTerms();
+    assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/agree'), ['/api/antigravity/signin/agree', JSON.stringify({ id: 'a1b2c3d4e5f60718', dataUse: false })],
+      'the answer did not carry the person\'s choice, or the sign-in it is for');
+    assert.doesNotMatch(PAGE, /Kosmos leaves Google's optional data sharing off/, 'the panel still says Kosmos leaves data sharing off (Antigravity ticks it; the person decides)');
+  } finally { f.FR_AGY_SUB.leave(); }
+});
+
+test('#4960: both places that sign Gemini in carry the terms row', () => {
+  for (const pre of ['acct-gemini-sub-', 'fr-gemini-sub-']) {
+    for (const part of ['terms-row', 'terms-tos', 'terms-privacy', 'terms-share', 'terms-go']) assert.match(PAGE, new RegExp('id="' + pre + part + '"'), pre + part + ' is missing');
+    assert.match(PAGE, new RegExp('<label[^>]*for="' + pre + 'terms-share"'), pre + 'terms-share has no label');
+  }
+});
