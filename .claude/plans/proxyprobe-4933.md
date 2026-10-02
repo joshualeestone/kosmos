@@ -18,23 +18,27 @@ stopped board still reads as stopped, never as "another app".
 ## Change (install/kosmos), as rebuilt after review 1
 - The #4466 exemption and its export are UNCHANGED (the board and every agent inherit it as before).
 - kosmos_loopback_route: before this run's first call to the board (kosmos_curl and the two health reads), and only
-  when a proxy curl uses for http:// is set (http_proxy, all_proxy, ALL_PROXY), one direct probe (1 s to connect, 2 s
-  in all, curl -v, LC_ALL=C), memoised for the run:
-  - "Connected to": direct (a busy board connects and then waits; review 1 found the first version read it as blocked);
+  when a proxy curl uses for http:// is set (http_proxy, all_proxy, ALL_PROXY), one direct probe (1 s to connect, 1.2 s
+  in all), read from curl's %{num_connects} (review 3: a count, not wording), memoised for the run:
+  - a connection made: direct (a busy board connects and then waits; review 1 found the first version read it as blocked);
   - anything else (refused, not permitted, a connect timeout): one request through the proxy; only a Kosmos health
     body ("app":"kosmos") picks the proxy. Review 2: without that proof on EVERY arm, a saturated board timing out
     behind a corporate proxy would have sent the board and agent tokens to that proxy. An unproven "direct" is not
     remembered, so kosmos start asks again once the board is up. The probe is 1.2 s at most.
 - The proxy route is PER CALL: curl --noproxy '' (measured: it overrides NO_PROXY and uses the proxy), on the CLI's
   own three curls. Nothing in the environment is rewritten (review 1: a stripped list would have reached every agent).
+- kosmos stop (and so restart) forgets the route after the kill (review 3: a remembered proxy route read the empty port
+  behind it as "another app" and the restart refused).
 - KOSMOS_LOOPBACK_PROBE_URL: a test seam for the probe target.
 
 ## Decisions
 - Lazy and per call. Rejected after review 1: a top-level probe on every verb (help and report paid it) and stripping
   NO_PROXY (exported to agents, and missed forms curl still honours).
-- Weakest premise: the classification reads curl's verbose wording ("Connected to", "refused"), pinned on macOS curl
-  8.7.1 by the tests; a curl that words it otherwise falls to "blocked" (the proxy), which is only wrong when a proxy
-  is set and the board is reachable directly.
+- Weakest premises: (1) a Kosmos health body through the proxy proves A Kosmos board, not this user's: a remote proxy
+  host running its own Kosmos on the same port would receive the tokens. Judged far-fetched; a local-process check
+  was rejected because the sandboxes this is for may hide the board's process. (2) A board so busy that the proxied
+  health check times out (3 s) in a network-namespace sandbox still reads as not running: a known limit, narrower
+  than this card.
 - Not changed: the Windows CLI (node's http does not read proxy variables) and the agent bridges (node).
 
 ## Validation
