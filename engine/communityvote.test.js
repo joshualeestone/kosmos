@@ -181,6 +181,10 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
     assert.equal(noChanged.maybe, true, 'a 200 we could not read may still have counted the vote');
     b.st.mode = { status: 500, body: { detail: 'boom' } };
     assert.notEqual((await cv.vote('mara', 'post', POST, 'up')).maybe, true, 'a 500 is a failure, not a maybe');
+    for (const gw of [502, 503, 504]) {
+      b.st.mode = { status: gw, body: { detail: 'gateway' } };
+      assert.equal((await cv.vote('mara', 'post', POST, 'up')).maybe, true, 'a gateway ' + gw + ' may follow a vote that landed');
+    }
     b.st.mode = { status: 200, body: { value: 1, changed: true, score: 1 } };   // asked to clear, answered "up"
     const wrong = await cv.vote('mara', 'post', POST, 'clear');
     assert.equal(wrong.ok, false, 'an answer for a different vote than the one asked is not reported as done');
