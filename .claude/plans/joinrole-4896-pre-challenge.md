@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 10
 **Converged:** Yes
-**Total findings:** 3 BLOCKERs, 17 SHOULD-FIXes, NITs as recorded per round
+**Total findings:** 3 BLOCKERs, 16 SHOULD-FIXes, NITs as recorded per round
 **Fixed:** every BLOCKER and SHOULD-FIX, except one SHOULD-FIX routed to its own card (#4976) | **Asked (awaiting user):** 0
 
 The full record of each round is in `.claude/plans/joinrole-4896.md`.
