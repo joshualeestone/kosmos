@@ -9,7 +9,7 @@ So 2-3 buttons arrive after load; networkidle caught them in all six runs, and n
 
 ## Change (docs/browser-checks/render-fields.js)
 - goto waits for `load`, then `settle()`: the board's FIRST /api/status poll answered (round 1), then the field and button counts
-  unchanged for 1.5 s. A poll that never answers, or counts that never settle, in 20 s is a FAILURE (a page that polls would never
+  unchanged for 1.5 s. A poll that never answers, or counts that never settle, within 20 s each is a FAILURE (a page that polls would never
   reach networkidle at all).
 - Floors on what was measured: fields >= 50, buttons >= 200 (about half the measured 96 / 372-388), so the WRONG PAGE (a 404, a
   stub, a wrong base URL) fails instead of passing over a short list. Today only an EMPTY field list failed. [CORRECTED round 1: not a
@@ -41,4 +41,9 @@ fields late. The board adds BUTTONS late (measured), which the same settle cover
   Measured 15:03 on the same plain board: main OK; new OK (control 0 vs 3 in both engines, settled 1.6-1.7 s); floor 1000 -> FAIL on the
   floor; SETTLE_MS 0 -> the control FAILS; waiting on '/api/statusX' -> "the board's first /api/status poll did not answer in 20000 ms",
   FAILED: 1, rc 1.
-- Round 2: PENDING.
+- Round 2 (sonnet, blind, no browsers): 0 BLOCKER, 0 SHOULD-FIX. CONVERGED. Confirmed: tick() runs unconditionally at the end of the
+  page script, so the first poll always happens and a script that dies before it now FAILS on the answered-poll wait (the case the
+  floors cannot see); the predicate matches only /api/status; the rejection is always handled; module-scope `failures` changes
+  nothing else. NITs taken (comment wording only): the 20 s limit applies to the poll wait and the counts window separately (up to
+  about 40 s); "what paints the late controls" softened to "probably" (timing measured, cause not). NIT not taken: the control's
+  1.2 s timer against the 1.5 s window could misfire under extreme starvation; it fails loud (INSTRUMENT FAILED), never false-passes.
