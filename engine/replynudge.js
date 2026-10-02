@@ -40,6 +40,8 @@ const path = require('node:path');
 const HOUR_MS = 60 * 60 * 1000;
 const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_TRIES = 3;
+const BUSY_WAIT_MS = 5 * 1000;   // review 6: a busy count waits this long for the read holding the lock, then asks again
+const BUSY_RETRIES = 4;          // so about 20 s, past an agent's own read (two 8 s rounds at most)
 const TYPE_GAP_MS = 20 * 1000;   // review 2: between two agents' lines, so each told agent reads with the lock free
 /* Ids kept per agent. One read shows at most 30 and a pass sees at most 10 posts' first pages, so this holds weeks. */
 const NUDGED_MAX = 1000;
@@ -152,7 +154,7 @@ async function sweepOnce(o) {
       /* Review 4 (Opus): an agent held on its machine's shared Google quota is not read and takes no cap slot: delivery
          would hold it (no try counted), so it would fill a slot every pass until the reset and starve later agents. */
       if (typeof o.quotaHeld === 'function') {
-        let q = false; try { q = o.quotaHeld(session) === true; } catch { q = false; }
+        let q = false; try { q = o.quotaHeld(session, o.roster) === true; } catch { q = false; }   // review 6: the pass's roster, no new snapshot
         if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out' }); continue; }
       }
       if (sent.length + counted.length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
@@ -170,8 +172,20 @@ async function sweepOnce(o) {
         }
         if (readOne && gap > 0) await new Promise((res) => setTimeout(res, gap));
         readOne = true;
-        const fresh = await o.fresh(session);
-        if (fresh && fresh.busy) { results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because }); continue; }
+        let fresh = await o.fresh(session);
+        /* Review 6 (Opus): a count that stepped aside for an agent's own read would leave every later agent busy too (the
+           read holds the lock for seconds). So a busy count waits for the read and asks again, up to BUSY_RETRIES times.
+           A service that refuses (429, or not answering) ends the counting for this pass: its budget is the agents'. */
+        for (let i = 0; fresh && fresh.busy && !fresh.stop && i < BUSY_RETRIES; i += 1) {
+          const wait = Number.isFinite(o.busyWaitMs) ? o.busyWaitMs : BUSY_WAIT_MS;
+          if (wait > 0) await new Promise((res) => setTimeout(res, wait));
+          fresh = await o.fresh(session);
+        }
+        if (fresh && fresh.busy) {
+          results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because });
+          if (fresh.stop) break;
+          continue;
+        }
         const memo = book.get(session);
         if (memo && memo.told instanceof Set) for (const id of memo.told) told.add(id);
         const untold = fresh && fresh.ok === true && Array.isArray(fresh.posts) ? fresh.posts.flatMap((p) => (p.ids || []).filter((id) => !told.has(id))) : [];
@@ -286,4 +300,4 @@ async function tick(o) {
   } catch { return null; }
 }
 
-module.exports = { plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
+module.exports = { BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };

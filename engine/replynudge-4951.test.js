@@ -285,15 +285,16 @@ test('#4951 review 4 (Opus): an agent held on its Google quota is not read and t
   const read = [];
   const { o } = rig({ roster: [card('kim'), card('ann'), card('bo')], limit: { on: true, perHour: 1 },
     fresh: async (s) => { read.push(s); return { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }; },
-    deliver: (s) => { typed.push(s); return { state: D.COULD_NOT, held: true }; } });
-  o.quotaHeld = (s) => s !== 'bo';
-  o.deliver = (s) => { typed.push(s); return { state: D.PLACED }; };
+    deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+  let rosterSeen = null;
+  o.quotaHeld = (s, roster) => { rosterSeen = roster; return s !== 'bo'; };
   const r = await rn.sweepOnce(o);
   assert.deepEqual(read, ['bo'], 'a quota-held agent was read');
   assert.deepEqual(typed, ['bo'], 'quota-held agents held the only cap slot');
   assert.deepEqual(r.results.filter((x) => x.act === 'quota-held').map((x) => x.session), ['kim', 'ann']);
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /quotaHeld: \(session\) => require\('\.\/engine\/agyquota'\)\.heldForQuota\(/, 'server.js does not pass the quota gate');
+  assert.equal(rosterSeen, o.roster, 'review 6: the quota check was not given the pass\'s roster');
+  assert.match(src, /quotaHeld: \(session, roster\) => require\('\.\/engine\/agyquota'\)\.heldForQuota\(session, roster, /, 'server.js does not pass the quota gate with the pass\'s roster (no new snapshot per agent)');
 });
 
 test('#4951 review 4 (Opus): an unreadable told record costs no service read, and the skip is said once, not every pass', async () => {
@@ -328,4 +329,29 @@ test('#4951 review 5 (Sonnet): an agent that read its replies after they were co
   assert.deepEqual(r.results.filter((x) => x.act === 'read-meanwhile').map((x) => x.session), ['ann']);
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /marksNow: \(session\) => communityread\.marksStamp\(session\)/, 'server.js does not pass the marks stamp');
+});
+
+test('#4951 review 6 (Opus): a delivery held for quota is no failed try; after the reset the reply is told once', async () => {
+  const { o, typed } = rig({});
+  let held = 3;
+  o.deliver = (s, text) => { if (held > 0) { held -= 1; return { state: D.COULD_NOT, held: true }; } typed.push({ s, text }); return { state: D.PLACED }; };
+  for (let i = 0; i < 5; i += 1) await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'a reply held for quota three passes (past MAX_TRIES) was never told, or told twice: ' + typed.length);
+});
+
+test('#4951 review 6 (Opus): a busy count waits for the read and asks again, so later agents are counted; a refusing service ends the pass', async () => {
+  const typed = [];
+  const asked = [];
+  let busyLeft = 2;
+  const { o } = rig({ roster: [card('kim'), card('ann')], busyWaitMs: 0,
+    fresh: async (s) => { asked.push(s); if (busyLeft > 0) { busyLeft -= 1; return { ok: false, busy: true, because: 'a read is waiting' }; } return { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }; },
+    deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+  await rn.sweepOnce(o);
+  assert.deepEqual(typed, ['kim', 'ann'], 'a busy count left agents untold this pass');
+  assert.ok(rn.BUSY_RETRIES * rn.BUSY_WAIT_MS >= 16000, 'the retries do not outlast an agent\'s own read');
+  const stopped = [];
+  const { o: o2 } = rig({ roster: [card('kim'), card('ann')], busyWaitMs: 0,
+    fresh: async (s) => { stopped.push(s); return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' }; } });
+  await rn.sweepOnce(o2);
+  assert.deepEqual(stopped, ['kim'], 'a refusing service was asked again, or asked about a later agent');
 });

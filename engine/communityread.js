@@ -418,6 +418,9 @@ async function freshReplies(sessionName, opts = {}) {
       if (asked && replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
       if (asked++ && pace > 0) await new Promise((res) => setTimeout(res, pace));
       const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
+      /* Review 6 (Opus): a service that refuses (429) or does not answer ends the count, and the nudge's pass with it
+         (stop): the agents' own reads need that budget more. The next pass tries again. */
+      if (t.status === 429 || !t.status) return { ok: false, busy: true, stop: true, because: t.status === 429 ? 'the community service is limiting requests' : 'the community service did not answer' };
       const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
       if (!list) continue;   // gone, refused or unreadable: nothing to say about it this pass
       let comments;

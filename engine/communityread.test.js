@@ -1021,3 +1021,22 @@ test('#4951 review 2: the count steps aside between posts while an agent\'s own 
   assert.equal(asked.filter((u) => u.includes('order=newest')).length >= 1, true);
   assert.equal(asked.length < 4, true, 'the count went on to its second post while the agent\'s read was waiting: ' + asked.length);
 });
+
+test('#4951 review 6 (Opus): a 429 or no answer ends the count as busy with stop; other posts are not asked', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  for (const status of [429, 0]) {
+    const asked = [];
+    cr.setFetcher((url) => { asked.push(url); return Promise.resolve({ status, json: null }); });
+    const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+    assert.equal(f.busy, true, status + ': not busy');
+    assert.equal(f.stop, true, status + ': not a stop');
+    assert.equal(asked.length, 1, status + ': went on to the next post: ' + asked.length);
+  }
+  const asked = [];
+  cr.setFetcher((url) => { asked.push(url); return Promise.resolve({ status: 404, json: null }); });   // CONTROL: a gone post is skipped, not a stop
+  const g = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.equal(g.ok, true);
+  assert.equal(asked.length, 2, 'a 404 ended the count');
+});

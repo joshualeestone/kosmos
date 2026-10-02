@@ -83,3 +83,17 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
   once more. Harmless, and the right thing to say.
 - NIT (kept): the first pass after deploy counts every unmarked reply in REPLIES_FIRST_DAYS. Bounded by the hour cap and
   the 20 s spacing; later passes catch up.
+
+## Review 6 (Opus, blind): 0 blockers, 2 warnings, 3 nits.
+- WARNING (reproduced): server.js's quotaHeld took a full status snapshot (sync capture-pane per agent) for EVERY agent
+  each pass. FIXED: quotaHeld(session, roster) gets the pass's own roster. Test asserts the roster passed + source pin; mutant.
+- WARNING (reproduced): no test could fail if the "delivery held for quota" branch went (the review-4 test overwrote its
+  held deliver). FIXED: the overwrite is gone; a new test holds delivery three passes (past MAX_TRIES) and asserts the
+  reply is told exactly once after; mutant.
+- NIT (reproduced) FIXED: one agent's own read made every later agent's count busy for the pass. A busy count now waits
+  BUSY_WAIT_MS (5 s) and asks again, up to BUSY_RETRIES (4), past an own read's two 8 s rounds. Test + mutant.
+- NIT FIXED: freshReplies never backed off. A 429 or no answer now returns busy+stop, and the pass stops counting (the
+  agents' own reads need the budget). 404 still skips the post (control arm). Tests + mutants.
+- NIT (kept): the marks stamp can be wrong both ways in rare cases (a read that wrote floor marks only; a read whose mark
+  write failed; a read still in flight). Each costs at most one delayed or one extra line; the told record still stops
+  any reply being told twice.
