@@ -19,7 +19,9 @@ the connector match relay main.
 Throwaway relay history OLD < FLOOR < NEWER, a stand-in connector with sidecars, /v1/meta from file://.
 Below-floor connector passes without asking (control: meta absent); a connector from a pre-squash branch
 (off the floor's line) is asked about and refused beside an older coordinator (control: passes beside an
-at-floor one); a dirty build refuses as dirty; a branch-deployed build refuses naming that case; floor-carrying connector with an older
+at-floor one); a dirty build refuses as dirty; a branch-deployed build refuses naming that case; a malformed build, a non-JSON
+meta and a non-numeric retries value refuse with their own words; a CRLF/tab floor line is read (control at the
+floor); the override covers neither an unreadable meta, an unknown build nor a dirty one; floor-carrying connector with an older
 coordinator refuses (the #4869 shape) and names the change; at-floor (short id) and above (full id) pass;
 a connector built exactly at the floor is checked; no meta / no build / unknown build / unknown floor
 commit refuse; the override works and only for exactly 1; the committed floor holds full shas incl.

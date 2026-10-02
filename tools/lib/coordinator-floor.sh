@@ -14,10 +14,16 @@
 # it too. "May carry" is everything but PROVABLY OLDER (review 1): the connector's commit a strict ancestor
 # of the floor commit. kosmos-relay squash-, rebase- and merge-merges, so a connector built from the branch
 # before it landed carries the change without descending from the floor commit; it is asked about, not
-# waved through. That rule is only sound if a floor line names the EARLIEST commit carrying the connector-side
-# half of the change: on main for a squash or rebase merge, the BRANCH commit for a merge commit (never the merge
-# itself, which every branch commit precedes). tools/coordinator-floor says the same. By ANCESTRY in the relay checkout: the coordinator is deployed from a relay commit and reports
-# it; a build that cannot be resolved there, or that is not a descendant, is refused.
+# waved through.
+#
+# WHICH COMMIT A LINE NAMES. A line does two jobs: a connector older than it is exempt, and the coordinator must
+# contain it. So name the EARLIEST commit carrying the connector-side half (on main for a squash or rebase merge;
+# the BRANCH commit for a merge commit, never the merge itself, which every branch commit precedes), AND, when the
+# coordinator-side half landed in a LATER commit (a rebase merge can split them), add a second line for that one.
+# tools/coordinator-floor says the same.
+#
+# THE COORDINATOR SIDE is decided by ANCESTRY in the relay checkout: the coordinator is deployed from a relay
+# commit and reports it; a build that cannot be resolved there, or that does not contain a line, is refused.
 #
 # FAILS CLOSED. A /v1/meta that cannot be read, has no build, or names a commit the relay checkout does
 # not have, is refused, not waved on. So is a floor line naming a commit the checkout does not have.
@@ -69,8 +75,11 @@ coordinator_floor_check() {
   # KOSMOS_COORDINATOR_RETRIES (default 2) exists for the tests, whose file:// "unreadable" arms would otherwise sleep.
   case "${KOSMOS_COORDINATOR_RETRIES:-2}" in ''|*[!0-9]*) echo "coordinator_floor: KOSMOS_COORDINATOR_RETRIES must be a number (got '${KOSMOS_COORDINATOR_RETRIES}'); refused." >&2; return 1 ;; esac
   command -v node >/dev/null 2>&1 || { echo "coordinator_floor: node is not on PATH, so /v1/meta cannot be parsed; refused (release.sh needs node anyway)." >&2; return 1; }
-  meta="$(curl -fsS -m 15 --retry "${KOSMOS_COORDINATOR_RETRIES:-2}" --retry-delay 2 --retry-all-errors "$url/v1/meta" 2>/dev/null)" \
-    || { echo "coordinator_floor: could not read $url/v1/meta, so whether the coordinator carries what this connector needs is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand (the override does not cover this)." >&2; return 1; }
+  local curl_err; curl_err="$(mktemp "${TMPDIR:-/tmp}/coordfloor-curl.XXXXXX")" || curl_err=/dev/null
+  meta="$(curl -fsS -m 15 --retry "${KOSMOS_COORDINATOR_RETRIES:-2}" --retry-delay 2 --retry-all-errors "$url/v1/meta" 2>"$curl_err")" || {
+    echo "coordinator_floor: could not read $url/v1/meta ($(tail -1 "$curl_err" 2>/dev/null)), so whether the coordinator carries what this connector needs is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand (the override does not cover this)." >&2
+    [ "$curl_err" = /dev/null ] || rm -f "$curl_err"; return 1; }
+  [ "$curl_err" = /dev/null ] || rm -f "$curl_err"
   # Parsed as JSON (node, which release.sh already needs), the top-level "build" only; then held to its shapes.
   build="$(printf '%s' "$meta" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(typeof j.build==="string"?j.build:"")}catch{}' 2>/dev/null)"
   # The WHOLE value held to the shape (a bash match, not a line-wise grep: a value with a newline in it fails).

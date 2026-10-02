@@ -88,6 +88,9 @@ KOSMOS_ALLOW_COORDINATOR_BEHIND=1 KOSMOS_COORDINATOR_URL="file://$T/coord" coord
 coordinator deadbeef0
 KOSMOS_ALLOW_COORDINATOR_BEHIND=1 KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err"; rc=$?
 [ "$rc" = 1 ] && grep -q "deployed from a branch" "$T/err" && ok "the override does not cover a build the checkout lacks" || bad "override waved an unknown build: rc=$rc $(cat "$T/err")"
+coordinator "${NEWER:0:8}-dirty"
+KOSMOS_ALLOW_COORDINATOR_BEHIND=1 KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err"; rc=$?
+[ "$rc" = 1 ] && grep -q "DIRTY build" "$T/err" && ok "the override does not cover a dirty build" || bad "override waved a dirty build: rc=$rc $(cat "$T/err")"
 
 # 6. the committed floor file and the release.sh wiring
 REAL_FLOOR="$(grep -v '^#' tools/coordinator-floor | awk 'NF{print $1}')"
