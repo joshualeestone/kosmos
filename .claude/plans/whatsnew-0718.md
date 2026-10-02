@@ -37,3 +37,7 @@ describe the product as it will be); if the measurement fails, line 1 comes out 
   wants this cut fast, and the cut exists for #5039; staging readers are the team. Line 1 stays, and observing it is a
   condition for the PROD promote instead: if it is not seen working on staging, line 1 comes out first. LEFT NIT: the
   default-account reach into the person's own ~/.claude/settings.json is a disclosure question for Josh (#5039).
+- Round 2 (sonnet): NITs only. CONVERGED. NIT TAKEN (so round 3 re-checks it): line 4 is about the sending AGENT, which
+  was told its post failed and sent it again; the person saw the duplicate. Now "An agent's room post that got through
+  is no longer reported back to it as failed, so teammates stop getting it twice." LEFT NIT: a Windows agent moved to
+  another account also gets the key, so "new agents only" undersells (safe direction).

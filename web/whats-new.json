@@ -18,8 +18,8 @@
     },
     {
       "icon": "chat",
-      "title": "Room posts that landed",
-      "line": "A room post that reached the room is no longer reported as failed."
+      "title": "Room posts are not sent twice",
+      "line": "An agent's room post that got through is no longer reported back to it as failed, so teammates stop getting it twice."
     }
   ]
 }
