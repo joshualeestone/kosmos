@@ -117,10 +117,12 @@ test('#5034 control: a question about ANOTHER project is not cleared by leaving 
 test('#5034 control: an automatic permission wait is about the agent\'s screen and is not cleared', async () => {
   const p = project('Auto');
   projects.addAgent(p.id, 'autowait', null);
-  assert.equal(selfreport.record('autowait', { state: 'working', project: p.id }).recorded, true);
-  assert.equal(selfreport.record('autowait', { state: 'needs_you', auto: true, because: 'permission to run Bash' }).recorded, true);
+  /* Review 2: the wait NAMES the project, so only the auto guard can keep it (an inherited project is refused by
+     its own check, which would make this control pass with the guard gone). */
+  assert.equal(selfreport.record('autowait', { state: 'needs_you', auto: true, project: p.id, because: 'permission to run Bash' }).recorded, true);
   const before = selfreport.read('autowait');
   assert.equal(before.project, p.id, 'fixture: the auto wait is not tied to the project, so this proves nothing');
+  assert.equal(before.projectInferred, false, 'fixture: the project is inherited, so the inherited check would keep it');
   assert.equal(before.by, 'auto');
   const r = await leave(p.id, 'autowait');
   assert.equal(r.json.leftBehind.reportCleared, false);
@@ -193,4 +195,13 @@ test('#5034 removing a whole project clears its members\' questions about it and
   assert.equal(now.because, 'the project ' + p.name + ' was removed, so the blocked report about it is no longer waiting on anyone');
   assert.deepEqual(roomhold.heldIn('orphan', p.id), []);
   assert.deepEqual(roomhold.heldIn('orphan', q.id), ['m401']);
+});
+
+test('#5034 a leave not made from the screen says so in the clear (review 2)', async () => {
+  const p = project('Process');
+  projects.addAgent(p.id, 'byproc', null);
+  assert.equal(selfreport.record('byproc', { state: 'needs_you', project: p.id, because: 'which branch?' }).recorded, true);
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(p.id)}/agent/byproc`, { method: 'DELETE' });
+  assert.equal(res.status, 200, await res.text().catch(() => ''));
+  assert.equal(selfreport.read('byproc').because, 'taken off the project ' + p.name + ' (not from the screen), so the needs_you report about it is no longer waiting on anyone');
 });

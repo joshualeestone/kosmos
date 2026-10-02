@@ -1121,7 +1121,9 @@ function waitingOnPerson(task, roster, members) {
   /* #5034: `members` (the task's project's agents, when the caller has them) leaves out a holder that was taken off
      the project. Removal does not unassign, so without this the agent's question kept the old project's card red,
      with nobody on the project waiting on it (projects.joinTaskClaims already says a departed holder's report
-     "cannot be checked against this task"; this is the same rule for the red). Omitted: every holder, as before. */
+     "cannot be checked against this task"; this is the same rule for the red). It covers every reason the holder
+     needs the person, a trust wait or a connection given up on too: those are about the agent, and the person meets
+     them on the agent, not on a project it has left. Omitted: every holder, as before. */
   const onProject = Array.isArray(members) ? new Set(members) : null;
   const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt && (!onProject || onProject.has(x.who))).map((x) => x.who));
   if (!holders.size) return false;

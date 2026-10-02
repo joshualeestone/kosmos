@@ -16488,6 +16488,11 @@ const server = http.createServer(async (req, res) => {
         { error: String((err && err.message) || 'there is no project by that name') });
       return;
     }
+    /* #5034: project ids are name slugs and a freed one is reused, so its members' questions about it and the room
+       posts held for them there go with it, or a later project of the same id inherits both. Here, before the tell
+       below awaits (review 2): a project of the same name made and joined during the tell must not lose ITS
+       question or posts to this cleanup. */
+    for (const a of (gone.agents || [])) clearLeftovers(a, gone.id, 'the project ' + (gone.name || gone.id) + ' was removed');
     // The members are re-told AFTER the project is gone, so the block in their
     // instructions stops naming a project that no longer exists.
     let told = [];
@@ -16512,9 +16517,6 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents that were on it') }];
     }
-    /* #5034: project ids are name slugs and a freed one is reused, so its members' questions about it and the room
-       posts held for them there go with it, or a later project of the same id inherits both. */
-    for (const a of (gone.agents || [])) clearLeftovers(a, gone.id, 'the project ' + (gone.name || gone.id) + ' was removed');
     sendJson(res, 200, { removed: gone.id, name: gone.name, told });
     return;
   }
@@ -18341,7 +18343,9 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       verdict = { state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') };
     }
-    /* #5034: once the leave HAPPENED (moved), what it left on the project goes with it (clearLeftovers). */
+    /* #5034: once the leave HAPPENED (moved), what it left on the project goes with it (clearLeftovers). "by the
+       person" is only as strong as isViaScreen, the same test the valve trusts; every caller here holds the board
+       token either way. No await between removeAgent and this, so a re-join cannot land in between. */
     let leftBehind;
     if (moved && req.method === 'DELETE') {
       let shown = id;
