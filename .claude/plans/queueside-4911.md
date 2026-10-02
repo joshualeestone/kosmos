@@ -114,6 +114,18 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   "requeue"); (5) the three-waiter arm skips in a clone without #4911's base commit (CI clones full history);
   (6) a wrapper script that calls browser-checks.sh or run-tests.sh indirectly is not caught by the argument match,
   so against a holder on a pre-#4911 branch it can still meet that holder's page layer at its start.
+- Round 7 (Sonnet + Opus, blind): no blocker. Fixed: (1) WebKit's XPC helpers (launchd-parented, their own group)
+  read as someone else's browser, so a side WebKit check yielded to itself on every poll: they are dropped from the
+  Playwright match, and the REAL matcher is now tested (ad-hoc signed stand-ins at a browser path and an XPC path,
+  each asserted alive first: an unsigned copy of /bin/sleep is killed at exec, which made the first draft's
+  "left out" arm pass vacuously; red without the exclusion). (2) test commands as separate arguments (npm test,
+  npm run test, yarn run test, yarn -s test, a path to yarn) and inside one argument (sh -c '... yarn test') take an
+  ordinary turn, as do test-install.sh and release.sh (each marks a run its own side turn would yield to); dry run
+  24/24 incl. a control that `node --test` still gets its side turn. Not taken: a red that exits in the
+  microseconds between the capper's liveness check and its stop file is reported as 75; a Playwright browser runs in
+  its own process group, so the cap's group kill reaches it only through Playwright's own handling (the yield and
+  cap stop the node command; the browser exits with it). The dry harness now uses per-run sleep lengths (a
+  reviewer's concurrent copy answered for mine once).
 - KNOWN LIMIT, measured 19:35: an agent's long-lived Playwright browser (one had run 5 h 50 min) is a Playwright
   browser, so it holds side turns off while it runs. That is the safe direction; it means the side lane opens less
   often than the load figures alone suggest. The before/after measurement shows how much.

@@ -235,6 +235,26 @@ out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_i
 [ "$rc" -eq 1 ] && pass "intruder check: its OWN marked browser run -> stay" || fail "intruder check yielded to its own marked run (rc=$rc, $out)"
 rm -f "$M/browser.$R"; kill "$R" 2>/dev/null; wait "$R" 2>/dev/null
 
+# Review 7: the REAL Playwright matcher (every other arm goes through KOSMOS_PW_PROBE). A stand-in executable at a
+# browser path is listed; one at a WebKit XPC helper path is not (launchd parents those, so they would never read as
+# the side command's own); a command that only mentions the folder is not.
+PWD_="$T/pw/ms-playwright"; mkdir -p "$PWD_/chromium_headless_shell-9/x" "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS"
+cp /bin/sleep "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell"; cp /bin/sleep "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
+# macOS kills a copied system binary at exec (rc 137, measured) unless it is re-signed, ad hoc is enough.
+if command -v codesign >/dev/null 2>&1; then
+  codesign -s - -f "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" >/dev/null 2>&1
+fi
+"$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" 61 </dev/null >/dev/null 2>&1 & PB=$!
+"$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" 62 </dev/null >/dev/null 2>&1 & PX=$!
+sh -c "exec sleep 63 # $PWD_/chromium_headless_shell-9/ mentioned" </dev/null >/dev/null 2>&1 & PM=$!
+sleep 0.3; seen="$(_kosmos_playwright_browsers | awk '{print $1}')"
+# Every stand-in must be ALIVE, or a "left out" arm passes because the process is gone (the first draft did).
+for p in "$PB" "$PX" "$PM"; do kill -0 "$p" 2>/dev/null || fail "the real-matcher fixture: stand-in $p is not running"; done
+{ printf '%s\n' "$seen" | grep -qx "$PB"; } && pass "the real matcher lists a browser executable under ms-playwright" || fail "the real matcher missed a browser executable ($seen)"
+{ ! printf '%s\n' "$seen" | grep -qx "$PX"; } && pass "the real matcher leaves out a WebKit XPC helper" || fail "the real matcher listed a WebKit XPC helper"
+{ ! printf '%s\n' "$seen" | grep -qx "$PM"; } && pass "the real matcher leaves out a command that only mentions the folder" || fail "the real matcher listed a mention"
+kill "$PB" "$PX" "$PM" 2>/dev/null; wait "$PB" "$PX" "$PM" 2>/dev/null
+
 # Aging: a light waiter past the starve line is rank 0 like a heavy one, so an OLDER starving light waiter goes ahead of
 # a starving heavy one (before #4911 the heavy one went first, and the light lane stood still all afternoon).
 printf '%s %s\n%s\n%s\n%s\nlight\n\n' "$((NOW - 3500))" "$OTHER" "$(ps -ww -o command= -p "$OTHER")" "$(_kosmos_pid_started_local "$OTHER")" "$(_kosmos_pid_started "$OTHER")" > "$M/suitewait.$OTHER"

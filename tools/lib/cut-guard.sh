@@ -1198,7 +1198,10 @@ _kosmos_playwright_browsers() {
   local raw rc
   raw="$(pgrep -fl 'ms-playwright/' 2>/dev/null)"; rc=$?
   [ "$rc" -ge 2 ] && return "$rc"
-  printf '%s\n' "$raw" | grep -E '^[0-9]+ +[^ ]*ms-playwright/(chromium|chromium_headless_shell|firefox|webkit)[^/ ]*/' || true
+  # Review 7: not WebKit's XPC helpers. launchd starts them (parent pid 1, their own process group), so they are
+  # never the side command's descendants and a side WebKit check would yield to its OWN helpers on every poll. Its UI
+  # process (webkit-*/Playwright.app/...) is a descendant and stays in the list.
+  printf '%s\n' "$raw" | grep -E '^[0-9]+ +[^ ]*ms-playwright/(chromium|chromium_headless_shell|firefox|webkit)[^/ ]*/' | grep -v '\.xpc/' || true
   return 0
 }
 
