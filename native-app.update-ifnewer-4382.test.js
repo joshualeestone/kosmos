@@ -89,10 +89,20 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   assert.match(done, /case \.unknown:\n(\s+\/\/.*\n)*\s+if let v = installedUpdate \{ showInstalledOffer\(v\) \}\n\s+case /);
   // Review 3: a look that could not reach the host is tried again within the hour, not tomorrow.
   // Once: the retry's own unknown is not retried, and a refusal (not a connect computer, or an agent) never is.
-  assert.match(done, /if case \.unknown = answer, !updateLookIsRetry \{ retryUpdateLookSoon\(\) \}/);
   assert.match(done, /case \.current, \.board, \.refused:/);
+  // Review 5: an install this app did not see finish (another run of it started it) still gets its Restart:
+  // the CLI names the version on disk, and one that differs from the running app, with an app carrying it, is offered.
+  assert.match(done, /case \.current\(let v\) where installedUpdate == nil && v != runningAppVersion\(\) && Self\.freshAppURL\(theirs: v\) != nil:\n(\s+\/\/.*\n)*\s+showInstalledOffer\(v\)\n/);
+  assert.ok(done.indexOf('case .current(let v) where') < done.indexOf('case .current, .board, .refused:'), 'the version arm comes after the general one and never runs');
+  assert.match(SRC, /case \("current", 2\) where version\(words\[1\]\): return \.current\(words\[1\]\)/);
+  // Review 5: a refusal nobody pressed for (an install under way) is looked at again within the hour, once.
+  assert.match(done, /if !updateLookIsRetry \{\n\s+if case \.unknown = answer \{ retryUpdateLookSoon\(\) \}\n(\s+\/\/.*\n)*\s+if case \.refused = answer, !asked \{ retryUpdateLookSoon\(\) \}\n\s+\}/);
+  // Review 5: Update pressed from the menu after Not Now still shows the bar that says the app restarts.
+  const pressed = body('private func lookForUpdate(install: Bool, retry: Bool = false)');
+  assert.match(pressed, /if install \{\n(\s+\/\/.*\n)*\s+let bar = updateBar \?\? makeUpdateBar\(\)\n[\s\S]*?bar\.isHidden = false\n[\s\S]*?updateKosmosNow\(_:\)\) \}\)\?\.isHidden = true\n\s+\}/,
+    'a menu press after Not Now installs and restarts with the bar still hidden');
   // Review 4: a pressed Update that could not start says so and keeps the offer, rather than vanishing.
-  assert.match(done, /case \.board where asked, \.refused where asked:\n(\s+\/\/.*\n)*\s+showUpdateOffer\(offeredUpdate, note: "Kosmos is already being updated on this computer\. Try again in a few minutes\."\)\n/);
+  assert.match(done, /case \.board where asked, \.refused where asked:\n(\s+\/\/.*\n)*\s+showUpdateOffer\(offeredUpdate, note: "Kosmos could not start the update right now\. Try again in a few minutes\."\)\n/);
   assert.ok(done.indexOf('case .board where asked') < done.indexOf('case .current, .board, .refused:'), 'the asked arm comes after the general one and never runs');
   // Review 4: Not Now holds for that version whatever the bar says about it.
   assert.match(SRC, /guard let text, version == nil \|\| version != updateBarDismissed else \{/);

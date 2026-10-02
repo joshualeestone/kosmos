@@ -106,3 +106,19 @@ unknown, and CRLF output splits (18 selftest rows); the help line says the verb 
 NITs taken: a marker from the future holds nothing off in the app (the CLI's `find -mmin` cannot cheaply,
 left); a comment that `.newer` cannot arrive while Restart waits. Left: the app passes its environment
 to the CLI (an agent-launched app is refused, the safe direction).
+
+### Iteration 5 (opus, blind): 2 warnings, nits. Warnings taken; one nit measured false.
+1. WARNING: Update pressed from the menu after Not Now installed and restarted with the bar still hidden
+   (iteration 3's fix covered only the bar's button). Fixed: a pressed install shows the bar ("It restarts
+   when the update is installed") and hides the menu item until the answer.
+2. WARNING: an install this app did not see finish (another run of the app started it, then the look was
+   refused while it ran) left the old app running with nothing offered: `.current` carried no version.
+   Fixed: `.current(v)` carries the version on disk; when it differs from the running app and an app
+   carrying it is on disk, Restart is offered. An unasked refusal is looked at again within the hour (once).
+   Weakest premise: the app's bundle version and the install's package.json version are the same numbers
+   (the stale-app check #4347 already relies on that).
+NITs taken: the `.newer` comment (it can replace a waiting Restart); a neutral note when a pressed Update
+cannot start. NIT measured FALSE: "BSD find rounds -mmin up, so -30 means 29 minutes". On this Mac,
+`find -mmin -30` matches a 1799 s old file and not a 1801 s one, so it already agrees with the app's 30
+minutes; `-31` would have opened a minute's gap the other way. Kept -30, with the measurement in a comment.
+Left: a retry that fires during a pressed look is dropped with a log line (the daily look covers it).

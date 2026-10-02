@@ -1492,6 +1492,7 @@ cmd_update() {
     printf 'refused\tthis computer is not set to connect to agents elsewhere; its own board keeps it updated\n'
     exit 3
   fi
+  # -mmin -30 is under 1800 seconds on macOS find (measured at 1799s and 1801s), as the app's installUnderWay.
   if [ -n "$(find "$LOG_DIR/install.started" -mmin -30 2>/dev/null)" ]; then
     printf 'refused\tan update is already being installed on this computer\n'
     exit 3
