@@ -508,14 +508,20 @@ async function verbPost(ctx, args) {
   const d = (r.json && r.json.delivery) || {};
   if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.')); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
-  ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
+  if (d.code === 'room_held') {
+    /* #4934: the loop guard. The board keeps NO copy and never delivers it later; an agent that read "not sent" and sent
+       it by direct message as well, then posted it again once the room opened, reached people twice. */
+    ctx.err('Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Nothing was sent to anyone, and Kosmos does not keep it or send it later.');
+    ctx.err('Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it.');
+  } else ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
   /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
      which-room hold, or a post refused by the loop guard is lost with the agent's scrollback. A
      piped message goes to its private file instead (keepPiped, below). */
   if (!fromStdin) {
     ctx.err(d.code === 'which_room'
       ? 'Your message was not sent, so here it is to send again:'
-      : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
+      : d.code === 'room_held' ? 'Here it is to keep:'   // #4934: the two lines above already say it was not sent
+        : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
     ctx.err(text);
   }
   keepPiped();

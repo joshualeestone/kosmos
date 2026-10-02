@@ -214,6 +214,15 @@ test('#2710 parity: a post refused for any reason hands the text back (not only 
   assert.match(held.err, /here it is to send again/, 'a which-room hold keeps its own wording');
 });
 
+test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept and not to send it another way', async () => {
+  const r = await run(['post', 'proj-1', 'a long substantive update'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.' } } }));
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in\. Nothing was sent to anyone, and Kosmos does not keep it or send it later\./);
+  assert.match(r.err, /Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it\./);
+  assert.doesNotMatch(r.err, /bring you in/);
+  assert.match(r.err, /Here it is to keep:\n *a long substantive update/);
+});
+
 test('#3224: post --new sends new_post:true (not held to ask which room); without it no field; combines with the other leading flags; non-leading is text', async () => {
   const ok = () => ({ body: { delivery: { state: 'placed' } } });
   const a = await run(['post', '--new', 'proj-1', 'a new post'], ok);

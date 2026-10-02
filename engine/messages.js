@@ -1819,7 +1819,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
             because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
         }
       } catch { /* the record is best-effort; the verdict is not */ }
-      return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+      // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
+      // it another way) without reading the person-facing sentence above.
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, id: null, at, outcomes: null };
     }
   }
 

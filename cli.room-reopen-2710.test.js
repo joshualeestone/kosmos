@@ -77,6 +77,22 @@ test('#2710: a valve-refused post ends in ONE period and hands the agent its tex
   });
 });
 
+/* #4934: the loop guard's refusal says nothing was kept and not to send it another way (agents sent it by direct
+   message too, then posted it again once the room opened, so people got it twice). */
+test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to send it another way, and hands the text back', () => {
+  const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE } } } };
+  return withBoard(routes, async (port) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const TEXT = 'the lease renews monthly unless notice is given';
+    const out = await runCli(['post', 'henderson', TEXT], env);
+    assert.match(out.stdout, /Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in\. Nothing was sent to anyone, and Kosmos does not keep it or send it later\./);
+    assert.match(out.stdout, /Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it\./);
+    assert.doesNotMatch(out.stdout, /bring you in/, 'the person-facing sentence reached the agent');
+    assert.match(out.stdout, /Here it is to keep:\n *the lease renews monthly/);
+    assert.equal(out.code, 1);
+  });
+});
+
 test('#2710: `kosmos room reopen <project>` clears a held room and says so', () => {
   const routes = { 'POST /api/project/henderson/room/reopen': { code: 200, body: { ok: true, at: '2026-09-10T20:00:00.000Z' } } };
   return withBoard(routes, async (port) => {
