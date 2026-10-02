@@ -221,11 +221,19 @@ const CTRL_LOOK = `(() => {
   const plain = document.getElementById('d-file-btn'), main = document.getElementById('you-name-save'), danger = document.getElementById('d-remove-start');
   if (!pd || !ps || !plain || !main || !danger) return { found: false, plain: !!plain, main: !!main, danger: !!danger };
   const h1 = pd.hidden, h2 = ps.hidden; pd.hidden = false; ps.hidden = false;
+  /* Round 1: Remove this agent sits outside any box, so it could not show the danger rule; a danger button is made inside
+     a Settings box for the read (as Settings' community rows build theirs) and removed after. Check for Update is the
+     quiet button. */
+  const box = ps.querySelector('.dbox'), quiet = document.getElementById('upd-btn');
+  const made = document.createElement('button'); made.className = 'btn danger-btn'; made.type = 'button'; made.textContent = 'x';
+  if (box) box.appendChild(made);
   try {
-    const P = getComputedStyle(plain), M = getComputedStyle(main), D = getComputedStyle(danger);
-    return { found: true, plainBg: P.backgroundColor, plainEdge: P.borderTopColor, plainRadius: P.borderTopLeftRadius,
-      mainBg: M.backgroundColor, mainRadius: M.borderTopLeftRadius, dangerEdge: D.borderTopColor, dangerRadius: D.borderTopLeftRadius };
-  } finally { pd.hidden = h1; ps.hidden = h2; }
+    const P = getComputedStyle(plain), M = getComputedStyle(main), D = getComputedStyle(made), Q = quiet ? getComputedStyle(quiet) : null;
+    return { found: !!box && !!quiet, plainBg: P.backgroundColor, plainEdge: P.borderTopColor, plainRadius: P.borderTopLeftRadius, plainShadow: P.boxShadow,
+      mainBg: M.backgroundColor, mainRadius: M.borderTopLeftRadius, dangerEdge: D.borderTopColor, dangerRadius: D.borderTopLeftRadius,
+      quietBg: Q && Q.backgroundColor, quietEdge: Q && Q.borderTopColor, quietRadius: Q && Q.borderTopLeftRadius,
+      outsideDangerEdge: getComputedStyle(danger).borderTopColor };
+  } finally { made.remove(); pd.hidden = h1; ps.hidden = h2; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
@@ -520,8 +528,9 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
       const ctlOn = await page.evaluate(CTRL_LOOK);
       chk(ctlOn.found && ctlOn.plainBg === PAGE_OF[theme] && ctlOn.plainEdge === CLEAR && ctlOn.plainRadius === '999px'
-        && ctlOn.mainRadius === '999px' && ctlOn.mainBg !== PAGE_OF[theme] && ctlOn.mainBg !== CLEAR && ctlOn.dangerEdge !== CLEAR,
-        `${tag} On, the controls: a plain button is a pill in the page's ground with no edge, the main one a pill that keeps its fill, a danger one keeps its edge`, JSON.stringify(ctlOn));
+        && ctlOn.plainShadow !== 'none' && ctlOn.mainRadius === '999px' && ctlOn.mainBg !== PAGE_OF[theme] && ctlOn.mainBg !== CLEAR
+        && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === PAGE_OF[theme] && ctlOn.quietEdge === CLEAR && ctlOn.quietRadius === '999px',
+        `${tag} On, the controls: plain and quiet buttons are raised pills in the page's ground with no edge, the main one a pill that keeps its fill, a danger one a pill that keeps its edge`, JSON.stringify(ctlOn));
       const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
       chk(setOn.found && setOn.dotBg !== OLD_DOT && setOn.dotBg !== CLEAR && setOn.dotBg !== 'absent' && setOn.plusNavBg !== GREY_OF[theme] && setOn.plusOnEdge !== CLEAR,
         `${tag} On, Settings: the current item's needs-you dot is not the gold-era dark red, and the Kosmos+ section keeps today's nav`, JSON.stringify(setOn));
