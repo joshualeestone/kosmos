@@ -2629,7 +2629,8 @@ test('#4447: a link the agent planted in its own folder cannot turn the spill in
     fs.unlinkSync(inboxOf('mara'));
     fs.mkdirSync(inboxOf('mara'));
     fs.writeFileSync(path.join(inboxOf('mara'), '.gitignore'), '*\n');   // Kosmos's own Inbox, as a first spill leaves it
-    const nextId = () => 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    // #4888: a refused send (step a) has used its id, so the next one is asked of the board, not read off the log.
+    const nextId = () => messages._nextIdForTests();
     for (const kind of ['symbolic', 'hard']) {
       const at = path.join(inboxOf('mara'), nextId() + '.txt');
       if (kind === 'symbolic') fs.symlinkSync(victim, at); else fs.linkSync(victim, at);
@@ -2742,7 +2743,7 @@ test('#4447: a hard link planted at the next id in a read-only Inbox is never wr
     assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     const victim = path.join(SANDBOX, 'victim-fallback-' + Date.now() + '.txt');
     fs.writeFileSync(victim, 'untouched\n');
-    const nextId = 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    const nextId = messages._nextIdForTests();   // #4888: asked of the board, not read off the log
     fs.linkSync(victim, path.join(inboxOf('mara'), nextId + '.txt'));
     fs.chmodSync(inboxOf('mara'), 0o555);
     try {

@@ -41,3 +41,11 @@ rely on) leaves the log readable when the held deliveries finish. The #4580 test
 - Nits: the room path's comment about a refused post's spill and the next mint is deleted (no longer true while the
   board runs); readLog's "ids restart" now says only on a board that has minted none since it started; the duplicate
   PARSE-ONLY comment at the direct call site is removed (mintId keeps it).
+
+## Final validation on Mortals (19:30): 13,796 tests, 1 failed, fixed
+- `#4447: a link the agent planted in its own folder cannot turn the spill into a write somewhere else` predicted the next
+  id as the log's highest + 1. Its step (a) refuses a send first, which now uses m1, so the real next message is m2 and
+  the planted link sat at the wrong name ("the message file is not a fresh file of its own"). The protection held: the
+  victim file stayed untouched. A test assumption this change made stale, not a regression.
+- Fix: `messages._nextIdForTests()` (read-only: the id the next send will get, from the log and the board's mark), used
+  by both #4447 tests that plant a file at the next id.

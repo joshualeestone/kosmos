@@ -965,6 +965,11 @@ const IN_FLIGHT_SENDS = new Map();
    the log's highest, plus one. An id is taken before any await, so overlapping sends never share one. A send
    that is then refused has used its id, and the next send takes a new one. */
 let ID_HIGH = 0;
+/* #4888: the id the next send will be given, without taking it (a test plants a file at it). */
+function nextIdForTests() {
+  const inLog = record().parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
+  return 'm' + (Math.max(inLog, ID_HIGH) + 1);
+}
 function mintId(parsed) {
   // Over the PARSE-ONLY rows: a foreign append that fails shape still burns the id it names.
   const inLog = parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
@@ -2749,6 +2754,7 @@ module.exports = {
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
+  _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
   setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
