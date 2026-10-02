@@ -1,0 +1,115 @@
+# Guard the unguarded direction: a browser GATE refuses to start into a running cut (kosmos#1398)
+
+## Problem
+(Corrected in review 1:) `release.sh` asks at its start only whether another CUT or an install harness is live
+(`kosmos_refuse_if_cut_live`, `kosmos_refuse_if_harness_live`); it never asks about a running gate. A gate refuses
+only when another BROWSER run is live, and a cut has one only during step 3b. But a GATE
+(`tools/browser-checks.sh`) started while a cut was already running had nothing to
+stop it, and killing that gate killed the cut with it. Card: three cuts, ~90 min.
+
+Only a social rule ("no gates during a cut") held the line, and the obvious check
+(`pgrep -f release.sh`) self-matches the asker's own command line, so a careful
+person breaks it.
+
+## Fix (SUPERSEDED: the first version below. The code now exits 75, asks BEFORE kosmos_mark_run, and the cut's own page layer passes by KOSMOS_IGNORE_MACHINE_CLAIM=1 on release.sh's launches, not by its cookie. See Review 1 and Review 2.)
+Mirror the machine-claim consult that `run-tests.sh` already does into
+`tools/browser-checks.sh`:
+
+```sh
+if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
+  kosmos_refuse_if_machine_claimed "this page layer" || exit 1
+fi
+```
+
+placed right after the existing `kosmos_refuse_if_browser_run_live` guard, before
+the freeze/board-boot region.
+
+## Why the machine-claim guard, not kosmos_refuse_if_cut_live
+`kosmos_refuse_if_cut_live` keys on the cut's RUN-MARKER, which the gate process
+does not carry, so a cut running its OWN 3b (which invokes browser-checks.sh) would
+see the cut marker as foreign and refuse ITSELF -- breaking every cut. The
+machine-claim guard is self-exclusion-safe: `release.sh` calls `kosmos_claim_machine`
+which EXPORTS `KOSMOS_MACHINE_CLAIM_COOKIE`, and the cut's own 3b inherits it, so
+`kosmos_refuse_if_machine_claimed` returns 0 (self) for the cut's own gate. Only a
+live, unexpired, FOREIGN claim refuses. This is exactly how `run-tests.sh` (the other
+gate) avoids self-refusing the cut's own `yarn test`. Fail-open on a broken/absent
+claim file; escape hatch `KOSMOS_IGNORE_MACHINE_CLAIM=1`, the same one used everywhere
+else the claim guard runs.
+
+## Verification (SUPERSEDED: the first version's test, replaced in Review 1 and Review 2)
+- ARM 1 (foreign claim -> REFUSE): forged a live foreign machine-claim in an isolated
+  marker dir; browser-checks.sh exits non-zero with "reserved for a release" BEFORE
+  booting a board. Red-capable: without the wiring the gate never refuses.
+- ARM 2 (no claim -> PROCEED): with no claim, the gate does not refuse and proceeds
+  past the guard.
+- ARM 2b (escape hatch): foreign claim + KOSMOS_IGNORE_MACHINE_CLAIM=1 -> proceeds.
+- Self-exclusion (the cut's own 3b is not refused) is guaranteed by the exported
+  cookie and covered at the function level by test-machine-claim-1962.sh.
+- New test tools/test-browser-gate-cut-claim-1398.sh (wired into package.json
+  test:shell) encodes ARM 1 behaviorally, ARM 2 behaviorally (bounded), and a static
+  assertion that the gate uses the cookie-safe function and not the run-marker one.
+
+## Deliberately NOT in scope
+- Retiring the social "no gates during a cut" rule: the card says do it deliberately
+  once the mechanism exists; that is a coordination/doc change for the owner to make
+  after this lands, not a code change here.
+- The `test-promote-channel-win` local false-red and this box's chrome-headless-shell
+  issue (#3542) are unrelated.
+
+## Weakest premise
+That the machine claim is the right mechanism vs a run-marker guard. Rejected the
+run-marker guard explicitly because it self-refuses the cut's own 3b (reasoned +
+asserted by the static arm of the test). The claim mechanism is proven by
+run-tests.sh already using it in production cuts.
+
+
+## Rebased onto main 868888de0 and reworked after blind review 1 (2026-10-02 00:44): 2 blockers, 5 warnings, 4 nits
+- BLOCKER (test): arm 2 started the REAL gate in the background and killed the subshell, not the gate; a real
+  page layer ran orphaned on Agent1s 00:38 to 00:46 (found by the reviewer, killed and cleaned by me, Splinter
+  told). The test now NEVER boots a gate: every arm is synchronous with Playwright unfindable and
+  KOSMOS_SKIP_BROWSER_CHECKS=1 (the test-runner-reexec-1818.sh seam), a sandbox HOME and marker dir, and the
+  overrides unset.
+- BLOCKER (test): arm 2 asserted an ABSENCE; it now asserts the positive "BROWSER CHECKS SKIPPED" marker printed
+  only after the guard; arm 1 asserts exit 75 and that the skip line is absent.
+- W: claim overwrite race (a queued-heavy renewer overwriting the cut's claim mid-cut would have made the cut's own
+  3b refuse): release.sh passes KOSMOS_IGNORE_MACHINE_CLAIM=1 on both page-layer launches; the cut owns the box.
+- W: the matching-cookie and override arms are now tested end to end through the gate; a static arm checks every
+  release.sh page-layer launch carries the override.
+- W: test-pw-version-assert.sh ignores the claim (it drives a fake runtime), as it already ignored the cut guard.
+- W: WAIT, not refuse (consistent with run-tests.sh since #4498): kosmos_wait_until_clear; refusal (at the bound or
+  KOSMOS_NO_WAIT=1) exits 75 "did not run", not 1 "a check failed". Any queued-heavy one-off claim makes a hand-run
+  gate wait too, deliberately.
+- W: the claim can lapse during a step over 30 minutes; the comment says so rather than promising the whole cut
+  (a background renewer in release.sh is a possible follow-up).
+- Nits: comments corrected (what release.sh asks at its start; "never refuses its own page layer" replaced by the
+  real mechanism); the position check anchors on the CALL; the frozen-runner child consults again on purpose
+  (stated in the comment).
+Tests: test-browser-gate-cut-claim-1398.sh 8/8; 4 sabotages red (no guard, refusal exits 1, cut launch without the
+override, override not honoured); test-machine-claim-1962.sh 22/22, test-pw-version-assert.sh, test-cut-parallel-
+region.sh green. No gate process or frozen copy left behind after any run (checked each time).
+LANDS AFTER 0.7.17 IS SERVED (the 05:15 cut runs browser-checks.sh and release.sh).
+
+## Review 2 (opus, blind, 2026-10-02 00:53): 1 blocker, 2 warnings, 4 nits, all taken
+- BLOCKER: WAITING was wrong. A waiting gate had already run kosmos_mark_run, so it counted as a live browser run,
+  and a cut's 3b starting during the wait refused it: the card's abort re-opened for the whole 20-minute bound. The
+  gate now REFUSES AT ONCE under a foreign claim (exit 75), and asks BEFORE kosmos_mark_run, so a refused gate
+  leaves no marker a cut can see (tested: no browser.* marker after the refusal; the call is before the mark).
+- W: a waiting gate would have started in step with the next queued-heavy turn; gone with the wait. To wait your
+  turn, launch the gate through queued-heavy.sh (it waits for the claim and then holds it).
+- W/N: comments corrected (who is and is not stopped; 75 is for a person, no wrapper treats it specially).
+- N: the test header says what actually stops a boot (no Playwright findable); the static launch count matches every
+  non-comment launch line and requires exactly 2.
+- Found while testing (mine): the gate re-runs itself from a frozen copy of the last COMMIT, so the test was
+  exercising the committed child, which hid uncommitted changes and made a sabotage hang in the old waiting code
+  (killed and cleaned, nothing left behind). The test now passes KOSMOS_BC_FROZEN_RUNNER=1 so the gate runs in
+  place: the working tree is what is tested, and no frozen worktree is made in the shared repo.
+- Not taken, stated: the gate does not unset the wait-control vars it inherits (KOSMOS_IGNORE_MACHINE_CLAIM from
+  the cut reaches its children); nothing under the gate reads them today. release.sh has no arm for exit 75 (the
+  cut cannot hit it: it passes the override).
+Tests: test-browser-gate-cut-claim-1398.sh 9/9; sabotages red: no guard, refusal exits 1, cut launch without the
+override, guard moved after kosmos_mark_run; 1962 22/22, pw-version and parallel-region green; no leftovers.
+
+## Review 3 (opus, blind, whole diff, 2026-10-02 01:16): 0 blockers, 0 warnings, 3 nits, all taken. CONVERGED.
+Stale "waits" wording in release.sh's two launch comments (kept byte-identical for test-cut-parallel-region.sh) and
+in test-pw-version-assert.sh; the plan's first Fix and Verification sections marked superseded. Converged at
+iteration 3. Next: full validation, proof, PR; MERGE ONLY AFTER 0.7.17 IS SERVED.

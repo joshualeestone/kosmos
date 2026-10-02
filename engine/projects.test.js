@@ -2140,8 +2140,10 @@ test('#3923: syncAgent reports which projects the write newly put in the block, 
 });
 
 test('#3923: the retry line says the instructions now list the project, never a second join', () => {
-  const line = projects.membershipLine({ id: 'q1', name: 'Quarter close', folder: '/tmp/qc' }, 'listed');
-  assert.match(line, /^Your instructions now list the project "Quarter close"\. Its folder is `\/tmp\/qc`\. Post to everyone on it with: .* post q1 "your message"\.$/);
+  const qc = folder('qc-3923');
+  const line = projects.membershipLine({ id: 'q1', name: 'Quarter close', folder: qc }, 'listed');
+  assert.ok(line.startsWith('Your instructions now list the project "Quarter close". Its folder on this computer is `' + qc + '`. Post to everyone on it with: '), line);
+  assert.match(line, / post q1 "your message"\.$/);
   assert.doesNotMatch(line, /put you on/, 'the retry line announced the join again');
   assert.match(projects.membershipLine({ id: 'q1', name: 'Quarter close' }, 'joined'), /^Kosmos put you on the project/, 'CONTROL: the join line is unchanged');
 });
@@ -2807,4 +2809,40 @@ test('#3726: the project Issue count is the board\'s "needs the person" rule, no
   const untiedRow = projects.list([untied]).find((p) => p.id === other.id);
   assert.equal(untiedRow.summary.needsYou, 0, 'an untied pane\'s given-up connection was counted');
   assert.equal(untiedRow.agents.find((m) => m.sessionName === 'nika').reconnect, null, 'an untied pane lent the member its reconnect');
+});
+
+/* #4927: the folder the join line hands over is checked on this computer; the instructions say the paths are this
+   computer's and how a sandboxed agent finds the folder under its own mounts. */
+test('#4927: the join line says the folder is on this computer, and a folder that is not there is said so, not handed over', () => {
+  const real = folder('join-4927');
+  const joined = projects.membershipLine({ id: 'j1', name: 'Launch', folder: real }, 'joined');
+  assert.ok(joined.includes(' Its folder on this computer is `' + real + '`.'), joined);
+  const gone = path.join(real, 'moved-away');
+  for (const kind of ['joined', 'listed']) {
+    const line = projects.membershipLine({ id: 'j1', name: 'Launch', folder: gone }, kind);
+    assert.match(line, /is not on this computer right now \(moved, removed, or on a drive that is not connected\), so ask your person where it is before you work in it\./, kind + ': a dead path was handed over as the place to work');
+    assert.doesNotMatch(line, /Its folder on this computer is/, kind);
+  }
+  const file = path.join(real, 'a-file');
+  fs.writeFileSync(file, 'x');
+  assert.match(projects.membershipLine({ id: 'j1', name: 'Launch', folder: file }, 'joined'), /is not on this computer right now/, 'a file where the folder should be read as the folder');
+});
+
+test('#4927 review 1: a folder the board may not read is there, and is not called gone', () => {
+  const real = folder('locked-4927');
+  const denied = () => { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; };
+  projects.setFsWorldForTests({ realpath: (p) => p, stat: (p) => fs.statSync(p), access: denied });
+  try {
+    const line = projects.membershipLine({ id: 'j3', name: 'Locked', folder: real }, 'joined');
+    assert.ok(line.includes(' Its folder is recorded as `' + real + '`, but Kosmos could not check it just now, so check that you can open it before you work in it.'), line);
+    assert.doesNotMatch(line, /not on this computer right now/, 'a folder the board may not read was called gone');
+  } finally { projects.setFsWorldForTests(null); }
+});
+
+test('#4927: "Your projects" says the paths are this computer\'s and how a sandboxed agent finds the folder', () => {
+  const body = projects.blockBody([{ id: 'j2', name: 'Launch', folder: folder('block-4927'), agents: ['pia'], tasks: [] }], 'pia');
+  const flat = body.replace(/\n/g, ' ');   // the wrap is not the meaning (review 1)
+  assert.match(flat, /Kosmos records which projects you are on, and the folder it has recorded for each, on this computer\./);
+  assert.match(flat, /If you work in a sandbox that shows this computer's folders under other paths \(mount names can change between sessions\), find a project's folder there by the folder's own name, the last part of its path \(it can differ from the project's name\)\./);
+  assert.doesNotMatch(flat, /this is where their folders are/, 'the heading still certifies a path that may have moved');
 });

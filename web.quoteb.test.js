@@ -50,7 +50,7 @@ function pageScope() {
   return new Function(
     'document', 'window', 'navigator', 'fetch', 'setInterval', 'setTimeout',
     'clearInterval', 'EventSource', 'location', 'localStorage',
-    src[1] + '\n return { pjRoomRow, pjRoomBody };',
+    src[1] + '\n return { pjRoomRow, pjRoomBody, pjReplyGist };',
   )(document, window, {}, () => new Promise(() => {}), () => 0, () => 0, () => {},
     function EventSource() {}, window.location, window.localStorage);
 }
@@ -127,4 +127,37 @@ test('#3679: a list line with a long space run and a line separator renders in l
   const text = 'look:\n```\n- ' + ' '.repeat(200000) + ' x';
   const ms = cpuMillisecondsOf(() => api.pjRoomRow(row('leo', text), P));
   assert.ok(ms < 3000, 'rendering used ' + ms.toFixed(0) + 'ms of CPU; a (.*)$ line rule backtracks');
+});
+
+/* #4873: a leading self-name is dropped from the drawn post, and the quote offsets (which index the STORED text) move
+   with it, so the bar still wraps exactly the quoted words. */
+test('#4873: with its own name dropped, a post\'s quote still wraps exactly the tagged span', () => {
+  const text = 'Leo: Mara said ' + QUOTE + ' and I agree.';
+  const start = text.indexOf(QUOTE);
+  const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'rmara', from: 'mara', start, end: start + QUOTE.length }] }), P);
+  assert.match(html, new RegExp('<blockquote class="quoteb">' + QUOTE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '<cite'), 'the bar no longer wraps exactly the quote');
+  assert.match(html, /<p>Mara said<\/p>/, 'the name was not dropped, or the prose before the quote moved');
+  assert.doesNotMatch(html, /Leo:/, 'the sender\'s own name is still drawn');
+});
+test('#4873: a quote that starts inside the name leaves the post drawn as written', () => {
+  const text = 'Leo: ' + QUOTE;
+  const html = api.pjRoomRow(row('leo', text, { quotes: [{ of: 'r1', from: 'mara', start: 0, end: text.length }] }), P);
+  assert.match(html, /Leo:/, 'a quote covering the name lost the name');
+});
+
+/* #4873, through the room renderer itself (not only the pure function): the card's own control. */
+test('#4873: a room post drops its sender\'s own leading name, keeps another agent\'s, and the person\'s post is untouched', () => {
+  const own = api.pjRoomRow(row('leo', 'Leo: hello there'), P);
+  assert.match(own, /<p>hello there<\/p>/, 'the sender\'s own name was not dropped');
+  const other = api.pjRoomRow(row('leo', 'Mara: hello there'), P);
+  assert.match(other, /Mara: hello there/, 'another agent\'s name was dropped (the card\'s control)');
+  const person = api.pjRoomRow({ ...row('leo', 'Leo: hello there'), operator: true }, P);
+  assert.match(person, /Leo: hello there/, 'the person\'s own post was changed');
+});
+test('#4873: the reply gist drops the original sender\'s own leading name, beside the name it already shows', () => {
+  assert.equal(api.pjReplyGist(row('leo', 'Leo: the plan is ready'), 'Leo'), 'the plan is ready');
+  assert.equal(api.pjReplyGist(row('leo', 'Mara: the plan is ready'), 'Leo'), 'Mara: the plan is ready');
+  assert.equal(api.pjReplyGist({ ...row('leo', 'Leo: mine'), operator: true }, 'You'), 'Leo: mine', 'the person\'s gist was changed');
+  assert.equal(api.pjReplyGist({ ...row('Leo', 'Leo: from outside'), kind: 'external' }, 'Leo'), 'Leo: from outside',
+    'an external post\'s gist lost a name its row still shows');
 });

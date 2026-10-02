@@ -531,7 +531,7 @@ function releaseHeld(id) {
     saveJson(postsFile(), posts);
     // Credit the author agent (user authors have no agent-trust ladder).
     if (post.author && post.author.type === 'agent' && post.author.name) {
-      recordApproval(post.author.name);
+      recordApproval(post.author.name, post.receivedAt);
     }
     return post;
   }
@@ -587,10 +587,18 @@ function discardHeld(id) {
 
 // Increment an agent's approved_count; flip to trusted at K. Idempotent-safe:
 // an already-trusted agent stays trusted.
-function recordApproval(agentId) {
+//
+// #5000: `receivedAt` is the released post's. A post the board received before the name was
+// forgotten (forgetTrust, when its agent was deleted) belongs to the deleted agent, so it credits
+// nobody: the name's ladder is the NEW agent's now. Without a receivedAt there is nothing to
+// compare, so the old behaviour stands (a direct caller, the tests).
+function recordApproval(agentId, receivedAt) {
   const key = trustKey(agentId);
   const all = loadTrust();
   const rec = all[key] || { trust: 'untrusted', approved_count: 0 };
+  if (typeof rec.forgottenAt === 'string' && typeof receivedAt === 'string' && receivedAt <= rec.forgottenAt) {
+    return rec;
+  }
   if (rec.trust !== 'trusted') {
     rec.approved_count = (rec.approved_count || 0) + 1;
     if (rec.approved_count >= PROMOTE_THRESHOLD) rec.trust = 'trusted';
@@ -600,10 +608,17 @@ function recordApproval(agentId) {
   return rec;
 }
 
+// #5000: a grant or a revoke keeps a forgotten name's forgottenAt, so a held post the deleted agent left behind still
+// credits nobody afterwards.
+function keepForgotten(prev, rec) {
+  if (prev && typeof prev.forgottenAt === 'string') rec.forgottenAt = prev.forgottenAt;
+  return rec;
+}
+
 // Explicit operator/admin grant — promotes immediately, no ladder.
 function grantTrust(agentId) {
   const all = loadTrust();
-  all[trustKey(agentId)] = { trust: 'trusted', approved_count: PROMOTE_THRESHOLD };
+  all[trustKey(agentId)] = keepForgotten(all[trustKey(agentId)], { trust: 'trusted', approved_count: PROMOTE_THRESHOLD });
   saveJson(trustFile(), all);
   return all[trustKey(agentId)];
 }
@@ -612,7 +627,18 @@ function grantTrust(agentId) {
 // untrusted, to re-earn trust. Resets the ladder.
 function revokeTrust(agentId) {
   const all = loadTrust();
-  all[trustKey(agentId)] = { trust: 'untrusted', approved_count: 0 };
+  all[trustKey(agentId)] = keepForgotten(all[trustKey(agentId)], { trust: 'untrusted', approved_count: 0 });
+  saveJson(trustFile(), all);
+  return all[trustKey(agentId)];
+}
+
+// #5000: an agent was deleted and its name is free for a new agent. The name's standing goes back
+// to the start (untrusted, no approvals), and the time is kept so a held post the deleted agent
+// left behind cannot credit the new agent when someone releases it (recordApproval above). Only
+// the deleted name's record changes; every other agent's is untouched. Returns the new record.
+function forgetTrust(agentId) {
+  const all = loadTrust();
+  all[trustKey(agentId)] = { trust: 'untrusted', approved_count: 0, forgottenAt: nowISO() };
   saveJson(trustFile(), all);
   return all[trustKey(agentId)];
 }
@@ -644,6 +670,7 @@ module.exports = {
   recordApproval,
   grantTrust,
   revokeTrust,
+  forgetTrust,
   // paths (for tests / diagnostics)
   _paths: { dir, postsFile, commentsFile, trustFile },
 };

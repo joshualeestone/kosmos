@@ -3423,7 +3423,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the left side means a lone section (its preceding sibling hidden) gets no
    stray top margin, so single-section pills are unaffected. */
 .dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
-.dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
+/* #4961: detailGo and settingsGo move focus INTO a section, so a keyboard user's next Tab lands
+   inside. The ring that marks where they landed (#350) is drawn only when that move followed a
+   key press (`kbd-landed`, set from DSEC_KEYBOARD), never after a pointer press. Keyed on
+   :focus-visible it drew a black stroke round the 16px-radius card after a CLICK in the Mac app:
+   Safari does not focus a clicked button, so the focus moved next can match :focus-visible.
+   Sections are tabindex=-1 (web.agent-nav.test.js pins the agent page's). */
+.dsec:focus { outline: none; }
+.dsec.kbd-landed:focus { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
    none while the box is showing. ⚠️ ORDER-DEPENDENT: the sibling rule last
    has the same specificity as the three above it and wins by position; move
@@ -4134,6 +4141,16 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 .cons-agents-lay button[aria-checked="true"] { background: var(--gold-bright); color: #14161a; }
 .cons-agents-lay button:focus-visible { outline: 2px solid var(--label); outline-offset: -3px; }
 .cons-agents-lay button[aria-checked="true"]:focus-visible { outline-color: #14161a; }
+/* #4937: the Documents screen's In the project folder | From this conversation switch. Each segment shows
+   only its own parts; the folder's count, pager and sentence go with the folder. */
+.docs-seg { margin: 0 0 var(--space-5); }
+#pj-docs-view[data-docseg="convo"] :is(#docs-count, #docs-list, #docs-pager, #docs-msg) { display: none; }
+#pj-docs-view:not([data-docseg="convo"]) #docs-convo { display: none; }
+/* A phone: both segments share the row (measured: 344px of words in a 296px view at 320px wide). */
+@media (max-width: 400px) {
+  .docs-seg { display: flex; }
+  .docs-seg button { flex: 1 1 0; min-width: 0; height: auto; min-height: 30px; padding: 6px 8px; white-space: normal; line-height: 1.25; }
+}
 @media (max-width: 760px) {
   .tsk-ctl { flex-wrap: wrap; row-gap: 4px; }
   .tsk-main { padding: 22px 14px 120px; }
@@ -7004,6 +7021,39 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .att-txt { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; min-width: 0; }
 .att-name { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+
+/* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right,
+   the action bottom left. Its own layer above the board, like the other dialogs. */
+/* The backdrop is an .rm-back too, so every "is a dialog open?" guard in the page sees it (tips, type-to-compose);
+   two classes, so its own dark and layer win over .rm-back's. */
+.rm-back.pv-back { position: fixed; inset: 0; z-index: 59; display: block; background: rgba(0, 0, 0, .9); }   /* under first run (60), which pvCovered also gives the keys */
+/* The page keeps a strip for its scrollbar (scrollbar-gutter: stable), and Chromium (the Windows app's engine) never
+   paints a fixed layer over it, so the dark would stop short of the edge. While the preview is in the page the page has
+   no scrollbar and no strip (it moves by that strip, behind the dark); gone, it has them back, however it went. */
+html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
+.pv-box { position: absolute; inset: 0; display: flex; flex-direction: column; outline: none; }
+.pv-x { position: absolute; top: 14px; right: 14px; z-index: 1; width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, .12); color: #fff; font: 400 26px/1 var(--font-ui); cursor: pointer; }
+.pv-x:hover { background: rgba(255, 255, 255, .2); }
+.pv-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 64px 24px 12px; }
+.pv-media { max-width: 100%; max-height: 100%; min-height: 0; object-fit: contain; border-radius: 4px; }
+.pv-note { margin: 0; color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
+.pv-text { margin: 0; max-width: min(100%, 48rem); max-height: 100%; overflow: auto; padding: 18px 20px; border-radius: 8px;
+  background: rgba(255, 255, 255, .06); color: #f2f2f2; font: 13px/1.5 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; }
+.pv-file { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #fff; text-align: center; }
+.pv-file svg { width: 56px; height: 56px; }
+.pv-file b { font: 600 1.0625rem var(--font-ui); }
+.pv-file span { color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
+.pv-bar { display: flex; align-items: center; gap: 14px; padding: 14px 18px 18px; min-width: 0; }
+.pv-btn { flex: none; min-height: 40px; padding: 9px 14px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .14); color: #fff;
+  font: 600 .875rem var(--font-ui); text-decoration: none; cursor: pointer; }
+.pv-btn:hover { background: rgba(255, 255, 255, .22); }
+.pv-x:focus-visible, .pv-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.pv-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, .72);
+  font: var(--text-caption) var(--font-ui); }
+.pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
+.att.haspic[data-att] { cursor: zoom-in; }
 .attachbtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
@@ -7325,6 +7375,21 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .micbtn { display: none; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
+/* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
+   one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
+   no box changes size where the mic is not drawn; the box gets room on the right only where it is (the Mac app). */
+.micwrap { position: relative; }
+.frow > .micwrap { flex: 1; min-width: 220px; }   /* the input's .frow flex sizing, which has no effect now it is not the flex item */
+.micwrap.line > input { width: 100%; box-sizing: border-box; }
+.micwrap > .fieldmic { position: absolute; right: calc(8px + var(--scrollbar-width, 0px)); top: 6px; width: 28px; height: 28px; }   /* clear of a classic scrollbar */
+.micwrap.line > .fieldmic { top: 50%; right: 8px; transform: translateY(-50%); }
+.micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
+.micwrap > textarea { resize: vertical; }   /* a box dragged narrower would leave the mic outside it */
+#nt-voice-msg:empty { display: none; }   /* takes no room unless the mic says something (and never without a mic) */
+html.has-voice .micwrap > textarea:not(:disabled), html.has-voice .micwrap > input:not(:disabled),
+html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: 44px; }   /* the two ID rules set their own padding */
+html.has-voice .micwrap:not(.line) > textarea:not(:disabled),
+html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: calc(44px + var(--scrollbar-width, 0px)); }   /* the mic moves left by it */
 .micbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .micbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .micbtn[aria-pressed="true"] { color: #c62828; background: rgba(198,40,40,.1); }
@@ -8355,8 +8420,10 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   background: var(--field-fill); border: 0.5px solid var(--border-strong);
   border-radius: var(--radius-control); display: flex; flex-direction: column; gap: 8px; }
 .tc-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
+/* #4936: the members a team just made, marked on the agents view for a few seconds after Create a Team. */
+.just-made { outline: 2px solid var(--gold-edge); outline-offset: 2px; }
 .tc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: center; }
-.tc-seat { color: var(--label-2); }
+.tc-seat { color: var(--label-2); min-width: 0; overflow-wrap: break-word; }   /* #4936 review 20: wraps beside a long hello state */
 .tc-seat b { color: var(--label); font-weight: 600; }
 .tc-name { min-width: 0; font: var(--text-callout) var(--font-ui); color: var(--label);
   background: var(--bg, transparent); border: 0.5px solid var(--border-strong);
@@ -8405,6 +8472,10 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    full strength, as on the single create: it is a statement, not a locked choice. */
 #cstep-teammake select:disabled { opacity: .55; cursor: default; }
 #cstep-teammake:not(.tc-making) #tc-model[data-fixed="1"]:disabled { opacity: 1; }
+/* #4936 review 10/21: the hello states are longer ("Said hello (picture not set)"); #4935's fixed status column
+   wraps them, and on a phone the lead's seat wraps too. */
+@media (max-width: 560px) { .tc-leads { white-space: normal; } }
+.tc-why.plain { color: var(--label-2); }   /* #4936: advice that is not a failure (an unconfirmed hello) */
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -12236,7 +12307,7 @@ window.kosmosMeasureScrollbarWidth();
          real in it. Without this, /?tab=detail (a deep link this file supports)
          never calls that function at all and renders a permanently enabled,
          empty editor whose Save button does nothing when clicked. -->
-    <textarea id="d-instr" rows="14" spellcheck="true" disabled></textarea>
+    <div class="micwrap"><textarea id="d-instr" rows="14" spellcheck="true" disabled></textarea><button class="micbtn fieldmic" type="button" data-voice-for="d-instr" data-voice-name="Instructions" data-voice-msg="d-instr-msg" aria-label="Talk instead of typing: Instructions" title="Talk instead of typing: Instructions" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
     <div class="frow instr-foot">
       <!-- Pack wins (Josh, 2026-08-17 in-channel: "what we had in the pack is
          the wording we go with"): the path is NOT shown. The app's older
@@ -12738,7 +12809,8 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <div class="field">
       <label class="flabel tk-lab" for="nt-detail">Anything they should know</label>
-      <textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea>
+      <div class="micwrap"><textarea class="tk-inp" id="nt-detail" rows="3" maxlength="2000" placeholder="Optional. What it is for, what done looks like, anything you already tried."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="nt-detail" data-voice-name="Anything they should know" data-voice-msg="nt-voice-msg" aria-label="Talk instead of typing: Anything they should know" title="Talk instead of typing: Anything they should know" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
+      <p class="fmsg" id="nt-voice-msg" role="status" aria-live="polite"></p><!-- #4409 slice 2: the mic's own polite line; #nt-msg is an assertive alert -->
     </div>
     <!-- #3861 part 2: optional, none by default. The open tasks of the project the dialog is aimed
          at; "+ Add subtask" on a task page opens this with that task already picked. -->
@@ -15015,7 +15087,7 @@ window.kosmosMeasureScrollbarWidth();
            editor sends nothing and the engine writes the same template
            server-side, so the common path has ONE copy of the words. -->
       <div class="fhint" id="create-instr-hint">Describe what this agent does and how it should work. You can edit this later.</div>
-      <textarea id="create-instr" rows="10" spellcheck="false"></textarea>
+      <div class="micwrap"><textarea id="create-instr" rows="10" spellcheck="false"></textarea><button class="micbtn fieldmic" type="button" data-voice-for="create-instr" data-voice-name="Instructions" data-voice-msg="create-instr-note" aria-label="Talk instead of typing: Instructions" title="Talk instead of typing: Instructions" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <div class="fmsg" id="create-instr-note" role="status" aria-live="polite"></div>
       <!-- #739 (Josh, 2026-08-24 21:16): the block that explained the working
            rules under this box ("Whatever you write here, your agent also gets
@@ -15948,9 +16020,16 @@ window.kosmosMeasureScrollbarWidth();
          CONVERSATION live in the attachment store, not the folder, so a
          folder read alone misses exactly the files a person dropped into the
          room. Neither list pretends to be the other. -->
-    <h3 class="dlab" id="docs-convo-head" hidden>From the conversation</h3>
+    <!-- #4937 (Josh, 2026-10-01 20:56): the conversation's files no longer stack above the folder's
+         and push them down a long page. One segmented control (the app's own, as the agents' Grid/Org
+         chart switch), "In the project folder" first and chosen on every open; each segment shows only
+         its own list. It shows only when the conversation has files: with none, there is nothing to
+         switch to. The two sources stay said apart (#131): the control names them. -->
+    <div class="cons-agents-lay docs-seg" id="docs-seg" role="radiogroup" aria-label="Which files to show" hidden>
+      <button type="button" role="radio" data-docseg="folder" aria-checked="true" tabindex="0" aria-controls="docs-list">In the project folder</button>
+      <button type="button" role="radio" data-docseg="convo" aria-checked="false" tabindex="-1" aria-controls="docs-convo">From this conversation</button>
+    </div>
     <div id="docs-convo" class="pj-docs"></div>
-    <h3 class="dlab" id="docs-folder-head" hidden>In the project folder</h3>
     <p class="dhint" id="docs-count" style="margin:0 0 8px;" hidden></p>
     <div id="docs-list" class="pj-docs"></div>
     <div class="frow" id="docs-pager" hidden style="margin:10px 0 0; gap:8px;">
@@ -15986,7 +16065,7 @@ window.kosmosMeasureScrollbarWidth();
 
     <div class="field">
       <label class="flabel" for="pjs-name">Name</label>
-      <input class="tk-inp" type="text" id="pjs-name" maxlength="120">
+      <div class="micwrap line"><input class="tk-inp" type="text" id="pjs-name" maxlength="120"><button class="micbtn fieldmic" type="button" data-voice-for="pjs-name" data-voice-name="Name" data-voice-msg="pjs-msg" aria-label="Talk instead of typing: Name" title="Talk instead of typing: Name" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <!-- #1305 (Josh, 2026-08-28): "if we change a project name, do agents lose
            context of that?" He was avoiding a rename because nothing on this
            screen said whether it was destructive. It is not, twice over: the
@@ -16011,7 +16090,7 @@ window.kosmosMeasureScrollbarWidth();
            exact bug this note already forbids. The number here, the number in
            PJ_DESC_MAX and the engine's are pinned together by a test. -->
       <p class="fhint" id="pjs-desc-hint">Up to 1000 characters.</p>
-      <textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint pjs-desc-note"></textarea>
+      <div class="micwrap"><textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint pjs-desc-note"></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pjs-desc" data-voice-name="Description" data-voice-msg="pjs-msg" aria-label="Talk instead of typing: Description" title="Talk instead of typing: Description" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="ferr" id="pjs-desc-err" aria-live="polite"></p>
       <!-- #1305, the other half of Josh's question: "if I change the description,
            are they made aware that I changed the description?" No, and there is
@@ -16215,8 +16294,8 @@ window.kosmosMeasureScrollbarWidth();
              would refuse a legitimate name on that path, and the live line
              below is the real gate either way -- it shows the exact path, or
              the refusal, before anything is made. -->
-        <input type="text" id="pj-name" maxlength="120" placeholder="Henderson lease"
-               aria-label="What you call this project">
+        <div class="micwrap line"><input type="text" id="pj-name" maxlength="120" placeholder="Henderson lease"
+               aria-label="What you call this project"><button class="micbtn fieldmic" type="button" data-voice-for="pj-name" data-voice-name="Name" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing: Name" title="Talk instead of typing: Name" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       </div>
       <!-- ⚠️ THE PATH IS SHOWN BEFORE ANYTHING IS MADE. The folder name is
            derived from what is typed (slashes become dashes), and a derivation
@@ -16250,10 +16329,10 @@ window.kosmosMeasureScrollbarWidth();
            a pasted emoji description at half length. The cap is said in words
            and enforced where it is defined. -->
       <p class="fhint" id="pj-add-desc-hint">Up to 1000 characters.</p>
-      <textarea class="tk-inp" id="pj-add-desc" rows="2"
+      <div class="micwrap"><textarea class="tk-inp" id="pj-add-desc" rows="2"
                 aria-label="What this project is about"
                 aria-describedby="pj-add-desc-hint"
-                placeholder="Renewing the Henderson lease before October."></textarea>
+                placeholder="Renewing the Henderson lease before October."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pj-add-desc" data-voice-name="Description" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing: Description" title="Talk instead of typing: Description" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="ferr" id="pj-add-desc-err" aria-live="polite"></p>
     </div>
 
@@ -16264,10 +16343,10 @@ window.kosmosMeasureScrollbarWidth();
     <div class="field">
       <span class="flabel">What does done look like?</span>
       <p class="fhint" id="pj-add-done-hint">Optional. If you skip it, one of the agents you add here will ask you.</p>
-      <textarea class="tk-inp" id="pj-add-done" rows="2"
+      <div class="micwrap"><textarea class="tk-inp" id="pj-add-done" rows="2"
                 aria-label="What does done look like?"
                 aria-describedby="pj-add-done-hint"
-                placeholder="The new lease is signed and filed."></textarea>
+                placeholder="The new lease is signed and filed."></textarea><button class="micbtn fieldmic" type="button" data-voice-for="pj-add-done" data-voice-name="What done looks like" data-voice-msg="pj-add-msg" aria-label="Talk instead of typing: What done looks like" title="Talk instead of typing: What done looks like" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></div><!-- #4409 slice 2: hold the mic to talk into this box -->
       <p class="ferr" id="pj-add-done-err" aria-live="polite"></p>
     </div>
 
@@ -20944,8 +21023,9 @@ function updateNothingToLose() {
     /* #4557: a team being made (its names being checked, its members being created, the board being
        watched for them, a picture going up). A reload here would leave half a team and no way to go on.
        Only while something is in flight: a finished or a stopped team holds nothing. */
-    typeof TC !== 'undefined' && !!TC && !!(TC.busy || TC.running || TC.watching),
-    typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING > 0,   // counted apart: Say Hello lets the team go while its pictures are still going up
+    // #4936 review 21: and while Kosmos says hello to its members or waits on their pictures before leaving.
+    typeof TC !== 'undefined' && !!TC && !!(TC.busy || TC.running || TC.watching || TC.greeting || TC.leaving),
+    typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING > 0,   // counted apart: Go to your team lets the team go while its pictures are still going up
     typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
   if (busy.some(Boolean)) return false;
   const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
@@ -34753,7 +34833,8 @@ function dmRow(m, name, replyAdjacent) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
-      + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+      + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
+      + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
@@ -34838,12 +34919,12 @@ function dmReplyHead(m, name, adjacent) {
   const orig = DM_ROWS.get(m.replyTo);
   /* As in a room (#3745): right under the message it answers, the thread already reads that way, so the
      header is left out; a screen reader still hears what it answers. */
-  if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig))) + '</span>';
+  if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig, dmReplyWho(orig, name)))) + '</span>';
   /* Never silence: a header whose original is not here says why, and "further back" is not "gone". */
   /* "Further back" only when older messages were left out AND the original is older than the oldest one sent;
      otherwise it is gone (pruned, or never here). */
   if (!orig) return '<span class="msg-replyto gone">' + (DM_ROWS_OLDER && DM_ROWS_OLDEST && m.replyTo < DM_ROWS_OLDEST ? 'Original message is further back' : 'Original message unavailable') + '</span>';
-  const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig);
+  const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig, who);
   return '<button type="button" class="msg-replyto" data-jump-at="' + esc(m.replyTo) + '" aria-label="'
     + esc(who + ': ' + gist + ', the message this answers. Go to it') + '"><b>' + esc(who) + ':</b> ' + esc(gist) + '</button>';
 }
@@ -34890,7 +34971,7 @@ function dmReplyStart(at) {
   // guard is the server's: it refuses a reply to a message that is not in this conversation.
   if (!agent || !m || DM_ROWS_OF !== agent) { dmReplySay('Could not start a reply. Try again.'); return; }
   /* #4423: `from` kept beside the name, so the strip names the sender as they are called NOW (dmReplyPaint). */
-  DM_REPLY[agent] = { at, from: (m && m.from) || null, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
+  DM_REPLY[agent] = { at, from: (m && m.from) || null, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m, dmReplyWho(m, DM_ROWS_NAME)) };
   dmReplyPaint(agent);
   dmReplyAnnounce('Replying to ' + DM_REPLY[agent].who + ': ' + DM_REPLY[agent].words);
   const said = document.getElementById('d-say-msg');   // a refusal about the previous reply is done with
@@ -36931,6 +37012,22 @@ function detailSectionGroup(section) {
    drops its scrollTop, so "came back to where I was reading" has to be kept
    here; null means nobody has left Talk for this agent yet. */
 let TALK_SCROLL = null;
+/* #4961: set while a key press is under way, for the landing ring (.dsec.kbd-landed): from a
+   keydown without a modifier until the task after its keyup (Enter activates a button on keydown,
+   Space on keyup, so both are covered). A section reached any other way, including a click or code
+   running later, gets no ring. A pointer press also drops every landing ring, so a click back on
+   the section itself never shows one. */
+let DSEC_KEYBOARD = false;
+document.addEventListener('keydown', (e) => {
+  if (!e.metaKey && !e.ctrlKey && !e.altKey) DSEC_KEYBOARD = true;
+}, true);
+document.addEventListener('keyup', () => { setTimeout(() => { DSEC_KEYBOARD = false; }, 0); }, true);
+window.addEventListener('blur', () => { DSEC_KEYBOARD = false; });   // a keyup that leaves with the window never arrives
+
+document.addEventListener('pointerdown', () => {
+  DSEC_KEYBOARD = false;
+  document.querySelectorAll('.dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
+}, true);
 function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
   /* #4433: Swarm Settings exists only on a swarm's page (the box is shown by swarmPagePaint). */
@@ -36975,7 +37072,11 @@ function detailGo(section, opts) {
      open it stays where it was: opening an agent already manages focus (the
      answer button's intent, the back button), and yanking it here would fight
      that. */
-  if (target && !(opts && opts.focus === false)) target.focus();
+  if (target && !(opts && opts.focus === false)) {
+    document.querySelectorAll('#panel-detail .dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
+    if (DSEC_KEYBOARD) target.classList.add('kbd-landed');   // #4961: the landing ring is keyboard-only
+    target.focus();
+  }
   /* ⚠️ A PAINT THAT MEASURES LAYOUT CANNOT DO IT INTO A HIDDEN SECTION.
      `setThread` scrolls the thread to its newest row when the count changes;
      with Talk at display:none the scrollHeight is 0, the assignment is a
@@ -37155,7 +37256,11 @@ function settingsGo(section, opts) {
     sec.hidden = !on;
     if (on) target = sec;
   });
-  if (target && !(opts && opts.focus === false)) target.focus();
+  if (target && !(opts && opts.focus === false)) {
+    document.querySelectorAll('#panel-settings .dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
+    if (DSEC_KEYBOARD) target.classList.add('kbd-landed');   // #4961: the landing ring is keyboard-only
+    target.focus();
+  }
   /* Plus paints on arrival immediately (its truth is a fetch, not the
      poll, so a person should not wait for the next tick to see it), and
      the status tick() (#743) keeps repainting it every 5s for as long as
@@ -38282,8 +38387,9 @@ function wnWire(back) {
 /* A window drawn over this one (first run, the update overlay) owns the keys and focus. */
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
+  // #4930: and the full-page file preview.
   // #4343: and the restart screen. #4823: and the phone menu.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden])');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden]), #pv-preview');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -39173,14 +39279,23 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   const plan = DOCTRINE_PLAN;
   if (!plan) return;
   const who = (CURRENT && CURRENT.name) || plan.sessionName;
-  document.getElementById('doc-title').textContent = 'Add the working rules to ' + who + '’s instructions?';
+  document.getElementById('doc-title').textContent = (plan.replacing || plan.updating)
+    ? 'Update the working rules in ' + who + '’s instructions?'   // #4890
+    : 'Add the working rules to ' + who + '’s instructions?';
   /* #1841: the button is now "Add Instructions & Restart", so the dialog says
      the restart is part of the deal and names the one cost of it (an empty
      memory), the same consequence the restart confirm states. Named, never
      "it". */
-  document.getElementById('doc-body').textContent =
-    'Your words stay exactly as they are. These go underneath, under their own '
-    + 'heading, so you can see where yours end and ours begin. Adding them restarts '
+  /* #4890: the sentence follows what the plan says the click writes (plan.replacing, plan.updating). */
+  document.getElementById('doc-body').textContent = (plan.replacing
+    ? (plan.updating ? 'Your words outside the marked block stay exactly as they are. ' : 'Your words stay exactly as they are. ')
+      + 'The older copy of these rules that Kosmos added is replaced with the current one. '
+    : plan.updating
+      ? 'Your words outside the marked block stay exactly as they are. The working rules in it are brought up to date. '
+      : 'Your words stay exactly as they are. These go underneath, under their own '
+        + 'heading, so you can see where yours end and ours begin. ')
+    + (plan.updating ? 'Anything changed inside the marked block is set to the current rules. ' : '')
+    + ((plan.replacing || plan.updating) ? 'This restarts ' : 'Adding them restarts ')
     + who + ' to read them right away, so ' + who + '’s memory starts empty.';
   const list = document.getElementById('doc-list');
   list.textContent = '';
@@ -39201,7 +39316,9 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   /* #1841: through the modal container too, for the same reason the line above
      is -- a bare getElementById('doc-go') here would be the "first such lookup"
      the test the comment names anchors on. */
-  document.getElementById('doc-modal').querySelector('#doc-go').textContent = 'Add & Restart';
+  /* #4890: the button names the act the title names. The banner's "Add Instructions & Restart" stays: Josh's one
+     label for every case (the comment above #d-doctrine-note). */
+  document.getElementById('doc-modal').querySelector('#doc-go').textContent = (plan.replacing || plan.updating) ? 'Update & Restart' : 'Add & Restart';
   document.getElementById('doc-keep').textContent = 'Keep as it is';
   DOC_OPENER = document.getElementById('d-doctrine-add');
   document.getElementById('doc-modal').hidden = false;
@@ -39258,7 +39375,8 @@ document.getElementById('doc-go').addEventListener('click', async () => {
       document.getElementById('d-doctrine-note').hidden = true;
       loadInstructions(plan.sessionName); // the box below shows the file that now exists
       const who2 = (CURRENT && CURRENT.name) || plan.sessionName;
-      msg.textContent = 'Added. Restarting ' + who2 + ' to read them…';
+      const did = (plan.replacing || plan.updating) ? 'Updated' : 'Added';   // #4890: the verb the title used
+      msg.textContent = did + '. Restarting ' + who2 + ' to read them…';
       try {
         const rr = await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/restart', { method: 'POST' });
         const rout = await rr.json().catch(() => null);
@@ -39267,7 +39385,7 @@ document.getElementById('doc-go').addEventListener('click', async () => {
              person to say hello by hand. Guard the receipt on the open agent still
              being this one (like the trust-restart handlers) so a mid-wait switch
              does not land the line in another agent's dialog. */
-          msg.textContent = 'Added and restarted. Waking ' + who2 + '…';
+          msg.textContent = did + ' and restarted. Waking ' + who2 + '…';
           const forAgent = plan.sessionName;
           // #4008: the Sweep loader in front of the waiting line; the report's textContent write replaces it.
           if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
@@ -39277,13 +39395,13 @@ document.getElementById('doc-go').addEventListener('click', async () => {
           // regenerated-away node a clean no-op rather than a throw.
           autoHelloAfterRestart(forAgent,
             (t) => { if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected) msg.textContent = t; },
-            'Added and restarted, and said hello to wake ' + who2 + '.',
-            'Added and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.');
+            did + ' and restarted, and said hello to wake ' + who2 + '.',
+            did + ' and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.');
         } else {
-          msg.textContent = 'Added, but the restart did not take. ' + restartFailureLine(rout);
+          msg.textContent = did + ', but the restart did not take. ' + restartFailureLine(rout);
         }
       } catch {
-        msg.textContent = 'Added, but we could not reach Kosmos to restart ' + who2
+        msg.textContent = did + ', but we could not reach Kosmos to restart ' + who2
           + '. They will read the new rules on their next restart.';
       }
       keep.textContent = 'Close';
@@ -48447,7 +48565,7 @@ let IMPORT_GEN = 0;
    nothing) and the page MAKES each one through POST /api/agents, one request per agent, so every agent
    gets a single agent's full birth and a failed one is retried alone without redoing the rest.
    The lead is made first: the others report to it by name, so they wait until it exists. */
-let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, paintedSig }
+let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade,hello}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, paintedSig, helloStarted, greeting }   // #4936: hello is sending|started|failed|unsure
 let TC_UPLOADING = 0;   // pictures going up; not on TC, because they outlive it (review 28)
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
@@ -48464,14 +48582,25 @@ async function openTeamCreate(key) {
   /* Round 5: another team waits only while something is actually IN FLIGHT. A team that is unfinished but
      idle (a member refused every time, or never seen running) is replaced by the new one, or it would
      trap the page with a false "still making" until a reload. The same team always resumes. */
-  const inFlight = Boolean(TC && (TC.running || TC.watching || TC.busy));
+  const inFlight = Boolean(TC && (TC.running || TC.watching || TC.busy || TC.greeting || TC.leaving));   // review 16: leaving waits on pictures
   if (tcLive() && (TC.key === key || inFlight)) {
     const msg = document.getElementById('tc-msg');
     msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;
+    // Review 24/25: set before the paint, so the note names where it will go. Coming back to this team drops a request
+    // for another; picking another records it (opened once this one finishes, if the person is still here).
+    if (TC.key === key) delete TC.askedKey; else TC.askedKey = key;
     tcPaint();
+    if (TC.key === key && tcFinished() && TC.helloStarted && !document.getElementById('tc-hello').hidden) {
+      // Review 12: the same team picked again while one is not said hello to resumes it; say how to make another.
+      // Review 13: only when that button is on screen, and the label already ends in "Team".
+      msg.hidden = false; msg.dataset.kind = 'made-again';   // review 25: its own kind, so the in-flight clearing leaves it
+      msg.textContent = 'You just made this ' + ((TC.team && TC.team.label) || 'team') + '. To make another, choose Go to your team first.';
+    }
     if (TC.key !== key) {
       msg.hidden = false; msg.dataset.kind = 'resume';
-      msg.textContent = 'Kosmos is still making ' + ((TC.team && TC.team.label) || 'a team') + '. You can make another team once it finishes.';
+      // Review 5: a team already made and being said hello to is not "still making".
+      // Review 17: and one waiting on its pictures before it leaves is "finishing".
+      msg.textContent = (TC.leaving ? 'Kosmos is still finishing your ' : (TC.greeting && !TC.running ? 'Kosmos is still saying hello to your ' : 'Kosmos is still making your ')) + ((TC.team && TC.team.label) || 'team') + '. You can make another team once it finishes.';
     }
     if (!TC.running && !TC.watching && TC.members.some((m) => m.state === 'made' && m.seen !== 'running')) {
       for (const m of TC.members) if (m.seen === 'unseen') m.seen = null;
@@ -48497,7 +48626,7 @@ async function openTeamCreate(key) {
   document.getElementById('tc-tell').disabled = true;
   // The progress line is the previous team's: the load can take seconds now that it may download (#4632).
   document.getElementById('tc-note').textContent = '';
-  msg.hidden = true; msg.textContent = '';
+  msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;   // #4936 review 29: no kind carried to the next team
   let body = null;
   try {
     const res = await fetch('/api/teams/seeded/' + encodeURIComponent(key));
@@ -48755,7 +48884,18 @@ function tcFinished() {
   return Boolean(TC && TC.started && TC.members.every((m) => m.state === 'made' && m.seen === 'running'));
 }
 function tcLive() {
-  return Boolean(TC && (TC.busy || TC.started) && !tcFinished());
+  // #4936: a team still being greeted is live too, so Back or opening it again resumes it rather than dropping it.
+  // A member whose hello failed keeps it live too: its row and Try again must not be dropped by Back or a reopen.
+  // Review 5: an UNCONFIRMED hello does not: it has no retry, so it would hold the team live for good and the same
+  // team picked again would resume a finished team instead of making a new one.
+  // Review 10: and while it waits for pictures before leaving: Back then keeps it, not drops it mid-upload.
+  // Review 21: and once it has stayed for a row's note (a failed picture, a step not done, a rename), so Back and the
+  // same team picked again keep that row instead of starting a fresh team over it.
+  // Review 22: any row with a note (a step not done, a rename, a failed picture) keeps it live once the hellos began,
+  // whatever the other rows' hellos are (an unconfirmed one included), not only after an all-placed stay.
+  return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting || TC.leaving || TC.stayed
+    || (TC.helloStarted && TC.members.some((m) => (m.warn || []).length || m.renamedFrom || m.portrait === 'failed'))
+    || (TC.helloStarted && TC.members.some((m) => m.hello !== 'started' && m.hello !== 'unsure'))));
 }
 
 function tcFillProjects() {
@@ -48784,7 +48924,9 @@ function tcPaint() {
   const had = document.activeElement;
   const hadRow = had && list.contains(had) ? had.closest('li') : null;
   const hadSlot = hadRow ? hadRow.dataset.slot : null;
-  const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : 'name') : null;
+  // #4936 review 6: focus left on the row itself (a Try again was pressed and the row rebuilt without it) goes back to a
+  // new Try again if the attempt failed again, not to the name box, which is disabled on a made row.
+  const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : (had === hadRow ? 'row' : 'name')) : null;
   const hadCaret = (had && hadKind === 'name' && typeof had.selectionStart === 'number') ? had.selectionStart : null;
   /* Round 28: the whole selection, not only its start. A person who selected a failed row's name to replace
      it and typed as a repaint landed had their text put in front of the old name ("AdaLeo"), which was
@@ -48792,7 +48934,7 @@ function tcPaint() {
   const hadEnd = (hadCaret !== null && typeof had.selectionEnd === 'number') ? had.selectionEnd : hadCaret;
   /* Round 3: the watcher repaints every 2s. Rebuilding unchanged rows moved focus to a new element each
      time (a screen reader re-announced it; an IME composition was lost), so only a change rebuilds. */
-  const sig = JSON.stringify([TC.started, Boolean(TC.busy), TC.members.map((m) => [m.state, m.why, m.seen, m.portrait, m.renamedFrom || '', (m.warn || []).join('|')])]);
+  const sig = JSON.stringify([TC.started, Boolean(TC.busy), TC.members.map((m) => [m.state, m.why, m.seen, m.portrait, m.renamedFrom || '', (m.warn || []).join('|'), m.hello || ''])]);
   if (sig !== TC.paintedSig || !list.children.length) {
   TC.paintedSig = sig;
   list.replaceChildren(...TC.members.map((m, i) => {
@@ -48821,6 +48963,11 @@ function tcPaint() {
     const made = m.seen === 'running' ? 'Running' : (m.seen === 'unseen' ? 'Made, not seen running yet' : 'Made, starting…');
     st.textContent = ({ ready: '', waiting: 'Waiting', held: 'Waiting for the lead', creating: 'Making…',
       made: made + (m.portrait === 'failed' ? ' (picture not set)' : ''), failed: 'Not made' })[m.state] || '';
+    // #4936: once it is running, Kosmos says hello to it; the row says where that is.
+    if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', waiting: 'Waiting for it to start…', started: 'Said hello', failed: 'Could not say hello', unsure: 'Hello not confirmed' })[m.hello] || st.textContent;
+    if (m.state === 'made' && m.hello && m.portrait === 'failed') st.textContent += ' (picture not set)';   // review 7: still said
+    // Review 5: and in its own colour: only "Said hello" is the success green; a failed hello is red, the rest plain.
+    if (m.state === 'made' && m.hello && m.hello !== 'started') st.className = 'tc-state' + (m.hello === 'failed' ? ' failed' : '');
     row.append(seat, input, st);
     if (m.renamedFrom) {
       const note = document.createElement('p'); note.className = 'tc-why';
@@ -48835,6 +48982,21 @@ function tcPaint() {
       const p = document.createElement('p'); p.className = 'tc-why';
       p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
       row.append(p);
+    }
+    if (m.state === 'made' && m.hello === 'unsure') {   // #4936: it may have reached it, so no retry (it could say hello twice)
+      const why = document.createElement('p'); why.className = 'tc-why plain';
+      why.textContent = 'Kosmos tried to say hello but could not confirm it arrived. Look at its page before saying it again.';
+      row.append(why);
+    }
+    if (m.state === 'made' && m.hello === 'failed') {   // #4936: a member that did not start is said, with a retry
+      const why = document.createElement('p'); why.className = 'tc-why';
+      // Review 9: the board's or the server's own reason when there is one (a question on its page, a refusal).
+      why.textContent = m.helloWhy ? pjSentence(m.helloWhy) : 'Kosmos could not say hello to it, so it may not have started. Try again, or say hello to it on its page.';
+      const again = document.createElement('button');
+      again.type = 'button'; again.className = 'btn tc-retry'; again.textContent = 'Try again';
+      again.setAttribute('aria-label', 'Try again: say hello to the ' + m.title);
+      again.addEventListener('click', () => tcHelloRetry(m.slot));
+      row.append(why, again);
     }
     if (m.state === 'failed') {
       const again = document.createElement('button');
@@ -48851,7 +49013,7 @@ function tcPaint() {
   for (const making of list.querySelectorAll('.tc-state.creating')) making.insertAdjacentHTML('afterbegin', pjSpin());
   if (hadSlot && !list.contains(had)) {
     const row = list.querySelector('li[data-slot="' + CSS.escape(hadSlot) + '"]');
-    const back = row && ((hadKind === 'retry' && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
+    const back = row && (((hadKind === 'retry' || hadKind === 'row') && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
     if (back && !back.disabled) {
       back.focus({ preventScroll: true });
       if (hadCaret !== null && back.classList.contains('tc-name')) { try { back.setSelectionRange(hadCaret, hadEnd); } catch { /* not a text box */ } }
@@ -48890,7 +49052,12 @@ function tcPaint() {
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
-  if (msgEl.dataset.kind === 'resume' && !tcLive()) { msgEl.hidden = true; msgEl.textContent = ''; delete msgEl.dataset.kind; }
+  // Review 25: the "still making / saying hello / finishing" message goes once nothing is in flight, not only once the
+  // team stops being live (a team that stays for a row keeps live, and the message would claim work that has ended).
+  // A request to open another team goes with it: it was for "once this one finishes", which a stay is not.
+  const stillGoing = Boolean(TC.running || TC.watching || TC.busy || TC.greeting || TC.leaving);
+  if (msgEl.dataset.kind === 'resume' && (!tcLive() || !stillGoing)) { msgEl.hidden = true; msgEl.textContent = ''; delete msgEl.dataset.kind; }
+  if (!stillGoing && TC.askedKey) delete TC.askedKey;
   /* Progress is spoken politely (tc-note is a live region): a screen-reader user heard nothing before.
      "Ready" only once the board has seen every member running, not when every create was accepted. */
   let note;
@@ -48898,35 +49065,306 @@ function tcPaint() {
     note = (n === 1 ? 'This makes 1 agent. It is a real agent' : 'This makes ' + n + ' agents at once. Each one is a real agent') + ' that works on your AI plan, like any agent you make.'
       + (TC.team && TC.team.caution ? ' ' + TC.team.caution : '');
   } else if (runningN === n) {
-    const warned = TC.members.filter((m) => (m.warn || []).length).length;
-    /* Review 27: the single create ends on the invitation to say hello and one button straight to the
-       agent (Josh, 2026-08-22: "Unless I go say hello to them, they don't start"; and no sending people
-       off to find the agent). A team ended on a sentence and Back. Same invitation, same place to go:
-       the lead, who the others report to. It says "each", because nothing here shows that greeting the
-       lead wakes the rest. */
-    const leadName = tcLeadShown();
-    note = 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' running on your board.'
-      + (warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '')
-      + (n === 1 ? ' Say “hello” to ' + (leadName || 'it') + ' to activate it on Kosmos.'
-        : ' Say “hello” to each of them to activate it on Kosmos' + (leadName ? ', starting with ' + leadName + '.' : '.'));
+    const warned = TC.members.filter((m) => (m.warn || []).length || m.renamedFrom).length;   // review 20: a rename keeps the step too
+    /* Josh, 2026-08-22: "Unless I go say hello to them, they don't start". */
+    /* #4936 (Josh, 0.7.16: "Is there a way to say hello to all of them at once automatically"): Kosmos says the
+       hello itself, lead first, the same message the agent's page sends. The note follows where that is. */
+    const sentN = TC.members.filter((m) => m.hello === 'started').length;
+    const notN = TC.members.filter((m) => m.hello === 'failed' || m.hello === 'unsure').length;
+    const look = warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '';
+    // "Said hello", not "started": placed means the hello reached the agent; its first turn is measured live (0.7.17).
+    const noPicN = TC.members.filter((m) => m.portrait === 'failed').length;   // review 8; review 17: counted
+    const noPic = noPicN === 1 ? ' A picture was not set: see its row.' : (noPicN ? ' ' + noPicN + ' pictures were not set: see their rows.' : '');
+    // Review 17: while it waits for pictures before leaving, say so: the move to the agents view is not a surprise.
+    const going = (TC.leaving && !TC.members.some(tcRowNote)) ? (TC.askedKey && TC.askedKey !== TC.key ? ' Setting their pictures, then opening the team you picked…' : ' Setting their pictures, then taking you to them…') : '';
+    const stillPic = (!TC.leaving && TC.stayed && TC.members.some((m) => m.portraitBusy)) ? ' A picture is still being set.' : '';   // review 23
+    if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look + noPic + going + stillPic;
+    else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
+      : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at ' + (notN === 1 ? 'its row.' : 'their rows.')) + look;
+    else {
+      // Review 5: during a Try again only some are being said hello to, so the note says how many.
+      const sayingN = TC.members.filter((m) => m.hello === 'sending' || m.hello === 'waiting').length;
+      note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : (sayingN && sayingN < n ? (sayingN === 1 ? '1 of them' : sayingN + ' of them') : 'each of them')) + '…' + look;
+    }
   } else {
     note = madeN + ' of ' + n + ' made' + (runningN ? ', ' + runningN + ' running' : '') + (failedN ? ', ' + failedN + ' not made' : '') + '.';
   }
   const noteEl = document.getElementById('tc-note');
   if (noteEl.textContent !== note) noteEl.textContent = note;
-  // Only once the board has SEEN every member running: there is somebody to say hello to.
+  /* #4936: once the board has SEEN every member running, Kosmos says hello to each (tcSayHello). When every hello is
+     placed it takes the person back to their agents (tcGoToTeam); if any is not, it stays here with that row's
+     retry, and this button goes to the team. */
   const hello = document.getElementById('tc-hello');
-  const leadShown = tcFinished() ? tcLeadShown() : '';
-  hello.hidden = !leadShown;
-  if (leadShown) hello.textContent = 'Say Hello to ' + leadShown;
+  const finished = tcFinished();
+  const settled = finished && TC.members.every((m) => m.hello && m.hello !== 'sending' && m.hello !== 'waiting');
+  // Review 8: also when every hello is placed but a picture failed, or is still going up after the wait: the step
+  // stays for that row, and the person needs a way on that is not Back.
+  hello.hidden = !(settled && (TC.members.some((m) => m.hello !== 'started')
+    || TC.members.some((m) => m.portrait === 'failed' || (m.warn || []).length || m.renamedFrom) || (!TC.leaving && TC.members.some((m) => m.portraitBusy)) || TC.stayed));
+  hello.textContent = n === 1 ? 'Go to your agent' : 'Go to your team';
+  // Review 27: "To make another, choose Go to your team first." only while that button is on screen.
+  const madeMsg = document.getElementById('tc-msg');
+  if (madeMsg.dataset.kind === 'made-again' && hello.hidden) { madeMsg.hidden = true; madeMsg.textContent = ''; delete madeMsg.dataset.kind; }
+  if (finished && TC_AUTO_HELLO && !TC.helloStarted) tcSayHello();
 }
-/* The lead as the list marks it ("leads the team"), and the name it was made under. */
+
+/* #4936: say hello to every member, the lead first, then the rest together: the same request the agent's page sends
+   (POST .../thread {text: "hello"}). The answer's delivery state decides the row (engine/chat.js DELIVERY):
+   placed = started; could_not (or a refusal) = not sent, tried twice more a few seconds apart (a member just seen
+   running may still be starting up), then Try again (a could_not HELD on the shared quota, #4959, is not tried again
+   before the reset: Try again at once); anything else (unconfirmed, no answer) may have reached it, so it
+   is not sent again and the row says to look. */
+const TC_HELLO_TRIES = 3;
+let TC_AUTO_HELLO = true;     // a browser check whose arm is not about #4936 turns it off
+let TC_HELLO_GAP_MS = 3000;   // a browser check can shorten it
+let TC_HELLO_TIMEOUT_MS = 30000;   // review 6: a hello the board never answers is given up as unconfirmed
+const TC_HELLO_WAITS = 10;   // review 18: a member still starting is waited out up to this many gaps (about 30 s), apart from the sends
+async function tcHelloSend(name) {
+  /* Review 6: a board that takes the request and never answers would leave the row "Saying hello…" for good and keep
+     the team live. After TC_HELLO_TIMEOUT_MS it is given up as unconfirmed (it may have arrived), never re-sent. */
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), TC_HELLO_TIMEOUT_MS) : null;
+  try {
+    const r = await postWakeHello(name, ctl ? ctl.signal : undefined);   // the same request sendWakeHello makes
+    /* Review 7: only the refusals the route makes BEFORE any keystroke are retried: 404 (no such agent yet) and 409
+       (held). A 400 cannot be the request check for "hello"; it is the route's catch-all, which could follow a
+       delivery, so it and every other status may have placed it already and are never re-sent. */
+    if (!r.ok) return { got: (r.status === 404 || r.status === 409) ? 'failed' : 'unsure', why: r.because };
+    const state = r.delivery && r.delivery.state;
+    /* #4959 (merged in): the hello is automatic, so while this machine's shared Google quota is out the server holds
+       it: a could_not with held:true, nothing typed. Another try cannot land before the reset, so it is not retried
+       (stop), and the row says the restart wake's own sentence (wakeHeldLine) rather than the server's raw one. */
+    if (state === 'could_not' && r.delivery.held === true) {
+      return { got: 'failed', why: wakeHeldLine('', r.delivery).trim(), stop: true };
+    }
+    // Review 13 (over review 12): a could_not's words are the sentence the agent's own chat page shows the person (a
+    // dialog to answer in its terminal, a paused swarm), so the row says them too, not a generic "try again".
+    return { got: state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure'), why: state === 'could_not' ? r.because : null };
+  } catch { return { got: 'unsure', why: null }; }   // the request may have reached the board
+  finally { if (timer) clearTimeout(timer); }
+}
+/* Review 9: the board's own state for the member, read fresh: a reason not to type into it, or null. A read that
+   fails says nothing, and the hello goes ahead (the server still refuses a held agent before any keystroke). */
+/* Review 11: one board read shared by every hello within a second (a team greets its members at once, and each read is
+   a full snapshot of the board). Review 10: bounded at 5 s; a read that hangs or fails says nothing. */
+let TC_STATUS_READ = null;
+function tcStatusAgents() {
+  if (TC_STATUS_READ && Date.now() - TC_STATUS_READ.at < 1000) return TC_STATUS_READ.p;
+  const p = (async () => {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 5000) : null;
+    try { const res = await fetch('/api/status', { cache: 'no-store', signal: ctl ? ctl.signal : undefined }); return res.ok ? ((await res.json()).agents || []) : null; }
+    catch { return null; } finally { if (timer) clearTimeout(timer); }
+  })();
+  TC_STATUS_READ = { at: Date.now(), p };
+  return p;
+}
+async function tcHelloHeld(name) {
+  const agents = await tcStatusAgents();
+  const a = (agents || []).find((x) => x.sessionName === name) || null;
+  if (!a) return null;
+  // { text, transient }: transient holds are tried again by the loop (review 14); the rest stop it.
+  if (a.state === 'needs_you') return { text: 'It is waiting on something on its page, so Kosmos did not type into it. See to it there, then Try again.', transient: false };
+  if (a.state === 'auth_failed') return { text: 'Its sign-in failed, so Kosmos did not say hello. Fix it on its page, then Try again.', transient: false };
+  if (a.state === 'rate_limited') return { text: 'Its account is at its limit right now, so Kosmos did not say hello. Try again later.', transient: false };
+  // Review 13: unknown too: engine/status.js says nothing may type into an UNKNOWN pane automatically.
+  // Review 15: a stopped member does not start by itself, so it is not waited out and its row says how.
+  if (a.state === 'stopped') return { text: 'It is stopped, so Kosmos did not say hello. Start it on its page, then Try again.', transient: false };
+  if (['restarting', 'connection_lost', 'unknown'].includes(a.state)) return { text: 'It is not ready to take a message yet. Try again in a moment.', transient: true };
+  return null;
+}
+async function tcHelloOne(m, gen) {
+  if (!m) return;
+  if (!m.made || !m.made.name) { m.hello = 'failed'; tcPaint(); return; }   // nothing to greet: said, never stuck
+  m.hello = 'sending'; m.helloWhy = null; tcPaint();
+  /* Review 9: "the board can see it" is not "it can take a message". A member asking something (needs_you: Enter
+     would pick an option), signed out, at its limit, or not up is not typed into: its row says why, with Try again. */
+  // Review 11: asked before EVERY try, not only the first: a member can draw a question between two tries.
+  /* Review 14/18/19: a member "not ready yet" (just made, still starting) is waited out, one gap between every look,
+     up to TC_HELLO_WAITS looks, and the waiting uses up none of the TC_HELLO_TRIES sends; a member that needs the
+     person, is signed out, at its limit or stopped will not clear in seconds, so it stops at once. */
+  let got = 'failed';
+  let why = null;
+  let sends = 0;
+  let waits = 0;
+  let looks = 0;
+  while (sends < TC_HELLO_TRIES && got === 'failed') {
+    if (looks++) await new Promise((r) => setTimeout(r, TC_HELLO_GAP_MS));   // a gap before every look but the first
+    if (gen !== TC_GEN) return;
+    const held = await tcHelloHeld(m.made.name);
+    if (gen !== TC_GEN || !TC) return;
+    if (held && held.transient) {
+      if (++waits > TC_HELLO_WAITS) { got = 'failed'; why = held.text; break; }   // waited long enough
+      TC_STATUS_READ = null;   // the next look reads the board afresh, one gap from now
+      if (m.hello !== 'waiting') { m.hello = 'waiting'; tcPaint(); }
+      continue;
+    }
+    if (held) { m.hello = 'failed'; m.helloWhy = held.text; tcPaint(); return; }
+    if (m.hello === 'waiting') { m.hello = 'sending'; tcPaint(); }
+    sends++;
+    let stop = false;
+    ({ got, why, stop } = await tcHelloSend(m.made.name));
+    if (stop) break;   // #4959: held on the shared quota; Try again stays on the row for after the reset
+  }
+  if (gen !== TC_GEN || !TC) return;
+  m.hello = got;
+  m.helloWhy = got === 'failed' ? why : null;
+  tcPaint();
+}
+async function tcSayHello() {
+  if (!TC || TC.helloStarted) return;
+  TC.helloStarted = true; TC.greeting = true;
+  const gen = TC_GEN;
+  const lead = tcLead();
+  // Review 11: a throw must not leave the team "still saying hello" for good, blocking every other team.
+  // Review 25: a throw while only waiting (nothing sent) is "failed" (with Try again), not "not confirmed".
+  const settle = (m) => tcHelloOne(m, gen).catch(() => { if (m && m.hello === 'waiting') m.hello = 'failed'; else if (m && m.hello === 'sending') m.hello = 'unsure'; });
+  await settle(lead);
+  if (gen !== TC_GEN || !TC) return;
+  await Promise.all(TC.members.filter((m) => m !== lead).map(settle));
+  if (gen !== TC_GEN || !TC) return;
+  TC.greeting = TC.members.some((m) => m.hello === 'sending' || m.hello === 'waiting');   // a Try again pressed meanwhile may still be going
+  if (TC.members.every((m) => m.hello === 'started')) tcLeaveWhenSettled(gen);
+  else tcPaint();
+}
+/* Review 7: every hello placed, but a picture may still be going up. Leaving drops the team, and with it the row that
+   would say "(picture not set)", so wait for the pictures (bounded), and if one failed stay so its row can say so. */
+const tcRowNote = (m) => m.portrait === 'failed' || (m.warn || []).length || m.renamedFrom;   // something a row says
+async function tcLeaveWhenSettled(gen) {
+  if (!TC || TC.leaving) return;
+  // Review 23: a row with a note keeps the step whatever the pictures do, so it stays at once rather than waiting and
+  // promising a move it will not make.
+  if (TC.members.some(tcRowNote)) { TC.stayed = true; tcPaint(); return; }
+  TC.leaving = true;
+  if (TC.members.some((m) => m.portraitBusy)) tcPaint();   // review 17: the note says it is setting pictures first
+  // Review 28: the wait ends early when a row gets a note meanwhile (a picture that failed): it will stay, not leave.
+  for (let i = 0; i < 75 && TC && gen === TC_GEN && TC.members.some((m) => m.portraitBusy) && !TC.members.some(tcRowNote); i++) await new Promise((r) => setTimeout(r, 200));
+  if (gen !== TC_GEN || !TC) return;
+  TC.leaving = false;
+  // Review 10: once the step has stayed, Go to your team stays on offer even if the picture lands later.
+  // Review 17: a row with something to say (a step create reported as not done, a rename its teammates do not know)
+  // keeps the step too: leaving would drop it, and nothing on the agents view repeats it.
+  if (TC.members.some((m) => tcRowNote(m) || m.portraitBusy)) { TC.stayed = true; tcPaint(); return; }
+  // Review 23: a different team was asked for while this one finished: open THAT, which is what the person asked for,
+  // rather than carrying them to the agents view.
+  if (TC.askedKey && TC.askedKey !== TC.key && tcStepShown()) {
+    // Review 26: and say the first team is done, where a screen reader hears it, since the step it was on is replaced.
+    const k = TC.askedKey;
+    const done = 'Kosmos said hello to your ' + ((TC.team && TC.team.label) || 'team') + '. It is on your board.';
+    TC_GEN += 1; TC = null;
+    openTeamCreate(k);
+    tcAnnounce(done);
+    return;
+  }
+  tcGoToTeam(true);
+}
+function tcHelloRetry(slot) {
+  const m = TC && TC.members.find((x) => x.slot === slot);
+  if (!m || m.hello !== 'failed' || TC.leaving) return;
+  TC_STATUS_READ = null;   // review 12: a Try again reads the board afresh (the person may have just answered it)
+  const gen = TC_GEN;
+  TC.greeting = true;
+  tcHelloOne(m, gen).catch(() => { if (m.hello === 'waiting') m.hello = 'failed'; else if (m.hello === 'sending') m.hello = 'unsure'; }).then(() => {   // review 10: never stuck
+    if (gen !== TC_GEN || !TC) return;
+    TC.greeting = TC.members.some((x) => x.hello === 'sending' || x.hello === 'waiting');
+    if (TC.members.every((x) => x.hello === 'started')) tcLeaveWhenSettled(gen);
+    else tcPaint();   // review 15: a throw above is painted too, not left reading "Saying hello…"
+  });
+}
+/* #4936 (Josh: "It should take me to my agent view wherever I was and show me. I should be able to go see the new
+   agents easily."): to the agents view (what the sheet's own close shows, not where the team step's Back goes), with the new members' board cards scrolled
+   to and marked for a few seconds. `auto` (every hello said): only if the person is still on this step; otherwise the
+   screen does not move under them and the team is simply finished. */
+let TC_JUST_MADE_MS = 10000;
+function tcStepShown() {
+  const panel = document.getElementById('panel-create');
+  const step = document.getElementById('cstep-teammake');
+  return Boolean(panel && !panel.hidden && step && !step.hidden);
+}
+function tcGoToTeam(auto) {
+  if (!TC) return;
+  const names = TC.members.filter((m) => m.made && m.made.name).map((m) => m.made.name);
+  const notSaid = TC.members.filter((m) => m.hello !== 'started').length;
+  const leaving = !auto || tcStepShown();
+  TC_GEN += 1; TC = null;   // the team is finished: nothing is left to resume
+  if (!leaving) return;
+  WATCH += 1;
+  if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); } else showTab('agents');
+  const until = Date.now() + TC_JUST_MADE_MS;
+  let first = null;
+  let focused = false;
+  // Review 19: once the person clicks or presses a key, focus is theirs: the mark loop stops putting it back.
+  let moved = false;   // review 20: and the first scroll and focus wait on it too (a late card must not take focus)
+  const theirs = () => { focused = false; moved = true; };
+  // Review 21: a wheel scroll counts too; all three are removed when the mark window ends.
+  for (const ev of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(ev, theirs, { once: true, capture: true, passive: true });
+  const sel = names.map((n) => '.acard[data-agent="' + CSS.escape(n) + '"], .lrow[data-agent="' + CSS.escape(n) + '"]').join(', ');
+  const mark = () => {
+    const live = Date.now() < until;
+    for (const el of (sel ? document.querySelectorAll(sel) : [])) {
+      el.classList.toggle('just-made', live);
+      if (live && !first && !moved && el.offsetParent) {
+        first = el;
+        el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        // Focus leaves the hidden step for the first new member, unless the person has already moved it elsewhere.
+        const at = document.activeElement;
+        // Review 29: the card's own "Open <name>" button when it has one (a named control), else the card itself.
+        if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { const t = el.querySelector('.namego') || el; if (t === el) el.tabIndex = -1; t.focus({ preventScroll: true }); focused = true; }
+      }
+    }
+    /* Review 5: the board rebuilds its cards on every poll, so the focused card is replaced and focus drops to the
+       page. While the mark is up, focus goes back to the same agent's new card, unless the person moved it. */
+    if (live && focused && first && !first.isConnected) {
+      const again = [...document.querySelectorAll(sel)].find((e) => e.dataset.agent === first.dataset.agent && e.offsetParent);
+      const at = document.activeElement;
+      if (again && (!at || at === document.body)) { const t = again.querySelector('.namego') || again; if (t === again) again.tabIndex = -1; t.focus({ preventScroll: true }); first = again; }
+      else if (again) focused = false;
+    }
+    if (live) setTimeout(mark, 150);
+    else for (const ev of ['pointerdown', 'keydown', 'wheel']) document.removeEventListener(ev, theirs, { capture: true });   // review 16: the board redraws its cards each poll; put the mark back quickly
+  };
+  mark();
+  // The step's live region went with the step: say it where a screen reader hears it.
+  const live = tcDoneLive();
+  let where = names.length === 1 ? 'It is marked on your board.' : 'The new agents are marked on your board.';
+  // Review 8/11: say they are marked only if a card for them is on the screen; the view may draw its cards a moment
+  // after it opens, so look for up to 1.5 s before saying "look for them".
+  let looks = 0;
+  const say = () => {
+    const shown = sel && [...document.querySelectorAll(sel)].some((e) => e.offsetParent);
+    if (!shown && ++looks < 7) { setTimeout(say, 250); return; }
+    if (!shown) {
+      where = (names.length === 1 ? 'Look for it on your board.' : 'Look for them on your board.');
+      // Review 18: no card to focus (the consolidated layout draws project rows): focus the agents view itself, not the page.
+      const at = document.activeElement;
+      // Review 19: the tabs layout's board is #grid (its cards are redrawn inside it; it stays).
+      const host = [document.getElementById('panel-cons-agents'), document.getElementById('grid')].find((e) => e && e.offsetParent);
+      if (host && !moved && (!at || at === document.body || document.getElementById('panel-create').contains(at))) { host.tabIndex = -1; host.focus({ preventScroll: true }); }
+    }
+    live.textContent = notSaid === 0 ? 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. ' : 'team. ') + where
+      : (names.length === 1 ? 'Your agent' : (notSaid === 1 ? '1 of them' : notSaid + ' of them')) + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;
+  };
+  setTimeout(say, 100);
+}
+/* #4936: a polite live region outside the step, which outlives it (the step is hidden or replaced when it speaks). */
+function tcDoneLiveEnsure() {
+  let live = document.getElementById('tc-done-live');
+  if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); live.setAttribute('aria-atomic', 'true'); document.body.append(live); }
+  return live;
+}
+/* Review 29: made when the page loads, not at the moment it speaks (a region made then is often not announced). Not in
+   the markup: web.consolidated-980 counts the body's direct children against the consolidated grid's 39 rows, and a
+   .vh element is absolutely positioned, so made from script it takes no grid row. */
+tcDoneLiveEnsure();
+function tcDoneLive() {
+  const live = tcDoneLiveEnsure();
+  live.textContent = '';
+  return live;
+}
+function tcAnnounce(text) { const live = tcDoneLive(); setTimeout(() => { live.textContent = text; }, 100); }
+/* The lead as the list marks it ("leads the team"). */
 function tcLead() {
   return (TC && (TC.members.find((m) => m.slot === TC.leadSlot) || TC.members[0])) || null;
-}
-function tcLeadShown() {
-  const lead = tcLead();
-  return (lead && lead.made && (lead.made.shownAs || lead.made.name)) || '';
 }
 
 /* What to say for a caught error: a fetch that never reached the board throws the browser's own words
@@ -48985,6 +49423,7 @@ async function tcSpecs(project, check) {
    (round 3: resetting it here left an empty project behind, or dropped rows and the watcher). */
 /* Back is the Team path's pick screen (#4556), where this step was opened from. */
 document.getElementById('tc-back').addEventListener('click', () => {
+  if (TC) delete TC.askedKey;   // review 24: leaving the step drops a request to open another team after this one
   if (tcLive()) { chooseCreatePath('team'); return; }
   TC_GEN += 1; TC = null; chooseCreatePath('team');
 });
@@ -48994,13 +49433,10 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
   if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
 });
 
-/* Straight to the lead, the way the single create's Say Hello goes straight to its agent (openDetail). */
+/* #4936 "Go to your team": the agents view with the members marked (tcGoToTeam), not one agent's page. */
 document.getElementById('tc-hello').addEventListener('click', () => {
-  const lead = tcFinished() ? tcLead() : null;
-  if (!lead || !lead.made || !lead.made.name) return;
-  const who = lead.made.name;
-  TC_GEN += 1; TC = null;   // the team is finished: nothing is left to resume
-  openDetail(who);
+  if (!TC) return;   // review 26: shown means it goes; a member the watcher just re-reads must not make the click silent
+  tcGoToTeam(false);   // #4936 "Go to your team": the team on the agents view, not into one agent's page
 });
 
 document.getElementById('tc-go').addEventListener('click', async () => {
@@ -49189,8 +49625,11 @@ async function tcWatchLoop(gen) {
       /* Review 27: every member gets a picture, as every single agent does: the catalogue's portrait
          when the team ships one, otherwise the generated mark for its name. */
       TC_UPLOADING += 1;
+      m.portraitBusy = true;   // #4936 review 7: the step does not leave on its own while this is going up
       tcPortrait(m.made.name, m.made.image, m.made.shownAs, TC.key, m.slot).then((r) => { m.portrait = r; if (r === 'set') tick(); })
-        .finally(() => { TC_UPLOADING -= 1; tcPaint(); });
+        // Review 9: a picture that lands after the step gave up waiting does NOT move the screen: the person may be
+        // reading the rows by then. Go to your team is on offer instead.
+        .finally(() => { m.portraitBusy = false; TC_UPLOADING -= 1; tcPaint(); });
       for (const pr of (m.made.projects || [])) {
         if (!pr || !pr.added) continue;
         fetch('/api/project/' + encodeURIComponent(pr.id) + '/agent/' + encodeURIComponent(m.made.name), {
@@ -52934,6 +53373,19 @@ function wakeHeldLine(manualText, delivery) {
    msg); `saidText` / `manualText` are that site's own phrasings so the sentence
    fits where it lands. Fire-and-forget from the caller -- it resolves the notice
    on its own, exactly as watchForAgent's post-create work does. */
+/* #4936: the wake hello request for the team step (tcHelloSend): the same request sendWakeHello makes inline (#4959
+   keeps that inline copy, which its tests lift alone), with an abort signal and the server's reason. Resolves { ok, status, delivery, because } (delivery null when the answer had none); throws only when the board was not reached. */
+async function postWakeHello(name, signal) {
+  const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+    method: 'POST',
+    signal,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'hello', automatic: true }),   // #4959: held while the shared quota is out (a held hello is could_not)
+  });
+  const out = await res.json().catch(() => null);
+  const because = (out && ((out.delivery && out.delivery.because) || out.error)) || null;   // #4936: said on the row
+  return { ok: res.ok, status: res.status, delivery: (out && out.delivery) || null, because: typeof because === 'string' ? because : null };
+}
 /* Send the wake 'hello' to an agent ALREADY confirmed ready, and report the
    outcome. Factored (#3410) so the two callers share one copy rather than two
    byte-similar ones (CLAUDE.md conv #5, the codebase's most-shipped defect): here
@@ -56829,6 +57281,7 @@ function openNewTask(projectId, origin, parent) {
   if (!p) return;
   ntAimAt(p);
   document.getElementById('nt-msg').textContent = '';
+  document.getElementById('nt-voice-msg').textContent = '';   // #4409 slice 2: the mic's line, like every dialog's
   document.getElementById('nt-go').disabled = !document.getElementById('nt-what').value.trim();
   document.getElementById('nt-modal').hidden = false;
   /* With the picker showing, focus starts on it: its chosen project is heard first, before any
@@ -58097,6 +58550,41 @@ function pjDocsPaintPage() {
 document.getElementById('docs-prev').addEventListener('click', () => { PJ_DOCS_PAGE -= 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
 document.getElementById('docs-next').addEventListener('click', () => { PJ_DOCS_PAGE += 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
 
+/* #4937: which of the Documents screen's two lists shows. The view's data-docseg drives the CSS that
+   hides the other segment's parts; the radios carry aria-checked and the roving tabindex. */
+let DOCS_OPEN_GEN = 0;   // #4937: each open counts itself; an earlier open's room read, folder read or folder error does not paint
+function docsSegShow(which) {
+  const view = document.getElementById('pj-docs-view');
+  const seg = document.getElementById('docs-seg');
+  if (!view || !seg) return;
+  view.dataset.docseg = which === 'convo' ? 'convo' : 'folder';
+  for (const b of seg.querySelectorAll('[data-docseg]')) {
+    const on = b.dataset.docseg === view.dataset.docseg;
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+    b.tabIndex = on ? 0 : -1;
+  }
+}
+(() => {
+  const seg = document.getElementById('docs-seg');
+  if (!seg) return;
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-docseg]');
+    if (b) docsSegShow(b.dataset.docseg);
+  });
+  /* A radio group's keys, as the agents' Grid/Org chart switch (#4594): Left/Right (and Up/Down) move AND
+     choose, wrapping; Home and End go to the first and last; focus follows. */
+  seg.addEventListener('keydown', (e) => {
+    const b = e.target.closest('[data-docseg]');
+    if (!b || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || !['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const all = [...seg.querySelectorAll('[data-docseg]')];
+    const i = all.indexOf(b);
+    const to = e.key === 'Home' ? all[0] : e.key === 'End' ? all[all.length - 1]
+      : all[(i + ((e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : all.length - 1)) % all.length];
+    e.preventDefault();
+    docsSegShow(to.dataset.docseg);
+    to.focus();
+  });
+})();
 async function openDocsView() {
   PJ_DOCS_VIEW_PARTIAL = false; // #2245: a failed read must not inherit the last project's flag
   const p = pjById(PJ_CURRENT);
@@ -58109,9 +58597,11 @@ async function openDocsView() {
   const count = document.getElementById('docs-count');
   box.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
   const convo = document.getElementById('docs-convo');
-  const convoHead = document.getElementById('docs-convo-head');
-  convo.textContent = ''; convoHead.hidden = true;
-  document.getElementById('docs-folder-head').hidden = true;
+  convo.textContent = '';
+  document.getElementById('docs-pager').hidden = true;          // the last project's pages; a listed folder shows it again
+  const docsOpen = (DOCS_OPEN_GEN += 1);                         // #4937: only this open's reads may paint
+  docsSegShow('folder');                                        // #4937: every open starts on the folder
+  document.getElementById('docs-seg').hidden = true;             // until the conversation has files
   pjView('docs');
   const forProject = PJ_CURRENT;
   /* The conversation's files, from the room record (#131): every attachment
@@ -58123,7 +58613,7 @@ async function openDocsView() {
     try {
       const r = await fetch('/api/project/' + encodeURIComponent(forProject) + '/room', { cache: 'no-store' });
       const rows = ((await r.json()) || {}).rows || [];
-      if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs') return;
+      if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs' || docsOpen !== DOCS_OPEN_GEN) return;
       const seen = new Set(); const atts = [];
       for (let i = rows.length - 1; i >= 0; i -= 1) {
         for (const a of (Array.isArray(rows[i].attachments) ? rows[i].attachments : (rows[i].attachment ? [rows[i].attachment] : []))) {
@@ -58140,14 +58630,13 @@ async function openDocsView() {
         const w = document.createElement('span'); w.className = 'pj-doc-w'; w.textContent = pjSize(a.size);
         b.append(n, w); convo.append(b);
       }
-      convoHead.hidden = false;
-      document.getElementById('docs-folder-head').hidden = false;
+      document.getElementById('docs-seg').hidden = false;      // #4937: the switch names the two sources
     } catch { /* the folder half stands alone */ }
   })();
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/documents?limit=500', { cache: 'no-store' });
     const body = await res.json();
-    if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs') return;
+    if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs' || docsOpen !== DOCS_OPEN_GEN) return;   // #4937: only this open paints
     if (body.ok === false) { msg.textContent = pjSentence(body.because || 'we cannot read that folder right now'); return; }
     const files = Array.isArray(body.files) ? body.files : [];
     PJ_DOCS_VIEW_PARTIAL = body.truncated === true;
@@ -58163,7 +58652,7 @@ async function openDocsView() {
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
     if (body.truncated === true) msg.textContent = PJ_DOCS_PARTIAL;
   } catch {
-    if (PJ_CURRENT === forProject && PJ_VIEW === 'docs') msg.textContent = 'We could not reach Kosmos to list the documents.';
+    if (PJ_CURRENT === forProject && PJ_VIEW === 'docs' && docsOpen === DOCS_OPEN_GEN) msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
 }
 document.getElementById('docs-back').addEventListener('click', () => { pjView('one'); });
@@ -58172,8 +58661,8 @@ document.getElementById('docs-finder').addEventListener('click', async () => {
   const msg = document.getElementById('docs-msg');
   try {
     const r = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/reveal-folder', { method: 'POST' });
-    if (!r.ok) { const b = await r.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that folder'); }
-  } catch { msg.textContent = 'We could not reach Kosmos to open the folder.'; }
+    if (!r.ok) { docsSegShow('folder'); const b = await r.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that folder'); }   // #4937: the sentence lives on the folder's segment
+  } catch { docsSegShow('folder'); msg.textContent = 'We could not reach Kosmos to open the folder.'; }
 });
 /* The rows open files exactly like the tile's rows: same class, same route,
    delegated here because this list is its own element. */
@@ -59017,6 +59506,8 @@ function pjPreviewCard(preview) {
    the file's name goes as the text, and the bubble then said "lease notes.txt"
    above a card that also says it. When the words are only the attachment's
    name, the card carries them and the text line is left out. */
+/* #4930: attachment id -> what its card showed, filled as cards are drawn (pvOpen reads it). */
+const PV_ATTS = new Map();
 /* Every file on a message, in order: `attachments` when the row carries it
    (#426), else the single `attachment` older rows have. One reading for the
    four renderers, so none of them can draw a different count. */
@@ -59032,6 +59523,26 @@ function pjWords(m) {
      line too is the same name twice. Hidden only when the text IS that list. */
   const names = pjFiles(m).map((a) => (typeof a.name === 'string' ? a.name.trim() : '')).filter(Boolean);
   if (names.length && text.trim() === names.join(', ')) return '';
+  return text;
+}
+/* #4873 (Josh, 2026-10-01): agents start a message with their own name ("Dario: ...") under a header that already
+   says Dario. Drop that one prefix when drawing it: only one of the SENDER's own names, only at the very start, then a
+   colon or a dash, with optional bold around the name ("**Dario:**", "**Dario**:"). Any other name is left alone, and
+   a message that is nothing but the name is left whole. */
+function pjDropSelfName(words, names) {
+  const text = String(words == null ? '' : words);
+  /* Longest first, so "dario-claude" is tried before "Dario". A colon may sit tight against the name ("Dario:hi"); a
+     dash needs a space on both sides ("Dario - hi"), so "Dario-style", "Dario -5" and "Dario -- hi" are not cut. */
+  const sorted = (names || []).map((n) => (typeof n === 'string' ? n.trim() : '')).filter(Boolean).sort((a, b) => b.length - a.length);
+  for (const name of sorted) {
+    const q = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const sep = '(?:[ \\t]*:(?![/\\d])|[ \\t]+[\u2013\u2014-](?=[ \\t]))';   // a colon, or a hyphen, en or em dash with a space on both sides
+    /* Exact case: an agent named Status that writes "status: green" keeps its word. */
+    const re = new RegExp('^[ \\t]*(\\*\\*|__)?' + q + '(?:' + sep + '[ \\t]*\\1|\\1' + sep + ')[ \\t]*');
+    const m = re.exec(text);
+    const rest = m ? text.slice(m[0].length).replace(/^(?:[ \t]*\r?\n)+/, '') : '';   // and the blank lines a name on its own line leaves (not an indent)
+    if (rest.trim()) return rest;
+  }
   return text;
 }
 /* All of a message's files, one card each, in the order they were added. */
@@ -59064,11 +59575,160 @@ function pjAttachmentCard(att) {
   const meta = [pjFileWord(a.type, name, kind), pjSize(a.size) || null].filter(Boolean).join(' · ');
   const pic = preview && (kind === 'image' || kind === 'pdf')
     ? '<span class="att-pic"><img src="' + esc(preview) + '" alt="" loading="lazy"></span>' : '';
-  return '<a class="att att-' + kind + (pic ? ' haspic' : '') + '" href="' + esc(a.url) + '" download="' + esc(name) + '">'
+  /* #4930: a click opens the full-page preview (pvOpen); the card stays a download link for a modifier-click. */
+  const id = (a.url.match(/^\/api\/attachment\/([0-9a-f]{24})$/) || [])[1];
+  if (id) PV_ATTS.set(id, { id, name, kind, meta, url: a.url, preview: a.preview });
+  return '<a class="att att-' + kind + (pic ? ' haspic' : '') + '" href="' + esc(a.url) + '" download="' + esc(name) + '"'
+    + (id ? ' data-att="' + id + '" aria-haspopup="dialog"' : '') + '>'
     + pic
     + '<span class="att-txt"><span class="att-name">' + esc(name) + '</span>'
     + (meta ? '<span class="att-meta">' + esc(meta) + '</span>' : '') + '</span></a>';
 }
+
+/* #4930 (Josh, 2026-10-01 20:17: "if I clicked on a image (or even possibly a document) it zoomed up and rendered it
+   full page preview with a very dark background modal. And then gave me a button to close ... in the top right with
+   a X or an open in finder button on the bottom left"): a click on a file a message carries opens it full page.
+   An image at its own size (fitted, never cropped), a PDF as its first page, a text file as its opening, anything
+   else as its name and size. X (top right), Escape and a click on the dark closes it. Bottom left: Open in Finder
+   (Show in File Explorer on Windows) selects the file on this computer; over Kosmos+ the file is not on the
+   computer in front of you, so it is Download instead. Read-only: nothing here changes or moves the file. */
+let PV_OPENER = null;
+let PV_OPENER_ID = null;   // the card's attachment, so focus can find it again if a poll redrew the row
+const PV_HTML = '<div class="rm-back pv-back" id="pv-preview">'
+  + '<div class="pv-box" role="dialog" aria-modal="true" aria-labelledby="pv-name" tabindex="-1">'
+  + '<button type="button" class="pv-x" id="pv-x" aria-label="Close">&times;</button>'
+  + '<div class="pv-stage" id="pv-stage"></div>'
+  + '<div class="pv-bar"><span id="pv-act"></span><span class="pv-name" id="pv-name"></span><span class="pv-msg" id="pv-msg" role="status"></span></div>'
+  + '</div></div>';
+function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }
+function pvOpen(id, from) {
+  const a = PV_ATTS.get(id);
+  if (!a) return false;
+  pvClose();
+  const tmp = document.createElement('div');
+  tmp.innerHTML = PV_HTML;
+  const back = tmp.firstElementChild;
+  const stage = back.querySelector('#pv-stage');
+  const fileCard = () => {
+    const card = document.createElement('div');
+    card.className = 'pv-file';
+    card.innerHTML = fileIcon(a.name) + '<b></b><span></span>';
+    card.querySelector('b').textContent = a.name;
+    card.querySelector('span').textContent = a.meta || '';
+    return card;
+  };
+  if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) {
+    const img = document.createElement('img');
+    img.className = 'pv-media';
+    img.alt = a.kind === 'pdf' ? 'The first page of ' + a.name : a.name;
+    img.src = a.preview;
+    stage.appendChild(img);
+    if (a.kind === 'pdf') { const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The first page'; stage.appendChild(c); }
+    /* A picture that will not load (a PDF's first page is drawn by the Mac only, so Windows answers 404; an image
+       type the server cannot preview) shows the file's card instead of a broken image on the whole screen. */
+    img.addEventListener('error', () => { stage.textContent = ''; stage.appendChild(fileCard()); }, { once: true });
+    pvZoomFrom(img, from);
+  } else if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) {
+    const pre = document.createElement('pre');
+    pre.className = 'pv-text';
+    pre.textContent = a.preview;   // the file's own words, as text, never markup
+    stage.appendChild(pre);
+    const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c);
+  } else {
+    stage.appendChild(fileCard());
+  }
+  back.querySelector('#pv-name').textContent = a.name;
+  const act = back.querySelector('#pv-act');
+  if (kplusRemote()) {
+    const dl = document.createElement('a');
+    dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
+    act.replaceWith(dl);
+  } else {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = pvRevealWord();
+    b.addEventListener('click', () => pvReveal(a.id));
+    act.replaceWith(b);
+  }
+  back.querySelector('#pv-x').addEventListener('click', pvClose);
+  // A click on the dark closes it: anything but the file, the X, the action, and the words a person may want to
+  // select or copy (the name, a note, an error). Only when the press began on the dark too, so selecting a text
+  // file's words and letting go past them does not close it.
+  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do, .pv-name, .pv-msg, .pv-note'));
+  let pressedOnFile = false;
+  back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
+  back.addEventListener('click', (e) => { if (!pressedOnFile && !onFile(e.target)) pvClose(); pressedOnFile = false; });
+  PV_OPENER = from || document.activeElement;
+  PV_OPENER_ID = id;
+  document.body.appendChild(back);
+  back.querySelector('.pv-box').focus();
+  return true;
+}
+/* The picture grows from the card it was clicked on, unless the person asked for less motion. */
+function pvZoomFrom(img, from) {
+  const src = from && from.querySelector && from.querySelector('.att-pic img');
+  if (!src || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  const go = () => {
+    const a = src.getBoundingClientRect();
+    const b = img.getBoundingClientRect();
+    if (!a.width || !b.width) return;
+    img.style.transformOrigin = '0 0';
+    img.style.transform = 'translate(' + (a.left - b.left) + 'px,' + (a.top - b.top) + 'px) scale(' + (a.width / b.width) + ')';
+    img.getBoundingClientRect();
+    img.style.transition = 'transform 220ms ease-out';
+    img.style.transform = '';
+  };
+  if (img.complete && img.naturalWidth) requestAnimationFrame(go); else img.addEventListener('load', () => requestAnimationFrame(go), { once: true });
+}
+async function pvReveal(id) {
+  const msg = document.getElementById('pv-msg');
+  if (msg) msg.textContent = '';
+  try {
+    const res = await fetch('/api/attachment/' + id + '/reveal', { method: 'POST' });
+    if (!res.ok) { const out = await res.json().catch(() => ({})); if (msg) msg.textContent = res.status === 404 ? 'That file is no longer on this computer.' : (out.because || out.error || 'That did not open.'); }
+  } catch { if (msg) msg.textContent = 'Kosmos could not be reached.'; }
+}
+function pvClose() {
+  const back = document.getElementById('pv-preview');
+  if (!back) return;
+  back.remove();
+  let to = PV_OPENER;
+  if (to && !document.contains(to) && PV_OPENER_ID) to = document.querySelector('a.att[data-att="' + PV_OPENER_ID + '"]');
+  PV_OPENER = null;
+  PV_OPENER_ID = null;
+  if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
+}
+/* A plain click on a file card opens the preview; a modifier-click (or a middle click) keeps the download. */
+document.addEventListener('click', (e) => {
+  const card = e.target && e.target.closest ? e.target.closest('a.att[data-att]') : null;
+  if (!card || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  if (pvOpen(card.getAttribute('data-att'), card)) e.preventDefault();
+});
+/* On the document, in the capture phase, like the update window: Escape closes it before a dialog under it, and
+   Tab stays between the X and the action while it is up. */
+/* A window drawn over the preview (first run, the update overlay, the restart screen; a native dialog, should the
+   page ever open one: none does today) owns the keys.
+   The phone menu is not one: it sits under the preview. While the update overlay is up the preview and the update
+   window both stand aside to it, the window on top. */
+function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]'); }
+document.addEventListener('keydown', (e) => {
+  const back = document.getElementById('pv-preview');
+  if (!back || pvCovered()) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pvClose(); return; }
+  if (e.key !== 'Tab') return;
+  e.stopPropagation();
+  const f = [back.querySelector('#pv-x'), back.querySelector('#pv-do')].filter(Boolean);
+  // Every Tab is moved here, never left to the browser: WebKit's own Tab skips buttons (Safari's default), so a step
+  // left to it lands on the box instead of the next button.
+  e.preventDefault();
+  const at = f.indexOf(document.activeElement);
+  const next = at === -1 ? (e.shiftKey ? f.length - 1 : 0) : (at + (e.shiftKey ? -1 : 1) + f.length) % f.length;
+  f[next].focus();
+}, true);
+/* Focus that lands outside the preview while it is up is brought back in, as the update window does. */
+document.addEventListener('focusin', (e) => {
+  const back = document.getElementById('pv-preview');
+  if (back && !pvCovered() && !back.contains(e.target)) { const box = back.querySelector('.pv-box'); if (box) box.focus(); }
+});
 
 function pjSize(bytes) {
   const n = Number(bytes);
@@ -59979,8 +60639,12 @@ function pjReplyWords(text) {
 }
 /* What the strip and the header quote: the first line, or for a post with no words the file it
    carried, so "Replying to You:" is never followed by nothing. */
-function pjReplyGist(m) {
-  const words = pjReplyWords(m && m.text);
+function pjReplyGist(m, who) {
+  /* #4873: an agent's own leading name is dropped here too, since the strip and the header name it beside the gist.
+     An external post (#3311) is drawn as written, so its gist is too. */
+  const raw = m && m.text;
+  const words = pjReplyWords(m && m.operator !== true && m.kind !== 'external' && m.from && typeof pjDropSelfName === 'function'
+    ? pjDropSelfName(raw, [who, m.from]) : raw);
   if (words) return words;
   const f = pjFiles(m)[0];
   return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';
@@ -60024,7 +60688,7 @@ function pjReplyStart(postId) {
   if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
   const was = PJ_REPLY[PJ_CURRENT];
   /* #4423: who it answers, kept as the id (or "you"), so the strip names them as they are called NOW (pjReplyPaint). */
-  PJ_REPLY[PJ_CURRENT] = { id: m.id, from: (m && m.operator !== true && m.from) || null, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, from: (m && m.operator !== true && m.from) || null, who: pjReplyWho(p, m), words: pjReplyGist(m, pjReplyWho(p, m)), mention: null };
   pjReplyPaint(PJ_CURRENT);
   pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
@@ -60222,8 +60886,26 @@ function pjReceiptSentence(outcomes, p) {
    A tag this code cannot trust (offsets outside the text, overlapping, no
    source row) is not "probably a quote", it is the flat paragraph. */
 function pjRoomBody(m, p) {
-  const words = pjWords(m);
+  let words = pjWords(m);
   if (!words) return '';
+  /* #4873: an agent's own name at the start ("Dario: ...") is dropped; the row's header already says it. Its display
+     name (from pjMentionKeys, before the self-exclusion below) and its machine name both count; a person's post is untouched. */
+  /* The quotes (#460) slice the STORED text by offset, so after a drop of k characters every quote moves back by k;
+     a quote that starts inside the dropped prefix leaves the post drawn exactly as written. The name tried first is the
+     header's own (pjNameOf, which also names a former member), then the mention map's, then the machine name. */
+  let quotes = m && Array.isArray(m.quotes) ? m.quotes : null;
+  if (m && m.operator !== true && m.from) {
+    const keys = pjMentionKeys(p);
+    const shown = typeof pjNameOf === 'function' ? pjNameOf(p, m.from) : null;
+    const dropped = typeof pjDropSelfName === 'function' ? pjDropSelfName(words, [shown, keys && keys.get ? keys.get(m.from) : null, m.from]) : words;
+    const k = words.length - dropped.length;
+    const inPrefix = k && quotes && quotes.some((q) => q && typeof q === 'object' && Number.isInteger(q.start) && q.start < k);
+    if (k && !inPrefix) {
+      words = dropped;
+      if (quotes) quotes = quotes.map((q) => (q && typeof q === 'object' && Number.isInteger(q.start) && Number.isInteger(q.end)
+        ? Object.assign({}, q, { start: q.start - k, end: q.end - k }) : q));
+    }
+  }
   /* #2922: the Set of agent keys (sessionNames) on THIS project, so pjRichSpans can highlight an
      @name that flags an agent here. Derived by pjMentionKeys -- the SAME single source the
      live-input highlighter (pjMentionPaint) and the @ picker use -- so the posted message and the
@@ -60247,12 +60929,12 @@ function pjRoomBody(m, p) {
     agentNames.addressed = new Set(Array.isArray(m.mentioned) ? m.mentioned : []);
   }
   const flat = '<p>' + pjBody(words, PJ_DOC_NAMES, agentNames) + '</p>';
-  const qs = Array.isArray(m.quotes) ? m.quotes.filter((q) => q && typeof q === 'object'
+  const qs = Array.isArray(quotes) ? quotes.filter((q) => q && typeof q === 'object'
     && typeof q.of === 'string' && q.of
     && Number.isInteger(q.start) && Number.isInteger(q.end)
     && q.start >= 0 && q.end > q.start && q.end <= words.length)
     .slice().sort((a, b) => a.start - b.start) : [];
-  if (!qs.length || (Array.isArray(m.quotes) && qs.length !== m.quotes.length)) return flat;
+  if (!qs.length || (Array.isArray(quotes) && qs.length !== quotes.length)) return flat;
   for (let i = 1; i < qs.length; i += 1) if (qs[i].start < qs[i - 1].end) return flat;
   /* Prose between quotes keeps the spacing the person typed inside it; only
      the whitespace at its edges goes, since that only separated it from the
@@ -60550,7 +61232,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '' };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -60615,7 +61297,8 @@ function voicePaint(btn, state) {
   if (!btn) return;
   btn.classList.toggle('asking', state === 'asking');
   btn.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
-  const label = state === 'off' ? 'Talk instead of typing' : 'Stop listening';
+  const name = btn.getAttribute('data-voice-name');   // #4409 slice 2: a dialog has several, each named for its box
+  const label = (state === 'off' ? 'Talk instead of typing' : 'Stop listening') + (name ? ': ' + name : '');
   btn.setAttribute('aria-label', label);
   btn.title = label;
 }
@@ -60647,7 +61330,7 @@ function voiceToggle(btn) {
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
   VOICE.seq += 1;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v });
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
   voicePaint(btn, 'asking');
   h.postMessage({ op: 'start', id: VOICE.id });
@@ -60673,7 +61356,7 @@ function voiceOnEvent(ev) {
      page started with; an app from before the id carries none, and is taken as it always was. */
   if (ev.id != null && ev.id !== VOICE.id) return;
   const btn = VOICE.btn;
-  if (ev.kind === 'listening') { voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, VOICE_LISTENING); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
+  if (ev.kind === 'listening') { VOICE.listening = true; voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, VOICE_LISTENING); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
@@ -60706,11 +61389,87 @@ function voiceSpeakWatch() {
     if (!VOICE.btn && !SPEAK.btn) { clearInterval(VOICE_WATCH); VOICE_WATCH = 0; }
   }, 500);
 }
+/* #4409 slice 2 (Josh, 2026-10-01 17:02: "press and hold a microphone and dictate into the input boxes"): hold the
+   mic to talk and let go to stop; a press shorter than VOICE_HOLD_MS is a tap and toggles, as before, so a long
+   dictation needs no held finger. The pointer does the work on press and release; its own click is then ignored.
+   A keyboard press (Enter or Space) has no pointer and still toggles through the click. */
+const VOICE_HOLD_MS = 300;
+let VOICE_PRESS = null;   // { btn, at, stopping, pointer } while a pointer is down on a mic
+/* The mic the pointer just handled, and until when its own click may still arrive: that click is ignored, any other click
+   toggles. A window, not a zero timer: a browser need not dispatch the release's click in the same task as pointerup. */
+let VOICE_PRESSED = null;   // { mic, until }
+document.addEventListener('pointerdown', (e) => {
+  const mic = e.button === 0 && !e.ctrlKey && e.isPrimary !== false && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
+  if (!mic) return;
+  /* One press at a time: a second pointer does not take over the first. A press whose release the page never heard (let
+     go over a menu or the title bar) does not block for good: the same pointer pressing again, or 10 s, ends it. */
+  if (VOICE_PRESS && VOICE_PRESS.pointer !== e.pointerId && Date.now() - VOICE_PRESS.at < 10000) return;
+  const stopping = VOICE.btn === mic;   // pressing a mic that is listening stops it, as a tap always did
+  VOICE_PRESS = { btn: mic, at: Date.now(), stopping, pointer: e.pointerId };
+  VOICE_PRESSED = { mic, until: Infinity };   // until the release says when its click may come
+  voiceToggle(mic);
+}, true);
+function voiceRelease(e) {
+  const press = VOICE_PRESS;
+  if (!press || (e && e.pointerId !== press.pointer)) return;
+  VOICE_PRESS = null;
+  /* Let go on the mic: its own click follows, so it is ignored for a short window. Let go elsewhere (dragged off): no
+     click follows, and the mark must not swallow the next keyboard or assistive press. */
+  const onMic = !!(e && e.target && e.target.closest && e.target.closest('.micbtn') === press.btn);
+  VOICE_PRESSED = onMic ? { mic: press.btn, until: Date.now() + 600 } : null;
+  if (press.stopping || VOICE.btn !== press.btn) return;
+  if (Date.now() - press.at < VOICE_HOLD_MS) return;   // a tap: keep listening until the next tap
+  /* Not listening yet (the first use asks macOS for the microphone, and the person lets go to answer): a release now
+     would drop the start, so it is taken as a tap, and the next tap stops. */
+  if (!VOICE.listening) return;
+  const h = voiceBridge();
+  if (h) h.postMessage({ op: 'stop' });   // a hold: let go and it stops, keeping what it heard
+}
+/* Keep focus (and the caret) in the box: the mic's own mousedown is prevented (a real or a touch-emulated one), which
+   stops the focus move and nothing else, so the document's close-on-mousedown-outside listeners (the emoji panel, a custom select) still run. Preventing
+   pointerdown instead would suppress the mousedown altogether and leave them open. */
+document.addEventListener('mousedown', (e) => { if (e.target.closest && e.target.closest('.micbtn')) e.preventDefault(); }, true);
+document.addEventListener('pointerup', voiceRelease, true);
+document.addEventListener('pointercancel', voiceRelease, true);
+/* A release the page never hears (a menu or a system sheet takes the mouse) must not arm a later click as a hold. */
+document.addEventListener('contextmenu', () => { VOICE_PRESS = null; VOICE_PRESSED = null; }, true);
+/* The window losing focus mid-press (Cmd-Tab, or on first use macOS's microphone sheet) ends the press as a release: a
+   hold stops, a tap or a press not yet listening keeps listening. The mark is not cleared outright: the mouse-up and its
+   click can still reach the page after the sheet, and that click is the press's own (taken as a new press, it would
+   stop the start the sheet is asking about). Bounded, so a click that never comes cannot swallow a later one for good. */
+window.addEventListener('blur', () => {
+  const press = VOICE_PRESS;
+  if (!press) return;
+  voiceRelease({ pointerId: press.pointer });
+  VOICE_PRESSED = { mic: press.btn, until: Date.now() + 15000 };
+});
+/* A key pressed after the pointer is the keyboard acting: its click is its own, never the pointer's. */
+document.addEventListener('keydown', (e) => { if (!['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(e.key)) VOICE_PRESSED = null; }, true);
+/* Slice 2: a dialog has several boxes. Focus moving to another of its fields means the person moved on: stop, so what
+   is already in the box stays and words still coming are dropped. The keydown guard only sees the box being
+   dictated into, and Escape works only there. */
+document.addEventListener('focusin', (e) => {
+  if (!VOICE.btn || !VOICE.btn.classList.contains('fieldmic')) return;   // a composer keeps slice 1's rules
+  if (e.target === VOICE.box || !e.target.closest || e.target.closest('.micbtn')) return;
+  if (e.target.matches && e.target.matches('input, textarea, select, [contenteditable="true"]')) voiceCancel();
+}, true);
 document.addEventListener('click', (e) => {
   const mic = e.target.closest && e.target.closest('.micbtn');
-  if (mic) { e.preventDefault(); voiceToggle(mic); return; }
-  /* Send while listening: what is in the box is what goes, and nothing arrives after it. */
-  if (VOICE.btn && e.target.closest && e.target.closest('#d-send, #pj-post-go, #asp-send')) voiceCancel();
+  if (mic) {
+    e.preventDefault();
+    /* The pointer already acted on this mic; a click with no press before it (the keyboard, VoiceOver, Switch Control,
+       a script) toggles, whatever its detail says. */
+    const own = VOICE_PRESSED && VOICE_PRESSED.mic === mic && Date.now() <= VOICE_PRESSED.until;
+    VOICE_PRESSED = null;
+    if (own) return;
+    voiceToggle(mic);
+    return;
+  }
+  /* Send while listening: what is in the box is what goes, and nothing arrives after it. A composer keeps listening
+     through its other buttons (attach, read aloud, as in slice 1); in a dialog (slice 2) any button, Save or Create,
+     is as final as Send. */
+  if (VOICE.btn && e.target.closest && (e.target.closest('#d-send, #pj-post-go, #asp-send')
+    || (VOICE.btn.classList.contains('fieldmic') && e.target.closest('button, [role="button"], input[type="submit"]')))) voiceCancel();
 }, true);
 document.addEventListener('keydown', (e) => {
   if (!VOICE.btn || e.target !== VOICE.box) return;
@@ -61039,15 +61798,15 @@ function pjRoomRow(m, p, hideHeader) {
     ? PJ_ROOM_POSTS.get(m.replyTo) : null;
   /* The header is left out when the reply sits right under what it answers; that closeness is only
      seen, so a screen reader still hears what it answers. */
-  if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr))) + '</span>';
+  if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr, pjReplyWho(p, origForSr)))) + '</span>';
   // Left out only when the original is there to name; otherwise the header says it is gone (never silence).
   if (typeof m.replyTo === 'string' && m.replyTo && !origForSr) {
     const orig = PJ_ROOM_POSTS.get(m.replyTo);
     replyEl = !orig && PJ_ROOM_PARTIAL
       ? '<span class="msg-replyto gone">Original message could not be read just now</span>'   // unknown is not gone
       : orig
-      ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig) + ', the message this answers. Go to it') + '">'
-        + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig)) + '</button>'
+      ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig, pjReplyWho(p, orig)) + ', the message this answers. Go to it') + '">'
+        + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig, pjReplyWho(p, orig))) + '</button>'
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';

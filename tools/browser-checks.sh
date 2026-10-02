@@ -115,6 +115,29 @@ cd "$REPO"
 # hatch is the one the cut guard already uses, deliberately: an operator who has
 # decided to override does not want to learn a second name.
 . "$REPO/tools/lib/cut-guard.sh"
+# #1398: a GATE started while a release holds the machine had nothing to stop it, so a gate started during a
+# cut's steps 1 to 3 made the cut's own step 3b refuse it later and abort (0.7.08's re-cut #1, 2026-09-29).
+# release.sh asks at its start only whether another CUT or an install harness is live (kosmos_refuse_if_cut_live,
+# kosmos_refuse_if_harness_live), not whether a gate is. So this gate consults the machine claim, as run-tests.sh
+# does, and REFUSES AT ONCE under a live FOREIGN claim.
+# ⚠️ REFUSE, NOT WAIT, AND BEFORE kosmos_mark_run (review 2). A waiting gate is still a live browser run (its
+# marker and its command line), so a cut's 3b starting during the wait would refuse it: waiting re-opened the very
+# abort this card closes, for the whole 20-minute bound. Refusing before the run is marked leaves nothing a cut can
+# see. A waiting gate would also start in step with the next queued-heavy turn; to wait your turn, launch the gate
+# through queued-heavy.sh, which waits for the claim and then holds it.
+# Exit 75 is a distinct code for a person reading it ("did not run, the box is reserved"), not 1 ("a check
+# failed"); no wrapper in this repo treats 75 specially.
+# Not stopped by it: a cut's own page layer (release.sh passes KOSMOS_IGNORE_MACHINE_CLAIM=1 on both 3b launches:
+# the cut owns the box, and an overlapping queued-heavy renewer can briefly overwrite the claim file, so the cut
+# must not depend on reading its own cookie back); a run whose queue turn holds the claim (it carries the cookie,
+# and kosmos_refuse_if_machine_claimed self-excludes); and an operator's KOSMOS_IGNORE_MACHINE_CLAIM=1.
+# NOT a promise for the whole cut: the cut renews its claim only at step boundaries (30-minute window), so a step
+# longer than that can let it lapse, and a gate started then is not stopped.
+# The frozen-runner child asks again, on purpose (a claim taken in the seconds between parent and child stops it;
+# the parent thaws). `command -v` keeps a lib that failed to load fail-open, as in run-tests.sh.
+if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
+  kosmos_refuse_if_machine_claimed "this page layer" || exit 75
+fi
 # #1796: declare THIS a browser run before the check below, so it excludes its own
 # marker by cookie (this script forks subshells that inherit its command line -- the
 # real self-match the live-tree walk raced on) and another browser run can see it.
@@ -1021,6 +1044,12 @@ fi
 # That is #812's "a check that is never run catches nothing at all", on a
 # check one day old.
 run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
+
+# --- #4930: click a file a message carries to see it full page ---------------
+# Needs no board: it serves the real page with every /api call stubbed and draws real attachment cards.
+# Its own run_one line, not a gated.txt entry (#3929), because it passes ENGINES=chromium,webkit: gated.txt
+# lines run with the default engine only.
+run_one "render-file-preview-4930" env ENGINES=chromium,webkit node docs/browser-checks/render-file-preview-4930.js
 
 # --- #718: the phone screenshot harness -----------------------------------
 # It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no

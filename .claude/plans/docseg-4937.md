@@ -1,0 +1,63 @@
+# #4937: the project Documents screen, one list at a time
+
+**Done looks like:** on a served build, opening a project's Documents shows the project folder's files
+first, and one tap on "From this conversation" switches to the conversation's files; the conversation's
+list no longer stacks above the folder's and pushes it down.
+
+## Josh, #admin 2026-10-01 20:56, verbatim
+"As this page gets longer and longer, the "From the conversation" files are going to push them all the
+way down the page. Let's do a segment controller at the top that says "From this conversation" or "In
+the project folder" and delete or default to "In the project folder.""
+
+## Change (web/index.html)
+- A segmented control above the lists: "In the project folder" | "From this conversation", in the app's
+  own segmented style (the `.cons-agents-lay` class the agents' Grid / Org chart switch uses), as a
+  radiogroup with roving tabindex and the same keys (arrows move and choose, wrapping; Home, End).
+- `#pj-docs-view[data-docseg]` drives two CSS rules: the folder's count, list, pager and sentence show
+  only on the folder segment; the conversation's list only on its own.
+- The "From the conversation" / "In the project folder" headings are removed (nothing else read them): the control names the
+  two sources (#131's "said apart" holds).
+- Every open starts on the folder; the control shows only when the conversation has files.
+
+## Decided
+- Always open on the folder; no per-project memory. The card asks for memory only "if that is what the
+  rest of Kosmos does for tabs", and it does not: the app remembers global looks and layouts
+  (kosmos-look, kosmos.layout.agents), not a per-item tab.
+- No control when the conversation has no files: a switch to an empty list is a dead control.
+- Rejected: counts inside the segment labels (Josh's words are the labels).
+
+- Known trade-off: the switch appears after the conversation's read, which runs beside the folder's, so
+  when the room answers last the switch pushes the folder list down about 45px. Reserving its space would
+  shift the page the other way whenever the conversation has no files. Accepted.
+- A failed Open in Finder switches to the folder's segment, where its sentence lives (the button names
+  the folder). Intended: it changes the person's chosen segment without a click, to show why the folder
+  did not open. Rejected: a second message line on the conversation's segment (two places for one
+  sentence).
+- Each open counts itself; neither read from an earlier open (the conversation's or the folder's) paints.
+  A reopen while the room read was out appended its rows twice (check arm: 2 rows without the guard, 1 with,
+  both engines, measured). A late failing folder read from the first open painted its sentence over the
+  second open's list (check arm: red without the folder guard, both engines, measured). Each open also hides the last project's pager until its own folder lists.
+- No focus restore on a reopen: the screen is opened only by the project view's "View All" (hidden while
+  Documents shows) and by the docs=1 link at startup, so focus cannot be on the switch when it is reopened.
+  (Built in round 7, measured working on a synthetic reopen, then removed in round 9 as unreachable.)
+- Built alongside #4930 as the card asks: preview-4930 changes nothing on the Documents screen (openDocsView,
+  #docs-convo, #docs-list, its markup), so the two do not collide.
+- A conversation read that fails leaves the switch hidden and says nothing, as main's conversation list did
+  (the folder half stands alone). Not in the card; a sentence for it would be new copy on a failure nobody
+  has reported.
+- The conversation's segment has no count or pager: it never had one, so "its own count/paging" there is none. Below 400px wide the two segments share the row (at 320px the switch was 344px in a 296px
+  view and the page scrolled sideways, measured on both engines).
+
+## Weakest premise
+That hiding the control when the conversation has no files is right. If Josh wants the switch always
+visible for consistency, the one `hidden` toggle goes and the empty segment needs a sentence.
+
+Second: that opening on the folder is right even when the folder is empty and the conversation has files (the
+screen says "Nothing here yet" beside a switch that holds files). The card says default to the folder.
+
+## Evidence
+- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 37 PASS;
+  red on main.
+- node --test browser-checks-*, web.*, tools.browser-checks-*: 2351/2351.
+- Surface gate: render-consolidated-nav-4345, render-subback-4586, render-subview-cleanup-3502 pass on
+  this branch.

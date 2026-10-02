@@ -45,6 +45,7 @@ const EXCUSED = {
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   setChatgptBrowserOpener: 'test seam (0.6.96 OpenAI sign-in): engine/openaiaccounts.js records the device page it would open, so a suite never starts a real browser and a Mac can drive the win32 arm',
   resetForTests: 'test seam',
+  resetUnloadWaitsForTests: 'test seam (#4964): engine/remove.js empties the restart unload-wait burst ledger, so one test\'s waits do not spend the next test\'s allowance. Production never resets it.',
   _sendWithDelivery: 'test seam (#4580 item 1): engine/messages.js\'s send core with an injected (slow, or unconfirmed) deliver, so two concurrent identical sends can be held in flight and the fold asserted (the second waits on the first, one delivery). Production reaches the same core through send/sendAsync with chat.deliver(Async).',
   _sendPostWithDelivery: 'test seam (#4580 item 1): engine/messages.js\'s post core with an injected deliver, the post-side twin of _sendWithDelivery (a retried room post folds onto the one still in flight). Production reaches it through sendPost/sendPostAsync.',
   newKeyPair: 'test seam (#3728): engine/fedseal.js makes a fresh X25519 pair so a test can play the OTHER board (owner or member) against this one; production uses the one sealingKey() from the key file. A board never needs a second identity.',

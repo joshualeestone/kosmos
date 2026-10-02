@@ -301,3 +301,53 @@ test('#4287: publishedPosts returns published rows only, oldest first, and postM
   assert.equal(typeof released.releasedAt, 'string');
   assert.equal(cs.toPublic(released).releasedAt, undefined, 'releasedAt must not reach the public feed');
 });
+
+// #5000: deleting an agent frees its name; the name's standing must not carry over to a new agent.
+function nextMillisecond() { const t = Date.now(); while (Date.now() === t) { /* spin to the next ms */ } }
+
+test('#5000: forgetTrust puts the deleted name back at the start and leaves every other agent alone', () => {
+  cs.grantTrust('Gone5000');
+  cs.grantTrust('Stays5000');
+  assert.equal(cs.trustState('Gone5000'), 'trusted', 'control: the name was trusted before it was forgotten');
+  const rec = cs.forgetTrust('Gone5000');
+  assert.equal(rec.trust, 'untrusted');
+  assert.equal(rec.approved_count, 0);
+  assert.equal(typeof rec.forgottenAt, 'string');
+  assert.equal(cs.trustState('Gone5000'), 'untrusted', 'a new agent under the freed name inherited the deleted one\'s trust');
+  assert.equal(cs.trustState('Stays5000'), 'trusted', 'forgetting one name changed another agent\'s standing');
+});
+
+test('#5000: a held post the deleted agent left behind credits nobody when released; a new agent\'s post does', () => {
+  const old = cs.insertPost({ status: 'held', agent: 'Heir5000', topic: 't', body: 'from the deleted agent' });
+  nextMillisecond();
+  cs.forgetTrust('Heir5000');
+  nextMillisecond();
+  cs.releaseHeld(old.id);
+  assert.equal(cs.trustRecord('Heir5000').approved_count, 0, 'the deleted agent\'s post credited the new agent of that name');
+  /* The control, on the same path: a post the NEW agent made after the delete is credited as before, so the zero
+     above is the check working and not the release path crediting nothing at all. */
+  const fresh = cs.insertPost({ status: 'held', agent: 'Heir5000', topic: 't', body: 'from the new agent' });
+  cs.releaseHeld(fresh.id);
+  assert.equal(cs.trustRecord('Heir5000').approved_count, 1, 'a new agent\'s released post was not credited');
+});
+
+test('#5000: a grant or a revoke after the delete keeps the stamp, so the old agent\'s held post still credits nobody', () => {
+  const old = cs.insertPost({ status: 'held', agent: 'Kept5000', topic: 't', body: 'from the deleted agent' });
+  nextMillisecond();
+  cs.forgetTrust('Kept5000');
+  nextMillisecond();
+  cs.revokeTrust('Kept5000');
+  assert.equal(typeof cs.trustRecord('Kept5000').forgottenAt, 'string', 'revoke dropped the stamp');
+  cs.releaseHeld(old.id);
+  assert.equal(cs.trustRecord('Kept5000').approved_count, 0, 'after a revoke, the deleted agent\'s post credited the new agent');
+  cs.grantTrust('Kept5000');
+  assert.equal(typeof cs.trustRecord('Kept5000').forgottenAt, 'string', 'grant dropped the stamp');
+  /* And after a grant and a revoke, a second old post still credits nobody. */
+  cs.revokeTrust('Kept5000');
+  const old2 = cs.insertPost({ status: 'held', agent: 'Kept5000', topic: 't', body: 'also from the deleted agent' });
+  const posts = JSON.parse(fs.readFileSync(cs._paths.postsFile(), 'utf8'));
+  posts.find((x) => x.id === old2.id).receivedAt = old.receivedAt;
+  fs.writeFileSync(cs._paths.postsFile(), JSON.stringify(posts));
+  cs.releaseHeld(old2.id);
+  assert.equal(cs.trustRecord('Kept5000').approved_count, 0, 'after a grant and a revoke, an old post credited the new agent');
+});

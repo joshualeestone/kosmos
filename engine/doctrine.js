@@ -31,10 +31,13 @@
  *   5    ambiguity refuses with a reason and never reports success on an
  *        unchanged return;
  *   6    everything outside the markers is untouched because the only
- *        writer is projects.spliceBlock; no hand edits anywhere;
+ *        writer is projects.spliceBlock; no hand edits anywhere, EXCEPT
+ *        (#4890) an unedited plain copy of an earlier block, which is
+ *        Kosmos's own text: it is cut out byte for byte (pastBlockIn);
  *   8    presence is per-section by HEADING across the WHOLE file, managed
  *        or not: an old agent carrying the doctrine as plain text appends
- *        NOTHING;
+ *        NOTHING, unless (#4890) that text is an unedited earlier block,
+ *        which is offered the current rules in its place;
  *   9    section text comes from defaults.js's one source (#629), so a
  *        refreshed block byte-matches what a fresh birth writes.
  */
@@ -44,6 +47,7 @@ const defaults = require('./defaults');
 const projects = require('./projects');
 const instructions = require('./instructions');
 const store = require('./store');
+const PAST = require('./doctrine-past');
 
 const START = projects.DOCTRINE_START;
 const END = projects.DOCTRINE_END;
@@ -63,10 +67,97 @@ function openingLine(now) {
   return `<!-- Kosmos added the working rules below on ${clickDate(now)}, with your OK. Kosmos may update this block when the rules change; your own words above and below it are never touched. -->`;
 }
 const CLOSING_LINE = '<!-- end of the working rules -->';
+/* #4890: the same frame at birth, where nobody clicked. It starts with the words sectionContentOf strips, so a
+   refresh compares the rules and never this line. */
+function birthLine(now) {
+  return `<!-- Kosmos added the working rules below on ${clickDate(now)}, when it set up this agent. Kosmos may update this block when the rules change, with your OK; your own words above and below it are never touched. -->`;
+}
 
-/** The span body for a given set of sections, dated the day of the click. */
-function spanBody(sectionsList, now) {
-  return [openingLine(now), '', sectionsList.map((s) => s.text).join('\n'), '', CLOSING_LINE].join('\n');
+/** The span body for a given set of sections, dated the day of the click (or of the birth, given `opening`). */
+function spanBody(sectionsList, now, opening) {
+  return [opening || openingLine(now), '', sectionsList.map((s) => s.text).join('\n'), '', CLOSING_LINE].join('\n');
+}
+
+/**
+ * #4890: the working rules as an agent is BORN with them, inside the managed span, so a later change under an
+ * existing heading reaches it through the consented refresh. Before this, birth wrote them as plain text
+ * (defaults.appendTo) and planFor can offer a plain file only the headings it lacks, so such a change reached
+ * new agents only. The cases:
+ *   - text holding a doctrine marker already (pasted from another agent's file): the plain block, never a span
+ *     spliced among markers it did not write;
+ *   - text carrying today's block inline: framed in place at creation, left as it is on import (opts.frameInline);
+ *   - text carrying the rules any other way: left as it is;
+ *   - otherwise: the span, or the plain block where only that fits under `maxBytes`.
+ */
+function atBirth(text, now, maxBytes, opts) {
+  const body = String(text == null ? '' : text);
+  if (body.includes(START) || body.includes(END)) return defaults.appendTo(body);
+  if (body.includes(defaults.RULES_PHRASE)) {
+    // An imported file is the person's own: what it carries is left as it is (opts.frameInline false, discover.js).
+    if (opts && opts.frameInline === false) return body;
+    /* Today's block, byte for byte, inline (roles.js `own` and `setup` carry it) is framed in place. Anything else
+       carrying the rules is left as it is. */
+    const at = plainCurrentAt(body);
+    if (at < 0) return body;
+    const end = at + defaults.block().length;
+    const framed = body.slice(0, at) + `${START}\n${spanBody(defaults.sections(), now, birthLine(now))}\n${END}` + body.slice(end);
+    return maxBytes && Buffer.byteLength(framed, 'utf8') > maxBytes ? body : framed;
+  }
+  const spanned = projects.spliceBlock(body, spanBody(defaults.sections(), now, birthLine(now)), START, END);
+  /* The frame costs a few hundred bytes. Where only the plain block fits under the caller's cap, the agent gets
+     the plain block (as before #4890) rather than none. */
+  if (maxBytes && Buffer.byteLength(spanned, 'utf8') > maxBytes) return defaults.appendTo(body);
+  return spanned;
+}
+
+/** #4890: where today's block sits as plain text, at a line start and ending at a line end, or -1. */
+function plainCurrentAt(body) {
+  const current = defaults.block();
+  for (let at = body.indexOf(current); at >= 0; at = body.indexOf(current, at + 1)) {
+    const after = body[at + current.length];
+    if ((at === 0 || body[at - 1] === '\n') && (after === undefined || after === '\n' || after === '\r')) return at;
+  }
+  return -1;
+}
+function hasPlainCurrent(body) {
+  return plainCurrentAt(body) >= 0;
+}
+
+/* #4890: rules text Kosmos wrote and nobody changed: a whole earlier block, or (a span from an older click that
+   added only the headings an agent lacked) sections that are each an earlier block's section, byte for byte. */
+function knownContent(content, past) {
+  const rows = past || PAST;
+  const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+  if (rows.some((r) => r.length === content.length && sha(content) === r.sha256)) return true;
+  const known = new Set(rows.sections || []);
+  return known.size > 0 && content.split('\n### ').every((p, j) => known.has(sha(j === 0 ? p : '### ' + p)));
+}
+
+/**
+ * #4890: where an unedited plain copy of an EARLIER block sits in this text, or null. "Unedited" is a byte match
+ * against a fingerprint in doctrine-past.js, starting at the rules' first heading line and ending at a line end. The current block is in
+ * that table too and is not reported here: a plain copy of today's rules has nothing to update.
+ */
+function pastBlockIn(body, past, skip) {
+  const first = defaults.sections()[0].heading;
+  const current = defaults.block();
+  const rows = past || PAST;
+  for (let at = body.indexOf(first); at >= 0; at = body.indexOf(first, at + 1)) {
+    if (at > 0 && body[at - 1] !== '\n') continue;
+    if (skip && at < skip.end && at >= skip.start) continue;   // earlier rules inside a span are the span path's
+    if (body.startsWith(current, at)) continue;   // today's block, which an earlier one can be a prefix of
+    for (const row of rows) {
+      const slice = body.slice(at, at + row.length);
+      if (slice.length !== row.length || slice === current) continue;
+      const after = body[at + row.length];
+      if (after !== undefined && after !== '\n' && after !== '\r') continue;   // words typed onto its last line are an edit
+      // A later block only appended sections, so an earlier one can match as its prefix: a copy that goes on into
+      // another section is not this one.
+      if (/^(?:[ \t]*\r?\n)*### /.test(body.slice(at + row.length + 1))) continue;
+      if (crypto.createHash('sha256').update(slice).digest('hex') === row.sha256) return { start: at, end: at + row.length, version: row.version };
+    }
+  }
+  return null;
 }
 
 /** The section content of a span body, with the dated frame taken off, so
@@ -74,6 +165,7 @@ function spanBody(sectionsList, now) {
     a write that only re-dates the sentence is a write for nothing). */
 function sectionContentOf(spanInner) {
   return String(spanInner == null ? '' : spanInner)
+    .replace(/\r\n/g, '\n')   // #4890: a span saved with Windows line endings holds the same rules
     .split('\n')
     .filter((line) => !line.startsWith('<!-- Kosmos added the working rules below on ')
       && line !== CLOSING_LINE)
@@ -85,18 +177,51 @@ function sectionContentOf(spanInner) {
  * What a refresh would do to this text, composed ONCE. Pure. Returns:
  *   { state: 'could_not', because }                     ambiguity, refused
  *   { state: 'current' }                                nothing to add; NO write may follow
- *   { state: 'refresh', sections, spanNext, fileNext, hash }
+ *   { state: 'refresh', sections, spanNext, fileNext, hash, replacing?, updating? }
+ *
+ * `replacing` (#4890) is true when the click also removes an unedited plain
+ * copy of an earlier block; `updating` when it rewrites an existing span. `past` is the fingerprint table, for tests only;
+ * engine/doctrine-past.js otherwise.
  *
  * `sections` is what the dialog lists; `fileNext` is what a click writes;
  * `hash` is how the click proves it consents to THIS composition and not a
  * file that changed since the dialog (the could-not arm of the race is an
  * honest "look again", never a write on a guess).
  */
-function planFor(text, now) {
+function planFor(text, now, past) {
   const body = String(text == null ? '' : text);
   const found = projects.findBlock(body, START, END);
   if (found && found.ambiguous) {
     return { state: 'could_not', because: `its instructions contain ${found.pairs} Kosmos working-rules blocks, so we cannot tell which is ours and did not change anything` };
+  }
+  /* #4890: a plain copy of an EARLIER block, byte for byte, is Kosmos's own text that nobody edited, so the
+     click may replace it with the current rules. Only a copy OUTSIDE any span counts: a span holds earlier
+     rules too, and those are brought current by the span path below. */
+  const old = pastBlockIn(body, past, found || null);
+  if (old && !(found && old.start < found.end && old.end > found.start)) {
+    const all = defaults.sections();
+    const without = body.slice(0, old.start) + body.slice(old.end).replace(/^\r?\n/, '');
+    /* The copy is cut and the rest planned again, when the rules also live somewhere else in the file: a span (a
+       person who clicked an earlier refresh that added only missing headings), another earlier copy, or today's
+       own plain copy. One click then leaves one copy of the current rules. */
+    if (found || pastBlockIn(without, past) || hasPlainCurrent(without)) {
+      const plan = planFor(without, now, past);
+      if (plan.state === 'refresh') return { ...plan, replacing: true, hash: hashOf(plan.fileNext) };
+      if (plan.state === 'current') {
+        const kept = all.filter((s) => without.includes(s.heading));
+        return { state: 'refresh', replacing: true, sections: kept, spanNext: '', fileNext: without, hash: hashOf(without) };
+      }
+      return plan;
+    }
+    /* No span: the span takes the copy's place. A heading the person also carries outside it is theirs and is
+       not written again (constraint 8, as the span path below does). */
+    const outside = body.slice(0, old.start) + body.slice(old.end);
+    const wanted = all.filter((s) => !outside.includes(s.heading));
+    if (wanted.length) {
+      const spanNext = spanBody(wanted, now);
+      const fileNext = body.slice(0, old.start) + `${START}\n${spanNext}\n${END}` + body.slice(old.end);
+      return { state: 'refresh', replacing: true, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
+    }
   }
   if (found) {
     /* An existing managed span: its sections are OURS to bring current;
@@ -118,7 +243,9 @@ function planFor(text, now) {
     if (sectionContentOf(spanInner) === wantedContent) return { state: 'current' };
     const spanNext = spanBody(wanted, now);
     const fileNext = projects.spliceBlock(body, spanNext, START, END);
-    return { state: 'refresh', sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
+    /* #4890: a span that is not text Kosmos wrote (knownContent) is `edited`, which the fleet click leaves. */
+    const known = knownContent(sectionContentOf(spanInner), past);
+    return { state: 'refresh', updating: true, edited: !known, sections: wanted, spanNext, fileNext, hash: hashOf(fileNext) };
   }
   /* No span: an agent born with the doctrine as plain text, or born before
      it. Only genuinely absent sections are offered (constraint 8); a file
@@ -134,25 +261,46 @@ function hashOf(text) {
   return crypto.createHash('sha256').update(String(text)).digest('hex').slice(0, 16);
 }
 
+/* #4890: an agent created or imported with the rules has them inside the span, so a span that differs at the
+   version it already carries, and is not an earlier block (`edited`), differs because the PERSON changed it. status() raises no banner for it and the fleet click
+   (refresh without the dialog's hash) leaves it; the next version offers the update as usual. */
+function personEditedAtCarried(plan, carried) {
+  return plan.state === 'refresh' && plan.updating === true && plan.edited === true && !plan.replacing
+    && carried !== null && carried >= defaults.DOCTRINE_VERSION;
+}
+
 /**
  * What the banner and the dialog need for one agent, no write anywhere.
  */
-function status(sessionName, now) {
+function status(sessionName, now, past) {   // `past`: tests only
   const current = instructions.read(sessionName);
   if (!current.exists) {
     return { state: 'could_not', because: current.because || 'it has no instructions file yet' };
   }
-  const plan = planFor(current.text || '', now);
+  const plan = planFor(current.text || '', now, past);
   let profile = {};
   try { profile = store.readProfile(sessionName) || {}; } catch { profile = {}; }
+  const carried = Number.isFinite(profile.doctrineVersion) ? profile.doctrineVersion : null;
+  if (personEditedAtCarried(plan, carried)) {
+    return { state: 'current', carried, currentVersion: defaults.DOCTRINE_VERSION, declined: profile.doctrineDeclined === defaults.DOCTRINE_VERSION };
+  }
   return {
     ...plan,
-    carried: Number.isFinite(profile.doctrineVersion) ? profile.doctrineVersion : null,
+    carried,
     currentVersion: defaults.DOCTRINE_VERSION,
     declined: profile.doctrineDeclined === defaults.DOCTRINE_VERSION,
   };
 }
 
+const FLEET_LEAVES_REPLACE = 'its older copy of the rules is replaced only from its own page, where the change is shown';
+const FLEET_LEAVES_EDITED = 'its working rules are not a copy Kosmos recognises as its own, so they are updated only from its own page, where the change is shown';
+/* #4890: why the fleet click (names only, no dialog hash) leaves this plan for the agent's own page, or null. The
+   fleet list (server.js) reads the same answer, so the list and the click agree. */
+function fleetLeaves(plan) {
+  if (plan && plan.replacing) return FLEET_LEAVES_REPLACE;
+  if (plan && plan.updating && plan.edited) return FLEET_LEAVES_EDITED;
+  return null;
+}
 /**
  * The consented write, the reports.tellAgent shape: gate, read, plan,
  * refuse-or-write, and a verdict in a sentence. `expectHash` is the hash
@@ -179,8 +327,17 @@ function refresh(sessionName, roster, opts) {
     if (!current.exists) {
       return { state: 'could_not', because: 'it has no instructions file yet, and we will not create one' };
     }
-    const plan = planFor(current.text || '', opts && opts.now);
+    const plan = planFor(current.text || '', opts && opts.now, opts && opts.past);   // `past`: tests only
     if (plan.state === 'could_not') return plan;
+    /* #4890: cutting an older copy is consented to only in the per-agent dialog, which shows it and always sends
+       its hash. The fleet click (no hash, names only) leaves such an agent for its own page. */
+    if (!(opts && opts.expectHash)) {
+      let carried = null;
+      try { const p = store.readProfile(sessionName) || {}; carried = Number.isFinite(p.doctrineVersion) ? p.doctrineVersion : null; } catch { carried = null; }
+      if (personEditedAtCarried(plan, carried)) return { state: 'current' };   // as status() says, so the two agree
+      const leaves = fleetLeaves(plan);
+      if (leaves) return { state: 'could_not', because: leaves };
+    }
     if (plan.state === 'current') {
       /* Already has them: said, never silent, and NOTHING is written --
          not even a re-dated sentence (constraint 4: a no-op write rotates
@@ -204,7 +361,8 @@ function refresh(sessionName, roster, opts) {
     /* The write: the SAME fileNext the plan composed and the dialog hashed.
        spliceBlock already preserved every byte outside the markers. */
     instructions.write(sessionName, plan.fileNext, current.version, undefined,
-      { who: 'kosmos', because: 'added the working rules, with your OK' });
+      { who: 'kosmos', because: plan.replacing ? 'replaced its older working rules with the current ones, with your OK'
+        : plan.updating ? 'updated the working rules, with your OK' : 'added the working rules, with your OK' });
     try {
       store.writeProfile(sessionName, { doctrineVersion: defaults.DOCTRINE_VERSION });
     } catch { /* the file is the truth; the record catches up on the next write */ }
@@ -231,4 +389,4 @@ function decline(sessionName) {
   }
 }
 
-module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, decline, hashOf };
+module.exports = { START, END, spanBody, clickDate, planFor, status, refresh, decline, hashOf, atBirth, birthLine, pastBlockIn, FLEET_LEAVES_REPLACE, FLEET_LEAVES_EDITED, fleetLeaves };

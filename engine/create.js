@@ -5066,15 +5066,17 @@ function createAgentInner(opts) {
        What is lost here is the block carrying `kosmos post` and `kosmos msg`, so
        an agent born without it does not know how to answer a person at all, and
        creation said it worked.
-       📌 A code-level break is caught before shipping: making `appendTo` throw
-       reds 6 of the 141 tests in engine/create.test.js, measured. The case this
+       📌 A code-level break is caught before shipping: making `doctrine.atBirth` throw
+       reds 8 of the 214 tests in engine/create.test.js, measured 2026-10-01 (#4890). The case this
        step is for is the DEPLOYMENT one - a partially synced install where the
        shipped code is fine and the file on disk is not - which no test can see
        and which this box has had happen. */
     let defaultsLanded = false;
     try {
-      const withDefaults = require('./defaults').appendTo(text);
+      /* #4890: inside the managed span, so a later change under an existing heading can reach this agent through
+         the consented refresh (doctrine.atBirth). */
       const { MAX_BYTES } = require('./instructions');
+      const withDefaults = require('./doctrine').atBirth(text, undefined, MAX_BYTES);
       /* kosmos#1673 gave this the warning it was missing, and kosmos#1672 extends
          it to the OTHER way the block can be lost. Two failure paths, one report:
            the byte cap drops it   -> #1673's case, warned since #1701

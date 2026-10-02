@@ -65,9 +65,10 @@ test('a successful Add tells the person it is done and gives them the one thing 
      wake them."). The #863 invariant is unchanged and still pinned below: the
      dialog does not dead-end -- Add is disabled, Keep becomes Close, focus
      follows it. The bare "Added." dead-end must not come back. */
-  assert.match(handler, /'Added and restarted\. /,
+  assert.match(handler, /did \+ ' and restarted\. /,
     'the add no longer reports it restarted, or the done state dead-ends');
-  assert.ok(!/'Added\. You can close this dialog\.'/.test(handler),
+  assert.match(handler, /const did = \(plan\.replacing \|\| plan\.updating\) \? 'Updated' : 'Added';/, '#4890: the done line lost its verb');
+  assert.ok(!/(?:'Added|did \+ ')\. You can close this dialog\.'/.test(handler),
     'the bare "Added." dead-end came back instead of the add+restart flow');
   assert.match(handler, /getElementById\('doc-go'\)\.disabled = true/,
     'Add them stays clickable after it already added them');
