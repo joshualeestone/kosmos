@@ -10,7 +10,7 @@
 # verify call (source checks); verify-served.sh's name gate (run); release_site_restore's two new arms
 # (run, each with a control); promote-channel.sh's copy and its refusals (run against a fixture git site,
 # with a control that /setup really changed). deploy-site.sh's guard is RUN in test-deploy-site-promote.sh
-# (cases 19-25). engine/update.js's setupUrl is covered by
+# (cases 19-27). engine/update.js's setupUrl is covered by
 # engine/update.win32-check.test.js ("#5032: ...").
 #
 #   bash tools/test-setup-staging-5032.sh
@@ -180,7 +180,7 @@ Sh="$(promote_site yes)"; rm -f "$Sh/setup-staging"; git -C "$Sh" commit -qam "s
 refused "a sidecar with no script" "$Sh" "not committed"
 
 # ---- deploy-site.sh: the guard (the pointer names its installer) is RUN in tools/test-deploy-site-promote.sh
-# (cases 19-25, the edge check included).
+# (cases 19-27, the edge check included).
 grep -qF 'served_verify_asset_ok "$HOST/setup-staging"' "$REPO/tools/deploy-site.sh" && pass "deploy-site: the staging pair is checked at the edge" || bad "deploy-site: no edge check for /setup-staging"
 
 # ---- the pointer writer: setup_sha256 only when given, and only a real sha ----
