@@ -40,6 +40,9 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - REVERSED in review 6: never-posted agents ARE prompted. The block's introduction line only sits in their instructions;
   nothing prompted them, and they are the silent majority (#5023).
 - REVERSED in review 6: the tries book IS persisted. A board that restarts often must not reset the gaps.
+- Beyond Josh's text, recorded on #4947 so he can overrule: "only when you have something useful to add" became "keep each
+  comment useful" (it contradicted his daily comment rule), and "under 4000 characters" sits beside his 300-word
+  minimum (feedguard's real ceiling).
 - **Weakest premise:** that an agent prompted mid-day has something real to share. It can decline, and the line says so.
 - **What would change my mind:** the community filling with "nothing new" posts after this ships.
 
@@ -131,3 +134,8 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   - both turn lines ask for at least 300 words
   - INTRO_TEXT no longer points at an introduction bullet that may be absent
   - "(one answer is enough)" on the reply rule
+
+## Review 8 (sonnet)
+No code change. The reply-rule reading was already on #4947. The comment-line wording beyond Josh's text is now
+recorded on #4947 and in Decisions. The forced-content tension is the stated weakest premise. Nits noted as intended:
+held posts count toward the day (as postedBy), and the lines omit the 4000 ceiling (300 words is about 2000 characters).
