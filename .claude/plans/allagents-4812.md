@@ -159,3 +159,17 @@ The 'blocked' words no longer read as a refusal the person can clear by signing 
 cannot be read from here yet. It may need the latest Kosmos." (an older connector is the usual cause). Unit 32/32.
 Loop converged at iteration 10. Remaining before the PR: bc-4812 (browser check + 2 sabotages), full validation,
 proof file; the PR opens only after the relay half (kosmos-relay siblingcors-4812) is merged.
+
+## Mortals full validation (d30b03c85, 02:59): 3 guard reds, all fixed 07:25 after a rebase onto main ec62319c7
+- browser-checks-reason-grep: the check's chk() FAIL line is a new emit site -> EXPECTED_SITES 231 -> 232 (measured).
+- fixture-discipline: 26 hand-built cards in web.allagents-4812.test.js -> a card(name, over) helper over real
+  test-support/fleet cards (sandboxed env); hostile remote values are fields set on a real card; the 2000-agent cap test
+  renames one real card by assignment; the three-field row output is asserted as keys + [sessionName, name, state]
+  triples, not as a hand-built object.
+- web.consolidated-980: #oa-wrap made the body's 40th direct child; the consolidated grid reserved 39 pre-rail rows.
+  Did the documented five-site renumbering: repeat(39 -> 40, auto); #rail-agents 40 -> 41, #alist 41 -> 42, #rail-me
+  42 -> 43, #panel-projects 40 -> 41 / span 3; pins updated in web.consolidated-980 / -867 and web.rhythm-1303a.
+  Rejected: moving #oa-wrap inside another body child (every `body.consolidated > #grid`-style selector assumes the
+  grid and its neighbours are body children; placeAgentsPanel already moves all three into the agents panel there).
+Focused, green: web.allagents-4812 32/32, fixture-discipline 20/20, reason-grep 5/5, consolidated-980 13/13,
+consolidated-867 7/7, rhythm-1303a 6/6. STILL OPEN: the #oa-only click hang in the browser check (both engines).
