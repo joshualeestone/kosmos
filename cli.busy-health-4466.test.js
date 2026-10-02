@@ -398,6 +398,23 @@ test('#4466 a proxy in the environment does not hide the board: loopback request
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
 
+/* #4933: a board that is DOWN refuses the direct probe; refused means loopback itself works, so the exemption stays and
+   the empty-answer proxy of #4466 is never asked: "not running", not "another app". */
+test('#4933 a stopped board with a proxy set: the refused probe keeps the exemption, so status says not running', async () => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(200); res.end(''); });
+  await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+  const p = 'http://127.0.0.1:' + proxy.address().port;
+  try {
+    const env = baseEnv(await closedPort(), { http_proxy: p, HTTP_PROXY: p, all_proxy: p, ALL_PROXY: p });
+    delete env.no_proxy; delete env.NO_PROXY;
+    const out = await runCli(['status'], env);
+    assert.match(out.stdout + out.stderr, /not running/);
+    assert.doesNotMatch(out.stdout + out.stderr, /another app/);
+    assert.deepEqual(hits, [], 'a stopped board was asked through the proxy: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); }
+});
+
 /* #4933: the other proxy-only sandbox. Direct loopback is NOT permitted there and the proxy forwards to the board, so
    the #4466 exemption sent every call past the one route that works ("Kosmos is not running"). Simulated with the probe
    seam aimed at a local listener that accepts and never answers (curl times out: neither connected nor refused), and

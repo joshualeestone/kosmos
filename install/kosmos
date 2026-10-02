@@ -113,7 +113,9 @@ URL="http://127.0.0.1:$PORT"
 # is tried and nothing changes. KOSMOS_LOOPBACK_PROBE_URL is a test seam for the probe's target only.
 _kosmos_loopback_direct() {
   local _err _rc=0
-  _err="$(/usr/bin/curl --noproxy '*' -sS -o /dev/null --connect-timeout 1 -m 3 "${KOSMOS_LOOPBACK_PROBE_URL:-$URL/api/health}" 2>&1)" || _rc=$?
+  # -v: curl 8 says only "Couldn't connect to server" for every failure; its verbose line names the errno
+  # ("connect to 127.0.0.1 port N ... failed: Connection refused"), which is what tells down from blocked.
+  _err="$(/usr/bin/curl --noproxy '*' -sS -v -o /dev/null --connect-timeout 1 -m 3 "${KOSMOS_LOOPBACK_PROBE_URL:-$URL/api/health}" 2>&1)" || _rc=$?
   [ "$_rc" = 0 ] && return 0
   case "$_err" in *[Rr]efused*) return 0 ;; esac
   return 1
