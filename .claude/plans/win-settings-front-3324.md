@@ -39,6 +39,16 @@ The live proof ran from my agent's process tree (started by a logon scheduled ta
 not from the board process itself, with Notepad or File Explorer in front rather than
 the Kosmos app window. The foreground lock could in principle treat the board
 differently. A full first-run visual check through a board is the follow-up proof.
+Also: if a suspended Settings CoreWindow is ever detached from its frame, FrameOf finds
+nothing and the helper gives up after 5 s (the pre-fix state). Settings already open and
+minimized was checked live and restored + raised; the board check should repeat it.
+
+## Review-loop changes
+- Restore (SW_RESTORE) only when IsIconic, so a maximized Settings is not shrunk.
+- `setSpawnForTests` seam below the live gate; the test asserts the options the real
+  launch receives (a reintroduced `detached: true` goes red, checked).
+- The not-detached child is in libuv's kill-on-close job, so it dies with the board;
+  the comment says so (acceptable: a few seconds of life).
 
 ## Out of scope (follow-up)
 "Check again / Turned it on? Tap to check." still showing when sleep is already off, and

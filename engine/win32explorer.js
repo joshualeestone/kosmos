@@ -89,6 +89,12 @@ let runner = null;
 /** Test seam: receives (explorerPath, args) instead of a real spawn. */
 function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; }
 
+let spawnForTests = null;
+/** Test seam BELOW the live gate: replaces child_process.spawn for foregroundSettings only,
+    so a test can see the spawn options the real launch passes (the runner seam above
+    returns before them). */
+function setSpawnForTests(fn) { spawnForTests = typeof fn === 'function' ? fn : null; }
+
 let statForTests = null;
 /** Test seam: the existence check, so a Mac can assert the Windows arm with a Windows path. */
 function setStatForTests(fn) { statForTests = typeof fn === 'function' ? fn : null; }
@@ -272,6 +278,7 @@ const FOREGROUND_SETTINGS_SCRIPT = [
   '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);',
   '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
   '[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();',
+  '[DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);',
   'public delegate bool EnumProc(IntPtr h, IntPtr l);',
   '[DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);',
   '[DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr p, EnumProc cb, IntPtr l);',
@@ -281,8 +288,9 @@ const FOREGROUND_SETTINGS_SCRIPT = [
   'public static IntPtr FrameOf(uint pid) {',
   '  IntPtr found = IntPtr.Zero;',
   '  EnumWindows(delegate(IntPtr f, IntPtr l) {',
+  '    if (!IsWindowVisible(f)) return true;',
   '    var c = new System.Text.StringBuilder(64); GetClassName(f, c, 64);',
-  '    if (!IsWindowVisible(f) || c.ToString() != "ApplicationFrameWindow") return true;',
+  '    if (c.ToString() != "ApplicationFrameWindow") return true;',
   '    EnumChildWindows(f, delegate(IntPtr k, IntPtr m) {',
   '      uint p; WindowPid(k, out p);',
   '      if (p == pid) { found = f; return false; }',
@@ -306,7 +314,7 @@ const FOREGROUND_SETTINGS_SCRIPT = [
   '    $ft=[KWin.Native]::GetWindowThreadProcessId($fg,[IntPtr]::Zero)',
   '    $me=[KWin.Native]::GetCurrentThreadId()',
   '    [void][KWin.Native]::AttachThreadInput($me,$ft,$true)',
-  '    [void][KWin.Native]::ShowWindowAsync($h,9)',
+  '    if([KWin.Native]::IsIconic($h)){ [void][KWin.Native]::ShowWindowAsync($h,9) }',
   '    [void][KWin.Native]::SetForegroundWindow($h)',
   '    [void][KWin.Native]::AttachThreadInput($me,$ft,$false)',
   '    break',
@@ -324,8 +332,9 @@ function powershellPath() {
    DETACHED_PROCESS: no console at all, and powershell.exe 5.1 started that way exits 0 in
    ~65 ms without running a line (measured 2026-10-02; the same launch without it runs).
    The first version was detached, so the helper never ran. windowsHide gives it a HIDDEN
-   console instead, and unref() alone is what keeps it never-waited-on: a Windows child is
-   not killed when its parent exits. */
+   console instead, and unref() keeps it never-waited-on. Not detached also means libuv
+   puts it in the board's kill-on-close job, so it dies if the board exits: acceptable,
+   its whole life is the few seconds it takes to find and raise one window. */
 const FOREGROUND_SPAWN_OPTIONS = Object.freeze({ detached: false, stdio: 'ignore', windowsHide: true, shell: false });
 
 /** Raise the Settings window; see FOREGROUND_SETTINGS_SCRIPT. Best effort. */
@@ -339,7 +348,7 @@ function foregroundSettings() {
     return { ok: false, because: EXPLORER_DID_NOT_OPEN };
   }
   try {
-    const child = spawn(exe, args, FOREGROUND_SPAWN_OPTIONS);
+    const child = (spawnForTests || spawn)(exe, args, FOREGROUND_SPAWN_OPTIONS);
     child.on('error', (err) => {
       process.stderr.write('[win32explorer] ' + exe + ' foreground helper failed to start: '
         + String((err && err.message) || err) + '\n');
@@ -366,6 +375,7 @@ module.exports = {
   foregroundSettings,
   FOREGROUND_SETTINGS_SCRIPT,
   FOREGROUND_SPAWN_OPTIONS,
+  setSpawnForTests,
   setRunner,
   setStatForTests,
 };

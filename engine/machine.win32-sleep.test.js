@@ -212,10 +212,8 @@ test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUN
        window is ApplicationFrameHost's frame around it, so the search must look there. */
     assert.match(script, /ApplicationFrameWindow/, 'it looks for the frame that hosts Settings');
     assert.match(script, /EnumChildWindows/, 'it matches the frame by its Settings-owned child');
-    /* A detached powershell.exe has no console and exits 0 without running the script, so
-       the helper must be launched hidden, never detached. */
-    assert.equal(explorer.FOREGROUND_SPAWN_OPTIONS.detached, false, 'a detached PowerShell never runs the helper');
-    assert.equal(explorer.FOREGROUND_SPAWN_OPTIONS.windowsHide, true, 'the helper must not flash a console');
+    /* Restoring an already-open window un-maximizes it; only a minimized one is restored. */
+    assert.match(script, /IsIconic\(\$h\)\)\{ \[void\]\[KWin\.Native\]::ShowWindowAsync\(\$h,9\)/, 'only a minimized Settings is restored');
 
     /* When the page itself does not open, the window is not raised: nothing is there to raise. */
     calls.length = 0;
@@ -225,6 +223,26 @@ test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUN
   } finally {
     machine.setPlatform(null);
     explorer.setRunner(null);
+  }
+});
+
+test('#3324 the foreground helper is launched hidden and NOT detached: a detached powershell.exe exits without running it', () => {
+  const liveExecution = require('./live-execution');
+  const spawned = [];
+  explorer.setSpawnForTests((exe, args, opts) => {
+    spawned.push({ exe, args, opts });
+    return { on() {}, unref() {} };
+  });
+  liveExecution.allowLiveExecution();
+  try {
+    assert.deepEqual(explorer.foregroundSettings(), { ok: true });
+    assert.equal(spawned.length, 1);
+    assert.match(spawned[0].exe, /\\powershell\.exe$/i);
+    assert.equal(spawned[0].opts.detached, false, 'a detached PowerShell never runs the helper');
+    assert.equal(spawned[0].opts.windowsHide, true, 'the helper must not flash a console');
+  } finally {
+    liveExecution.resetForTests();
+    explorer.setSpawnForTests(null);
   }
 });
 
