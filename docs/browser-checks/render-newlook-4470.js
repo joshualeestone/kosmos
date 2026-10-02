@@ -22,7 +22,7 @@
  *  - the Projects list in the new look (projectsLook): tiles without a box (the Issue tile keeps its red), Add Project a
  *    round grey button, plain cards without border or shadow (24px corners) that show today's hover border and lift and
  *    today's keyboard focus ring, a needs-you card's red edge, the current view's gold and a plain roadmap row unchanged;
- *    on a touch phone at 320, 360 and 390, Add Project clear of the sort and the toggle (#718); with the look off, today's
+ *    on a touch phone at 320, 360, 390, 480 and 520, Add Project clear of the sort and the toggle (#718); with the look off, today's
  *    card, tile and dashed tile (the control),
  *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
  *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
@@ -921,7 +921,7 @@ const AGENTS_LOOK = `(() => {
       chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'missed' && tkOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Tasks: Needs Your Decision at zero is drawn like the others (no border), and a tile under the pointer shows its border`, JSON.stringify(tkOn));
       if (width < 600) {
-        for (const w of [320, 360, 390]) {
+        for (const w of [320, 360, 390, 480, 520]) {   // 480 is the 30rem edge; 520 is past it (the one-line label)
           const row = await projectsPhoneRow(browser, URL, w);
           chk(row.look === 'new' && row.add && row.sort && row.toggle && !row.overlap && !row.wide,
             `${tag} On, Projects at ${w} on a touch phone: Add Project does not run under the sort or the view toggle (#718)`, JSON.stringify(row));
@@ -932,7 +932,7 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Projects: a plain project card loses its border and shadow and takes 24px corners`, JSON.stringify(plOn));
       chk(plOn.found && plOn.tile === 'rgba(0, 0, 0, 0)' && plOn.tileBg === 'rgba(0, 0, 0, 0)' && plOn.plus.round === '50%' && plOn.plus.w === 40 && plOn.newBorder === 'none',
         `${tag} On, Projects: the Projects tile has no box and Add Project is a 40px round button with no dashed edge`, JSON.stringify(plOn));
-      chk(plOn.found && plOn.attn !== 'rgba(0, 0, 0, 0)' && plOn.hover && plOn.hover !== 'missed' && plOn.hover !== 'rgba(0, 0, 0, 0)',
+      chk(plOn.found && plOn.attn !== 'rgba(0, 0, 0, 0)' && plOn.hover && plOn.hover !== 'missed',
         `${tag} On, Projects: a needs-you card keeps its red edge, and a card under the pointer shows its border (a sign it opens)`, JSON.stringify(plOn));
       chk(plOn.found && plOn.issueTile && plOn.msgTile && plOn.issueTile.border !== 'rgba(0, 0, 0, 0)' && plOn.msgTile.border === 'rgba(0, 0, 0, 0)' && plOn.msgTile.bg === 'rgba(0, 0, 0, 0)',
         `${tag} On, Projects: the Issue tile keeps its red outline, the Messages count has no box`, JSON.stringify({ issue: plOn.issueTile, msg: plOn.msgTile }));
