@@ -53292,9 +53292,10 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      is its transport/500 sentence (a 400/500 {error}). Read both so a server error is
      not mislabelled "that is not an agent file". */
   if (!data.ok) { fail(data.because || data.error || 'That is not an agent file we can bring in.'); return; }
-  /* A raw CLAUDE.md may carry no derivable name (recognizedFromContent). The form
-     path prompts for one; a one-click add cannot, so it says so and stops rather than
-     making a nameless agent. */
+  /* A raw CLAUDE.md may carry no derivable name (recognizedFromContent). A row whose scan
+     found no name asks for one in its Name field before this point (kosmos#4962), so this
+     guard is reached only when the scan named the file but the parse gave no usable name:
+     it says so and stops rather than making a nameless agent. */
   /* What the person typed wins when the row asked for it; the engine folds it into a machine name
      ("Claude Pip" is claude-pip) and refuses one it cannot use, with a reason this row shows. */
   const name = typed || String(data.name || '').trim();
@@ -70145,8 +70146,10 @@ document.getElementById('fr-openai-key').addEventListener('keydown', (e) => {
      test. It mirrors Continue's own enabled state exactly, so an invalid step
      (Continue greyed, e.g. About-you before its fields are filled, or a
      connect flow where Continue is hidden) does nothing -- the acceptance's
-     "does nothing harmful" arm. The openai-key field, which is the one place
-     inside the wizard with its own Enter gesture, stops propagation above. */
+     "does nothing harmful" arm. Two fields inside the wizard have their own Enter
+     gesture: the openai-key field stops propagation above, and a found file's Name
+     field (.fr-importinput / .fr-adoptinput, kosmos#4962) is kept apart by the early
+     return below plus importNameEnter's defaultPrevented check. */
 function frEnterSubmit(e) {
   if (e.key !== 'Enter' || e.repeat) return;
   if (e.isComposing || e.keyCode === 229) return;
