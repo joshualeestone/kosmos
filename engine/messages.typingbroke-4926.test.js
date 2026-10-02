@@ -230,7 +230,7 @@ const failLogOnce = () => {
   return () => { fs.appendFileSync = real; };
 };
 
-test('#4926 review 3 (Opus): the PERSON\'s post that reached the room but could not be recorded: a re-post folds, nobody typed twice', async () => {
+test('#4926 review 4 (Sonnet): the PERSON\'s post that could not be recorded is NOT folded: a repeat is delivered (never swallowed)', async () => {
   await withRoom(async (roster) => {
     const calls = arm();
     const restore = failLogOnce();
@@ -239,8 +239,8 @@ test('#4926 review 3 (Opus): the PERSON\'s post that reached the room but could 
       assert.equal(d.state, chat.DELIVERY.UNCONFIRMED);
       const typed = enters(calls).length;
       const again = await opPost(roster, 'from the person');
-      assert.equal(again.duplicate, true, 'the person\'s re-post was sent again');
-      assert.equal(enters(calls).length, typed, 'a member was typed into twice');
+      assert.ok(!again.duplicate, 'the person\'s repeat was swallowed (the page would say "Posted." for a post the room never shows)');
+      assert.ok(enters(calls).length > typed, 'the person\'s repeat was not delivered');
     } finally { restore(); }
   });
 });
@@ -280,5 +280,20 @@ test('#4926 review 3 (Opus): a member that fails after its long post was spilled
     assert.deepEqual(left, [], 'cy kept a spill file for a post it never got');
     const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
     assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).some((f) => f.startsWith(d.id)), 'fixture: the post did not spill at all (cannot see the cleanup)');
+  });
+});
+
+test('#4926 review 4 (Sonnet): a post that began while the unrecorded one was still being typed breaks its quiet', async () => {
+  await withRoom(async (roster) => {
+    arm();
+    let restore = failLogOnce();
+    let d;
+    try { d = await agentPost(roster, 'slow one', false); } finally { restore(); }
+    // A row whose START is after the unrecorded post's start but before it finished (its keptAt).
+    const between = new Date(Date.parse(d.at) + 1).toISOString();
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm77', project: 'room4926', from: 'cy', to: ['ava'], text: 'meanwhile', at: between, outcomes: { ava: 'placed' } }) + '\n');
+    assert.ok(messages.list().some((r) => r.id === 'm77'), 'fixture: the record reader dropped the meanwhile row');
+    const again = await agentPost(roster, 'slow one', false);
+    assert.ok(!again.duplicate, 'a repeat after a post that began meanwhile was folded');
   });
 });

@@ -963,14 +963,12 @@ const IN_FLIGHT_SENDS = new Map();
    fold a retry into, so its answer is kept here for the dedup window. */
 const UNRECORDED_SENDS = new Map();
 /* Review 3 (Opus): the same quiet rule as the record's fold: anything posted in the room since breaks it (a repeat
-   after others spoke is a real second post). Also used for the PERSON's posts, which the record's fold never folds: a
-   person told nothing (the page shows "Posted." when every member was placed) re-posts, and every member got it twice.
-   In memory only: a board restart forgets it (and the next post can reuse the unrecorded post's id, as before this). */
+   after others spoke is a real second post). Agents' posts only (review 4: see where it is kept). In memory only: a board restart forgets it (and the next post can reuse the unrecorded post's id, as before this). */
 function unrecordedTwin(key, log, projectId) {
   for (const [k, u] of UNRECORDED_SENDS) if (Date.now() - u.keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_SENDS.delete(k);   // pruned on every look
   const u = UNRECORDED_SENDS.get(key);
   if (!u) return null;
-  const since = (Array.isArray(log) ? log : []).some((r) => r && (r.kind === 'post' || r.kind === 'external') && r.project === projectId && Date.parse(r.at) >= u.keptAt);   // >=: the unrecorded post has no row to match itself
+  const since = (Array.isArray(log) ? log : []).some((r) => r && (r.kind === 'post' || r.kind === 'external') && r.project === projectId && Date.parse(r.at) >= Date.parse(u.result.at));   // review 4: from the post's own START (rows carry their start; a post that began while this one was still typing counts); >=: it has no row of its own
   if (since) { UNRECORDED_SENDS.delete(key); return null; }
   return u.result;
 }
@@ -1652,9 +1650,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      the same post again, and the first one's flags stand. */
   const answeredId = answered ? answered.id : null;
   const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
-  const unrecorded = unrecordedTwin(postKey, log, projectId);   // #4926 review 2: delivered but not recorded (review 3: the person's too)
-  if (unrecorded) return asDuplicate(unrecorded);
   if (operator !== true) {
+    const unrecorded = unrecordedTwin(postKey, log, projectId);   // #4926 review 2: delivered but not recorded
+    if (unrecorded) return asDuplicate(unrecorded);
     const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
     // An outside party's reply in a federated room is an 'external' row: it breaks the quiet like any post.
     if (samePost && quietSince(log, samePost, (r) => (r.kind === 'post' || r.kind === 'external') && r.project === projectId)) {
@@ -2137,8 +2135,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
-    const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, from, text: stored };
-    UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now() });   // review 2: a retry folds (review 3: the person's too)
+    const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
+    /* Review 2: an agent's retry folds. Review 4 (Sonnet): NOT the person's. Folded, the page says "Posted." again for a
+       post the room never shows, so the person's every repeat vanished until the window passed; a second delivery in
+       this rare case (the record could not be written) is the lesser harm. */
+    if (operator !== true) UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now() });
     return unrecorded;
   }
   /* The aggregate state is a SUMMARY, not the receipt: the receipt

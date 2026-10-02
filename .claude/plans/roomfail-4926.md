@@ -97,3 +97,19 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
 - NIT (kept, stated in the code comment): the twin is in memory, so a board restart forgets it; the next post can reuse
   the unrecorded post's id (pre-existing: ids are minted from the record).
 - Related files: 267/267.
+
+## Review 4 (Sonnet, blind): 0 blockers, 3 warnings, 2 nits.
+- WARNING FIXED (REVERSES my review-3 change): folding the PERSON's unrecorded post swallowed every repeat: the page
+  never reads `duplicate`, says "Posted." again, and the room (with no row) never shows it, so the person posted into a
+  void until the window passed; the fold key also ignores attachments. The unrecorded twin is agents' posts only again.
+  The person's re-post in this rare case (the record could not be written) is delivered twice: the lesser harm. Test
+  asserts the person's repeat is delivered. (The two guards are redundant; removing both is killed.)
+- WARNING FIXED: the twin's quiet rule compared rows' START times against keptAt (when the unrecorded post FINISHED),
+  so a post that began while it was still being typed did not break the quiet. Now compared from the unrecorded post's
+  own start. Test with a row started in between + mutant.
+- WARNING (kept, stated since review 1 as the weakest premise): a throw INSIDE the typing path before any paste (a
+  missing session) is unconfirmed; if every member throws that way the post is recorded and the sender told not to
+  re-post though nobody got it. Splitting needs chat.deliver to say whether it pasted; not done here.
+- NIT (kept): a held id with no row (an unrecorded post) is never stale.
+- NIT FIXED: the unrecorded answer carries heldUntil like the recorded one.
+- Related files: 268/268.
