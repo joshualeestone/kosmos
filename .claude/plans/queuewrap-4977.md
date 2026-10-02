@@ -42,5 +42,5 @@ The reviewed source of the queue wrapper is a file in the repo, and CI runs a te
 
 ## Validation
 - Before the rebase: 76 OK, 0 BAD, three runs in a row after review 4 (about 80 s each), no sleeps or temp files left behind.
-- At dd91e8040 (after the rebase and post-rebase reviews 1-6): 78 OK, 0 BAD. tools.shell-shard-4317, tools.every-test-runs, no-name-refs-3071, no-brand-refs-1881, fixture-discipline and tools.heavy-gate-3805 pass at e905768da, run from the worktree root (since then only the wrapper's load check and this test changed).
-- Mutants, each turning exactly its arm red: removing the wrapper's scan for suite-like commands (light runs of browser-checks.sh and `yarn test` forms got side turns); the side turn's temp files made in /tmp instead of TMPDIR (the fixture arm); the load check back to kosmos_wait_until_clear alone (the old-lib arm).
+- At 90196c2bd (after the rebase and post-rebase reviews 1-7): 79 OK, 0 BAD. tools.shell-shard-4317, tools.every-test-runs, no-name-refs-3071, no-brand-refs-1881, fixture-discipline and tools.heavy-gate-3805 pass at e905768da, run from the worktree root (since then only the wrapper's load check and this test changed).
+- Mutants, each turning exactly its arm red: removing the wrapper's scan for suite-like commands (light runs of browser-checks.sh and `yarn test` forms got side turns); the side turn's temp files made in /tmp instead of TMPDIR (the fixture arm); the load check back to kosmos_wait_until_clear alone (the old-lib arm); the side-lane names dropped from the load check (the half-lib arm).
