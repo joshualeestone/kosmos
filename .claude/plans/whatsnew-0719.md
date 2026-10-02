@@ -26,3 +26,8 @@ Line 1 is written from the branch before review. The fast-update path merges #50
 0.7.19 cut's suite is its full validation; if the merged fix differs, the line changes at the trigger.
 
 ## Review rounds
+- Round 1 (opus, against codexcache-5054 @ faa27a9b5): FIXED W: "Kosmos now reads ... each conversation" with no reason
+  could read as a privacy statement; now "to check on each agent, Kosmos now reads only what is new in its
+  conversation, not all of it." FIXED W (release entry): "most of the computer's attention" overstated (71% is the
+  board process's CPU); now "could keep Kosmos itself too busy to answer." LEFT NITs: title kept; the entry's opening
+  needs widening if #5053 or #4947 slice 2 joins; the ~30-agent profile check on the card is not run (re-check at merge).
