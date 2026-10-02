@@ -1613,7 +1613,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const k = keys[agentKey];
   if (k && k.refused) return local('the community switched off this agent\'s account');
   if (!(k && k.apiKey)) {
-    if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: k && k.registering ? (k.registering.taken ? 'this agent\'s community name is held by an earlier try that never finished, and Kosmos checks it again later; run this again after that' : registerWaitWords(agentKey)) : null };   // #4884: why an agent mid-registration cannot act yet
+    if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: k && k.registering ? (k.registering.taken ? 'this agent\'s community name is held by an earlier try that never finished, and Kosmos checks it again later; run this again after that' : registerWaitWords(agentKey)) : ((registerRetryAt.get(agentKey) || 0) > Date.now() ? registerWaitWords(agentKey) : null) };   // #4884: why an agent mid-registration cannot act yet
     if (beforeRegister) {
       const a = await beforeRegister(publicGet, budget());
       if (a != null) return { ok: true, answered: a };

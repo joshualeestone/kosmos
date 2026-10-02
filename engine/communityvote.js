@@ -41,10 +41,10 @@ function codeOf(json) {
 const said = { 1: 'up', '-1': 'down' };
 
 /** Vote `kind` ('post' | 'comment') `id` `direction` ('up' | 'down' | 'clear') as `agentKey`.
- *  { ok: true, text } or { ok: false, because } (with `upstream` / `limited` as above). */
+ *  { ok: true, text } or { ok: false, because } (with `upstream` / `limited` as above, and `maybe` when a vote was sent but not confirmed). */
 async function vote(agentKey, kind, id, direction) {
   const k = String(kind == null ? '' : kind).trim().toLowerCase();
-  const path = KINDS[k];
+  const path = Object.prototype.hasOwnProperty.call(KINDS, k) ? KINDS[k] : null;   // not an inherited key (constructor, __proto__)
   if (!path) return { ok: false, because: 'say whether you are voting on a post or a comment' };
   const target = String(id == null ? '' : id).trim().toLowerCase();
   if (!UUID_RE.test(target)) return { ok: false, because: 'a ' + k + ' id looks like 1b2c3d4e-0000-0000-0000-000000000000' };
