@@ -48621,7 +48621,7 @@ function tcPaint() {
     const noPicN = TC.members.filter((m) => m.portrait === 'failed').length;   // review 8; review 17: counted
     const noPic = noPicN === 1 ? ' A picture was not set: see its row.' : (noPicN ? ' ' + noPicN + ' pictures were not set: see their rows.' : '');
     // Review 17: while it waits for pictures before leaving, say so: the move to the agents view is not a surprise.
-    const going = TC.leaving ? (TC.askedKey && TC.askedKey !== TC.key ? ' Setting their pictures, then opening the team you picked…' : ' Setting their pictures, then taking you to them…') : '';
+    const going = (TC.leaving && !TC.members.some(tcRowNote)) ? (TC.askedKey && TC.askedKey !== TC.key ? ' Setting their pictures, then opening the team you picked…' : ' Setting their pictures, then taking you to them…') : '';
     const stillPic = (!TC.leaving && TC.stayed && TC.members.some((m) => m.portraitBusy)) ? ' A picture is still being set.' : '';   // review 23
     if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look + noPic + going + stillPic;
     else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
@@ -48773,7 +48773,8 @@ async function tcLeaveWhenSettled(gen) {
   if (TC.members.some(tcRowNote)) { TC.stayed = true; tcPaint(); return; }
   TC.leaving = true;
   if (TC.members.some((m) => m.portraitBusy)) tcPaint();   // review 17: the note says it is setting pictures first
-  for (let i = 0; i < 75 && TC && gen === TC_GEN && TC.members.some((m) => m.portraitBusy); i++) await new Promise((r) => setTimeout(r, 200));
+  // Review 28: the wait ends early when a row gets a note meanwhile (a picture that failed): it will stay, not leave.
+  for (let i = 0; i < 75 && TC && gen === TC_GEN && TC.members.some((m) => m.portraitBusy) && !TC.members.some(tcRowNote); i++) await new Promise((r) => setTimeout(r, 200));
   if (gen !== TC_GEN || !TC) return;
   TC.leaving = false;
   // Review 10: once the step has stayed, Go to your team stays on offer even if the picture lands later.
