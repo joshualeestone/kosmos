@@ -27,6 +27,7 @@ function constLine(name) {
 }
 const SRC = [
   constLine('OA_READ_LIMIT_MS'),
+  constLine('OA_MAX_AGENTS'),
   constLine('OA_STALE_MS'),
   'const OA_SEEN = new Map();\n',
   slice('computerAddressOk'),
@@ -51,13 +52,14 @@ const SRC = [
 function load(fetchImpl) {
   const t = makeDom();
   const calls = { sort: [] };
-  const api = new Function('document', 'fetch', 'calls', `
+  const api = new Function('document', 'fetch', 'calls', 'OA_LISTED', `
+    let OA_COMPUTERS = OA_LISTED;   // the reads keep only computers still on the list
     const STATE_COPY = { working: { label: 'Working' }, idle: { label: 'Idle' } };
     const AGENT_SORT = 'name';
     function sortAgents(list, mode, projects) { calls.sort.push([mode, projects]); return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))); }
     ${SRC}
     return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaGroupKey, oaStale, OA_SEEN };
-  `)(t.document, fetchImpl || (async () => { throw new Error('no fetch in this test'); }), calls);
+  `)(t.document, fetchImpl || (async () => { throw new Error('no fetch in this test'); }), calls, LIST);
   return { api, calls, d: t };
 }
 
@@ -413,7 +415,7 @@ test('paint: focus on a group itself stays on the group when it is rebuilt', () 
 });
 
 /* oaRound and oaRefreshComputers themselves, with a fetch the test controls. */
-function loadRound(computersAnswer) {
+function loadRound(computersAnswer, siblingAnswer) {
   const t = makeDom();
   const grid = t.add('grid');
   const wrap = t.add('oa-wrap');
@@ -423,6 +425,7 @@ function loadRound(computersAnswer) {
   const fetchImpl = (url) => {
     asked.push(url);
     if (url === '/api/remote/computers') return computersAnswer();
+    if (siblingAnswer) { const own = siblingAnswer(url); if (own) return own; }
     return Promise.resolve({ status: 200, json: async () => ({ agents: [{ sessionName: 'a', name: 'A', state: 'idle' }] }) });
   };
   t.document.hidden = false;
@@ -447,7 +450,7 @@ function loadRound(computersAnswer) {
     return { oaRound, OA_SEEN, readOneHeld, get busy() { return OA_BUSY; }, get computers() { return OA_COMPUTERS; },
       set computers(v) { OA_COMPUTERS = v; }, set at(v) { OA_COMPUTERS_AT = v; } };
   `)(t.document, { hostname: 'laptop.kosmosplus.com', protocol: 'https:' }, fetchImpl, () => 0, () => {});
-  return { api, asked, grid };
+  return { api, asked, grid, groups: t.document.getElementById('oa-groups') };
 }
 
 // A timeout, so a round that waits on the hung refresh FAILS here rather than hanging the suite.
@@ -474,10 +477,10 @@ test('round: the first round waits for the list, then reads; a computer dropped 
   assert.equal(api.OA_SEEN.has('pizzarama.kosmosplus.com'), false, 'a computer off the list starts as new if it comes back');
 });
 
-test('round: a read that lands after a refresh dropped its computer is not kept', { timeout: 2000 }, async () => {
+test('read: a read that lands after its computer left the list is not kept', { timeout: 2000 }, async () => {
   let land;
   const t = loadRound(async () => ({ ok: true, json: async () => LIST }));
-  t.api.computers = LIST; t.api.at = Date.now();   // known and fresh: this round only reads
+  t.api.computers = LIST;
   // Hold agent1s's read open, drop agent1s from the list, then let the read land.
   const r = t.api.readOneHeld((resolve) => { land = resolve; });
   t.api.computers = { ...LIST, computers: LIST.computers.filter((c) => c.name !== 'agent1s') };
@@ -488,4 +491,23 @@ test('round: a read that lands after a refresh dropped its computer is not kept'
   const kept = t.api.readOneHeld((resolve) => resolve({ status: 200, json: async () => ({ agents: [] }) }));
   await kept;
   assert.equal(t.api.OA_SEEN.get('agent1s.kosmosplus.com').state, 'ok', 'control: still listed, kept');
+});
+
+test('round: each group paints as its own read lands, not when the slowest computer gives up', { timeout: 2000 }, async () => {
+  const t = loadRound(async () => ({ ok: true, json: async () => LIST }),
+    (url) => (url.startsWith('https://pizzarama.') ? new Promise(() => {}) : null));   // pizzarama never answers
+  t.api.computers = LIST; t.api.at = Date.now();
+  const round = t.api.oaRound();   // not awaited: it waits on pizzarama
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  const g = t.groups.children.find((x) => x.dataset.address === 'agent1s.kosmosplus.com');
+  assert.ok(g && g.querySelectorAll('.oa-card').length === 1, 'agent1s shows its agent while pizzarama is still out');
+  assert.equal(t.api.busy, true, 'control: the round is still running');
+  void round;
+});
+
+test('read: a runaway list from another computer is cut to the first OA_MAX_AGENTS', async () => {
+  const many = Array.from({ length: 2000 }, (_, i) => ({ sessionName: 's' + i, name: 'N' + i, state: 'idle' }));
+  const { api } = load(async () => ({ status: 200, json: async () => ({ agents: many }) }));
+  const r = await api.oaReadOne(LIST.computers[1]);
+  assert.equal(r.agents.length, 500);
 });
