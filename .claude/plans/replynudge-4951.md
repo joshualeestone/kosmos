@@ -179,3 +179,22 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT (kept): postDown is never pruned; bounded by agents x 10 posts; a restart clears it (delays a skip by ~30 min).
 - NIT (kept, as review 9): a corrupt told file skips that agent, logged once; re-telling would be worse.
 - Targeted files: 249/249.
+
+## Review 12 (Opus, blind, end to end with the real freshReplies/readReplies): 0 blockers, 1 warning, 3 nits.
+- WARNING (reproduced end to end) FIXED: the line was typed first and the told record written second, so an unwritable
+  store (or a crash between them) kept the ids only in memory, and a board RESTART told the same reply again (d1, d3, d4
+  in the reviewer's run). Now WRITE AHEAD: the record takes the ids before the line is typed; a record that cannot be
+  written types nothing (said once, no try); a line that reached nothing, was held, or met a busy pane is rolled back;
+  a failed rollback misses the reply rather than repeating it. The in-memory told fallback is REMOVED (dead once the
+  record is written first) with its three tests, replaced by: written-before-typing, nothing typed when unwritable
+  (said once), rollback then told alone, and two restarts with no repeat. An agent whose record could not be written
+  takes no cap slot on later passes (else it held one every pass). Mutants: write-ahead, both rollbacks, said-once,
+  the slot rule, all killed.
+- NIT FIXED: the gap between agents is BETWEEN_AGENTS_MS = 1500 (the count's pace), so the pass really keeps to ~40 a
+  minute (it was ~60 with the 1 s default). Pinned against FRESH_PACE_MS; mutant killed.
+- NIT FIXED: a reply within FIRST_LOOK_EDGE_MS (15 min) of the 7-day window's edge, on a post with no mark, is not
+  counted (the agent's read, later, may already exclude it). Test + mutant.
+- NIT FIXED: an agent whose OWN read is running right now (communityread.readingNow) is not typed into this pass; the
+  stamp could not see a read whose marks were not written yet. Test + server pin + mutant. (Clearing the session at the
+  read's end is redundant with the lock state; that mutant is equivalent.)
+- Targeted files: 253/253.

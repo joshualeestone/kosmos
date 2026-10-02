@@ -74,7 +74,7 @@ test('#4951 a delivery that reached nothing is tried again, and given up on afte
   const { o, store, typed } = rig({ deliver: (s, text) => { typed.push({ s, text }); return { state: D.COULD_NOT }; } });
   for (let i = 0; i < rn.MAX_TRIES + 2; i += 1) await rn.sweepOnce(o);
   assert.equal(typed.length, rn.MAX_TRIES, 'not tried exactly MAX_TRIES times');
-  assert.equal(store.has('kim'), false, 'an undelivered nudge was recorded as told');
+  assert.deepEqual(store.get('kim') || [], [], 'an undelivered nudge was recorded as told (review 12: written ahead, then rolled back)');
   // UNCONFIRMED may have reached the pane: it is recorded, so it is never repeated.
   const r2 = rig({ deliver: () => ({ state: D.UNCONFIRMED }) });
   await rn.sweepOnce(r2.o);
@@ -156,7 +156,8 @@ test('#4951 server.js runs the pass on its interval, with the agent nudge\'s sha
   for (const [what, re] of [['the read', /fresh: \(session\) => communityread\.freshReplies\(session\)/], ['the shared hour log', /sent: AGENT_NUDGE_SENT/],
     ['the typing path', /chat\.deliverAutomatic\(session, text, r/], ['the live-execution gate', /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\)/],
     ['the switch', /switchOn: \(\) => communitysend\.switchOn\(\)/], ['the board root store', /replynudge\.readNudged\(store\.ROOT, session\)/],
-    ['the rotation kept across passes (review 8)', /rotation: REPLY_NUDGE_ROTATION/]]) {
+    ['the rotation kept across passes (review 8)', /rotation: REPLY_NUDGE_ROTATION/],
+    ['the agent\'s own read running now (review 12)', /readingNow: \(session\) => communityread\.readingNow\(session\)/]]) {
     assert.match(call, re, 'server.js does not pass ' + what);
   }
   assert.match(src, /if \(replyNudgeRunning\) return;/, 'a pass can stack on one still running');
@@ -214,30 +215,38 @@ test('#4951 review 2: replies an agent was already told about take no cap slot; 
   assert.deepEqual(typed, ['bo'], 'agents already told used up the cap before the one with a new reply');
 });
 
-test('#4951 review 2: if the told store cannot be written, the next pass still does not repeat the nudge', async () => {
-  const typed = [];
-  const { o } = rig({ writeNudged: () => false, readNudged: () => new Set(), deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+test('#4951 review 12 (Opus): the told record is written BEFORE the line; if it cannot be written nothing is typed, said once', async () => {
+  const said = [];
+  const { o, typed } = rig({ writeNudged: () => false, readNudged: () => new Set(), log: (r) => said.push(r.act + ':' + r.because) });
   await rn.sweepOnce(o);
   await rn.sweepOnce(o);
-  assert.equal(typed.length, 1, 'a reply was nudged again because its record could not be written');
+  assert.equal(typed.length, 0, 'a line was typed with its told record unwritable');
+  assert.deepEqual(said, ['skipped:its told record could not be written'], 'not said exactly once');
+  // Written ahead: the record already holds the ids when the line is typed.
+  const seenAtTyping = [];
+  const w = rig({});
+  w.o.deliver = (s) => { seenAtTyping.push([...(w.store.get(s) || [])].sort().join(',')); return { state: D.PLACED }; };
+  await rn.sweepOnce(w.o);
+  assert.deepEqual(seenAtTyping, ['r1,r2'], 'the record did not hold the ids before the line was typed');
 });
 
-test('#4951 review 3: a failed delivery keeps the told ids held in memory (store unwritable), so an earlier reply is not told again', async () => {
-  const typed = [];
+test('#4951 review 12 (Opus): a line that reached nothing is rolled back (told later), and a restart never repeats one that went', async () => {
   let ids = ['a'];
   let ok = true;
-  const { o } = rig({ writeNudged: () => false, readNudged: () => new Set(),
-    fresh: async () => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids }] }),
-    deliver: (s, text) => { typed.push(text); return { state: ok ? D.PLACED : D.COULD_NOT }; } });
-  await rn.sweepOnce(o);            // told about a; the store cannot be written, so a is held in memory
+  const { o, store, typed } = rig({ fresh: async () => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids }] }),
+    deliver: (s, text) => { typed.push({ s, text }); return { state: ok ? D.PLACED : D.COULD_NOT }; } });
+  await rn.sweepOnce(o);            // a told and written
   ids = ['a', 'b']; ok = false;
-  await rn.sweepOnce(o);            // b fails to deliver
+  await rn.sweepOnce(o);            // b reached nothing: rolled back
+  assert.deepEqual([...store.get('kim')].sort(), ['a'], 'a line that reached nothing stayed recorded');
   ok = true;
-  await rn.sweepOnce(o);            // b again: the line must count only b
-  assert.match(typed[typed.length - 1], /you have 1 new reply/, 'a was told again after a failed delivery: ' + typed[typed.length - 1]);
+  o.book = new Map();               // a board restart: nothing in memory
+  await rn.sweepOnce(o);            // b told alone
+  assert.match(typed[typed.length - 1].text, /you have 1 new reply/, 'a was told again: ' + typed[typed.length - 1].text);
   const told = typed.length;
-  await rn.sweepOnce(o);            // review 10 (Opus): a and b both held in memory now; nothing may be typed
-  assert.equal(typed.length, told, 'a reply held in memory was told again after its batch went out: ' + typed[typed.length - 1]);
+  o.book = new Map();
+  await rn.sweepOnce(o);            // another restart: nothing to tell
+  assert.equal(typed.length, told, 'a restart repeated a reply already told');
 });
 
 test('#4951 review 3 (Opus): the gates are asked again before each line; switched off mid-pass, the next agent is not told', async () => {
@@ -431,16 +440,16 @@ test('#4951 review 8 (Opus): the lines are spaced by typeGapMs (between two line
   assert.equal(gaps.length, 2, 'the lines were not spaced: ' + gaps.length);
 });
 
-test('#4951 review 8 (Opus): ids held in memory (store unwritable) take no cap slot at count time; a later agent is still read and told', async () => {
+test('#4951 review 12 (Opus): an agent whose record cannot be written takes no cap slot after the first try; a later agent is told', async () => {
   const typed = [];
-  let annHas = [];
-  const { o } = rig({ roster: [card('kim'), card('ann')], limit: { on: true, perHour: 2 }, writeNudged: () => false, readNudged: () => new Set(),
-    fresh: async (s) => ({ ok: true, posts: s === 'kim' ? [{ remoteId: P1, title: 't', ids: ['r-kim'] }] : (annHas.length ? [{ remoteId: P2, title: 't', ids: annHas }] : []) }),
+  const store = new Map();
+  const { o } = rig({ roster: [card('kim'), card('ann')], limit: { on: true, perHour: 1 },
+    fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }),
+    readNudged: (s) => new Set(store.get(s) || []), writeNudged: (s, set) => { if (s === 'kim') return false; store.set(s, [...set]); return true; },
     deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
-  await rn.sweepOnce(o);   // kim told; the store cannot be written, so r-kim is held in memory; one slot of two used
-  annHas = ['r-ann'];
-  await rn.sweepOnce(o);   // kim's r-kim is still unread: held in memory, it must take no slot, so ann is read
-  assert.deepEqual(typed, ['kim', 'ann'], 'a reply held in memory took the last cap slot at count time');
+  await rn.sweepOnce(o);   // kim takes the slot, cannot be written, types nothing; ann is past the cap
+  await rn.sweepOnce(o);   // kim (said unwritable) takes no slot now; ann is read and told
+  assert.deepEqual(typed, ['ann'], 'an unwritable agent held the cap slot every pass');
 });
 
 test('#4951 review 8 (Opus): the hour log ages out during the count too, so a slot freed mid-pass is used', async () => {
@@ -481,4 +490,19 @@ test('#4951 review 10 (Opus): a partial count (a post it could not read) is not 
   assert.deepEqual(asked, ['kim', 'ann'], 'a partial count was asked again in the same pass, or ended it');
   assert.deepEqual(typed.map((t) => t.s), ['ann'], 'an agent whose count was partial was told something');
   assert.ok(r.results.some((x) => x.session === 'kim' && x.act === 'busy'));
+});
+
+test('#4951 review 12 (Opus): an agent whose own read is running right now is not typed into this pass; the next pass tells it', async () => {
+  let reading = true;
+  const { o, typed } = rig({ readingNow: () => reading });
+  const r = await rn.sweepOnce(o);
+  assert.equal(typed.length, 0, 'a line was typed while the agent was reading its replies');
+  assert.ok(r.results.some((x) => x.act === 'read-meanwhile'));
+  reading = false;
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'control: the next pass did not tell it');
+});
+
+test('#4951 review 12 (Opus): the gap between agents is the count\'s own pace', () => {
+  assert.ok(rn.BETWEEN_AGENTS_MS >= require('./communityread').FRESH_PACE_MS, 'the gap between agents is shorter than the count\'s pace');
 });

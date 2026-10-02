@@ -19607,6 +19607,7 @@ function start(port = PORT) {
           readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
           fresh: (session) => communityread.freshReplies(session),
           marksNow: (session) => communityread.marksStamp(session),
+          readingNow: (session) => communityread.readingNow(session),   // review 12
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION,

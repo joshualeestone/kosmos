@@ -42,6 +42,7 @@ const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_TRIES = 3;
 const BUSY_WAIT_MS = 5 * 1000;   // review 6: a busy count waits this long for the read holding the lock, then asks again
 const BUSY_RETRIES = 4;          // so about 20 s, past an agent's own read (two 8 s rounds at most)
+const BETWEEN_AGENTS_MS = 1500;   // review 12: = communityread's FRESH_PACE_MS (pinned by a test)
 const TYPE_GAP_MS = 20 * 1000;   // review 2: between two agents' lines, so each told agent reads with the lock free
 /* Ids kept per agent. One count names at most 30 (the read's cap), so this holds weeks. */
 const NUDGED_MAX = 1000;
@@ -140,7 +141,8 @@ async function sweepOnce(o) {
     const capOf = (l) => (l && l.on === true && Number.isInteger(l.perHour) ? l.perHour : Infinity);
     let cap = capOf(o.limit);
     const nudgeable = require('./agentnudge').nudgeableCard;
-    const gap = Number.isFinite(o.betweenAgentsMs) ? o.betweenAgentsMs : 1000;
+    // Review 12 (Opus): the gap between agents is the count's own pace, so the pass as a whole keeps to it.
+    const gap = Number.isFinite(o.betweenAgentsMs) ? o.betweenAgentsMs : BETWEEN_AGENTS_MS;
     /* Review 1 (Opus): READ FIRST, TYPE AFTER. Every agent's count is read (paced, the read lock held only while
        reading), and only then is anything typed, so an agent that reads its replies the moment it is told never meets
        this pass's lock. */
@@ -166,7 +168,7 @@ async function sweepOnce(o) {
         if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out' }); continue; }
       }
       prune();   // review 8: the hour's log ages out during a long pass too
-      if (sent.length + counted.length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
+      if (sent.length + counted.filter((c) => !c.noSlot).length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
       try {
         // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
         /* Review 4 (Opus): the told record is read BEFORE the service is asked, so an agent whose record cannot be read
@@ -199,11 +201,12 @@ async function sweepOnce(o) {
           continue;
         }
         const memo = book.get(session);
-        if (memo && memo.told instanceof Set) for (const id of memo.told) told.add(id);
         const untold = fresh && fresh.ok === true && Array.isArray(fresh.posts) ? fresh.posts.flatMap((p) => (p.ids || []).filter((id) => !told.has(id))) : [];
         // Review 3 (Opus): a batch given up on (MAX_TRIES) takes no cap slot either, or it blocks later agents every pass.
         const givenUp = memo && memo.key === untold.slice().sort().join(',') && Number.isInteger(memo.tries) && memo.tries >= MAX_TRIES;
-        if (untold.length && !givenUp) counted.push({ session, fresh });
+        // Review 12: an agent whose told record could not be written last time is still tried, but takes no cap slot
+        // here (a store that stays unwritable would otherwise hold a slot every pass); the line's own cap check still holds.
+        if (untold.length && !givenUp) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid) });
       } catch (err) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
@@ -230,7 +233,9 @@ async function sweepOnce(o) {
         const nudged = o.readNudged(session);
         if (!(nudged instanceof Set)) continue;   // review 3: unreadable record: skip, never re-tell
         const memo0 = book.get(session);
-        if (memo0 && memo0.told instanceof Set) for (const id of memo0.told) nudged.add(id);
+        /* Review 12 (Opus): the agent's own read is running right now (it holds the read lock): its marks are not written
+           yet, so the stamp below cannot see it. It is reading these replies; leave it for the next pass. */
+        if (typeof o.readingNow === 'function') { let r = false; try { r = o.readingNow(session) === true; } catch { r = false; } if (r) { results.push({ session, name: display, act: 'read-meanwhile', because: 'it is reading its replies now' }); continue; } }
         /* Review 5 (Sonnet): the count may be minutes old by this line (lines are spaced). If the agent's read marks moved
            since, it read its replies meanwhile: the count is stale, so it is not told; the next pass counts afresh. */
         if (typeof o.marksNow === 'function' && fresh && fresh.marksAt != null) {
@@ -241,6 +246,18 @@ async function sweepOnce(o) {
         if (p.act !== 'nudge') continue;
         prune();
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
+        /* Review 12 (Opus): WRITE AHEAD. The told record takes these ids BEFORE the line is typed, so no restart, crash or
+           unwritable store can make it tell the same reply twice. A record that cannot be written types nothing (said once,
+           no try counted). A line that reached nothing (or was held, or met a busy pane) is rolled back afterwards; if that
+           rollback cannot be written the reply is missed, never repeated, which is the side "once per reply" allows. */
+        if (o.writeNudged(session, new Set([...nudged, ...p.ids])) !== true) {
+          const because = 'its told record could not be written';
+          results.push({ session, name: display, act: 'skipped', because });
+          const m = book.get(session) || {};
+          if (!m.writeSaid) { say({ name: display, session, act: 'skipped', because }); book.set(session, { ...m, writeSaid: true }); }
+          continue;
+        }
+        const rollBack = () => { try { o.writeNudged(session, nudged); } catch { /* missed, never repeated */ } };
         let state = null;
         let held = false;
         let paneBusy = false;
@@ -250,6 +267,7 @@ async function sweepOnce(o) {
         /* Review 7 (Sonnet): a pane still placing another message is busy, not unreachable: no try is counted (as held).
            Review 8 (Opus): either is said once per change of state (as skipSaid), so it is on record without a line every pass. */
         if (held || paneBusy) {
+          rollBack();
           const act = held ? 'quota-held' : 'pane-busy';
           results.push({ session, name: display, act, delivered: false, delivery: state, because: p.because });
           const m = book.get(session) || {};
@@ -262,10 +280,7 @@ async function sweepOnce(o) {
         const prev = book.get(session);
         const tries = (prev && prev.key === p.key && Number.isInteger(prev.tries) ? prev.tries : 0) + 1;
         if (mayHaveReached) {
-          for (const id of p.ids) nudged.add(id);
-          /* Review 2: if the store cannot be written, the ids are kept in memory too, so the next pass does not repeat. */
-          if (o.writeNudged(session, nudged) === true) book.delete(session);
-          else book.set(session, { told: new Set([...((memo0 && memo0.told) || []), ...p.ids]) });
+          book.delete(session);   // review 12: the record was written ahead; nothing is held in memory any more
           /* Review 1: when it went, not when the pass began. Review 2: kept in time order (agentnudge prunes from the front,
              assuming that order, and pushes its pass's start time). */
           const at = clock();
@@ -273,7 +288,8 @@ async function sweepOnce(o) {
           while (i > 0 && sent[i - 1] > at) i -= 1;
           sent.splice(i, 0, at);
         } else {
-          book.set(session, { key: p.key, tries, told: memo0 && memo0.told });   // review 3: keep any ids held in memory
+          rollBack();
+          book.set(session, { key: p.key, tries });
         }
         results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because });
         if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because });
@@ -321,4 +337,4 @@ async function tick(o) {
   } catch { return null; }
 }
 
-module.exports = { BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
+module.exports = { BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };

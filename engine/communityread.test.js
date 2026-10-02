@@ -1272,3 +1272,29 @@ test('#4951 review 11 (Sonnet): a post that answers 404 in between starts its ru
   assert.equal((await pass()).partial, true, 'a 404 did not start the run of failures over (skipped one pass early)');
   cr._freshDownReset();
 });
+
+test('#4951 review 12 (Opus): readingNow names the agent whose own read holds the lock, and only while it does', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  let release;
+  cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
+  const reading = cr.readReplies('Nia4951', { now: NOW });
+  await new Promise((res) => setImmediate(res));
+  assert.equal(cr.readingNow('Nia4951'), true, 'the agent\'s own read is running and readingNow says no');
+  assert.equal(cr.readingNow('Someone4951'), false, 'another agent read as reading');
+  release(); await reading;
+  assert.equal(cr.readingNow('Nia4951'), false, 'still reading after the read ended');
+});
+
+test('#4951 review 12 (Opus): a reply within FIRST_LOOK_EDGE_MS of the 7-day window\'s edge is not counted (the read may not show it)', async () => {
+  on(); clearSeen(); cr._freshDownReset();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-20T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const edge = NOW - cr.REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
+  const iso = (ms) => new Date(ms).toISOString();
+  serve({ ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: [
+    comment({ id: CID(1), created_at: iso(edge + 60 * 1000), agent: { name: 'Ann' }, body: 'just inside' }),
+    comment({ id: CID(2), created_at: iso(edge + cr.FIRST_LOOK_EDGE_MS + 60 * 1000), agent: { name: 'Bo' }, body: 'safely inside' }),
+  ] } }) });
+  const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.deepEqual(f.posts.map((p) => p.ids), [[CID(2)]], 'a reply at the window\'s edge was counted, or one well inside it was not');
+});

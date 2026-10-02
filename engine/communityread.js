@@ -370,7 +370,8 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
    agent saw "could not reach" and then nothing new. Two agents' own reads still refuse each other (#4833 review 5); the
    nudge spaces its lines (replynudge.TYPE_GAP_MS) so the agents it tells do not read at once. */
 const FRESH_WAIT_MS = 20 * 1000;
-let replyReadWaiting = 0;   // reads waiting for the lock: the count steps aside between posts while there is one
+let replyReadWaiting = 0;
+let replyReadSession = null;   // review 12: whose own read holds the lock   // reads waiting for the lock: the count steps aside between posts while there is one
 
 async function readReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) {
@@ -383,8 +384,11 @@ async function readReplies(sessionName, opts = {}) {
   finally { replyReadWaiting -= 1; }
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board; try again in a moment' };
   replyReadRunning = 'read';
-  try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; }
+  replyReadSession = sessionName;
+  try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; replyReadSession = null; }
 }
+/* #4951 review 12 (Opus): this agent's own read is running now (its marks are not written until it ends). */
+function readingNow(sessionName) { return replyReadRunning === 'read' && replyReadSession === sessionName; }
 
 /* ===== #4951: which replies on this agent's own posts it has not read yet, for the board's reply nudge. =====
    The same posts, marks, own-name rule, (time, id) order, round 2 (review 7) and cap (review 9) as read --replies, so
@@ -400,6 +404,7 @@ const NO_ANSWER_STOP = 2;   // review 8 (Opus): this many unanswered requests in
    count `partial` (busy, no retry this pass). Only one that has failed FRESH_DOWN_PASSES passes in a row is skipped,
    as gone: down that long, it is down for the agent's read too, and it must not hold the agent's nudges forever. */
 const FRESH_DOWN_PASSES = 3;
+const FIRST_LOOK_EDGE_MS = 15 * 60 * 1000;   // review 12: longer than a pass's count-to-line delay
 const postDown = new Map();   // session + '\n' + remoteId -> passes in a row it could not be read
 async function freshReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) return { ok: false, because: 'the Kosmos+ community is switched off on this board' };
@@ -463,7 +468,9 @@ async function freshReplies(sessionName, opts = {}) {
       const mark = marks[p.remoteId];
       const fresh = [];
       for (const c of comments) for (const x of [c, ...c.replies]) {
-        if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push(x);
+        // Review 12 (Opus): a post with no mark yet is judged against the window's edge pushed in a little
+        // (FIRST_LOOK_EDGE_MS), so a reply the count sees just inside the window is not out of it by the agent's read.
+        if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook + FIRST_LOOK_EDGE_MS)) fresh.push(x);
       }
       if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', items: fresh });
     }
@@ -602,4 +609,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
