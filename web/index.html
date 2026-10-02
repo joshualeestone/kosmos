@@ -48443,7 +48443,10 @@ function tcLive() {
   // Review 10: and while it waits for pictures before leaving: Back then keeps it, not drops it mid-upload.
   // Review 21: and once it has stayed for a row's note (a failed picture, a step not done, a rename), so Back and the
   // same team picked again keep that row instead of starting a fresh team over it.
+  // Review 22: any row with a note (a step not done, a rename, a failed picture) keeps it live once the hellos began,
+  // whatever the other rows' hellos are (an unconfirmed one included), not only after an all-placed stay.
   return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting || TC.leaving || TC.stayed
+    || (TC.helloStarted && TC.members.some((m) => (m.warn || []).length || m.renamedFrom || m.portrait === 'failed'))
     || (TC.helloStarted && TC.members.some((m) => m.hello !== 'started' && m.hello !== 'unsure'))));
 }
 
@@ -48776,7 +48779,7 @@ function tcHelloRetry(slot) {
   });
 }
 /* #4936 (Josh: "It should take me to my agent view wherever I was and show me. I should be able to go see the new
-   agents easily."): to the agents, where the create step's own Back goes, with the new members' board cards scrolled
+   agents easily."): to the agents view (what the sheet's own close shows, not where the team step's Back goes), with the new members' board cards scrolled
    to and marked for a few seconds. `auto` (every hello said): only if the person is still on this step; otherwise the
    screen does not move under them and the team is simply finished. */
 let TC_JUST_MADE_MS = 10000;
