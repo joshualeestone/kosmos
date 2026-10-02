@@ -1123,6 +1123,9 @@ const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 /* The picture to send for `agentKey`: { id, type, bytes }, or { id: null, why } when there is none to send. A picture
    the community cannot take (too big, a GIF) is "none" here, so one sent earlier is taken back rather than left
    showing a picture the person has since replaced. */
+/* The last picture read per agent, keyed by its file, size and mtime, so an unchanged picture is not read and hashed
+   again by every half of every sweep. In memory only: a board restart reads each picture once more. */
+const avatarSeen = new Map();
 function avatarWanted(agentKey) {
   let found;
   try { found = store.avatarLookup(agentKey); } catch { found = { error: 'name' }; }
@@ -1133,6 +1136,8 @@ function avatarWanted(agentKey) {
   let before;
   try { before = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { id: null, why: null } : { busy: true, why: 'unreadable:' + ((e && e.code) || 'stat') }; }
   if (before.size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + before.size };
+  const memo = avatarSeen.get(agentKey);
+  if (memo && memo.file === file && memo.size === before.size && memo.mtimeMs === before.mtimeMs) return memo.wanted;
   let bytes;
   let after;
   try { bytes = fs.readFileSync(file); after = fs.statSync(file); } catch (e) { return { busy: true, why: 'unreadable:' + ((e && e.code) || 'read') }; }
@@ -1141,8 +1146,11 @@ function avatarWanted(agentKey) {
   if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || bytes.length !== before.size) return { busy: true };
   if (!bytes.length) return { busy: true };   // caught between the truncate and the write, which is not no picture
   const type = store.imageTypeOf(bytes);
-  if (!AVATAR_TYPES.has(type)) return { id: null, why: 'type:' + (type || 'unknown') };
-  return { id: crypto.createHash('sha256').update(bytes).digest('hex'), type, bytes };
+  const wanted = AVATAR_TYPES.has(type)
+    ? { id: crypto.createHash('sha256').update(bytes).digest('hex'), type, bytes }
+    : { id: null, why: 'type:' + (type || 'unknown') };
+  avatarSeen.set(agentKey, { file, size: before.size, mtimeMs: before.mtimeMs, wanted });
+  return wanted;
 }
 
 function serviceRefusedAvatar(r) {
@@ -1167,16 +1175,17 @@ async function sweepAvatars(keys, on, { removals }) {
       continue;
     }
     const want = w.id;
-    // A picture set again: the next removal that cannot reach a shut-out agent is logged again.
-    if (want !== null && k.avatarRemoveUnreachable) { delete k.avatarRemoveUnreachable; saveJson(keysFile(), keys); }
     if (k.refused) {
       // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
       // so it is on record (as sweepIndustry does for a clear).
       const shown = (Object.prototype.hasOwnProperty.call(k, 'avatarSent') && k.avatarSent !== null) || k.avatarUnsure;
-      if (want === null && shown && !k.avatarRemoveUnreachable) {
-        k.avatarRemoveUnreachable = true;
+      // The community may be showing a picture the person has removed or replaced, and nothing here can change it.
+      // Said once per picture the person wants (a later change is said again).
+      const stuckFor = want === null ? 'none' : want;
+      if (shown && want !== k.avatarSent && k.avatarRemoveUnreachable !== stuckFor) {
+        k.avatarRemoveUnreachable = stuckFor;
         saveJson(keysFile(), keys);
-        log(`picture for ${agentKey}: the service refused this agent's key, so its community picture cannot be taken down from here`);
+        log(`picture for ${agentKey}: the service refused this agent's key, so its community picture cannot be changed or taken down from here`);
       }
       continue;
     }
@@ -1290,8 +1299,8 @@ async function sweepOnce(now) {
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepAvatars(keys, on, { removals: true }); }   // #4885: taking a picture down is a take-down
   catch (e) { log(`picture removals: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // #4373 part B: comments go after the owner's deletes, the take-down reads, the industry pass and picture removals, so a slow comment
-  // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
+  // #4373 part B: comments go after the owner's deletes, the take-down reads, the industry pass and picture removals,
+  // so a slow comment pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
