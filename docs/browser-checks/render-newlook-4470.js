@@ -19,9 +19,11 @@
  *    tabs marked by ink and weight; the consolidated layout keeping today's arrangement and back again,
  *  - with it off: every placement back where today has it, no state word, today's underline,
  *  - the Agents page's inks clearing 4.5:1 on the new grounds,
- *  - the Projects list in the new look (projectsLook): tiles without a box, Add Project a round grey button, plain cards
- *    without border or shadow (24px corners) that show today's border under the pointer, a needs-you card's red edge and
- *    the current view's gold unchanged; with the look off, today's card, tile and dashed tile (the control),
+ *  - the Projects list in the new look (projectsLook): tiles without a box (the Issue tile keeps its red), Add Project a
+ *    round grey button, plain cards without border or shadow (24px corners) that show today's hover border and lift and
+ *    today's keyboard focus ring, a needs-you card's red edge, the current view's gold and a plain roadmap row unchanged;
+ *    on a touch phone at 320, 360 and 390, Add Project clear of the sort and the toggle (#718); with the look off, today's
+ *    card, tile and dashed tile (the control),
  *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
  *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
  *    current view's gold are the same as with the look off; Issue, Question and could-not-read cards keep their
@@ -439,7 +441,7 @@ async function projectsLook(page) {
   });
   if (out.found) {
     await page.hover('#pj-list.asgrid .pj-row:not(.attn)'); await page.waitForTimeout(200);
-    out.hover = await page.evaluate(() => { const h = document.querySelector('#pj-list.asgrid .pj-row:not(.attn):hover'); return h ? getComputedStyle(h).borderTopColor : 'missed'; });
+    out.hover = await page.evaluate(() => { const h = document.querySelector('#pj-list.asgrid .pj-row:not(.attn):hover'); return h ? getComputedStyle(h).borderTopColor + ' | ' + getComputedStyle(h).boxShadow : 'missed'; });
     await page.mouse.move(1, 1);
     /* A card reached from the keyboard keeps a visible focus ring (the browser's own; nothing here removes it), since
        at rest the plain card has no edge. A key press first, so the focus that follows counts as keyboard focus. */
@@ -919,7 +921,7 @@ const AGENTS_LOOK = `(() => {
       chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'missed' && tkOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Tasks: Needs Your Decision at zero is drawn like the others (no border), and a tile under the pointer shows its border`, JSON.stringify(tkOn));
       if (width < 600) {
-        for (const w of [360, 390]) {
+        for (const w of [320, 360, 390]) {
           const row = await projectsPhoneRow(browser, URL, w);
           chk(row.look === 'new' && row.add && row.sort && row.toggle && !row.overlap && !row.wide,
             `${tag} On, Projects at ${w} on a touch phone: Add Project does not run under the sort or the view toggle (#718)`, JSON.stringify(row));
@@ -1014,11 +1016,11 @@ const AGENTS_LOOK = `(() => {
       chk(plOn.found && plOff.found && plOn.attn === plOff.attn && plOn.seg === plOff.seg && plOff.seg !== 'rgba(0, 0, 0, 0)' && plOff.seg !== 'absent',
         `${tag} Projects: the needs-you edge and the current view's gold are today's with the look on`, JSON.stringify({ on: [plOn.attn, plOn.seg], off: [plOff.attn, plOff.seg] }));
       chk(plOn.found && plOff.found && plOn.hover === plOff.hover && plOff.hover !== 'missed',
-        `${tag} Projects: a card under the pointer shows today's hover border with the look on`, JSON.stringify({ on: plOn.hover, off: plOff.hover }));
+        `${tag} Projects: a card under the pointer shows today's hover border and lift with the look on`, JSON.stringify({ on: plOn.hover, off: plOff.hover }));
       chk(plOn.focus && plOn.focus.visible && plOn.focus.style !== 'none' && parseFloat(plOn.focus.width) > 0 && JSON.stringify(plOn.focus) === JSON.stringify(plOff.focus),
         `${tag} Projects: a card reached from the keyboard shows a focus ring with the look on, as with it off`, JSON.stringify({ on: plOn.focus, off: plOff.focus }));
       chk(plOn.roadmap && plOff.roadmap && JSON.stringify(plOn.roadmap) === JSON.stringify(plOff.roadmap),
-        `${tag} Projects: the roadmap rows are exactly today's with the look on (no border, same ring, corners and padding)`, JSON.stringify({ on: plOn.roadmap, off: plOff.roadmap }));
+        `${tag} Projects: a plain roadmap row is exactly today's with the look on (no border, same shadow, corners and padding)`, JSON.stringify({ on: plOn.roadmap, off: plOff.roadmap }));
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
          colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
          over the surface, and the needs-you red, which is a fixed colour in both looks. */

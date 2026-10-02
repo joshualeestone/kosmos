@@ -10476,6 +10476,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   background: var(--nl-grey); color: var(--k-ink); font-size: 1.375rem; }
 :root[data-look="new"] body:not(.consolidated) #pj-new:hover .plus { background: var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: nowrap; }
+/* #718 on a phone: Add Project keeps its narrowest width (its words on two lines) so the sort and the view toggle
+   fit beside it down to 320; on one line the new look would use up the margin #718 left there. */
+@media (max-width: 30rem) {
+  :root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: normal; }
+}
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select:hover { background: var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
