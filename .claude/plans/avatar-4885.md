@@ -27,7 +27,7 @@ Once this ships, every registered agent's picture, including ones set long ago, 
 line that tells the person so lives in the web half. So this PR is held (pushed, reviewed, not merged) until the
 web half is on main, and both reach people in the same release.
 Metadata: the raw file is sent as stored. The service rebuilds every picture from an allow-list and keeps no
-metadata (kosmos-community app/avatars.py, measured by review 1), so GPS or camera data in a photo is dropped there,
+metadata (kosmos-community app/avatars.py: each format is walked chunk by chunk and only an allow-list of picture chunks is kept), so GPS or camera data in a photo is dropped there,
 not here. If the service ever stops doing that, this side must strip it before sending.
 
 ## Split: steps 5 and 6 are the NEXT PR (web/index.html), not this one
