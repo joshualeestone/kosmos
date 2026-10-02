@@ -484,6 +484,19 @@ const SCREENS = [
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
   /* #4470: an agent's page in the new look, for the side by side with 'agent-chat' and 'agent-profile'. */
+  /* #4470, the Projects list in the new look: its grid (the default) and its roadmap. */
+  { name: 'nl-projects', owner: 'Mona Lisa', go: async (page) => { await newLook(page); await openTab(page, 'projects'); } },
+  { name: 'projects-roadmap', owner: 'Mona Lisa', go: async (page) => {
+    await openTab(page, 'projects');
+    await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
+    await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  { name: 'nl-projects-roadmap', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
+    await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
+  } },
   { name: 'nl-agent-chat', owner: 'Mona Lisa', go: async (page, data) => {
     await newLook(page);
     await at(page, '?agent=' + data.chatAgent);

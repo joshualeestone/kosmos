@@ -10456,6 +10456,31 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    solid could-not-read board note already uses, on the list and on the cards alike. */
 :root[data-look="new"] body:not(.consolidated) #alist .lrow.unk,
 :root[data-look="new"] body:not(.consolidated) #grid .acard.unk { border-color: var(--border-strong); }
+/* #4470, the Projects list in the new look: the Agents page's language, since the Projects list is drawn in the
+   same grammar (count tiles, the dashed add tile, the sort menu and view toggle, then cards). No drawing exists for
+   this page; this is that approved language applied, not a new design.
+   The count tiles (Projects, Messages) do nothing when pressed, so like the Agents page's inert tiles they never show
+   a box. The Issue tile keeps its red outline (#4470 Agents rule: an alert keeps what it says). Add Project becomes the
+   round grey button with its words beside it, as New agent did; the sort menu and the grid / roadmap toggle are grey
+   pills and the current view stays GOLD (Josh, 2026-08-17: "selected is gold, not ink").
+   A plain project card loses its border and shadow at rest (its grey ground is the separation, as on the Agents
+   cards) and KEEPS today's hover border and lift, since a card with no edge needs a sign it can be opened (the
+   Agents list rows' rule). A needs-you card keeps its red edge. The roadmap rows are left as they are: they are
+   already flat rows with no border, with Josh's stripes (#4730) and a red ring for needs-you. */
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .statsrow .stats .stat:not(.alert) { border-color: transparent; background: transparent; padding-inline: 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-new { border: 0; background: transparent; padding: 0; gap: 12px; min-height: 44px; }
+:root[data-look="new"] body:not(.consolidated) #pj-new .plus { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--nl-grey); color: var(--k-ink); font-size: 1.375rem; }
+:root[data-look="new"] body:not(.consolidated) #pj-new:hover .plus { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: nowrap; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select:hover { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .vt + .vt { border-left-color: transparent; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:last-child { border-radius: 0 999px 999px 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row { border-radius: 24px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row:not(.attn):not(:hover) { border-color: transparent; box-shadow: none; }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */

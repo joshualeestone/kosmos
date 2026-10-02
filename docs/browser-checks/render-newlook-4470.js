@@ -19,6 +19,9 @@
  *    tabs marked by ink and weight; the consolidated layout keeping today's arrangement and back again,
  *  - with it off: every placement back where today has it, no state word, today's underline,
  *  - the Agents page's inks clearing 4.5:1 on the new grounds,
+ *  - the Projects list in the new look (projectsLook): tiles without a box, Add Project a round grey button, plain cards
+ *    without border or shadow (24px corners) that show today's border under the pointer, a needs-you card's red edge and
+ *    the current view's gold unchanged; with the look off, today's card, tile and dashed tile (the control),
  *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
  *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
  *    current view's gold are the same as with the look off; Issue, Question and could-not-read cards keep their
@@ -399,6 +402,39 @@ async function tasksLook(page) {
     await page.hover('#panel-tasks .tsk-tile:not([data-tile="decision"]):not([aria-pressed="true"])'); await page.waitForTimeout(150);
     /* Read the tile the pointer is actually on; a miss is reported as a miss, never as some other element's colour. */
     out.hover = await page.evaluate(() => { const h = document.querySelector('#panel-tasks .tsk-tile:not([data-tile="decision"]):not([aria-pressed="true"]):hover'); return h ? getComputedStyle(h).borderTopColor : 'missed'; });
+    await page.mouse.move(1, 1);
+  }
+  await page.evaluate(() => showTab('agents'));
+  await page.waitForTimeout(300);
+  return out;
+}
+/* #4470, the Projects list in the new look (the Agents page's language): the count tiles lose their box, Add Project
+   is a 40px round grey button, a plain project card loses its border and shadow and takes 24px corners, and keeps
+   today's border under the pointer; a needs-you card keeps its red edge (drawn by hand, since the fixture's project
+   has no issue, then removed); the current view's fill. Reads on the grid, then returns to the Agents tab. */
+async function projectsLook(page) {
+  await page.mouse.move(1, 1);
+  await page.evaluate(() => { showTab('projects'); pjView('list'); });
+  await page.waitForSelector('#pj-list .pj-row', { state: 'visible', timeout: 8000 }).catch(() => {});
+  await page.evaluate(() => { const g = document.querySelector('#pj-list-view .vt[data-layout="grid"]'); if (g && g.getAttribute('aria-pressed') !== 'true') g.click(); });
+  await page.waitForTimeout(400);
+  const out = await page.evaluate(() => {
+    const card = document.querySelector('#pj-list.asgrid .pj-row:not(.attn)');
+    const tile = document.getElementById('st-pj') && document.getElementById('st-pj').closest('.stat');
+    const plus = document.querySelector('#pj-new .plus'), on = document.querySelector('#pj-list-view .vt.on');
+    if (!card || !tile || !plus) return { found: false, card: !!card, tile: !!tile, plus: !!plus };
+    const cs = getComputedStyle(card), ps = getComputedStyle(plus), ts = getComputedStyle(tile);
+    const r = { found: true, card: cs.borderTopColor, shadow: cs.boxShadow, radius: cs.borderTopLeftRadius,
+      tile: ts.borderTopColor, tileBg: ts.backgroundColor, newBorder: getComputedStyle(document.getElementById('pj-new')).borderTopStyle,
+      plus: { w: Math.round(plus.getBoundingClientRect().width), round: ps.borderRadius, bg: ps.backgroundColor },
+      seg: on ? getComputedStyle(on).backgroundColor : 'absent' };
+    const a = card.cloneNode(true); a.classList.add('attn'); a.removeAttribute('data-project'); card.after(a);
+    r.attn = getComputedStyle(a).borderTopColor; a.remove();
+    return r;
+  });
+  if (out.found) {
+    await page.hover('#pj-list.asgrid .pj-row:not(.attn)'); await page.waitForTimeout(200);
+    out.hover = await page.evaluate(() => { const h = document.querySelector('#pj-list.asgrid .pj-row:not(.attn):hover'); return h ? getComputedStyle(h).borderTopColor : 'missed'; });
     await page.mouse.move(1, 1);
   }
   await page.evaluate(() => showTab('agents'));
@@ -841,6 +877,13 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Tasks: Needs Your Decision holding tasks keeps its red edge, a filtering tile its gold`, JSON.stringify(tkOn));
       chk(tkOn.found && tkOn.decisionZero === 'rgba(0, 0, 0, 0)' && tkOn.hover && tkOn.hover !== 'missed' && tkOn.hover !== 'rgba(0, 0, 0, 0)',
         `${tag} On, Tasks: Needs Your Decision at zero is drawn like the others (no border), and a tile under the pointer shows its border`, JSON.stringify(tkOn));
+      const plOn = await projectsLook(page);
+      chk(plOn.found && plOn.card === 'rgba(0, 0, 0, 0)' && plOn.shadow === 'none' && plOn.radius === '24px',
+        `${tag} On, Projects: a plain project card loses its border and shadow and takes 24px corners`, JSON.stringify(plOn));
+      chk(plOn.found && plOn.tile === 'rgba(0, 0, 0, 0)' && plOn.tileBg === 'rgba(0, 0, 0, 0)' && plOn.plus.round === '50%' && plOn.plus.w === 40 && plOn.newBorder === 'none',
+        `${tag} On, Projects: the Projects tile has no box and Add Project is a 40px round button with no dashed edge`, JSON.stringify(plOn));
+      chk(plOn.found && plOn.attn !== 'rgba(0, 0, 0, 0)' && plOn.hover && plOn.hover !== 'missed' && plOn.hover !== 'rgba(0, 0, 0, 0)',
+        `${tag} On, Projects: a needs-you card keeps its red edge, and a card under the pointer shows its border (a sign it opens)`, JSON.stringify(plOn));
 
       await page.reload({ waitUntil: 'networkidle' });
       await clearFirstRun(page);
@@ -915,6 +958,11 @@ const AGENTS_LOOK = `(() => {
          not byte-identical across looks (round 1); what must hold in both is that it reads red. */
       chk(tkOn.found && tkOff.found && tkOn.decisionRed && tkOff.decisionRed && tkOff.plainNotRed === true && tkOff.goldNotRed,
         `${tag} the Needs Your Decision edge reads red with the look on and off`, JSON.stringify({ on: tkOn.decision, off: tkOff.decision }));
+      const plOff = await projectsLook(page);
+      chk(plOff.found && plOff.card !== 'rgba(0, 0, 0, 0)' && plOff.shadow !== 'none' && plOff.radius === '12px' && plOff.tile !== 'rgba(0, 0, 0, 0)' && plOff.plus.round !== '50%' && plOff.newBorder === 'dashed',
+        `${tag} Off, Projects: today's bordered card with 12px corners, boxed Projects tile and dashed Add Project tile (the control)`, JSON.stringify(plOff));
+      chk(plOn.found && plOff.found && plOn.attn === plOff.attn && plOn.seg === plOff.seg && plOff.seg !== 'rgba(0, 0, 0, 0)' && plOff.seg !== 'absent',
+        `${tag} Projects: the needs-you edge and the current view's gold are today's with the look on`, JSON.stringify({ on: [plOn.attn, plOn.seg], off: [plOff.attn, plOff.seg] }));
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
          colour and the dash's colour are the new look's, not today's. What must NOT change is the state wash laid
          over the surface, and the needs-you red, which is a fixed colour in both looks. */
