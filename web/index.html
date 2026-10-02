@@ -34833,7 +34833,10 @@ function dmReplyStart(at) {
 
 /* The in-flight (or not-kept) message, in the person's own bubble. The pill is
    the thread's delivery pill: dashed while it is on its way, red if it did not go. */
-function dmPendingRow(p) {
+/* #4944: the same bubble the kept row is (dmRow's own-message arm), with the reply header the kept row will
+   carry, so the swap when the thread holds it happens in place rather than as a jump. `name` and `adjacent`
+   are dmReplyHead's. */
+function dmPendingRow(p, name, adjacent) {
   const youAv = YOU_PIC
     ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
     : '<div class="msg-av mine" aria-hidden="true"></div>';
@@ -34842,6 +34845,7 @@ function dmPendingRow(p) {
     : '<span class="delivery unsure">Sending…</span>';
   return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
+    + (p.replyTo && typeof dmReplyHead === 'function' ? dmReplyHead({ replyTo: p.replyTo }, name, adjacent) : '')
     + pjRich(pjWords({ text: p.text }))
     + '<span class="msg-t">' + pill + '</span></div></div></div>';
 }
@@ -34917,7 +34921,10 @@ function paintTalkThread(body, name) {
     delete TALK_PENDING[dmSession];
     pending = null;
   }
-  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending) : '';
+  /* #4944: adjacency by the rule the rows below use, with the newest kept row as the one before it. */
+  const lastKept = allRows.length ? allRows[allRows.length - 1] : null;
+  const pendingAdjacent = !!(pending && pending.replyTo && lastKept && lastKept.at === pending.replyTo);
+  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending, name, pendingAdjacent) : '';
   if (body.historyUnfilable && !allRows.length && !pendingHtml) {
     /**
      * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
@@ -35697,6 +35704,22 @@ async function sendTalk(text, attachment) {
   TALK_SENDING = true;
   TALK_FLIGHT = sentName;
   DM_REPLY_SENDING = replying ? { agent: sentName, at: replying.at } : null;
+  /* #4944: whether this send emptied the box, and the one way its words go back when the send is not
+     known to have arrived or been kept. Outside the try, because the catch needs both. Into the box when
+     it is still this agent's and empty (words typed since belong to the next message, and the bubble
+     still shows these, marked not sent); into the parked draft when the person has moved to another
+     agent, so the words are in the box when they come back. Says whether the box holds them now, so the
+     sentence under it never promises a box it did not fill. */
+  let tookBox = false;
+  const restoreUnsent = () => {
+    if (!tookBox) return say.value.trim() === text;
+    if (flightMoved()) {
+      if (!(TALK_DRAFTS[sentName] || '').trim()) TALK_DRAFTS[sentName] = text;
+      return false;
+    }
+    if (say.value.trim() === '') { say.value = text; pjGrowComposer(say); }
+    return say.value.trim() === text;
+  };
   /**
    * ⚠️ EVERYTHING AFTER THE FLAG IS INSIDE THE TRY. Three DOM statements used
    * to sit between the flag and the `try`, and a throw in any of them would
@@ -35711,10 +35734,30 @@ async function sendTalk(text, attachment) {
     // stays enabled through the flight, and it is where the answer they may
     // want to type instead goes.
     if (sendHadFocus) say.focus();
-    msg.textContent = 'Sending…';
+    /* #4944: the bubble says "Sending…", so the line under the box stays empty. Said there as well, it
+       was the second copy of one fact, and a line that appears and then empties moves the screen. A
+       screen reader still hears it, from the composer's quiet announcer. */
+    msg.textContent = '';
+    dmReplyAnnounce('Sending…');
     /* The message goes into the thread NOW, before the board has answered (see
        TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
-    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
+    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null,
+      replyTo: replying ? replying.at : null };   // #4944: drawn with its reply header, as the kept row will be
+    /**
+     * #4944 (Josh, 0.7.16): "as soon as i hit POST, it shows in both places for a second and then shifts
+     * around". The box kept the words until the POST answered, so for the whole flight they were in the
+     * thread AND in the box, and then the box emptied under them. The box empties in the same frame the
+     * bubble is drawn. Only when it holds exactly what this send took: an attachment-only send carries
+     * the files' names, which were never in the box. The parked draft goes too, or the repaint at the
+     * end of the flight would put the words straight back.
+     *
+     * 🛑 THIS DOES NOT CHANGE WHERE THE WORDS ARE KEPT. The bubble holds them for the flight, and every
+     * verdict that used to leave them in the box puts them back (`restoreUnsent`, below), so the box is
+     * still their only copy whenever we did not keep the message and cannot say it arrived.
+     */
+    tookBox = say.value.trim() === text;
+    if (tookBox) { say.value = ''; pjGrowComposer(say); }
+    if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
     talkPaintPending(sentName, name);
     /* #4639: after the drawn bubble, so it is the row they land on. */
     jumpToOwnSend(document.getElementById('d-dmthread'), TALK_QUERY);
@@ -35758,9 +35801,9 @@ async function sendTalk(text, attachment) {
      */
     const inThread = body.recorded === true;
     const clearSent = () => {
-      // Only the text THIS send took, and only if the box still holds exactly
-      // it: anything typed on top belongs to the next message.
-      if (!flightMoved() && say.value.trim() === text) { say.value = ''; pjGrowComposer(say); }
+      /* #4944: the box was emptied at the press, so there is nothing of this send's left in it: words
+         there now were typed during the flight and belong to the next message, even when they are the
+         same words. Only a draft parked since, holding exactly these, is retired. */
       if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
       /* The files follow the words' rule exactly: cleared for the agent they
          were sent to, on the same verdicts, so an unconfirmed-and-unrecorded
@@ -35786,11 +35829,16 @@ async function sendTalk(text, attachment) {
       line = placedWords(d);
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
+      /* #4944: not kept, so the box is its only sure copy again: the words go back into it. */
+      const inBox = !inThread && restoreUnsent();
       line = 'We could not confirm ' + name + ' got that' + note + '. '
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
-        + (inThread ? ' Your message is kept above.' : ' Your message is still in the box below.');
+        + (inThread ? ' Your message is kept above.'
+          : inBox ? ' Your message is back in the box below.' : ' Your message is shown above, marked not sent.');
     } else {
-      /* Nothing was typed, so the text stays in the box in front of them and
+      /* #4944: nothing was typed, so the words go back into the box for the retry. */
+      restoreUnsent();
+      /* Nothing was typed, so the text is back in the box in front of them and
          no time phrase rides this line: "could not deliver just now" reads as
          "not at this moment", which invites a retry we have no reason to
          promise. The row in the thread carries the time. */
@@ -35805,12 +35853,14 @@ async function sendTalk(text, attachment) {
     if (!flightMoved()) msg.textContent = line;
   } catch (err) {
     /* Nothing was kept, so the drawn bubble is the only record of the attempt: it
-       stays, marked not sent. The words are still in the box for a retry. */
+       stays, marked not sent. The words go back in the box for a retry. */
     const flying = TALK_PENDING[sentName];
     if (flying && !flying.recorded) {
       flying.failed = true;
       flying.because = (err && err.message) || 'we could not send that';
     }
+    /* #4944: and back into the box, which was emptied at the press. Not when the thread holds it. */
+    if (!(flying && flying.recorded)) restoreUnsent();
     if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
   } finally {
     TALK_SENDING = false;
