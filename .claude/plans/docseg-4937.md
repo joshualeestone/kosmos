@@ -30,7 +30,11 @@ the project folder" and delete or default to "In the project folder.""
   when the room answers last the switch pushes the folder list down about 45px. Reserving its space would
   shift the page the other way whenever the conversation has no files. Accepted.
 - A failed Open in Finder switches to the folder's segment, where its sentence lives (the button names
-  the folder). Below 400px wide the two segments share the row (at 320px the switch was 344px in a 296px
+  the folder). Intended: it changes the person's chosen segment without a click, to show why the folder
+  did not open. Rejected: a second message line on the conversation's segment (two places for one
+  sentence).
+- Each open counts itself; a room read from an earlier open does not paint (a reopen while one was out
+  appended its rows twice). Below 400px wide the two segments share the row (at 320px the switch was 344px in a 296px
   view and the page scrolled sideways, measured on both engines).
 
 ## Weakest premise

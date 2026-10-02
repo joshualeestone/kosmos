@@ -57753,6 +57753,7 @@ document.getElementById('docs-next').addEventListener('click', () => { PJ_DOCS_P
 
 /* #4937: which of the Documents screen's two lists shows. The view's data-docseg drives the CSS that
    hides the other segment's parts; the radios carry aria-checked and the roving tabindex. */
+let DOCS_OPEN_GEN = 0;   // #4937: a reopen while an earlier room read is out must not get two copies of its rows
 function docsSegShow(which) {
   const view = document.getElementById('pj-docs-view');
   const seg = document.getElementById('docs-seg');
@@ -57801,6 +57802,7 @@ async function openDocsView() {
   convo.textContent = ''; convoHead.hidden = true;
   document.getElementById('docs-folder-head').hidden = true;
   docsSegShow('folder');                                        // #4937: every open starts on the folder
+  const docsOpen = (DOCS_OPEN_GEN += 1);                         // #4937: only this open's room read may paint
   document.getElementById('docs-seg').hidden = true;             // until the conversation has files
   pjView('docs');
   const forProject = PJ_CURRENT;
@@ -57813,7 +57815,7 @@ async function openDocsView() {
     try {
       const r = await fetch('/api/project/' + encodeURIComponent(forProject) + '/room', { cache: 'no-store' });
       const rows = ((await r.json()) || {}).rows || [];
-      if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs') return;
+      if (PJ_CURRENT !== forProject || PJ_VIEW !== 'docs' || docsOpen !== DOCS_OPEN_GEN) return;
       const seen = new Set(); const atts = [];
       for (let i = rows.length - 1; i >= 0; i -= 1) {
         for (const a of (Array.isArray(rows[i].attachments) ? rows[i].attachments : (rows[i].attachment ? [rows[i].attachment] : []))) {
