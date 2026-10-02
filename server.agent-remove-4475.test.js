@@ -29,6 +29,7 @@ const { start, server, boardAuthState } = require('./server');
 const sendertoken = require('./engine/sendertoken');
 const create = require('./engine/create');
 const store = require('./engine/store');
+const removal = require('./engine/remove');
 const liveness = require('./engine/liveness');
 const fleet = require('./test-support/fleet');
 
@@ -49,26 +50,19 @@ test.before(async () => {
   pmToken = agentToken('pm-agent');
 });
 
-/* A live agent holding a token, as POST /api/team and the removal route resolve it: paneless, so its card is its store
-   key, and it has a profile there (the profile id POST /api/team records as createdById). */
+/* A live agent holding a token (paneless: known by its heartbeat). */
 function agentToken(name) {
   const minted = sendertoken.mint(name);
   assert.ok(minted.ok, 'could not mint an agent token for ' + name + ': ' + minted.because);
   liveness.seen(store.safeKey(name));
-  store.writeProfile(store.safeKey(name), {});
   return minted.token;
 }
-const creatorId = (name) => { store.writeProfile(store.safeKey(name), {}); return store.readProfile(store.safeKey(name)).id; };
 
-/* A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: createdByName (the
-   asking agent's exact token name), and the profile id the agent's profile carries (minted on the profile's first
-   write). `extra` overrides fields per case. */
+/* A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: the time, and
+   createdByName (the asking agent's exact token name). `extra` overrides fields per case. */
 function born(name, createdBy, extra = {}) {
   fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
-  store.writeProfile(create.slugFor(name), {});
-  const id = store.readProfile(create.slugFor(name)).id;
-  assert.ok(id, 'the test could not mint a profile id for ' + name);
-  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ name, outcome: 'created', createdBy: store.safeKey(createdBy), createdByName: createdBy, createdById: creatorId(createdBy), id, ...extra }) + '\n');
+  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ at: new Date().toISOString(), name, outcome: 'created', createdBy: store.safeKey(createdBy), createdByName: createdBy, ...extra }) + '\n');
 }
 async function remove(name, headers, query = '') {
   const res = await fetch(`${base}/api/agent/${encodeURIComponent(name)}/removal${query}`, { method: 'DELETE', redirect: 'manual', headers });
@@ -186,29 +180,6 @@ test('a birth the person made (no createdByName) never makes an agent of the rec
   assert.ok(reachedEngine(await remove('imported-ok', { 'x-kosmos-agent-token': op.token })), 'CONTROL: the same token with an agent-made birth did not pass');
 });
 
-test('a name freed and used again is not the old creator\'s (the birth\'s profile id must be the current one)', async () => {
-  born('Reborn Kid', 'pm-agent');
-  const before = store.readProfile('reborn-kid').id;
-  // Deleting what is left of an agent (#514) removes its profile; the next agent of that name mints a new id.
-  const want = store.profileFileName('reborn-kid');
-  const find = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const fp = path.join(dir, e.name); if (e.isDirectory()) { const hit = find(fp); if (hit) return hit; } else if (e.name === want && path.basename(dir) === store.PROFILES_DIRNAME) return fp; } return null; };
-  const file = find(SANDBOX);
-  assert.ok(fs.existsSync(file), 'the test did not find the profile it meant to delete: ' + file);
-  fs.rmSync(file);
-  store.writeProfile('reborn-kid', {});
-  assert.notEqual(store.readProfile('reborn-kid').id, before, 'the test did not make a new incarnation');
-  const r = await remove('reborn-kid', asAgent());
-  assert.equal(r.code, 403, 'a stale birth gave removal of a new agent of the same name: ' + r.text.slice(0, 160));
-  assert.match(r.text, NOT_YOURS);
-});
-
-test('a birth with no profile id (dry run, or before #170) is not honoured', async () => {
-  born('No Id Kid', 'pm-agent', { id: null });
-  const r = await remove('no-id-kid', asAgent());
-  assert.equal(r.code, 403);
-  assert.match(r.text, NOT_YOURS);
-});
-
 test('an older token that carries only its key (no name) is refused, even for its own creation', async () => {
   const minted = { token: agentToken('key-only') };
   born('Key Kid', 'key-only');
@@ -231,27 +202,45 @@ test('an older token that carries only its key (no name) is refused, even for it
   assert.match(r.text, NOT_YOURS);
 });
 
-test('a later agent that reuses the creator\'s name is not the creator (its profile id must be the creator\'s)', async () => {
-  const first = { token: agentToken('Builder') };
+test('ownership ends when the target is removed after its birth (a later agent of that name, or a restore, is not ours)', async () => {
+  born('Reborn Kid', 'pm-agent');
+  assert.ok(reachedEngine(await remove('reborn-kid', asAgent())), 'CONTROL: its own creation did not pass before the removal');
+  removal.noteRemoval('reborn-kid');
+  const r = await remove('reborn-kid', asAgent());
+  assert.equal(r.code, 403, 'a removal after the birth did not end ownership: ' + r.text.slice(0, 160));
+  assert.match(r.text, NOT_YOURS);
+});
+
+test('ownership ends when the creator is removed after the birth: a later agent of the creator\'s name is not the creator', async () => {
+  const first = agentToken('Builder');
   born('Built Kid', 'Builder');
-  assert.ok(reachedEngine(await remove('built-kid', { 'x-kosmos-agent-token': first.token })), 'CONTROL: the creator itself did not pass');
+  assert.ok(reachedEngine(await remove('built-kid', { 'x-kosmos-agent-token': first })), 'CONTROL: the creator itself did not pass');
   born('Built Kid Two', 'Builder');
-  // The creator is removed and what is left deleted (#514): its profile goes, and a new agent named Builder mints a new one.
-  const want = store.profileFileName(store.safeKey('Builder'));
-  const find = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const fp = path.join(dir, e.name); if (e.isDirectory()) { const hit = find(fp); if (hit) return hit; } else if (e.name === want && path.basename(dir) === store.PROFILES_DIRNAME) return fp; } return null; };
-  const file = find(SANDBOX);
-  assert.ok(file, 'the test did not find the creator\'s profile');
-  fs.rmSync(file);
+  removal.noteRemoval(store.safeKey('Builder'));   // the creator removed (as the route records a paneless agent: its key)
   sendertoken.revoke('Builder');
-  const second = { token: agentToken('Builder') };
-  const r = await remove('built-kid-two', { 'x-kosmos-agent-token': second.token });
+  const second = agentToken('Builder');
+  const r = await remove('built-kid-two', { 'x-kosmos-agent-token': second });
   assert.equal(r.code, 403, 'a new agent reusing the creator\'s name removed the old creator\'s work: ' + r.text.slice(0, 160));
   assert.match(r.text, NOT_YOURS);
 });
 
-test('a birth with no creator profile id (a creator with no profile) is not honoured', async () => {
-  born('No Creator Id', 'pm-agent', { createdById: null });
-  const r = await remove('no-creator-id', asAgent());
+test('a removal BEFORE the birth, or of another agent, does not end ownership', async () => {
+  removal.noteRemoval('early-kid');
+  removal.noteRemoval('pm-agent-other');
+  born('Early Kid', 'pm-agent', { at: new Date(Date.now() + 2000).toISOString() });
+  assert.ok(reachedEngine(await remove('early-kid', asAgent())), 'an older removal of the name, or another agent\'s, ended ownership');
+});
+
+test('a later partial creation of the name is a different agent: the older agent-made birth no longer counts', async () => {
+  born('Partial Kid', 'pm-agent');
+  born('Partial Kid', 'operator', { outcome: 'partial', createdByName: undefined });
+  const r = await remove('partial-kid', asAgent());
+  assert.equal(r.code, 403, 'an older birth outranked a newer partial one: ' + r.text.slice(0, 160));
+});
+
+test('a birth with no time is not honoured', async () => {
+  born('Timeless Kid', 'pm-agent', { at: undefined });
+  const r = await remove('timeless-kid', asAgent());
   assert.equal(r.code, 403);
   assert.match(r.text, NOT_YOURS);
 });
@@ -291,6 +280,15 @@ test('planning and restoring a removal still need the board token', async () => 
     const text = await res.text();
     assert.ok(res.status === 403 && GATE_REFUSAL.test(text), `${method} ${p} was reachable with only an agent token: ${res.status}`);
   }
+});
+
+test('a removal history that cannot be read refuses (last: it replaces the history file with a folder)', async () => {
+  born('Unread Kid', 'pm-agent');
+  assert.ok(reachedEngine(await remove('unread-kid', asAgent())), 'CONTROL: it passed while the history was readable');
+  try { fs.rmSync(removal.REMOVALS_LOG, { force: true }); } catch { /* none yet */ }
+  fs.mkdirSync(removal.REMOVALS_LOG, { recursive: true });
+  const r = await remove('unread-kid', asAgent());
+  assert.equal(r.code, 403, 'an unreadable history was read as no removals: ' + r.text.slice(0, 160));
 });
 
 test.after(() => {

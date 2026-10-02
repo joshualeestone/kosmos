@@ -2591,8 +2591,10 @@ function activeAgentsCreatedBy(creator) {
   return n;
 }
 
-/* #4475: the newest 'created' birth for the agent `name` (its slug), by the rule activeAgentsCreatedBy counts with,
-   or null when the birth log has none. */
+/* #4475: the newest birth that made the agent `name` (its slug): outcome `created` or `partial`, by the rule
+   activeAgentsCreatedBy counts with (the newest line wins), or null when the birth log has none. A `partial` counts
+   here, unlike the cap's count: a later partial creation of the name is a different agent from the one an older
+   `created` line made. */
 function agentBirthOf(name) {
   let want; try { want = create.slugFor(name); } catch { return null; }
   if (!want) return null;
@@ -2601,35 +2603,31 @@ function agentBirthOf(name) {
   if (!Array.isArray(births)) return null;
   let newest = null;
   for (const b of births) {
-    if (!b || b.outcome !== 'created' || !b.name) continue;
+    if (!b || (b.outcome !== 'created' && b.outcome !== 'partial') || !b.name) continue;
     let slug; try { slug = create.slugFor(b.name); } catch { slug = String(b.name); }
     if (slug === want) newest = b;
   }
   return newest;
 }
 /* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
-   `callerSession` is the caller's card sessionName as resolveAgentSender gives it, the same key POST /api/team reads
-   the creator's profile by. Only when all of these hold, else refused:
-   - the target's newest birth carries `createdByName` and `createdById`: the exact token name and the profile id of the
-     agent that asked for it through POST /api/team (engine/team.js records them only for an agent that is not the
-     setup guide). The person's paths record neither, so a fixed creator word they write ("operator", "kosmos") never
-     makes an agent its owner;
-   - that birth's profile id is the target's current one, so a name freed and used again is not the old creator's;
-   - the caller's token carries its name and it is `createdByName` exactly, and the caller's current profile id is
-     `createdById`, so a later agent that reuses the creator's name is not the creator.
-   A profile that cannot be read gives no id, which refuses. */
-function tokenOnlyMayRemove(caller, target, callerSession) {
+   Only when all of these hold, else refused:
+   - the target's newest birth is `created` and carries `createdByName`: the exact token name of the agent that asked
+     for it through POST /api/team (engine/team.js records it only for an agent that is not the setup guide). The
+     person's paths record none, so a fixed creator word they write ("operator", "kosmos") never makes an agent its
+     owner;
+   - the caller's token carries its name, and it is `createdByName` exactly;
+   - neither the target nor the creator has been removed since that birth (engine/remove.js removedSince, the removal
+     history). A name is only freed for reuse by a removal, so a later agent under either name is never the one the
+     birth is about. The agent profile id does not show this: it survives a removal and is carried to a new agent of
+     the same name. Ownership does not come back on restore; the person can remove a restored agent. */
+function tokenOnlyMayRemove(caller, target) {
   if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return false;
-  if (typeof callerSession !== 'string' || !callerSession) return false;
   const birth = agentBirthOf(target);
-  if (!birth || typeof birth.createdByName !== 'string' || !birth.createdByName || !birth.createdById || !birth.id) return false;
-  if (birth.createdByName !== caller.name) return false;
-  let current; let mine;
-  /* readProfile keys by safeKey, which strips characters; safe here because agentBirthOf has already matched a real
-     birth for this slug, and the handler requires the target to be named by that slug. Keep those checks first. */
-  try { current = store.readProfile(create.slugFor(target)).id; mine = store.readProfile(callerSession).id; } catch { return false; }
-  if (!current || current !== birth.id) return false;
-  return Boolean(mine) && mine === birth.createdById;
+  if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return false;
+  if (birth.createdByName !== caller.name || typeof birth.at !== 'string' || !birth.at) return false;
+  let creatorKey; try { creatorKey = store.safeKey(caller.name); } catch { creatorKey = null; }
+  const gone = removal.removedSince([target, caller.name, creatorKey].filter(Boolean), birth.at);
+  return gone === false;
 }
 
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
@@ -7192,7 +7190,6 @@ const server = http.createServer(async (req, res) => {
         let effectiveCreator;
         let callerKind;
         let creatorTokenName = null;
-        let creatorProfileId = null;
         if (presented) {
           const authRoster = safeRoster();
           if (authRoster === null) {
@@ -7211,9 +7208,6 @@ const server = http.createServer(async (req, res) => {
              match its creator exactly (the sessionName above is a slug or a store key, both lossy). A key-only token
              (before #4792) carries none, and its births are then not removable by it. */
           try { const named = sendertoken.resolveName(presented); creatorTokenName = (named && named.ok === true && typeof named.name === 'string' && named.name) ? named.name : null; } catch { creatorTokenName = null; }
-          /* #4475: and the creator's profile id, read by the same sessionName the removal route resolves the caller to,
-             so a later agent that reuses the creator's name is not the creator. None when it has no profile. */
-          try { creatorProfileId = store.readProfile(effectiveCreator).id || null; } catch { creatorProfileId = null; }
         } else {
           // OPERATOR path: no agent token, so on an enforcing board the board token
           // is required (computed only here -- it is never read on the agent path).
@@ -7409,7 +7403,6 @@ const server = http.createServer(async (req, res) => {
           fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
           fromGuide,
           creatorTokenName,   // #4475: recorded on each birth (createdByName) for an agent that is not the guide
-          creatorProfileId,   // #4475: recorded beside it (createdById)
         };
         let result;
         if (callerKind === 'agent') {
@@ -7551,11 +7544,7 @@ const server = http.createServer(async (req, res) => {
       let board; try { board = create.slugFor(name); } catch { board = null; }
       if (!board || board !== name) { sendJson(res, 400, { error: `name the agent by its board name${board ? ` (${board})` : ''}` }); return; }
       if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }
-      const roster = safeRoster();
-      if (roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so we could not tell who this request is from; try again' }); return; }
-      const sender = resolveAgentSender(req, null, roster);
-      if (!sender.ok) { sendJson(res, 403, { error: sender.because }); return; }
-      if (!tokenOnlyMayRemove(tokenOnly, name, sender.card && sender.card.sessionName)) {
+      if (!tokenOnlyMayRemove(tokenOnly, name)) {
         sendJson(res, 403, { error: 'an agent can remove only an agent it created; the person removes other agents from the board' });
         return;
       }

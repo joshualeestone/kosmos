@@ -122,23 +122,23 @@ test('#4474: an agent\'s member reaches create with only the fields it may send:
   const { got } = build([{ name: 'Rex', role: 'pm', provider: 'anthropic', model: 'x', projects: ['p1'], kind: 'agent',
     claudeBin: '/tmp/evil', codexBin: '/tmp/evil', tmuxBin: '/tmp/evil', configDir: '/tmp/x', accountDir: '/tmp/x', runner: 'r', pickedByPerson: true, platform: 'win32' }]);
   const keys = Object.keys(got[0]).sort();
-  // createdByName and createdById (#4475) are set by the team, never taken from the member: see the next test.
-  assert.deepEqual(keys, ['createdBy', 'createdById', 'createdByName', 'kind', 'model', 'name', 'projects', 'provider', 'purpose', 'role'], 'a launch-level field reached create: ' + keys.join(','));
+  // createdByName (#4475) is set by the team, never taken from the member: see the next test.
+  assert.deepEqual(keys, ['createdBy', 'createdByName', 'kind', 'model', 'name', 'projects', 'provider', 'purpose', 'role'], 'a launch-level field reached create: ' + keys.join(','));
 });
 
-test('#4475: createdByName and createdById are the team\'s to set: the asking agent\'s token name, never the guide\'s or the person\'s, whatever a member sends', () => {
+test('#4475: createdByName is the team\'s to set: the asking agent\'s token name, never the guide\'s or the person\'s, whatever a member sends', () => {
   const run = (fromAgent, fromGuide, creatorTokenName) => {
     const got = [];
-    team.createTeam({ creator: 'pm1', purpose: 'the work needs it', members: [{ name: 'Rex', role: 'pm', createdByName: 'Forged', createdById: 'forged-id' }], fromAgent, fromGuide, creatorTokenName, creatorProfileId: 'pm-id' }, {
+    team.createTeam({ creator: 'pm1', purpose: 'the work needs it', members: [{ name: 'Rex', role: 'pm', createdByName: 'Forged' }], fromAgent, fromGuide, creatorTokenName }, {
       createAgent: (o) => { got.push(o); return { outcome: 'created', name: String(o.name).toLowerCase(), shownAs: o.name }; },
       readAgentId: () => null, env: {},
     });
-    return [got[0].createdByName, got[0].createdById];
+    return got[0].createdByName;
   };
-  assert.deepEqual(run(true, false, 'PM One'), ['PM One', 'pm-id'], 'an agent\'s member did not carry its token name and profile id');
-  assert.deepEqual(run(true, true, 'Guide'), [null, null], 'the setup guide\'s member carried a creator name or id');
-  assert.deepEqual(run(false, false, 'PM One'), [null, null], 'the person\'s member carried a creator name or id');
-  assert.deepEqual(run(true, false, null), [null, null], 'a key-only token (no name) took the member\'s values');
+  assert.equal(run(true, false, 'PM One'), 'PM One', 'an agent\'s member did not carry its token name');
+  assert.equal(run(true, true, 'Guide'), null, 'the setup guide\'s member carried a creator name');
+  assert.equal(run(false, false, 'PM One'), null, 'the person\'s member carried a creator name');
+  assert.equal(run(true, false, null), null, 'a key-only token (no name) took the member\'s value');
 });
 
 test('#4474: the shared working rules stay as Kosmos wrote them; served whole, or deleted whole, is fine', () => {
@@ -170,8 +170,8 @@ test('#4474: every field create reads is either one an agent may send or one it 
   const read = new Set([...src.matchAll(/\bopts(?:\s*&&\s*opts)?\.([a-zA-Z]+)/g)].map((m) => m[1]));
   // teamInstructions (kosmos#4557): only the person's seeded-team step sends it; an agent's team member
   // never carries it (AGENT_MEMBER_KEYS strips it), so a brief cannot be layered in by an agent.
-  // createdByName, createdById (kosmos#4475): set by engine/team.js for every member, so an agent's own value is overwritten.
-  const NOT_FROM_AN_AGENT = ['platform', 'configDir', 'accountDir', 'pickedByPerson', 'runner', 'createdBy', 'purpose', 'createdByName', 'createdById',
+  // createdByName (kosmos#4475): set by engine/team.js for every member, so an agent's own value is overwritten.
+  const NOT_FROM_AN_AGENT = ['platform', 'configDir', 'accountDir', 'pickedByPerson', 'runner', 'createdBy', 'purpose', 'createdByName',
     'claudeBin', 'codexBin', 'tmuxBin', 'museBin', 'grokBin', 'geminiBin', 'antigravityBin', 'teamInstructions'];
   assert.ok(read.has('claudeBin') && read.has('reportsTo'), 'CONTROL: the scan of create.js found nothing');
   const unsorted = [...read].filter((k) => !team.AGENT_MEMBER_KEYS.includes(k) && !NOT_FROM_AN_AGENT.includes(k));
