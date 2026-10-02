@@ -149,7 +149,7 @@ test('#4891 N4: `kosmos report clear` records working, with the note when one is
     assert.equal(JSON.parse(idle[0].body).state, 'idle');
   }));
 
-test('#4891 review 2/3: `report clear --auto` is refused by name before any request; a note mentioning --auto is a note', () =>
+test('#4891 review 2/3: `report clear --auto` is refused by name before any request; --auto in a note needs a -- (kosmos#4889)', () =>
   withBoard(async (port, hits) => {
     for (const args of [['report', 'clear', '--auto'], ['report', 'clear', '--on', 'x', '--auto', 'back']]) {
       hits.length = 0;
@@ -165,9 +165,15 @@ test('#4891 review 2/3: `report clear --auto` is refused by name before any requ
     const hookBody = JSON.parse(hits.find((h) => h.url.startsWith('/api/report')).body);
     assert.equal(hookBody.state, 'working');
     assert.equal(hookBody.auto, true);
-    // CONTROL: --auto after the note is note text, as it is for every other state.
+    // kosmos#4889: an option after the note is refused, as it is for every other state (it used to be note text).
     hits.length = 0;
-    const note = await runCli(['report', 'clear', 'back', 'to', 'it,', 'dropped', '--auto'], envFor(port));
+    const late = await runCli(['report', 'clear', 'back', 'to', 'it,', 'dropped', '--auto'], envFor(port));
+    assert.equal(late.code, 2, late.stdout + late.stderr);
+    assert.match(late.stdout + late.stderr, /--auto is not an option of kosmos report/);
+    assert.equal(hits.length, 0, 'a refused note reached the board');
+    // CONTROL: after a bare --, --auto is note text.
+    hits.length = 0;
+    const note = await runCli(['report', 'clear', '--', 'back', 'to', 'it,', 'dropped', '--auto'], envFor(port));
     assert.equal(note.code, 0, note.stdout + note.stderr);
     const body = JSON.parse(hits.find((h) => h.url.startsWith('/api/report')).body);
     assert.equal(body.state, 'working');
