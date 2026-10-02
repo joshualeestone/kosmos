@@ -409,7 +409,7 @@ async function freshReplies(sessionName, opts = {}) {
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
     const { posts } = ownPosts(sessionName);
-    if (!posts.length) return { ok: true, posts: [] };
+    if (!posts.length) return { ok: true, posts: [], asked: 0 };
     const marks = readMarks(sessionName);
     const me = ownName(sessionName);
     const titles = postTitles(sessionName);
@@ -442,8 +442,8 @@ async function freshReplies(sessionName, opts = {}) {
         const r = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments/' + encodeURIComponent(c.id)
           + '/replies?limit=20&cursor=' + encodeURIComponent(c.repliesCursor), THREAD_READ_CAP);
         if (r.status === 429) return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' };
+        // Review 9: no reset here. Round 1 of this post just answered (noAnswer is 0), and a page that fails ends the loop.
         if (!r.status) { if (++noAnswer >= NO_ANSWER_STOP) return { ok: false, busy: true, stop: true, because: 'the community service did not answer' }; unread = true; break; }
-        noAnswer = 0;
         const more = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
         if (!more) { unread = true; break; }
         try { c.replies = c.replies.concat(more.slice(0, 20).map(replyOf).filter(Boolean)); } catch { unread = true; break; }
@@ -454,10 +454,15 @@ async function freshReplies(sessionName, opts = {}) {
       for (const c of comments) for (const x of [c, ...c.replies]) {
         if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push(x);
       }
-      fresh.sort(byPos);
-      if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', ids: fresh.map((x) => x.id) });
+      if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', items: fresh });
     }
-    return { ok: true, posts: out, marksAt: marksStamp(sessionName, marks) };
+    /* Review 9 (Sonnet): the agent's own read shows at most REPLIES_SHOWN_MAX, the oldest first across its posts, so the
+       count is capped the same way: the line never names more than the read will show, and the rest (not told yet) are
+       counted on a later pass, once the read has moved past these. */
+    const keep = new Set(out.flatMap((o) => o.items).sort(byPos).slice(0, REPLIES_SHOWN_MAX));
+    const capped = out.map((o) => ({ remoteId: o.remoteId, title: o.title, ids: o.items.filter((x) => keep.has(x)).sort(byPos).map((x) => x.id) }))
+      .filter((o) => o.ids.length);
+    return { ok: true, posts: capped, asked, marksAt: marksStamp(sessionName, marks) };
   } catch (err) {
     return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };
   } finally { replyReadRunning = false; }

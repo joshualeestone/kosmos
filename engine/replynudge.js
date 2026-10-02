@@ -145,7 +145,7 @@ async function sweepOnce(o) {
        reading), and only then is anything typed, so an agent that reads its replies the moment it is told never meets
        this pass's lock. */
     const counted = [];
-    let readOne = false;   // review 2: the gap follows EVERY read that ran, not only one that counted something
+    let readOne = false;   // review 2: the gap follows EVERY read that asked the service since the last gap, counted or not
     /* Review 8 (Opus): the pass starts AFTER the last agent asked last pass (o.rotation, kept by the caller), so a pass
        that ends early (a refusing service, the hour cap) does not starve the same later agents every time, and an agent
        whose posts end the count goes to the back. Without o.rotation, roster order. */
@@ -180,8 +180,9 @@ async function sweepOnce(o) {
           continue;
         }
         if (readOne && gap > 0) await new Promise((res) => setTimeout(res, gap));
-        readOne = true;
+        readOne = false;
         let fresh = await o.fresh(session);
+        if (!(fresh && fresh.asked === 0)) readOne = true;   // review 9: a count that asked the service nothing costs no gap
         /* Review 6 (Opus): a count that stepped aside for an agent's own read would leave every later agent busy too (the
            read holds the lock for seconds). So a busy count waits for the read and asks again, up to BUSY_RETRIES times.
            A service that refuses (429, or not answering) ends the counting for this pass: its budget is the agents'. */

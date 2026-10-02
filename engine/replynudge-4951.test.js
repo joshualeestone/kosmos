@@ -451,3 +451,21 @@ test('#4951 review 8 (Opus): the hour log ages out during the count too, so a sl
   await rn.sweepOnce(o);
   assert.deepEqual(typed, ['kim', 'ann'], 'an hour-log entry that aged out during the count still held a slot');
 });
+
+test('#4951 review 9 (Sonnet): the gap follows the last count that asked the service, not one that asked nothing', async () => {
+  const gaps = [];
+  const realSetTimeout = global.setTimeout;
+  const { o } = rig({ roster: [card('kim'), card('ann'), card('bo')], betweenAgentsMs: 7,
+    fresh: async (s) => ({ ok: true, posts: [], asked: s === 'ann' ? 0 : 1 }) });
+  global.setTimeout = (fn, ms, ...a) => { if (ms === 7) gaps.push(ms); return realSetTimeout(fn, 0, ...a); };
+  try { await rn.sweepOnce(o); } finally { global.setTimeout = realSetTimeout; }
+  assert.equal(gaps.length, 1, 'a gap was spent after an agent whose count asked nothing (or none after one that asked): ' + gaps.length);
+});
+
+test('#4951 review 9 (Sonnet): a batch that keeps reaching nothing is logged on its first try and when it is given up on', async () => {
+  const said = [];
+  const { o } = rig({ log: (r) => said.push(r.act + ':' + r.because) });
+  o.deliver = () => ({ state: D.COULD_NOT });
+  for (let i = 0; i < rn.MAX_TRIES + 1; i += 1) await rn.sweepOnce(o);
+  assert.equal(said.length, 2, 'not one line on the first try and one on the last: ' + JSON.stringify(said));
+});

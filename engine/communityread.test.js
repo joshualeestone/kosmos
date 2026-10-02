@@ -1181,3 +1181,43 @@ test('#4951 review 8 (Opus): the stamp taken with a count matches the marks the 
   assert.deepEqual(f.posts.map((p) => p.ids), [[CID(2)]], 'the new reply was not counted');
   assert.equal(f.marksAt, written, 'the stamp taken with the count is not the agent\'s marks');
 });
+
+test('#4951 review 9 (Sonnet): "in a row" means in a row: no answer, an answer, no answer again does not stop the count', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' },
+    c: { state: 'sent', agent: 'Nia4951', remoteId: RP(9), sentAt: '2026-09-30T08:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const asked = [];
+  cr.setFetcher(async (url) => { asked.push(url); return url.includes(RP(8)) ? { status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'hi' })] } } : { status: 0, json: null }; });
+  const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.equal(asked.length, 3, 'fixture: not every post was asked, in the order fail, answer, fail');
+  assert.ok(asked[0].includes(RP(7)) && asked[1].includes(RP(8)) && asked[2].includes(RP(9)), 'fixture: posts asked in another order');
+  assert.equal(f.ok, true, 'two unanswered requests with an answer between them stopped the count: ' + f.because);
+  assert.deepEqual(f.posts.map((p) => p.remoteId), [RP(8)]);
+});
+
+test('#4951 review 9 (Sonnet): the count is capped as the agent\'s own read is (REPLIES_SHOWN_MAX, oldest first across posts); the rest come after it reads', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  // Two posts, 6 comments each with 2 previewed replies: 36 items, their times interleaved across the posts.
+  const id = (n) => 'c0000000-0000-4000-8000-0000000003' + String(n).padStart(2, '0');
+  const at = (n) => new Date(Date.parse('2026-10-01T01:00:00Z') + n * 60000).toISOString();
+  const thread = (post) => Array.from({ length: 6 }, (_, k) => 5 - k).map((i) => {   // newest first, as order=newest
+    const n = (j) => (i * 3 + j) * 2 + post;   // post 0 takes even numbers, post 1 odd
+    return comment({ id: id(n(0)), created_at: at(n(0)), agent: { name: 'Ann' }, body: 'c', reply_count: 2,
+      replies: [1, 2].map((j) => comment({ id: id(n(j)), parent_id: id(n(0)), created_at: at(n(j)), agent: { name: 'Bo' }, body: 'r' })) });
+  });
+  serve({ ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: thread(0) } }),
+    ['/posts/' + RP(8) + '/comments']: () => ({ status: 200, json: { comments: thread(1) } }) });
+  const max = 30;
+  const oldest = Array.from({ length: max }, (_, n) => n);
+  const want = [0, 1].map((post) => oldest.filter((n) => n % 2 === post).map(id));
+  const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.deepEqual(f.posts.map((p) => p.ids), want, 'not the oldest ' + max + ' across both posts (the read shows those)');
+  const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the read shows the same 30
+  assert.equal(r.count, max, 'fixture: the agent\'s read did not cap at ' + max);
+  for (const x of want.flat()) assert.ok(r.text.includes(x), 'the read does not show ' + x);
+  const after = await cr.freshReplies('Nia4951', { now: NOW + 1000, paceMs: 0 });
+  assert.deepEqual(after.posts.flatMap((p) => p.ids).sort(), [30, 31, 32, 33, 34, 35].map(id).sort(), 'the rest were not counted once the agent had read the first ' + max);
+});

@@ -134,3 +134,18 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT FIXED: a quota hold or busy pane at typing time is logged once per change of state (book waitSaid). Test asserts
   the sequence held, busy, held, nudge. Mutant killed.
 - Targeted files: replynudge-4951 + communityread + chat, 241/241.
+
+## Review 9 (Sonnet, blind): 0 blockers, 2 warnings, 3 nits. 41 mutants tried, 39 killed.
+- WARNING (mutation-proven) FIXED: "two unanswered in a row" had no arm that could fail without the reset. Test: three
+  posts answering fail, ok, fail must complete ok. The round-2 reset was unreachable (round 1 of the same post just
+  answered, and a failed page ends the loop), so it is removed, with a comment saying why.
+- WARNING FIXED: the count had no cap, so the line could say 45 while the agent's read shows 30 (REPLIES_SHOWN_MAX) and
+  the other 15 were recorded as told. The count now keeps the oldest REPLIES_SHOWN_MAX across all posts, as the read
+  does; the rest are counted on a later pass, after the read moves past these. Test over two posts with interleaved
+  times (control: the read shows the same 30 ids; after it, the 6 left are counted). Mutants killed.
+- NIT FIXED: the give-up log line (tries >= MAX_TRIES) is tested. Mutant killed.
+- NIT FIXED: the between-agents gap follows the last count that asked the service (freshReplies returns `asked`), not
+  one with no posts. Test + 2 mutants killed.
+- NIT (kept): an unparseable told file skips that agent until someone looks. The safe direction for "never twice";
+  quarantining it would risk a repeat line. The skip is logged once with its reason.
+- Targeted files: 245/245.
