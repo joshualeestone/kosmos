@@ -86,7 +86,10 @@ test('on darwin the sandbox block is enabled, cannot be self-disabled, keeps loo
   const homeClaude = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
   assert.ok(sb.filesystem.denyWrite.includes(realOrLeaf(path.join(homeClaude, 'settings.json'))), '~/.claude/settings.json not in denyWrite');
   assert.ok(sb.filesystem.denyWrite.includes(realOrLeaf(path.join(homeClaude, 'settings.local.json'))), '~/.claude/settings.local.json not in denyWrite');
-  assert.ok(!sb.filesystem.denyWrite.includes(realOr(homeClaude)), 'the whole ~/.claude was denyWritten (would break Claude Code runtime state): W4');
+  // Create the dir so the negative check is not vacuous: realOrLeaf(homeClaude) now resolves, so if a
+  // dir-level deny WERE wrongly added the assertion could actually catch it (W4 regression guard).
+  fs.mkdirSync(homeClaude, { recursive: true });
+  assert.ok(!sb.filesystem.denyWrite.includes(realOrLeaf(homeClaude)), 'the whole ~/.claude was denyWritten (would break Claude Code runtime state): W4');
 });
 
 test('covers board.token in a legacy root and the default-world base (concrete), not just the current store', () => {
@@ -207,4 +210,44 @@ test('sendertoken.tokenOnlyList is the one parse site and tokenOnlyFor reads it'
   assert.equal(sendertoken.tokenOnlyFor('z'), false);
   try { fs.rmSync(sendertoken.tokenOnlyFile()); } catch { /* gone */ }
   assert.deepEqual(sendertoken.tokenOnlyList(), [], 'an absent list is not empty');
+});
+
+test('an EXISTING ~/.claude-<x> account home gets concrete denies in both layers (not only the glob)', () => {
+  const home = path.join(SANDBOX, 'acct-home');
+  const acct = path.join(home, '.claude-acctx');
+  fs.mkdirSync(acct, { recursive: true });   // an existing CLAUDE_CONFIG_DIR account home
+  const dir = agentDir('pilot-acctx');
+  setup.guardTokenOnlyFolder(dir, 'pilot-acctx', { ...DEPS, home });
+  const s = readSettings(dir);
+  // permission layer: concrete Edit denies for the real account home
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(acct, 'settings.json'))})`), 'the existing account home settings.json is not concretely Edit-denied');
+  assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(acct, 'settings.local.json'))})`), 'the existing account home settings.local.json is not concretely Edit-denied');
+  // sandbox layer: concrete denyWrite for the same files (measured file-write deny, not only the glob)
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(path.join(acct, 'settings.json'))), 'the existing account home settings.json is not in sandbox denyWrite');
+  assert.ok(s.sandbox.filesystem.denyWrite.includes(realOrLeaf(path.join(acct, 'settings.local.json'))), 'the existing account home settings.local.json is not in sandbox denyWrite');
+});
+
+test('legacy and default-world board.token are in the sandbox denyRead too, not only the permission layer', () => {
+  const dir = agentDir('pilot-sbroots');
+  const legacy = path.join(SANDBOX, 'sbroots-legacy', 'Kosmos');
+  const worldBase = path.join(SANDBOX, 'sbroots-world');
+  setup.guardTokenOnlyFolder(dir, 'pilot-sbroots', { ...DEPS, legacyRoots: [legacy], worldsBase: worldBase });
+  const dr = readSettings(dir).sandbox.filesystem.denyRead;
+  assert.ok(dr.includes(realOrLeaf(path.join(legacy, TOKEN_FILE))), 'the legacy board.token is not in sandbox denyRead');
+  assert.ok(dr.includes(realOrLeaf(path.join(worldBase, TOKEN_FILE))), 'the default-world board.token is not in sandbox denyRead');
+});
+
+test('realOrLeaf: resolves an existing leaf (incl a symlink), a symlinked parent of an absent leaf, and an all-missing path', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'realorleaf-'));
+  // existing symlink leaf -> target: resolves to the target
+  const target = path.join(base, 'target.txt'); fs.writeFileSync(target, 'x');
+  const link = path.join(base, 'link.txt'); fs.symlinkSync(target, link);
+  assert.equal(setup.realOrLeaf(link), fs.realpathSync.native(target), 'an existing symlink leaf was not resolved to its target');
+  // symlinked PARENT, absent leaf: parent is followed, absent basename kept
+  const realDir = path.join(base, 'real'); fs.mkdirSync(realDir);
+  const linkDir = path.join(base, 'ldir'); fs.symlinkSync(realDir, linkDir);
+  assert.equal(setup.realOrLeaf(path.join(linkDir, 'nope.json')), path.join(fs.realpathSync.native(realDir), 'nope.json'), 'a symlinked parent of an absent leaf was not followed');
+  // all-missing path: returns the resolved-absolute form without throwing
+  const missing = path.join(base, 'no', 'such', 'dir', 'x.json');
+  assert.equal(setup.realOrLeaf(missing), path.join(fs.realpathSync.native(base), 'no', 'such', 'dir', 'x.json'), 'an all-missing path under an existing base was not rejoined correctly');
 });
