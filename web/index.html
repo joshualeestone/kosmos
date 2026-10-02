@@ -35728,8 +35728,8 @@ async function sendTalk(text, attachment) {
      known to have arrived or been kept. Outside the try, because the catch needs both. Into the box when
      it is still this agent's and empty (words typed since belong to the next message, and the bubble
      still shows these, marked not sent); into the parked draft when the person has moved to another
-     agent, so the words are in the box when they come back. Says whether the box holds them now, so the
-     sentence under it never promises a box it did not fill. */
+     agent, so the words are in the box when they come back. Returns whether the box holds them now
+     (whoever put them there), so the sentence under it never promises a box that does not hold them. */
   let tookBox = false;
   let rawBox = '';        // what the box held when the press emptied it, put back as it was
   let delivered = false;  // placed, or kept and not refused: from then on a throw must not re-arm the words
@@ -35878,7 +35878,7 @@ async function sendTalk(text, attachment) {
       line = 'We could not confirm ' + name + ' got that' + note + '. '
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
         + (inThread ? ' Your message is kept above.'
-          : inBox ? (tookBox ? ' Your message is back in the box below.' : ' Your message is still in the box below.')
+          : inBox ? (tookBox ? ' Your message is in the box below.' : ' Your message is still in the box below.')
           : ' ' + dmNotSentWhere(true, pendingIds.length > 0));
     } else {
       /* #4944: nothing was typed, so the words go back into the box for the retry. Even when the board

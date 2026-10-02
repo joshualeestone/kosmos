@@ -175,7 +175,7 @@ function readThread(page, words) {
     await page.evaluate(() => window.__post.resolve({ delivery: { state: 'unconfirmed', because: 'we typed it and could not tell whether it arrived' }, recorded: false, recordedBecause: null }));
     await page.waitForTimeout(300);
     chk((await box()) === 'did that land?', 'unconfirmed and not kept: the words are back in the box', JSON.stringify(await box()));
-    chk(/back in the box below/.test(await line()), 'and the line says they are back in the box', await line());
+    chk(/Your message is in the box below\./.test(await line()), 'and the line says they are in the box', await line());
 
     /* 6. Unconfirmed but kept: the thread holds it, so the box stays empty. */
     await reset(BASE);
