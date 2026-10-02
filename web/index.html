@@ -48318,7 +48318,7 @@ async function openTeamCreate(key) {
   TC = null;
   TC_MODEL_FOR = null;   // #4935: a new team starts on the default model, not the last team's pick
   TC_MODEL_GEN += 1;     // and a model list still loading for the last team cannot land in this one
-  { const tm = document.getElementById('tc-model'); if (tm) tm.innerHTML = ''; }   // nor its pick be kept by the repaint
+  { const tm = document.getElementById('tc-model'); if (tm) { tm.innerHTML = ''; tm.dataset.loading = ''; tm.dataset.fixed = ''; } }   // nor its pick or its loading state
   const msg = document.getElementById('tc-msg');
   document.getElementById('tc-title').textContent = 'Loading the team…';
   document.getElementById('tc-purpose').textContent = '';
@@ -48447,6 +48447,7 @@ async function tcFillProviderNow(gen) {
         // It landed during a click or a run: kept, and applied when the choice is next open (tcPaint).
         TC.lateAccounts = true;
         tcApplyLateAccounts();
+        tcSyncModel();   // #4935: the model list follows a provider or account the late list changed
       });
     }
   }
@@ -48506,7 +48507,11 @@ function tcPaintModel(pv, ac) {
     sel.innerHTML = html;
     sel.dataset.fixed = fixed ? '1' : '';
     sel.dataset.loading = loading ? '1' : '';
-    if (keep && prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;   // a round trip keeps a pick
+    if (loading) {   // held at once, whatever started the load; tcPaint offers them again when it lands
+      const go = document.getElementById('tc-go'); if (go) go.disabled = true;
+      for (const b of document.querySelectorAll('#tc-list .tc-retry')) b.disabled = true;
+    }
+    if (keep && prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;   // a pick the new list still offers is kept
     sel.disabled = fixed || tcChoiceFixed() || TC_FILLING > 0;
     if (why) { why.textContent = note || ''; why.hidden = !note; }
   };
@@ -48804,6 +48809,7 @@ document.getElementById('tc-hello').addEventListener('click', () => {
 
 document.getElementById('tc-go').addEventListener('click', async () => {
   if (!TC || TC.started || TC.busy) return;
+  if ((document.getElementById('tc-model') || { dataset: {} }).dataset.loading === '1') return;   // #4935: not on a model still loading
   const gen = TC_GEN;
   const go = document.getElementById('tc-go');
   const msg = document.getElementById('tc-msg');
