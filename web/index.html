@@ -52890,7 +52890,11 @@ function importRowApply(row) {
   if (!st) return;
   const go = row.querySelector('.fr-importgo');
   const field = row.querySelector('.fr-importinput');
-  if (field) { field.disabled = true; if (st.name && !field.value) field.value = st.name; }
+  if (field) {
+    field.disabled = true; if (st.name && !field.value) field.value = st.name;
+    // Review 10: a copy that is adding or added is not flagged, whatever a refusal before it left.
+    field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad');
+  }
   if (!go) return;
   go.disabled = true;
   if (st.state === 'added') {
@@ -53056,7 +53060,8 @@ async function addImportedInPlace(file, btn, row, viaKey) {
     importRowsSync(file, msg, aboutName, row);
   };
   IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: Date.now() });
-  if (field) field.disabled = true;
+  // Review 10: a new attempt starts unflagged (a retry after a refusal must not stay red while it is adding).
+  if (field) { field.disabled = true; field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
   btn.disabled = true;
   btn.textContent = 'Adding…';
   if (said) said.textContent = '';
@@ -53163,6 +53168,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
     const shown = row.querySelector('.fr-importname');
     if (shown) shown.textContent = typed;
     field.removeAttribute('aria-invalid');
+    if (field.classList) field.classList.remove('bad');
   }
   IMPORT_ADDS.set(file, { state: 'added', name: typed || name });
   importRowsSync(file);

@@ -518,3 +518,22 @@ test('review 8: a refusal about the name focuses ONE copy, never one in a hidden
   assert.equal(a.f.getAttribute('aria-invalid'), null);
 });
 
+test('review 10: a retry after a name refusal starts unflagged, and a copy adding or added carries no flag', () => {
+  const t = makeDom();
+  const box = t.add('import-found');
+  const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');
+  const f = t.create('input'); f.className = 'tk-inp fr-importinput';
+  const go = t.create('button'); go.className = 'fr-importgo';
+  row.append(f, go); box.appendChild(row);
+  const cls = new Set(['bad']);                                             // what a name refusal left
+  f.classList = { add: (c) => cls.add(c), remove: (c) => cls.delete(c) };
+  f.setAttribute('aria-invalid', 'true');
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'const IMPORT_ADDS = new Map([["/p/pip.md", { state: "adding", name: "Pip" }]]);\n' + slice('importRowApply') + '\nreturn { importRowApply };')(t.document);
+  api.importRowApply(row);
+  assert.equal(f.getAttribute('aria-invalid'), null, 'not marked invalid while adding');
+  assert.equal(cls.has('bad'), false, 'no red border while adding');
+  // CONTROL: the attempt-start line in addImportedInPlace clears both marks too (the shipped source).
+  assert.match(slice('addImportedInPlace'), /field\.disabled = true; field\.removeAttribute\('aria-invalid'\); if \(field\.classList\) field\.classList\.remove\('bad'\);/);
+});
+
