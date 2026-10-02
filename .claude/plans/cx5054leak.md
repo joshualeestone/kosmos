@@ -15,3 +15,4 @@ Fix forward, not revert 19aa2a1f5: the red is test hygiene, the product passed, 
 
 ## Tests
 The file alone, then run-tests.sh's leak guard over it: no cx5054-* left in the real temp root.
+- Review 1 (sonnet, blind): CONVERGED. tmpscope contains all four cx5054 mkdtemp calls (os.tmpdir() read per call), the exit handler removes them even on a failing test, placement first is right, codexsession caches no tmpdir/HOME at require time, same idiom as ~20 engine tests. NIT: Tests section reads as intent until the focused run records its numbers.
