@@ -21,6 +21,11 @@ body (PNG, JPEG or WebP, at most 60,000 bytes; metadata stripped server-side; 42
    else (a GIF, a big photo) is not sent; if one was sent before, the old one is REMOVED, so the community never
    shows a picture the person has since replaced. Logged once per value.
 4. A removal (no picture, or one we cannot send) goes out whatever the switch says; a new picture only while ON.
+## Split: steps 5 and 6 are the NEXT PR (web/index.html), not this one
+This PR is the board side only (steps 1 to 4) and stands on its own: every picture that already fits is sent, and one
+that does not is logged and the community shows its own mark. The web half touches three upload paths (the detail
+panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPortrait) and needs its own browser check.
+
 5. Settings > Community gets one line: the agent's picture goes with it to the community.
 6. The picture uploader in Kosmos shrinks a chosen picture in the browser (canvas, longest side 256 px, WebP then
    JPEG) to fit 60,000 bytes, so new pictures always qualify. The generated mark is already 144 px PNG.
