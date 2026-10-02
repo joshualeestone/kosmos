@@ -110,7 +110,7 @@ function paintWorld({ models = [], openai = null, rolesBody = null, waitMs = 0, 
     vendorPicksModel: (p) => ['google', 'xai', 'antigravity', 'meta'].includes(p),
     switchKeyedWord: (p) => ({ google: 'Gemini', xai: 'Grok' })[p] || p,
     openaiNoModelsNote: () => 'OpenAI picks its own model.',
-    setTimeout,
+    setTimeout, clearTimeout,
     fetch: (url) => { fetched.push(url); if (stuck) return new Promise(() => {}); const body = /openai/.test(url) ? openai : rolesBody;
       return Promise.resolve({ ok: !!body, json: () => Promise.resolve(body) }); },
   };
