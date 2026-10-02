@@ -293,7 +293,7 @@ const FOREGROUND_SETTINGS_SCRIPT = [
   '    if (c.ToString() != "ApplicationFrameWindow") return true;',
   '    EnumChildWindows(f, delegate(IntPtr k, IntPtr m) {',
   '      uint p; WindowPid(k, out p);',
-  '      if (p == pid) { found = f; return false; }',
+  '      if (p != 0 && p == pid) { found = f; return false; }',
   '      return true;',
   '    }, IntPtr.Zero);',
   '    return found == IntPtr.Zero;',
