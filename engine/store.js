@@ -300,6 +300,18 @@ function avatarPathIn(dir, name) {
   return null;
 }
 function avatarPath(name) { return avatarPathIn(avatarsDir(), name); }
+/* #4885: avatarPath, but telling "no picture" from "could not look": { file } or { file: null } when there is none
+   (no folder yet, or no file for this agent), and { error } when the folder could not be read. A sender acting on a
+   null from avatarPath would take a picture down because of a permission blip. */
+function avatarLookup(name) {
+  const key = safeKey(name);
+  let names;
+  try { names = fs.readdirSync(avatarsDir()); } catch (e) {
+    return e && e.code === 'ENOENT' ? { file: null } : { error: (e && e.code) || 'unreadable' };
+  }
+  const f = names.find((n) => n.startsWith(key + '.'));
+  return { file: f ? path.join(avatarsDir(), f) : null };
+}
 
 /**
  * A version that CHANGES whenever this agent's stored avatar changes (#2698).
@@ -578,7 +590,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarPathIn, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

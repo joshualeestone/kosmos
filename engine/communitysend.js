@@ -1124,15 +1124,18 @@ const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
    the community cannot take (too big, a GIF) is "none" here, so one sent earlier is taken back rather than left
    showing a picture the person has since replaced. */
 function avatarWanted(agentKey) {
-  let file = null;
-  try { file = store.avatarPath(agentKey); } catch { file = null; }
+  let found;
+  try { found = store.avatarLookup(agentKey); } catch { found = { error: 'name' }; }
+  // Only a confirmed absence is "no picture"; a folder that could not be read is not a reason to take anything down.
+  if (found.error) return { busy: true, why: 'unreadable:' + found.error };
+  const file = found.file;
   if (!file) return { id: null, why: null };
   let before;
-  try { before = fs.statSync(file); } catch { return { id: null, why: null }; }
+  try { before = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { id: null, why: null } : { busy: true, why: 'unreadable:' + ((e && e.code) || 'stat') }; }
   if (before.size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + before.size };
   let bytes;
   let after;
-  try { bytes = fs.readFileSync(file); after = fs.statSync(file); } catch { return { busy: true }; }
+  try { bytes = fs.readFileSync(file); after = fs.statSync(file); } catch (e) { return { busy: true, why: 'unreadable:' + ((e && e.code) || 'read') }; }
   // store.saveAvatar writes the file in place: a picture that changed while it was read is half written. Left for
   // the next sweep rather than sent (the service would refuse the cut-short file) or read as "none".
   if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || bytes.length !== before.size) return { busy: true };
@@ -1154,7 +1157,15 @@ async function sweepAvatars(keys, on, { removals }) {
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
     const w = avatarWanted(agentKey);
-    if (w.busy) continue;
+    if (w.busy) {
+      // A picture that cannot be read is said once, so an agent that never syncs again is not silent about why.
+      if (w.why && k.avatarSkipLogged !== w.why) {
+        k.avatarSkipLogged = w.why;
+        saveJson(keysFile(), keys);
+        log(`picture for ${agentKey}: could not be read (${w.why.slice('unreadable:'.length)}); nothing is sent or taken down until it can`);
+      }
+      continue;
+    }
     const want = w.id;
     // A picture set again: the next removal that cannot reach a shut-out agent is logged again.
     if (want !== null && k.avatarRemoveUnreachable) { delete k.avatarRemoveUnreachable; saveJson(keysFile(), keys); }
@@ -1202,7 +1213,7 @@ async function sweepAvatars(keys, on, { removals }) {
       delete k.avatarRetrying;
       k.avatarRefused = want;
       saveJson(keysFile(), keys);
-      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes${sent !== null || wasUnsure ? ', and the one it showed before is taken down' : ''}`);
+      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes${sent !== null || wasUnsure ? ', and the one it showed before will be taken down' : ''}`);
     } else if (k.avatarRetrying !== target) {
       k.avatarRetrying = target;
       saveJson(keysFile(), keys);
@@ -1279,7 +1290,7 @@ async function sweepOnce(now) {
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepAvatars(keys, on, { removals: true }); }   // #4885: taking a picture down is a take-down
   catch (e) { log(`picture removals: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // #4373 part B: comments go after the owner's deletes, the take-down reads and the industry pass, so a slow comment
+  // #4373 part B: comments go after the owner's deletes, the take-down reads, the industry pass and picture removals, so a slow comment
   // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
     try { await sweepComments(keys, from, now); }
