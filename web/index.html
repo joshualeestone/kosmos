@@ -48254,10 +48254,11 @@ async function openTeamCreate(key) {
     const msg = document.getElementById('tc-msg');
     msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;
     tcPaint();
-    if (TC.key === key && tcFinished() && TC.helloStarted) {
+    if (TC.key === key && tcFinished() && TC.helloStarted && !document.getElementById('tc-hello').hidden) {
       // Review 12: the same team picked again while one is not said hello to resumes it; say how to make another.
+      // Review 13: only when that button is on screen, and the label already ends in "Team".
       msg.hidden = false; msg.dataset.kind = 'resume';
-      msg.textContent = 'This is the ' + ((TC.team && TC.team.label) || 'team') + ' team you just made. To make another, choose Go to your team first.';
+      msg.textContent = 'You just made this ' + ((TC.team && TC.team.label) || 'team') + '. To make another, choose Go to your team first.';
     }
     if (TC.key !== key) {
       msg.hidden = false; msg.dataset.kind = 'resume';
@@ -48528,7 +48529,7 @@ function tcPaint() {
     }
     if (m.state === 'made' && m.hello === 'unsure') {   // #4936: it may have reached it, so no retry (it could say hello twice)
       const why = document.createElement('p'); why.className = 'tc-why plain';
-      why.textContent = 'Kosmos sent hello but could not confirm it arrived. Look at its page before saying it again.';
+      why.textContent = 'Kosmos tried to say hello but could not confirm it arrived. Look at its page before saying it again.';
       row.append(why);
     }
     if (m.state === 'made' && m.hello === 'failed') {   // #4936: a member that did not start is said, with a retry
@@ -48650,8 +48651,9 @@ async function tcHelloSend(name) {
        delivery, so it and every other status may have placed it already and are never re-sent. */
     if (!r.ok) return { got: (r.status === 404 || r.status === 409) ? 'failed' : 'unsure', why: r.because };
     const state = r.delivery && r.delivery.state;
-    // Review 12: a could_not's own words are about its window and keystrokes; the row says it plainly instead.
-    return { got: state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure'), why: null };
+    // Review 13 (over review 12): a could_not's words are the sentence the agent's own chat page shows the person (a
+    // dialog to answer in its terminal, a paused swarm), so the row says them too, not a generic "try again".
+    return { got: state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure'), why: state === 'could_not' ? r.because : null };
   } catch { return { got: 'unsure', why: null }; }   // the request may have reached the board
   finally { if (timer) clearTimeout(timer); }
 }
@@ -48678,7 +48680,8 @@ async function tcHelloHeld(name) {
   if (a.state === 'needs_you') return 'It is waiting on something on its page, so Kosmos did not type into it. See to it there, then Try again.';
   if (a.state === 'auth_failed') return 'Its sign-in failed, so Kosmos did not say hello. Fix it on its page, then Try again.';
   if (a.state === 'rate_limited') return 'Its account is at its limit right now, so Kosmos did not say hello. Try again later.';
-  if (['stopped', 'restarting', 'connection_lost'].includes(a.state)) return 'It is not ready to take a message yet. Try again in a moment.';
+  // Review 13: unknown too: engine/status.js says nothing may type into an UNKNOWN pane automatically.
+  if (['stopped', 'restarting', 'connection_lost', 'unknown'].includes(a.state)) return 'It is not ready to take a message yet. Try again in a moment.';
   return null;
 }
 async function tcHelloOne(m, gen) {

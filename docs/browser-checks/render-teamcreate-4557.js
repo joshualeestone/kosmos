@@ -380,7 +380,11 @@ function chk(ok, label, extra) {
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
           /* #4936: Try again on Ana while it still is not placed: tried three more times, and the step still stays. */
           await page.click('#tc-list li[data-slot="social"] .tc-retry');
-          await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || '') && hellos.filter((h) => h.who === 'ana').length === 6);
+          // Review 13: the count is node's; the page condition waits for the row to settle again after its retries.
+          await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || '')
+            && !document.querySelector('#tc-list li[data-slot="social"] .tc-state').textContent.includes('Saying'));
+          for (let i = 0; i < 40 && hellos.filter((h) => h.who === 'ana').length < 6; i++) await page.waitForTimeout(100);
+          chk(hellos.filter((h) => h.who === 'ana').length === 6, `${E} #4936 a Try again that fails is tried three more times`, String(hellos.filter((h) => h.who === 'ana').length));
           chk(await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden), `${E} #4936 a Try again that fails again keeps the step`);
           chk(await page.evaluate(() => (document.activeElement || {}).matches && document.activeElement.matches('#tc-list li[data-slot="social"] .tc-retry')),
             `${E} #4936 after a Try again fails again, focus is on the new Try again, not dropped on the row`, await page.evaluate(() => (document.activeElement || {}).outerHTML || '').then((h) => h.slice(0, 120)));
@@ -390,7 +394,7 @@ function chk(ok, label, extra) {
           const backed = await page.evaluate(() => ({ team: TC !== null, step: !document.getElementById('cstep-teammake').hidden }));
           await page.evaluate(() => openTeamCreate('marketing'));
           const howAnother = await page.evaluate(() => { const m = document.getElementById('tc-msg'); return m.hidden ? '' : m.textContent; });
-          chk(/To make another, choose Go to your team first\./.test(howAnother), `${E} #4936 the same team picked again says how to make another`, howAnother);
+          chk(howAnother === 'You just made this Marketing Team. To make another, choose Go to your team first.', `${E} #4936 the same team picked again says how to make another`, howAnother);
           await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
           const re = await rows(page);
           chk(backed.team && !backed.step && re.map((r) => r.state).join() === 'Said hello,Said hello,Could not say hello' && re[2].retry,
@@ -413,7 +417,10 @@ function chk(ok, label, extra) {
             `${E} #4936 Go to your team leaves the create view for the agents view, the new members' cards marked and one focused, no team left to resume`, JSON.stringify(went));
           /* Review 5: the board rebuilds its cards every poll; focus must come back to the new card, not stay on the page. */
           await page.evaluate(() => { if (document.activeElement) document.activeElement.__before = 1; });
-          await page.waitForTimeout(6500);
+          // Review 13: wait for an actual rebuild (the board's poll, up to 12 s), not a fixed time; then give the mark loop
+          // its 500 ms to put focus back.
+          await page.waitForFunction(() => ![...document.querySelectorAll('.acard, .lrow')].some((e) => e.__before), null, { timeout: 12000 }).catch(() => null);
+          await page.waitForTimeout(700);
           const kept = await page.evaluate(() => ({ focus: ((document.activeElement || {}).dataset || {}).agent || null, body: document.activeElement === document.body,
             rebuilt: !(document.activeElement || {}).__before }));
           chk(kept.rebuilt && !kept.body && ['ana', 'leo-two', 'maya-okafor'].includes(kept.focus), `${E} #4936 after a board poll rebuilt the cards, focus is on a new member's card`, JSON.stringify(kept));
@@ -532,8 +539,10 @@ function chk(ok, label, extra) {
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Lu');
           await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Mo');
           await page.click('#tc-go');
-          await settle(page, () => hellos.length >= 3 && typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0
+          // Review 13: `hellos` lives here in node, never inside the page condition (it would throw, and the wait return at once).
+          await settle(page, () => typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0
             && /picture not set/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
+          chk(hellos.length === 3, `${E} #4936 every member was said hello to once (picture-failed arm)`, JSON.stringify(hellos.map((h) => h.who)));
           await page.waitForTimeout(600);   // room for a wrong move to the agents view
           const pf = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden,
             row: (document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || '', marked: document.querySelectorAll('.just-made').length,
