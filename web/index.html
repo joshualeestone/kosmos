@@ -8353,6 +8353,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   background: var(--field-fill); border: 0.5px solid var(--border-strong);
   border-radius: var(--radius-control); display: flex; flex-direction: column; gap: 8px; }
 .tc-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
+/* #4936: the members a team just made, marked on the agents view for a few seconds after Create a Team. */
+.just-made { outline: 2px solid var(--accent, #b8860b); outline-offset: 2px; transition: outline-color .6s ease; }
+@media (prefers-reduced-motion: reduce) { .just-made { transition: none; } }
 .tc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: center; }
 .tc-seat { color: var(--label-2); }
 .tc-seat b { color: var(--label); font-weight: 600; }
@@ -48458,7 +48461,7 @@ function tcPaint() {
   const hadEnd = (hadCaret !== null && typeof had.selectionEnd === 'number') ? had.selectionEnd : hadCaret;
   /* Round 3: the watcher repaints every 2s. Rebuilding unchanged rows moved focus to a new element each
      time (a screen reader re-announced it; an IME composition was lost), so only a change rebuilds. */
-  const sig = JSON.stringify([TC.started, Boolean(TC.busy), TC.members.map((m) => [m.state, m.why, m.seen, m.portrait, m.renamedFrom || '', (m.warn || []).join('|')])]);
+  const sig = JSON.stringify([TC.started, Boolean(TC.busy), TC.members.map((m) => [m.state, m.why, m.seen, m.portrait, m.renamedFrom || '', (m.warn || []).join('|'), m.hello || ''])]);
   if (sig !== TC.paintedSig || !list.children.length) {
   TC.paintedSig = sig;
   list.replaceChildren(...TC.members.map((m, i) => {
@@ -48487,6 +48490,8 @@ function tcPaint() {
     const made = m.seen === 'running' ? 'Running' : (m.seen === 'unseen' ? 'Made, not seen running yet' : 'Made, starting…');
     st.textContent = ({ ready: '', waiting: 'Waiting', held: 'Waiting for the lead', creating: 'Making…',
       made: made + (m.portrait === 'failed' ? ' (picture not set)' : ''), failed: 'Not made' })[m.state] || '';
+    // #4936: once it is running, Kosmos says hello to it; the row says where that is.
+    if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', started: 'Started', failed: 'Could not say hello' })[m.hello] || st.textContent;
     row.append(seat, input, st);
     if (m.renamedFrom) {
       const note = document.createElement('p'); note.className = 'tc-why';
@@ -48501,6 +48506,15 @@ function tcPaint() {
       const p = document.createElement('p'); p.className = 'tc-why';
       p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
       row.append(p);
+    }
+    if (m.state === 'made' && m.hello === 'failed') {   // #4936: a member that did not start is said, with a retry
+      const why = document.createElement('p'); why.className = 'tc-why';
+      why.textContent = 'Kosmos could not say hello to it, so it has not started. Try again, or say hello to it on its page.';
+      const again = document.createElement('button');
+      again.type = 'button'; again.className = 'btn tc-retry'; again.textContent = 'Try again';
+      again.setAttribute('aria-label', 'Say hello again: the ' + m.title);
+      again.addEventListener('click', () => tcHelloRetry(m.slot));
+      row.append(why, again);
     }
     if (m.state === 'failed') {
       const again = document.createElement('button');
@@ -48560,21 +48574,92 @@ function tcPaint() {
        off to find the agent). A team ended on a sentence and Back. Same invitation, same place to go:
        the lead, who the others report to. It says "each", because nothing here shows that greeting the
        lead wakes the rest. */
-    const leadName = tcLeadShown();
-    note = 'Your team is ready. ' + (n === 1 ? 'It is' : 'They are') + ' running on your board.'
-      + (warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '')
-      + (n === 1 ? ' Say “hello” to ' + (leadName || 'it') + ' to activate it on Kosmos.'
-        : ' Say “hello” to each of them to activate it on Kosmos' + (leadName ? ', starting with ' + leadName + '.' : '.'));
+    /* #4936 (Josh, 0.7.16: "Is there a way to say hello to all of them at once automatically"): Kosmos says the
+       hello itself, lead first, the same message the agent's page sends. The note follows where that is. */
+    const sentN = TC.members.filter((m) => m.hello === 'started').length;
+    const notN = TC.members.filter((m) => m.hello === 'failed').length;
+    const look = warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '';
+    if (sentN === n) note = (n === 1 ? 'Your agent is started.' : 'Your team is started.') + look;
+    else if (notN && sentN + notN === n) note = 'Your team is running. ' + (notN === 1 ? '1 of them has' : notN + ' of them have') + ' not started: try again on its row, or say hello to it on its page.' + look;
+    else note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : 'each of them') + ' so ' + (n === 1 ? 'it starts' : 'they start') + '…' + look;
   } else {
     note = madeN + ' of ' + n + ' made' + (runningN ? ', ' + runningN + ' running' : '') + (failedN ? ', ' + failedN + ' not made' : '') + '.';
   }
   const noteEl = document.getElementById('tc-note');
   if (noteEl.textContent !== note) noteEl.textContent = note;
-  // Only once the board has SEEN every member running: there is somebody to say hello to.
+  /* #4936: once the board has SEEN every member running, Kosmos says hello to each (tcSayHello). When every hello is
+     placed it takes the person back to their agents (tcGoToTeam); if any is not, it stays here with that row's
+     retry, and this button goes to the team. */
   const hello = document.getElementById('tc-hello');
-  const leadShown = tcFinished() ? tcLeadShown() : '';
-  hello.hidden = !leadShown;
-  if (leadShown) hello.textContent = 'Say Hello to ' + leadShown;
+  const finished = tcFinished();
+  const settled = finished && TC.members.every((m) => m.hello === 'started' || m.hello === 'failed');
+  hello.hidden = !(settled && TC.members.some((m) => m.hello === 'failed'));
+  hello.textContent = n === 1 ? 'Go to your agent' : 'Go to your team';
+  if (finished && !TC.helloStarted) tcSayHello();
+}
+
+/* #4936: say hello to every member, the lead first, then the rest together. The same message the agent's page sends
+   (sendWakeHello, #2686), and "started" only when the board says it was PLACED in the agent's session. A member just
+   seen running may still be starting up, so a hello that is not placed is tried twice more, a few seconds apart. */
+const TC_HELLO_TRIES = 3;
+let TC_HELLO_GAP_MS = 3000;   // a browser check can shorten it
+async function tcHelloOne(m, gen) {
+  if (!m || !m.made || !m.made.name) return;
+  m.hello = 'sending'; tcPaint();
+  const name = m.made.name;
+  let placed = false;
+  for (let i = 0; i < TC_HELLO_TRIES && !placed; i++) {
+    if (i) await new Promise((r) => setTimeout(r, TC_HELLO_GAP_MS));
+    if (gen !== TC_GEN) return;
+    const mine = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
+    await sendWakeHello(name, mine, (said) => { placed = said === 'placed'; }, 'placed', 'not');
+  }
+  if (gen !== TC_GEN || !TC) return;
+  m.hello = placed ? 'started' : 'failed';
+  tcPaint();
+}
+async function tcSayHello() {
+  if (!TC || TC.helloStarted) return;
+  TC.helloStarted = true;
+  const gen = TC_GEN;
+  const lead = tcLead();
+  await tcHelloOne(lead, gen);
+  if (gen !== TC_GEN || !TC) return;
+  await Promise.all(TC.members.filter((m) => m !== lead).map((m) => tcHelloOne(m, gen)));
+  if (gen !== TC_GEN || !TC) return;
+  if (TC.members.every((m) => m.hello === 'started')) tcGoToTeam();
+}
+function tcHelloRetry(slot) {
+  const m = TC && TC.members.find((x) => x.slot === slot);
+  if (!m || m.hello !== 'failed') return;
+  const gen = TC_GEN;
+  tcHelloOne(m, gen).then(() => {
+    if (gen === TC_GEN && TC && TC.members.every((x) => x.hello === 'started')) tcGoToTeam();
+  });
+}
+/* #4936 (Josh: "It should take me to my agent view wherever I was and show me. I should be able to go see the new
+   agents easily."): back to the agents, where the create step's own Back goes, with the new members scrolled to and
+   marked for a few seconds. */
+let TC_JUST_MADE_MS = 10000;
+function tcGoToTeam() {
+  if (!TC) return;
+  const names = TC.members.filter((m) => m.made && m.made.name).map((m) => m.made.name);
+  TC_GEN += 1; TC = null;   // the team is finished: nothing is left to resume
+  WATCH += 1;
+  if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); } else showTab('agents');
+  const until = Date.now() + TC_JUST_MADE_MS;
+  let scrolled = false;
+  const mark = () => {
+    const live = Date.now() < until;
+    for (const n of names) {
+      for (const el of document.querySelectorAll('[data-agent="' + CSS.escape(n) + '"]')) {
+        el.classList.toggle('just-made', live);
+        if (live && !scrolled && el.offsetParent) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); scrolled = true; }
+      }
+    }
+    if (live) setTimeout(mark, 500);
+  };
+  mark();
 }
 /* The lead as the list marks it ("leads the team"), and the name it was made under. */
 function tcLead() {
@@ -48650,11 +48735,8 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
 
 /* Straight to the lead, the way the single create's Say Hello goes straight to its agent (openDetail). */
 document.getElementById('tc-hello').addEventListener('click', () => {
-  const lead = tcFinished() ? tcLead() : null;
-  if (!lead || !lead.made || !lead.made.name) return;
-  const who = lead.made.name;
-  TC_GEN += 1; TC = null;   // the team is finished: nothing is left to resume
-  openDetail(who);
+  if (!tcFinished()) return;
+  tcGoToTeam();   // #4936: to the team on the agents view, not into one agent's page
 });
 
 document.getElementById('tc-go').addEventListener('click', async () => {
