@@ -295,6 +295,20 @@ function binFor(s) {
 /* The spawn seam. Tests replace it; nothing else does. Mirrors the
    setPaneSource/setRunner shape the rest of the engine uses. */
 let spawnFn = null;
+/** #5039: the Claude settings pre-accept, best-effort. preacceptBypass REPORTS a refusal (a
+    symlinked or unparseable settings file) by returning ok:false rather than throwing, so say it
+    on stderr (the board log): a write that fails every launch otherwise leaves an agent on the
+    modal with no trace. No secret is in `because`. */
+function preacceptSettings(s) {
+  let r;
+  try { r = trust.preacceptBypass(s.configDir || null, !s.configDir); }
+  catch (e) { r = { ok: false, because: String((e && e.code) || (e && e.message) || e) }; }
+  if (r && r.ok === false) {
+    process.stderr.write('[win32launch] ' + String(s.name || 'agent') + ': could not pre-accept its Claude settings (' + r.because + '); it starts anyway\n');
+  }
+  return r;
+}
+
 function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : null; }
 function spawner() { return spawnFn || spawn; }
 
@@ -349,7 +363,7 @@ function launch(spec) {
        only on re-create or an account move. Today that re-asserts the Bypass consent (an explicit
        false is overwritten, as at create and on the Mac); switchModelsOnFlag rides this same
        write once #5042 lands. Best-effort and NON-gating: a failed write never stops a launch. */
-    try { trust.preacceptBypass(s.configDir || null, !s.configDir); } catch { /* best-effort, as onboarding */ }
+    preacceptSettings(s);
   }
 
   /* 2. PREPARE: mint the session id, write the ownership record, mint the token.
@@ -497,7 +511,7 @@ function launchStreaming(spec) {
      picker can reappear for an agent whose config was reset while it was down. */
   if (String(s.runner || 'claude') === 'claude') {
     try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* #3383: best-effort, as in launch() */ }
-    try { trust.preacceptBypass(s.configDir || null, !s.configDir); } catch { /* #5039: best-effort, as in launch() */ }
+    preacceptSettings(s);   // #5039: best-effort, as in launch()
   }
 
   let prepared;

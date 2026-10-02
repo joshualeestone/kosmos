@@ -214,6 +214,25 @@ test('#5039 a codex launch on the default account leaves the default Claude sett
   assert.equal(fs.existsSync(target), false, 'a codex agent never writes the shared Claude settings');
 });
 
+test('#5039 a non-Claude runner (gemini) gets NO Claude settings or onboarding in its home', () => {
+  recordingSpawn();
+  const home = path.join(SANDBOX, 'gemini-home-5039');
+  fs.mkdirSync(home, { recursive: true });
+  launcher.launch({ name: 'bypass-gemini', runner: 'gemini', cwd: workdir('bypass-gemini'), configDir: home, platform: 'win32' });
+  assert.equal(fs.existsSync(path.join(home, 'settings.json')), false, 'no Claude settings in another runner\'s home');
+  const cfg = readJson(path.join(home, '.claude.json')) || {};
+  assert.notEqual(cfg[trust.ONBOARDING_KEY], true, 'and no Claude onboarding state either');
+});
+
+test('#5039 an agent with no runner named is a Claude agent and gets the settings', () => {
+  recordingSpawn();
+  const configDir = path.join(SANDBOX, 'acct-norunner');
+  fs.mkdirSync(configDir, { recursive: true });
+  const r = launcher.launch({ name: 'bypass-norunner', cwd: workdir('bypass-norunner'), configDir, platform: 'win32' });
+  assert.equal(r.ok, true, r.because || '');
+  assert.equal((readJson(path.join(configDir, 'settings.json')) || {})[trust.BYPASS_KEY], true);
+});
+
 test('#5039 an unwritable settings file does NOT stop the launch (best-effort, never a gate)', () => {
   const calls = recordingSpawn();
   const configDir = path.join(SANDBOX, 'acct-broken');
