@@ -7,23 +7,34 @@ Main Windows run 37051936123: "win32: Grok unpacks ... and is vouched for" passe
 `clear('grok')` threw EPERM (syscall rm). The test's grok.exe is a copy of node.exe the prove step has just run;
 Windows can hold a just-run, just-written exe briefly (image lock or a scan of a new exe).
 
-## Decision
-One `RM` options object for the file (`recursive, force, maxRetries: 10, retryDelay: 100`), used by `clear` and the
-`test.after` sandbox removal. Node's rmSync retries EBUSY, EMFILE, ENFILE, ENOTEMPTY and EPERM with a linear backoff
-when maxRetries is set. Same values as engine/win32apply.test.js:45 and engine/win32anchor.test.js:72.
+## Decision (revised after review round 1)
+Move #5010's tested `removeTree` (retry EPERM/EBUSY/ENOTEMPTY/EACCES, pauses 250 ms x attempt, 8 tries, then a named
+throw; says on stderr when it needed a retry) from tools.windows-kosmos-shims-570.test.js into
+test-support/remove-tree.js, its five cross-platform tests into test-support.remove-tree.test.js, and use it for every
+removal in engine/runners.win32-gemini-grok.test.js and engine/runners.win32-codex.test.js.
 
-Rejected: #5010's hand-rolled retry with a stand-in rm and mutants. It is heavier, and the reason given there ("no
-test can show maxRetries is reached") holds here too: this fix rests on Node's documented behaviour, not on a test of
-its own. Rejected: catching and ignoring the error (would hide a real leak; the sweep test at test.after would still
-want the folder gone).
+Why not rmSync's maxRetries (my first build): review round 1 read Node's RmSync source and found that on win32 this
+hold surfaces as permission_denied, which only joined the retry set in Node 26.8 (before that the retry also slept
+0 ms for retryDelay 100). CI floats on node-version '26' (26.10.0 in run 37051936123), so it works today and silently
+stops working on any older 26.x. Reported from the reviewer's source reading; I did not re-measure it. A retry we own
+does not depend on it, and it is already tested on every platform.
 
-Weakest premise: the hold clears within about 5.5 s (10 retries, delays 100..1000 ms). An antivirus scan could take
-longer. Only further Windows runs show it.
+Why codex too: its "win32 A" test runs the unpacked codex.exe, kills it, waits 500 ms, then removes the tree with a
+bare rmSync: the strongest hold case of the set. Same class, same file family, same fix.
+
+Rejected: catching and ignoring cleanup errors (hides a real leak).
+
+Weakest premise: the hold clears within removeTree's budget (about 7 s). An antivirus scan could take longer; the
+throw then names the folder, so the red reads as cleanup.
+
+Not changed: engine/win32apply.test.js and engine/win32anchor.test.js use maxRetries inside a try/catch that swallows
+errors, so on older Node they were silent no-ops rather than reds. Left as they are (no red seen).
 
 ## Product side (checked, no change)
 engine/runners.js already retries rename/rm on win32 for EPERM/EBUSY/EACCES (renameRetrying / rmRetrying, ~1084-1110)
 and its other removals fall back to a later sweep. So a person removing Grok right after install is covered.
 
 ## Verification
-- The test is win32-only (skipped on macOS/Linux), so local runs cannot exercise it. The PR's Windows CI shows no
+- removeTree's own tests (test-support.remove-tree.test.js) run everywhere: run them when no suite is live.
+- The grok and codex tests are win32-only (skipped on macOS/Linux), so local runs cannot exercise them. The PR's Windows CI shows no
   regression; the race is intermittent (1 red in 13 main runs), so closing needs several clean Windows runs.
