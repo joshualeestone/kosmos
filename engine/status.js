@@ -2435,13 +2435,23 @@ const ASKING_GENERIC = 'it is asking you something';
  * reads rate_limited through /usage-credits, but the evidence loses the reset
  * time (capture-pane -J joins it in practice; review round 4); and a capped
  * pane with Claude Code's showTurnDuration setting OFF, which draws no footer
- * at all and reads idle (review round 5). None has been observed on a live pane;
+ * at all and reads idle (review round 5); an agent's WRAPPED prose whose
+ * continuation row opens with the sentence (Claude Code hard-breaks its own
+ * text, which -J does not rejoin), followed by a footer, which reads
+ * rate_limited; and a pane that RECOVERED (the reset passed, the person
+ * typed on) while the old vendor row is still in the tail, which stays
+ * rate_limited and hides a later question until it scrolls out: #5031 retires
+ * a vendor row whose own reset time has passed (both review round 6).
+ * Requiring "· resets" would close the prose shape, and is NOT done: Claude
+ * Code 2.1.287 also composes reset-less lines ("You've hit your monthly spend
+ * limit."), so it would miss a capped pane. "fast limit" is excluded: Fast mode
+ * falls back to normal speed, so that agent is not capped. None has been observed on a live pane;
  * narrowing or widening needs another observed screen.
  */
 const RATE_LIMIT_MARKERS = [
   /reached your .{0,40}limit/i,   // observed 2026-08-21
   /\/usage-credits\b/,            // observed 2026-08-21
-  /^[\s⎿]*You['’]ve hit your .{0,40}limit/, // observed 2026-10-02 (#5029); anchored, see above
+  /^[\s⎿]*You['’]ve hit your (?!fast limit).{0,40}limit/, // observed 2026-10-02 (#5029); anchored, see above
 ];
 
 /* #5029 review 2: the 2026-10-02 sentence sits under ⎿, and so does every tool result, so a healthy agent that
@@ -2465,7 +2475,7 @@ if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LI
    gets a column-0 row under a tool result when its turn ends, which is the turn-ends-on-a-tool-call residual above.
    What it must NOT take is the mid-turn spinner, which also uses the ✻ frame ("✻ Improvising… (35s · thought for 8s)"):
    a healthy agent that cats a capture mid-turn has that spinner right under the tool result. */
-const TURN_FOOTER = /^✻ (?:\S+ for \d[\dhms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
+const TURN_FOOTER = /^✻ (?:\S+ for \d[\d.hms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
 function limitMarkersFor(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
   const vendor = rows.some((row, i) => HIT_YOUR_LIMIT.test(row) && rows.slice(i + 1, i + 3).some((next) => TURN_FOOTER.test(next)));

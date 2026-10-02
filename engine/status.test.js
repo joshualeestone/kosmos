@@ -4208,11 +4208,24 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
   /* Review round 5: Claude Code's own footer slot. The clock is optional ("✻ Cooked for 12s", the shape in
      status.pane-states-1889's binary-derived screen), and with a background agent pending the slot holds the waiting
      row instead. Both are a capped pane, and must not read idle. Both shapes are vendor render code, not a capture. */
-  for (const [label, footer] of [['a footer with no clock', '✻ Cooked for 12s'], ['the background-agent waiting row', '✻ Waiting for 1 background agent to finish']]) {
+  for (const [label, footer] of [['a footer with no clock', '✻ Cooked for 12s'], ['a sub-second footer', '✻ Cooked for 0.4s'],
+    ['the background-agent waiting row', '✻ Waiting for 1 background agent to finish']]) {
     const capped = '> hello\n'
       + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n" + footer + '\n' + STATUS;
     assert.equal(classify(pane, capped).state, STATE.RATE_LIMITED, label + ': a capped Claude Code reads ' + classify(pane, capped).state);
   }
+  /* Review round 6: the waiting alternative needs a COUNT. "✻ Waiting for permission" is a live row on a healthy agent
+     (observed, see the #-wait tests above); a bare /Waiting for/ would read this catted capture as capped. */
+  const PERMISSION_WAIT = '● Bash(cat x)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Waiting for permission\n' + STATUS;
+  assert.notEqual(classify(pane, PERMISSION_WAIT).state, STATE.RATE_LIMITED, 'a permission wait counted as a turn footer');
+  /* Review round 6: "You've hit your fast limit" is in Claude Code's binary; Fast mode falls back to normal speed, so
+     that agent is healthy. The shape under ⎿ is ASSUMED (vendor string, not a capture). */
+  const FAST = '> hello\n'
+    + "  ⎿  You've hit your fast limit · resets in 4m\n"
+    + DONE + STATUS;
+  assert.notEqual(classify(pane, FAST).state, STATE.RATE_LIMITED, 'a fast-mode limit (which falls back, healthy) read as capped');
   /* Review round 5: the ANCHOR, pinned. ASKING and EXPLAINING say "you've" in lowercase, so case-sensitivity alone kept
      them calm and an unanchored marker passed every test. An agent's own capitalised sentence, with a real footer: */
   const CAPITAL_PROSE = '● You\'ve hit your GitHub API rate limit. Want me to wait for it to reset?\n' + DONE + '\n'
