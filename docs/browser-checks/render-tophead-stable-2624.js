@@ -133,7 +133,7 @@ async function measure(page, view, notice, name) {
     // view flipped (90.5px at 1440px with a 220px switcher). CONTROL: the long name really widened the switcher.
     const LONG = 'Weekend launch Kosmos for every computer';
     const long = {};
-    for (const view of ['tabs', 'consolidated']) long[view] = await measure(page, view, false, LONG);
+    for (const view of ['tabs', 'consolidated']) { long[view] = await measure(page, view, false, LONG); rows.push({ width, view, notice: false, name: 'long', ...long[view] }); }
     if (!(long.tabs.worldswW > ref.worldswW)) problems.push(`CONTROL failed: ${width}px: the long Kosmos name did not widen the switcher (${ref.worldswW} -> ${long.tabs.worldswW})`);
     if (long.tabs.tabsX === null || long.consolidated.tabsX === null) problems.push(`${width}px: the center tabs do not render with a long Kosmos name`);
     else if (long.tabs.tabsX !== long.consolidated.tabsX) problems.push(`${width}px with a long Kosmos name: the center tabs start at x ${long.tabs.tabsX} in the tab view and ${long.consolidated.tabsX} in consolidated (they move ${Math.round((long.consolidated.tabsX - long.tabs.tabsX) * 10) / 10}px when the view flips)`);

@@ -18,10 +18,10 @@ cluster leaves.
 ## Change
 - web/index.html: the consolidated header rule drops its own display (flex space-between), so it uses the tab view's
   `1fr auto 1fr` grid (top alignment from the #2624 960px rule). The children already carry `justify-self` start / center / end (the rules near the top of the file),
-  so nothing else moves. Its own padding, gap, background and rule are unchanged.
+  so nothing else moves. Its own padding, background and rule are unchanged; its gap is now the tab view's 24px (was 12px).
 - render-tophead-stable-2624.js: measures the tabs' x and the switcher's width; a long-name arm per width fails if the
   tabs start at different x in the two views, or move with the name in one screen. CONTROL: the long name really
-  widened the switcher. Mutation (the old flex rule back): 4 reds, "they move 90.5px when the view flips".
+  widened the switcher. Mutation (the old flex rule back): 6 reds at 1440, 1100 and 960 (re-measured after 960 was added; 4 before), "they move 90.5px when the view flips".
   The check runs at 1440, 1100 and 960 (the narrowest width with both views); the 1400x950 and 1024x640 numbers above
   are from the card's sizes, measured with ~/.cache/claude-handoffs/renet-header-2624-measure.js.
 - Review 1 and 2: the consolidated rule no longer states display, columns or gap at all (it had flex, then a copied
