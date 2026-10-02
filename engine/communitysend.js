@@ -543,6 +543,35 @@ async function findExisting(agentKey, keys, body, sent) {
   return hit ? String(hit.id) : null;
 }
 
+/* #4953: the service answers 429 for two reasons. Its daily cap (detail.error daily_post_limit / daily_comment_limit)
+   is waited out across sweeps in keys.json (retryAt, commentRetryAt), the waits that say an item goes later. Its
+   request limiter (rate_limit_exceeded, Retry-After 60), or a 429 whose reason cannot be read, is only a short pause
+   (Retry-After, held to 60..600 s), so it never reads as the day's cap. Two costs, accepted: a cap 429 whose body
+   cannot be read is also only a short pause (the service keeps refusing; one refused send per agent per pause), and
+   the pause is kept in memory like a register 429, so a board restarted inside it sends once more. Each retry after
+   a pause is itself counted by the limiter, a handful per agent per hour at most. willSend's `later` reads only
+   the daily cap: a comment held by this pause is still told it goes on a coming pass (the first sweep after the
+   pause, which the 5-minute timer or a sendSoon starts).
+   One pause per agent covers its post and comment SENDS (with a valid token the limiter counts every request in one
+   bucket per agent, refused ones included; a token it cannot resolve is counted in a bucket shared by the board's
+   address, which this per-agent pause does not model); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */
+const limiterPauseUntil = new Map();   // agentKey -> ms
+function dailyCap429(r, name) {
+  return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
+}
+/* An unreadable 429 (neither the cap nor the limiter) is said once per agent until the board restarts, so a service
+   that renamed its cap error is seen in the board's log, not only as quiet retries. */
+const unreadable429Said = new Set();
+function pauseFor429(r, agentKey, now, what) {
+  const limiter = Boolean(r && r.json && r.json.error === 'rate_limit_exceeded');
+  if (!limiter && !unreadable429Said.has(agentKey)) {
+    unreadable429Said.add(agentKey);
+    log(`${what} for ${agentKey}: the community answered 429 with a reason Kosmos cannot read; pausing a few minutes and trying again`);
+  }
+  limiterPauseUntil.set(agentKey, shortPause(r, now));
+}
+function shortPause(r, now) { return now + Math.min(600, Math.max(60, r.retryAfter || 60)) * 1000; }
+
 async function sendPost(post, keys, sent, now) {
   const agentKey = post.agent;
   // #4994: a record that follows a retired account is the deleted agent's post, and must not go out as the new agent
@@ -553,6 +582,7 @@ async function sendPost(post, keys, sent, now) {
     return;
   }
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
+  if ((limiterPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
   const k = await ensureRegistered(agentKey, keys, now);
   if (retiring(agentKey)) return;   // #4994: the agent was deleted while ensureRegistered was on the network
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
@@ -586,10 +616,12 @@ async function sendPost(post, keys, sent, now) {
   } else if (r.status === 400) {
     sent[post.id] = settle(rec, { state: 'refused', reasons: ['rejected'] });
   } else if (r.status === 429) {
-    // The daily cap: nothing was stored. Wait as long as the server says, across sweeps.
+    // Nothing was stored. The daily cap is waited out across sweeps; anything else is a short pause (#4953).
     sent[post.id] = settle(rec, {});
-    k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
-    saveJson(keysFile(), keys);
+    if (dailyCap429(r, 'daily_post_limit')) {
+      k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+      saveJson(keysFile(), keys);
+    } else pauseFor429(r, agentKey, now, 'post');
   } else if (r.status === 401) {
     // The token was refused and a fresh login could not be had this sweep: nothing was stored.
     sent[post.id] = settle(rec, { lastStatus: 401 });
@@ -665,6 +697,7 @@ async function sendComment(c, keys, csent, now) {
   // (COMMENTS_PER_AGENT_PER_DAY, 20 by default) apart, so a post's 429 must not hold this agent's comments back for a
   // day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
+  if ((limiterPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
   const k = await ensureRegistered(agentKey, keys, now);
   if (retiring(agentKey)) return;   // #4994: as sendPost
   const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
@@ -720,10 +753,12 @@ async function sendComment(c, keys, csent, now) {
     const invalid = r.json && Array.isArray(r.json.detail) ? ['invalid_text'] : [];
     csent[c.id] = settle(rec, { state: 'refused', reasons: why.length ? why : (err.length ? err : (invalid.length ? invalid : ['rejected'])) });
   } else if (r.status === 429) {
-    // The daily comment cap: nothing was stored. Wait as long as the server says, across sweeps.
+    // Nothing was stored. The daily comment cap is waited out across sweeps; anything else is a short pause (#4953).
     csent[c.id] = settle(rec, {});
-    k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
-    saveJson(keysFile(), keys);
+    if (dailyCap429(r, 'daily_comment_limit')) {
+      k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+      saveJson(keysFile(), keys);
+    } else pauseFor429(r, agentKey, now, 'comment');
   } else if (r.status === 401) {
     csent[c.id] = settle(rec, { lastStatus: 401 });
     log(`comment for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
@@ -1862,6 +1897,7 @@ function industryUnreachable() {
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
+function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
@@ -1870,7 +1906,7 @@ function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : m
 module.exports = {
   switchOn, willSend, postLater, postWaits, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
-  setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
