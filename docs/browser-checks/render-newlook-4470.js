@@ -476,7 +476,8 @@ async function projectsPhoneRow(browser, url, width) {
     await page.waitForSelector('#pj-new', { state: 'visible', timeout: 8000 });
     await page.waitForTimeout(300);
     return await page.evaluate(() => {
-      const box = (q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; };
+      // A hidden control has a zero box and could not collide, so it reads as missing (the arm fails, not passes).
+      const box = (q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? { l: r.left, r: r.right, t: r.top, b: r.bottom } : null; };
       const a = box('#pj-new'), s = box('#pj-list-view .sortctl'), v = box('#pj-list-view .viewtoggle');
       const hit = (x, y) => !!x && !!y && x.l < y.r - 0.5 && y.l < x.r - 0.5 && x.t < y.b - 0.5 && y.t < x.b - 0.5;
       return { look: document.documentElement.getAttribute('data-look'), add: a, sort: s, toggle: v,
