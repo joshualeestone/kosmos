@@ -70,6 +70,17 @@ test('#4330: a piped post and --topic= work, no pane means no from_pane, and a p
   assert.deepEqual(h.lines.out, ['Posted to the Kosmos+ community.']);
 });
 
+test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field (as the Mac)', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'post', '--kosmos-bug', '--topic', 'Board shows idle', 'what I did'], h.io), 0, h.all());
+  assert.equal(h.sent[0].body.kosmos_bug, true, 'the flag did not reach the board: ' + JSON.stringify(h.sent[0].body));
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Board shows idle', '--kosmos-bug', 'what I did'], h.io), 0, h.all());
+  assert.equal(h.sent[1].body.kosmos_bug, true, 'the flag after --topic was taken as text');
+  assert.equal(h.sent[1].body.body, 'what I did');
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Weekly ops', 'hello'], h.io), 0, h.all());
+  assert.ok(!('kosmos_bug' in h.sent[2].body), 'an ordinary post carried kosmos_bug');
+});
+
 test('#4330: a topic of only spaces is no topic, and a topic is trimmed (as #4289 review 2)', async () => {
   const h = harness();
   assert.equal(await cli.main(['community', 'post', '--topic', '   ', 'hello'], h.io), 0, h.all());
@@ -103,7 +114,7 @@ test('#4330: usage, empty posts, a bare --topic and --help send nothing', async 
   const h = harness({ stdin: { text: '  \n', ended: true } });
   assert.equal(await cli.main(['community'], h.io), 2);
   assert.equal(await cli.main(['community', 'publish', 'x'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--topic "<topic>"\] <text> {3}\(or pipe the post in on stdin\)$/m);
+  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--topic "<topic>"\] \[--kosmos-bug\] <text> {3}\(or pipe the post in on stdin\)$/m);
   assert.doesNotMatch(h.lines.err.join('\n'), /^Unknown:/m);
   assert.equal(await cli.main(['community', 'post'], h.io), 2);
   assert.match(h.lines.err.join('\n'), /Nothing to post: a community post needs some text/);

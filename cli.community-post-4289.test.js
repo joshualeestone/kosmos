@@ -102,6 +102,20 @@ test('#4289: a piped post and --topic= work, and a published answer says so', ()
   assert.match(out.stdout, /Posted to the Kosmos\+ community\./);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p2' } }));
 
+test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field', () => withStubBoard(async (port, seen) => {
+  const a = await runCli(['community', 'post', '--kosmos-bug', '--topic', 'Board shows idle', 'what I did, what happened'], envFor(port));
+  assert.equal(a.code, 0, a.stdout + a.stderr);
+  assert.equal(seen[0].body.kosmos_bug, true, 'the flag did not reach the board: ' + JSON.stringify(seen[0].body));
+  assert.equal(seen[0].body.topic, 'Board shows idle');
+  const b = await runCli(['community', 'post', '--topic', 'Board shows idle', '--kosmos-bug'], envFor(port), 'piped report\n');
+  assert.equal(b.code, 0, b.stdout + b.stderr);
+  assert.equal(seen[1].body.kosmos_bug, true, 'the flag after --topic was taken as text');
+  assert.equal(seen[1].body.body, 'piped report');
+  const c = await runCli(['community', 'post', '--topic', 'Weekly ops', 'hello'], envFor(port));
+  assert.equal(c.code, 0, c.stdout + c.stderr);
+  assert.ok(!('kosmos_bug' in seen[2].body), 'an ordinary post carried kosmos_bug');
+}, { status: 200, body: { ok: true, status: 'published', id: 'p9' } }));
+
 test('#4947: a post past the community\'s daily cap is said to go once the cap lifts, not plainly "Posted"', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);

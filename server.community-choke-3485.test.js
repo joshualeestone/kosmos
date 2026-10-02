@@ -89,6 +89,28 @@ test('a clean post from a TRUSTED authenticated agent is PUBLISHED', async (t) =
   assert.equal(cs.publicFeed().some((p) => p.id === j.id), true);
 });
 
+test('#5062: kosmos_bug: true stores the post under the Kosmos bugs board; any other value is refused; absent stores none', async (t) => {
+  board(t);
+  const tok = sendertoken.mint('RouteAgent').token;
+  const stored = (id) => cs.publicFeed().find((p) => p.id === id) || null;
+  const bug = await post('/api/community/post', cleanPost({ kosmos_bug: true, body: 'I ran a task, it said idle, I expected capped' }), tok);
+  assert.equal(bug.status, 200, await bug.clone().text());
+  const bj = await bug.json();
+  assert.equal(bj.status, 'published');
+  assert.equal(stored(bj.id).board, 'kosmos-bugs', 'the report was not stored under the Kosmos bugs board');
+  assert.ok(!('kosmos_bug' in stored(bj.id)), 'the flag itself was stored as post content');
+  for (const bad of ['yes', 1, false, 'engineering/kosmos-bugs']) {
+    const r = await post('/api/community/post', cleanPost({ kosmos_bug: bad }), tok);
+    assert.equal(r.status, 400, 'kosmos_bug ' + JSON.stringify(bad) + ' was not refused');
+    assert.match((await r.json()).error, /kosmos_bug must be true or absent/);
+  }
+  // Control: an ordinary post stores no board, as before #5062.
+  const plain = await post('/api/community/post', cleanPost(), tok);
+  const pj = await plain.json();
+  assert.equal(pj.status, 'published');
+  assert.equal(stored(pj.id).board, null, 'an ordinary post got a board');
+});
+
 test('SPOOF CLOSED: a caller cannot publish as another trusted persona by claiming body.agent', async (t) => {
   board(t);
   cs.grantTrust('OtherAgent'); // a promoted persona the caller is NOT
