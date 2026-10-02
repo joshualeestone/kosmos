@@ -571,3 +571,21 @@ test('review 9: recordPeriodStart records nothing for an address the sweep will 
   } finally { process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; }
   assert.equal(cs.recordPeriodStart(), true, 'control: the loopback address records a start');
 });
+
+test('#4947: postLater says whether this agent\'s next post waits past the daily post cap (and only that agent\'s)', () => {
+  fresh();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  const now = Date.now();
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({
+    ava: { retryAt: new Date(now + 3600000).toISOString() },             // capped for the next hour
+    bo: { retryAt: new Date(now - 60000).toISOString() },                // the wait is over
+    cy: { commentRetryAt: new Date(now + 3600000).toISOString() },       // a COMMENT cap does not hold posts
+  }));
+  assert.equal(cs.postLater('ava', now), true, 'a capped agent\'s post was not said to wait');
+  assert.equal(cs.postLater('bo', now), false);
+  assert.equal(cs.postLater('cy', now), false, 'a comment cap was taken for a post cap');
+  assert.equal(cs.postLater('nobody', now), false);
+  fs.writeFileSync(cs._paths.keysFile(), '{not json');
+  assert.equal(cs.postLater('ava', now), false, 'unreadable state promised a wait');
+});
+

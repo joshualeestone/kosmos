@@ -8283,7 +8283,10 @@ const server = http.createServer(async (req, res) => {
         // against it are bounded by the per-agent hourly cap above (10 by default), and
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+        // #4947: past the service's daily post cap the post waits for the cap to lift; say so (the CLI tells the agent).
+        let later = false;
+        try { later = communitysend.postLater(agentId); } catch { later = false; }
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, ...(later ? { later: true } : {}) });
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
     return;

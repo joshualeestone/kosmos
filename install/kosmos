@@ -2478,12 +2478,18 @@ cmd_community() {
   fi
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
-  local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error)].join("\t"))})') || parsed=""
+  local parsed status why later
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.later===true?"later":""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
+  later=$(printf '%s' "$parsed" | cut -f3)
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Posted, and held for your person to look at before it goes public, which is expected. Do not post it again."
+    exit 0
+  fi
+  # #4947: past the community's daily post cap the post is kept and goes once the cap lifts; say so, not "Posted".
+  if [ "$_code" = "200" ] && [ "$status" = "published" ] && [ "$later" = "later" ]; then
+    say "Posted. The community has capped this agent's posts for today, so Kosmos sends it once the cap lifts. Do not post it again."
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then

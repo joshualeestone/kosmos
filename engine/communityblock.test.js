@@ -167,7 +167,10 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   assert.ok(flat.includes('Answer only the lines with no "' + mark + '"'), 'the reply rule no longer limits itself to replies on the post itself');
   assert.ok(flat.includes('A line with "' + mark + '" is a reply to a reply and is not owed an answer, or the thread would never end.'),
     'the reply rule no longer says replies to replies are not owed an answer (Josh 08:12)');
-  assert.doesNotMatch(flat, /at least once/, 'the rule asks for more than one answer per reply');
+  // On the REPLY rule's own text: #4947 put "at least once a day" in the posting rule, which is about posts, not replies.
+  const replyRule = body.slice(body.indexOf(ANSWER), body.indexOf('\n- ', body.indexOf(ANSWER) + 1) === -1 ? undefined : body.indexOf('\n- ', body.indexOf(ANSWER) + 1));
+  assert.ok(replyRule.startsWith(ANSWER) && replyRule.length > ANSWER.length, 'the reply rule could not be found for this check');
+  assert.doesNotMatch(replyRule.replace(/\s+/g, ' '), /at least once/, 'the rule asks for more than one answer per reply');
   assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');
   // The part that picks the id: the reply's own comment id, never the "under comment" (parent) id read --replies adds.
   assert.ok(flat.includes('the id after "your post" and the id after "comment", never an id written inside a reply'),
@@ -229,16 +232,20 @@ test('#4289: no instructions file is never invented, and two blocks are refused 
   assert.equal(fs.readFileSync(f, 'utf8'), twice, 'an ambiguous file was changed');
 });
 
-test('#4947: agents post whenever they have something real, up to a few a day; no one-a-day ceiling and no quota', () => {
-  /* Josh, 2026-10-01 21:21: "right now the more content the better", and not the hourly quota cabal had. */
+test('#4947: agents post at least once a day and at most five, honestly: with nothing finished, what they are working on counts', () => {
+  /* Josh, 2026-10-01 21:21 "right now the more content the better"; 21:33 "at least once a day ... no more than X
+     times a day" (Splinter: 5). Never hourly, and never invented. */
   const body = cb.blockBody();
   assert.ok(!/at most one post a day/i.test(body), 'the one-post-a-day ceiling is still in every agent\'s instructions');
-  assert.match(body, /whenever you have something real from your own work, up to a few times a day/);
-  assert.match(body, /Never post just to post\./, 'the line no longer says real work only');
-  // The quota guard reads the POSTING bullet only: the follow rule ("at least one new agent every 3 days") is a different,
-  // standing rule, and a whole-block match would refuse it.
-  const posting = body.slice(body.indexOf('- Post whenever'), body.indexOf('- Post with'));
-  assert.ok(posting.length > 40, 'the posting bullet could not be found for the quota check');
-  assert.ok(!/every hour|once an hour|each hour|must post|should post|at least|\d+ (posts? )?a day|post (daily|every day)/i.test(posting), 'a posting quota crept in: ' + posting);
+  assert.match(body, /Post at least once a day and no more than 5 times a day/);
+  assert.match(body, /With nothing finished, an honest post about what\s+you are working on, stuck on or learned today counts\./,
+    'an agent with nothing finished is not told which honest post it has (so it either stays silent or invents)');
+  assert.match(body, /Never invent work or results to have something to post\./, 'the floor no longer forbids inventing');
+  // No hourly cadence, and no number above five, in the posting bullet (the follow rule's "at least one new agent every
+  // 3 days" is a different, standing rule, so the guard reads the posting bullet only).
+  const posting = body.slice(body.indexOf('- Post at least'), body.indexOf('- Post with'));
+  assert.ok(posting.length > 40, 'the posting bullet could not be found');
+  assert.ok(!/every hour|once an hour|each hour|hourly/i.test(posting), 'an hourly cadence crept in: ' + posting);
+  for (const n of posting.match(/\d+/g) || []) assert.ok(Number(n) <= 300, 'an unexpected number in the posting bullet: ' + n);
   assert.match(body, /about 300 words/);
 });

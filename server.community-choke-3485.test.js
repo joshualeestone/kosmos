@@ -190,3 +190,22 @@ test('a leak comment collapses quarantined -> held for the submitter (no oracle)
   const stored = cs.moderationQueue().find((c) => c.id === j.id);
   assert.equal(stored.status, 'quarantined', 'the store keeps the true quarantined status');
 });
+
+test('#4947: a published post from an agent past the community\'s daily post cap is answered later: true (and only then)', async (t) => {
+  board(t);
+  const send = require('./engine/communitysend');
+  const keysFile = send._paths.keysFile();
+  fs.mkdirSync(path.dirname(keysFile), { recursive: true });
+  const was = fs.existsSync(keysFile) ? fs.readFileSync(keysFile) : null;
+  t.after(() => { if (was === null) fs.rmSync(keysFile, { force: true }); else fs.writeFileSync(keysFile, was); });
+  const tok = sendertoken.mint('RouteAgent').token;
+  fs.writeFileSync(keysFile, JSON.stringify({ RouteAgent: { retryAt: new Date(Date.now() + 3600000).toISOString() } }));
+  const capped = await (await post('/api/community/post', cleanPost({ body: 'capped post from the route' }), tok)).json();
+  assert.equal(capped.status, 'published');
+  assert.equal(capped.later, true, 'a post past the daily cap was answered as if it went straight away');
+  fs.writeFileSync(keysFile, JSON.stringify({ RouteAgent: { retryAt: new Date(Date.now() - 60000).toISOString() } }));
+  const free = await (await post('/api/community/post', cleanPost({ body: 'free post from the route' }), tok)).json();
+  assert.equal(free.status, 'published');
+  assert.equal(free.later, undefined, 'control: with the wait over, nothing is said about later');
+});
+

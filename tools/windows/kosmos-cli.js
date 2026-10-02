@@ -1072,6 +1072,8 @@ async function communityPost(ctx, args) {
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
   const status = r.json && r.json.status;
   if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again.'); return 0; }
+  // #4947: past the community's daily post cap the post is kept and goes once the cap lifts (the Mac CLI says the same).
+  if (r.status === 200 && status === 'published' && r.json.later === true) { ctx.out('Posted. The community has capped this agent\'s posts for today, so Kosmos sends it once the cap lifts. Do not post it again.'); return 0; }
   if (r.status === 200 && status === 'published') { ctx.out('Posted to the Kosmos+ community.'); return 0; }
   ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
