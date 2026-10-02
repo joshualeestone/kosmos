@@ -131,6 +131,22 @@ test('--only runs a file named twice once', () => {
   assert.match(r.out, /tests 1\b/, 'the file ran twice');
 });
 
+test('--only reads a relative name from the runner\'s tree, whatever the caller\'s folder, and says so', () => {
+  // This file by its relative name: inside the run it stands down at once (KOSMOS_ONLY_4929_INNER), so it is quick.
+  const rel = path.relative(path.join(__dirname), __filename);
+  const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
+  assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
+  const r = spawnSync('perl', ['-e', GROUP, 'bash', RUNNER, '--only', rel, './' + rel, __filename], { env, encoding: 'utf8', timeout: 120000, cwd: DIR });
+  const out = (r.stdout || '') + (r.stderr || '');
+  assert.equal(r.status, 0, out.slice(-1500));
+  assert.match(out, /--only: 1 named file\(s\)/, 'three spellings of one file were counted apart');
+  assert.ok(out.includes('run-tests: --only:   ' + __filename + '\n'), 'the absolute path of what runs is not printed');
+  // The shell names the caller's folder by its real path (macOS /var is /private/var), so either spelling counts.
+  assert.ok(out.includes('not from your folder (' + DIR) || out.includes('not from your folder (' + fs.realpathSync(DIR)),
+    'no note that the name was read from the runner\'s tree: ' + out.slice(0, 600));
+  assert.match(out, /stands down inside its own inner run/);
+});
+
 test('--only passes a red file\'s failure on', () => {
   const r = run(['--only', RED]);
   assert.notEqual(r.code, 0, 'a failing file came back green');

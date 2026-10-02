@@ -77,7 +77,9 @@ if [ "${1:-}" = --only ]; then
     echo "run-tests: --only needs one or more test files, e.g. tools/run-tests.sh --only engine/tasks.test.js" >&2
     exit 2
   fi
+  _only_rel=0
   for _only_f in "$@"; do
+    case "$_only_f" in /*) ;; *) _only_rel=1 ;; esac
     case "$_only_f" in
       -*) echo "run-tests: --only takes test files, not node --test options (got '$_only_f')" >&2; exit 2 ;;
       *.test.js) ;;
@@ -87,7 +89,8 @@ if [ "${1:-}" = --only ]; then
       echo "run-tests: no test file '$_only_f' (a relative path is read from the repo root)" >&2
       exit 2
     fi
-    _only_f="${_only_f#./}"   # ./a.test.js and a.test.js are one file
+    # One spelling per file (a.test.js, ./a.test.js and its absolute path are one file): the absolute path.
+    case "$_only_f" in /*) ;; *) _only_f="$REPO/${_only_f#./}" ;; esac
     _only_dup=0
     for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
     [ "$_only_dup" = 1 ] || KOSMOS_ONLY_FILES+=("$_only_f")   # a file named twice runs once
@@ -98,13 +101,9 @@ if [ "${1:-}" = --only ]; then
   # Relative names are read from THIS runner's repo root, not the caller's folder: print what will run, and say so
   # when the caller is elsewhere (another worktree's runner would otherwise test its own copy of the file, green).
   # OLDPWD is the caller's folder: the `cd "$REPO"` at the top is the only cd before here.
-  for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do
-    case "$_only_f" in /*) echo "run-tests: --only:   $_only_f" >&2 ;; *) echo "run-tests: --only:   $REPO/$_only_f" >&2 ;; esac
-  done
-  if [ -n "${OLDPWD:-}" ] && [ "$OLDPWD" != "$REPO" ]; then
-    for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do
-      case "$_only_f" in /*) ;; *) echo "run-tests: --only: note: relative names are read from this runner's tree ($REPO), not from your folder ($OLDPWD)" >&2; break ;; esac
-    done
+  for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do echo "run-tests: --only:   $_only_f" >&2; done
+  if [ "$_only_rel" = 1 ] && [ -n "${OLDPWD:-}" ] && [ "$OLDPWD" != "$REPO" ]; then
+    echo "run-tests: --only: note: relative names are read from this runner's tree ($REPO), not from your folder ($OLDPWD)" >&2
   fi
 fi
 # Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
