@@ -34,6 +34,8 @@
  *  - Settings in the new look (SETTINGS_LOOK): the nav a grey box with flat items, the current one a page tile (on a
  *    phone the scroller stays, the current item a grey tile); boxes with no edge and 28px corners and sentence-case
  *    labels; with the look off, today's (the control),
+ *  - the controls in the new look (CTRL_LOOK): a plain button a pill in the page's ground with no edge, the main one a
+ *    pill keeping its fill, a danger one keeping its edge; with the look off, today's (the control),
  *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
  *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
  *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
@@ -211,6 +213,19 @@ const SETTINGS_LOOK = `(() => {
     if (!hadPlus) document.body.classList.remove('plus-active');
     return out;
   } finally { panel.hidden = wasHidden; }
+})()`;
+/* #4470, the controls in the new look: a plain button (Change picture), the main one (Settings' Save your name) and a
+   danger one (Remove this agent), read with both panels shown and put back. */
+const CTRL_LOOK = `(() => {
+  const pd = document.getElementById('panel-detail'), ps = document.getElementById('panel-settings');
+  const plain = document.getElementById('d-file-btn'), main = document.getElementById('you-name-save'), danger = document.getElementById('d-remove-start');
+  if (!pd || !ps || !plain || !main || !danger) return { found: false, plain: !!plain, main: !!main, danger: !!danger };
+  const h1 = pd.hidden, h2 = ps.hidden; pd.hidden = false; ps.hidden = false;
+  try {
+    const P = getComputedStyle(plain), M = getComputedStyle(main), D = getComputedStyle(danger);
+    return { found: true, plainBg: P.backgroundColor, plainEdge: P.borderTopColor, plainRadius: P.borderTopLeftRadius,
+      mainBg: M.backgroundColor, mainRadius: M.borderTopLeftRadius, dangerEdge: D.borderTopColor, dangerRadius: D.borderTopLeftRadius };
+  } finally { pd.hidden = h1; ps.hidden = h2; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
@@ -427,6 +442,7 @@ const AGENTS_LOOK = `(() => {
       const dmBefore = await page.evaluate(DM_LOOK);   // today's DM, before the switch is ever touched (the off control's baseline)
       const dlBefore = await page.evaluate(DLEFT_LOOK);   // and today's left column, for the same control
       const setBefore = await page.evaluate(SETTINGS_LOOK);   // and today's Settings
+      const ctlBefore = await page.evaluate(CTRL_LOOK);   // and today's buttons
       chk(before.look === null, `${tag} nothing stored: no data-look attribute`, JSON.stringify(before));
       chk(before.kbg && before.kbg !== NEW[theme], `${tag} nothing stored: today's page colour, not the new look's`, before.kbg);
 
@@ -502,6 +518,10 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Settings: the nav ${navWide ? 'is the grey box, the current item a tile in the page' : 'stays a scroller, the current item a grey tile'}; no edge and no gold`, JSON.stringify(setOn));
       chk(setOn.found && setOn.boxEdge === CLEAR && setOn.boxRadius === '28px' && setOn.labelCase === 'none',
         `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
+      const ctlOn = await page.evaluate(CTRL_LOOK);
+      chk(ctlOn.found && ctlOn.plainBg === PAGE_OF[theme] && ctlOn.plainEdge === CLEAR && ctlOn.plainRadius === '999px'
+        && ctlOn.mainRadius === '999px' && ctlOn.mainBg !== PAGE_OF[theme] && ctlOn.mainBg !== CLEAR && ctlOn.dangerEdge !== CLEAR,
+        `${tag} On, the controls: a plain button is a pill in the page's ground with no edge, the main one a pill that keeps its fill, a danger one keeps its edge`, JSON.stringify(ctlOn));
       const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
       chk(setOn.found && setOn.dotBg !== OLD_DOT && setOn.dotBg !== CLEAR && setOn.dotBg !== 'absent' && setOn.plusNavBg !== GREY_OF[theme] && setOn.plusOnEdge !== CLEAR,
         `${tag} On, Settings: the current item's needs-you dot is not the gold-era dark red, and the Kosmos+ section keeps today's nav`, JSON.stringify(setOn));
@@ -747,6 +767,9 @@ const AGENTS_LOOK = `(() => {
       const setOff = await page.evaluate(SETTINGS_LOOK);
       chk(setOff.found && setBefore.found && JSON.stringify(setOff) === JSON.stringify(setBefore) && setOff.onEdge !== 'rgba(0, 0, 0, 0)' && setOff.boxEdge !== 'rgba(0, 0, 0, 0)' && setOff.labelCase === 'uppercase' && setOff.dotBg === 'rgb(122, 27, 18)',
         `${tag} Off, Settings: exactly today's gold current item, edged boxes and capital labels, as before the switch was touched (the control)`, JSON.stringify({ off: setOff, before: setBefore }));
+      const ctlOff = await page.evaluate(CTRL_LOOK);
+      chk(ctlOff.found && ctlBefore.found && JSON.stringify(ctlOff) === JSON.stringify(ctlBefore) && ctlOff.plainEdge !== 'rgba(0, 0, 0, 0)' && ctlOff.plainRadius !== '999px',
+        `${tag} Off, the controls: exactly today's gold-edged buttons, as before the switch was touched (the control)`, JSON.stringify({ off: ctlOff, before: ctlBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
