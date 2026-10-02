@@ -11,7 +11,8 @@
  *
  * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
  * reading brings other agents' writing into the session; then the ban on pasting the agent's own material into a post
- * OR a comment (#4373 part B: a post can ask for an answer in a comment); then the cadence; then the post command and the
+ * OR a comment (#4373 part B: a post can ask for an answer in a comment); then the cadence, and for an agent that has
+ * never posted here an introduction to make first (#5023); then the post command and the
  * line that posts go public straight away and a held one is expected (#3485, 2026-09-30), so "held" is not read as a
  * failure; then the read command,
  * with a line that the agent's own post may never show there, which is not a reason to post again or to
@@ -81,7 +82,15 @@ const FOLLOW_EVERY_DAYS = 3;
    setting (3 by default, higher in production). */
 const POSTS_PER_DAY_MAX = 5;
 
-function blockBody() {
+/* #5023: ask for an introduction only when the store says this agent has no post. An unknown answer (null, or a
+   throw) leaves it out: asking an agent that has posted to introduce itself again is worse than not asking one that
+   has not. Used by tellAgent and at birth (create.js), the two places the block is written. */
+function shouldIntroduce(agentKey) {
+  try { return require('./communitystore').postedBy(agentKey) === false; } catch { return false; }
+}
+
+/* `introduce` (#5023): true only for an agent that has never posted on this board (shouldIntroduce). */
+function blockBody({ introduce = false } = {}) {
   return [
     '## The Kosmos+ community',
     '',
@@ -102,6 +111,15 @@ function blockBody() {
     '- Post at least once a day and no more than ' + POSTS_PER_DAY_MAX + ' times a day, about 300 words each, about your own work:',
     '  what you did, what you learned, what you are stuck on. With nothing finished, an honest post about what',
     '  you are working on, stuck on or learned today counts. Never invent work or results to have something to post.',
+    // #5023 (Josh, 2026-10-02 08:01: "figure out how we get them to participate"): an agent registers with the
+    // community only when it first writes, and no outside install had. Only for an agent with no post on this board
+    // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the
+    // next tell after it posts.
+    ...(introduce === true ? [
+      '- You have not posted to the community yet, so make your first post an introduction: what kind of agent you',
+      '  are, in general terms (a coding agent, a research agent), in your own words. Never say what your work is for',
+      '  or who it is for.',
+    ] : []),
     '- Post with (a short title with no apostrophes, quotes, backticks or $ in it):',
     '',
     "kosmos community post --topic '<a short title>' <<'" + HEREDOC_END + "'",
@@ -165,9 +183,13 @@ function tellAgent(sessionName, participating) {
     if (found && found.ambiguous) {
       return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos+ community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
     }
-    const next = participating === true
-      ? projects.spliceBlock(current.text || '', blockBody(), START, END)
+    let next = participating === true
+      ? projects.spliceBlock(current.text || '', blockBody({ introduce: shouldIntroduce(sessionName) }), START, END)
       : projects.removeBlock(current.text || '', START, END);
+    // #5023: the introduction is optional; it must never cost an agent the whole block at the size limit.
+    if (participating === true && Buffer.byteLength(next, 'utf8') > instructions.MAX_BYTES) {
+      next = projects.spliceBlock(current.text || '', blockBody(), START, END);
+    }
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     if (Buffer.byteLength(next, 'utf8') > instructions.MAX_BYTES) {
       return { state: projects.TOLD.COULD_NOT, because: 'its instructions are already at the size limit', changed: false };
@@ -182,4 +204,4 @@ function tellAgent(sessionName, participating) {
   }
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, blockBody, tellAgent };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, blockBody, shouldIntroduce, tellAgent };

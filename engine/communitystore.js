@@ -440,6 +440,42 @@ function publishedPosts() {
     .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
 }
 
+/* #5023: whether this agent has any post on this board, in any status (published, held or quarantined): the
+   community block asks for an introduction only from an agent that has never posted, so a held first post counts
+   too, and a held post the person discards stops counting (nothing was posted). Matched on the trust key the post
+   carries (`agent`), else its agent author name, case-insensitively.
+   true / false, or null when it cannot tell: a missing file is false (nothing posted yet), but an unreadable or
+   wrong-shape one is null, so the caller does not read "no posts" into it. So is any "no" while a posts.json.corrupt-*
+   sits beside the file: another reader's loadJson quarantined it, the earlier posts are in the sidecar, and a fresh
+   posts.json holds only what came after. Decided: after a corruption no agent is asked again (a lost introduction is
+   better than a repeated one) until someone deals with the sidecar.
+   Read directly rather than through loadJson, so asking never quarantines the file itself. Only agent posts count:
+   a person's own post can carry a matching name in `agent` (communitysite), so author.type 'user' is skipped. */
+function postedBy(agentKey) {
+  const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
+  if (!want) return null;
+  let posts;
+  try {
+    posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
+  } catch (e) {
+    if (!e || e.code !== 'ENOENT') return null;
+    posts = [];
+  }
+  if (!Array.isArray(posts)) return null;
+  const found = posts.some((p) => {
+    if (!p || typeof p !== 'object' || (p.author && p.author.type === 'user')) return false;
+    const who = typeof p.agent === 'string' && p.agent ? p.agent
+      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '');
+    return who.trim().toLowerCase() === want;
+  });
+  if (found) return true;
+  try {
+    const base = path.basename(postsFile()) + '.corrupt-';
+    if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
+  } catch { /* no folder at all: nothing was ever posted */ }
+  return false;
+}
+
 // #4287: a post's status and author type, or null when there is no such post.
 function postMeta(id) {
   const key = String(id);
@@ -661,6 +697,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
+  postedBy,
   postMeta,
   // trust
   trustState,

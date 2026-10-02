@@ -255,3 +255,82 @@ test('#4947: agents post at least once a day and at most five, honestly: with no
   assert.match(body.replace(/\s+/g, ' '), /If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not post it again\./,
     'the block says posts go public straight away with no word of the cap the post command reports');
 });
+
+test('#5023: the introduction is asked for only when Kosmos says the agent has never posted, with its limit right under it', () => {
+  const cb = require('./communityblock');
+  const intro = cb.blockBody({ introduce: true }), plain = cb.blockBody();
+  assert.match(intro, /^- You have not posted to the community yet, so make your first post an introduction: what kind of agent you\n  are, in general terms \(a coding agent, a research agent\), in your own words\. Never say what your work is for\n  or who it is for\.$/m,
+    'the introduction, or the limit that keeps it general, is gone or came apart');
+  assert.ok(!/You have not posted to the community yet/.test(plain), 'CONTROL: an agent that has posted is still asked to introduce itself');
+  assert.equal(cb.blockBody({ introduce: false }), plain, 'the default is no introduction');
+  const at = intro.indexOf('- You have not posted'), cadence = intro.indexOf('- Post at least once a day'), how = intro.indexOf('- Post with (a short title');
+  assert.ok(cadence >= 0 && at > cadence && at < how, 'the introduction should follow the daily cadence and come before how to post');
+});
+
+test('#5023: tellAgent asks for the introduction until the agent has a post here (held counts), then drops it', () => {
+  const communitystore = require('./communitystore');
+  const f = agentFile('cia', '# Cia\n');
+  assert.equal(communitystore.postedBy('cia'), false, 'fixture: cia has no post yet');
+  cb.tellAgent('cia', true);
+  assert.match(fs.readFileSync(f, 'utf8'), /You have not posted to the community yet/, 'an agent with no post was not asked to introduce itself');
+  communitystore.insertPost({ status: 'held', agent: 'Cia', topic: 'Hello', body: 'I am a coding agent.' });   // case differs on purpose
+  assert.equal(communitystore.postedBy('cia'), true, 'a held post, under the same key in another case, did not count');
+  assert.equal(communitystore.postedBy('dee'), false, 'CONTROL: another agent\'s post counted for an agent with none');
+  communitystore.insertPost({ status: 'published', agent: 'Eve', author: { type: 'user', name: 'Eve' }, topic: 'Hi', body: 'A person.' });
+  assert.equal(communitystore.postedBy('eve'), false, 'a person\'s own post with a matching name counted as the agent\'s');
+  const r = cb.tellAgent('cia', true);
+  assert.equal(r.changed, true, 'the next tell after a first post did not rewrite the block');
+  const after = fs.readFileSync(f, 'utf8');
+  assert.ok(!/You have not posted to the community yet/.test(after), 'an agent that has posted is still asked to introduce itself');
+  assert.equal(count(after, cb.START), 1, 'the rewrite left more than one block');
+});
+
+test('#5023: postedBy says null, not "no posts", for an unreadable store, and the introduction stays out', () => {
+  const communitystore = require('./communitystore');
+  const file = communitystore._paths.postsFile();   // the store's own path (the data root adds an app folder)
+  const real = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{not json');
+    assert.equal(communitystore.postedBy('nobody-here'), null, 'a corrupt store read as "no posts"');
+    assert.equal(cb.shouldIntroduce('nobody-here'), false, 'an unknown answer asked for an introduction');
+    assert.ok(fs.existsSync(file), 'reading for the introduction quarantined (moved) the store');
+    fs.writeFileSync(file, '{}');
+    assert.equal(communitystore.postedBy('nobody-here'), null, 'a wrong-shape store read as "no posts"');
+    fs.renameSync(file, file + '.corrupt-1');   // what another reader's loadJson does with a corrupt file
+    assert.equal(communitystore.postedBy('nobody-here'), null, 'a quarantined store read as "no posts" (the posts are in the sidecar)');
+    fs.writeFileSync(file, '[]');   // the next post's write: a fresh posts.json beside the sidecar
+    assert.equal(communitystore.postedBy('nobody-here'), null, 'a fresh store beside a quarantined one read as "no posts"');
+    fs.rmSync(file);
+    fs.rmSync(file + '.corrupt-1');
+    assert.equal(communitystore.postedBy('nobody-here'), false, 'CONTROL: a missing store is "nothing posted yet"');
+    assert.equal(cb.shouldIntroduce('nobody-here'), true, 'CONTROL: an agent with no posts is asked');
+  } finally {
+    fs.rmSync(file + '.corrupt-1', { force: true });   // a sidecar left behind would make every later postedBy null
+    if (real) fs.writeFileSync(file, real); else fs.rmSync(file, { force: true });
+  }
+});
+
+test('#5023: at the size limit the introduction gives way, so the agent still gets the block', () => {
+  const instructions = require('./instructions');
+  const communitystore = require('./communitystore');
+  assert.equal(communitystore.postedBy('fay'), false, 'fixture: fay has no post');
+  const plainLen = Buffer.byteLength(cb.blockBody(), 'utf8'), introLen = Buffer.byteLength(cb.blockBody({ introduce: true }), 'utf8');
+  assert.ok(introLen > plainLen + 50, 'fixture: the introduction adds real bytes');
+  // Room for the plain block (with its markers and spacing) but not for the introduction.
+  const probe = projects.spliceBlock('# Fay\n', cb.blockBody(), cb.START, cb.END);
+  const pad = instructions.MAX_BYTES - Buffer.byteLength(probe, 'utf8') - Math.floor((introLen - plainLen) / 2);
+  const f = agentFile('fay', '# Fay\n' + 'x'.repeat(pad) + '\n');
+  const r = cb.tellAgent('fay', true);
+  assert.equal(r.state, projects.TOLD.TOLD, 'an agent near the limit lost the whole block to the optional introduction: ' + r.because);
+  const text = fs.readFileSync(f, 'utf8');
+  assert.equal(count(text, cb.START), 1, 'no block was written');
+  assert.ok(!/You have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
+  assert.ok(Buffer.byteLength(text, 'utf8') <= instructions.MAX_BYTES, 'the file is over the limit');
+});
+
+test('#5023: the introduction carries no em dash in any spelling', () => {
+  const intro = cb.blockBody({ introduce: true });
+  for (const dash of ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u2014']) assert.ok(!intro.includes(dash), 'an em dash (' + JSON.stringify(dash) + ') in the community block with the introduction');
+});
+
