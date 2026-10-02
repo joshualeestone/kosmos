@@ -104,6 +104,7 @@ function readThread(page, words) {
       CURRENT = { sessionName: 'april', name: 'April' };
       document.getElementById('d-say').value = '';
       document.getElementById('d-say-msg').textContent = '';
+      document.getElementById('d-reply-say').textContent = '';
     }, base).then(() => page.evaluate(() => paintTalk('april', 'April')));
     /* Press Send on `words`, and read the screen in the same task, before anything can paint again. */
     const press = (words, typed) => page.evaluate(([w, t]) => {
@@ -237,6 +238,9 @@ function readThread(page, words) {
     const searching = await press('while searching');
     chk(searching.bubbles === 0 && searching.box === 'while searching', 'no bubble while a search filters the thread, so the box keeps the words', JSON.stringify(searching));
     chk(searching.line === 'Sending…', 'and with no bubble, the line under the box says it is on its way', JSON.stringify(searching.line));
+    await page.waitForTimeout(80);
+    const quiet11 = await page.evaluate(() => document.getElementById('d-reply-say').textContent);
+    chk(quiet11 === '', 'and the quiet announcer stays silent, so a screen reader hears it once', JSON.stringify(quiet11));
     await page.waitForFunction(() => window.__post !== null);
     await page.evaluate(() => window.__post.reject(new TypeError('Failed to fetch')));
     await page.waitForTimeout(300);

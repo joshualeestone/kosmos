@@ -35727,7 +35727,7 @@ async function sendTalk(text, attachment) {
   /* #4944: whether this send emptied the box, and the one way its words go back when the send is not
      known to have arrived or been kept. Outside the try, because the catch needs both. Into the box when
      it is still this agent's and empty (words typed since belong to the next message, and the bubble
-     still shows these, marked not sent); into the parked draft when the person has moved to another
+     still shows these, marked not sent or not confirmed); into the parked draft when the person has moved to another
      agent, so the words are in the box when they come back. Returns whether the box holds them now
      (whoever put them there), so the sentence under it never promises a box that does not hold them. */
   let tookBox = false;
@@ -35762,12 +35762,11 @@ async function sendTalk(text, attachment) {
     // stays enabled through the flight, and it is where the answer they may
     // want to type instead goes.
     if (sendHadFocus) say.focus();
-    /* #4944: the bubble says "Sending…", so the line under the box stays empty. Said there as well, it
-       was the second copy of one fact, and a line that appears and then empties moves the screen. A
-       screen reader still hears it, from the composer's quiet announcer. */
+    /* #4944: the bubble says "Sending…", so the line under the box starts empty. Said there as well, it
+       was the second copy of one fact, and a line that appears and then empties moves the screen. Who
+       says it instead is decided once the bubble is known to be drawn, below. */
     msg.textContent = '';
     sendGen = ++TALK_SEND_GEN;
-    dmReplyAnnounce('Sending…');
     /* The message goes into the thread NOW, before the board has answered (see
        TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
     TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null,
@@ -35792,8 +35791,10 @@ async function sendTalk(text, attachment) {
     const drawn = !!(th && th.__lastSession === sentName
       && th.querySelector('.dm-pending[data-mid="pending:' + TALK_PENDING[sentName].startedAt + '"]'));   // startedAt is a number
     tookBox = drawn && say.value.trim() === text;
-    /* With no bubble, nothing on screen would say it is on its way, so the line under the box says it. */
+    /* With no bubble, nothing on screen would say it is on its way, so the line under the box says it (and,
+       being an alert, is heard). With the bubble, only the quiet announcer says it, so it is heard once. */
     if (!drawn) msg.textContent = 'Sending…';
+    else dmReplyAnnounce('Sending…');
     if (tookBox) {
       rawBox = say.value;
       say.value = ''; pjGrowComposer(say);
