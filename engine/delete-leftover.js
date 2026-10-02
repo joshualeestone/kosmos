@@ -23,7 +23,9 @@
  * `<AGENTS_DIR>/<label>.plist` (both resolved by `create.js`, one definition
  * of where an agent lives), the agent's SENDER TOKENS, its failed-restart
  * record, its community moderation standing (#5000, which goes back to the
- * start), and (#4994) its COMMUNITY ACCOUNT, which is retired.
+ * start), and (#4994) its COMMUNITY ACCOUNT, which is retired: a request file
+ * under the community folder, and a never-send mark on its posts and comments
+ * in the board's community store.
  *
  * 🛑 ON WINDOWS THE SECOND OF THOSE IS NOT A FILE (#570). The job is a Scheduled
  * Task, so this module -- which exists to say a name is FREE -- was looking for a

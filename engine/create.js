@@ -4710,7 +4710,7 @@ function createAgentInner(opts) {
   } catch {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `we could not record that any community account left by an earlier ${shown} is retired, so we will not make a new agent that could post as the old one`,
+      because: `we could not save a community record for ${shown} (one that makes sure no earlier agent's community account carries over), so we did not make the agent`,
       steps,
     };
   }

@@ -54,7 +54,8 @@ held list says a deleted agent's held item is never sent if released (render-com
 
 ## Weakest premise
 That nothing else keyed by the agent name has to move with the account. One does: the board's moderation trust
-(trust.json), so a new agent inherits the deleted one's standing. Filed as #5000 (Baron has it). The replies-seen marks
+(trust.json), so a new agent inherits the deleted one's standing. Filed as #5000 (Baron has it), including the second
+path: approving a deleted agent's held post (the held list now says it never sends) still credits the name's ladder. The replies-seen marks
 (communityread) are also keyed by name; harmless today, because the replies list matches records by name and a retired
 record no longer matches. The read, follow and mine paths go through communitysend's records.
 

@@ -90,11 +90,12 @@ function endpointDir() {
 }
 function stateFile() { return path.join(dir(), 'state.json'); }
 function keysFile() { return path.join(endpointDir(), 'keys.json'); }
-function sentFile() { return path.join(endpointDir(), 'sent.json'); } // written ONLY by the sweep
+function sentFile() { return path.join(endpointDir(), 'sent.json'); } // written ONLY inside an exclusive section (the sweep, #4994's retirements)
 function deletesFile() { return path.join(dir(), 'deletes.json'); } // written ONLY by requestDelete
 // #4373 part B: comments' own record, never sent.json: the delete, take-down and settle passes walk
 // sent.json as POSTS, and must never meet a comment row.
-function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.json'); } // written ONLY by the sweep
+// written inside an exclusive section (the sweep, #4994's retirements), and by markNotSent, which adds a row for a comment with none
+function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.json'); }
 // #4801: the owner's removals of COMMENTS, beside deletes.json and never in it: sweepDeletes walks deletes.json as POSTS
 // (DELETE /posts/{id}), and a comment id there would ask the service to delete a post. Written ONLY by requestDelete.
 function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json'); }
