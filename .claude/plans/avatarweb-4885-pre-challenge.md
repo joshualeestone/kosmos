@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: avatarweb-4885
-diff_hash: 405479d1bb5c0e64839a2b05beec0dd43e35a369a96b6199a8d3c4d5071f54c1
+diff_hash: fd96f394b02f179d1c92536ecb7f0872d060c1c243a785bef16c87a92441d37f
 validation: pending (full suite queued on Agent1s and on Mortals at 21:33-21:35 CDT 2026-10-01; PR CI runs the same tools/run-tests.sh)
 subdir_audit: not run (no subdir CLAUDE.md in this diff)
 timestamp: 2026-10-02T02:36:00Z
@@ -62,6 +62,14 @@ spells the character as an escape"); it is placed here by order only, and what i
 
 #### Iteration 12
 **Converged** - no new actionable findings.
+
+### After convergence (not reviewed by the loop, stated so)
+- origin/main merged in (clean, no conflicts) so CI runs on today's main.
+- browser-checks-reason-grep.test.js EXPECTED_SITES 231 -> 232: CI measured 232 on the merged tree; with
+  render-picture-fit-4885.js set aside the count is 231, so the +1 is this branch's new check.
+- Two per-check Browser-check-surface trailers (empty commit): the diff's 'msg' is the agent page's picture Saved
+  line's local variable, not the chat .msg element render-unread-edge-3743 and render-agentdm-3414 assert. The
+  surface gate passes locally with them.
 
 ### Strengths (across all iterations)
 - render-picture-fit-4885 checks fitPicture in Chromium and WebKit, and ten outputs from both engines pass the community's own parser.
