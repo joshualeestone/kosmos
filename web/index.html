@@ -48263,7 +48263,8 @@ async function openTeamCreate(key) {
     if (TC.key !== key) {
       msg.hidden = false; msg.dataset.kind = 'resume';
       // Review 5: a team already made and being said hello to is not "still making".
-      msg.textContent = (TC.greeting && !TC.running ? 'Kosmos is still saying hello to your ' : 'Kosmos is still making your ') + ((TC.team && TC.team.label) || 'team') + '. You can make another team once it finishes.';
+      // Review 17: and one waiting on its pictures before it leaves is "finishing".
+      msg.textContent = (TC.leaving ? 'Kosmos is still finishing your ' : (TC.greeting && !TC.running ? 'Kosmos is still saying hello to your ' : 'Kosmos is still making your ')) + ((TC.team && TC.team.label) || 'team') + '. You can make another team once it finishes.';
     }
     if (!TC.running && !TC.watching && TC.members.some((m) => m.state === 'made' && m.seen !== 'running')) {
       for (const m of TC.members) if (m.seen === 'unseen') m.seen = null;
@@ -48602,8 +48603,11 @@ function tcPaint() {
     const notN = TC.members.filter((m) => m.hello === 'failed' || m.hello === 'unsure').length;
     const look = warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '';
     // "Said hello", not "started": placed means the hello reached the agent; its first turn is measured live (0.7.17).
-    const noPic = TC.members.some((m) => m.portrait === 'failed') ? ' A picture was not set: see its row.' : '';   // review 8
-    if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look + noPic;
+    const noPicN = TC.members.filter((m) => m.portrait === 'failed').length;   // review 8; review 17: counted
+    const noPic = noPicN === 1 ? ' A picture was not set: see its row.' : (noPicN ? ' ' + noPicN + ' pictures were not set: see their rows.' : '');
+    // Review 17: while it waits for pictures before leaving, say so: the move to the agents view is not a surprise.
+    const going = TC.leaving ? ' Setting their pictures, then taking you to them…' : '';
+    if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look + noPic + going;
     else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
       : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at ' + (notN === 1 ? 'its row.' : 'their rows.')) + look;
     else {
@@ -48625,7 +48629,7 @@ function tcPaint() {
   // Review 8: also when every hello is placed but a picture failed, or is still going up after the wait: the step
   // stays for that row, and the person needs a way on that is not Back.
   hello.hidden = !(settled && (TC.members.some((m) => m.hello !== 'started')
-    || TC.members.some((m) => m.portrait === 'failed') || (!TC.leaving && TC.members.some((m) => m.portraitBusy)) || TC.stayed));
+    || TC.members.some((m) => m.portrait === 'failed' || (m.warn || []).length || m.renamedFrom) || (!TC.leaving && TC.members.some((m) => m.portraitBusy)) || TC.stayed));
   hello.textContent = n === 1 ? 'Go to your agent' : 'Go to your team';
   if (finished && TC_AUTO_HELLO && !TC.helloStarted) tcSayHello();
 }
@@ -48733,11 +48737,14 @@ async function tcSayHello() {
 async function tcLeaveWhenSettled(gen) {
   if (!TC || TC.leaving) return;
   TC.leaving = true;
+  if (TC.members.some((m) => m.portraitBusy)) tcPaint();   // review 17: the note says it is setting pictures first
   for (let i = 0; i < 75 && TC && gen === TC_GEN && TC.members.some((m) => m.portraitBusy); i++) await new Promise((r) => setTimeout(r, 200));
   if (gen !== TC_GEN || !TC) return;
   TC.leaving = false;
   // Review 10: once the step has stayed, Go to your team stays on offer even if the picture lands later.
-  if (TC.members.some((m) => m.portrait === 'failed' || m.portraitBusy)) { TC.stayed = true; tcPaint(); return; }
+  // Review 17: a row with something to say (a step create reported as not done, a rename its teammates do not know)
+  // keeps the step too: leaving would drop it, and nothing on the agents view repeats it.
+  if (TC.members.some((m) => m.portrait === 'failed' || m.portraitBusy || (m.warn || []).length || m.renamedFrom)) { TC.stayed = true; tcPaint(); return; }
   tcGoToTeam(true);
 }
 function tcHelloRetry(slot) {

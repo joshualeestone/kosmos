@@ -548,8 +548,8 @@ function chk(ok, label, extra) {
           const pf = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden,
             row: (document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || '', marked: document.querySelectorAll('.just-made').length,
             note: document.getElementById('tc-note').textContent, go: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
-          chk(pf.team && pf.panel && pf.row === 'Said hello (picture not set)' && pf.marked === 0 && /A picture was not set: see its row\./.test(pf.note) && pf.go,
-            `${E} #4936 all hellos placed but a picture failed: the step stays, the row and the note say so, and Go to your team is offered`, JSON.stringify(pf));
+          chk(pf.team && pf.panel && pf.row === 'Said hello (picture not set)' && pf.marked === 0 && /2 pictures were not set: see their rows\./.test(pf.note) && pf.go,
+            `${E} #4936 all hellos placed but two pictures failed: the step stays, the row and the note say so (counted), and Go to your team is offered`, JSON.stringify(pf));
           /* Review 10: on a phone the longer hello states fit: nothing scrolls sideways and the status stays inside its row. */
           await page.setViewportSize({ width: 390, height: 844 });
           await page.waitForTimeout(200);
@@ -771,6 +771,7 @@ function chk(ok, label, extra) {
           chk(after[2].state === 'Made, not seen running yet' && after[0].state === 'Running' && !/said hello|Saying hello|running on your board/i.test(await page.textContent('#tc-note')) && hellos.length === 0,
             `${E} after the wait it says so plainly, does not claim the team is ready, and says hello to nobody (#4936)`, JSON.stringify(after.map((r) => r.state)) + ' | ' + await page.textContent('#tc-note'));
           chk(errs.length === 0, `${E} no page errors (unseen arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});   // #4936: this arm now sends status reads
           await page.close();
         }
 
@@ -815,17 +816,21 @@ function chk(ok, label, extra) {
         /* --- round 3: what create reports as not done is said on the row ------------------------------ */
         {
           const { page, errs, warnSteps } = await newPage(1280);
-          await page.evaluate(() => openTeamCreate('marketing'));
+          // #4936 review 17: with the hellos on, as in production: every hello placed must not carry the person off this row.
+          await page.evaluate(() => { TC_AUTO_HELLO = true; openTeamCreate('marketing'); });
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
           warnSteps.Ana = 'could not add the reports-to section to its instructions';
           await page.click('#tc-go');
-          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => s.textContent === 'Running'));
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^Said hello/.test(s.textContent)) && typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0);
+          await page.waitForTimeout(600);   // room for a wrong move to the agents view
           const r = await rows(page);
           const note = await page.textContent('#tc-note');
-          chk(/could not add the reports-to section/.test(r[2].why) && /something to look at/.test(note),
-            `${E} a step create reports as not done is said on its row, and the ready line points at it`, r[2].why + ' | ' + note);
+          const stays = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden, go: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
+          chk(/could not add the reports-to section/.test(r[2].why) && /something to look at/.test(note) && stays.team && stays.panel && stays.go,
+            `${E} a step create reports as not done is said on its row, the note points at it, and the step stays with Go to your team though every hello was placed`, r[2].why + ' | ' + note + ' | ' + JSON.stringify(stays));
           chk(errs.length === 0, `${E} no page errors (steps arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.close();
         }
 
