@@ -480,3 +480,31 @@ test('review 7: an add stuck in flight over a minute is dropped on the next visi
   api.importAddsNewVisit();
   assert.deepEqual([...api.IMPORT_ADDS.keys()], ['new']);
 });
+
+test('review 8: a refusal about the name focuses ONE copy, never one in a hidden list', () => {
+  const t = makeDom();
+  const found = t.add('import-found');
+  const fleet = t.add('fr-fleet');
+  const copy = (box) => {
+    const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');
+    const f = t.create('input'); f.className = 'tk-inp fr-importinput';
+    const go = t.create('button'); go.className = 'fr-importgo'; go.textContent = 'Adding...';
+    const said = t.create('p'); said.className = 'fr-importsaid';
+    row.append(f, go, said); box.appendChild(row);
+    return { f, said };
+  };
+  const a = copy(found);
+  const b = copy(fleet);
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\nreturn { importRowsSync };')(t.document);
+  api.importRowsSync('/p/pip.md', 'That name is taken.', true);
+  assert.equal(t.focused(), a.f, 'the first visible copy takes focus');
+  assert.equal(a.f.getAttribute('aria-invalid'), 'true');
+  assert.equal(b.f.getAttribute('aria-invalid'), 'true', 'both copies are marked and carry the reason');
+  assert.equal(b.said.textContent, 'That name is taken.');
+  // The first list hidden: focus goes to the copy on screen, not into the hidden list.
+  found.hidden = true;
+  api.importRowsSync('/p/pip.md', 'That name is taken.', true);
+  assert.equal(t.focused(), b.f, 'not into the hidden list');
+});
+

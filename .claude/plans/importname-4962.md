@@ -103,3 +103,11 @@ A refused name also gets the page's flagged-field border (`.bad`, #2606), cleare
 the name; an add in flight over a minute (a request that never settles) is dropped on the next visit so the row
 can be pressed again. Unit 31/31; 2 more sabotages red. Converged at iteration 7. Remaining before the PR: the
 browser check (bc-4962, queued; its first run is its first proof), the full validation, the proof file.
+
+## Review 8 (sonnet, blind, whole final diff incl. the post-convergence test-only commits, 2026-10-02 11:31): 0 blockers, 2 warnings, 3 nits
+- FIXED: importRowsSync focused EVERY unadded copy on a name refusal; with both lists visible focus could land on the
+  other surface. Now at most one copy, never one inside a hidden list (unit test review 8, red with the old line).
+- DEFERRED (decided in review 1, restated for the PR): Enter adds on first run's adopt rows and the board's found
+  panels too, not only the import panel. One field shape, one keyboard rule; the first-run exemption is what keeps
+  Enter from also pressing Continue. The PR body says so.
+- NITs noted, not taken: a comment names chk where chkAll carries the FAIL string; HEADED default is the sibling checks'.

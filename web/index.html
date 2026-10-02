@@ -52912,6 +52912,9 @@ function importAddsNewVisit() {
   }
 }
 function importRowsSync(file, msg, aboutName) {
+  /* Review 8: at most ONE copy takes focus, and never one inside a hidden list: with both lists visible, focus must
+     not jump to the other surface's field. */
+  let focusedOne = false;
   for (const id of ['import-found', 'fr-fleet']) {
     const box = document.getElementById(id);
     if (!box || !box.querySelectorAll) continue;
@@ -52927,7 +52930,10 @@ function importRowsSync(file, msg, aboutName) {
       if (said && msg) said.textContent = msg;
       if (field) {
         field.disabled = false;
-        if (aboutName) { field.setAttribute('aria-invalid', 'true'); field.focus(); }
+        if (aboutName) {
+          field.setAttribute('aria-invalid', 'true');
+          if (!focusedOne && !(row.closest && row.closest('[hidden]'))) { field.focus(); focusedOne = true; }
+        }
       }
     }
   }
