@@ -70,6 +70,8 @@ jobs:
           grep -q "Description=Kosmos Board" "$UNIT_FILE"
           grep -q "ConditionPathExists=!$KOSMOS_HOME/board.stopped" "$UNIT_FILE"
           grep -q "ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run" "$UNIT_FILE"
+          grep -q "Environment=KOSMOS_HOME=$KOSMOS_HOME" "$UNIT_FILE"
+          grep -q "WorkingDirectory=$KOSMOS_HOME" "$UNIT_FILE"
 
       - name: Verify board responsiveness
         run: |
@@ -93,4 +95,15 @@ jobs:
         run: |
           bash install/setup.sh --uninstall
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
+          test ! -f "$UNIT_FILE"
+
+      - name: Test custom KOSMOS_HOME unit derivation
+        run: |
+          CUSTOM_HOME="$HOME/custom-kosmos"
+          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" bash install/setup.sh
+          HASH=$(printf '%s' "$CUSTOM_HOME" | sha256sum | cut -c1-8)
+          UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.${HASH}.service"
+          test -f "$UNIT_FILE"
+          grep -q "Environment=KOSMOS_HOME=$CUSTOM_HOME" "$UNIT_FILE"
+          AGENT_WORKFORCE_DATA="$CUSTOM_HOME/data" KOSMOS_HOME="$CUSTOM_HOME" bash install/setup.sh --uninstall
           test ! -f "$UNIT_FILE"
