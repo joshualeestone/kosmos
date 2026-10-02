@@ -99,7 +99,7 @@ const CASES = [
   /* #5018 (Josh): the account it runs under, the names he gave the agents, a close X that holds until the notice says
      something new, and a notice that floats over the page instead of pushing the navigation down. */
   {
-    let adv = [{ agents: ['roo-lane', 'pixel-moss'], names: ['Roo', 'Pixel'], provider: 'Claude',
+    let adv = [{ agents: ['roo-lane', 'pixel-moss'], names: ['Roo', 'Pixel'], provider: 'Claude', service: 'Claude Code-credentials',
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];

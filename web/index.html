@@ -20967,8 +20967,8 @@ function paintUpdateAbort(ab) {
 }
 
 /* #3532: paint the per-account login-expiry advisories from the /api/status poll.
-   data.loginAdvisories is an array of { agents, daysLeft, severity, expired } (one per
-   credential near expiry); empty/absent clears the slot. dataset.v is a signature so an
+   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, service, provider, email, names }
+   (one per credential near expiry; #5018 added the last four, and service keys the X's dismissals); empty/absent clears the slot. dataset.v is a signature so an
    unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
 /* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
    the notice for this page's life, and it comes back on reload. */
@@ -21020,6 +21020,7 @@ function paintLoginAdvisories(advs) {
   }).join('');
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
+    delete slot.dataset.v;   // always repaint, so an X that did not stick shows as a notice still there, never a dead button
     paintLoginAdvisories(advs);
     // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
     // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
@@ -21043,8 +21044,9 @@ function loginAdvDismissed() {
   return loginAdvHiddenMem.slice();
 }
 function loginAdvPrune(liveServices) {
-  // A key's 4th field is its credential (advKey); a credential name carries no colon.
-  const keep = (k) => liveServices.includes(String(k).split(':')[3]);
+  // A key's 4th field is its credential (advKey); a credential name carries no colon. A key with no credential (an
+  // advisory without one) is never forgotten here, since no reply can say its account was renewed.
+  const keep = (k) => { const svc = String(k).split(':')[3]; return !svc || liveServices.includes(svc); };
   loginAdvHiddenMem = loginAdvHiddenMem.filter(keep);
   try {
     const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');

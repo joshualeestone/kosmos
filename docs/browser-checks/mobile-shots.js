@@ -186,7 +186,7 @@ const SCREENS = [
   /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
      given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
   { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
-    const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude',
+    const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
     await page.route('**/api/status', async (route) => {
       let res, data;
