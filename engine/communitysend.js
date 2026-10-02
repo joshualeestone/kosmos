@@ -295,7 +295,7 @@ function registration(agentKey) {
   const group = installGroup();
   // #4922 review 2: a service that just refused the field is not sent it again for an hour (each register would waste a POST).
   // Review 8: nor a REMOVED agent (it can still send a post published before removal); the pass sends it on restore.
-  if (group && !(installGroupUnknownUntil.get(endpointDir()) > Date.now()) && !removedOrUnknown(agentKey)) out.install_group = group;
+  if (group && !(installGroupUnknownUntil.get(endpointDir()) > Date.now()) && !removedOrUnknown(agentKey) && workerFolderExists(agentKey)) out.install_group = group;   // review 15: as the pass
   if (typeof profile.role === 'string' && profile.role.trim()) {
     const r = communitysite.scrubAuthorName(profile.role);
     if (r.ok && r.name !== communitysite.DEFAULT_AUTHOR_NAME) out.bio = r.name;
@@ -842,9 +842,10 @@ async function sweepInstallGroup(keys, on) {
      unreadable nothing is sent this sweep. */
   let removed;
   try { removed = require('./remove').removedNames(); } catch { removed = { ok: false, names: [] }; }
-  if (!removed.ok) return;
+  // Review 15: an unreadable list stops every SEND (fail-closed), but not the clears for agents whose folder is gone.
+  const removedUnreadable = !removed.ok;
   const clean = require('./create').cleanName;
-  const removedSet = new Set(removed.names.map((n) => clean(n)));
+  const removedSet = new Set((removed.names || []).map((n) => clean(n)));
   const until = Date.now() + INSTALL_GROUP_PASS_MS;
   // Review 8: each pass starts just after the agent the last failure stopped on, so no one agent's answer can keep the
   // agents behind it from ever being reached.
@@ -860,7 +861,9 @@ async function sweepInstallGroup(keys, on) {
        remove.forget) and moves its folder to the Trash, with or without a pass in between. So an agent with no worker
        folder is treated as removed too (fail-closed): never sent the id, and cleared if it may be grouped. Its folder
        back means it was restored. */
-    const removedNow = removedSet.has(clean(agentKey)) || !workerFolderExists(agentKey);
+    const folderGone = !workerFolderExists(agentKey);
+    if (removedUnreadable && !folderGone) continue;   // could be removed: nothing is sent to it, not even a clear
+    const removedNow = removedSet.has(clean(agentKey)) || folderGone;
     if (k.refused) {
       // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
       if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
@@ -1507,6 +1510,7 @@ module.exports = {
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
+  _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };

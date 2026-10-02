@@ -1709,6 +1709,33 @@ test('4922: removed and deleted between two passes (never seen removed): a group
   assert.ok(!svc('HUX').installGroup, 'an ungrouped agent deleted between passes was grouped');
 });
 
+test('4922: an agent whose folder is gone registers WITHOUT the id (an unsent post from before its deletion)', async () => {
+  await on();
+  store.writeProfile('wes', { displayName: 'WES', role: 'Ops' });
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'wes');
+  fs.mkdirSync(dir, { recursive: true });
+  assert.ok('install_group' in cs._registration('wes'), 'control: an agent with its folder registers with the id');
+  fs.rmSync(dir, { recursive: true, force: true });   // deleted leftovers
+  assert.ok(!('install_group' in cs._registration('wes')), 'a deleted agent would register with the group id');
+});
+
+test('4922: with the removed list unreadable, a folder-gone grouped agent is still cleared; nothing else is sent', async () => {
+  await on();
+  for (const n of ['ava', 'vic']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);   // ava would be sent it, were sending allowed
+  const vic = () => [...be.st.agents.values()].find((a) => a.name === 'VIC');
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    fs.writeFileSync(removedFile, '{not json');
+    fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'vic'), { recursive: true, force: true });
+    const before = groupPatches().length;
+    await cs.sweep();
+    assert.equal(vic().installGroup, null, 'an unreadable removed list kept a deleted agent grouped');
+    assert.equal(groupPatches().length, before + 1, 'something besides the clear was sent with the removed list unreadable');
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
+
 test('4922: registration reads the removed list fail-closed (unreadable: no id)', async () => {
   await on();
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), '{not json');
