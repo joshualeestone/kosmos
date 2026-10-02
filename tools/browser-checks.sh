@@ -1031,6 +1031,8 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
 # --- #4930: click a file a message carries to see it full page ---------------
 # Needs no board: it serves the real page with every /api call stubbed and draws real attachment cards.
+# Its own run_one line, not a gated.txt entry (#3929), because it passes ENGINES=chromium,webkit: gated.txt
+# lines run with the default engine only.
 run_one "render-file-preview-4930" env ENGINES=chromium,webkit node docs/browser-checks/render-file-preview-4930.js
 
 # --- #718: the phone screenshot harness -----------------------------------
