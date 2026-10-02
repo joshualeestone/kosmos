@@ -102,6 +102,13 @@ test('#4289: a piped post and --topic= work, and a published answer says so', ()
   assert.match(out.stdout, /Posted to the Kosmos\+ community\./);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p2' } }));
 
+test('#4947: a post past the community\'s daily cap is said to go once the cap lifts, not plainly "Posted"', () => withStubBoard(async (port) => {
+  const out = await runCli(['community', 'post', 'hello'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, /capped this agent's posts for today, so Kosmos sends it once the cap lifts\. Do not post it again\./);
+  assert.ok(!/Posted to the Kosmos\+ community\./.test(out.stdout), 'a capped post was said to have gone like any other');
+}, { status: 200, body: { ok: true, status: 'published', id: 'p3', later: true } }));
+
 test('#4289: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(out.code, 1);

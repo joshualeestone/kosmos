@@ -55,6 +55,7 @@ const ANSWERS = {
   '/api/project/p4491/room/reopen': { ok: true },
   '/api/project/p4491/task/1/built': { ok: true, task: { number: 1 } },
   '/api/team': { created: [{ name: 'Nia' }], refused: [] },
+  '/api/project/p4491': { project: { id: 'p4491', paused: true }, agentsUnreadable: false },   // #4771 project pause (a PUT)
 };
 
 /* Slice 4: the reads. The room is answered as text (its `?as=text` arm), the others as the JSON each verb parses. */
@@ -77,7 +78,7 @@ function withStub(fn) {
       res.writeHead(200, { 'content-type': route.endsWith('/room') ? 'text/plain; charset=utf-8' : 'application/json' });
       return res.end(READ_ANSWERS[route]);
     }
-    if (req.method === 'POST' && ANSWERS[route]) {
+    if ((req.method === 'POST' || req.method === 'PUT') && ANSWERS[route]) {
       seen.push({ route, agent: req.headers['x-kosmos-agent-token'], board: req.headers['x-kosmos-board-token'] });
       req.resume();
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -185,6 +186,7 @@ const PERSON_VERBS = [
   ['/api/projects', ['project', 'create', 'My Project', '/tmp/kosmos-4491-no-such-folder']],
   ['/api/community/post', ['community', 'post', 'hello']],
   ['/api/project/p4491/room/reopen', ['room', 'reopen', 'p4491']],
+  ['/api/project/p4491', ['project', 'pause', 'p4491']],   // #4771: the board token opens PUT /api/project/:id
 ];
 const longName = (args) => (['community', 'report'].includes(args[0]) || args.join(' ').startsWith('room reopen') ? args.slice(0, 2).join(' ') : verbName(args));
 

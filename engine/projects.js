@@ -2981,7 +2981,14 @@ function blockBody(projects, sessionName) {
       const T = require('./tasks');
       if (!isPaused(p) && !T.isOnHold(t)) return '';
       const person = (isPaused(p) && p.pausedByPerson === true) || (T.isOnHold(t) && t.onHoldByPerson === true);
-      return person ? ' [on hold: the person parked it; do not start it]' : ' [on hold: do not start it until it is taken off hold]';
+      // Review 6: the person's hold in an agent-paused project names the pause too, so lifting the hold alone is not read as go.
+      if (person && isPaused(p) && p.pausedByPerson !== true) return ' [on hold: the person parked it, and the project is paused; do not start it]';
+      if (person) return ' [on hold: the person parked it; do not start it]';
+      // Review 1: an agent's pause is lifted on the screen (no verb resumes one), so say so rather than "taken off hold".
+      // Review 2: held AND paused needs both undone, so both are named.
+      if (isPaused(p) && T.isOnHold(t)) return ' [on hold: the project is paused and the task is on hold; do not start it until both are lifted]';
+      return isPaused(p) ? ' [on hold: the project is paused; do not start it until your person resumes it]'
+        : ' [on hold: do not start it until it is taken off hold]';
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
   });
@@ -3000,6 +3007,15 @@ function blockBody(projects, sessionName) {
          it applies to, and re-spliced on every membership change so existing agents learn it too. */
       `When you have built one and it is waiting to be released or checked, mark it:`,
       `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
+    ] : []),
+    /* #4771 (Josh's 0.7.15 report): a pause the person asked for in the room never reached the Prompter, so an agent
+       held every task by hand. Taught to every member, not only those holding tasks (review 1: a coordinator with no
+       tasks is the likeliest to be asked). Resuming is the person's, on the screen, so no verb for it exists. */
+    ...(sessionName ? [
+      '',
+      `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
+      'Nobody is then nudged about its tasks or handed them, and the room is told you paused it. It is resumed on the',
+      'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
     ] : []),
   ].join('\n');
 }

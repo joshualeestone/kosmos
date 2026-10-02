@@ -126,11 +126,13 @@ test('#2498: no ?project= still returns the global set (backward-compatible)', a
   assert.equal(body.project, null, 'the unscoped route reports no project scope');
 });
 
-test('#2498: ?project=<unknown> returns an empty list, not the global set', async () => {
-  const body = await (await fetch(base + '/api/tasks?project=' + encodeURIComponent('no-such-project'))).json();
-  assert.equal(body.tasks.length, 0, 'an unknown project scope must return nothing, never fall back to every task');
-  assert.equal(body.count, 0, 'the count disagrees with the empty list');
-  assert.equal(body.project, 'no-such-project', 'the route does not echo the scope it was asked for');
+test('#2498: ?project=<unknown> returns no tasks, never the global set (#4891: as a 404 that says so)', async () => {
+  const r = await fetch(base + '/api/tasks?project=' + encodeURIComponent('no-such-project'));
+  const body = await r.json();
+  // #4891 N6: it was an empty list, so `kosmos task list nosuch` read as an empty project.
+  assert.equal(r.status, 404);
+  assert.equal(body.error, 'there is no project by that name');
+  assert.equal(body.tasks, undefined, 'an unknown project scope must return nothing, never fall back to every task');
 });
 
 test.after(() => { try { server.close(); } catch { /* already down */ } });

@@ -21,6 +21,9 @@ const path = require('node:path');
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
   resetPauses: 'engine/communitysend.js (#4953): a test seam that clears the per-minute 429 pauses (and the once-said unreadable-429 note) between tests, so one test\'s pause cannot hold the next; nothing in the app resets them',
+  setTmuxCandidates: 'engine/status.js (#2955): a test seam, the list of tmux binaries tmuxRepick asks at the version wall; engine/status.test.js sets it so its fakes are asked instead of the real Homebrew paths.',
+  setOwnTmux: 'engine/status.js (#2955): a test seam, Kosmos\'s own tmux path, which status.js derives from where it is installed (pinned by its own test); engine/status.test.js points it at a fake.',
+  setLauncherTmux: 'engine/status.js (#2955): a test seam, the launcher pick that status.js otherwise reads once at module load; engine/status.test.js sets it because a loaded module cannot re-read its environment.',
   _registerRetryAt: 'engine/communitysend.js (#4940): a read-only view of the register 429 wait (registerRetryAt stays private), so the five-minute cap is measured by engine/communitycomment-4373.test.js rather than inferred. A test seam, as _paths is.',
   isCodexHookEvidence: 'test-only by design (#4589): pins a Codex card\'s evidence to the hooks dialog\'s rows; NO production code keys on it, because the delivery floor reads the screen fresh (its comment in engine/status.js says so)',
   setRunner: 'test seam: injects the tmux runner',
@@ -97,6 +100,8 @@ const EXCUSED = {
   setTimeoutMs: 'test seam (#4287): engine/communitysend.js shortens its request timeout so the slow-server test fails in two seconds instead of hanging the suite; production keeps the default.',
   setSwitch: 'test seam (#4287): engine/communitysend.js takes a stand-in for engine/communityswitch.js, which is #4288 and not built yet, so the send tests can turn sending on; production reads the real module.',
   setAgentWaitMs: 'test seam (#4774): engine/communitysend.js shortens how long agentCall waits for the board, so the follow tests reach the timeout arm in 100 ms; production keeps AGENT_WAIT_MS.',
+  _registration: 'test seam (#4922): engine/communitysend.js lets engine/communitysend.test.js see what a registration would carry (whether install_group goes for a removed or folder-gone agent) without a sweep; production calls registration() inside ensureRegistered.',
+  _installGroupRetry: 'test seam (#4922): engine/communitysend.js sets how long the install-group pass pauses after a failure and clears its pauses (the whole-pass pause, the hour-long unknown-field window, and where the next pass starts), so engine/communitysend.test.js runs its retry tests sweep by sweep and pins each pause itself with an hour; production keeps 15 minutes.',
   setAgentBudgetMs: 'test seam (#4774): engine/communitysend.js shortens agentCall\'s total budget, so the follow tests reach the over-budget arm quickly; production keeps AGENT_BUDGET_MS.',
   PAYLOAD_KEYS: 'contract pin (#4287): the exact keys engine/communitysend.js sends to kosmos-community, asserted by its tests against what payload() builds. Exported so the test compares against the module rather than a second copy of the list.',
   setSender: 'test seam (#2037): engine/feedbacksend.js injects a fake sender so the daily-report send tests never hit the network; production uses global fetch. Named here from #2623 onward: it used to escape this sweep by a name-collision with engine/notify.js and engine/ping.js, both of which had a setSender -- #2623 deleted notify.js and ping.js\'s sender, so feedbacksend.js is now the sole definer and the collision cover is gone. A test seam, not an orphan.',
@@ -138,6 +143,7 @@ const EXCUSED = {
   // future regression that dropped the real caller either. What protects it is the
   // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
   // already reachable via server.js's failed-store cleanup.)
+  _nextIdForTests: 'test seam (#4888): engine/messages.js says which id the NEXT post will get (the larger of the log\'s highest and the in-memory high mark, +1), so a test that predicts ids does not have to re-derive the minting rule; a refused send now burns its id, which broke tests that counted. Production mints through mintId and never calls it.',
 };
 
 const engineDir = path.join(__dirname, 'engine');

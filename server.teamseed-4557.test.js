@@ -267,22 +267,23 @@ test('#4632 through the real catalogue: nothing held, the list downloads it, and
   }
 });
 
-/* #4719: the specs route carries the team's one provider and account to every member (the engine test calls
+/* #4719/#4935: the specs route carries the team's one provider, account and model to every member (the engine test calls
    specs() directly, so dropping the two fields at the route would pass it). */
-test('#4719: the specs route passes the provider and account through to every member', async () => {
+test('#4719/#4935: the specs route passes the provider, account and model through to every member', async () => {
   const names = { names: { lead: 'Maya', content: 'Leo', social: 'Ana' } };
   teamseed.setCatalogue({ ...CATALOGUE, status: () => ({ loaded: true }) });
   try {
-  const s = await call('POST', '/api/teams/seeded/marketing/specs', { ...names, provider: 'openai', account: 'acct-7' });
+  const s = await call('POST', '/api/teams/seeded/marketing/specs', { ...names, provider: 'openai', account: 'acct-7', model: 'gpt-5' });
   assert.equal(s.status, 200, JSON.stringify(s.json));
   assert.ok(s.json.specs.length > 0, JSON.stringify(s.json));
   for (const spec of s.json.specs) {
     assert.equal(spec.spec.provider, 'openai', JSON.stringify(spec));
     assert.equal(spec.spec.account, 'acct-7', JSON.stringify(spec));
+    assert.equal(spec.spec.model, 'gpt-5', JSON.stringify(spec));   // #4935: and the team's one model
   }
   // CONTROL: without them, no member carries a provider or an account (Claude, as the single form sends it).
   const plain = await call('POST', '/api/teams/seeded/marketing/specs', names);
   assert.equal(plain.status, 200, JSON.stringify(plain.json));
-  for (const spec of plain.json.specs) assert.ok(!('provider' in spec.spec) && !('account' in spec.spec), JSON.stringify(spec));
+  for (const spec of plain.json.specs) assert.ok(!('provider' in spec.spec) && !('account' in spec.spec) && !('model' in spec.spec), JSON.stringify(spec));
   } finally { teamseed.setCatalogue(CATALOGUE); }
 });
