@@ -16006,7 +16006,9 @@ const server = http.createServer(async (req, res) => {
         claim = { claimed: null, because: 'we could not read what its agent reports', about, neverReported: false };
       }
       /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
-      const waitingOnPerson = tasks.waitingOnPerson(t, roster);
+      /* #5034: with the project's members, so a holder taken off the project does not keep its card red. */
+      const owner = (everyProject || []).find((x) => x && x.id === t.projectId);
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster, owner ? (owner.agents || []) : undefined);
       return Object.assign({}, t, {
         claim,
         waitingOnPerson,
@@ -18305,6 +18307,30 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       verdict = { state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') };
     }
+    /* #5034: what a leave left behind on the project, cleared once the leave HAPPENED (moved), each half on its own
+       so one failing does not stop the other or the answer: a question the agent raised about this project (a
+       needs_you or blocked report the board ties to it; the agent can no longer act on the project's cards, so
+       nobody is waiting on it), and the room posts held for it there (its next idle line would tell it about a room
+       it has left). The report is cleared the way the person's own clear does it (#2575: a by:'operator' idle that
+       re-derives, so a question still on its screen comes back on the next poll), and only a deliberate one: an
+       automatic permission wait is about the agent's screen, not the project. */
+    let leftBehind;
+    if (moved && req.method === 'DELETE') {
+      leftBehind = { reportCleared: false, heldDropped: 0 };
+      try {
+        const rep = selfreport.read(name);
+        if (rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state) && rep.project === id
+          && !selfreport.isAutoPermissionWait(rep)) {
+          let shown = id;
+          try { const was = projects.readAll().find((p) => p && p.id === id); if (was && was.name) shown = String(was.name); } catch { /* the id reads fine */ }
+          const kept = selfreport.record(name, { state: 'idle', by: 'operator',
+            because: 'taken off the project ' + shown + ' (' + (viaScreenMember ? 'by the person' : 'by an agent')
+              + '), so the ' + rep.state + ' report about it is no longer waiting on anyone' });
+          leftBehind.reportCleared = kept.recorded === true;
+        }
+      } catch { /* the report stays as it was; the person's clear still works */ }
+      try { leftBehind.heldDropped = roomhold.forgetProject(name, id); } catch { /* the posts stay held */ }
+    }
     let project = null;
     try { project = projects.get(id, roster); } catch { project = null; }
     // The pane line, the only thing that reaches a RUNNING agent (#141/#143/
@@ -18317,7 +18343,7 @@ const server = http.createServer(async (req, res) => {
     }
     // #4583: a second coordinator joining is warned about, never refused.
     const coordinators = (req.method === 'POST' && moved && project) ? projects.coordinatorWarning(project, name) : null;
-    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}) });
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}), ...(leftBehind ? { leftBehind } : {}) });
     return;
   }
 

@@ -1116,9 +1116,14 @@ function taskState(task) {
  * A trust wait is counted by the same rule, but today it never reaches the roster this is given (the
  * status route builds those rows offline, after snapshot), as projects.js says of the project page.
  */
-function waitingOnPerson(task, roster) {
+function waitingOnPerson(task, roster, members) {
   if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;
-  const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt).map((x) => x.who));
+  /* #5034: `members` (the task's project's agents, when the caller has them) leaves out a holder that was taken off
+     the project. Removal does not unassign, so without this the agent's question kept the old project's card red,
+     with nobody on the project waiting on it (projects.joinTaskClaims already says a departed holder's report
+     "cannot be checked against this task"; this is the same rule for the red). Omitted: every holder, as before. */
+  const onProject = Array.isArray(members) ? new Set(members) : null;
+  const holders = new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt && (!onProject || onProject.has(x.who))).map((x) => x.who));
   if (!holders.size) return false;
   // Required here rather than at the top, as projects.js does: status is loaded lazily from this layer.
   const status = require('./status');
