@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: teamhello-4936
-diff_hash: 283d58f39ae5f519edee7b3ba9f5b958873541664d14f2e945b3f7ac1f55a091
+diff_hash: 7bf6b65b3ec319eb42c22d56de8fbf46e1efa268df112811b82f822fcfe97b33
 validation: PR CI (decided 2026-10-02 00:30 CDT, Mortals queue 11 suites deep; see plan)
 subdir_audit: passed
-timestamp: 2026-10-02T06:15:05Z
-iterations: 31
+timestamp: 2026-10-02T09:38:19Z
+iterations: 34
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 31
-**Converged:** Yes (iteration 31: 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT)
+**Iterations:** 34 (31 before merging main, 3 after)
+**Converged:** Yes (post-merge iteration 3: 0 BLOCKERs, 0 WARNINGs, 0 new CONVENTIONs, 2 NITs)
 **Total findings (iterations 5-31, recorded this session):** 9 BLOCKERs, about 75 WARNINGs, 4 CONVENTIONs, many NITs. Iterations 1-4 were recorded before a context compaction; their fixes are commits 2c0c0ad08, 3956cdc83, 982981dad and ce680a529 (two blockers in iteration 1: navigation while the person was elsewhere, and two browser-check asserts that could never fail; one in iteration 2: a block replace of mine that deleted eight team-step helpers, restored byte for byte).
 **Fixed:** every BLOCKER and every WARNING except those written into the plan as decided | **Deferred (decided, in plan):** 9 | **Asked (awaiting user):** 0
 
@@ -123,6 +123,21 @@ converged: true
 
 #### Iteration 31 (opus) - 0 B, 0 W, 0 C, 1 NIT
 **Converged** - no new actionable findings.
+
+#### Merge with origin/main (#4965, #4959) and post-merge iterations 32-34
+The merge changed the diff, so the loop ran again. Merge: unions of the check's surface line, the README row and the team-step CSS; the team step's hello sent as automatic (#4959); sendWakeHello keeps main's inline request.
+
+#### Iteration 32 (sonnet) - 0 B, 3 W
+- [WARNING] the check had no arm for automatic or a held hello --> FIXED 1e957d274 (automatic pinned on every hello; held arm)
+- [WARNING] a held hello was retried three times --> FIXED 1e957d274 (stop)
+- [WARNING] the held row showed the server's raw sentence with an ISO time --> FIXED 1e957d274 (wakeHeldLine)
+
+#### Iteration 33 (opus) - 0 B, 1 W
+- [WARNING] README row still said could_not is tried three times and did not name the held arm --> FIXED 003292ac7
+- [NIT] postWakeHello placement; its comment omitted `because` --> FIXED 003292ac7
+
+#### Iteration 34 (sonnet) - 0 B, 0 W
+**Converged** - no new actionable findings. NITs kept (in plan).
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - none
