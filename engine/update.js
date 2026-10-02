@@ -559,7 +559,12 @@ function setupUrl() {
      so `v` was always '' and the cache-buster never applied. The cache now holds the manifest
      object, so it does. */
   const v = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
-  return releaseBase().replace(/\/dist\/?$/, '') + '/setup' + (v ? '?v=' + encodeURIComponent(v) : '');
+  /* #5032: a box installing from the STAGING pointer runs the installer the staging cut published,
+     /setup-staging; /setup is prod's and moves only at a promote (release.sh step 5, promote-channel.sh).
+     Keyed on installPointer(), the same choice the spawned installer is given as KOSMOS_UPDATE_CHANNEL,
+     so a staging subscriber offered a newer PROD build runs prod's installer for it. */
+  const name = installPointer() === 'staging' ? '/setup-staging' : '/setup';
+  return releaseBase().replace(/\/dist\/?$/, '') + name + (v ? '?v=' + encodeURIComponent(v) : '');
 }
 
 /**

@@ -450,6 +450,21 @@ test('design finding 8: setupUrl carries the ?v= cache-buster for the version th
     'the cache-buster never applies (it read .version off a bare string)');
 });
 
+test('#5032: a box installing from the staging pointer runs /setup-staging; a prod box runs /setup', async () => {
+  update.setPlatform('darwin');
+  process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = 'staging';
+  recordFetches(() => answer({ version: NEWER }));
+  await update.refresh();
+  assert.equal(update.setupUrl(), 'https://installkosmos.com/setup-staging?v=' + NEWER,
+    'a staging box ran prod\'s installer (/setup moves only at a promote)');
+  // CONTROL: the same look on the prod channel keeps /setup.
+  update.resetCache();
+  process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = 'prod';
+  recordFetches(() => answer({ version: NEWER }));
+  await update.refresh();
+  assert.equal(update.setupUrl(), 'https://installkosmos.com/setup?v=' + NEWER);
+});
+
 test('S4: the install is ARMED on Windows -- self-install is allowed and a normal bundle offers it in-app', async () => {
   update.setPlatform('win32');
   update.setWindowsBundleRoot(() => 'C:\\Users\\someone\\Kosmos');

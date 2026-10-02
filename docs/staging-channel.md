@@ -22,7 +22,8 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    cut ends by printing this hand-off.
 2. **Update a FRESH machine from staging.** On a machine/account with **no board token, no cookie,
    no prior install** -- NOT the build machine (it holds a token, the 0.6.25 blindness):
-   - fresh install: `curl -fsSL https://installkosmos.com/setup | KOSMOS_UPDATE_CHANNEL=staging sh`
+   - fresh install: `curl -fsSL https://installkosmos.com/setup-staging | KOSMOS_UPDATE_CHANNEL=staging sh`
+     (#5032: a staging cut publishes its installer as `/setup-staging`; `/setup` stays prod's until the promote)
      (the var MUST be on the `sh`, right of the pipe -- an env prefix binds to the LEFT of a pipe, so
      `KOSMOS_UPDATE_CHANNEL=staging curl ... | sh` sets it for curl and setup installs PROD, not staging)
    - an existing box's auto-updater: set `AGENT_WORKFORCE_UPDATE_CHANNEL=staging` for it (e.g. in
@@ -60,6 +61,12 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    which arm failed -- a routed decision (ship the Claude fix + gating now and chase the codex
    issue separately, or hold for a ruling), never a hard auto-hold. So you cannot promote from a
    machine that cannot test either class.
+   **#5032: it also copies the staging installer onto `/setup`** (`setup-staging` and its `.sha256`
+   onto `setup` and `setup.sha256`), refusing BEFORE any write when that pair is uncommitted, differs
+   from its committed copy, or its sidecar does not name its bytes. A site whose last staging cut
+   predates #5032 has no `setup-staging`; then `/setup` is left alone (it already carries that
+   installer). **Commit `setup` and `setup.sha256` with `latest.json`**: `deploy-site.sh --promote`
+   refuses a committed `/setup` that is not the committed `setup-staging`.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**
@@ -111,7 +118,7 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    bash <<'DEPLOY'
    set -eu
    S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce
-   git -C "$S" diff --quiet -- dist/latest.json || git -C "$S" commit -- dist/latest.json -m "promote <V> to prod"   # skip commit on a re-run where it is already committed
+   git -C "$S" diff --quiet -- dist/latest.json setup setup.sha256 || git -C "$S" commit -- dist/latest.json setup setup.sha256 -m "promote <V> to prod"   # skip commit on a re-run where it is already committed; #5032: the installer pair rides with the pointer
    git -C "$S" push origin HEAD:refs/heads/main   # a failed push must NOT proceed to a deploy (set -e stops here)
    . "$R/tools/lib/site-deploy.sh"; . "$R/tools/lib/pkg-inputs.sh"
    EXPORT=$(mktemp -d); trap 'rm -rf "$EXPORT"' EXIT   # removed on ANY exit: success, a guard, or a failed deploy

@@ -442,6 +442,18 @@ if [ "$PROMOTE" = 1 ]; then
   [ -n "$ART" ] || { echo "deploy-site: --promote: the committed latest.json names no artifact -- refusing"; exit 1; }
   CSHA=$(ptr_sha "$CJ")
   [ -n "$CSHA" ] || { echo "deploy-site: --promote: the committed latest.json names no sha256 -- refusing"; exit 1; }
+  # #5032: the installer moves with the pointer. When the site carries a committed staging installer,
+  # promote-channel.sh copied it onto /setup; the committed /setup must BE it (same blob), or this
+  # deploy would publish the promoted pointer beside the PRIOR prod installer. Compared as git blob
+  # ids, which are equal exactly when the bytes are. A site with no setup-staging (its staging cut
+  # predates #5032) is not checked: /setup already carried that cut's installer.
+  if git -C "$SITE" rev-parse -q --verify "$H:setup-staging" >/dev/null 2>&1; then
+    for _p in setup setup.sha256; do
+      _q="setup-staging${_p#setup}"   # setup -> setup-staging, setup.sha256 -> setup-staging.sha256
+      [ "$(git -C "$SITE" rev-parse -q --verify "$H:$_p" 2>/dev/null)" = "$(git -C "$SITE" rev-parse -q --verify "$H:$_q" 2>/dev/null)" ] \
+        || { echo "deploy-site: --promote: the committed $_p is not the committed $_q -- refusing. promote-channel.sh copies the staging installer onto /setup; commit setup and setup.sha256 with latest.json (#5032)."; exit 1; }
+    done
+  fi
 else
   ART=$(ptr_artifact "$LJ")
   [ -n "$ART" ] || { echo "deploy-site: latest.json names no artifact -- refusing"; exit 1; }
@@ -1126,6 +1138,19 @@ _svsetup_sum=$(mktemp "${TMPDIR:-/tmp}/deploy-site-setupsum.XXXXXX")
 curl -fsSL -H 'Cache-Control: no-cache' "$HOST/setup.sha256" -o "$_svsetup_sum" || { echo "deploy-site: could not fetch the served /setup.sha256 after deploy -- refusing (the .pkg postinstall REFUSES the install when this sidecar is unreachable, so a client would hit the same failure)."; rm -f "$_svsetup_sum"; exit 1; }
 _svsetup_want=$(awk '{print $1; exit}' "$_svsetup_sum"); rm -f "$_svsetup_sum"
 [ -n "$_svsetup_want" ] && [ "$_svsetup_want" = "$_svsetup_got" ] || { echo "deploy-site: the served /setup (sha $_svsetup_got) does NOT match its served /setup.sha256 (${_svsetup_want:-<none>}) -- refusing to certify. This is exactly what makes the .pkg postinstall refuse with \"installation failed\" (#1666/#2511): a half-published or half-warmed-CDN state where a client can fetch a mismatched (setup, setup.sha256) pair. Re-run the deploy and/or purge+warm the edge for /setup and /setup.sha256."; exit 1; }
+
+# #5032: the staging installer pair, the same edge check, when the deployed site carries one (a staging
+# cut publishes /setup-staging; staging boxes update from it). Absent from the commit = nothing to check.
+if git -C "$SITE" rev-parse -q --verify "$H:setup-staging" >/dev/null 2>&1; then
+  served_verify_asset_ok "$HOST/setup-staging" "/setup-staging" || { echo "deploy-site: /setup-staging failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+  _svss=$(mktemp "${TMPDIR:-/tmp}/deploy-site-setupst.XXXXXX")
+  curl -fsSL -H 'Cache-Control: no-cache' "$HOST/setup-staging" -o "$_svss" || { echo "deploy-site: could not re-fetch the served /setup-staging after deploy -- investigate."; rm -f "$_svss"; exit 1; }
+  _svss_got=$(shasum -a 256 < "$_svss" | awk '{print $1}'); rm -f "$_svss"
+  _svss_sum=$(mktemp "${TMPDIR:-/tmp}/deploy-site-setupstsum.XXXXXX")
+  curl -fsSL -H 'Cache-Control: no-cache' "$HOST/setup-staging.sha256" -o "$_svss_sum" || { echo "deploy-site: could not fetch the served /setup-staging.sha256 after deploy -- investigate."; rm -f "$_svss_sum"; exit 1; }
+  _svss_want=$(awk '{print $1; exit}' "$_svss_sum"); rm -f "$_svss_sum"
+  [ -n "$_svss_want" ] && [ "$_svss_want" = "$_svss_got" ] || { echo "deploy-site: the served /setup-staging (sha $_svss_got) does NOT match its served /setup-staging.sha256 (${_svss_want:-<none>}) -- refusing to certify. Re-run the deploy and/or purge+warm the edge for both."; exit 1; }
+fi
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
 [ -z "$WIN_CLOSING_NOTES" ] || printf '%s' "$WIN_CLOSING_NOTES"
