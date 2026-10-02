@@ -68,6 +68,7 @@ jobs:
           UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
           test -f "$UNIT_FILE"
           grep -q "Description=Kosmos Board" "$UNIT_FILE"
+          grep -q "ConditionPathExists=!$KOSMOS_HOME/board.stopped" "$UNIT_FILE"
           grep -q "ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run" "$UNIT_FILE"
 
       - name: Verify board responsiveness
