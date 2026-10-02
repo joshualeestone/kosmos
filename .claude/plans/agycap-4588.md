@@ -63,3 +63,22 @@ happen while the person is messaging all of them directly.
   - the choices read No limit, 1 agent, 2 to 4 agents
   - the default is No limit
   - choosing 2 saves it
+
+## Review 1 (opus) and what changed
+- **BLOCKER, a burst was not capped:** a card reads `working` only after the next report, so a fan-out from one
+  roster let every idle agent through. Now an automatic line reserves its agent at the gate (CAP_STARTS), before the
+  first await, so a parallel fan-out sees it. The reservation counts as working for CAP_START_MS (3 min), or until the
+  card says so, and a delivery that reached nothing gives it back. Tested: two parallel sends at cap 1 give exactly
+  one held, and dropping the reservation reds it.
+- **The resume sweep was uncapped:** at the cap it now skips without spending a try, and a resume that reached the
+  pane reserves its slot. Removing the gate reds it.
+- **A cap-held plain post to an idle member was never retried:** while a cap is set, flushReleased no longer applies
+  the #4624 idle-plain skip, so those posts flush when the cap allows. The no-cap control keeps the old rule.
+- **The page and API said "the quota is out" for a cap hold:** the verdict now carries `heldBy: 'quota' | 'cap'`, and
+  `recordedBecause` and wakeHeldLine name the cap. The reply-nudge and recommender log lines name both holds.
+- **UI:**
+  - `ok:false` shows "We could not read the saved limit, so no limit applies."
+  - A failed save repaints the stored value even while the select has focus.
+  - The visible label is the select's accessible name (the extra aria-label is gone).
+- Four source pins in server.agyhold-4588.test.js and replynudge-4951.test.js now name heldForAgy, and the givePart
+  pin also checks heldForCap before assignPart.

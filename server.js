@@ -14993,7 +14993,9 @@ const server = http.createServer(async (req, res) => {
            heldUntil included, and the caller treats anything but placed as not said. */
         if (automatic && delivery && delivery.held === true) {
           sendJson(res, 200, { delivery, recorded: false,
-            recordedBecause: 'held: nothing was typed while the shared quota is out, so nothing was kept' });
+            recordedBecause: delivery.heldBy === 'cap'
+              ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
+              : 'held: nothing was typed while the shared quota is out, so nothing was kept' });
           return;
         }
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
@@ -19512,7 +19514,7 @@ function start(port = PORT) {
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
-              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota, not convened yet\n`);
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held on the shared Google quota or the Gemini limit, not convened yet\n`);
               continue;
             }
             process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);

@@ -1709,25 +1709,39 @@ function quotaHeldVerdict(sessionName, roster) {
   let until = null;
   try { until = require('./agyquota').heldForQuota(sessionName, roster, now); } catch { until = null; }
   let because = null;
+  let heldBy = 'quota';   // #4588 ask 3 review 1: which hold, so no surface says "the quota is out" for the cap
   if (until !== null) because = "held: this machine's Google account's shared Antigravity quota is out until " + new Date(until).toISOString();
   else {
+    heldBy = 'cap';
     // #4588 ask 3: the person's cap on how many Antigravity agents work at once (Settings > Automation).
     try { until = require('./agyquota').heldForCap(sessionName, roster, now); } catch { until = null; }
     if (until === null) return null;
     because = 'held: the Gemini agents on this computer are at the limit you set for working at once; looking again at ' + new Date(until).toISOString();
   }
   return {
-    state: DELIVERY.COULD_NOT, held: true, heldUntil: new Date(until).toISOString(), because,
+    state: DELIVERY.COULD_NOT, held: true, heldBy, heldUntil: new Date(until).toISOString(), because,
     at: new Date().toISOString(), paneState: null, paneNote: null,
   };
 }
 function deliverAutomatic(sessionName, raw, roster, envelope, trailer) {
-  return quotaHeldVerdict(sessionName, roster) || deliver(sessionName, raw, roster, envelope, trailer);
+  const held = quotaHeldVerdict(sessionName, roster);
+  if (held) return held;
+  // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
+  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
+  const v = deliver(sessionName, raw, roster, envelope, trailer);
+  if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
+  return v;
 }
 /* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
    delivered by sendPostAsync, the #4624 idle flush). */
 async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer) {
-  return quotaHeldVerdict(sessionName, roster) || deliverAsync(sessionName, raw, roster, envelope, trailer);
+  const held = quotaHeldVerdict(sessionName, roster);
+  if (held) return held;
+  // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
+  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
+  const v = await deliverAsync(sessionName, raw, roster, envelope, trailer);
+  if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
+  return v;
 }
 
 async function deliverAsync(sessionName, raw, roster, envelope, trailer) {

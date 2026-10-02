@@ -311,7 +311,7 @@ test('#4951 review 4 (Opus): an agent held on its Google quota is not read and t
   assert.deepEqual(r.results.filter((x) => x.act === 'quota-held').map((x) => x.session), ['kim', 'ann']);
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.equal(rosterSeen, o.roster, 'review 6: the quota check was not given the pass\'s roster');
-  assert.match(src, /quotaHeld: \(session, roster\) => require\('\.\/engine\/agyquota'\)\.heldForQuota\(session, roster, /, 'server.js does not pass the quota gate with the pass\'s roster (no new snapshot per agent)');
+  assert.match(src, /quotaHeld: \(session, roster\) => require\('\.\/engine\/agyquota'\)\.heldForAgy\(session, roster, /, 'server.js does not pass the quota gate (and #4588 ask 3\'s cap) with the pass\'s roster (no new snapshot per agent)');
 });
 
 test('#4951 review 4 (Opus): an unreadable told record costs no service read, and the skip is said once, not every pass', async () => {

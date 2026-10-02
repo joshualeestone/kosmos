@@ -219,9 +219,9 @@ test('#4588 B pin: the agy-quota-resume sweep stays on chat.deliver (it is the l
   assert.match(CODE.slice(Math.max(0, at - 200), at), /agyQuota\.makeTick\(\{\s*[\s\S]*$/);
 });
 
-test('#4588 B pin: the recommender passes heldUntil built on agyQuota.heldForQuota over its roster', () => {
+test('#4588 B pin: the recommender passes heldUntil built on agyQuota.heldForAgy (the quota hold, then #4588 ask 3\'s cap) over its roster', () => {
   const w = windowAfter('recommender.runOnce({');
-  assert.match(w, /heldUntil:\s*\(session\)\s*=>\s*agyQuota\.heldForQuota\(session, roster, Date\.now\(\)\)/);
+  assert.match(w, /heldUntil:\s*\(session\)\s*=>\s*agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)/);
   // agyQuota is declared in code before the recommender runner that closes over it.
   const decl = CODE.indexOf("const agyQuota = require('./engine/agyquota');");
   assert.notEqual(decl, -1);
@@ -241,15 +241,18 @@ test('#4588 B pin: only the auto-retell timer passes { automatic: true }, and re
   assert.ok(calls.some((c) => /^retellMember\(name, id, roster\)/.test(c)), 'CONTROL: the person\'s Try again route still retells without automatic');
 });
 
-test('#4588 B pin: givePart checks heldForQuota inside its assigner branch BEFORE tasks.assignPart', () => {
+test('#4588 B pin: givePart checks heldForQuota, then #4588 ask 3\'s heldForCap, inside its assigner branch BEFORE tasks.assignPart', () => {
   const fnAt = CODE.indexOf('function givePart(');
   assert.notEqual(fnAt, -1);
   const body = CODE.slice(fnAt, CODE.indexOf('\nfunction ', fnAt + 1));
-  const held = body.search(/heldForQuota\(who, roster \|\| safeRoster\(\), Date\.now\(\)\)/);
+  assert.match(body, /const r = roster \|\| safeRoster\(\);/, 'the hold checks no longer read the roster the assigner passed');
+  const held = body.search(/heldForQuota\(who, r, now\)/);
+  const cap = body.search(/heldForCap\(who, r, now\)/);
   const assign = body.indexOf('tasks.assignPart(');
   assert.notEqual(held, -1, 'givePart no longer checks heldForQuota');
+  assert.notEqual(cap, -1, 'givePart no longer checks the Gemini cap');
   assert.notEqual(assign, -1);
-  assert.ok(held < assign, 'the hold is checked after the part is assigned');
+  assert.ok(held < assign && cap < assign, 'a hold is checked after the part is assigned');
   const branch = body.lastIndexOf('if (assigner) {', held);
   assert.notEqual(branch, -1, 'the hold check is not inside an assigner branch');
   assert.match(body.slice(held, assign), /status:\s*409,\s*held:\s*true/);
@@ -260,10 +263,10 @@ test('#4588 B pin: the auto-retell\'s ready() holds a running agent on the pool 
   assert.notEqual(at, -1, 'the auto-retell ready() was not found');
   assert.equal(CODE.indexOf('ready: (name) => {', at + 1), -1, 'ready() anchor is not unique');
   const body = CODE.slice(at, CODE.indexOf('},', at));
-  const held = body.search(/heldForQuota\(card\.sessionName, board\(\), now\)/);
+  const held = body.search(/heldForAgy\(card\.sessionName, board\(\), now\)/);   // #4588 ask 3: the quota hold, then the cap
   const stopped = body.indexOf('STATE.STOPPED');
   const told = body.indexOf('projects.toldOverride(');
-  assert.ok(held > -1, 'ready() does not ask heldForQuota');
+  assert.ok(held > -1, 'ready() does not ask heldForAgy');
   assert.match(body, /if \(held !== null\) return false;/, 'a held agent is not reported not-ready');
   assert.ok(stopped > -1 && stopped < held, 'a stopped agent must still be ready first (it reads its file at its next start)');
   assert.ok(told > held, 'the hold must come before the staleness read decides readiness');

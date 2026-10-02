@@ -17349,7 +17349,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Gemini agents at once</h3>
       <div class="frow" id="agycap-row" hidden style="margin-top:14px; align-items:center; gap:8px;">
         <label class="dhint" for="agycap-max" style="margin:0;">Working at the same time</label>
-        <select id="agycap-max" aria-label="How many Gemini agents may work at the same time"></select>
+        <select id="agycap-max"></select>
       </div>
       <p class="dhint" style="margin:8px 0 0;">Gemini agents on this computer share one Google account's quota, so several working at once can use it up together. With a limit, Kosmos waits to send automatic messages and tasks to the others until one finishes. Your own messages always go straight through. No limit by default.</p>
       <p class="dhint" id="agycap-msg" role="status" style="margin:8px 0 0;"></p>
@@ -24115,17 +24115,18 @@ document.getElementById('hb-interval') && document.getElementById('hb-interval')
    from the server's answer. AGYCAP_EPOCH: a slow GET cannot repaint over a newer save. */
 let AGYCAP_EPOCH = 0;
 function agycapLabel(n) { return n === 0 ? 'No limit' : (n === 1 ? '1 agent' : n + ' agents'); }
-function agycapShow(r) {
+function agycapShow(r, force) {
   const sel = document.getElementById('agycap-max');
   const row = document.getElementById('agycap-row');
   if (Array.isArray(r.choices)) {
     const html = r.choices.map((n) => '<option value="' + Number(n) + '">' + agycapLabel(Number(n)) + '</option>').join('');
     if (sel.innerHTML !== html) sel.innerHTML = html;
   }
-  if (document.activeElement !== sel) sel.value = String(Number(r.maxWorking) || 0);
+  // force: after a failed save the select must show the stored value even while it has focus (it just changed).
+  if (force || document.activeElement !== sel) sel.value = String(Number(r.maxWorking) || 0);
   if (row) row.hidden = false;
 }
-async function paintAgycap() {
+async function paintAgycap(force) {
   const mine = ++AGYCAP_EPOCH;
   const sel = document.getElementById('agycap-max');
   const row = document.getElementById('agycap-row');
@@ -24137,8 +24138,9 @@ async function paintAgycap() {
     if (!res.ok) throw new Error('not ok');
     const r = await res.json();
     if (mine !== AGYCAP_EPOCH) return;
-    agycapShow(r);
-    if (msg) msg.textContent = '';
+    agycapShow(r, force);
+    // A saved file that could not be read is served as no limit (ok false): say so rather than show a quiet "No limit".
+    if (msg) msg.textContent = r.ok === false ? 'We could not read the saved limit, so no limit applies.' : '';
   } catch {
     if (mine !== AGYCAP_EPOCH) return;
     if (row) row.hidden = true;
@@ -24157,11 +24159,13 @@ async function agycapChange() {
     });
     const out = await res.json().catch(() => ({}));
     if (mine !== AGYCAP_EPOCH) return;
-    if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; paintAgycap(); return; }
-    agycapShow(out);
+    if (!res.ok) { await paintAgycap(true); if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
+    agycapShow(out, true);
     if (msg) msg.textContent = '';
   } catch {
-    if (mine === AGYCAP_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
+    if (mine !== AGYCAP_EPOCH) return;
+    await paintAgycap(true);   // never leave a choice on screen that was not saved
+    if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
   }
 }
 document.getElementById('agycap-max') && document.getElementById('agycap-max').addEventListener('change', agycapChange);
@@ -53740,6 +53744,11 @@ async function restartReadyWait(name, mine) {
    (quotaResetWords); a missing or past time just says the quota is out. Guarded with typeof, so the lifted unit
    tests (no page globals) still read. */
 function wakeHeldLine(manualText, delivery) {
+  /* #4588 ask 3: held by the person's own cap on Gemini agents at once, not by the quota. No time: the cap lifts when
+     another agent finishes, not at a clock time. */
+  if (delivery && delivery.heldBy === 'cap') {
+    return manualText + ' The Gemini agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.';
+  }
   const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
   const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
   return manualText + ' ' + (when

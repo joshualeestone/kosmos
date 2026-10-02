@@ -123,6 +123,25 @@ function heldForQuota(session, roster, now, memo = POOL_MEMO, env = process.env)
    it starts no new work beside the others. No limit (0, the default), the quota-hold brake, or a setting that cannot
    be read holds nothing. A person's own message never comes here (chat.deliver is not gated). */
 const CAP_RECHECK_MS = 60 * 1000;
+/* Review 1 (a blocker): a card reads `working` only once the agent's next report lands, so a fan-out from one roster
+   (a room post to six idle agents, the assigner's loop, a held-post flush) saw nobody working and let them all
+   through. So an automatic line about to be typed RESERVES its agent here, at the gate, before the keystroke (a
+   parallel fan-out sees the reservation), and it counts as working for CAP_START_MS or until its card says so. A
+   delivery that reached nothing gives it back (releaseCapStart). In memory only: a board restart forgets them, and the
+   cards take over within a report. */
+const CAP_START_MS = 3 * 60 * 1000;
+const CAP_STARTS = new Map();   // session name -> when its automatic line was let through
+function startedRecently(name, now) {
+  const at = CAP_STARTS.get(name);
+  if (at === undefined) return false;
+  if (now - at >= CAP_START_MS || at > now) { CAP_STARTS.delete(name); return false; }
+  return true;
+}
+function busyAgy(c, now) {
+  return isOurAgy(c) && c.sessionName && (c.state === 'working' || startedRecently(String(c.sessionName), now));
+}
+/* Counts what the cards say: an agent in a long tool run whose `working` report has decayed reads unknown and stops
+   counting, so the cap can undercount then (the permissive side). */
 function heldForCap(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env) {
   if (quotaHoldOff(env)) return null;
   let max = 0;
@@ -130,11 +149,24 @@ function heldForCap(session, roster, now, readCap = () => require('./agycap-sett
   if (max <= 0) return null;
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
-  if (!isOurAgy(card) || card.state === 'working') return null;
+  if (!isOurAgy(card) || busyAgy(card, now)) return null;
   const self = String(card.sessionName);
-  const working = (Array.isArray(roster) ? roster : [])
-    .filter((c) => isOurAgy(c) && c.sessionName && String(c.sessionName) !== self && c.state === 'working').length;
-  return working >= max ? now + CAP_RECHECK_MS : null;
+  const busy = (Array.isArray(roster) ? roster : [])
+    .filter((c) => c && String(c.sessionName) !== self && busyAgy(c, now)).length;
+  return busy >= max ? now + CAP_RECHECK_MS : null;
+}
+/* Reserve `session`'s slot for an automatic line about to be typed (only our antigravity agents). Returns a token for
+   releaseCapStart, or null. */
+function noteCapStart(session, roster, now) {
+  let card = null;
+  try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
+  if (!isOurAgy(card)) return null;
+  const name = String(card.sessionName);
+  CAP_STARTS.set(name, now);
+  return { name, at: now };
+}
+function releaseCapStart(token) {
+  if (token && CAP_STARTS.get(token.name) === token.at) CAP_STARTS.delete(token.name);
 }
 /* Every automatic sender's one question, "may this agent be sent automatic work now?": the shared quota first, then the
    person's cap. When to look again, or null. */
@@ -219,6 +251,11 @@ function sweepOnce(o) {
     if (!due.length) return { results };
     due.sort((a, b) => (a.at - b.at) || String(a.session).localeCompare(String(b.session)));
     const d = due[0];
+    /* #4588 ask 3 (review 1): the person's cap applies to resumes too. At the cap, nobody is resumed this tick and no
+       try is spent; the next tick looks again. */
+    if (heldForCap(d.session, o.roster, now, o.readCap, o.env === undefined ? process.env : o.env) !== null) {
+      return { results, skipped: 'the Gemini agents are at the limit set for working at once' };
+    }
     let state = null;
     try { const r = o.deliver(d.session, NUDGE_TEXT, o.roster); state = r && r.state; }
     catch (err) { state = 'threw: ' + String((err && err.message) || err); }
@@ -228,7 +265,7 @@ function sweepOnce(o) {
     const tries = (d.entry && d.entry.until === d.report.until && Number.isInteger(d.entry.tries) ? d.entry.tries : 0) + 1;
     book.set(d.session, { until: d.report.until, nudgedAt: mayHaveReached ? now : null, tries, lastTryAt: now, delivery: state });
     // Only a line that may have reached the pane spaces the next agent out: a refusal reached nobody (review 2).
-    if (mayHaveReached) book.set(LAST, now);
+    if (mayHaveReached) { book.set(LAST, now); noteCapStart(d.session, o.roster, now); }
     const gaveUp = !mayHaveReached && tries >= MAX_TRIES;
     const r = { session: d.session, name: d.card.name || d.session, act: gaveUp ? 'gave-up' : 'nudge', delivered, delivery: state,
       because: gaveUp ? d.because + '; nothing reached the pane in ' + tries + ' tries, so it is left idle with its turn unfinished until someone messages it' : d.because, waiting: due.length - 1 };
@@ -255,4 +292,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { CAP_RECHECK_MS, heldForCap, heldForAgy, GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { CAP_RECHECK_MS, CAP_START_MS, CAP_STARTS, noteCapStart, releaseCapStart, heldForCap, heldForAgy, GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

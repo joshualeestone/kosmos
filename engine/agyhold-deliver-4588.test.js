@@ -89,6 +89,7 @@ test('#4588 B deliverAutomatic: a held agy target (the paused one AND its idle c
     assert.equal(v.held, true, target + ': only the new held branch sets held');
     assert.equal(v.heldUntil, until, target);
     assert.match(v.because, /quota/);
+    assert.equal(v.heldBy, 'quota', target);
     assert.deepEqual(SPAWNED, [], target + ': a held line started a process');
   }
 });
@@ -151,7 +152,27 @@ test('#4588 ask 3 deliverAutomatic: at the cap, an automatic line to an idle agy
     assert.equal(v.state, DELIVERY.COULD_NOT);
     assert.equal(v.held, true);
     assert.match(v.because, /limit you set for working at once/);
+    assert.equal(v.heldBy, 'cap', 'the verdict says which hold, so no surface reads "the quota is out" for the cap');
     assert.ok(Date.parse(v.heldUntil) > Date.now(), 'held until a moment ahead (the next look)');
     assert.deepEqual(SPAWNED, [], 'a held line started a process');
   } finally { fs.rmSync(capSetting.FILE, { force: true }); }
+});
+
+/* #4588 ask 3 review 1 (a blocker): a fan-out from ONE roster to idle agents, with nobody working yet. The slot is
+   reserved at the gate before the first await, so the second parallel send is held. */
+test('#4588 ask 3: two parallel automatic sends from one roster at cap 1: exactly one is held (the reservation counts)', async () => {
+  const capSetting = require('./agycap-setting');
+  const q = require('./agyquota');
+  q.CAP_STARTS.clear();
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    const r = heldRoster(null).map((c) => (c.runner === 'antigravity' ? { ...c, state: 'idle' } : c));
+    SPAWNED.length = 0;
+    const [a, b] = await Promise.all([chat.deliverAutomaticAsync('agy-paused', 'post', r), chat.deliverAutomaticAsync('agy-idle', 'post', r)]);
+    assert.notEqual(a.held, true, 'the first send is let through');
+    assert.equal(b.held, true, 'the second, from the same roster, is held: the first reserved the only slot');
+    assert.equal(b.heldBy, 'cap');
+    // The first one's delivery reached nothing here (the spy refuses every process), so its slot was given back.
+    assert.equal(q.CAP_STARTS.has('agy-paused'), false, 'a COULD_NOT delivery gives the reservation back');
+  } finally { fs.rmSync(capSetting.FILE, { force: true }); require('./agyquota').CAP_STARTS.clear(); }
 });

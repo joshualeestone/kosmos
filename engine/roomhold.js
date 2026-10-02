@@ -277,7 +277,11 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       /* #4624 follow-up (review 1/2): an idle member holding only posts that ask nothing of it waits for its next wake,
          as on every other runner; this minute retry is for posts the quota held that name it. That includes posts held
          while it worked whose turn-end line the quota refused: since the follow-up they wait for the next wake too. */
-      if (idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => plainId(x) !== x))) continue;
+      /* #4588 ask 3 (review 1): under the Gemini cap a post is held while its member is IDLE, so no wake will come for it;
+         while a cap is set, those posts flush here once the cap lets the member through. */
+      let capOn = false;
+      try { capOn = Number(require('./agycap-setting').read().maxWorking) > 0; } catch { capOn = false; }
+      if (!capOn && idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => plainId(x) !== x))) continue;
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */
       if (require('./chat').addressable(name, roster).ok !== true) continue;

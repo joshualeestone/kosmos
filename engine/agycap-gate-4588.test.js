@@ -87,3 +87,39 @@ test('heldForAgy: the quota hold wins when both apply, and the cap applies when 
   assert.equal(q.heldForAgy('agy-c', open, NOW, q.POOL_MEMO, NOENV, cap(1)), NOW + q.CAP_RECHECK_MS);
   assert.equal(q.heldForAgy('agy-c', open, NOW, q.POOL_MEMO, NOENV, cap(0)), null);
 });
+
+test('review 1: a reservation counts as working until it is released or its window passes', () => {
+  q.CAP_STARTS.clear();
+  const r = world({ 'agy-a': 'idle', 'agy-b': 'idle', 'agy-c': 'idle', 'claude-x': 'idle' });
+  assert.equal(q.heldForCap('agy-b', r, NOW, cap(1), NOENV), null, 'CONTROL: nobody working, nobody reserved');
+  const tok = q.noteCapStart('agy-a', r, NOW);
+  assert.deepEqual(tok, { name: 'agy-a', at: NOW });
+  assert.equal(q.heldForCap('agy-b', r, NOW, cap(1), NOENV), NOW + q.CAP_RECHECK_MS, 'agy-a reserved fills the one slot');
+  assert.equal(q.heldForCap('agy-a', r, NOW, cap(1), NOENV), null, 'the reserved agent itself is not held (it counts as working)');
+  assert.equal(q.heldForCap('agy-b', r, NOW + q.CAP_START_MS, cap(1), NOENV), null, 'the reservation lapses after its window');
+  q.noteCapStart('agy-a', r, NOW);
+  q.releaseCapStart({ name: 'agy-a', at: NOW });
+  assert.equal(q.heldForCap('agy-b', r, NOW, cap(1), NOENV), null, 'a released reservation frees the slot');
+  assert.equal(q.noteCapStart('claude-x', r, NOW), null, 'a Claude agent is never reserved');
+  q.CAP_STARTS.clear();
+});
+
+test('review 1: the resume sweep is capped too, and spends no try while it waits', () => {
+  q.CAP_STARTS.clear();
+  const until = new Date(NOW - 10 * 60e3).toISOString();
+  const r = world({ 'agy-a': 'working', 'agy-b': 'idle', 'agy-c': 'idle', 'claude-x': 'idle' });
+  const report = { found: true, state: 'idle', by: 'auto', until, because: status.QUOTA_REPORT_PREFIX + ' Google said: ...', at: new Date(NOW - 30 * 60e3).toISOString() };
+  const book = new Map();
+  const sent = [];
+  const deliver = (s) => { sent.push(s); return { state: 'placed' }; };
+  const common = { roster: r, book, now: NOW, readReport: (s) => (s === 'agy-b' ? report : null), deliver, DELIVERY: { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' }, env: NOENV, memo: q.newPoolMemo() };
+  const held = q.sweepOnce({ ...common, readCap: cap(1) });
+  assert.match(held.skipped || '', /limit set for working at once/);
+  assert.deepEqual(sent, [], 'nothing typed at the cap');
+  assert.equal(book.has('agy-b'), false, 'no try spent');
+  const free = q.sweepOnce({ ...common, readCap: cap(2) });
+  assert.deepEqual(sent, ['agy-b'], 'CONTROL: under the cap the same sweep resumes it');
+  assert.equal(free.results.length, 1);
+  assert.equal(q.CAP_STARTS.has('agy-b'), true, 'a resume that reached the pane reserves its slot');
+  q.CAP_STARTS.clear();
+});
