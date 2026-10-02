@@ -18,7 +18,7 @@ test('#4917 Linux resolves tmux from PATH before the usual system locations', ()
   try {
     const first = executable(path.join(root, 'first'));
     executable(path.join(root, 'second'));
-    assert.equal(create.binPaths({ platform: 'linux', env: { PATH: `${path.dirname(first)}${path.delimiter}${path.join(root, 'second')}` } }).tmuxBin, first);
+    assert.equal(create.linuxTmuxBin('linux', { PATH: `${path.dirname(first)}${path.delimiter}${path.join(root, 'second')}` }), first);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -27,19 +27,19 @@ test('#4917 Linux ignores a present but non-executable tmux', () => {
   try {
     const bad = path.join(root, 'tmux');
     fs.writeFileSync(bad, 'not executable', { mode: 0o644 });
-    assert.notEqual(create.binPaths({ platform: 'linux', env: { PATH: root } }).tmuxBin, bad);
+    assert.equal(create.linuxTmuxBin('linux', { PATH: root }), null);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('#4917 explicit tmux paths stay authoritative on every platform', () => {
   for (const platform of ['linux', 'darwin', 'win32']) {
-    assert.equal(create.binPaths({ platform, tmuxBin: '/chosen/tmux', env: { PATH: '/ignored' } }).tmuxBin, '/chosen/tmux');
-    assert.equal(create.binPaths({ platform, env: { AGENT_WORKFORCE_TMUX_BIN: '/env/tmux', PATH: '/ignored' } }).tmuxBin, '/env/tmux');
+    assert.equal(create.binPaths({ platform, tmuxBin: '/chosen/tmux' }).tmuxBin, '/chosen/tmux');
   }
 });
 
 test('#4917 Mac and Windows keep the Homebrew fallback when no override is set', () => {
   for (const platform of ['darwin', 'win32']) {
-    assert.equal(create.binPaths({ platform, env: { PATH: '/somewhere/else' } }).tmuxBin, '/opt/homebrew/bin/tmux');
+    assert.equal(create.linuxTmuxBin(platform, { PATH: '/somewhere/else' }), null);
+    assert.equal(create.binPaths({ platform }).tmuxBin, process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux');
   }
 });

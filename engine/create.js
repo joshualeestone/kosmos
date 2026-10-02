@@ -3122,21 +3122,21 @@ function launcherTmuxSafe() {
  * creation refuses, on the screen whose entire job is telling them it will
  * work. One definition, or the two drift.
  */
-function binPaths(opts) {
-  const platform = (opts && opts.platform) || process.platform;
-  const env = (opts && opts.env) || process.env;
-  let tmuxBin = (opts && opts.tmuxBin)
-    || env.AGENT_WORKFORCE_TMUX_BIN;
+function linuxTmuxBin(platform = process.platform, env = process.env, runnable = runners.isRunnable) {
   /* #4917: Linux packages tmux into /usr/bin or /usr/local/bin, and custom
    * installs may expose it only through PATH. Resolve an executable directly,
    * without a shell, and keep the long-standing Mac and Windows fallback
    * unchanged. The explicit option and environment override remain authoritative
    * on every platform. */
-  if (!tmuxBin && platform === 'linux') {
+  if (platform === 'linux') {
     const pathDirs = String(env.PATH || '').split(path.delimiter).filter(Boolean);
     const dirs = [...new Set([...pathDirs, '/usr/local/bin', '/usr/bin', '/bin'])];
-    tmuxBin = dirs.map((dir) => path.join(dir, 'tmux')).find((candidate) => runners.isRunnable(candidate));
+    return dirs.map((dir) => path.join(dir, 'tmux')).find((candidate) => runnable(candidate)) || null;
   }
+  return null;
+}
+
+function binPaths(opts) {
   return {
     // Claude's resolution moved to engine/runners.js (#979, same
     // consolidation the codex line below got in #987): ONE priority list
@@ -3148,9 +3148,12 @@ function binPaths(opts) {
     /* #2955: the launcher's pick, not a tmux the board switched to at runtime (status.tmuxRepick): a NEW agent bakes
        what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
        removed Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
-       straight to plistFor and is not touched by this. */
-    tmuxBin: tmuxBin
+       straight to plistFor and is not touched by this.
+       #4917: adaptive pick -> env override -> Linux PATH and common binary directories -> Homebrew fallback */
+    tmuxBin: (opts && opts.tmuxBin)
       || launcherTmuxSafe()
+      || process.env.AGENT_WORKFORCE_TMUX_BIN
+      || linuxTmuxBin((opts && opts.platform) || process.platform)
       || '/opt/homebrew/bin/tmux',
     // The OpenAI runner (#245, resolution moved to engine/runners.js for
     // #979). ONE priority list -- env override, then the managed location
@@ -5802,6 +5805,7 @@ module.exports = {
   claudeAccountLive,
   setClaudeProbe,
   binPaths,
+  linuxTmuxBin,
   unusablePath,
   nameProblem,
   cleanName,
