@@ -37,9 +37,10 @@ out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$(stub s0 0)")"
 case "$out" in *"$SAID"*) fail "CONTROL: rc 0 (the Keychain answers) gave the note" ;; *) pass "CONTROL: rc 0 (the Keychain answers) says nothing" ;; esac
 out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$(stub s50 50)")"
 case "$out" in *"$SAID"*) fail "rc 50 (no keychain) gave the note" ;; *) pass "rc 50 (no keychain found) is not this cause: no note" ;; esac
-t0=$(date +%s); out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$(stub shang hang)")"; t1=$(date +%s)
+t0=$(date +%s); out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$(stub shang hang)" 2>&1)"; t1=$(date +%s)
 case "$out" in *"$SAID"*) fail "a hung probe gave the note" ;; *) pass "a probe that hangs (a dialog nobody answers) says nothing" ;; esac
 [ $((t1 - t0)) -le 6 ] && pass "and is cut within the 3 s bound (took $((t1 - t0)) s)" || fail "a hung probe held the start for $((t1 - t0)) s"
+case "$out" in *[Aa]larm*) fail "the cut printed the shell's signal report to the terminal: $out" ;; *) pass "and the cut prints nothing (no Alarm clock line)" ;; esac
 out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$T/no-such-security")"
 case "$out" in *"$SAID"*) fail "a missing security gave the note" ;; *) pass "no security binary: no note" ;; esac
 out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$(stub s36b 36)" KOSMOS_NO_KEYCHAIN_NOTE=1)"

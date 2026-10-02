@@ -11,7 +11,8 @@ itself. Measured on Mortals 2026-09-30, three arms. It cost 14 hours on 09-29 be
   branch returns, right before "Bringing the board up."). So `start`, `restart` (which calls cmd_start), `open` and the
   installer's start are all covered, and a SUPERVISED start (launchd kickstarts the login job in the person's desktop
   session, which can read the Keychain) and an already-running board say nothing.
-- On a Mac, when `security show-keychain-info "$HOME/Library/Keychains/login.keychain-db"` FAILS in this session, it
+- On a Mac, when `security show-keychain-info` (the DEFAULT keychain, the one claude reads; cut at 3 s) answers rc 36
+  ("User interaction is not allowed") in this session, and only then, it
   says in one sentence that this Kosmos cannot read the Mac's Keychain and will show Claude accounts as not signed in,
   and that running `kosmos restart` in Terminal on the Mac itself fixes it. An agent is told to ask the person.
   Always returns 0: advice, never a refusal.
@@ -59,3 +60,8 @@ credential. They matched on all three measured contexts, but the credential coul
 - Wording: "may show Claude accounts that are signed in on this Mac as not signed in" (API-key accounts and other
   providers are not affected); the comment says SSH "normally" cannot use the Keychain.
 Test: 17 arms. (Found by me while editing: a comment placed after `||` swallowed setup.sh's `die`; moved above.)
+
+## Review 3 (opus, blind, 2026-10-02 01:45): 0 blockers, 1 warning, 3 nits, all taken
+The 3 s cut no longer prints bash's "Alarm clock" line (braces around the probe; the hang arm now captures stderr and
+fails on it); the block moved above agent_board_guard's doc comment it had split from its function; the board's env -u
+lists scrub KOSMOS_NO_KEYCHAIN_NOTE like KOSMOS_RECLAIM_BUSY; the Change section describes the shipped probe.
