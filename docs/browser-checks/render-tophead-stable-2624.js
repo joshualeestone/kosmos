@@ -106,7 +106,7 @@ async function measure(page, view, notice, name) {
 
   const problems = [];
   const rows = [];
-  for (const width of [1440, 1100]) {
+  for (const width of [1440, 1100, 960]) {   // 960: the narrowest width with both views, the least room either side of the tabs
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     await page.goto('file://' + PAGE);
     const ref = await measure(page, 'consolidated', false);
@@ -171,7 +171,7 @@ async function measure(page, view, notice, name) {
     }
     // The center tabs sit on the same pixels in both views, whatever the Kosmos name's width: the consolidated header
     // used to lay them out after the left cluster (flex space-between), so a longer name moved them sideways when the
-    // view flipped (90px at 1400px with a 220px switcher). CONTROL: the long name really widened the switcher.
+    // view flipped (90.5px at 1440px with a 220px switcher). CONTROL: the long name really widened the switcher.
     const LONG = 'Weekend launch Kosmos for every computer';
     const long = {};
     for (const view of ['tabs', 'consolidated']) long[view] = await measure(page, view, false, LONG);

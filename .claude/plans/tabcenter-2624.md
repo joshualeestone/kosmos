@@ -22,6 +22,10 @@ cluster leaves.
 - render-tophead-stable-2624.js: measures the tabs' x and the switcher's width; a long-name arm per width fails if the
   tabs start at different x in the two views, or move with the name in one screen. CONTROL: the long name really
   widened the switcher. Mutation (the old flex rule back): 4 reds, "they move 90.5px when the view flips".
+  The check runs at 1440, 1100 and 960 (the narrowest width with both views); the 1400x950 and 1024x640 numbers above
+  are from the card's sizes, measured with ~/.cache/claude-handoffs/renet-header-2624-measure.js.
+- Review 1: the consolidated gap is now the tab view's 24px (it was 12px), so the two grids are the same by
+  construction, not only while both side columns have room.
 
 ## Checked, unchanged
 Headed or HEADED=0, on the branch: render-tophead-stable-2624 (with the new arm), render-tophead-consolidated-2282,
