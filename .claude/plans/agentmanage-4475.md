@@ -124,6 +124,6 @@ and cannot force a removal; the person (the board token) removes any agent exact
   unreadable history read as none, the target's end counted at the birth's exact time, the removal route ignoring
   `tookTokens`, create not recording it, the shared-key check removed, a malformed history time skipped, a malformed
   birth time accepted, the birth's `slug` ignored, the `slug === target` check removed, `tookTokens` checking only the
-  typed name's key, the launch hand-off deny removed, plus (re-run on this code at
+  typed name's key, the launch hand-off deny removed, an empty name set read as nothing ended, plus (re-run on this code at
   b54ebe022) the createdByName presence check, the key-only refusal, the board-name check, a slug comparison of the
   creator, and the team route recording the sessionName in place of the token name.
