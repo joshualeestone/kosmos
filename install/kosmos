@@ -105,9 +105,31 @@ URL="http://127.0.0.1:$PORT"
 # is using port" and start refused. Loopback is added to the caller's own NO_PROXY and no_proxy (curl reads
 # either), never replacing it; outside requests still use the proxy. Exported, so the board this CLI
 # starts, and through it every agent session, inherits the same loopback exemption (only loopback is added).
-case ",${NO_PROXY:-}," in *,127.0.0.1,*) ;; *) NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}" ;; esac
-case ",${no_proxy:-}," in *,127.0.0.1,*) ;; *) no_proxy="127.0.0.1,localhost${no_proxy:+,$no_proxy}" ;; esac
-export NO_PROXY no_proxy
+# #4933: BUT ONLY WHEN DIRECT LOOPBACK WORKS. Another kind of sandbox refuses direct loopback (the connection is
+# not permitted) while its proxy forwards to it, and there the exemption made status, reply and post all say Kosmos
+# is not running (the 0.7.15 diagnostic, Meta family). So when a proxy is set, one direct connection is tried first
+# (1 s): it connecting, or being REFUSED (nothing listening, so loopback itself works and the board is just down),
+# keeps the exemption; anything else (not permitted, a timeout) leaves loopback to the proxy. No proxy set: nothing
+# is tried and nothing changes. KOSMOS_LOOPBACK_PROBE_URL is a test seam for the probe's target only.
+_kosmos_loopback_direct() {
+  local _err _rc=0
+  _err="$(/usr/bin/curl --noproxy '*' -sS -o /dev/null --connect-timeout 1 -m 3 "${KOSMOS_LOOPBACK_PROBE_URL:-$URL/api/health}" 2>&1)" || _rc=$?
+  [ "$_rc" = 0 ] && return 0
+  case "$_err" in *[Rr]efused*) return 0 ;; esac
+  return 1
+}
+if [ -z "${http_proxy:-}${HTTP_PROXY:-}${https_proxy:-}${HTTPS_PROXY:-}${all_proxy:-}${ALL_PROXY:-}" ] || _kosmos_loopback_direct; then
+  case ",${NO_PROXY:-}," in *,127.0.0.1,*) ;; *) NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}" ;; esac
+  case ",${no_proxy:-}," in *,127.0.0.1,*) ;; *) no_proxy="127.0.0.1,localhost${no_proxy:+,$no_proxy}" ;; esac
+  export NO_PROXY no_proxy
+else
+  # Blocked: an exemption INHERITED from the board's own start (it exports one) would still send loopback past
+  # the proxy, so loopback is taken back out of both; the rest of the caller's list is kept.
+  _kosmos_unexempt() { printf ',%s,' "$1" | sed -e 's/,127\.0\.0\.1,/,/g' -e 's/,localhost,/,/g' -e 's/,127\.0\.0\.1,/,/g' -e 's/^,//' -e 's/,$//'; }
+  NO_PROXY="$(_kosmos_unexempt "${NO_PROXY:-}")"
+  no_proxy="$(_kosmos_unexempt "${no_proxy:-}")"
+  export NO_PROXY no_proxy
+fi
 PIDFILE="$KOSMOS_HOME/board.pid"
 # #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes
 # it (before it kills), `kosmos start` clears it (at the very top, before any bind

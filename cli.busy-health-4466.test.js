@@ -398,6 +398,39 @@ test('#4466 a proxy in the environment does not hide the board: loopback request
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
 
+/* #4933: the other proxy-only sandbox. Direct loopback is NOT permitted there and the proxy forwards to the board, so
+   the #4466 exemption sent every call past the one route that works ("Kosmos is not running"). Simulated with the probe
+   seam aimed at a local listener that accepts and never answers (curl times out: neither connected nor refused), and
+   a proxy that really forwards. The exemption the board's own start exported is inherited, as in a real agent. */
+test('#4933 where direct loopback is blocked and the proxy forwards, loopback goes through the proxy (status answers)', () => withBoard('ok', async (port) => {
+  const http = require('node:http');
+  const hits = [];
+  const proxy = http.createServer((req, res) => {
+    hits.push(req.url);
+    const up = http.request(req.url, { method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    up.on('error', () => { res.writeHead(502); res.end(); });
+    req.pipe(up);
+  });
+  const silent = require('node:net').createServer(() => { /* accepts, never answers */ });
+  await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+  await new Promise((r) => silent.listen(0, '127.0.0.1', r));
+  const p = 'http://127.0.0.1:' + proxy.address().port;
+  try {
+    const env = baseEnv(port, { http_proxy: p, HTTP_PROXY: p, all_proxy: p, ALL_PROXY: p,
+      NO_PROXY: '127.0.0.1,localhost,corp.example', no_proxy: '127.0.0.1,localhost,corp.example',
+      KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:' + silent.address().port + '/' });
+    const out = await runCli(['status'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.ok(hits.some((u) => u.includes(':' + port + '/')), 'the board was not reached through the proxy: ' + JSON.stringify(hits));
+    const left = await bash(`source "${CLI}"; printf '%s|%s' "$NO_PROXY" "$no_proxy"`, env);
+    assert.equal(left.stdout, 'corp.example|corp.example', 'the inherited loopback exemption was kept: ' + left.stdout);
+  } finally {
+    await new Promise((r) => proxy.close(r));
+    silent.close();
+  }
+}));
+
 test('#4466 start and status: a listener that IS the recorded board is running, never "another app" and never reclaimed', async () => {
   const port = await closedPort();
   // healthy() could not read it (a proxy in the way); board.pid names 4242 and 4242 holds the port.
