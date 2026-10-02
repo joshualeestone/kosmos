@@ -16,7 +16,8 @@ then the box and the line both emptied, which moved the thread.
 2a. Words put back are re-parked in `TALK_DRAFTS`, since a programmatic write fires no input event.
 2. `restoreUnsent`: every arm that used to leave the words in the box puts them back: could_not, unconfirmed and not
    recorded, and a failed POST. Never over words typed since. Into `TALK_DRAFTS[sentName]` when the flight moved.
-3. The line under the box stays empty during the flight; "Sending…" goes to the hidden `d-reply-say` announcer.
+3. The line under the box stays empty during the flight when the bubble is drawn (it still says "Sending…" when none
+   is); "Sending…" also goes to the hidden `d-reply-say` announcer.
 4. The pending bubble draws the reply header (`dmReplyHead`), adjacency taken from the newest kept row, so the kept
    row swaps in place.
 

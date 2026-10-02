@@ -35727,10 +35727,10 @@ async function sendTalk(text, attachment) {
      agent, so the words are in the box when they come back. Says whether the box holds them now, so the
      sentence under it never promises a box it did not fill. */
   let tookBox = false;
-  let answered = false;   // the board gave a verdict: from then on a throw is not a failed send
+  let delivered = false;  // the board's verdict placed or kept it: from then on a throw must not re-arm the words
   let sendGen = -1;       // this send's TALK_SEND_GEN, once it has said "Sending…"
   const restoreUnsent = () => {
-    if (!tookBox) return say.value.trim() === text;
+    if (!tookBox) return !flightMoved() && say.value.trim() === text;
     if (flightMoved()) {
       if (!(TALK_DRAFTS[sentName] || '').trim()) TALK_DRAFTS[sentName] = text;
       return false;
@@ -35787,6 +35787,8 @@ async function sendTalk(text, attachment) {
     const drawn = !!(th && th.__lastSession === sentName
       && th.querySelector('.dm-pending[data-mid="pending:' + TALK_PENDING[sentName].startedAt + '"]'));   // startedAt is a number
     tookBox = drawn && say.value.trim() === text;
+    /* With no bubble, nothing on screen would say it is on its way, so the line under the box says it. */
+    if (!drawn) msg.textContent = 'Sending…';
     if (tookBox) {
       say.value = ''; pjGrowComposer(say);
       if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
@@ -35803,7 +35805,7 @@ async function sendTalk(text, attachment) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
     const d = body.delivery || {};
-    answered = true;
+    delivered = d.state === 'placed' || body.recorded === true;
     /* The kept row takes over from the drawn one once the thread holds it. One the
        board did not keep stays drawn, as not sent, unless it reached the agent: then
        the line below says it was not kept, and the bubble goes. */
@@ -35899,9 +35901,10 @@ async function sendTalk(text, attachment) {
       flying.failed = true;
       flying.because = (err && err.message) || 'we could not send that';
     }
-    /* #4944: and back into the box, which was emptied at the press, but only when the board never gave a
-       verdict: a throw after one (a placed message included) must not re-arm words it already has. */
-    const inBox = answered ? true : restoreUnsent();
+    /* #4944: and back into the box, which was emptied at the press, unless the board's verdict placed or
+       kept it: a throw after that must not re-arm words it already has. Any other throw takes the not-kept
+       rule, whether or not a verdict had arrived. */
+    const inBox = delivered ? true : restoreUnsent();
     if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that')
       + (inBox ? '' : ' ' + dmNotSentWhere());
   } finally {

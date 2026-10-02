@@ -135,7 +135,7 @@ function readThread(page, words) {
     console.log('  at the press: ' + JSON.stringify(at));
     chk(at.bubbles === 1 && at.pending, 'the pending bubble is drawn at the press', JSON.stringify(at));
     chk(at.box === '', 'the box is empty in the same task the bubble is drawn (never in both places)', JSON.stringify(at.box));
-    chk(at.line === '', 'the line under the box does not repeat "Sending…"', JSON.stringify(at.line));
+    chk(at.line === '', 'with the bubble drawn, the line under the box does not repeat "Sending…"', JSON.stringify(at.line));
     await page.waitForFunction(() => window.__post !== null);
 
     /* 2. Kept: the kept row takes the bubble's place exactly, and the box stays empty. */
@@ -236,6 +236,7 @@ function readThread(page, words) {
     await page.evaluate(() => { TALK_QUERY = 'zzz-no-match'; });
     const searching = await press('while searching');
     chk(searching.bubbles === 0 && searching.box === 'while searching', 'no bubble while a search filters the thread, so the box keeps the words', JSON.stringify(searching));
+    chk(searching.line === 'Sending…', 'and with no bubble, the line under the box says it is on its way', JSON.stringify(searching.line));
     await page.waitForFunction(() => window.__post !== null);
     await page.evaluate(() => window.__post.reject(new TypeError('Failed to fetch')));
     await page.waitForTimeout(300);
@@ -361,7 +362,7 @@ function readThread(page, words) {
     /* 21. The screen reader hears "Sending…" at the press from the quiet announcer, and it is cleared after. */
     await reset(BASE);
     await press('heard, not shown');
-    await page.waitForTimeout(80);
+    await page.waitForFunction(() => document.getElementById('d-reply-say').textContent !== '', null, { timeout: 2000 }).catch(() => {});
     const heard = await page.evaluate(() => document.getElementById('d-reply-say').textContent);
     chk(heard === 'Sending…', 'the quiet announcer says "Sending…" during the flight', JSON.stringify(heard));
     await page.evaluate((fx) => { window.__fx = fx; window.__post.resolve({ delivery: { state: 'placed', paneState: 'idle' }, recorded: true, recordedBecause: null }); },
