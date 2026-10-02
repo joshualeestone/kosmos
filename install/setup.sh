@@ -2722,9 +2722,8 @@ _kosmos_put_board_back() {
     printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
   fi
 }
-# #5033: the three refusals at the pause (our board would not pause, another Kosmos on the port, another app on the
-# port) die BEFORE the put-back is armed, because starting our board there would collide. But our own `kosmos stop`
-# had already written board.stopped, and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once
+# #5033: the refusals at the pause for another Kosmos or another app on the port die BEFORE the put-back is armed,
+# because starting our board there would collide. But our own `kosmos stop` may already have written board.stopped, and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once
 # the port was free the board still stayed off. So: on a failed exit, a board.stopped that OUR stop wrote (the board
 # was meant to run, no marker before the run) is taken away. This script starts nothing; what supervises the board is
 # no longer held off by the marker, as before the run. Disarmed where the put-back is armed, so this rm reaches only
@@ -2817,6 +2816,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
             "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
             > "$_abortf"; } 2>/dev/null || true
+        _kosmos_marker_ours=no # #5033: not taken back here (a stop that failed to kill takes its own marker back)
         die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
       else
         # #964: our own board is not running, so a DIFFERENT Kosmos is holding this

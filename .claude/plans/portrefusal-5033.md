@@ -18,8 +18,10 @@ and the watchdog obey it, so the board stays off after the port is free.
 
 Rejected: arming the full put-back before the refusals (Angel's first suggestion): it would run
 `kosmos start` over a port another app or another Kosmos holds. Rejected: the another-app refusal only
-(the card's wording). The other two refusals leave the same marker for the same reason; clearing it there
-restores the state the run found (no marker) and starts nothing.
+(the card's wording): the another-Kosmos refusal can carry our marker too (our board killed, something
+still answering). Not taken back: the our-board-would-not-pause refusal. It needs board.pid to name a live
+board, which only happens after a failed kill, and install/kosmos cmd_stop takes its own marker back then,
+so any marker there is someone else's (review 3).
 
 Weakest premise: that any `board.stopped` present at the refusal was written by our own stop. It holds
 because `_kosmos_was_running=yes` requires no marker before the stop; a person writing one in the same
@@ -29,7 +31,8 @@ second (a `kosmos stop` during the update) would lose it.
 - order: the marker line sits directly after the pause's stop, before the three refusals; the disarm sits
   after the arming line and before the port wait.
 - another app on the port, board meant to run: marker gone, our board not started, refusal sentence kept.
-  The other two refusals' shipped die lines are driven the same way (marker gone, nothing started, sentence kept).
+  The another-Kosmos die is driven the same way; the our-board die is a control (disarmed, marker kept).
+  The fake stop always writes a marker, so these arms model the branches where the real stop can leave one.
 - controls: a board the person stopped keeps its marker; past the arming point a computer switched to
   connect keeps its marker; switched to connect before the refusal keeps it; exit 0 keeps it.
 
