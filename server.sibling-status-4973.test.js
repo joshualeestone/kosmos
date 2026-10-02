@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #4973: a read of /api/status that another of the person's computers' pages caused (Sec-Fetch-Site same-site or
- * cross-site; the #4812 relay passes that header through and rewrites Origin) gets the agents only: sessionName, name,
+ * cross-site; the #4812 relay passes that header through) gets the agents only: sessionName, name,
  * state (the guide left out). The board's own page (same-origin), an address-bar load (none) and the CLI (no header)
  * get the full answer.
  */

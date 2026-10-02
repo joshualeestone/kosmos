@@ -3694,9 +3694,10 @@ function withPreviews(rows) {
 }
 
 /* #4973: a read of /api/status that another of the person's computers' pages caused (#4812: the relay hands the board
-   token to a `same-site` read from the account's listed sibling origins, and passes Sec-Fetch-Site through while it
-   rewrites Origin to loopback). The browser's provenance is the only signal that survives the relay, the same one
-   crossSiteRead uses: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
+   token to a `same-site` read from the account's listed sibling origins, and passes that read's Origin and
+   Sec-Fetch-Site through unchanged; only this computer's OWN origin is rewritten to loopback, for the board's own
+   guards). Sec-Fetch-Site is the browser's own provenance (a page cannot set it), so the board reads it the way
+   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
    Agents view on the other computer uses sessionName, name and state, and the rest of the answer (the update state,
    updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business. A
    request with no Sec-Fetch-Site (curl, the CLI) is not a sibling read and gets the full answer. An OLD browser's
