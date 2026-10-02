@@ -52,3 +52,15 @@ and its other removals fall back to a later sweep. So a person removing Grok rig
 - removeTree's own tests (test-support.remove-tree.test.js) run everywhere: run them when no suite is live.
 - The grok and codex tests are win32-only (skipped on macOS/Linux), so local runs cannot exercise them. The PR's Windows CI shows no
   regression; the race is intermittent (1 red in 13 main runs), so closing needs several clean Windows runs.
+
+## Review (challenge loop, blind, alternating Opus/Sonnet)
+Converged at iteration 7 (Opus): no BLOCKER/WARNING/CONVENTION. Fixed along the way: maxRetries replaced by the
+shared removeTree (1: Node-version dependence); codex added (1); the moved tests listed for the Windows job (3);
+the grok after-hook leak check in a finally (4); win32 A keeps its assertion as the red (5); comments and plan
+brought in line with both (6). Deferred with reasons: the other bare removals in the win32 family (2, listed above).
+NIT left: removeTree's stderr prefix changed from "#5010:" to "test cleanup of" (nothing reads it).
+
+## Status
+- Full validation queued detached 18:36 (val-grokrm-5074.log). removeTree's five tests have not been run by me yet:
+  that validation runs them on macOS; the PR's Windows job runs them there.
+
