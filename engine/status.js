@@ -7690,7 +7690,21 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
       const onClaude = (p) => !nonClaude(p.runner)
         && !isAntigravityCommand(p.command) && !isCodexCommand(p.command) && !isGrokCommand(p.command);   // a pane not yet tagged: its command says
       const agents = panes.filter((p) => isNamedOurs(p) && onClaude(p)).map((p) => ({ name: p.name, target: p.target }));
-      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
+      /* #5018 (Josh): say which provider and email account the agents are signed in under, and name them the way he
+         named them. Every agent here runs on Claude (filtered above). The email is the account the credential's config
+         folder is signed in to (unset or empty: the default ~/.claude); null when it cannot be read, and the page then
+         names no email rather than a guess. */
+      const accounts = require('./accounts');
+      const nameOf = opts.displayName || ((n) => { try { return readIdentity(n).displayName || n; } catch { return n; } });
+      const emailOf = opts.emailOf || ((ccd) => {
+        try {
+          const dir = ccd ? ccd : require('node:path').join(accounts.homeDir(), '.claude');
+          const id = accounts.identityOf(dir);
+          return id && typeof id.email === 'string' && id.email ? id.email : null;
+        } catch { return null; }
+      });
+      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
+        .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf) }));
     },
   });
 }
