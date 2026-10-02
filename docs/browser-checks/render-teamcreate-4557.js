@@ -600,8 +600,10 @@ function chk(ok, label, extra) {
           Object.assign(stateOf, { 'h-auth': 'auth_failed', 'h-rate': 'rate_limited', 'h-stop': 'stopped', 'h-lost': 'connection_lost', 'h-idle': 'idle' });
           const heldSay = await page.evaluate(async () => { TC_STATUS_READ = null; return {} ; }).then(() => page.evaluate(async () => ({ auth: await tcHelloHeld('h-auth'), rate: await tcHelloHeld('h-rate'), stop: await tcHelloHeld('h-stop'),
             lost: await tcHelloHeld('h-lost'), idle: await tcHelloHeld('h-idle'), none: await tcHelloHeld('nobody-here') })));
-          chk(/sign-in failed/.test(heldSay.auth || '') && /at its limit/.test(heldSay.rate || '') && /not ready/.test(heldSay.stop || '') && /not ready/.test(heldSay.lost || '')
-            && heldSay.idle === null && heldSay.none === null, `${E} #4936 each held state says why; an idle member and one the board does not list hold nothing`, JSON.stringify(heldSay));
+          const txt = (h) => (h && h.text) || '';
+          chk(/sign-in failed/.test(txt(heldSay.auth)) && !heldSay.auth.transient && /at its limit/.test(txt(heldSay.rate)) && !heldSay.rate.transient
+            && /not ready/.test(txt(heldSay.stop)) && heldSay.stop.transient && /not ready/.test(txt(heldSay.lost)) && heldSay.lost.transient
+            && heldSay.idle === null && heldSay.none === null, `${E} #4936 each held state says why (not ready is waited out, the rest stop); an idle member and one the board does not list hold nothing`, JSON.stringify(heldSay));
           await page.route('**/api/status*', (r) => r.fulfill({ status: 500, body: 'no' }));
           chk(await page.evaluate(() => { TC_STATUS_READ = null; return tcHelloHeld('h-auth'); }) === null, `${E} #4936 a board that cannot be read holds nothing (the hello goes ahead)`);
           chk(errs.length === 0, `${E} no page errors (#4936 held-member arm)`, errs.join(' | '));

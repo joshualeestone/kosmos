@@ -48677,11 +48677,12 @@ async function tcHelloHeld(name) {
   const agents = await tcStatusAgents();
   const a = (agents || []).find((x) => x.sessionName === name) || null;
   if (!a) return null;
-  if (a.state === 'needs_you') return 'It is waiting on something on its page, so Kosmos did not type into it. See to it there, then Try again.';
-  if (a.state === 'auth_failed') return 'Its sign-in failed, so Kosmos did not say hello. Fix it on its page, then Try again.';
-  if (a.state === 'rate_limited') return 'Its account is at its limit right now, so Kosmos did not say hello. Try again later.';
+  // { text, transient }: transient holds are tried again by the loop (review 14); the rest stop it.
+  if (a.state === 'needs_you') return { text: 'It is waiting on something on its page, so Kosmos did not type into it. See to it there, then Try again.', transient: false };
+  if (a.state === 'auth_failed') return { text: 'Its sign-in failed, so Kosmos did not say hello. Fix it on its page, then Try again.', transient: false };
+  if (a.state === 'rate_limited') return { text: 'Its account is at its limit right now, so Kosmos did not say hello. Try again later.', transient: false };
   // Review 13: unknown too: engine/status.js says nothing may type into an UNKNOWN pane automatically.
-  if (['stopped', 'restarting', 'connection_lost', 'unknown'].includes(a.state)) return 'It is not ready to take a message yet. Try again in a moment.';
+  if (['stopped', 'restarting', 'connection_lost', 'unknown'].includes(a.state)) return { text: 'It is not ready to take a message yet. Try again in a moment.', transient: true };
   return null;
 }
 async function tcHelloOne(m, gen) {
@@ -48698,7 +48699,10 @@ async function tcHelloOne(m, gen) {
     if (gen !== TC_GEN) return;
     const held = await tcHelloHeld(m.made.name);
     if (gen !== TC_GEN || !TC) return;
-    if (held) { m.hello = 'failed'; m.helloWhy = held; tcPaint(); return; }
+    // Review 14: "not ready yet" (just made, still starting) is waited out like a busy window, try after try; a
+    // member that needs the person, is signed out or at its limit will not clear in seconds, so it stops at once.
+    if (held && held.transient) { got = 'failed'; why = held.text; TC_STATUS_READ = null; continue; }
+    if (held) { m.hello = 'failed'; m.helloWhy = held.text; tcPaint(); return; }
     ({ got, why } = await tcHelloSend(m.made.name));
   }
   if (gen !== TC_GEN || !TC) return;
