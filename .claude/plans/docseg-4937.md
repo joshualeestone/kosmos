@@ -36,6 +36,9 @@ the project folder" and delete or default to "In the project folder.""
 - Each open counts itself; neither read from an earlier open (the conversation's or the folder's) paints.
   A reopen while the room read was out appended its rows twice (check arm: 2 rows without the guard, 1 with,
   both engines, measured). Each open also hides the last project's pager until its own folder lists.
+- A conversation read that fails leaves the switch hidden and says nothing, as main's conversation list did
+  (the folder half stands alone). Not in the card; a sentence for it would be new copy on a failure nobody
+  has reported.
 - The conversation's segment has no count or pager: it never had one, so "its own count/paging" there is none. Below 400px wide the two segments share the row (at 320px the switch was 344px in a 296px
   view and the page scrolled sideways, measured on both engines).
 

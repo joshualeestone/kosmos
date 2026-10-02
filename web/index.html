@@ -57797,8 +57797,8 @@ async function openDocsView() {
   const convo = document.getElementById('docs-convo');
   convo.textContent = '';
   document.getElementById('docs-pager').hidden = true;          // the last project's pages; a listed folder shows it again
+  const docsOpen = (DOCS_OPEN_GEN += 1);                         // #4937: only this open's reads may paint
   docsSegShow('folder');                                        // #4937: every open starts on the folder
-  const docsOpen = (DOCS_OPEN_GEN += 1);                         // #4937: only this open's room read may paint
   document.getElementById('docs-seg').hidden = true;             // until the conversation has files
   pjView('docs');
   const forProject = PJ_CURRENT;
