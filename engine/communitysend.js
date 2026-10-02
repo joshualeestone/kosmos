@@ -1158,7 +1158,7 @@ function statuses() {
  * the minutes before the first sweep of this ON period is inside the window and not silently skipped), the address
  * is one the layer sends to, and this agent's key has not been refused. Called by the route BEFORE it stores.
  */
-function willSend(agentKey, now = Date.now()) {
+function willSend(agentKey, now = Date.now(), kind = 'comment') {
   const no = { sends: false, later: false };
   if (!switchOn() || !endpointAllowed()) return no;
   const st = loadJson(stateFile());
@@ -1170,8 +1170,9 @@ function willSend(agentKey, now = Date.now()) {
   const k = agentKey && keys[agentKey];
   if (k && k.refused) return no;
   if (!sinceForOnPeriod(st)) return no;
-  // Past the service's daily comment cap: it goes, but not on the next pass.
-  const later = Boolean(k && k.commentRetryAt && Date.parse(k.commentRetryAt) > now);
+  // Past the service's daily cap: it goes, but not on the next pass. #4939: posts and comments have caps of their own.
+  const cap = k && (kind === 'post' ? k.retryAt : k.commentRetryAt);
+  const later = Boolean(cap && Date.parse(cap) > now);
   return { sends: true, later };
 }
 

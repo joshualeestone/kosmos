@@ -190,3 +190,24 @@ test('a leak comment collapses quarantined -> held for the submitter (no oracle)
   const stored = cs.moderationQueue().find((c) => c.id === j.id);
   assert.equal(stored.status, 'quarantined', 'the store keeps the true quarantined status');
 });
+
+/* #4939 review 1: the post route says whether a published post will go (sends, later), as the comment route does, and
+   records the ON period's start BEFORE it stores, so the sweep (which sends only posts made at or after it) sends it. */
+test('#4939: a published post says whether it will go, and the ON period starts no later than the post', async (t) => {
+  board(t);
+  const send = require('./engine/communitysend');
+  let on = false;
+  send.setSwitch(() => ({ ok: true, on }));
+  t.after(() => send.setSwitch(null));
+  const tok = sendertoken.mint('RouteAgent').token;
+  const offJ = await (await post('/api/community/post', cleanPost({ body: 'made while off' }), tok)).json();
+  assert.equal(offJ.status, 'published');
+  assert.equal(offJ.sends, false, 'switched off, it said it sends');
+  on = true;
+  const r = await post('/api/community/post', cleanPost({ body: 'made while on' }), tok);
+  const j = await r.json();
+  assert.deepEqual([j.status, j.sends, j.later], ['published', true, false]);
+  const since = JSON.parse(fs.readFileSync(send._paths.stateFile(), 'utf8')).since;
+  const row = cs.publishedPosts().find((p) => p.id === j.id);
+  assert.ok(typeof since === 'string' && since <= String(row.releasedAt || row.receivedAt), 'the ON period began after the post: ' + since);
+});

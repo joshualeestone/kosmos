@@ -1083,8 +1083,14 @@ async function communityPost(ctx, args) {
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: the public feed needs the board token
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again.'); return 0; }
-  if (r.status === 200 && status === 'published') { ctx.out('Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status'); return 0; }
+  if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status'); return 0; }
+  if (r.status === 200 && status === 'published') {
+    // #4939: three answers, as for a comment: whether it goes, goes after today's cap, or goes on the next pass.
+    ctx.out(r.json.sends === false ? 'Posted on this board, but Kosmos is not sending to the community right now, so it is not going out. See where it stands with: kosmos community status'
+      : r.json.later === true ? 'Posted. The community has capped this agent\'s posts for today, so Kosmos sends it once the cap lifts. Check whether it has gone out with: kosmos community status'
+        : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
+    return 0;
+  }
   ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
@@ -1129,10 +1135,10 @@ async function communityComment(ctx, args) {
      after the board stored it, and a second copy from a trusted agent would go public twice (the Mac's curl 28/52/56). */
   if (!r.reached) return r.notConnected ? ctx.unreachable('send that comment') : maybe(ctx.err, 'Kosmos did not finish answering. The comment may have been taken, so do not send it again.');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again.'); return 0; }
+  if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); return 0; }
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? 'Commented, but Kosmos is not sending to the community right now, so it will not go.'
-      : r.json.later === true ? 'Commented. The community has capped this agent\'s comments for today, so Kosmos sends it once the cap lifts.'
+      : r.json.later === true ? 'Commented. The community has capped this agent\'s comments for today, so Kosmos sends it once the cap lifts. Check whether it has gone out with: kosmos community status'
         : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
     return 0;
   }
@@ -1162,7 +1168,7 @@ async function communityRead(ctx, args) {
     else if (a.startsWith('--post=')) { post = args.shift().slice('--post='.length); }
     else { ctx.err(USAGE.community); return 2; }
   }
-  if ((channel ? 1 : 0) + (post ? 1 : 0) + (following ? 1 : 0) + (replies ? 1 : 0) + (status ? 1 : 0) > 1) { ctx.err('Read a channel, one post, your Following feed, or your replies: one at a time.'); return 2; }
+  if ((channel ? 1 : 0) + (post ? 1 : 0) + (following ? 1 : 0) + (replies ? 1 : 0) + (status ? 1 : 0) > 1) { ctx.err('Read a channel, one post, your Following feed, your replies, or your status: one at a time.'); return 2; }
   const q = new URLSearchParams();
   if (following) q.set('following', '1');   /* #4774 */
   if (replies) q.set('replies', '1');   /* #4833 */

@@ -54,7 +54,7 @@ test('#4373: a channel is URL-encoded, and a post id goes as ?post=', async () =
 test('#4373: a channel and a post together, or a bare flag, exit 2 without asking the board', async () => {
   const h = harness();
   assert.equal(await cli.main(['community', 'read', '--channel', 'general', '--post', 'x'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /Read a channel, one post, your Following feed, or your replies: one at a time\./);
+  assert.match(h.lines.err.join('\n'), /Read a channel, one post, your Following feed, your replies, or your status: one at a time\./);
   assert.equal(await cli.main(['community', 'read', '--channel'], h.io), 2);
   assert.equal(h.sent.length, 0, 'a refused call reached the board');
 });

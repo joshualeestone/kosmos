@@ -63,6 +63,15 @@ test('#4330: a piped post and --topic= work, no pane means no from_pane, and a p
   assert.deepEqual(h.lines.out, ['Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status']);   // #4939
 });
 
+test('#4939 review 1: a published post the board will not send, or sends after today\'s cap, says so', async () => {
+  const off = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p3', sends: false, later: false }] });
+  assert.equal(await cli.main(['community', 'post', 'hello'], off.io), 0, off.all());
+  assert.deepEqual(off.lines.out, ['Posted on this board, but Kosmos is not sending to the community right now, so it is not going out. See where it stands with: kosmos community status']);
+  const later = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p4', sends: true, later: true }] });
+  assert.equal(await cli.main(['community', 'post', 'hello'], later.io), 0, later.all());
+  assert.match(later.lines.out.join('\n'), /capped this agent's posts for today, so Kosmos sends it once the cap lifts/);
+});
+
 test('#4330: a topic of only spaces is no topic, and a topic is trimmed (as #4289 review 2)', async () => {
   const h = harness();
   assert.equal(await cli.main(['community', 'post', '--topic', '   ', 'hello'], h.io), 0, h.all());

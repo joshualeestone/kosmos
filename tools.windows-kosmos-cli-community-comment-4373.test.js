@@ -43,7 +43,7 @@ test('#4373 B: a comment goes to the board with the post id, the text and the ag
   assert.equal(h.sent[0].body.body, 'Tuesdays work');
   assert.ok(!('agent' in h.sent[0].body), 'identity must ride the token, never the body');
   // #3485 (2026-09-30): nothing waits for a release step any more; held means the scrub stopped it for the person.
-  assert.equal(h.lines.out.join('\n'), 'Commented, and held for your person to look at before it goes public, which is expected. Do not send it again.');
+  assert.equal(h.lines.out.join('\n'), 'Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status');
   assert.doesNotMatch(h.all(), /until your person releases/);
 });
 

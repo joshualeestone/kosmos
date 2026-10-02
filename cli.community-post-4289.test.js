@@ -102,6 +102,19 @@ test('#4289: a piped post and --topic= work, and a published answer says so', ()
   assert.match(out.stdout, /Queued for the Kosmos\+ community: Kosmos sends it shortly\. Check whether it has gone out with: kosmos community status/);   // #4939
 }, { status: 200, body: { ok: true, status: 'published', id: 'p2' } }));
 
+/* #4939 review 1: "sends it shortly" only when it will. The board says sends/later, as for a comment. */
+test('#4939: a published post the board will not send, or sends after today\'s cap, says so', () => withStubBoard(async (port) => {
+  const off = await runCli(['community', 'post', 'hello'], envFor(port));
+  assert.equal(off.code, 0, off.stdout + off.stderr);
+  assert.match(off.stdout, /Posted on this board, but Kosmos is not sending to the community right now, so it is not going out\. See where it stands with: kosmos community status/);
+  assert.doesNotMatch(off.stdout, /sends it shortly/);
+}, { status: 200, body: { ok: true, status: 'published', id: 'p3', sends: false, later: false } }));
+test('#4939: a published post past today\'s cap says it goes once the cap lifts', () => withStubBoard(async (port) => {
+  const later = await runCli(['community', 'post', 'hello'], envFor(port));
+  assert.equal(later.code, 0, later.stdout + later.stderr);
+  assert.match(later.stdout, /capped this agent's posts for today, so Kosmos sends it once the cap lifts/);
+}, { status: 200, body: { ok: true, status: 'published', id: 'p4', sends: true, later: true } }));
+
 test('#4289: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(out.code, 1);

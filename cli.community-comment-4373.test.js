@@ -72,7 +72,7 @@ test('#4373 B: comment sends the post id and the text as written, with the agent
   assert.equal(seen[0].body.from_pane, '%42');
   assert.ok(!('agent' in seen[0].body), 'identity must ride the token, never the body');
   // #3485 (2026-09-30): nothing waits for a release step any more; held means the scrub stopped it for the person.
-  assert.match(out.stdout, /^ *Commented, and held for your person to look at before it goes public, which is expected\. Do not send it again\.$/m);
+  assert.match(out.stdout, /^ *Commented, and held for your person to look at before it goes public, which is expected\. Do not send it again\. See where it stands with: kosmos community status$/m);
   assert.doesNotMatch(out.stdout, /until your person releases/);
 }));
 

@@ -182,3 +182,35 @@ test('#4833: replies=1 reads the authenticated agent\'s own replies; alone only;
   assert.equal(readCalls, 0, 'a channel or post read ran as well');
   assert.equal(calls.length, 0, 'the Following feed was read');
 });
+
+/* #4939: status=1 is the authenticated reader's OWN posts and comments and where each stands, alone, keyed on the
+   session, never the query. */
+test('#4939: status=1 reads the authenticated agent\'s own status; alone only; without a token 403; unreadable 500', async (t) => {
+  const b = fleet.install([fleet.agent('Reader', { state: 'idle' }), fleet.agent('Other', { state: 'idle' })]);
+  const communitystatus = require('./engine/communitystatus');
+  const realStatus = communitystatus.statusText;
+  const asked = [];
+  let answer = { ok: true, count: 2, text: 'MY STATUS' };
+  communitystatus.statusText = (who) => { asked.push(who); return answer; };
+  t.after(() => { communitystatus.statusText = realStatus; b.restore(); });
+  stub();
+  readCalls = 0;
+  const tok = sendertoken.mint('Reader').token;
+  const r = await readAs(tok, '?status=1&agent=Other');
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { ok: true, count: 2, text: 'MY STATUS' });
+  assert.deepEqual(asked, ['Reader'], 'the status was not read as the authenticated agent (or a name in the query was used)');
+  for (const q of ['?status=1&channel=general', '?status=1&post=1b2c3d4e-0000-4000-8000-000000000001', '?status=1&following=1', '?status=1&replies=1']) {
+    const bad = await readAs(tok, q);
+    assert.equal(bad.status, 400, q);
+    assert.match((await bad.json()).error, /one at a time/);
+  }
+  assert.equal((await readAs(null, '?status=1')).status, 403);
+  assert.equal(asked.length, 1, 'a combined or unverified request read the status');
+  answer = { ok: false, because: 'we could not read what Kosmos has sent' };
+  const broken = await readAs(tok, '?status=1');
+  assert.equal(broken.status, 500);
+  assert.match((await broken.json()).error, /could not read what Kosmos has sent/);
+  assert.equal(readCalls, 0, 'a channel or post read ran as well');
+  assert.equal(calls.length, 0, 'the Following feed was read');
+});

@@ -9,7 +9,11 @@
  * community cannot be reached.
  *
  * Keyed EXACTLY on the authenticated session name the post route recorded (as communityread's ownPosts), never on a
- * name in the request, so one agent never sees another's items.
+ * name in the request, so one agent never sees another's items. Only AGENT-authored rows (the sweep's own rule): a
+ * person's site post stored under the same name is not this agent's and is never sent.
+ *
+ * Every word here must be true of what the send layer will do (review 1): an item the sweep will never send is never
+ * called "queued" or "waiting".
  */
 const fs = require('node:fs');
 const communitystore = require('./communitystore');
@@ -17,71 +21,106 @@ const communitysend = require('./communitysend');
 
 const SHOWN = 20;   // the newest items listed; the rest are counted
 
-/* What each send-layer state means to the agent, in its words. A state the layer gains later reads as "unknown". */
+/* What each state means to the agent, in its words. A state without words reads "unknown (<state>)"; a test reads
+   every state this file and the send layer can produce and asserts each has words. */
 const POST_WORDS = Object.freeze({
   queued: 'queued: Kosmos sends it on its next pass, within a few minutes',
+  capped: 'waiting: the community\'s daily limit for this agent is reached, so Kosmos sends it after the limit lifts',
+  name_unclaimed: 'waiting: an earlier try made a community account under this agent\'s name and Kosmos never received its key, so it waits rather than go out under a second name',
   sent: 'in the community',
+  sent_refused: 'in the community; the community has since refused this agent, so nothing more it writes is sent',
+  taken_down: 'taken down by the community\'s moderators',
   unconfirmed: 'sent, but the community did not confirm it; it may already be there, so do not post it again',
   withheld: 'not sent: your person removed it before it went',
   refused: 'not sent: the community refused it',
+  agent_refused: 'not sent: the community has refused this agent, so nothing it writes is sent',
   deleted: 'removed from the community by your person',
-  not_sent: 'not sent',
-  held: 'held for your person to look at before it goes out',
-  before_on: 'not sent: it was made while the community was switched off',
-  off: 'waiting: the community is switched off on this board, so nothing is sent until your person turns it on',
+  not_sent: 'not sent: Kosmos was not sending to the community when it was made, and it will not go',
+  held: 'held for your person to look at; it goes out only if they release it',
+  before_on: 'not sent, and it will not be: the community was switched off before it went out; post it again once your person turns the community on',
 });
 const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   sending: 'being sent now',
   unconfirmed: 'sent, but the community did not confirm it; it may already be there, so do not send it again',
 }));
 
-function loadJson(file) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } }
-
-/* When the current ON period began (the send layer's `since`), or null. An item made before it is never sent. */
-function onSince() {
-  const st = loadJson(communitysend._paths.stateFile());
-  return st && typeof st.since === 'string' ? st.since : null;
+/* The send layer's files, read raw so a MISSING file (nothing recorded yet: empty) is told from a CORRUPT one (null:
+   then nothing can be said, rather than calling every sent item "queued"). */
+function readRecord(file) {
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (err) { return err && err.code === 'ENOENT' ? {} : null; }
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
+  } catch { return null; }
+}
+function readRecords() {
+  const p = communitysend._paths;
+  const out = {};
+  for (const [name, file] of [['state', p.stateFile], ['sent', p.sentFile], ['deletes', p.deletesFile], ['keys', p.keysFile],
+    ['csent', p.commentsSentFile], ['cdel', p.commentDeletesFile]]) {
+    const v = readRecord(file());
+    if (v === null) return null;
+    out[name] = v;
+  }
+  return out;
 }
 
 const madeAt = (x) => String(x.releasedAt || x.receivedAt || '');
+const byAgent = (x, sessionName) => x && x.agent === sessionName && x.author && x.author.type === 'agent';
 
-/* One item's state word. `rec` is the send layer's status for it, or undefined when the layer has not met it yet. */
-function stateOf(rec, item, on, since) {
-  if (rec && rec.state) {
-    if (rec.agentRefused) return 'refused';
-    return rec.state === 'pending' ? 'queued' : rec.state;
+/**
+ * One item's state. `rec` is the send layer's status for it (statuses() / commentRecords()), or undefined when the
+ * layer has not met it yet. `ctx`: { on, since, key (this agent's keys entry, read only for its refusal and caps), now }.
+ */
+function stateOf(kind, rec, item, ctx) {
+  if (kind === 'comment' && item.notSent === true) return 'not_sent';   // the route told the agent it will not go
+  const st = rec && rec.state;
+  if (st && st !== 'pending') {
+    if (rec.takenDown) return 'taken_down';
+    if (st === 'sent' && rec.agentRefused) return 'sent_refused';
+    return st;
   }
-  if (!on) return 'off';
-  if (since && madeAt(item) && madeAt(item) < since) return 'before_on';
+  // Not sent yet. Each check below is one the sweep makes before sending (communitysend sendPost / sendComment).
+  if ((rec && rec.agentRefused) || (ctx.key && ctx.key.refused)) return 'agent_refused';
+  // OFF ends the ON period at once and the next ON starts a new one from that moment, so an unsent item is never sent.
+  if (!ctx.on) return 'before_on';
+  // The sweep sends only items made at or after the ON period's recorded start (`since`). The post and comment routes
+  // record it before they store, so an item with no start before it was made before the person turned it on.
+  if (!ctx.since || madeAt(item) < ctx.since) return 'before_on';
+  if (rec && rec.agentNameUnclaimed) return 'name_unclaimed';
+  const cap = ctx.key && (kind === 'post' ? ctx.key.retryAt : ctx.key.commentRetryAt);
+  if (typeof cap === 'string' && Date.parse(cap) > ctx.now) return 'capped';
   return 'queued';
 }
 
 /**
- * The agent's items, newest first: [{ kind: 'post' | 'comment', id, title, at, state }]. Held posts and comments (the
- * scrub stopped them for the person) are listed as held. Null when the send records cannot be read.
+ * The agent's items, newest first: [{ kind: 'post' | 'comment', id, title, at, state }]. Held and quarantined rows (the
+ * safety check stopped them for the person) are listed as held. Null when the send records cannot be read.
  */
-function itemsFor(sessionName) {
+function itemsFor(sessionName, now = Date.now()) {
   if (typeof sessionName !== 'string' || !sessionName) return [];
-  const on = communitysend.switchOn();
-  const since = onSince();
+  const recs = readRecords();
+  if (!recs) return null;
   let postStatus;
   let commentStatus;
-  try { postStatus = communitysend.statuses(); } catch { return null; }
-  try { commentStatus = communitysend.commentRecords(); } catch { return null; }
-  if (!commentStatus) return null;
+  try { postStatus = communitysend.statuses(); commentStatus = communitysend.commentRecords(); } catch { return null; }
+  if (!postStatus || !commentStatus) return null;
+  const ctx = { on: communitysend.switchOn(), since: typeof recs.state.since === 'string' ? recs.state.since : null,
+    key: recs.keys[sessionName] || null, now };
   const out = [];
   for (const p of communitystore.publishedPosts()) {
-    if (p.agent !== sessionName) continue;
-    out.push({ kind: 'post', id: p.id, title: communitysend.titleFor(p), at: madeAt(p), state: stateOf(postStatus[p.id], p, on, since) });
+    if (!byAgent(p, sessionName)) continue;
+    out.push({ kind: 'post', id: p.id, title: communitysend.titleFor(p), at: madeAt(p), state: stateOf('post', postStatus[p.id], p, ctx) });
   }
   for (const c of communitystore.serviceComments()) {
-    if (c.agent !== sessionName || c.status !== 'published') continue;
+    if (!byAgent(c, sessionName) || c.status !== 'published') continue;
     out.push({ kind: 'comment', id: c.id, title: communitysend.titleFor({ body: c.body }), at: madeAt(c),
-      state: stateOf(commentStatus[c.id], c, on, since) });
+      state: stateOf('comment', commentStatus[c.id], c, ctx) });
   }
-  // Held or quarantined: the safety check stopped it for the person (feedpublish); both wait on them.
-  for (const r of communitystore.moderationQueue({ limit: 1000 })) {
-    if (r.agent !== sessionName) continue;
+  // Held or quarantined: the safety check stopped it for the person (feedpublish). Every row, not a capped page.
+  for (const r of communitystore.moderationQueue({ limit: Infinity })) {
+    if (!byAgent(r, sessionName)) continue;
     out.push({ kind: r.entry === 'comment' ? 'comment' : 'post', id: r.id,
       title: communitysend.titleFor(r.entry === 'comment' ? { body: r.body } : r), at: madeAt(r), state: 'held' });
   }
@@ -89,11 +128,14 @@ function itemsFor(sessionName) {
   return out;
 }
 
-/** How many of the agent's posts are not in the community yet (queued, held, waiting), for --replies. */
+/* Posts that will still go out on their own (or once the person releases them). Not "unconfirmed": that may be there. */
+const WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'held']);
+
+/** How many of the agent's posts are on their way to the community, for --replies. */
 function waitingPosts(sessionName) {
   const items = itemsFor(sessionName);
   if (!items) return 0;
-  return items.filter((x) => x.kind === 'post' && ['queued', 'held', 'off', 'unconfirmed'].includes(x.state)).length;
+  return items.filter((x) => x.kind === 'post' && WAITING.has(x.state)).length;
 }
 
 /** The agent's status, as the text `kosmos community status` prints. */
