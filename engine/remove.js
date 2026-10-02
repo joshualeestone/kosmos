@@ -164,6 +164,35 @@ function retryWait() {
   if (ms > 0) lastRetryWaitAt = now;
   sleepMs(ms);
 }
+/* #4964: how long a restart waits, after bootout, for launchd to finish unloading the job before it bootstraps.
+   MEASURED on Agent1s (0.7.16): the bootout returned at once, the job then sat in `state = SIGTERMed` for 4.5 s
+   while its supervisor shut down, and only then was gone. A bootstrap sent into that gap answers 5 ("already
+   loaded", success), `launchctl print` still answers for the dying job, so the restart is "confirmed" and the
+   #4006 second try never runs; the job then unloads and nothing brings the agent back. That is every
+   "Switch & Restart to Gemini" agent Josh could not message on Mortals (it ran on, unsupervised, in a pane the
+   board could not tie to a job). The env is the test seam only. */
+function unloadWaitMs() {
+  const raw = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+  const v = raw === undefined || raw === '' ? NaN : Number(raw);
+  if (Number.isFinite(v) && v >= 0) return v;
+  /* A test that injects its own launchctl (setRunner) scripts every call it expects; its print answers "loaded"
+     forever, so the wait is off there unless the test asks for it (the #4964 tests do). Live: 15 s. */
+  return runner ? 0 : 15000;
+}
+const UNLOAD_POLL_MS = 100;
+/* True once launchd no longer holds `label` loaded (print exits non-zero, as `loaded` reads it), false if it is
+   still there when the wait runs out. Blocking, like retryWait: restart is synchronous. */
+function waitUnloaded(label) {
+  const budget = unloadWaitMs();
+  if (budget <= 0) return true;   // no wait asked for: not even a look (the scripted tests' call lists stay exact)
+  const until = Date.now() + budget;
+  for (;;) {
+    const out = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${label}`]);
+    if (!(out && out.ok !== false)) return true;
+    if (Date.now() >= until) return false;
+    sleepMs(UNLOAD_POLL_MS);
+  }
+}
 /* The trade-off, stated: the second and later failures in one burst retry at once, so their second try does not
    get the wait the bootout race needs. Accepted, because a board frozen for N waits is worse than a second try
    that may not help; those agents still end on the failed card. */
@@ -470,6 +499,8 @@ function jobOps(platform) {
       // 3 is launchd for "no such service", which is the end state we wanted.
       return Boolean(out && (out.ok !== false || out.code === 3));
     },
+    /* #4964: bootout returns before the job is gone; the restart waits for that before it bootstraps. */
+    waitUnloaded: (name, job) => waitUnloaded(job.label),
     enable: (name, record) => {
       const on = run('/bin/launchctl', ['enable', `gui/${process.getuid()}/${record.label}`]);
       return Boolean(on && on.ok !== false);
@@ -1989,6 +2020,9 @@ function restartInner(name, cause, platform, startIfDead) {
   lastBootstrap = null;   // #4006: this relaunch's answer only, never an earlier agent's
   const relaunched = step('asked it to start again now', () => {
     ops.stopNow(clean, job);
+    /* #4964: only once launchd has really let go of the old job (the Mac; Windows' /End+/Run has no such gap).
+       Still held when the wait runs out: bootstrap anyway, and the loaded check below decides as before. */
+    if (ops.waitUnloaded) ops.waitUnloaded(clean, job);
     return ops.startNow(clean, job);
   });
   /* #3418: bootstrap can return 0 without the job actually loading, so CONFIRM it is loaded

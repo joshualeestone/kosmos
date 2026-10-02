@@ -2741,3 +2741,87 @@ test('#4624: removing an agent forgets the room posts held for it', () => {
   assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED, 'precondition: the agent was removed');
   assert.deepEqual(roomhold.heldProjects(name), [], 'removal left the held posts for whoever takes the name next');
 });
+
+/* #4964: launchd as MEASURED on Agent1s (0.7.16): bootout returns at once, the job then stays loaded (state =
+   SIGTERMed, print still answers) while its supervisor shuts down, and only then is gone. A bootstrap in that gap
+   answers 5 ("already loaded") and changes nothing. Modelled here on the clock, so the restart meets it as it did:
+   Josh's "Switch & Restart to Gemini" agents ran on unsupervised, with no job, unreachable from the page. */
+function dyingLaunchd(dieMs) {
+  const m = { state: 'loaded', goneAt: 0, bootstraps: 0 };
+  const tick = () => { if (m.state === 'dying' && Date.now() >= m.goneAt) m.state = 'gone'; };
+  m.runner = (file, args) => {
+    const cmd = args && args[0];
+    tick();
+    if (cmd === 'has-session') return { ok: false, code: 1 };
+    if (file !== '/bin/launchctl') return { ok: true, stdout: '' };
+    if (cmd === 'bootout') { if (m.state === 'loaded') { m.state = 'dying'; m.goneAt = Date.now() + dieMs; } return { ok: true, stdout: '' }; }
+    if (cmd === 'print') return m.state === 'gone' ? { ok: false, code: 113 } : { ok: true, stdout: m.state === 'dying' ? 'state = SIGTERMed' : 'state = running' };
+    if (cmd === 'bootstrap') { m.bootstraps += 1; if (m.state !== 'gone') return { ok: false, code: 5, stderr: 'Bootstrap failed: 5: Input/output error' }; m.state = 'loaded'; return { ok: true, stdout: '' }; }
+    return { ok: true, stdout: '' };
+  };
+  m.settle = () => { const until = m.goneAt + 50; while (Date.now() < until) { /* let the old job finish going */ } tick(); };
+  return m;
+}
+function withUnloadWait(ms, fn) {
+  const was = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+  const wasRetry = process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS;
+  process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = String(ms);
+  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '0';   // the #4006 second try, at once: it is not what is tested
+  try { return fn(); } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS; else process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = was;
+    if (wasRetry === undefined) delete process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS; else process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = wasRetry;
+  }
+}
+
+test('#4964: a restart waits for launchd to finish unloading the old job, so the new one is really loaded afterwards', () => {
+  const name = madeAgent('unloadwait');
+  boardShows(name, name);
+  const m = dyingLaunchd(300);
+  remove.setRunner(m.runner);
+  try {
+    const out = withUnloadWait(3000, () => mac.restart(name, 'provider'));
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+    m.settle();
+    assert.equal(m.state, 'loaded', 'the restart said RESTARTED and the agent was left with no launchd job');
+    assert.equal(m.bootstraps, 1, 'the bootstrap was not sent once, after the old job had gone');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964 CONTROL: without the wait, the same launchd leaves the agent with no job while the restart says RESTARTED', () => {
+  const name = madeAgent('unloadnowait');
+  boardShows(name, name);
+  const m = dyingLaunchd(300);
+  remove.setRunner(m.runner);
+  try {
+    const out = withUnloadWait(0, () => mac.restart(name, 'provider'));
+    m.settle();
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, 'CONTROL: the model no longer reproduces the measured lie');
+    assert.equal(m.state, 'gone', 'CONTROL: the model no longer reproduces the measured race');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a job that never finishes unloading within the wait is bootstrapped anyway, and the loaded check still decides', () => {
+  const name = madeAgent('unloadstuck');
+  boardShows(name, name);
+  const m = dyingLaunchd(60 * 60 * 1000);   // never gone within the test
+  remove.setRunner(m.runner);
+  try {
+    const t0 = Date.now();
+    const out = withUnloadWait(200, () => mac.restart(name, 'provider'));
+    assert.ok(Date.now() - t0 < 5000, 'the wait was not bounded');
+    assert.ok(m.bootstraps >= 1, 'it never tried to start the agent');
+    assert.ok(out.outcome === remove.OUTCOME.RESTARTED || out.outcome === remove.OUTCOME.PARTIAL, out.outcome);
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
