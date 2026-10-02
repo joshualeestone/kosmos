@@ -1123,9 +1123,8 @@ const AVATAR_FAILS_BEFORE_WAIT = 3;
 const AVATAR_WAIT_MS = 60 * 60 * 1000;
 const AVATAR_WAIT_MAX_MS = 6 * 60 * 60 * 1000;
 
-/* The last picture read per agent, keyed by its file and its inode, size, mtime and ctime (saveAvatar unlinks and
-   creates the file again, so a same-size replacement inside one mtime tick still has a new inode), so an unchanged
-   picture is not read and hashed again by every half of every sweep. In memory only: a restart reads each once more. */
+/* The last picture read per agent, keyed by its file and its inode, size, mtime and ctime, so an unchanged picture is
+   not read and hashed again by every half of every sweep. In memory only: a restart reads each once more. */
 const avatarSeen = new Map();
 const sameFile = (a, b) => a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
 
@@ -1140,17 +1139,17 @@ function avatarWanted(agentKey) {
   const file = found.file;
   if (!file) { avatarSeen.delete(agentKey); return { id: null, why: null }; }
   let before;
-  try { before = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { id: null, why: null } : { busy: true, why: 'unreadable:' + ((e && e.code) || 'stat') }; }
+  // Gone between the lookup and here: looked at again next sweep rather than read as a removal.
+  try { before = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { busy: true } : { busy: true, why: 'unreadable:' + ((e && e.code) || 'stat') }; }
   if (before.size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + before.size };
   const memo = avatarSeen.get(agentKey);
   if (memo && memo.file === file && sameFile(memo.stat, before)) return memo.wanted;
   let bytes;
   let after;
   try { bytes = fs.readFileSync(file); after = fs.statSync(file); } catch (e) { return { busy: true, why: 'unreadable:' + ((e && e.code) || 'read') }; }
-  // store.saveAvatar writes the file in place: a picture that changed while it was read is half written. Left for
-  // the next sweep rather than sent (the service would refuse the cut-short file) or read as "none".
+  // Changed while it was read: left for the next sweep, neither sent nor read as "none".
   if (!sameFile(after, before) || bytes.length !== before.size) return { busy: true };
-  // Empty: caught between the truncate and the write, or left so by a failed write. Not "no picture" either way.
+  // Empty is not "no picture": said once, and nothing is sent or taken down.
   if (!bytes.length) return { busy: true, why: 'unreadable:empty' };
   const type = store.imageTypeOf(bytes);
   const wanted = AVATAR_TYPES.has(type)

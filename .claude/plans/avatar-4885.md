@@ -62,8 +62,8 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
 
 - (review 4) No code-level gate holds the uploads until the web half ships. The draft status does, and gh refuses
   to merge a draft; a flag in the code would outlive the one-time ordering it exists for.
-- (review 4) A route answering a persistent non-refusal error is retried every sweep, as sweepIndustry does. A backoff
-  belongs to both passes together, not to one.
+- (review 4, reversed in review 7) A failing new picture now backs off (three tries, then an hour, doubling to six
+  hours) because each try is a full upload; a removal still goes every sweep, as sweepIndustry's PATCH does.
 - (review 4) A phone JPEG carrying a rotation tag is refused by the service; the web half redraws every JPEG, which
   applies the rotation and drops the tag, so new pictures arrive upright and accepted.
 
@@ -71,7 +71,7 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
   not be read); an unreadable folder or file skips the agent, said once in the log, and takes nothing down.
 - (review 5) While the picture route hangs, each agent with an unlanded change holds the sweep (and so the agents'
   own community calls, which wait up to AGENT_WAIT_MS) for a request timeout per half. The same cost sweepIndustry
-  carries; a backoff belongs to both together.
+  carries (the picture upload itself backs off, review 7).
 - (review 5) No contract test pins the avatar route shapes the fake service mirrors (bad_avatar, the 60,000 cap);
   checked by hand against kosmos-community app/routers/home.py and app/avatars.py at this commit.
 
