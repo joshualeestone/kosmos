@@ -2591,6 +2591,33 @@ function activeAgentsCreatedBy(creator) {
   return n;
 }
 
+/* #4475: who created the agent `name`, by the same rule activeAgentsCreatedBy counts with (the newest 'created' birth
+   for its slug), or null when the birth log has none (made before the log, by the person's own setup, or never here). */
+function agentCreatorOf(name) {
+  let want; try { want = create.slugFor(name); } catch { return null; }
+  if (!want) return null;
+  let births;
+  try { births = create.createdLog(); } catch { return null; }
+  if (!Array.isArray(births)) return null;
+  let owner = null;
+  for (const b of births) {
+    if (!b || b.outcome !== 'created' || !b.name) continue;
+    let slug; try { slug = create.slugFor(b.name); } catch { slug = String(b.name); }
+    if (slug === want) owner = b.createdBy || null;
+  }
+  return owner;
+}
+/* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
+   Only an agent it created. A token that names nobody, or a target with no recorded creator, is refused. */
+function tokenOnlyMayRemove(caller, target) {
+  if (!caller) return false;
+  const owner = agentCreatorOf(target);
+  if (!owner) return false;
+  let a; let b;
+  try { a = create.slugFor(owner); b = create.slugFor(caller.name); } catch { return false; }
+  return Boolean(a) && a === b;
+}
+
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
    (read activeAgentsCreatedBy, then createTeam writes births).
    🔑 WHAT MAKES IT ATOMIC TODAY is NOT this lock: the route runs the count read
@@ -3918,9 +3945,9 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
-   token is that agent, never the person. Person-only routes (removing, restarting or
-   reconfiguring agents, settings, POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and
-   keep requiring the board token. The header only, never `token` in the body: this gate runs before the body is
+   token is that agent, never the person. Person-only routes (restarting or reconfiguring agents, settings,
+   POST /api/agents, and removing any agent the caller did not create, #4475) are not in this set (nor
+   AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board token. The header only, never `token` in the body: this gate runs before the body is
    read, and the handlers resolve the header first (presentedAgentToken), so both see the same
    caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
@@ -3997,7 +4024,10 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 /* #4914: `kosmos task assign` (POST .../task/<n>/assign) joins on the same terms: its handler names the caller
    (processCaller), refuses an agent that is not on the project (notOnProjectRefusal), and moves the part through
    givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #4475 step 3: removing an agent (DELETE .../removal) joins, for the agents the caller created and no others: the
+   handler identifies the caller from the token (agentTokenOnlyCaller) and refuses any other target, and refuses
+   `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -7487,6 +7517,16 @@ const server = http.createServer(async (req, res) => {
        inert on every refusal except `untied`, so this cannot stop or hide the
        wrong thing. Absent = today's behaviour exactly. */
     const force = /[?&]force=(?:1|true)\b/i.test(req.url || '');
+    /* #4475 step 3: an agent that came through on its own token alone may remove only an agent it created, and never
+       with `?force` (the person's override). The person, and any caller holding the board token, are as before. */
+    const tokenOnly = agentTokenOnlyCaller(req);
+    if (tokenOnly !== null) {
+      if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }
+      if (!tokenOnlyMayRemove(tokenOnly, name)) {
+        sendJson(res, 403, { error: 'an agent can remove only an agent it created; the person removes other agents from the board' });
+        return;
+      }
+    }
     let done;
     // ⚠️ Guarded for the reason given on the route above, and it matters most
     // here: this is the call that has already disabled a launchd job by the

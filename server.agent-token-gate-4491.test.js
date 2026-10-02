@@ -87,7 +87,8 @@ test('an agent token in the BODY does not open the gate (header only, the gate r
 });
 
 test('an agent token never opens a person-only route', async () => {
-  for (const [method, p] of [['POST', '/api/agent/poc-agent/removal'], ['DELETE', '/api/agent/poc-agent/removal'], ['POST', '/api/agents'], ['GET', '/api/status']]) {
+  // DELETE .../removal is not here: #4475 opened it for an agent's own creations (server.agent-remove-4475.test.js).
+  for (const [method, p] of [['POST', '/api/agent/poc-agent/removal'], ['GET', '/api/agent/poc-agent/removal'], ['POST', '/api/agents'], ['GET', '/api/status']]) {
     const r = await call(method, p, { headers: { 'x-kosmos-agent-token': agentToken }, body: method === 'GET' ? undefined : {} });
     assert.ok(refusedAtGate(r), `${method} ${p} was reachable with only an agent token: ${r.code}`);
   }
