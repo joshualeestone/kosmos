@@ -198,6 +198,8 @@ function chk(ok, label, extra) {
             const j = await resp.json().catch(() => null);
             if (!j || !Array.isArray(j.agents)) return r.fulfill({ response: resp });
             for (const n of made) if (!hidden.has(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] || 'idle' });
+            // #4936 review 10: names only in stateOf are board agents too, for asking the page about a state directly.
+            for (const n of Object.keys(stateOf)) if (!made.includes(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] });
             return r.fulfill({ response: resp, json: j });
           });
           /* #4936: the step says hello to every member itself. The members here are not real agents, so the hello
@@ -536,6 +538,13 @@ function chk(ok, label, extra) {
             note: document.getElementById('tc-note').textContent, go: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
           chk(pf.team && pf.panel && pf.row === 'Said hello (picture not set)' && pf.marked === 0 && /A picture was not set: see its row\./.test(pf.note) && pf.go,
             `${E} #4936 all hellos placed but a picture failed: the step stays, the row and the note say so, and Go to your team is offered`, JSON.stringify(pf));
+          /* Review 10: on a phone the longer hello states fit: nothing scrolls sideways and the status stays inside its row. */
+          await page.setViewportSize({ width: 390, height: 844 });
+          await page.waitForTimeout(200);
+          const narrow = await page.evaluate(() => { const st = document.querySelector('#tc-list li[data-slot="content"] .tc-state'); const li = st.closest('li');
+            const a = st.getBoundingClientRect(), b = li.getBoundingClientRect(); return { fits: document.documentElement.scrollWidth <= innerWidth, inside: a.right <= b.right + 1 && a.left >= b.left - 1 }; });
+          chk(narrow.fits && narrow.inside, `${E} #4936 at phone width the hello state fits its row and nothing scrolls sideways`, JSON.stringify(narrow));
+          await page.setViewportSize({ width: 1280, height: 900 });
           await page.click('#tc-hello');
           await settle(page, () => TC === null && document.querySelectorAll('.just-made').length >= 3);
           chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 and Go to your team leaves for the agents view`);
@@ -573,6 +582,15 @@ function chk(ok, label, extra) {
           await page.click('#tc-list li[data-slot="social"] .tc-retry');
           await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
           chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 a Try again that places the last hello leaves for the agents view on its own`);
+          /* Review 10: every held state the page knows says its own reason; a state not held, and a board that cannot be
+             read, say nothing, so the hello goes ahead. */
+          Object.assign(stateOf, { 'h-auth': 'auth_failed', 'h-rate': 'rate_limited', 'h-stop': 'stopped', 'h-lost': 'connection_lost', 'h-idle': 'idle' });
+          const heldSay = await page.evaluate(async () => ({ auth: await tcHelloHeld('h-auth'), rate: await tcHelloHeld('h-rate'), stop: await tcHelloHeld('h-stop'),
+            lost: await tcHelloHeld('h-lost'), idle: await tcHelloHeld('h-idle'), none: await tcHelloHeld('nobody-here') }));
+          chk(/sign-in failed/.test(heldSay.auth || '') && /at its limit/.test(heldSay.rate || '') && /not ready/.test(heldSay.stop || '') && /not ready/.test(heldSay.lost || '')
+            && heldSay.idle === null && heldSay.none === null, `${E} #4936 each held state says why; an idle member and one the board does not list hold nothing`, JSON.stringify(heldSay));
+          await page.route('**/api/status*', (r) => r.fulfill({ status: 500, body: 'no' }));
+          chk(await page.evaluate(() => tcHelloHeld('h-auth')) === null, `${E} #4936 a board that cannot be read holds nothing (the hello goes ahead)`);
           chk(errs.length === 0, `${E} no page errors (#4936 held-member arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();

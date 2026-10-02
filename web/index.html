@@ -8372,6 +8372,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-teammake .flabel[for="tc-project"] { margin-top: var(--space-6); }
 .tc-leads { white-space: nowrap; }
 @media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
+/* #4936 review 10: the hello states are longer ("Said hello (picture not set)"); on a phone they may wrap. */
+@media (max-width: 560px) { .tc-state { white-space: normal; text-align: right; } }
+.tc-why.plain { color: var(--label-2); }   /* #4936: advice that is not a failure (an unconfirmed hello) */
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -48428,7 +48431,8 @@ function tcLive() {
   // A member whose hello failed keeps it live too: its row and Try again must not be dropped by Back or a reopen.
   // Review 5: an UNCONFIRMED hello does not: it has no retry, so it would hold the team live for good and the same
   // team picked again would resume a finished team instead of making a new one.
-  return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting
+  // Review 10: and while it waits for pictures before leaving: Back then keeps it, not drops it mid-upload.
+  return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting || TC.leaving
     || (TC.helloStarted && TC.members.some((m) => m.hello !== 'started' && m.hello !== 'unsure'))));
 }
 
@@ -48518,7 +48522,7 @@ function tcPaint() {
       row.append(p);
     }
     if (m.state === 'made' && m.hello === 'unsure') {   // #4936: it may have reached it, so no retry (it could say hello twice)
-      const why = document.createElement('p'); why.className = 'tc-why';
+      const why = document.createElement('p'); why.className = 'tc-why plain';
       why.textContent = 'Kosmos sent hello but could not confirm it arrived. Look at its page before saying it again.';
       row.append(why);
     }
@@ -48615,7 +48619,7 @@ function tcPaint() {
   // Review 8: also when every hello is placed but a picture failed, or is still going up after the wait: the step
   // stays for that row, and the person needs a way on that is not Back.
   hello.hidden = !(settled && (TC.members.some((m) => m.hello !== 'started')
-    || TC.members.some((m) => m.portrait === 'failed') || (!TC.leaving && TC.members.some((m) => m.portraitBusy))));
+    || TC.members.some((m) => m.portrait === 'failed') || (!TC.leaving && TC.members.some((m) => m.portraitBusy)) || TC.stayed));
   hello.textContent = n === 1 ? 'Go to your agent' : 'Go to your team';
   if (finished && TC_AUTO_HELLO && !TC.helloStarted) tcSayHello();
 }
@@ -48649,9 +48653,12 @@ async function tcHelloSend(name) {
    fails says nothing, and the hello goes ahead (the server still refuses a held agent before any keystroke). */
 async function tcHelloHeld(name) {
   let a = null;
-  try { const res = await fetch('/api/status', { cache: 'no-store' }); if (res.ok) a = ((await res.json()).agents || []).find((x) => x.sessionName === name) || null; } catch { return null; }
+  // Review 10: bounded, like the hello itself: a read that hangs says nothing, and the hello goes ahead.
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 5000) : null;
+  try { const res = await fetch('/api/status', { cache: 'no-store', signal: ctl ? ctl.signal : undefined }); if (res.ok) a = ((await res.json()).agents || []).find((x) => x.sessionName === name) || null; } catch { return null; } finally { if (timer) clearTimeout(timer); }
   if (!a) return null;
-  if (a.state === 'needs_you') return 'It is asking something on its page, so Kosmos did not type into it. Answer it there, then Try again.';
+  if (a.state === 'needs_you') return 'It is waiting on something on its page, so Kosmos did not type into it. See to it there, then Try again.';
   if (a.state === 'auth_failed') return 'Its sign-in failed, so Kosmos did not say hello. Fix it on its page, then Try again.';
   if (a.state === 'rate_limited') return 'Its account is at its limit right now, so Kosmos did not say hello. Try again later.';
   if (['stopped', 'restarting', 'connection_lost'].includes(a.state)) return 'It is not ready to take a message yet. Try again in a moment.';
@@ -48699,7 +48706,8 @@ async function tcLeaveWhenSettled(gen) {
   for (let i = 0; i < 75 && TC && gen === TC_GEN && TC.members.some((m) => m.portraitBusy); i++) await new Promise((r) => setTimeout(r, 200));
   if (gen !== TC_GEN || !TC) return;
   TC.leaving = false;
-  if (TC.members.some((m) => m.portrait === 'failed' || m.portraitBusy)) { tcPaint(); return; }
+  // Review 10: once the step has stayed, Go to your team stays on offer even if the picture lands later.
+  if (TC.members.some((m) => m.portrait === 'failed' || m.portraitBusy)) { TC.stayed = true; tcPaint(); return; }
   tcGoToTeam(true);
 }
 function tcHelloRetry(slot) {
@@ -48707,7 +48715,7 @@ function tcHelloRetry(slot) {
   if (!m || m.hello !== 'failed' || TC.leaving) return;
   const gen = TC_GEN;
   TC.greeting = true;
-  tcHelloOne(m, gen).then(() => {
+  tcHelloOne(m, gen).catch(() => { if (m.hello === 'sending') m.hello = 'unsure'; }).then(() => {   // review 10: never stuck
     if (gen !== TC_GEN || !TC) return;
     TC.greeting = TC.members.some((x) => x.hello === 'sending');
     if (TC.members.every((x) => x.hello === 'started')) tcLeaveWhenSettled(gen);
