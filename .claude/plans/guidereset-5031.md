@@ -52,4 +52,12 @@ The time-only shape is probably the common one for 5-hour limits, and this does 
   apart, so the latest IS the nearest).
   engine/status.test.js + status.pane-states-1889.test.js: 240/240 (12 "server exited unexpectedly" lines are the tmux tests' existing noise;
   the #5029 base prints the same 12).
-- Round 2: PENDING.
+- Round 2 (sonnet, blind): 0 BLOCKER, 3 SHOULD-FIX, all taken. SF1: two limit rows under ONE footer, the expired one first, and its
+  removal (to the footer) took the live row too, reading a still-capped pane healthy; now the removal stops at the next limit row. SF2: no
+  test reached snapshot()'s call, so removing it stayed green; a new arm drives the real snapshot() through the pane seams on the real
+  clock (an explicit-year reset in 2020 retired, 2099 kept). SF3: the fixture lacked the /usage-credits row the real captures have, so
+  dropping only the limit row stayed green; added. NITs not taken: retiring rows pulls a few older rows into the 25-row tail (no harmful
+  case built); dropping the footer row too is equivalent; authErrorLineCount reads the raw text (auth only, correct).
+  Measured 11:22, each red by name: drop only row i -> "a minute AFTER"; no stop at the next limit row -> TWO; snapshot() not retiring ->
+  the snapshot arm. 241/241.
+- Round 3: PENDING.
