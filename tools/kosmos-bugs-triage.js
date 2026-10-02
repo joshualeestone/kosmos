@@ -82,7 +82,7 @@ function scrub(text, names) {
   t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/g, '$1[user]');
   t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+(?: [^\\\s]+)?(?=\\)/g, '$1[user]');   // "C:\\Users\\Maria Lopez\\x": one or two words, up to the next \\
   t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+/g, '$1[user]');
-  t = t.replace(/(?<![\p{L}\p{N}])~[a-z_][\w.-]*/giu, '~[user]');   // ~jsmith/notes, (~jsmith), "~jsmith/x" (review 6)
+  t = t.replace(/(?<![\p{L}\p{N}])~[\p{L}_][\p{L}\p{N}_.-]*/gu, '~[user]');   // ~jsmith/notes, (~jsmith), "~jsmith/x" (review 6)
   /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
   t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret removed]');
   /* A long unbroken run with upper and lower case AND digits reads as a secret. Not a path (no "/"), and not plain hex: a
@@ -93,9 +93,9 @@ function scrub(text, names) {
   /* Review 4: a bare domain with a path ("github.com/jsmith/repo") is a profile or a repo, so it goes too; and IPs. */
   /* Not a file name: "Kosmos.app/Contents" or "index.html/x" is a path in a bug report, not a site. */
   t = t.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.([a-z]{2,})\/\S*/gi, (m, tld) => (FILE_EXT.has(tld.toLowerCase()) ? m : '[link removed]'));
+  t = t.replace(/[\p{L}\p{N}._-]+@[\p{L}\p{N}][\p{L}\p{N}_-]*(?:\.[\p{L}\p{N}_-]+)*/gu, '[user]@[host]');   // review 6, BEFORE the IP rule (review 7: jsmith@192.168.1.5 kept the user): the whole host, then any sentence dot
   t = t.replace(/(?<![vV]|version |Version )\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[address removed]');
   /* A shell prompt names its user and machine ("jsmith@Johns-MacBook-Pro ~ %"); the email rule needs a dot after the @. */
-  t = t.replace(/[\p{L}\p{N}._-]+@[\p{L}\p{N}][\p{L}\p{N}_-]*(?:\.[\p{L}\p{N}_-]+)*/gu, '[user]@[host]');   // review 6: the whole host, then any sentence dot
   t = t.replace(/(^|[^\p{L}\p{N}_])@[A-Za-z0-9][A-Za-z0-9-]*/gu, '$1[handle removed]');
   t = t.replace(/\b[\w.-]+\/[\w.-]+#(\d+)\b/g, 'issue $1');   // review 4: owner/repo#4, a cross-repo back-reference
   t = t.replace(/(^|[^\p{L}\p{N}_&])#(\d+)\b/gu, '$1issue $2');
