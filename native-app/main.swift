@@ -2431,6 +2431,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         showUpdateOffer(nil)
     }
 
+    /// #4382: whether the version on disk is one to restart into: strictly newer than the running app.
+    /// An app newer than its install (a hand-run build) is never offered a "Restart" into an older one, and a
+    /// version either side cannot read offers nothing (isBehind's unknown). Pure, for the update selftest.
+    static func restartWanted(running: String?, onDisk: String) -> Bool {
+        guard let running else { return false }
+        return isBehind(running, onDisk) == true
+    }
+
     /// #4382: an install under way here, as `kosmos update` judges it: logs/install.started younger than
     /// 30 minutes. An interrupted install leaves an older marker behind, which is not in the way.
     static func installUnderWay(kosmosHome: String) -> Bool {
@@ -2514,8 +2522,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // The person pressed Update and it could not start here (another install is under way, or a
             // board now runs): say so, and keep what was offered.
             showUpdateOffer(offeredUpdate, note: "Kosmos could not start the update right now. Try again in a few minutes.")
-        case .current(let v) where installedUpdate == nil && v != runningAppVersion() && Self.freshAppURL(theirs: v) != nil:
-            // What is on disk is not what is running, and an app carrying it is there: an install this app
+        case .current(let v) where installedUpdate == nil && Self.restartWanted(running: runningAppVersion(), onDisk: v)
+                                   && Self.freshAppURL(theirs: v) != nil:
+            // What is on disk is newer than what is running, and an app carrying it is there: an install this app
             // did not see finish (another run of it started it, or a relaunch failed). Offer the Restart.
             showInstalledOffer(v)
         case .current, .board, .refused:
@@ -5522,8 +5531,19 @@ if CommandLine.arguments.contains("--kosmos-app-update-selftest") {
     row("refused\tthis computer is not set to connect to agents elsewhere\n", .refused, "refused: nothing to retry")
     row("refused\n", .unknown, "refused with no reason is not the CLI's answer")
     row("refused\t   \n", .unknown, "a reason of only spaces is no reason")
+    func want(_ running: String?, _ onDisk: String, _ expect: Bool, _ why: String) {
+        ran += 1
+        let got = AppDelegate.restartWanted(running: running, onDisk: onDisk)
+        if got != expect { bad += 1 }
+        print((got == expect ? "PASS  " : "FAIL  ") + "restart=\(got)".padding(toLength: 18, withPad: " ", startingAt: 0) + why)
+    }
+    want("0.7.18", "0.7.19", true, "the install is newer than the running app: offer Restart")
+    want("0.7.19", "0.7.19", false, "the same version: nothing to restart into")
+    want("0.7.20", "0.7.19", false, "an app newer than its install is never offered an older one")
+    want(nil, "0.7.19", false, "no running version: offer nothing")
+    want("0.7.18-dev", "0.7.19", false, "a version that cannot be read offers nothing")
     row("Kosmos is starting\r\nnewer 0.7.19\r\n", .newer("0.7.19"), "CRLF lines split too (Swift reads CRLF as one Character)")
-    let expected = 18
+    let expected = 23
     if ran != expected { print("\nupdate-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nupdate-check: \(bad) row(s) wrong"); exit(1) }
     print("\nupdate-check: all good (\(ran) rows)")
