@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  resetPauses: 'engine/communitysend.js (#4953): a test seam that clears the per-minute 429 pauses (and the once-said unreadable-429 note) between tests, so one test\'s pause cannot hold the next; nothing in the app resets them',
   _registerRetryAt: 'engine/communitysend.js (#4940): a read-only view of the register 429 wait (registerRetryAt stays private), so the five-minute cap is measured by engine/communitycomment-4373.test.js rather than inferred. A test seam, as _paths is.',
   isCodexHookEvidence: 'test-only by design (#4589): pins a Codex card\'s evidence to the hooks dialog\'s rows; NO production code keys on it, because the delivery floor reads the screen fresh (its comment in engine/status.js says so)',
   setRunner: 'test seam: injects the tmux runner',
