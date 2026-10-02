@@ -10,8 +10,8 @@ refusals exit 1 with the marker our stop wrote still on disk. launchd's KeepAliv
 and the watchdog obey it, so the board stays off after the port is free.
 
 ## Decision
-- A separate clear-only arm, `_kosmos_marker_ours`, set from `_kosmos_was_running` on the line right after
-  the pause's stop, and set back to `no` right after the put-back is armed (`_kosmos_paused_board=...`).
+- A separate clear-only arm, `_kosmos_marker_ours`, set from `_kosmos_was_running` on the line right before
+  the pause's stop (so a signal while the stop runs is covered), and set back to `no` right after the put-back is armed (`_kosmos_paused_board=...`).
 - `_kosmos_on_exit`, on a non-zero exit, runs the put-back and then `_kosmos_clear_own_marker`, which removes
   `board.stopped` only when armed and the mode, read again, still runs a board here. It starts nothing.
 - Same EXIT trap (the card: a second `trap ... EXIT` would replace #4818's).
