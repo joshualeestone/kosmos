@@ -1,13 +1,15 @@
 # #4601: browser checks that run on macOS, not on the Linux per-PR job. ROUTED, never dropped: when the
-# allowlist or a diff's selection names one of these, it runs in browser-checks.yml's macOS job instead.
-# A check joins this list ONLY with its cause measured on Linux (with Liberation Sans pinned, as the Linux
-# job runs) and written beside it. Never add one to make a red go away: a Linux-only red that is not
-# understood is a question for the card, and its answer decides whether the check comes here.
+# allowlist or a diff's selection names one of these, it runs in browser-checks.yml's macOS job instead, so its
+# coverage is unchanged. That, not the text below, is what makes routing safe.
+# An entry is a check MEASURED red on Linux (with Liberation Sans pinned, as the Linux job runs), with what is
+# known of why, and it must cite a card: the card that measured it, or the card explaining it (the workflow
+# test enforces the card). Never add one to make a red go away without that: a Linux-only red nobody has
+# measured is a question for a card first.
 # Measured 2026-10-02 (#4601: run 37036328772, every check on ubuntu-latest; run 37045524112, the reds again
 # with system-ui and sans-serif aliased to Liberation Sans). Format: <check name><TAB><cause>.
-live-connect	product, by design: the Mac install path refuses Linux ("this platform (linux) has no published Claude Code build")
-render-agent-lines	vertical font metrics: "name to title leading is tight 5px" under both Linux fonts; not proven beyond that
-render-room-msgbox-2806	paint: the "no double-tint seam" pixel check differs on Linux (wing lead 58 and 63); renderer or antialiasing
-render-subback-4586	NOT EXPLAINED: the Tasks chevron sits left of the title at 390px on Linux under both fonts (#4601 follow-up)
-render-chatbox-phone-4108	NOT EXPLAINED: the make-room fix does not run at 360 and 375px on Linux under both fonts (#4601 follow-up)
-render-orgchart-phone-718	NOT EXPLAINED: a synthetic touch swipe (CDP Input.synthesizeScrollGesture) does not scroll on Linux (#4601 follow-up)
+live-connect	product, by design: the Mac install path refuses Linux ("this platform (linux) has no published Claude Code build"); #4601, port note on #4916
+render-agent-lines	vertical font metrics: "name to title leading is tight 5px" under both Linux fonts; not proven beyond that (#5052)
+render-room-msgbox-2806	paint: the "no double-tint seam" pixel check differs on Linux (wing lead 58 and 63); renderer or antialiasing (#5052)
+render-subback-4586	NOT EXPLAINED: the Tasks chevron sits left of the title at 390px on Linux under both fonts (#5052)
+render-chatbox-phone-4108	NOT EXPLAINED: the make-room fix does not run at 360 and 375px on Linux under both fonts (#5052)
+render-orgchart-phone-718	NOT EXPLAINED: a synthetic touch swipe (CDP Input.synthesizeScrollGesture) does not scroll on Linux (#5052)

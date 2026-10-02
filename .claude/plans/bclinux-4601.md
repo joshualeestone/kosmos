@@ -51,3 +51,22 @@ NITs taken: one apt-get update. Left: click-first-run.js's historical "macos-lat
    only suppresses a SELECTED check, so an allowlisted Linux-only red would red every PR. The comment is
    rewritten with the results.
 NITs taken: the pgrep claim is now "not verified on Linux"; the 2026-09-07 run is "on the macOS runner".
+
+## Design change (13:20 to 13:45): route by platform, drop nothing
+The full set on Linux (run 37036328772): 12 Linux-only reds, none in the allowlist. Rerun with system-ui pinned
+to Liberation Sans (run 37045524112): six passed (font width, proven); five did not. Under Splinter's rule the job
+does not move whole. Measured on the last 40 page commits: the selector picks extra checks on 85%, so "selected on
+macOS" pays nothing; the six Linux-sensitive checks appear in 11 of 40. Built: a route step, tools/bc-macos-only.txt
+(each entry with its measured cause and a card), and a browser-checks-macos job that runs only when something is
+routed. The three unexplained checks are filed as #5052 and posted on #4916 (the Linux port).
+
+### Iteration 3 (opus, blind, on the routed design): 0 blockers, 3 warnings. All taken.
+1. always() spent a macOS runner on a superseded (cancelled) run. Now `!cancelled()`; the test pins it.
+2. tools/bc-macos-only.txt was not in the paths filter, so a routing change never ran end to end. Added and pinned.
+3. The list broke its own entry rule ("NOT EXPLAINED" passed as a cause). The header now says what makes routing
+   safe (the check still runs on macOS), and every cause must cite a card (#5052 for the unexplained); pinned.
+CONVENTION taken: the route step refuses an empty Linux set (browser-checks.sh reads empty as "run everything").
+CONVENTION left: the macOS job starts after the whole Linux job (a parallel route job would save its wait on the
+~28% that route something; a design trade, recorded).
+NITs taken: stale "run step" comments; the page-gate comment moved back above the checks step.
+Mutants: always() restored, the paths entry removed, and a card stripped from one entry each fail their pin.

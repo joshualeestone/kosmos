@@ -26,14 +26,14 @@
 # There are TWO independent narrowings, and conflating them is the trap:
 #   - The PATHS filter below scopes WHICH PRs pay the cost (only a rendered-surface
 #     change fires this job). It does NOT change what a green covers.
-#   - KOSMOS_BC_CI_ALLOWLIST (set on the run step) scopes WHAT RUNS, and therefore
+#   - KOSMOS_BC_CI_ALLOWLIST (job-level env of the browser-checks job) scopes WHAT RUNS, and therefore
 #     WHAT A GREEN COVERS: the timing-insensitive, headless-ROBUST DOM-state subset
 #     (the #2085 gate class -- element present / hidden / clickable / labeled). The
 #     first real full-suite run on the macOS runner (2026-09-07) FALSE-RED on the timing/
 #     animation/paint checks: they are both slow-runner-fragile and headless-weak
 #     (SwiftShader software rendering), so on this runner they red without a defect.
-#     Those stay at the cut-time 3b (headless too, on a quieter dev Mac). See the run step's
-#     own note for the measured allowlist.
+#     Those stay at the cut-time 3b (headless too, on a quieter dev Mac). See the note beside
+#     the allowlist (job-level env) for the measured list.
 # So a green here is the DOM-STATE gate, NOT full 3b coverage -- see caveat 2 (which
 # checks are and are not headless-viable) and caveat 3 (the trigger leak).
 # #4119: the checks step ALSO runs the checks this PR's page diff selects
@@ -136,6 +136,9 @@ on:
       - 'tools/bc-pr-select.js'
       - 'tools/bc-surface-map.sh'
       - 'tools/lib/browser-check-surface-lib.sh'
+      # #4601: the routing list decides which checks run on Linux and which on macOS; a change to it
+      # must run both jobs end to end.
+      - 'tools/bc-macos-only.txt'
 
 # Least privilege: reads the repo, runs the checks, needs no write scope. Uses
 # pull_request (not pull_request_target), so untrusted PR code never runs elevated.
@@ -239,7 +242,7 @@ jobs:
         render-waiting-badge-4025
         render-muse-signin-3939
     # provision-pw (npm i + chromium+webkit builds) is ~2-4 min; the CI ALLOWLIST
-    # subset (the headless-robust DOM-state checks named in the run step -- the list
+    # subset (the headless-robust DOM-state checks named in the job-level allowlist -- the list
     # grows batch by batch under #835, so this comment states no fixed count; most
     # launch one headless chromium, and at least one -- render-firstrun-connect-fires
     # -- also launches webkit) plus a hosted runner being slower than a dev Mac puts a
@@ -327,6 +330,27 @@ jobs:
             echo "::error::tools/bc-pr-select.js failed; running the allowlist only, and this job will fail after it"
             echo "KOSMOS_BC_PR_SELECT_FAILED=1" >> "$GITHUB_ENV"
           fi
+      # #4601: split the full set (the job's allowlist plus this diff's selection) by platform.
+      - name: 'route each check to Linux or macOS (tools/bc-macos-only.txt, #4601)'
+        id: route
+        run: |
+          set -eu
+          macos="$(grep -v '^#' tools/bc-macos-only.txt | cut -f1 | tr '\n' ' ')"
+          full=""
+          for n in $KOSMOS_BC_CI_ALLOWLIST ${KOSMOS_BC_PR_SELECTED:-}; do
+            case " $full " in *" $n "*) ;; *) full="$full $n" ;; esac
+          done
+          linux=""; mac=""
+          for n in $full; do
+            case " $macos " in *" $n "*) mac="$mac $n" ;; *) linux="$linux $n" ;; esac
+          done
+          # An empty KOSMOS_BC_CI_ALLOWLIST means "no allowlist" to browser-checks.sh, which would run EVERY
+          # check on Linux, the routed ones included. Never let the Linux set be empty.
+          [ -n "${linux# }" ] || { echo "::error::the Linux set is empty (allowlist fully routed?); refusing to run every check"; exit 1; }
+          echo "KOSMOS_BC_LINUX_SET=${linux# }" >> "$GITHUB_ENV"
+          echo "KOSMOS_BC_MAC_SET=${mac# }" >> "$GITHUB_ENV"
+          echo "mac_set=${mac# }" >> "$GITHUB_OUTPUT"
+          echo "Linux: $(echo $linux | wc -w | tr -d ' ') checks; macOS: ${mac:- none}"
       # The page gate itself, exactly as the cut runs it at 3b: strict version so a
       # drifted runtime is a hard stop, not a silent lie. Its exit code gates this
       # job -- non-zero fails the PR check, which is the whole point. 126/127 means
@@ -358,24 +382,6 @@ jobs:
       # signed-in build box and timed out on the runner (a false-green machine). The
       # fix (this PR) makes advanceToAnchor click whichever control is actually
       # forward, so it is now headless-ROBUST and rejoins the DOM-state subset.
-      # #4601: split the full set (the job's allowlist plus this diff's selection) by platform.
-      - name: 'route each check to Linux or macOS (tools/bc-macos-only.txt, #4601)'
-        id: route
-        run: |
-          set -eu
-          macos="$(grep -v '^#' tools/bc-macos-only.txt | cut -f1 | tr '\n' ' ')"
-          full=""
-          for n in $KOSMOS_BC_CI_ALLOWLIST ${KOSMOS_BC_PR_SELECTED:-}; do
-            case " $full " in *" $n "*) ;; *) full="$full $n" ;; esac
-          done
-          linux=""; mac=""
-          for n in $full; do
-            case " $macos " in *" $n "*) mac="$mac $n" ;; *) linux="$linux $n" ;; esac
-          done
-          echo "KOSMOS_BC_LINUX_SET=${linux# }" >> "$GITHUB_ENV"
-          echo "KOSMOS_BC_MAC_SET=${mac# }" >> "$GITHUB_ENV"
-          echo "mac_set=${mac# }" >> "$GITHUB_OUTPUT"
-          echo "Linux: $(echo $linux | wc -w | tr -d ' ') checks; macOS: ${mac:- none}"
       - name: 'the page layer, headless DOM-state subset (tools/browser-checks.sh, #39/#2445)'
         # #4119: the fixed allowlist PLUS the checks the selection step named, deduplicated. The
         # driver's never-ran guard covers both: a named check that did not run reds the job.
@@ -395,7 +401,9 @@ jobs:
   # wait for no macOS runner at all. always(): a red Linux job must not cost these their run.
   browser-checks-macos:
     needs: browser-checks
-    if: always() && needs.browser-checks.outputs.mac_set != ''
+    # !cancelled(), not always(): a newer push cancels this run, and always() would still spend a macOS
+    # runner on the stale commit. A red Linux job still runs these.
+    if: ${{ !cancelled() && needs.browser-checks.outputs.mac_set != '' }}
     runs-on: macos-latest
     timeout-minutes: 60
     steps:

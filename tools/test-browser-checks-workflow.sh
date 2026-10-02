@@ -72,7 +72,7 @@ grep -qE "^[[:space:]]*paths:" "$WF" || fail "the workflow has no paths filter"
 # checks assert against, and the self-path re-runs the job when the workflow itself
 # changes (also how THIS PR triggers it). Pinning every entry means a dropped path
 # reds here rather than silently narrowing the trigger.
-for p in 'web/index\.html' 'docs/browser-checks/' 'tools/browser-checks\.sh' 'tools/provision-pw\.sh' 'test-support/' '\.github/workflows/browser-checks\.yml'; do
+for p in 'web/index\.html' 'docs/browser-checks/' 'tools/browser-checks\.sh' 'tools/provision-pw\.sh' 'test-support/' '\.github/workflows/browser-checks\.yml' 'tools/bc-macos-only\.txt'; do
   grep -qE "^[[:space:]]*-[[:space:]]*'${p}" "$WF" \
     || fail "the paths filter has no list entry for '${p}'; a change there would not trigger the gate (the #2445 defect)"
 done
@@ -175,7 +175,7 @@ if command -v ruby >/dev/null 2>&1; then
     abort "the Linux job does not pin system-ui to Liberation Sans, with a check that it took, before the checks (#4601)" unless fi && fi < gi
     m = (YAML.load_file(ARGV[0])["jobs"] || {})["browser-checks-macos"] or abort "no browser-checks-macos job (#4601: routed checks would never run)"
     abort "the macOS job is not on macos-latest" unless m["runs-on"] == "macos-latest"
-    abort "the macOS job must need the Linux job and run only when it routed something, even if the Linux job is red" unless m["needs"].to_s == "browser-checks" && m["if"].to_s.gsub(/\s+/, "") == "always()&&needs.browser-checks.outputs.mac_set!=" + 39.chr * 2
+    abort "the macOS job must need the Linux job and run only when it routed something, even if the Linux job is red" unless m["needs"].to_s == "browser-checks" && m["if"].to_s.gsub(/\s+/, "") == "${{!cancelled()&&needs.browser-checks.outputs.mac_set!=" + 39.chr * 2 + "}}"
     ms = m["steps"] || []
     mi = ms.index { |st| st["run"].to_s =~ /KOSMOS_BC_CI_ALLOWLIST="\$MAC_SET" KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/ }
     abort "the macOS job does not run the routed set with the strict pin" unless mi && ms[mi]["env"].to_s.include?("needs.browser-checks.outputs.mac_set")
@@ -573,6 +573,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in ''|'#'*) continue ;; esac
   name="${line%%$(printf '\t')*}"; cause="${line#*$(printf '\t')}"
   [ "$name" != "$line" ] && [ -n "$cause" ] || fail "bc-macos-only.txt: '$line' has no <TAB><cause> (#4601: a check is routed only with its measured cause)"
+  printf '%s' "$cause" | grep -qE '#[0-9]+' || fail "bc-macos-only.txt: '$name' cites no card (#4601: every routed check points at the card that measured it or is explaining it)"
   [ -f "$REPO/docs/browser-checks/$name.js" ] || fail "bc-macos-only.txt names '$name', which is not a check in docs/browser-checks/"
   routed=$((routed + 1))
 done < "$ROUTE"
