@@ -8628,6 +8628,13 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   font: var(--text-callout) var(--font-ui); color: var(--label-2); }
 .fr-importrow .fr-importsaid:empty { display: none; }
 .fr-importrow.done { border-color: var(--label-3); }
+/* kosmos#4962: a nameless file's row asks for a name in place (the first-run adopt rows' wording and
+   rule), so it can be added here instead of sending the person to the create form. The helper line is
+   what says the empty box is theirs to fill, not something that failed to load. */
+.fr-importlab { display: block; margin-top: var(--space-4); font: var(--text-subhead) var(--font-ui);
+  font-weight: 600; color: var(--label); }
+.fr-importrow .fr-importinput { max-width: 22rem; margin-top: var(--space-2); }   /* the page's own .tk-inp field */
+.fr-importhelp { display: block; margin-top: var(--space-2); font: var(--text-subhead) var(--font-ui); color: var(--label-2); }
 /* The gold primary, per surface (a bare `.btn.uprime` loses to #firstrun's white-btn
    ID rule), and the Added state that turns the fill off again -- green with a CHECK
    so the colour never carries the state alone (kosmos#1346, same `--ok` as the found
@@ -53007,7 +53014,7 @@ async function finishImport(data, gen, btn) {
    shows none of it. The Add is one click, in place -- addImportedInPlace, not a jump to the
    create form -- and the `.fr-importsaid` line is empty until something goes wrong. */
 function foundImportRowsHtml(items) {
-  return (items || []).map((c) => {
+  return (items || []).map((c, i) => {
     const file = String(c && c.file ? c.file : '');
     const name = String(c && c.name ? c.name : '');
     /* The visible words come FIRST so a voice control reaching "add to kosmos" finds it,
@@ -53015,9 +53022,18 @@ function foundImportRowsHtml(items) {
        found/scan rows keep. A nameless file falls back to its path in the accessible
        name only, so two of them are still tellable apart to assistive tech. */
     const label = name || file;
+    /* kosmos#4962: a file that does not say what to call the agent asks for a name right here. The id
+       carries the row's index as well as the path, because cssId keeps only the last 60 characters and
+       two files can share a tail. */
+    const fid = 'importname-' + i + '-' + cssId(file);
+    const ask = name ? '' : '<label class="fr-importlab" for="' + esc(fid) + '">Name</label>'
+      + '<input class="tk-inp fr-importinput" id="' + esc(fid) + '" type="text" autocomplete="off" maxlength="60"'
+      + ' placeholder="e.g. Site monitor" aria-describedby="' + esc(fid) + '-help">'
+      + '<span class="fr-importhelp" id="' + esc(fid) + '-help">What should we call it? You can rename it anytime.</span>';
     return '<div class="fr-importrow" data-import-file="' + esc(file) + '">'
       + '<span class="fr-importtext">'
       + '<span class="fr-importname">' + (name ? esc(name) : 'An agent file with no name in it') + '</span>'
+      + ask
       + '</span>'
       + '<span class="fr-importact">'
       + '<button class="btn uprime fr-importgo" type="button"'
@@ -53093,8 +53109,18 @@ async function populateFoundImports() {
 async function addImportedInPlace(file, btn, row) {
   if (!file || !btn || btn.disabled) return;
   const said = row && row.querySelector('.fr-importsaid');
+  /* kosmos#4962: a nameless file's row carries a Name field. Empty, it is asked for before anything is
+     sent (the first-run adopt rows' rule); filled, what was typed names the agent. */
+  const field = row && row.querySelector('.fr-importinput');
+  const typed = field ? field.value.trim() : '';
+  if (field && !typed) {
+    if (said) said.textContent = 'Give this agent a name first.';
+    field.focus();
+    return;
+  }
   const was = btn.textContent;
-  const fail = (msg) => { btn.disabled = false; btn.textContent = was; if (said) said.textContent = msg; };
+  const fail = (msg) => { btn.disabled = false; btn.textContent = was; if (field) field.disabled = false; if (said) said.textContent = msg; };
+  if (field) field.disabled = true;
   btn.disabled = true;
   btn.textContent = 'Adding…';
   if (said) said.textContent = '';
@@ -53121,7 +53147,9 @@ async function addImportedInPlace(file, btn, row) {
   /* A raw CLAUDE.md may carry no derivable name (recognizedFromContent). The form
      path prompts for one; a one-click add cannot, so it says so and stops rather than
      making a nameless agent. */
-  const name = String(data.name || '').trim();
+  /* What the person typed wins when the row asked for it; the engine folds it into a machine name
+     ("Claude Pip" is claude-pip) and refuses one it cannot use, with a reason this row shows. */
+  const name = typed || String(data.name || '').trim();
   if (!name) { fail('This file does not say what to call the agent, so it cannot be added in one click. Open it from Create an agent to name it.'); return; }
 
   // 2. Create from the parsed fields. Import maps to the `own` role, the same mapping
@@ -53132,7 +53160,7 @@ async function addImportedInPlace(file, btn, row) {
      non-empty (agentfile.importAgent), and name is guaranteed non-empty by the guard
      above, so `label || name` cannot be empty. The fallback pins that cross-module
      invariant here rather than relying on the parser never changing. */
-  const label = String(data.displayName || '').trim();
+  const label = typed || String(data.displayName || '').trim();
   bodyObj.label = label || name;
   const instr = String(data.instructions || '');
   if (instr.trim()) bodyObj.instructions = instr;
@@ -53206,6 +53234,16 @@ async function addImportedInPlace(file, btn, row) {
    the create form's import panel (#import-found) AND the find-agents screen
    (#fr-fleet, via frPaintScan). One handler, one behaviour on both: add the file in
    place (addImportedInPlace), never jump to the create form. */
+/* kosmos#4962: Enter in a nameless row's Name field presses that row's Add. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing || !e.target || !e.target.closest) return;
+  const field = e.target.closest('.fr-importinput');
+  if (!field) return;
+  const go = field.closest('.fr-importrow') && field.closest('.fr-importrow').querySelector('.fr-importgo');
+  if (!go || go.disabled) return;
+  e.preventDefault();
+  go.click();
+});
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.fr-importgo');
   if (!btn || btn.disabled) return;
