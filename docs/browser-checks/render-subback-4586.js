@@ -152,20 +152,32 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
   });
 
   /* #5072 (Mona Lisa's call): at 30rem and below Open project takes its own line and the separator dot is not drawn;
-     wider, the dot is drawn on Open project's line. Dots are found as characters and counted as drawn when their box
-     has width, so one reading serves the old markup (expected to fail at phone width) and the new. */
-  const crumbGeom = (page) => page.evaluate(() => {
+     above 30rem the dot is drawn and wraps as one unit with Open project. Dots are found as characters and counted as
+     drawn when their box has width, so one reading serves the old markup and the new. With narrow, the crumb is cut to
+     end 20px past the name (room for ' ·', not for the button), the one shape where a dot not tied to the button would
+     be left at the end of line 1. */
+  const crumbGeom = (page, narrow) => page.evaluate((narrow) => {
     const box = document.getElementById('tsk-crumb'), all = box.querySelector('[data-proj=""]'), openEl = box.querySelector('[data-open-project]');
-    if (!all || !openEl) return { shown: false };
-    const b = box.getBoundingClientRect(), first = all.getBoundingClientRect(), open = openEl.getBoundingClientRect();
-    const dots = []; const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT); let n;
-    while ((n = w.nextNode())) for (let i = n.data.indexOf('\u00b7'); i >= 0; i = n.data.indexOf('\u00b7', i + 1)) {
-      const rg = document.createRange(); rg.setStart(n, i); rg.setEnd(n, i + 1); const r = rg.getBoundingClientRect(); if (r.width > 0) dots.push(r); }
-    const mid = (r) => (r.top + r.bottom) / 2;
-    return { shown: true, openBelow: open.top >= first.bottom - 1, openAtLeft: Math.abs(open.left - b.left) <= 2, dotsDrawn: dots.length,
-      dotOnOpenLine: dots.length === 1 && mid(dots[0]) >= open.top && mid(dots[0]) <= open.bottom,
-      box: [Math.round(b.left), Math.round(b.width)], first: [Math.round(first.left), Math.round(first.top), Math.round(first.bottom)], open: [Math.round(open.left), Math.round(open.top), Math.round(open.bottom)] };
-  });
+    const drawn = (el) => !!el && el.getClientRects().length > 0 && el.getBoundingClientRect().width > 0;
+    if (!drawn(all) || !drawn(openEl)) return { shown: false };
+    const charRect = (node, i) => { const rg = document.createRange(); rg.setStart(node, i); rg.setEnd(node, i + 1); return rg.getBoundingClientRect(); };
+    const was = box.style.width;
+    if (narrow) {
+      const nameNode = all.nextSibling, s = nameNode && nameNode.nodeType === 3 ? nameNode.data : '';
+      const end = s.replace(/[\s\u00b7]+$/, '').length;
+      if (end === 0) return { shown: true, narrowed: false };
+      box.style.width = Math.ceil(charRect(nameNode, end - 1).right - box.getBoundingClientRect().left + 20) + 'px';
+    }
+    try {
+      const b = box.getBoundingClientRect(), first = all.getBoundingClientRect(), open = openEl.getBoundingClientRect();
+      const dots = []; const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT); let n;
+      while ((n = w.nextNode())) for (let i = n.data.indexOf('\u00b7'); i >= 0; i = n.data.indexOf('\u00b7', i + 1)) { const r = charRect(n, i); if (r.width > 0) dots.push(r); }
+      const mid = (r) => (r.top + r.bottom) / 2, sep = dots[dots.length - 1];
+      return { shown: true, narrowed: !!narrow, openBelow: open.top >= first.bottom - 1, openAtLeft: Math.abs(open.left - b.left) <= 2, dotsDrawn: dots.length,
+        dotOnOpenLine: !!sep && mid(sep) >= open.top && mid(sep) <= open.bottom,
+        box: [Math.round(b.left), Math.round(b.width)], first: [Math.round(first.left), Math.round(first.top), Math.round(first.bottom)], open: [Math.round(open.left), Math.round(open.top), Math.round(open.bottom)] };
+    } finally { box.style.width = was; }
+  }, !!narrow);
 
   // ---- #5053: a LONG project name at phone widths. The fixture's own name left only 29px of room at 390 on a Mac
   // (and overflowed by 3px on Linux), so the head row wrapped and left the chevron alone on its line. A name that
@@ -189,8 +201,9 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
         say('#5053 long name at 700: the title really wraps (the arm tests something)', d.h > 36, JSON.stringify(d));
         say('#5053 long name at 700: the chevron, the title and "+ New task" share the row; wrapped lines do not touch', d.gap >= 0 && d.gap <= 24 && d.newRight && d.inView && d.lh >= 27.6, JSON.stringify(d));
         say('#5053 long name at 700: the chevron\'s top is at the title\'s first line', d.chevTopAtTitle, JSON.stringify(d));
-        const cg7 = await crumbGeom(tv.page);
-        say('#5072 at 700 (wider than a phone): the separator dot is drawn, on Open project\'s line', cg7.shown && cg7.dotsDrawn === 1 && cg7.dotOnOpenLine, JSON.stringify(cg7));
+        const cg7 = await crumbGeom(tv.page, true);
+        say('#5072 at 700, crumb cut to end just past the name: Open project wraps (the arm tests something)', cg7.shown && cg7.narrowed && cg7.openBelow, JSON.stringify(cg7));
+        say('#5072 at 700 (above 30rem): the separator dot is drawn, on Open project\'s line, not left at the end of the line above', cg7.dotsDrawn === 1 && cg7.dotOnOpenLine, JSON.stringify(cg7));
         await tv.ctx.close();
         project.name = LONG; tasks.forEach((t) => { t.projectName = LONG; });
       }

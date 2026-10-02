@@ -14,7 +14,7 @@ reads as a stray mark; phone names wrap almost always, so one fixed layout). Wid
 is one nowrap unit so the dot never dangles at a line end.
 
 Markup: `name <span class="tsk-crumb-open"><span class="tsk-crumb-sep">·</span> <button ...>Open project</button></span>`.
-The phone rule (`@media (max-width: 30rem)`, the room's phone query) sets the open span to block and hides the sep.
+The phone rule (`@media (max-width: 30rem)`, the same query the project room's phone CSS uses; the Tasks head's own phone grid is 40rem) sets the open span to block and hides the sep.
 
 Superseded: my first build (dot leads line 2). Rejected by the designer.
 
@@ -25,7 +25,9 @@ wrap, and there the nowrap unit applies (dot kept, moves with the button).
 render-subback-4586.js, crumbGeom(): dots found as characters and counted as drawn when their box has width.
 - 390 and 360 (phone): Open project below All tasks, at the crumb's left edge; zero dots drawn. Expected to FAIL on the
   old markup (the dot is drawn there).
-- 700: exactly one dot drawn, on Open project's line.
+- 700, with the crumb cut to end 20px past the name: Open project wraps (arm), exactly one dot drawn, on Open
+  project's line (the nowrap unit; expected to fail on the old markup, where the dot fits on line 1).
+- 30rem to 40rem: no viewport arm; the same above-30rem rule as 700. Touch (hover: none, 44px buttons) is reasoned, not run.
 Other checks' selectors (`#tsk-crumb button`, `[data-open-project]`, `[data-proj=""]`, empty-crumb textContent) are
 descendant/textual and unaffected. textContent is unchanged.
 
