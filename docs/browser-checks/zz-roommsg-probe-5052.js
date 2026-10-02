@@ -569,10 +569,11 @@ function tapProbe4663(skip) {
         const w = window.__worst; const ex = Math.round(box.right + w.dx), ey = Math.round(box.bottom + w.dy);
         const el = document.elementFromPoint(ex, ey);
         const body = at(box.x + box.w * 0.5, box.y + box.h * 0.5);
-        console.log('PROBE-5052 ' + JSON.stringify({ worst: w, at: [ex, ey], el: el ? (el.className || el.tagName) : null, body, box: [Math.round(box.x), Math.round(box.y), Math.round(box.w), Math.round(box.h)],
-          tint: getComputedStyle(document.querySelector('.thread[data-shot="1"] .msg.you .msg-bd')).backgroundColor, dpr: devicePixelRatio, img: [img.width, img.height] }));
-        return { bodyLead: Math.round(bodyLead), maxWingLead: Math.round(maxWingLead) };
+        const probe = ({ worst: w, at: [ex, ey], el: el ? (el.className || el.tagName) : null, body, box: [Math.round(box.x), Math.round(box.y), Math.round(box.w), Math.round(box.h)],
+          tint: getComputedStyle(document.querySelector('.thread[data-shot="1"] .msg.you .msg-bd')).backgroundColor, dpr: devicePixelRatio, img: [img.width, img.height] });
+        return { bodyLead: Math.round(bodyLead), maxWingLead: Math.round(maxWingLead), probe };
       }, { url: 'data:image/png;base64,' + shot.toString('base64'), box });
+      console.log('PROBE-5052 ' + JSON.stringify(px.probe));
       // A single-composite wing matches the body; a double-tint seam reads several points
       // bluer. Allow a small anti-aliasing margin.
       chk(px.maxWingLead <= px.bodyLead + 4,
