@@ -1121,7 +1121,7 @@ const AVATAR_MAX_BYTES = 60000;                     // the service's cap (app/av
 const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const AVATAR_FAILS_BEFORE_WAIT = 3;
 const AVATAR_WAIT_MS = 60 * 60 * 1000;
-const AVATAR_WAIT_MAX_MS = 24 * 60 * 60 * 1000;
+const AVATAR_WAIT_MAX_MS = 6 * 60 * 60 * 1000;
 
 /* The last picture read per agent, keyed by its file and its inode, size, mtime and ctime (saveAvatar unlinks and
    creates the file again, so a same-size replacement inside one mtime tick still has a new inode), so an unchanged
@@ -1138,7 +1138,7 @@ function avatarWanted(agentKey) {
   // Only a confirmed absence is "no picture"; a folder that could not be read is not a reason to take anything down.
   if (found.error) return { busy: true, why: 'unreadable:' + found.error };
   const file = found.file;
-  if (!file) return { id: null, why: null };
+  if (!file) { avatarSeen.delete(agentKey); return { id: null, why: null }; }
   let before;
   try { before = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { id: null, why: null } : { busy: true, why: 'unreadable:' + ((e && e.code) || 'stat') }; }
   if (before.size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + before.size };
@@ -1247,7 +1247,7 @@ async function sweepAvatars(keys, on, { removals }) {
       const first = k.avatarRetrying !== target;
       k.avatarRetrying = target;
       if (target !== null) {
-        // Two more tries at once, then an hour, doubling to a day.
+        // Two more tries at once, then an hour, doubling to six hours.
         k.avatarFails = (k.avatarFails || 0) + 1;
         if (k.avatarFails >= AVATAR_FAILS_BEFORE_WAIT) {
           k.avatarNextTry = Date.now() + Math.min(AVATAR_WAIT_MAX_MS, AVATAR_WAIT_MS * 2 ** (k.avatarFails - AVATAR_FAILS_BEFORE_WAIT));
