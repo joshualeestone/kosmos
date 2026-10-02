@@ -4394,9 +4394,11 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   const TWO = '> hi\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
     + "  ⎿  You've hit your session limit · resets Oct 12 at 12am (America/Chicago)\n" + '✻ Cooked for 0s · done 10:35 PM\n' + STATUS;
   assert.equal(read(TWO, RESET + 3600000).state, STATE.RATE_LIMITED, 'an expired limit row took a live one under the same footer');
-  /* Review round 3: the same, with the live row in the 2026-08-21 wording. */
+  /* Review rounds 3 and 5: the same, with the live row in the 2026-08-21 wording AS CAPTURED, which names
+     /usage-credits on the limit row itself (so it must not be mistaken for the upsell row). */
   const TWO_REACHED = '> hi\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
-    + "     You've reached your Opus limit.\n" + '✻ Cooked for 0s · done 10:35 PM\n' + STATUS;
+    + "     You've reached your Fable 5 limit. Run /usage-credits to continue or\n     switch models with /model.\n"
+    + '✻ Cooked for 0s · done 10:35 PM\n' + STATUS;
   assert.equal(read(TWO_REACHED, RESET + 3600000).state, STATE.RATE_LIMITED, 'an expired limit row took a live "reached your" row');
   /* Review round 3: the printed reset drops seconds; within a minute of it the pane stays capped. */
   assert.equal(read(SCREEN, RESET + 30 * 1000).state, STATE.RATE_LIMITED, 'retired before the minute of grace');

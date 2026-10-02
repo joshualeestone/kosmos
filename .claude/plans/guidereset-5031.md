@@ -67,7 +67,7 @@ The time-only shape is probably the common one for 5-hour limits, and this does 
   based billing) or "Wait for limit to reset" (spend-limit menu) too, all under the title "What do you want to do?", used only by the limit,
   spend-limit and trial-ended menus. I confirmed the strings in the binary myself. Both other labels read needs_you past the reset, guideFailure
   null, the person's text into a held menu: a regression vs main (capped). Now keyed on the title. NITs taken: a minute's grace (the printed
-  reset drops seconds); the removal stops at a next limit row of ANY wording except the vendor's own /usage-credits upsell; ASKED_FIRST pins the
+  reset drops seconds); the removal stops at a next limit row of ANY wording except the vendor's own /usage-credits upsell [CORRECTED round 5: false for the observed 2026-08-21 row, which names /usage-credits mid-row and was taken for the upsell; fixed in round 5]; ASKED_FIRST pins the
   first-column-0 gate; the 35-day horizon named above. Reviewer's property check: every 30-minute instant Jan 2026 to Jul 2027 in 11 zones,
   rendered with Claude Code's own formatter and parsed back, none early, none null.
   Measured 11:45, each red by name: menu keyed on one label -> "Stop"; no grace -> "retired before the minute of grace"; stop only at "hit your"
@@ -79,4 +79,10 @@ The time-only shape is probably the common one for 5-hour limits, and this does 
   the grace from above. NIT2 (menu partly scrolled off) is unreachable: the row scrolls out first. Residual kept: a live row that is only
   "/usage-credits" directly under an expired row reads as its upsell (unobserved; the same sentence is the upsell in both captures).
   Measured 11:48, each red by name: menu anywhere -> MENU_ABOVE; title unanchored -> PROSE; grace 119 s -> the 90 s arm. 241/241.
-- Round 5: PENDING.
+- Round 5 (opus, blind, whole change fresh): 0 BLOCKER, 1 SHOULD-FIX, taken. The upsell exclusion matched /usage-credits ANYWHERE, so the
+  observed 2026-08-21 limit row ("You've reached your Fable 5 limit. Run /usage-credits to continue or") under an expired row was dropped
+  with it and a still-capped pane read healthy; TWO_REACHED had used a trimmed fixture that stepped around it. Now the upsell must START with
+  the command; TWO_REACHED uses the captured row. NITs not taken: last vs first menu row (differs only with two menus on screen, which the
+  modal makes unlikely); minute > 59 (Claude Code never writes it); a year-old line re-reads capped in the 35 days before its anniversary
+  (safe side). Measured 11:53: the unanchored upsell test reds TWO_REACHED by name. 241/241.
+- Round 6: PENDING.
