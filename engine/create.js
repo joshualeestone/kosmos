@@ -5439,7 +5439,10 @@ function createAgentInner(opts) {
        (`already === false` proves only that no other agent needed it at PREACCEPT time, not
        at rollback time). Leaving an inert account preference set is the safe direction -- the
        operator chose bypass mode for this account when they started the creation -- so this
-       is fire-and-forget with no undo, unlike the trust write. */
+       is fire-and-forget with no undo, unlike the trust write. The same call also writes
+       #5039's switchModelsOnFlag. That one is not inert and the operator did not choose it here
+       (Josh ruled the default, 2026-10-02); it is left in place on rollback for the same
+       account-shared reason. */
     if (provider === 'anthropic') {
       try { require('./trust').preacceptBypass(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
