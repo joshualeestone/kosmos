@@ -3428,8 +3428,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    key press (`kbd-landed`, set from DSEC_KEYBOARD), never after a pointer press. Keyed on
    :focus-visible it drew a black stroke round the 16px-radius card after a CLICK in the Mac app:
    Safari does not focus a clicked button, so the focus moved next can match :focus-visible.
-   Sections are tabindex=-1 landing spots that only those two functions focus (web.agent-nav.test.js
-   pins the agent page's tabindex). */
+   Sections are tabindex=-1 (web.agent-nav.test.js pins the agent page's). */
 .dsec:focus { outline: none; }
 .dsec.kbd-landed:focus { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
