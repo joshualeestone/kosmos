@@ -41,3 +41,6 @@ describe the product as it will be); if the measurement fails, line 1 comes out 
   was told its post failed and sent it again; the person saw the duplicate. Now "An agent's room post that got through
   is no longer reported back to it as failed, so teammates stop getting it twice." LEFT NIT: a Windows agent moved to
   another account also gets the key, so "new agents only" undersells (safe direction).
+- 12:45 after #5042 merged (b758acddb): Homer's Windows half #5044 (f95fe8dea) is ALSO on main, so win32launch.js now
+  calls trust.preacceptBypass at every Windows launch and existing Windows agents get the key too. Line 1's "On Windows,
+  new agents only" became untrue: removed. Line 1 now: "...switches to Opus 4.8 and keeps going instead of stopping." Round 4 re-checks it.

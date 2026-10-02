@@ -4,7 +4,7 @@
     {
       "icon": "spark",
       "title": "Agents keep going when a message is flagged",
-      "line": "When Claude's safety check flags a message, an agent on Opus 5.5 switches to Opus 4.8 and keeps going. On Windows, new agents only."
+      "line": "When Claude's safety check flags a message, an agent on Opus 5.5 now switches to Opus 4.8 and keeps going instead of stopping."
     },
     {
       "icon": "chat",
