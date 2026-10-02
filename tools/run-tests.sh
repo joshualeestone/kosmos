@@ -27,7 +27,8 @@ cd "$REPO"
 #   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
 #   node  the node suite only;
 #   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
-# Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates).
+# Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates); --only (#4929,
+# below) is the one run that does not, and it says which.
 # A value it does not know refuses HERE, first, before the machine claim, the temp root or any test,
 # rather than running a subset silently. tools.shell-shard-4317.test.js runs each refusal.
 KOSMOS_TEST_PART="${KOSMOS_TEST_PART:-all}"
@@ -48,14 +49,16 @@ if [ "$KOSMOS_TEST_PART" != all ]; then
 fi
 # #4929: `tools/run-tests.sh --only <file>...` runs the named test files with everything below that a test needs (the
 # dead-port URLs, the fake gh and vercel, the unsets, the per-run temp root, the --require guards, the leak guards),
-# and without what belongs to the whole suite: the queue (a light queue turn already holds its place), the coverage
-# count, the shell part and the branch's browser-check gates. A bare `node --test <file>` skips all of it.
+# and without what belongs to the whole suite: the queue WAIT (a light queue turn already holds its place; the release
+# claim and install-harness refusals are still asked, once), the coverage count, the shell part and the branch's
+# browser-check gates. A bare `node --test <file>` skips all of it. Other suites' "is a suite live" checks still see
+# a --only run as one (it is run-tests.sh), so they wait for it: the safe direction.
 KOSMOS_ONLY=0
 KOSMOS_ONLY_FILES=()
 if [ "${1:-}" = --only ]; then
   shift
-  if [ "$KOSMOS_TEST_PART" != all ]; then
-    echo "run-tests: --only runs named files; it does not take KOSMOS_TEST_PART (got '$KOSMOS_TEST_PART')" >&2
+  if [ "$KOSMOS_TEST_PART" != all ] || [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
+    echo "run-tests: --only runs named files; it does not take KOSMOS_TEST_PART or KOSMOS_SHELL_SHARD (got part '$KOSMOS_TEST_PART'${KOSMOS_SHELL_SHARD:+, shard '$KOSMOS_SHELL_SHARD'})" >&2
     exit 2
   fi
   if [ "$#" -eq 0 ]; then
@@ -76,7 +79,6 @@ if [ "${1:-}" = --only ]; then
   done
   set --
   KOSMOS_ONLY=1
-  KOSMOS_TEST_PART=node
   echo "run-tests: --only: ${#KOSMOS_ONLY_FILES[@]} named file(s), not the whole suite (#4929)" >&2
 fi
 # Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
@@ -259,7 +261,7 @@ KOSMOS_QUEUE_CLASS=heavy
 # case after four bounds plus one per waiter ahead at entry (#4574; tools/lib/cut-guard.sh,
 # kosmos_wait_until_clear). A run that skips the suite check (the override or a run inside a test,
 # below) does not queue, and waits 20 minutes from its start. KOSMOS_NO_WAIT=1
-# refuses at once; this runner's arguments all go to node --test, so it has no --no-wait flag.
+# refuses at once; this runner's arguments (other than a leading --only) all go to node --test, so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
 _rt_suite_check=1
@@ -274,7 +276,16 @@ _rt_box_clear() {
   fi
   return 0
 }
-if [ "$KOSMOS_ONLY" != 1 ] && command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
+if [ "$KOSMOS_ONLY" = 1 ]; then
+  # #4929: no queue wait, but a release's claim and a live install harness still refuse, asked once (fail-open on a
+  # missing lib, as above). A light queue turn's own claim is not foreign, so it does not refuse its own run.
+  if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
+    kosmos_refuse_if_machine_claimed "this test run" || exit 1
+    if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+      kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || exit 1
+    fi
+  fi
+elif command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
   if [ "$_rt_suite_check" = 1 ]; then
     kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear || exit 1
   else
@@ -419,7 +430,7 @@ if [ "$KOSMOS_TEST_PART" != shell ]; then
 node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 fi
-if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
+if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ] && [ "$KOSMOS_ONLY" != 1 ]; then
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
   else

@@ -22,7 +22,19 @@ const RUNNER = path.join(__dirname, 'tools', 'run-tests.sh');
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'only-4929-'));
 /* This file runs under node --test, which marks its children with NODE_TEST_CONTEXT; a nested node --test that
    inherits it reports to this one instead of printing. The runs below are separate runs, so it goes. */
-const cleanEnv = (extra = {}) => { const e = { ...process.env, ...extra }; delete e.NODE_TEST_CONTEXT; return e; };
+/* Under the suite (yarn test, CI, --only itself) this process already has what run-tests.sh exports, and CI's node job
+   sets KOSMOS_TEST_PART. Every run below starts from an environment with none of that, so each assertion can only
+   pass if the run under test set it up. TMPDIR is a plain folder here, so a kt<pid> under it is the inner run's own. */
+const RUNNER_SET = ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'AGENT_WORKFORCE_COMMUNITY_URL',
+  'KOSMOS_CATALOGUE_BASE', 'AGENT_WORKFORCE_GH_BIN', 'AGENT_WORKFORCE_VERCEL_BIN', 'KOSMOS_NO_LEGACY_MIGRATION',
+  'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD', 'NODE_TEST_CONTEXT'];
+const PLAIN_TMP = fs.mkdtempSync(path.join(DIR, 'tmp-'));
+const cleanEnv = (extra = {}) => {
+  const e = { ...process.env };
+  for (const k of RUNNER_SET) delete e[k];
+  e.TMPDIR = PLAIN_TMP;
+  return { ...e, ...extra };
+};
 
 /* What a test sees of its environment, written as one JSON line. */
 const PROBE = path.join(DIR, 'envprobe.test.js');
@@ -46,8 +58,9 @@ const RED = path.join(DIR, 'red.test.js');
 fs.writeFileSync(RED, `'use strict';\nrequire('node:test')('red', () => { throw new Error('red on purpose'); });\n`);
 
 function run(args, extraEnv = {}) {
-  const env = cleanEnv({ CODEX_HOME: '/tmp/should-be-unset', KOSMOS_AGENT_TOKEN_ONLY: '1', ...extraEnv });
-  delete env.KOSMOS_TEST_PART;
+  // Not about the machine claim or the install harness (cut-guard's own tests are): a run on a busy box must still run.
+  const env = cleanEnv({ CODEX_HOME: '/tmp/should-be-unset', KOSMOS_AGENT_TOKEN_ONLY: '1',
+    KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', ...extraEnv });
   const r = spawnSync('bash', [RUNNER, ...args], { env, encoding: 'utf8', timeout: 120000 });
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
 }
@@ -72,7 +85,7 @@ test('--only runs the named file with the suite\'s environment and guards', () =
   assert.equal(e.legacy, '1');
   assert.equal(e.codexHome, null, 'an inherited CODEX_HOME reached the test');
   assert.equal(e.tokenOnly, null, 'an inherited KOSMOS_AGENT_TOKEN_ONLY reached the test');
-  assert.match(String(e.tmpdir), /\/kt\d+$/, 'the test did not get the per-run temp root');
+  assert.ok(String(e.tmpdir).startsWith(PLAIN_TMP + '/kt') && /\/kt\d+$/.test(e.tmpdir), 'the test did not get the run\'s own temp root: ' + e.tmpdir);
   assert.match(e.guards, /launch-guard\.js/);
   assert.match(e.guards, /tool-guard\.js/);
   assert.match(r.out, /tests 1\b/, 'more than the named file ran');
@@ -87,10 +100,11 @@ test('--only passes a red file\'s failure on', () => {
 test('--only refuses, before anything runs: no files, an option, a non-test file, a missing file, with a part', () => {
   for (const [args, env, why] of [
     [['--only'], {}, /needs one or more test files/],
-    [['--only', '--test-name-pattern=x'], {}, /takes test files, not node --test options/],
-    [['--only', path.join(DIR, 'notes.txt')], {}, /takes \*\.test\.js files/],
-    [['--only', path.join(DIR, 'missing.test.js')], {}, /no test file/],
+    [['--only', PROBE, '--test-name-pattern=x'], {}, /takes test files, not node --test options/],
+    [['--only', PROBE, path.join(DIR, 'notes.txt')], {}, /takes \*\.test\.js files/],
+    [['--only', PROBE, path.join(DIR, 'missing.test.js')], {}, /no test file/],
     [['--only', PROBE], { KOSMOS_TEST_PART: 'node', KOSMOS_TEST_PART_LOCAL: '1' }, /does not take KOSMOS_TEST_PART/],
+    [['--only', PROBE], { KOSMOS_SHELL_SHARD: '1/2' }, /does not take KOSMOS_TEST_PART or KOSMOS_SHELL_SHARD/],
   ]) {
     const e = cleanEnv(env);
     const r = spawnSync('bash', [RUNNER, ...args], { env: e, encoding: 'utf8', timeout: 60000 });
