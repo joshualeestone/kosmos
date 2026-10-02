@@ -2625,6 +2625,8 @@ function tokenOnlyMayRemove(caller, target, callerSession) {
   if (!birth || typeof birth.createdByName !== 'string' || !birth.createdByName || !birth.createdById || !birth.id) return false;
   if (birth.createdByName !== caller.name) return false;
   let current; let mine;
+  /* readProfile keys by safeKey, which strips characters; safe here because agentBirthOf has already matched a real
+     birth for this slug, and the handler requires the target to be named by that slug. Keep those checks first. */
   try { current = store.readProfile(create.slugFor(target)).id; mine = store.readProfile(callerSession).id; } catch { return false; }
   if (!current || current !== birth.id) return false;
   return Boolean(mine) && mine === birth.createdById;
@@ -3958,8 +3960,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
    token is that agent, never the person. Person-only routes (restarting or reconfiguring agents, settings,
-   POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board token.
-   Removing an agent is in the patterns since #4475 and is narrowed in its handler to the caller's own creations. The header only, never `token` in the body:
+   POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board
+   token. Removing an agent is in the patterns (#4475), narrowed in its handler to the caller's own creations. The header only, never `token` in the body:
    this gate runs before the body is read, and the handlers resolve the header first (presentedAgentToken), so both see the same
    caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard

@@ -48,6 +48,8 @@ and cannot force a removal; the person (the board token) removes any agent exact
   does not count, so such a creator cannot remove what it made; the person can.
 - Agents made before this change have births with no `createdByName`, so their creators cannot remove them; the
   person can. So does a creator whose token carries no name (minted before #4792).
+- Only a `created` birth counts. An agent whose creation was `partial` (on disk, not fully made) cannot be removed
+  by its creator; the person removes it. Accepted: a partial creation is the person's to look at.
 - Rejected: refusing every agent-token removal (today's behaviour): it keeps "PM, build me a team" from tidying up
   its own team, which #1279 made possible; and a general permission grid now (no asked-for need beyond this boundary).
 - Not done: a `kosmos` verb for removal. The doctrine tells agents to use a command or ask the person; with no verb,
