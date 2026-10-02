@@ -2799,6 +2799,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         esac
       fi
       if [ "$_ourboard" = yes ]; then
+        _kosmos_marker_ours=no # #5033: not taken back here (a stop that failed to kill takes its own marker back)
         # OUR board is genuinely running and did not pause -- the #2055 behavior.
         # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
         # in-process updater spawned this curl|sh, so the message goes to stderr /
@@ -2817,7 +2818,6 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
             "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
             > "$_abortf"; } 2>/dev/null || true
-        _kosmos_marker_ours=no # #5033: not taken back here (a stop that failed to kill takes its own marker back)
         die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
       else
         # #964: our own board is not running, so a DIFFERENT Kosmos is holding this

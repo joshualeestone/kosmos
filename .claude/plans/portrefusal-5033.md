@@ -36,8 +36,8 @@ second (a `kosmos stop` during the update) would lose it.
 - controls: a board the person stopped keeps its marker; past the arming point a computer switched to
   connect keeps its marker; switched to connect before the refusal keeps it; exit 0 keeps it.
 
-The disarm changes no outcome found so far (the take-back re-reads the mode itself); it is kept to bound the rm to the
-refusal window, and only the order check pins it.
+The disarm matters when the new board started, a person then stopped Kosmos, and the run failed later: the mode still
+runs a board, so only the disarm keeps their marker (review 5; test 5f).
 
 Mutations (each restored, tree checked clean): no take-back call (5 reds), no disarm (anchor red), no mode
 re-read (5d reds), marker armed unconditionally (anchor red), disarm moved after the survivor die (order

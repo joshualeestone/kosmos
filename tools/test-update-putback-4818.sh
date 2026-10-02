@@ -293,6 +293,8 @@ FOREIGNDIE="$(awk '/die "Another Kosmos is answering on port \$PORT, but this in
 case "$FOREIGNDIE" in die*) : ;; *) echo "FAIL: could not extract the another-Kosmos die (anchor drift?)" >&2; exit 1 ;; esac
 
 # other_app <port> <dir> -> a stand-in for another app holding the port (not Kosmos-shaped), pid in <dir>/other.pid.
+# The arms below run the extracted die directly, so the stand-in does not drive setup's routing to that die; the line
+# order checks above are what place each die in the armed window.
 other_app() {
   mkdir -p "$2/other"; printf '<html>SomethingElse</html>\n' > "$2/other/index.html"
   python3 -m http.server "$1" --bind 127.0.0.1 --directory "$2/other" >/dev/null 2>&1 &
@@ -326,9 +328,9 @@ else
   fail "#5033: the another-Kosmos refusal: marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), board.pid $( [ -e "$H/board.pid" ] && echo present || echo absent ), err: $(cat "$H/err")"
 fi
 
-# 5a'. CONTROL: on the our-board-would-not-pause refusal nothing is taken back. The real stop left no marker there (a
-#      failed kill takes its own back), so any marker present was written by someone else. The disarm line and the die
-#      are run as shipped, in order.
+# 5a'. The our-board-would-not-pause refusal takes nothing back. The real stop left no marker there (a failed kill
+#      takes its own back), so any marker present was written by someone else. Pinned by its line check (the disarm is
+#      the first line of that branch, before its bookkeeping and its die); the run below only shows the spliced pair.
 OURSOFF="$(awk '/^        _kosmos_marker_ours=no # #5033: not taken back here/{sub(/^ */, ""); print; exit}' "$SETUP")"
 case "$OURSOFF" in _kosmos_marker_ours=no*) : ;; *) echo "FAIL: could not extract the #5033 our-board disarm (anchor drift?)" >&2; exit 1 ;; esac
 L_OURSOFF=$(ln '        _kosmos_marker_ours=no # #5033: not taken back here')
@@ -345,8 +347,9 @@ run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 '"$MARKSET"'
 '"$OURSOFF"'
 '"$OURSDIE"
-if [ "$((L_OURSOFF + 1))" -eq "$L_OURS" ] && [ -e "$H/board.stopped" ] && grep -q "could not be paused" "$H/err"; then
-  pass "#5033 control: the our-board refusal takes nothing back (disarmed on the line above its die)"
+if [ -n "$L_OURSOFF" ] && [ "$(sed -n "$((L_OURSOFF - 1))p" "$SETUP")" = '      if [ "$_ourboard" = yes ]; then' ] \
+   && [ "$L_OURSOFF" -lt "$L_OURS" ] && [ -e "$H/board.stopped" ] && grep -q "could not be paused" "$H/err"; then
+  pass "#5033: the our-board refusal takes nothing back (disarmed on the first line of its branch)"
 else
   fail "#5033: the our-board refusal: disarm line $L_OURSOFF, die $L_OURS, marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), err: $(cat "$H/err")"
 fi
@@ -382,6 +385,21 @@ printf connect > "$KOSMOS_HOME/mode"
 '"$APPDIE"
 if [ -e "$H/board.stopped" ]; then pass "#5033 control: a computer switched to connect keeps its marker through the refusal"; else fail "#5033: the take-back ignored a switch to connect"; fi
 stop_other "$H"
+
+# 5f. CONTROL: past the arming point the take-back is disarmed. The new board started, a person stopped Kosmos during
+#     the rest of the run, and the run then failed: their marker stays (the mode still runs a board here, so only the
+#     disarm keeps it).
+P=$(free_port); H=$(home stoppedafter); export PORT=$P
+"$H/bin/kosmos" start
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$MARKSET"'
+'"$PAUSED"'
+'"$MARKOFF"'
+"$KOSMOS_HOME/bin/kosmos" start
+'"$STARTED"'
+"$KOSMOS_HOME/bin/kosmos" stop
+exit 1'
+if [ -e "$H/board.stopped" ] && ! answers "$P"; then pass "#5033 control: a person's stop after the new board started keeps its marker through a later failure"; else fail "#5033: a later failure took back a marker the person wrote after the new board started"; fi
 
 # 5e. CONTROL: a run that exits 0 after the stop takes nothing back (only a failure does).
 P=$(free_port); H=$(home markok); export PORT=$P
