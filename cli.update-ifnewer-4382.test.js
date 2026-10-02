@@ -42,6 +42,8 @@ function layout() {
   fs.chmodSync(path.join(HOME, 'bin', 'kosmos'), 0o755);
   fs.mkdirSync(DATA, { recursive: true });
   fs.mkdirSync(DIST, { recursive: true });
+  // The only computer the verb serves: one set to connect elsewhere (the app writes this word).
+  fs.writeFileSync(path.join(HOME, 'mode'), 'connect\n');
   // The stand-in installer: records the three variables beginInstall hands it, then exits as told.
   fs.writeFileSync(path.join(T, 'setup'),
     'printf "base=%s pointer=%s channel=%s\\n" "$KOSMOS_RELEASE_BASE" "$KOSMOS_UPDATE_CHANNEL" "$KOSMOS_SOURCE_CHANNEL" >> "' + RAN + '"\n'
@@ -63,7 +65,9 @@ function reset({ prod, staging, consent, stamp } = {}) {
 function run(args, extra = {}) {
   const env = { ...process.env, KOSMOS_HOME: HOME, AGENT_WORKFORCE_DATA: DATA, KOSMOS_RELEASE_BASE: 'file://' + DIST,
     KOSMOS_NO_LEGACY_MIGRATION: '1', ...extra };
-  for (const k of ['AGENT_WORKFORCE_RELEASE_BASE', 'AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_UPDATE_CHANNEL', 'KOSMOS_SOURCE_CHANNEL']) {
+  // The agent markers too: this suite is often run by an agent, and the verb refuses one.
+  for (const k of ['AGENT_WORKFORCE_RELEASE_BASE', 'AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_UPDATE_CHANNEL', 'KOSMOS_SOURCE_CHANNEL',
+    'KOSMOS_AGENT_SESSION', 'KOSMOS_AGENT_TOKEN', 'TMUX_PANE']) {
     if (!(k in extra)) delete env[k];
   }
   return new Promise((resolve, reject) => {
@@ -179,4 +183,50 @@ test('#4382: a wrong call is a usage line and exit 2; --help is help', async () 
   assert.equal(h.code, 0);
   assert.match(h.stdout, /Usage: kosmos update --if-newer/);
   assert.equal(ran(), '', '--help must never install');
+});
+
+test('#4382: only a computer set to connect elsewhere, and only a person, may update this way', async () => {
+  const MODE = path.join(HOME, 'mode');
+  try {
+    for (const [word, why] of [['run\n', 'run'], ['both\n', 'both'], ['connect-ish\n', 'not exactly connect'], [null, 'no mode file']]) {
+      reset({ prod: '1.2.0' });
+      if (word === null) fs.rmSync(MODE, { force: true }); else fs.writeFileSync(MODE, word);
+      const r = await run(['--if-newer', '--install']);
+      assert.equal(r.code, 3, why + ': ' + r.stdout + r.stderr);
+      assert.match(r.last, /^refused\t/, why);
+      assert.equal(ran(), '', why + ': nothing may be installed');
+    }
+    fs.writeFileSync(MODE, 'connect\n');
+    reset({ prod: '1.2.0' });
+    const a = await run(['--if-newer', '--install'], { KOSMOS_AGENT_SESSION: 'someone' });
+    assert.equal(a.code, 3, a.stdout + a.stderr);
+    assert.match(a.last, /^refused\tan agent/);
+    assert.equal(ran(), '');
+    // CONTROL: the same call, as a person on a connect computer, installs.
+    reset({ prod: '1.2.0' });
+    assert.equal((await run(['--if-newer', '--install'])).last, 'updated 1.2.0');
+  } finally {
+    fs.writeFileSync(MODE, 'connect\n');
+  }
+});
+
+test('#4382: the look never starts the board\'s own install, even with Updates on', async () => {
+  reset({ prod: '1.2.0' });   // no Updates file: consent on
+  const BEGAN = path.join(T, 'began.txt');
+  fs.rmSync(BEGAN, { force: true });
+  // In the installed layout: the board's update.js with its install seam spying, then the look itself.
+  const script = `
+    const update = require(${JSON.stringify(path.join(HOME, 'app', 'engine', 'update.js'))});
+    update.setInstallRunner(() => { require('fs').writeFileSync(${JSON.stringify(BEGAN)}, 'began'); return null; });
+    require(${JSON.stringify(path.join(HOME, 'app', 'engine', 'update-ifnewer.js'))}).decide()
+      .then((d) => { process.stdout.write(d.line.join(' ')); setTimeout(() => {}, 300); });`;
+  const env = { ...process.env, KOSMOS_HOME: HOME, AGENT_WORKFORCE_DATA: DATA, KOSMOS_RELEASE_BASE: 'file://' + DIST };
+  for (const k of ['AGENT_WORKFORCE_RELEASE_BASE', 'AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_UPDATE_CHANNEL', 'KOSMOS_SOURCE_CHANNEL']) delete env[k];
+  const out = await new Promise((resolve, reject) => {
+    execFile(path.join(HOME, 'runtime', 'bin', 'node'), ['-e', script], { env, timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) reject(new Error(String(err) + stderr)); else resolve(stdout);
+    });
+  });
+  assert.match(out, /^newer 1\.2\.0 on /, out);
+  assert.equal(fs.existsSync(BEGAN), false, 'checkNow() reached beginInstall: the board\'s auto-install ran inside the look');
 });

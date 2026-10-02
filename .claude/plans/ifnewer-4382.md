@@ -35,15 +35,39 @@ in the page, no macOS notification, relaunch after a successful update approved.
 
 ## Decisions (reversible)
 
-- Flip the Mac switch in this PR, as Johnny Cage's approved plan says. Weakest premise: #4356's "both" first-run
-  sign-in turning the Kosmos+ switch on is still an open item on #4356; if it needs work it is a separate PR and
-  this one waits for it before merging.
-- Merge order: Liu Kang ruled #4342 merges before #4382. PR #4425 (#4342) is open, waiting on Baron's release-lane
-  read since 09-29. This PR does not merge until #4342 has.
+- Flip the Mac switch in this PR, as Johnny Cage's approved plan says. #4356's open item (does the "both" first-run
+  sign-in turn the Kosmos+ switch on?) is answered on #4356 (comment 5955657427): it already does, via #3827.
+  Nothing to build first.
+- Merge order: Liu Kang had ruled #4342 merges before #4382. That gate is gone (Baron, 2026-10-02 10:31, PR #4425
+  comment 5955710440): #4425 is changes-requested, do not merge, and #4818 (PR #4827) already put the board-back
+  fix on main (setup.sh `_kosmos_put_board_back`). This branch is rebased onto that main. The put-back reads the
+  mode again and keeps a connect computer's board off, which is what this PR's update needs. The residual Baron
+  named (a port-in-use die before the put-back arms) is not this PR's.
 - The CLI refuses when a board runs rather than racing it. Weakest premise: a connect computer whose stop failed
   keeps a running board that never shows its own offer (the page is the other computer's). The launch-time stop
   retries every launch, so this is bounded by the next launch.
 
 ## Iterations
 
-(filled in by the review loop)
+### Iteration 1 (opus, blind): 5 warnings, 4 conventions, nits. All taken except where noted.
+1. WARNING: an install made because updates are on relaunched the app unasked (words typed on the page lost).
+   Fixed: only the person's own Update restarts at once, and never under a dialog of ours; otherwise the bar
+   and the menu offer "Restart" (`showInstalledOffer`), and later looks keep that offer.
+2. WARNING: `kosmos update` had no mode check and no agent guard. Fixed: refused (exit 3, `refused <why>`)
+   unless `$KOSMOS_HOME/mode` reads exactly `connect`, and refused for an agent (`_invoked_by_agent`).
+   CLI tests: run, both, not-exactly-connect, no file, agent; control: a person on connect installs.
+   The install harness runs its update calls with the agent markers removed.
+3. WARNING: an unknown answer waited a day. Fixed: one retry an hour later, and a wake looks when the last
+   look is a day old.
+4. WARNING: merge order behind #4342. Resolved by Baron's finding (Decisions above): no longer a gate.
+5. WARNING: checkNow() could reach the board's auto-install inside the look. Fixed: update-ifnewer.js sets
+   the board's auto preference off for its process; consent is still read from autoupdate.read(). Test spies
+   the install seam with Updates on.
+6. CONVENTION: false comment on KOSMOS_PORT in runKosmosUpdate. Rewritten.
+7. CONVENTION: update.js "Production code never calls these". Now names update-ifnewer.js.
+8. CONVENTION: plan file name. Deferred: this repo's plans are `<branch>.md`.
+9. CONVENTION: updateLookInterval comment contradicted itself. Rewritten to what the code now does.
+NITs taken: update wording in the Run agents refusal; the bar's button hidden while an install runs and a
+second press ignored; duplicate mkdir in tools/test-install.sh. Not taken: the wiring tests are source
+reads (the repo's accepted pattern for AppKit wiring no selftest reaches).
+Each new guard was perturbed: removing it fails exactly one test.
