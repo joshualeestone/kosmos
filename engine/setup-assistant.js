@@ -316,12 +316,13 @@ const RULE_SYNTAX = /[*?[\](){}!\\]/;
 /* A folder's real path when it can be read, else the path as given. */
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
 /* #4491: canonicalize a path whose LEAF may not exist yet (a settings.json not written, a board.token
-   not minted). realpathSync throws on a missing file and path.resolve would then leave a symlinked
-   PARENT (e.g. ~/.claude -> elsewhere) un-canonicalized, so a Seatbelt denyWrite literal built from it
-   would not match the real write. Resolve the deepest existing ancestor and rejoin the rest, so the
-   parent's symlinks are followed even when the leaf is absent. */
+   not minted). First resolve the WHOLE path -- if the leaf exists, even as a symlink, Seatbelt checks
+   the target, so the literal must be the target too. Only when that throws (the leaf is absent) fall
+   back to resolving the deepest existing ancestor and rejoining the rest, so a symlinked PARENT
+   (e.g. ~/.claude -> elsewhere) is still followed. */
 function realOrLeaf(p) {
   const abs = path.resolve(p);
+  try { return fs.realpathSync.native(abs); } catch { /* leaf absent: climb to the existing ancestor */ }
   let dir = path.dirname(abs);
   const tail = [path.basename(abs)];
   for (;;) {
@@ -468,12 +469,25 @@ function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
   return roots;
 }
 
+/* #4491: ~/.claude plus every EXISTING ~/.claude-<label> (a CLAUDE_CONFIG_DIR account home). Enumerated
+   the way guideDenyRulesFor enumerates store entries, so an agent's real account home gets concrete
+   denies rather than only the glob. A readdir failure degrades to ~/.claude plus the glob. */
+function accountConfigHomes(home) {
+  const out = [path.join(home, '.claude')];
+  try {
+    for (const d of fs.readdirSync(home, { withFileTypes: true })) {
+      if (/^\.claude-/.test(d.name) && (d.isDirectory() || d.isSymbolicLink())) out.push(path.join(home, d.name));
+    }
+  } catch { /* home unreadable: the permission-layer glob below still covers it */ }
+  return out;
+}
+
 /*
  * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
  * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
  * own data folder is NOT denied -- only:
- *  - board.token (Read), and its temp copy, in EVERY root above, so the shell cannot read the board
- *    token slice 9 (#4864) already stops it SENDING; this stops it READING;
+ *  - board.token (Read), and its temp copy, in EVERY root tokenOnlyTokenRoots returns, so the shell
+ *    cannot read the board token slice 9 (#4864) already stops it SENDING; this stops it READING;
  *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
  *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
  *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
@@ -486,17 +500,6 @@ function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
  *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
-function accountConfigHomes(home) {
-  // ~/.claude plus every EXISTING ~/.claude-<label> (a CLAUDE_CONFIG_DIR account home). Enumerated the
-  // way guideDenyRulesFor enumerates store entries, so an agent's real account home gets concrete denies.
-  const out = [path.join(home, '.claude')];
-  try {
-    for (const d of fs.readdirSync(home, { withFileTypes: true })) {
-      if (/^\.claude-/.test(d.name) && (d.isDirectory() || d.isSymbolicLink())) out.push(path.join(home, d.name));
-    }
-  } catch { /* home unreadable: the permission-layer glob below still covers it */ }
-  return out;
-}
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
@@ -1078,6 +1081,7 @@ module.exports = {
   guideDenyRules,
   guardGuideFolder,
   guardTokenOnlyFolder,
+  realOrLeaf,
   refreshTokenOnlyGuards,
   managedSettingsPresent,
   refreshGuideGuards,

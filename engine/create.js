@@ -5259,7 +5259,12 @@ function createAgentInner(opts) {
      by a sandbox guard in its folder, written BEFORE it can start for the same reason as the guide's.
      Any role (the list is not role-scoped). Gating like the guide: an unguarded token-only agent is
      exactly what this card forbids, so a guard that could not be written refuses the creation. */
-  const guardedTokenOnly = DRY_RUN || !require('./sendertoken').tokenOnlyFor(name) || step('kept the board token out of its reach', () => {
+  // tokenOnlyFor never throws (it swallows a bad/absent file), but compute it defensively so a future
+  // throw cannot escape createAgent uncaught, outside the rollback gate (the guide's gate is a pure
+  // roleKey comparison, which cannot throw; this one calls into another module).
+  let isTokenOnly = false;
+  try { isTokenOnly = require('./sendertoken').tokenOnlyFor(name); } catch { isTokenOnly = false; }
+  const guardedTokenOnly = DRY_RUN || !isTokenOnly || step('kept the board token out of its reach', () => {
     const guarded = require('./setup-assistant').guardTokenOnlyFolder(workerDir(name), name);
     if (!guarded.ok) throw new Error(guarded.because || 'the guards could not be written');
   });

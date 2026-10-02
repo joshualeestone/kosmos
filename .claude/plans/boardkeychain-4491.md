@@ -73,4 +73,17 @@ holds Claude Code's own runtime state), and realOr's its paths so a symlinked ro
 - The guide's version-dependent mid-path glob for EVERY named world's store (cross-world board.token).
   Not mirrored: it is Claude-Code-version-dependent and the exotic case; a token-only agent lives in one
   world. On this default-world fleet the extra roots are usually empty anyway.
+- A dir-RENAME self-plant: a file-level denyWrite on ~/.claude/settings.json blocks creating that file,
+  but not `mv ~/.claude ~/.claude.old` then recreating the dir with a fresh settings.json, UNLESS
+  Seatbelt blocks the ancestor move. Not measured, not assumed. Same reasoned bucket as the hardlink
+  vector; the durable close is the parked managed-settings step.
+- A ~/.claude-* account home created AFTER board start is covered only by the permission-layer Edit glob
+  (not a concrete sandbox denyWrite), and whether Seatbelt translates an Edit-glob to a subprocess write
+  is unmeasured. refreshTokenOnlyGuards re-enumerates at each board start, so such a home becomes
+  concrete on the next restart.
 - Turning the switch on for any NEW agent beyond echo (echo is the one pilot, slice 9's decision).
+
+## A note on the warning sink
+refreshTokenOnlyGuards writes the managed-belt-absent warning to STDERR; the board captures its agents'
+stderr to its log, so it surfaces there. "board log" in the code comment is that path, not a dedicated
+logger.
