@@ -72,6 +72,12 @@ statuses change, and Project/Model look locked while making.
   paint try again (TC_MODEL_FOR cleared); on a phone the wrapped buttons stay right-aligned; the disabled-look
   comment names every state it covers.
 
+## Review 6 changes
+- Create and Try again are offered again the moment loading ends, whatever ended it: a switch mid-load to a provider
+  with nothing to load (whose stale answer the generation then drops) no longer leaves them held. Tested, control.
+- A failed roles read no longer retries by repainting (that looped against a failing read): it marks the menu, and
+  tcSyncModel paints it again once another path holds the list. Tested: one read, not a loop.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 
