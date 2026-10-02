@@ -235,3 +235,43 @@ test('#4951 review 3: a failed delivery keeps the told ids held in memory (store
   await rn.sweepOnce(o);            // b again: the line must count only b
   assert.match(typed[typed.length - 1], /you have 1 new reply/, 'a was told again after a failed delivery: ' + typed[typed.length - 1]);
 });
+
+test('#4951 review 3 (Opus): the gates are asked again before each line; switched off mid-pass, the next agent is not told', async () => {
+  const typed = [];
+  let open = true;
+  const { o } = rig({ roster: [card('kim'), card('ann')], fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }),
+    deliver: (s) => { typed.push(s); open = false; return { state: D.PLACED }; } });
+  o.gatesOpen = () => open;
+  await rn.sweepOnce(o);
+  assert.deepEqual(typed, ['kim'], 'a line was typed after the community (or the Prompter) was switched off');
+});
+
+test('#4951 review 3 (Opus): a batch given up on takes no cap slot; a later agent is still told', async () => {
+  const typed = [];
+  const { o } = rig({ roster: [card('kim'), card('ann')], limit: { on: true, perHour: 1 },
+    fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }),
+    deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+  o.book.set('kim', { key: 'r-kim', tries: rn.MAX_TRIES });
+  await rn.sweepOnce(o);
+  assert.deepEqual(typed, ['ann'], 'a given-up batch held the only cap slot');
+});
+
+test('#4951 review 3 (Opus): only a missing told record is "told nothing"; an unreadable one skips the agent', async () => {
+  const root = path.join(SANDBOX, 'unreadable');
+  assert.deepEqual([...rn.readNudged(root, 'none')], [], 'a missing record did not read as empty');
+  fs.mkdirSync(path.dirname(rn.nudgedFile(root, 'torn')), { recursive: true });
+  fs.writeFileSync(rn.nudgedFile(root, 'torn'), '{not json');
+  assert.equal(rn.readNudged(root, 'torn'), null, 'a torn record read as told nothing');
+  const typed = [];
+  const { o } = rig({ readNudged: () => null, deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 0, 'an agent whose told record could not be read was told again');
+});
+
+test('#4951 review 3 (Opus): the defaults the timing relies on: a waiting read gives up well under the CLI\'s 30 s; lines are spaced', () => {
+  const cr = require('./communityread');
+  assert.ok(cr.FRESH_WAIT_MS > 0 && cr.FRESH_WAIT_MS <= 20000, 'FRESH_WAIT_MS ' + cr.FRESH_WAIT_MS);
+  assert.ok(rn.TYPE_GAP_MS >= 15000, 'TYPE_GAP_MS ' + rn.TYPE_GAP_MS);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /prompterOn: \(\) => heartbeatSetting\.read\(\)\.on === true/, 'server.js does not pass the Prompter gate');
+});

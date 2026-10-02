@@ -99,11 +99,16 @@ function nudgedFile(root, sessionName) {
   const h = crypto.createHash('sha256').update(String(sessionName)).digest('hex');
   return path.join(root, 'communityread', 'replies-nudged', h + '.json');
 }
+/* Review 3 (Opus): ONLY a missing file is "told nothing". Any other failure (EMFILE, EACCES, EIO, a torn file) is null,
+   and the pass skips that agent: read as empty, it would tell the agent again about replies it was already told about. */
 function readNudged(root, sessionName) {
+  let raw;
+  try { raw = fs.readFileSync(nudgedFile(root, sessionName), 'utf8'); }
+  catch (err) { return err && err.code === 'ENOENT' ? new Set() : null; }
   try {
-    const j = JSON.parse(fs.readFileSync(nudgedFile(root, sessionName), 'utf8'));
+    const j = JSON.parse(raw);
     return new Set((Array.isArray(j && j.ids) ? j.ids : []).filter((x) => typeof x === 'string'));
-  } catch { return new Set(); }
+  } catch { return null; }
 }
 function writeNudged(root, sessionName, set) {
   try {
@@ -151,10 +156,13 @@ async function sweepOnce(o) {
         if (fresh && fresh.busy) { results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because }); continue; }
         // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
         const told = o.readNudged(session);
+        if (!(told instanceof Set)) { results.push({ session, name: plainWords(card.name || session, 80), act: 'skipped', because: 'its told record could not be read' }); continue; }
         const memo = book.get(session);
         if (memo && memo.told instanceof Set) for (const id of memo.told) told.add(id);
-        const anyNew = fresh && fresh.ok === true && Array.isArray(fresh.posts) && fresh.posts.some((p) => (p.ids || []).some((id) => !told.has(id)));
-        if (anyNew) counted.push({ session, fresh });
+        const untold = fresh && fresh.ok === true && Array.isArray(fresh.posts) ? fresh.posts.flatMap((p) => (p.ids || []).filter((id) => !told.has(id))) : [];
+        // Review 3 (Opus): a batch given up on (MAX_TRIES) takes no cap slot either, or it blocks later agents every pass.
+        const givenUp = memo && memo.key === untold.slice().sort().join(',') && Number.isInteger(memo.tries) && memo.tries >= MAX_TRIES;
+        if (untold.length && !givenUp) counted.push({ session, fresh });
       } catch (err) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
@@ -167,6 +175,9 @@ async function sweepOnce(o) {
     for (const { session, fresh } of counted) {
       try {
         if (typedOne && typeGap > 0) await new Promise((res) => setTimeout(res, typeGap));
+        /* Review 3 (Opus): the gates are asked again before EVERY line (a person can switch the community or the
+           Prompter off while this pass types), like the card below. */
+        if (typeof o.gatesOpen === 'function') { let open = false; try { open = o.gatesOpen() === true; } catch { open = false; } if (!open) break; }
         let roster = o.roster;
         let projects = o.projects;
         if (typeof o.rosterNow === 'function') { let r = null; try { r = o.rosterNow(); } catch { r = null; } if (!Array.isArray(r)) continue; roster = r; }
@@ -174,6 +185,7 @@ async function sweepOnce(o) {
         const card = roster.find((x) => x && x.sessionName === session);
         const display = plainWords((card && card.name) || session, 80);
         const nudged = o.readNudged(session);
+        if (!(nudged instanceof Set)) continue;   // review 3: unreadable record: skip, never re-tell
         const memo0 = book.get(session);
         if (memo0 && memo0.told instanceof Set) for (const id of memo0.told) nudged.add(id);
         const p = plan(card, fresh, nudged, memo0, projects);
@@ -241,8 +253,14 @@ async function tick(o) {
     if (!projects) return null;   // cannot tell a stood-down agent: nudge nobody this pass
     let limit = { ...(o.limitDefaults || { on: true, perHour: 20 }) };
     try { const l = o.readLimit(); if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
-    return (await sweepOnce({ ...o, roster, projects, limit, rosterNow: o.roster, projectsNow: o.readProjects })).results;
+    const gatesOpen = () => {
+      let a = false; try { a = o.allowed() === true; } catch { a = false; }
+      let p = false; try { p = o.prompterOn() === true; } catch { p = false; }
+      let s = false; try { s = o.switchOn() === true; } catch { s = false; }
+      return require('./agentnudge').nudgeEnabled(a, o.env) && p && s;
+    };
+    return (await sweepOnce({ ...o, roster, projects, limit, rosterNow: o.roster, projectsNow: o.readProjects, gatesOpen })).results;
   } catch { return null; }
 }
 
-module.exports = { plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX };
+module.exports = { plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
