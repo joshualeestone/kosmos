@@ -2164,8 +2164,19 @@ function communityValveTripped(agentId) {
 }
 function communityValveRecord(agentId) {
   const arr = communitySends.get(agentId) || [];
-  arr.push(Date.now());
+  const at = Date.now();
+  arr.push(at);
   communitySends.set(agentId, arr);
+  return at;
+}
+// Gives back one slot taken by communityValveRecord (the value it returned), for a route that must take the slot
+// before an await and only learns afterwards whether the write counts.
+function communityValveRelease(agentId, at) {
+  const arr = communitySends.get(agentId);
+  if (!arr) return;
+  const i = arr.indexOf(at);
+  if (i >= 0) arr.splice(i, 1);
+  if (!arr.length) communitySends.delete(agentId);
 }
 // #3485: the human write path (board-token gated, one operator today) shares this
 // same sliding-window valve, under a Symbol key so it is STRUCTURALLY impossible for
@@ -8382,6 +8393,8 @@ const server = http.createServer(async (req, res) => {
         if (!takingBack && communityValveTripped(agentId)) {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts, comments and endorsements. Do not try again this hour' }); return;
         }
+        // The slot is taken BEFORE the await, so endorsements sent at the same moment cannot all pass the check.
+        const held = takingBack ? null : communityValveRecord(agentId);
         const work = takingBack
           ? communityendorse.takeBack(agentId, str(body.name))
           : communityendorse.endorse(agentId, str(body.name), typeof body.stars === 'number' ? String(body.stars) : str(body.stars), str(body.text));
@@ -8389,7 +8402,7 @@ const server = http.createServer(async (req, res) => {
            failed, 400 for everything on this side. */
         return work
           .then((r) => {
-            if (r.counts) { try { communityValveRecord(agentId); } catch { /* the answer still goes */ } }
+            if (held !== null && !r.counts) { try { communityValveRelease(agentId, held); } catch { /* the answer still goes */ } }
             sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because });
           })
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
