@@ -3955,6 +3955,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    long project name plus "Could not confirm Rex saw it: ...") does push it one line: accepted,
    because truncating would hide the part the person needs. It stays a live region. */
 .tsk-crumb:empty { min-height: 0; margin: 0; }
+/* #5072: the dot and Open project wrap as one, so the dot never dangles at a line end on a phone. */
+.tsk-crumb-open { white-space: nowrap; }
 #tsk-msg { margin: 0; min-height: 1.6em; min-height: 1lh; }   /* one message line, reserved */
 #tsk-groups > .tsk-grp:first-child { margin-top: 3px; }
 .tsk-crumb button { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer;
@@ -56726,8 +56728,10 @@ function tskPaint() {
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
   document.getElementById('tsk-crumb').innerHTML = picked
-    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' · <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button>'
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' <span class="tsk-crumb-open">· <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
     : '';
+  /* #5072: the separator travels with Open project. On a phone the button wraps to its own line, and a bare
+     ' · ' left the dot dangling at the end of the line above. */
   /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
      panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
   const back = document.getElementById('tsk-back');
