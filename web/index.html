@@ -34845,7 +34845,11 @@ function dmPendingRow(p, name, adjacent) {
   const pill = p.failed
     ? '<span class="delivery failed">' + (p.unsure ? 'Not confirmed. ' : 'Not sent. ')
       + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
-    : '<span class="delivery unsure">Sending…</span>';
+    /* #4944 (measured by the browser check): "Sending…" is plain text in the time's own slot, NOT the bordered
+       pill. The pill's margin, padding and border made the pending bubble 17px taller than the kept row, so the
+       swap shrank the newest bubble, and in a thread scrolled to the bottom everything above it jumped. A failed
+       send keeps its pill: that is a verdict, and the kept row draws a failure with the same pill. */
+    : 'Sending…';
   return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
     + (p.replyTo && typeof dmReplyHead === 'function' ? dmReplyHead({ replyTo: p.replyTo }, name, adjacent) : '')
