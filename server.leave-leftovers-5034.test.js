@@ -38,6 +38,7 @@ const tasks = require('./engine/tasks');
 const selfreport = require('./engine/selfreport');
 const roomhold = require('./engine/roomhold');
 const fleet = require('./test-support/fleet');
+const messages = require('./engine/messages');
 
 let base;
 test.before(async () => {
@@ -233,5 +234,29 @@ test('#5034 a registry holding an id twice checks tasks against every record\'s 
   } finally {
     board.restore();
     projects.writeAll(projects.readAll().filter((x) => !(x.id === p.id && (x.agents || []).length === 0)));
+  }
+});
+
+test('#5034 FORGERY GUARD: an agent cannot end its own carried project by posting `left` through /api/report (review 4)', async () => {
+  const p = project('Forge');
+  projects.addAgent(p.id, 'lf-forge', null);
+  assert.equal(selfreport.record('lf-forge', { state: 'working', project: p.id }).recorded, true);
+  const board = fleet.install([fleet.agent('lf-forge', { state: 'working' })]);
+  messages.setRunner(() => ({ ok: true, session: 'lf-forge-discord' }));
+  try {
+    const res = await fetch(base + '/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'needs_you', text: 'trying to drop my project', from_pane: 'x', left: p.id }),
+      redirect: 'manual',
+    });
+    const j = await res.json().catch(() => ({}));
+    assert.equal(j.recorded, true, 'the report itself records: ' + JSON.stringify(j));
+    const back = selfreport.read('lf-forge');
+    assert.equal(back.state, 'needs_you', 'fixture: the report did not land as this agent');
+    assert.equal(back.project, p.id, 'a client-supplied `left` through /api/report ended the carry');
+  } finally {
+    messages.setRunner(null);
+    board.restore();
   }
 });

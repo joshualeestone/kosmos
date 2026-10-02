@@ -107,13 +107,14 @@ function cappedSentence(value, cap) {
    function for ANY caller that passes it -- record() cannot know who is calling,
    so it does not police the field. The invariant "only a board-token caller, via
    one of the two server writers, may set operator provenance" is therefore enforced
-   ONE LAYER UP, at the HTTP boundary. The two writers: the operator-only clear
-   route (#2575) and server.js clearLeftovers (#5034: a leave or a project removal
-   clears the question the agent raised about that project; both routes sit behind
-   the board token, and neither takes `by` from the request): routes build `entry` field-by-field and
-   never spread an untrusted `req.body` into it. In particular /api/report
-   (server.js) copies state/project/because/on/owner/until/instance/auto and
-   deliberately NOT `by`, so an agent cannot stamp its own report `operator` and
+   ONE LAYER UP, at the HTTP boundary. There are two writers: the operator-only
+   clear route (#2575), and server.js clearLeftovers (#5034), which clears the
+   question an agent raised about a project when it leaves the project or the
+   project is removed. Both routes sit behind the board token and neither takes
+   `by` from the request. Every route builds `entry` field by field and never
+   spreads an untrusted `req.body` into it. In particular /api/report (server.js)
+   copies state/project/because/on/owner/until/instance/auto and deliberately NOT
+   `by` (nor #5034's `left`, red-guarded in server.leave-leftovers-5034.test.js), so an agent cannot stamp its own report `operator` and
    bypass the #900 auto-guard. That boundary is red-guarded by the FORGERY GUARD
    test in server.clear-selfreport-2575.test.js (a /api/report with body
    by:'operator' must still store by:'agent'). ⚠️ Any NEW caller of record() must
@@ -434,7 +435,11 @@ function read(sessionName) {
     if (row.state === 'stopped' || row.state === 'started') { project = null; final = null; }
     { const f = finalOf(row.state, row.final); if (f) final = f; }
     // read AFTER the clear, so `started --project X` starts the run on X.
-    // #5034: a line saying the agent left the carried project ends the carry (before this line's own project).
+    /* #5034: a line saying the agent left the carried project ends the carry (before this line's own project). Only
+       clearLeftovers writes one, and only over a waiting report that named the project: a leave over a working or
+       idle report writes nothing, so that carry survives (re-writing the state to end it would refresh its `at`,
+       the lie the decay rule exists to catch), and a re-join does not bring an ended carry back until the agent
+       names the project again. Both are accepted residuals, in the #5034 plan. */
     if (typeof row.left === 'string' && row.left && row.left === project) project = null;
     if (typeof row.project === 'string' && row.project) project = row.project;
   }
