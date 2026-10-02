@@ -938,6 +938,10 @@ fi
 # check one day old.
 run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
+# --- #4930: click a file a message carries to see it full page ---------------
+# Needs no board: it serves the real page with every /api call stubbed and draws real attachment cards.
+run_one "render-file-preview-4930" env ENGINES=chromium,webkit node docs/browser-checks/render-file-preview-4930.js
+
 # --- #718: the phone screenshot harness -----------------------------------
 # It boots its OWN throwaway board (temp HOME and data roots, fake tmux), so no
 # board above is needed. The slice is the frame, the accounts page and the
