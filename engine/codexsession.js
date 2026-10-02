@@ -74,6 +74,23 @@ function rollouts(home) {
   return out.sort().reverse();
 }
 
+/*
+ * #5054: the session_meta is the FIRST line of a rollout, and a rollout is append-only with a
+ * uniquely-named file (timestamp + id), so its head never changes for a given path. forWorkdir called
+ * metaOf on every rollout, every refresh, each a 64 KB read -- 60 files is ~4 MB of re-reads per refresh
+ * on top of the full-parse this card's main fix removes. Cache the parsed meta (including a null for a
+ * non-session_meta or unreadable head) by path, so the walk stays cheap and does not re-open every file.
+ * A new rollout is a new path, so it is metaOf'd once; the cache never masks a newer session.
+ *
+ * GROWTH: one small entry (a cwd string + a few fields, or null) per rollout file this process has
+ * walked; entries for deleted rollouts are not pruned here (only readRolloutFields evicts, on a stat
+ * failure). It is bounded by the files on disk and cleared on every board restart, so for a normal
+ * board (tens to low hundreds of sessions) the memory is negligible. A board kept alive for weeks across
+ * thousands of sessions would hold thousands of tiny entries -- still modest, and the deliberate trade
+ * for never re-reading a rollout head; a periodic prune can be added if that ever matters.
+ */
+const META_CACHE = new Map();   // file -> payload | null
+
 /**
  * The first line of a rollout is its `session_meta`, which carries the folder
  * the session was launched in.
@@ -83,16 +100,25 @@ function rollouts(home) {
  * something written at the START.
  */
 function metaOf(file) {
+  if (META_CACHE.has(file)) return META_CACHE.get(file);
+  const r = metaOfUncached(file);
+  /* Cache only a CLEAN read (a parsed payload, or a confirmed-null non-session_meta head). A transient
+     open/read failure (the file briefly gone, too many fds) is NOT cached: a rollout head never changes,
+     so caching a transient null would hide a real session until a board restart. It is retried next call. */
+  if (r.ok) META_CACHE.set(file, r.payload);
+  return r.payload;
+}
+function metaOfUncached(file) {
   let fd;
-  try { fd = fs.openSync(file, 'r'); } catch { return null; }
+  try { fd = fs.openSync(file, 'r'); } catch { return { ok: false, payload: null }; }
   try {
     const buf = Buffer.alloc(64 * 1024);
     const n = fs.readSync(fd, buf, 0, buf.length, 0);
     const first = buf.slice(0, n).toString('utf8').split('\n')[0];
     const row = JSON.parse(first);
-    if (!row || row.type !== 'session_meta') return null;
-    return row.payload || null;
-  } catch { return null; }
+    if (!row || row.type !== 'session_meta') return { ok: true, payload: null };
+    return { ok: true, payload: row.payload || null };
+  } catch { return { ok: false, payload: null }; }
   finally { try { fs.closeSync(fd); } catch { /* already gone */ } }
 }
 
@@ -124,101 +150,202 @@ function forWorkdir(dir, home) {
   return null;
 }
 
+/* The running fields read() derives from a rollout, all null/0 when nothing has set them. */
+function freshAcc() {
+  return { contextWindow: null, contextUsed: null, contextUsedAt: null, lastAt: null, messages: 0, model: null, lastAgentMessage: null };
+}
+
+/* Apply one parsed rollout row to the running fields. Extracted from read()'s old per-line loop
+   UNCHANGED so the incremental fold (#5054) produces exactly what a full re-parse did; every "last X"
+   field takes the latest row and `messages` counts, so folding lines in file order is order-correct. */
+function foldRow(acc, row) {
+  if (row.timestamp) acc.lastAt = row.timestamp;
+  if (row.type === 'response_item') acc.messages += 1;
+  /* #4416: codex names the model on every turn_context; the last one is what it runs now. */
+  if (row.type === 'turn_context' && row.payload && typeof row.payload.model === 'string' && row.payload.model) acc.model = row.payload.model;
+  if (row.type === 'event_msg' && row.payload) {
+    const p = row.payload;
+    /* The tool states its own limit here. Taken only from `task_started`,
+       where it is the model's window, rather than from any field that merely
+       looks like a number of tokens. */
+    if (p.type === 'task_started' && typeof p.model_context_window === 'number') {
+      acc.contextWindow = p.model_context_window;
+    }
+    /* #2257: THE USED HALF, MEASURED. Codex reports usage on a `token_count`
+       event as `info.last_token_usage` (the last turn) and `info.total_token_usage`
+       (CUMULATIVE across the whole session). The window OCCUPANCY -- what the ring
+       needs -- is the last turn's prompt, because each turn re-sends the whole
+       conversation as input, so `last_token_usage.input_tokens` tracks how full the
+       window is right now. `total_token_usage.total_tokens` is the wrong number: it
+       climbs past the window and never resets on a compaction. Keep the LAST such
+       event; a session with no completed turn has none, and `contextUsed` stays null.
+       Measured against six real gpt-5.6-sol rollouts, 2026-09-07 (window 258400):
+       last_token_usage.input_tokens ~11.7k held steady while total_tokens climbed
+       23k -> 39k, which is what settled the "one real session decides this" note.
+       📌 `input_tokens` already INCLUDES the cached prefix (adding
+       `cached_input_tokens` would double-count), and it is the input to the LAST
+       request -- so it omits that turn's own `output_tokens`, which the next
+       prompt re-sends. That output is small next to the prompt (5 tokens in the
+       measured runs) and reasoning tokens are dropped from later context, so the
+       prompt size is the right stable proxy for occupancy; Codex's own TUI may
+       read a hair differently, which is expected. */
+    if (p.type === 'token_count' && p.info && p.info.last_token_usage
+        && typeof p.info.last_token_usage.input_tokens === 'number') {
+      acc.contextUsed = p.info.last_token_usage.input_tokens;
+      /* #2413: WHEN this completed turn was reported, as epoch ms. A `token_count`
+         carrying a real `last_token_usage` is a turn that ran to completion -- a
+         dead-credential 401 reconnect loop NEVER emits one (#2790 fixture). The
+         OpenAI badge overlay records an observed `ok` from this, gated on the
+         timestamp's freshness, so a live sign-in greens from real traffic while a
+         sign-in whose last real turn is old greys again on its own (no permanent
+         green over a dead credential -- the #874 harm). Null when the row carries no
+         parseable timestamp, which keeps the badge grey (the safe direction) rather
+         than green off an untimed completion. */
+      const t = row.timestamp ? Date.parse(row.timestamp) : NaN;
+      acc.contextUsedAt = Number.isFinite(t) ? t : null;
+    }
+    if (p.type === 'task_complete' && typeof p.last_agent_message === 'string') {
+      acc.lastAgentMessage = p.last_agent_message;
+    }
+  }
+}
+
+/* Fold every whole JSON line in `text` into `acc` (blank and unparseable lines skipped, exactly as the
+   old `.split('\n')` loop did). */
+function foldLines(acc, text) {
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    /* A line that parses to null or a non-object (a bare `null`, number, string) is "not a row": skip
+       it, as the intent "unparseable lines skipped" means. Without this foldRow would throw on
+       `row.timestamp`, and that throw would poison the per-file cache (readRolloutFields deletes the
+       entry and every later read full-re-parses) -- the exact cost this cache removes (sonnet review). */
+    if (!row || typeof row !== 'object') continue;
+    foldRow(acc, row);
+  }
+}
+
+/*
+ * #5054: a per-rollout-file incremental cache, the same shape #562 gave messages.jsonl. Codex rollout
+ * files reach 30-100 MB; re-reading and JSON-parsing the whole file on every status refresh took 70%
+ * of a busy board's CPU and stopped it answering (a user's profile, 2026-10-02). Here each file keeps
+ * its parsed running fields plus the byte offset of the last settled line; a later read folds only the
+ * appended bytes. Keyed by absolute file path. Invalidation mirrors #562: a changed inode (replaced),
+ * a size that went backwards (truncated), or a changed mtime at the same size (rewritten in place) each
+ * drop the entry to a full re-parse, and a byte-exact SEAM check guards the offset before any tail is
+ * trusted.
+ */
+const SEAM_BYTES = 256;
+const ROLLOUT_CACHE = new Map();   // file -> { ino, mtimeMs, size, offset, seam, fragment, acc }
+
+function readBytes(file, from, to) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(to - from);
+    let got = 0;
+    while (got < buf.length) {
+      const n = fs.readSync(fd, buf, got, buf.length - got, from + got);
+      if (n === 0) break;
+      got += n;
+    }
+    return buf.slice(0, got);
+  } finally { try { fs.closeSync(fd); } catch { /* the read is what mattered */ } }
+}
+
+/* The settled running fields plus the trailing half-written line for `file`, or null if it cannot be
+   stat'd/read. The fragment is NOT folded into the cached acc (a line completed later must re-fold from
+   its first byte), so read() folds it into its own copy for the answer -- the same pin #562 uses. */
+function readRolloutFields(file) {
+  let st;
+  try { st = fs.statSync(file); } catch { ROLLOUT_CACHE.delete(file); return null; }
+  let cache = ROLLOUT_CACHE.get(file) || null;
+  if (cache && (cache.ino !== st.ino || st.size < cache.offset
+    || (st.size === cache.size && st.mtimeMs !== cache.mtimeMs))) {
+    cache = null;
+  }
+  try {
+    if (cache && cache.offset > 0 && (st.size !== cache.size || st.mtimeMs !== cache.mtimeMs)) {
+      /* The seam proof, as BYTES not decoded text (a multibyte char across the boundary decodes
+         differently from either side): the bytes just before the offset must still be the parsed ones. */
+      const seamAt = Math.max(0, cache.offset - SEAM_BYTES);
+      if (!readBytes(file, seamAt, cache.offset).equals(cache.seam)) cache = null;
+    }
+    if (!cache) {
+      cache = { ino: st.ino, mtimeMs: 0, size: -1, offset: 0, seam: Buffer.alloc(0), fragment: '', acc: freshAcc() };
+    }
+    if (st.size !== cache.size || st.mtimeMs !== cache.mtimeMs) {
+      const tailBuf = readBytes(file, cache.offset, st.size);
+      /* Find the last newline and split IN RAW BYTES, not in the decoded string: `\n` (0x0a) is ASCII
+         so it never falls inside a multibyte sequence, and the settled byte count is then exact. Taking
+         it from Buffer.byteLength(decoded) would drift if the tail ever held invalid UTF-8 (toString
+         turns each bad byte into a 3-byte U+FFFD), pushing the offset past the real position (sonnet
+         review). Settled lines are complete, so decoding them is lossless; only a mid-write fragment
+         could end mid-character, and the fragment is re-read next time rather than folded. */
+      const lastNl = tailBuf.lastIndexOf(0x0a);
+      const settledBytes = lastNl + 1;   // bytes through and including the last '\n'; 0 when none yet
+      foldLines(cache.acc, tailBuf.slice(0, settledBytes).toString('utf8'));
+      cache.offset += settledBytes;
+      cache.fragment = settledBytes < tailBuf.length ? tailBuf.slice(settledBytes).toString('utf8') : '';
+      cache.seam = Buffer.concat([cache.seam, tailBuf.slice(0, settledBytes)]).slice(-SEAM_BYTES);
+      cache.size = st.size;
+      cache.mtimeMs = st.mtimeMs;
+    }
+  } catch { ROLLOUT_CACHE.delete(file); return null; }
+  ROLLOUT_CACHE.set(file, cache);
+  return { acc: cache.acc, fragment: cache.fragment };
+}
+
 /**
  * What the board needs from a Codex session.
  *
  * ⚠️ EVERY FIELD IS null WHEN UNKNOWN, never a default. A model of "unknown"
  * and a context window of 0 would each render as a fact somebody could act on.
+ *
+ * #5054: ALWAYS reflects the current file (no result-level staleness) -- it folds only the appended
+ * bytes since the last read via the per-file cache, and forWorkdir uses a cached head (metaOf) so it no
+ * longer re-reads 64 KB of every rollout each call. A result memo was tried and dropped: it made read()
+ * up to its TTL stale, which the status callers and their tests rely on NOT being.
  */
 function read(dir, home) {
   const found = forWorkdir(dir, home);
   if (!found) return { found: false, because: NO_READING.NO_TRANSCRIPT };
-  let lines = [];
-  try { lines = fs.readFileSync(found.file, 'utf8').split('\n'); } catch {
-    return { found: false, because: NO_READING.UNREADABLE };
-  }
-  let contextWindow = null;
-  let contextUsed = null;
-  let contextUsedAt = null;
-  let lastAt = null;
-  let messages = 0;
-  let lastAgentMessage = null;
-  let model = null;   // #4416
-  for (const line of lines) {
-    if (!line.trim()) continue;
+  const fields = readRolloutFields(found.file);
+  if (!fields) return { found: false, because: NO_READING.UNREADABLE };
+
+  /* The settled fields are cached; fold the trailing fragment into a COPY for THIS answer, when it is a
+     whole line (the old reader accepted a valid unterminated last line). Never into the cached acc. */
+  const acc = { ...fields.acc };
+  if (fields.fragment && fields.fragment.trim()) {
     let row;
-    try { row = JSON.parse(line); } catch { continue; }
-    if (row.timestamp) lastAt = row.timestamp;
-    if (row.type === 'response_item') messages += 1;
-    /* #4416: codex names the model on every turn_context; the last one is what it runs now. */
-    if (row.type === 'turn_context' && row.payload && typeof row.payload.model === 'string' && row.payload.model) model = row.payload.model;
-    if (row.type === 'event_msg' && row.payload) {
-      const p = row.payload;
-      /* The tool states its own limit here. Taken only from `task_started`,
-         where it is the model's window, rather than from any field that merely
-         looks like a number of tokens. */
-      if (p.type === 'task_started' && typeof p.model_context_window === 'number') {
-        contextWindow = p.model_context_window;
-      }
-      /* #2257: THE USED HALF, MEASURED. Codex reports usage on a `token_count`
-         event as `info.last_token_usage` (the last turn) and `info.total_token_usage`
-         (CUMULATIVE across the whole session). The window OCCUPANCY -- what the ring
-         needs -- is the last turn's prompt, because each turn re-sends the whole
-         conversation as input, so `last_token_usage.input_tokens` tracks how full the
-         window is right now. `total_token_usage.total_tokens` is the wrong number: it
-         climbs past the window and never resets on a compaction. Keep the LAST such
-         event; a session with no completed turn has none, and `contextUsed` stays null.
-         Measured against six real gpt-5.6-sol rollouts, 2026-09-07 (window 258400):
-         last_token_usage.input_tokens ~11.7k held steady while total_tokens climbed
-         23k -> 39k, which is what settled the "one real session decides this" note.
-         📌 `input_tokens` already INCLUDES the cached prefix (adding
-         `cached_input_tokens` would double-count), and it is the input to the LAST
-         request -- so it omits that turn's own `output_tokens`, which the next
-         prompt re-sends. That output is small next to the prompt (5 tokens in the
-         measured runs) and reasoning tokens are dropped from later context, so the
-         prompt size is the right stable proxy for occupancy; Codex's own TUI may
-         read a hair differently, which is expected. */
-      if (p.type === 'token_count' && p.info && p.info.last_token_usage
-          && typeof p.info.last_token_usage.input_tokens === 'number') {
-        contextUsed = p.info.last_token_usage.input_tokens;
-        /* #2413: WHEN this completed turn was reported, as epoch ms. A `token_count`
-           carrying a real `last_token_usage` is a turn that ran to completion -- a
-           dead-credential 401 reconnect loop NEVER emits one (#2790 fixture). The
-           OpenAI badge overlay records an observed `ok` from this, gated on the
-           timestamp's freshness, so a live sign-in greens from real traffic while a
-           sign-in whose last real turn is old greys again on its own (no permanent
-           green over a dead credential -- the #874 harm). Null when the row carries no
-           parseable timestamp, which keeps the badge grey (the safe direction) rather
-           than green off an untimed completion. */
-        const t = row.timestamp ? Date.parse(row.timestamp) : NaN;
-        contextUsedAt = Number.isFinite(t) ? t : null;
-      }
-      if (p.type === 'task_complete' && typeof p.last_agent_message === 'string') {
-        lastAgentMessage = p.last_agent_message;
-      }
-    }
+    try { row = JSON.parse(fields.fragment); } catch { row = null; }
+    if (row && typeof row === 'object') foldRow(acc, row);
   }
+
   return {
     found: true,
     file: found.file,
     sessionId: found.meta.session_id || null,
     provider: found.meta.model_provider || null,
-    model,   // #4416: null until a turn_context names one
+    model: acc.model,   // #4416: null until a turn_context names one
     cliVersion: found.meta.cli_version || null,
-    contextWindow,
+    contextWindow: acc.contextWindow,
     /* #2257: no longer deliberately null -- the last `token_count` event's
-       `last_token_usage.input_tokens` is the measured window occupancy (see the
-       loop note). Null only when no completed turn has reported usage yet. */
-    contextUsed,
+       `last_token_usage.input_tokens` is the measured window occupancy (see foldRow's
+       note). Null only when no completed turn has reported usage yet. */
+    contextUsed: acc.contextUsed,
     /* #2413: the epoch-ms timestamp of the `token_count` that set contextUsed -- WHEN
        the last real turn completed. The OpenAI liveness overlay uses it as the
        freshness anchor for a witnessed `ok`. Null when no completed turn, or when the
        completing row carried no parseable timestamp. */
-    contextUsedAt,
-    messages,
-    lastAt,
-    lastAgentMessage,
+    contextUsedAt: acc.contextUsedAt,
+    messages: acc.messages,
+    lastAt: acc.lastAt,
+    lastAgentMessage: acc.lastAgentMessage,
   };
 }
 
-module.exports = { read, forWorkdir, rollouts, metaOf, SESSIONS };
+/* Test seam (#5054): clear the caches so a test reads a rollout fresh from zero. */
+function _resetForTests() { ROLLOUT_CACHE.clear(); META_CACHE.clear(); }
+
+module.exports = { read, forWorkdir, rollouts, metaOf, SESSIONS, _resetForTests };
