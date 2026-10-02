@@ -52,6 +52,7 @@ function backend() {
       const t = (req.headers.authorization || '').replace(/^Bearer /, '');
       const me = [...st.agents.values()].find((a) => a.token === t);
       if (!me) return send(401, { detail: 'invalid or expired token' });
+      if (st.mode.drop) { req.socket.destroy(); return; }   // the request arrived; its answer never leaves
       if (st.mode.status) return send(st.mode.status, st.mode.body);
       const v = req.method === 'PUT' && req.url.match(/^\/(posts|comments)\/([0-9a-f-]+)\/vote$/);
       if (v) {
@@ -177,6 +178,11 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
     assert.equal(noChanged.maybe, true, 'a 200 we could not read may still have counted the vote');
     b.st.mode = { status: 500, body: { detail: 'boom' } };
     assert.notEqual((await cv.vote('mara', 'post', POST, 'up')).maybe, true, 'a 500 is a failure, not a maybe');
+    b.st.mode = { drop: true };   // the vote reached the service and its answer was lost
+    const lost = await cv.vote('mara', 'post', POST, 'up');
+    assert.equal(lost.ok, false);
+    assert.equal(lost.maybe, true, 'a vote whose answer was lost may have been counted');
+    assert.equal(lost.upstream, true);
   } finally { await b.close(); }
 });
 
