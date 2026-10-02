@@ -75,7 +75,7 @@ concurrency:
 
 jobs:
   browser-checks-full:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest   # MEASUREMENT ONLY (#4601), reverted before the PR
     # The runner's full-set duration is not measured yet (a dispatch run needs this file on
     # main); the cut's 3b render window is ~16 minutes on a dev Mac. Sized generously, and
     # any non-success, a timeout included, still files a card (see file-red-card).
@@ -104,9 +104,24 @@ jobs:
       # #3973: install tmux, as test.yml does (#1794). macos-latest ships none, so render-talk's real
       # status.snapshot() threw "we could not see what is running on this computer" and live-connect
       # found no runnable tmux. brew tmux with no server started is the hermetic no-server path.
+      - name: 'MEASUREMENT ONLY (#4601): system libraries'
+        run: '"$HOME/work/pw-runtime/node_modules/.bin/playwright" install-deps chromium webkit'
       - name: install tmux (#3973)
         timeout-minutes: 10
-        run: brew install tmux
+        run: sudo apt-get install -y tmux
+      - name: 'MEASUREMENT ONLY (#4601): the UI font pinned, as the Linux PR job does'
+        run: |
+          mkdir -p "$HOME/.config/fontconfig"
+          cat > "$HOME/.config/fontconfig/fonts.conf" <<'XML'
+          <?xml version="1.0"?>
+          <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+          <fontconfig>
+            <alias binding="strong"><family>system-ui</family><prefer><family>Liberation Sans</family></prefer></alias>
+            <alias binding="strong"><family>sans-serif</family><prefer><family>Liberation Sans</family></prefer></alias>
+          </fontconfig>
+          XML
+          fc-cache -f >/dev/null
+          echo "system-ui -> $(fc-match system-ui)"
       - name: 'the FULL page layer, headless, every check (tools/browser-checks.sh, #2518)'
         id: checks
         timeout-minutes: 120
