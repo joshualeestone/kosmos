@@ -332,6 +332,14 @@ fi
 OURSOFF="$(awk '/^        _kosmos_marker_ours=no # #5033: not taken back here/{sub(/^ */, ""); print; exit}' "$SETUP")"
 case "$OURSOFF" in _kosmos_marker_ours=no*) : ;; *) echo "FAIL: could not extract the #5033 our-board disarm (anchor drift?)" >&2; exit 1 ;; esac
 L_OURSOFF=$(ln '        _kosmos_marker_ours=no # #5033: not taken back here')
+# Exactly one disarm between the marker line and the arming line, and it is the our-board one: a stray disarm ahead
+# of the another-Kosmos or another-app die would pass every arm above, which run those dies after the marker line.
+n_off=$(awk -v a="$L_MSET" -v b="$L_ARM" 'NR>a && NR<b && /_kosmos_marker_ours=no/{n++} END{print n+0}' "$SETUP")
+if [ "$n_off" -eq 1 ] && [ -n "$L_OURSOFF" ] && [ "$L_MSET" -lt "$L_OURSOFF" ] && [ "$L_OURSOFF" -lt "$L_ARM" ]; then
+  pass "#5033: the only disarm before the arming line is the our-board one"
+else
+  fail "#5033: $n_off disarm line(s) between the marker line $L_MSET and the arming line $L_ARM (want 1, the our-board one at $L_OURSOFF)"
+fi
 P=$(free_port); H=$(home refuseours); export PORT=$P
 run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 '"$MARKSET"'

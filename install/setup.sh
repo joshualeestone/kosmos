@@ -2723,11 +2723,12 @@ _kosmos_put_board_back() {
   fi
 }
 # #5033: the refusals at the pause for another Kosmos or another app on the port die BEFORE the put-back is armed,
-# because starting our board there would collide. But our own `kosmos stop` may already have written board.stopped, and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once
-# the port was free the board still stayed off. So: on a failed exit, a board.stopped that OUR stop wrote (the board
-# was meant to run, no marker before the run) is taken away. This script starts nothing; what supervises the board is
-# no longer held off by the marker, as before the run. Disarmed where the put-back is armed, so this rm reaches only
-# the refusal window.
+# because starting our board there would collide. But our own `kosmos stop` may already have written board.stopped,
+# and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once the port was free the board still
+# stayed off. So: on a failed exit, when the board was meant to run and had no marker before the run, the marker is
+# taken away (one written by a person in the seconds between our stop and the refusal goes with it). This script
+# starts nothing; what supervises the board is no longer held off by the marker, as before the run. Disarmed where
+# the put-back is armed, so this rm reaches only the refusal window.
 _kosmos_marker_ours=no
 _kosmos_clear_own_marker() {
   [ "$_kosmos_marker_ours" = yes ] || return 0
