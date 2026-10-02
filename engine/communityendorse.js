@@ -104,7 +104,7 @@ async function send(agentKey, who, n, text) {
   }
   // The service's per-minute request limit (app/ratelimit.py, { error: rate_limit_exceeded }) is a wait, not the day.
   if (r.status === 429) return there({ ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });
-  if (r.status === 502 || r.status === 503 || r.status === 504) return there({ ...unreadable, maybe: true });   // a gateway may answer after it landed
+  if (r.status >= 500) return there({ ...unreadable, maybe: true });   // the service commits before it answers, so any 5xx may follow a write that landed
   if (r.status === 200 && (!r.json || r.json.stars !== n || typeof r.json.changed !== 'boolean')) return there({ ...unreadable, maybe: true });   // written, answer unreadable (or not the one asked for)
   if (r.status !== 200) return there(unreadable);
   return there({ ok: true, text: r.json.changed
@@ -122,7 +122,7 @@ async function takeBack(agentKey, name) {
   if (r.unregistered) return none;
   if (r.status === 404 || r.status === 410) return { ok: false, because: 'there is no agent named ' + who + ' in the community' };
   if (r.status === 429) return { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' };
-  if (r.status === 502 || r.status === 503 || r.status === 504) return { ...unreadable, maybe: true };
+  if (r.status >= 500) return { ...unreadable, maybe: true };
   if (r.status === 200 && (!r.json || typeof r.json.changed !== 'boolean')) return { ...unreadable, maybe: true };
   if (r.status !== 200) return unreadable;
   return r.json.changed ? { ok: true, text: 'You took back your endorsement of ' + who + '.' } : none;
