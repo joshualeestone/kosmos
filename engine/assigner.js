@@ -241,7 +241,7 @@ function step({ prev, roster, setting, records, commitments, goals, now }) {
     /* #4588 PR B: an agent held on its machine's shared Google quota is neither given a part nor asked. Skipped here,
        after its idle clock is kept, so no part is reserved for it that an unheld colleague could have had. */
     let held = null;
-    try { held = require('./agyquota').heldForQuota(session, roster, now); } catch { held = null; }
+    try { held = require('./agyquota').heldForAgy(session, roster, now); } catch { held = null; }   // #4588 ask 3: the cap too
     if (held !== null) continue;
     const choice = pick(session, projects, taken);
     if (choice) {

@@ -117,6 +117,32 @@ function heldForQuota(session, roster, now, memo = POOL_MEMO, env = process.env)
   return now < releaseAt ? releaseAt : null;
 }
 
+/* #4588 ask 3: the cap (Settings > Automation, engine/agycap-setting.js). While `max` of our antigravity agents are
+   working, an automatic line to ANOTHER one waits, so a team does not run more of them at once than the person chose.
+   Returns when to look again (now + CAP_RECHECK_MS), or null. A line to an agent that is already working is not held:
+   it starts no new work beside the others. No limit (0, the default), the quota-hold brake, or a setting that cannot
+   be read holds nothing. A person's own message never comes here (chat.deliver is not gated). */
+const CAP_RECHECK_MS = 60 * 1000;
+function heldForCap(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env) {
+  if (quotaHoldOff(env)) return null;
+  let max = 0;
+  try { max = Number(readCap().maxWorking) || 0; } catch { max = 0; }
+  if (max <= 0) return null;
+  let card = null;
+  try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
+  if (!isOurAgy(card) || card.state === 'working') return null;
+  const self = String(card.sessionName);
+  const working = (Array.isArray(roster) ? roster : [])
+    .filter((c) => isOurAgy(c) && c.sessionName && String(c.sessionName) !== self && c.state === 'working').length;
+  return working >= max ? now + CAP_RECHECK_MS : null;
+}
+/* Every automatic sender's one question, "may this agent be sent automatic work now?": the shared quota first, then the
+   person's cap. When to look again, or null. */
+function heldForAgy(session, roster, now, memo = POOL_MEMO, env = process.env, readCap = undefined) {
+  const q = heldForQuota(session, roster, now, memo, env);
+  return q !== null ? q : heldForCap(session, roster, now, readCap, env);
+}
+
 /* The card states a nudge may be typed over: never a question (a typed line could answer it), work, or a lost
    connection, which the board's screen reading ranks above the quota report (review 3). */
 const NUDGE_OVER = Object.freeze(['idle', 'unknown', 'rate_limited']);
@@ -229,4 +255,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { CAP_RECHECK_MS, heldForCap, heldForAgy, GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

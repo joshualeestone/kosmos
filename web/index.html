@@ -17342,6 +17342,18 @@ window.kosmosMeasureScrollbarWidth();
            while empty so it costs nothing when nothing is stalled. -->
       <div id="hb-nudges" class="hb-nudges" role="region" aria-label="Agent check-ins" hidden></div>
     </section>
+    <!-- #4588 ask 3: a cap on how many Gemini (Antigravity) agents work at once. They share one Google account's
+         quota, and a team of six kept locking each other out. Status-control contract, as the Prompter's: the select
+         stays hidden until the server read lands, and a failed read hides it and says so, never a false "No limit". -->
+    <section class="dbox">
+      <h3 class="dlab">Gemini agents at once</h3>
+      <div class="frow" id="agycap-row" hidden style="margin-top:14px; align-items:center; gap:8px;">
+        <label class="dhint" for="agycap-max" style="margin:0;">Working at the same time</label>
+        <select id="agycap-max" aria-label="How many Gemini agents may work at the same time"></select>
+      </div>
+      <p class="dhint" style="margin:8px 0 0;">Gemini agents on this computer share one Google account's quota, so several working at once can use it up together. With a limit, Kosmos waits to send automatic messages and tasks to the others until one finishes. Your own messages always go straight through. No limit by default.</p>
+      <p class="dhint" id="agycap-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own
          top-level tab, which is deleted. Block 3 of the consolidated Automation section,
@@ -24098,6 +24110,61 @@ function hbIntervalChange() {
 }
 document.getElementById('hb-toggle') && document.getElementById('hb-toggle').addEventListener('click', hbToggleClick);
 document.getElementById('hb-interval') && document.getElementById('hb-interval').addEventListener('change', hbIntervalChange);
+/* #4588 ask 3: the Gemini cap (GET/PUT /api/agycap-setting). Choices come from the server, so the select and the engine
+   cannot disagree; 0 reads "No limit". A non-ok or failed read hides the select and says so. Paint after a save comes
+   from the server's answer. AGYCAP_EPOCH: a slow GET cannot repaint over a newer save. */
+let AGYCAP_EPOCH = 0;
+function agycapLabel(n) { return n === 0 ? 'No limit' : (n === 1 ? '1 agent' : n + ' agents'); }
+function agycapShow(r) {
+  const sel = document.getElementById('agycap-max');
+  const row = document.getElementById('agycap-row');
+  if (Array.isArray(r.choices)) {
+    const html = r.choices.map((n) => '<option value="' + Number(n) + '">' + agycapLabel(Number(n)) + '</option>').join('');
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+  }
+  if (document.activeElement !== sel) sel.value = String(Number(r.maxWorking) || 0);
+  if (row) row.hidden = false;
+}
+async function paintAgycap() {
+  const mine = ++AGYCAP_EPOCH;
+  const sel = document.getElementById('agycap-max');
+  const row = document.getElementById('agycap-row');
+  const msg = document.getElementById('agycap-msg');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/agycap-setting', { cache: 'no-store' });
+    if (mine !== AGYCAP_EPOCH) return;
+    if (!res.ok) throw new Error('not ok');
+    const r = await res.json();
+    if (mine !== AGYCAP_EPOCH) return;
+    agycapShow(r);
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine !== AGYCAP_EPOCH) return;
+    if (row) row.hidden = true;
+    if (msg) msg.textContent = 'We could not read this setting just now.';
+  }
+}
+async function agycapChange() {
+  const sel = document.getElementById('agycap-max');
+  const msg = document.getElementById('agycap-msg');
+  if (!sel || !sel.options || !sel.options.length) return; // not loaded: never write a default over a stored value
+  const mine = ++AGYCAP_EPOCH;
+  try {
+    const res = await fetch('/api/agycap-setting', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxWorking: Number(sel.value) }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (mine !== AGYCAP_EPOCH) return;
+    if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; paintAgycap(); return; }
+    agycapShow(out);
+    if (msg) msg.textContent = '';
+  } catch {
+    if (mine === AGYCAP_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
+  }
+}
+document.getElementById('agycap-max') && document.getElementById('agycap-max').addEventListener('change', agycapChange);
 /* #3508: keep the check-ins live while Settings is on screen. The store updates on the
    Prompter's own (minutes-granularity) tick, so a 15s poll is ample; it is gated on the
    panel being visible (offsetParent is null when Settings is not the shown view) so it
@@ -24271,6 +24338,7 @@ async function paintSettings() {
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
+  paintAgycap(); // #4588 ask 3
   paintRecommender(); // #3595: live.
   paintAssigner(); // #3595 phase 2: live.
   paintPrompterNudges();

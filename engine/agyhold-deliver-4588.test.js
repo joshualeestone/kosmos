@@ -137,3 +137,21 @@ test('#4588 B review 6: a STOPPED agy member (no Antigravity in its pane) is not
   assert.equal(control.held, true, 'CONTROL: a reachable agy member in the same roster is held');
   assert.deepEqual(SPAWNED, []);
 });
+
+/* #4588 ask 3: the person's cap on how many agy agents work at once, through the same gate. The setting is the real
+   module writing into this file's sandboxed data root. */
+test('#4588 ask 3 deliverAutomatic: at the cap, an automatic line to an idle agy agent is held with the cap reason, and nothing is run', () => {
+  const capSetting = require('./agycap-setting');
+  assert.ok(path.resolve(capSetting.FILE).startsWith(path.resolve(SANDBOX) + path.sep), capSetting.FILE);
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    const r = heldRoster(null).map((c) => (c.sessionName === 'agy-paused' ? { ...c, state: 'working' } : c));
+    SPAWNED.length = 0;
+    const v = chat.deliverAutomatic('agy-idle', 'a room post', r);
+    assert.equal(v.state, DELIVERY.COULD_NOT);
+    assert.equal(v.held, true);
+    assert.match(v.because, /limit you set for working at once/);
+    assert.ok(Date.parse(v.heldUntil) > Date.now(), 'held until a moment ahead (the next look)');
+    assert.deepEqual(SPAWNED, [], 'a held line started a process');
+  } finally { fs.rmSync(capSetting.FILE, { force: true }); }
+});

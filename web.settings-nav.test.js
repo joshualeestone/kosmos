@@ -94,7 +94,7 @@ test('#2054/#3138/#2619/#4288: Automation holds Auto-save, Prompter, Agent Commu
   // (bottom) -- whether YOU hear the pop is a per-device property, not a board setting.
   // #4288: "Community" sits directly below Daily report (Mona Lisa's design), its own box
   // because it is a different consent.
-  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agent Communication', 'Daily report', 'Community', 'Recommender', 'Assigner'],
+  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Gemini agents at once', 'Agent Communication', 'Daily report', 'Community', 'Recommender', 'Assigner'],
     'the Automation blocks are not Auto-save, Prompter, Agent Communication, Daily report, Community, Recommender, Assigner in that order (#2619 added Recommender and Assigner; #4288 added Community; Sounds moved out per #3138)');
   assert.ok(!headings.includes('Sounds'), '#3138: Sounds must NOT be in Automation anymore');
   // #2619: the Recommender carries its three irreversible-consequence guards, each a

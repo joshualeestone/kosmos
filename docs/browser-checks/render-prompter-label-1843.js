@@ -87,6 +87,11 @@ function chk(ok, label, extra) {
         null, { timeout: 8000 },
       ).catch(() => {});
 
+      // #4588 ask 3: the Gemini cap select is server-rendered too; wait for its options.
+      await page.waitForFunction(
+        () => { const s = document.getElementById('agycap-max'); return s && s.options && s.options.length > 0; },
+        null, { timeout: 8000 },
+      ).catch(() => {});
       const sec = await page.evaluate(() => {
         const el = document.getElementById('s-sec-automation');
         const vis = (n) => !!(n.offsetWidth || n.offsetHeight || n.getClientRects().length);
@@ -116,7 +121,12 @@ function chk(ok, label, extra) {
         const ivOptionText = iv ? [...iv.options].map((o) => o.textContent.trim()) : [];
         const ivValue = iv ? iv.value : null;
         const ivRowVisible = !!(ivRow && vis(ivRow));
+        const cap = el.querySelector('#agycap-max');
+        const capRow = el.querySelector('#agycap-row');
         return {
+          capOptionText: cap ? [...cap.options].map((o) => o.textContent.trim()) : [],
+          capValue: cap ? cap.value : null,
+          capRowVisible: !!(capRow && vis(capRow)),
           height: el.getBoundingClientRect().height,
           promVisible: !!(promHeading && vis(promHeading)),
           headings,
@@ -151,8 +161,9 @@ function chk(ok, label, extra) {
       // this sibling was not, staling it and blocking the 0.6.91 cut (#3552).
       // #4288 added the "Community" box directly below Daily report (SEVEN headings); the PR's
       // browser-checks job caught this sibling after web.settings-nav had been updated alone.
-      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Agent Communication', 'Daily report', 'Community', 'Recommender', 'Assigner']),
-        `[${theme}] the Automation headings read Auto-save, Prompter, Agent Communication, Daily report, Community, Recommender, Assigner (#2619, #4288)`, JSON.stringify(sec.headings));
+      // #4588 ask 3 added "Gemini agents at once" directly below the Prompter.
+      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Gemini agents at once', 'Agent Communication', 'Daily report', 'Community', 'Recommender', 'Assigner']),
+        `[${theme}] the Automation headings read Auto-save, Prompter, Gemini agents at once, Agent Communication, Daily report, Community, Recommender, Assigner (#2619, #4288, #4588)`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
       // #2632/#2771 (Josh 2026-09): the toggle copy was changed so it no longer promises
       // an undeliverable nudge -- both the visible <b> label and the slider's aria-label
@@ -179,6 +190,20 @@ function chk(ok, label, extra) {
         `[${theme}] each interval option reads "N minutes"`, JSON.stringify(sec.ivOptionText));
       chk(sec.ivValue === '15',
         `[${theme}] the default selected interval is 15 (#1843)`, String(sec.ivValue));
+      // #4588 ask 3: the cap is on screen, offers No limit and 1 to 4 agents, and reads No limit by default.
+      chk(sec.capRowVisible === true, `[${theme}] the Gemini cap row is on screen`, String(sec.capRowVisible));
+      chk(JSON.stringify(sec.capOptionText) === JSON.stringify(['No limit', '1 agent', '2 agents', '3 agents', '4 agents']),
+        `[${theme}] the cap choices read No limit, 1 agent, 2 to 4 agents`, JSON.stringify(sec.capOptionText));
+      chk(sec.capValue === '0', `[${theme}] the cap reads No limit by default`, String(sec.capValue));
+      // Choosing 2 on screen saves it: the board's own GET reads 2 back (then put back to no limit).
+      await page.selectOption('#agycap-max', '2');
+      const saved = await page.waitForFunction(
+        async () => { const r = await fetch('/api/agycap-setting', { cache: 'no-store' }); const j = await r.json(); return j.maxWorking === 2; },
+        null, { timeout: 8000, polling: 200 },
+      ).then(() => true).catch(() => false);
+      chk(saved, `[${theme}] choosing 2 agents on screen saves it (the route reads 2 back)`, String(saved));
+      await page.selectOption('#agycap-max', '0');
+      await page.waitForTimeout(400);
     }
   } finally {
     await browser.close();

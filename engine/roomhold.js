@@ -287,7 +287,7 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
          the same env in production, where the server passes process.env), so nothing reachable after the reset is
          skipped. */
       const agyquota = require('./agyquota');
-      if (agyquota.heldForQuota(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;
+      if (agyquota.heldForAgy(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;   // #4588 ask 3: the cap too
       for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }

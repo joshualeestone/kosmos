@@ -443,8 +443,14 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
      before the part is assigned, so a held agent is not given work and taken off it again every tick. */
   if (assigner) {
     let heldUntil = null;
-    try { heldUntil = require('./engine/agyquota').heldForQuota(who, roster || safeRoster(), Date.now()); } catch { heldUntil = null; }
+    const agyq = require('./engine/agyquota');
+    const r = roster || safeRoster();
+    const now = Date.now();
+    try { heldUntil = agyq.heldForQuota(who, r, now); } catch { heldUntil = null; }
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
+    // #4588 ask 3: the person's cap on how many Gemini agents work at once.
+    try { heldUntil = agyq.heldForCap(who, r, now); } catch { heldUntil = null; }
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " waits: the Gemini agents on this computer are at the limit set for working at once" };
   }
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
@@ -955,6 +961,7 @@ function connlostHealEnabled() {
   return connlostHeal.healEnabled(liveExecution.liveExecutionAllowed(), process.env); // the sweep's own rule
 }
 const heartbeatSetting = require('./engine/heartbeat-setting');
+const agycapSetting = require('./engine/agycap-setting');   // #4588 ask 3
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
@@ -1140,7 +1147,7 @@ function autoretellTick(now = Date.now(), acted = AUTORETELL_ACTED) {
         /* #4588 PR B: a running agent held on its machine's shared Google quota is not ready: not spent, looked at again
            next sweep, so neither its instructions write nor the one retell per change is used up during the pause. */
         let held = null;
-        try { held = require('./engine/agyquota').heldForQuota(card.sessionName, board(), now); } catch { held = null; }
+        try { held = require('./engine/agyquota').heldForAgy(card.sessionName, board(), now); } catch { held = null; }   // #4588 ask 3: the cap too
         if (held !== null) return false;
         const st = projects.toldOverride(instructions.staleness(name, undefined, card.session), name, all);
         return !!(st && st.state === instructions.STALENESS.CURRENT);
@@ -8878,6 +8885,32 @@ const server = http.createServer(async (req, res) => {
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = heartbeatSetting.read();
         sendJson(res, 200, { on: r.on, intervalMinutes: r.intervalMinutes, intervals: heartbeatSetting.INTERVAL_CHOICES, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* #4588 ask 3: how many Gemini (Antigravity) agents on this computer may work at once before automatic messages to
+     the others wait (Settings > Automation). maxWorking 0 is no limit, the default. A STATUS control like the
+     heartbeat's: a read error is a 500. Only the person changes it (isViaScreen, advisory as on the Recommender): an
+     agent lifting the cap on itself is the thing it exists to stop. */
+  if (pathname === '/api/agycap-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = agycapSetting.read();
+      sendJson(res, 200, { maxWorking: r.maxWorking, choices: agycapSetting.CHOICES, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/agycap-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const saved = agycapSetting.set(body);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = agycapSetting.read();
+        sendJson(res, 200, { maxWorking: r.maxWorking, choices: agycapSetting.CHOICES, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
@@ -19470,7 +19503,7 @@ function start(port = PORT) {
             roomNote: (projectId, text, opts) => messages.roomNote(projectId, text, opts),   // #4423: the note's facts too
             deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
-            heldUntil: (session) => agyQuota.heldForQuota(session, roster, Date.now()),
+            heldUntil: (session) => agyQuota.heldForAgy(session, roster, Date.now()),   // #4588 ask 3: the cap too
           });
           recommenderPrev = out.next;
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
@@ -19763,7 +19796,7 @@ function start(port = PORT) {
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
-          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3: the cap too
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`reply-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
