@@ -78,6 +78,12 @@ statuses change, and Project/Model look locked while making.
 - A failed roles read no longer retries by repainting (that looped against a failing read): it marks the menu, and
   tcSyncModel paints it again once another path holds the list. Tested: one read, not a loop.
 
+## Review 7 changes
+- The failed-roles comment says what happens (create's default until a provider/account change reads the list);
+  the recovery branch has a unit test.
+- A provider the menu has no list for (anything not Claude, OpenAI or a vendor that picks) sends no model, never a
+  Claude key that create would refuse.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 

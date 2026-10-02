@@ -48315,7 +48315,7 @@ async function openTeamCreate(key) {
   TC = null;
   TC_MODEL_FOR = null;   // #4935: a new team starts on the default model, not the last team's pick
   TC_MODEL_GEN += 1;     // and a model list still loading for the last team cannot land in this one
-  { const tm = document.getElementById('tc-model'); if (tm) { tm.innerHTML = ''; tm.dataset.loading = ''; tm.dataset.fixed = ''; } }   // nor its pick or its loading state
+  { const tm = document.getElementById('tc-model'); if (tm) { tm.innerHTML = ''; tm.dataset.loading = ''; tm.dataset.fixed = ''; tm.dataset.retry = ''; } }   // nor its pick or its flags
   const msg = document.getElementById('tc-msg');
   document.getElementById('tc-title').textContent = 'Loading the team…';
   document.getElementById('tc-purpose').textContent = '';
@@ -48489,7 +48489,8 @@ function tcSyncModel() {
   if (!sel || !TC || !step || step.hidden) return;
   const pv = (document.getElementById('tc-provider') || {}).value || '';
   const ac = (document.getElementById('tc-account') || {}).value || '';
-  /* A failed roles read is painted again once another path has read the list (never in a loop against a failing read). */
+  /* A failed roles read stays on create's default (no model is sent) until the list is held: in practice after the
+     person changes provider or account, which reads it again. Never retried in a loop against a failing read. */
   if (sel.dataset.retry === '1' && CREATE_MODELS.length) TC_MODEL_FOR = null;
   /* Once the choice is fixed the menu is not repainted, so it keeps what the members were made on. */
   if (TC_MODEL_FOR !== pv + '|' + ac && !tcChoiceFixed()) { TC_MODEL_FOR = pv + '|' + ac; tcPaintModel(pv, ac); }
@@ -48538,6 +48539,10 @@ function tcPaintModel(pv, ac) {
         } else show(openaiOwn, true, openaiNoModelsNote(out && out.because), false);
         if (TC) tcPaint();   // Create is offered again
       });
+    return;
+  }
+  if (pv && pv !== 'anthropic') {   // a provider this menu has no list for sends no model, never a Claude one
+    show('<option value="" selected></option>', true, '', false);
     return;
   }
   const claude = () => show(CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>'
