@@ -2063,11 +2063,17 @@ function restartInner(name, cause, platform, startIfDead) {
   /* #4964: only bootstrap once launchd has really let go of the old job (the Mac; Windows' /End+/Run has no such
      gap). If it is still held when the wait runs out, bootstrap anyway, but an "already loaded" answer then means the
      dying job, and print answers for it too, so neither is trusted: not loaded, and the #4006 second try runs. */
+  /* A bootout that failed asked nothing to stop, so its job is still held (no wait: it would not leave), and a 5 from
+     the bootstrap is that old job. */
   let held = false;
+  let firstLoadedNew = false;
+  let stopped = false;
   const relaunched = step('asked it to start again now', () => {
-    ops.stopNow(clean, job);
-    if (ops.waitUnloaded) held = !ops.waitUnloaded(clean, job);
-    return ops.startNow(clean, job);
+    stopped = ops.stopNow(clean, job);
+    if (ops.waitUnloaded) held = stopped ? !ops.waitUnloaded(clean, job) : true;
+    const started = ops.startNow(clean, job);
+    firstLoadedNew = bootstrapLoadedNew();
+    return started;
   });
   /* Held: only a bootstrap that really answered 0 is a new job. "Already loaded" is the dying job, and no bootstrap at
      all (a launch file that is gone: startNow returns true without one) leaves print answering for the dying job. */
@@ -2087,7 +2093,9 @@ function restartInner(name, cause, platform, startIfDead) {
   if (!loaded && !ops.win32 && !ops.startableGone(clean, job)) {   // the Mac's bootout/bootstrap race only
     retryWait();
     const again = step('asked it to start once more', () => {
-      if (ops.waitUnloaded) held = !ops.waitUnloaded(clean, job);   // #4964: and again before the second bootstrap
+      /* #4964: and again before the second bootstrap, unless the first one loaded a new job: then launchd holds OURS
+         (a print that failed once sent us here), and waiting would only time out on it and call it the dying one. */
+      if (ops.waitUnloaded) held = firstLoadedNew ? false : stopped ? !ops.waitUnloaded(clean, job) : true;
       return ops.startNow(clean, job);
     });
     loaded = again && step('confirmed its job is loaded on the second try', () => !heldAnswer() && ops.loaded(clean, job, before));

@@ -2754,10 +2754,16 @@ function dyingLaunchd(dieMs, opts = {}) {
     tick();
     if (cmd === 'has-session') return { ok: false, code: 1 };
     if (file !== '/bin/launchctl') return { ok: true, stdout: '' };
-    if (cmd === 'bootout') { if (m.state === 'loaded') { m.state = 'dying'; m.goneAt = Date.now() + dieMs; } return { ok: true, stdout: '' }; }
+    if (cmd === 'bootout') {
+      if (opts.bootoutFails) return { ok: false, code: 1, stderr: 'Boot-out failed: 1: Operation not permitted' };
+      if (m.state === 'loaded') { m.state = 'dying'; m.goneAt = Date.now() + dieMs; }
+      return { ok: true, stdout: '' };
+    }
     if (cmd === 'print') {
       m.prints += 1;
       if (m.state === 'gone') return { ok: false, code: 113, stderr: 'Could not find service' };
+      // opts.printHiccup: the first print after a bootstrap that loaded fails once (a timeout), though the job runs
+      if (opts.printHiccup && m.bootstraps === 1 && m.state === 'loaded' && !m.hiccuped) { m.hiccuped = true; return { ok: false, code: null, stderr: '' }; }
       // opts.flaky: print itself fails (a timeout) while the job is dying, which says nothing about the job
       if (m.state === 'dying' && opts.flaky) return { ok: false, code: null, stderr: '' };
       return { ok: true, stdout: m.state === 'dying' ? 'state = SIGTERMed' : 'state = running' };
@@ -2847,6 +2853,44 @@ test('#4964: a job still held when its launch file is gone is not taken as resta
     const out = withUnloadWait(200, () => mac.restart(name, 'provider'));
     assert.equal(m.bootstraps, 0, 'precondition: a launch file that is gone is never bootstrapped');
     assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'the dying job\'s print read as the agent restarted');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a restart whose new job loaded is not turned into a failure by one print that failed (no second wait on our own job)', () => {
+  const name = madeAgent('unloadhiccup');
+  boardShows(name, name);
+  const m = dyingLaunchd(100, { printHiccup: true });
+  remove.setRunner(m.runner);
+  try {
+    remove.resetUnloadWaitsForTests();
+    const t0 = Date.now();
+    const out = withUnloadWait(3000, () => mac.restart(name, 'provider'));
+    assert.ok(m.hiccuped, 'precondition: the confirming print never failed');
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, 'a running agent was put on the failed card: ' + out.because);
+    assert.ok(Date.now() - t0 < 1500, `the second try waited ${Date.now() - t0} ms on the agent's own new job`);
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a bootout that failed is not waited on, and the old job\'s "already loaded" is not a restart', () => {
+  const name = madeAgent('unloadbootoutfail');
+  boardShows(name, name);
+  const m = dyingLaunchd(100, { bootoutFails: true });
+  remove.setRunner(m.runner);
+  try {
+    remove.resetUnloadWaitsForTests();
+    const t0 = Date.now();
+    const out = withUnloadWait(3000, () => mac.restart(name, 'provider'));
+    assert.ok(Date.now() - t0 < 1500, `it waited ${Date.now() - t0} ms on a job nothing asked to stop`);
+    assert.ok(m.bootstraps >= 1, 'it never tried to start the agent');
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'the old job, never stopped, read as the agent restarted');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);
