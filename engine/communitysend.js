@@ -1317,6 +1317,7 @@ function requestRetire(agentKey) {
   const at = new Date().toISOString();
   saveJson(path.join(retireDir(), `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`), { agent: agentKey, at, done: [] });
   pendingCache.mtimeMs = null;                        // two changes inside one mtime tick must not read as none
+  // ok means the request is on file; the mark may still be pending (it is made again when the request is applied).
   try { communitystore.markAgentNotSent(agentKey, at); } catch { /* marked again when the request is applied */ }
   exclusive(() => {}).catch(() => {});                // applied now unless a pass is running; then right after it
   return { ok: true };
@@ -1377,12 +1378,12 @@ function retireIn(epDir, agentKey, at) {
 // A record the old account never reached: nothing of it is on the service.
 const neverSent = (rec) => rec.state === 'pending' && !rec.attempted;
 const reportedStuck = new Set();
-/* One request at a time, each in its own try (applyRetirements), so one that cannot save its progress does not hold up
-   the others. */
 /* A request waiting only on another service's folder (the current one is done) is tried at most every
    STALE_RETRY_MS, not on every keys.json section: such a folder may stay unreadable for good. */
 const STALE_RETRY_MS = 15 * 60 * 1000;
 const staleRetryAt = new Map();
+/* One request at a time, each in its own try (applyRetirements), so one that cannot save its progress does not hold up
+   the others. */
 function applyOne(r, eps) {
   const file = path.join(retireDir(), r.file);
   if (r.done.includes(path.basename(endpointDir())) && (staleRetryAt.get(r.file) || 0) > Date.now()) return;
@@ -1436,7 +1437,6 @@ function applyOne(r, eps) {
       pendingCache.mtimeMs = null;
     }
   }
-
 }
 
 function applyRetirements() {

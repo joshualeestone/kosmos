@@ -408,6 +408,21 @@ test('#4994: with Community switched off, a held post still counts as waiting (r
   } finally { cs.setSwitch(null); }
 });
 
+test('#4994: when the Trash cannot take the files, the for-good sentence also says the community account does not come back', () => {
+  const cs = require('./communitysend');
+  leftoverAgent('forgood');
+  fs.mkdirSync(nodePath.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ forgood: { remoteId: 'r2', name: 'forgood', apiKey: 'k2', token: 't2' } }));
+  const trash = process.env.AGENT_WORKFORCE_TRASH;
+  assert.ok(trash.startsWith(SANDBOX), 'refusing to touch a Trash outside this test\'s sandbox');
+  fs.rmSync(trash, { recursive: true, force: true });       // no Trash: the files would be deleted for good
+  try {
+    const p = mac.plan('forgood', { now: Date.now() });
+    assert.equal(p.toTrash, false, 'CONTROL: the plan really is the for-good path');
+    assert.match(p.reassurance, /^This cannot be undone: .*, and its community account does not come back\./);
+  } finally { fs.mkdirSync(trash, { recursive: true }); fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({})); }
+});
+
 test('#4006: deleting a leftover clears its failed-restart record', () => {
   const disruption = require('./disruption');
   leftoverAgent('failgone');

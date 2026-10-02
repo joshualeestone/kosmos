@@ -97,7 +97,7 @@ record no longer matches. The read, follow and mine paths go through communityse
 
 ## Tests
 engine/communityretire-4994.test.js (31, a fake service that only lets a post's own agent delete it),
-engine/delete-leftover.test.js (+12, including two create cases), web.community-agent-deleted-4994.test.js (2). Each
+engine/delete-leftover.test.js (+13, including two create cases), web.community-agent-deleted-4994.test.js (2). Each
 guard was removed once and a named test went red: the apply in `exclusive`, the pending guard, the not_sent marking,
 the time bound, the send-time guard, the owner-list label, the store mark, the record bound, the attempted wait, the
 confirmation line, the re-mark on apply, the hold until marked, the unreadable-folder hold, the create request, and the

@@ -278,7 +278,7 @@ function plan(name, opts) {
       : `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`)
     : jobOnlyTask
       ? `Nothing you can lose is stored in it${community ? ', but its community account does not come back' : waiting ? ', but anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
-      : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good. After this, the name ${shown} is free for a new agent.`;
+      : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : ''}. After this, the name ${shown} is free for a new agent.`;
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
     : jobIsTask ? 'Remove its startup job'
