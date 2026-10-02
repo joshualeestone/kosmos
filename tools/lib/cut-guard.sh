@@ -1301,3 +1301,41 @@ kosmos_holds_light_side() {
   active="$(_kosmos_light_side_active)"
   [ -n "$active" ] && [ "$(printf '%s' "$active" | awk '{print $1}')" = "$self" ]
 }
+
+# kosmos_light_side_intruder <root pid>: 0 (and why, on stdout) when a browser run or a Playwright browser is live that
+# is NOT the side command's own (root pid and its descendants), so the side turn should YIELD. queued-heavy.sh asks it
+# every few seconds through a side turn and stops its command when it says yes (review 5): the start gate cannot see a
+# heavy holder's page layer that starts AFTER the side turn did, and a holder on a branch older than #4911 runs a
+# browser-checks.sh that does not wait for a side turn. Yielding protects that holder whatever it runs; the light run
+# takes the red, which is the side turn's bargain. Same probes as the start gate (KOSMOS_BC_PROBE, KOSMOS_PW_PROBE),
+# plus the run markers. A probe that cannot answer is an intruder (the safe side: the light run stops).
+kosmos_light_side_intruder() {
+  local root="${1:-}" lines rc l pid f
+  case "$root" in ''|*[!0-9]*) echo "no side command to protect"; return 0 ;; esac
+  if [ -n "${KOSMOS_BC_PROBE:-}" ]; then lines="$("$KOSMOS_BC_PROBE" 2>/dev/null)"; rc=$?
+  else lines="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)')"; rc=$?; [ "$rc" -le 1 ] && rc=0; fi
+  [ "$rc" -ge 2 ] && { echo "could not tell whether a browser run is live"; return 0; }
+  if [ -n "${KOSMOS_PW_PROBE:-}" ]; then l="$("$KOSMOS_PW_PROBE" 2>/dev/null)"; rc=$?
+  else l="$(pgrep -fl 'ms-playwright/' 2>/dev/null)"; rc=$?; [ "$rc" -le 1 ] && rc=0; fi
+  [ "$rc" -ge 2 ] && { echo "could not tell whether a Playwright browser is live"; return 0; }
+  lines="$lines
+$l"
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    pid="${l%% *}"; case "$pid" in ''|*[!0-9]*) continue ;; esac
+    kill -0 "$pid" 2>/dev/null || continue
+    _kosmos_pid_is_self_or_descendant "$pid" "$root" && continue
+    echo "a browser run that is not this side turn's started ($(printf '%s' "$l" | cut -c1-80))"; return 0
+  done <<EOL
+$lines
+EOL
+  for f in "$(_kosmos_marker_dir)"/browser.*; do
+    [ -e "$f" ] || continue
+    pid="${f##*.}"; case "$pid" in ''|*[!0-9]*) continue ;; esac
+    kill -0 "$pid" 2>/dev/null || continue
+    _kosmos_pid_is_self_or_descendant "$pid" "$root" && continue
+    [ "$(sed -n '2p' "$f" 2>/dev/null)" = "$(ps -ww -o command= -p "$pid" 2>/dev/null)" ] || continue   # a recycled pid is no run
+    echo "a marked browser run that is not this side turn's started (pid $pid)"; return 0
+  done
+  return 1
+}

@@ -40,8 +40,8 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   #4189/#4656/#4678 beside a held suite.
 - A holder that took its turn through an OLDER queued-heavy.sh has no class in its label and reads as heavy even if
   it is light. Bounded: those waiters drain within hours of the swap.
-- A side light that runs `node docs/browser-checks/x.js` beside a heavy holder that LATER starts Playwright directly
-  (not via browser-checks.sh) is not stopped; only the start is gated.
+- A side light that runs `node docs/browser-checks/x.js` beside a heavy holder that LATER starts Playwright: since
+  round 5 the side turn yields within one poll (5 s). For those seconds two Playwright runs share the box.
 - test-install.sh and release.sh wiring is covered by review only (both need built bundles or a cut to run).
 
 ## Review ledger
@@ -87,6 +87,16 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   of a side queued-heavy.sh leaves its command running until its capper's cap with no claim (a hard kill has no
   handler; the main lane leaves a command running unclaimed the same way). release.sh exiting from the side wait
   releases its machine claim through its EXIT trap (checked, release.sh:172).
+- Round 5 (Opus, blind): its (1) was the Sonnet item already fixed; its (2) already done (the pin). (3) RE-RAISED (7),
+  version skew, and the stated reason was wrong: a heavy validation's page layer starts ~15 min into its suite, after
+  a side turn may have started, and every branch cut before this merge runs a browser-checks.sh that does not wait
+  for one, so the start gate cannot protect it. TAKEN: the side turn now YIELDS. Its capper polls every 5 s
+  (kosmos_light_side_intruder) and stops the side command when a browser-checks.sh run, a marked browser run or a
+  Playwright browser starts that is not the side command's own descendant (an unreadable probe counts as one). The
+  heavy holder is protected whatever branch it runs; the light run takes the red. Tested (8 arms, 3 mutants) and dry
+  run (a foreign Playwright appearing mid-turn stops it in 2 s and releases the claim). (5) the dry harness's
+  machine-wide orphan check is gone (the capper's sleeps are now 5 s polls). Not taken: (4) a failed ps between the
+  side wait and the take can cost a lost take its place (rare, and it rejoins rather than wedging).
 - ROLLOUT, in this order: merge; update the queue lib checkout (kosmos-bc-main-4610) to origin/main; mv the new
   queued-heavy.sh in. Side turns stay off by themselves until every waiter of the old script has gone.
 - Dry runs of queued-heavy.sh.4911-new (private marker dir, probe seams): side turn; heavy main refused beside a

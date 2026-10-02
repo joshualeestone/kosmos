@@ -210,6 +210,28 @@ else
 fi
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null; rm -f "$M/light-side-claim"
 
+# Review 5: kosmos_light_side_intruder, which a side turn polls to YIELD when a browser run that is not its own starts
+# (a heavy holder's page layer that began after the side turn, on any branch). Root R stands for the side command;
+# R itself stands for "its own" browser run (self or descendant), ORPHAN for someone else's.
+sleep 60 </dev/null >/dev/null 2>&1 & R=$!
+probe own-bc "printf '$R bash tools/browser-checks.sh\\n'"
+probe foreign-bc "printf '$ORPHAN bash tools/browser-checks.sh\\n'"
+probe foreign-pw "printf '$ORPHAN /x/ms-playwright/chromium_headless_shell-1/chrome-headless-shell\\n'"
+for arm in "quiet|quiet|1|nothing live" "own-bc|quiet|1|its own browser run" "foreign-bc|quiet|0|someone else's browser run" \
+    "quiet|foreign-pw|0|someone else's Playwright browser" "broken|quiet|0|an unreadable browser probe" "quiet|broken|0|an unreadable Playwright probe"; do
+  IFS='|' read -r bc pw want name <<< "$arm"
+  out="$(KOSMOS_BC_PROBE="$T/$bc" KOSMOS_PW_PROBE="$T/$pw" kosmos_light_side_intruder "$R")"; rc=$?
+  { [ "$rc" -eq "$want" ]; } && pass "intruder check: $name -> $([ "$want" = 0 ] && echo yield || echo stay)" \
+    || fail "intruder check: $name gave rc=$rc, wanted $want ($out)"
+done
+printf 'someone\n%s\n' "$(ps -ww -o command= -p "$ORPHAN")" > "$M/browser.$ORPHAN"
+out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R")"; rc=$?
+[ "$rc" -eq 0 ] && pass "intruder check: someone else's MARKED browser run -> yield" || fail "intruder check missed a foreign marked browser run (rc=$rc)"
+rm -f "$M/browser.$ORPHAN"; printf 'mine\n%s\n' "$(ps -ww -o command= -p "$R")" > "$M/browser.$R"
+out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R")"; rc=$?
+[ "$rc" -eq 1 ] && pass "intruder check: its OWN marked browser run -> stay" || fail "intruder check yielded to its own marked run (rc=$rc, $out)"
+rm -f "$M/browser.$R"; kill "$R" 2>/dev/null; wait "$R" 2>/dev/null
+
 # Aging: a light waiter past the starve line is rank 0 like a heavy one, so an OLDER starving light waiter goes ahead of
 # a starving heavy one (before #4911 the heavy one went first, and the light lane stood still all afternoon).
 printf '%s %s\n%s\n%s\n%s\nlight\n\n' "$((NOW - 3500))" "$OTHER" "$(ps -ww -o command= -p "$OTHER")" "$(_kosmos_pid_started_local "$OTHER")" "$(_kosmos_pid_started "$OTHER")" > "$M/suitewait.$OTHER"
