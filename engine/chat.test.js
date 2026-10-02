@@ -793,6 +793,53 @@ test('the LAST match wins, because a pane accumulates and an answered question c
   assert.ok(!/Do you want to proceed/.test(found.text), 'the stale question above is not the live one');
 });
 
+test('#5051: the safeguards model-switch menu is a question the detail page can find, and gets no buttons', () => {
+  /* The rows of Claude Code's safeguards menu as Splinter captured them on Angel's pane, 2026-10-02 ~11:07 (blank and
+     border rows put back where Claude Code draws them, as #5039's test does). Before #5051, questionIn returned null
+     here, so the detail page said it "cannot find the question" right under the board's own evidence of it. */
+  const MODAL = [
+    'some earlier output',
+    '⏺ Opus 5.5\'s safeguards stopped the response above · continuing once',
+    '  with that noted',
+    '',
+    ' ☐ Model switch',
+    '',
+    '│ Opus 5.5\'s safeguards flagged this session. You may be seeing this for the',
+    '│ first time: Opus 5.5 is more capable and has stronger safeguards as a result,',
+    '│ which can sometimes flag non-cybersecurity work. We\'re improving these',
+    '│ safeguards to reduce the amount of incorrectly flagged messages. Switch to',
+    '│ Opus 4.8 and keep going whenever this happens? You can change this later in',
+    '│ /config.',
+    '',
+    '─'.repeat(80),
+    '❯ 1. Switch automatically',
+    '     Continue on Opus 4.8 now, and switch without asking from now on',
+    '  2. Stay on Opus 5.5',
+    '     Stop here without switching, and ask me each time a message is flagged',
+    '  3. Type something.',
+    '  4. Chat about this',
+    'Enter to select · ↑/↓ to navigate · Esc to cancel',
+  ].join('\n');
+  const found = chat.questionIn(MODAL);
+  assert.ok(found, 'the safeguards menu yields no question region');
+  assert.match(found.text, /^ ☐ Model switch/, 'the region does not start at the menu\'s title: ' + JSON.stringify(found.text.slice(0, 40)));
+  assert.match(found.text, /Switch to\n│ Opus 4\.8 and keep going whenever this happens\?/, 'the question itself is cut off');
+  assert.match(found.text, /2\. Stay on Opus 5\.5/);
+  assert.doesNotMatch(found.text, /some earlier output/, 'the region reaches above the menu');
+  /* A narrower pane wraps the question onto more rows, so a fixed run-up would start mid-question: the region still
+     starts at the title. (Wrapped width assumed; the rows are the captured words.) */
+  const NARROW = MODAL.replace('│ which can sometimes flag non-cybersecurity work.', '│ which can sometimes flag\n│ non-cybersecurity work.')
+    .replace('│ first time: Opus 5.5 is more capable', '│ first time: Opus 5.5 is\n│ more capable');
+  assert.match(chat.questionIn(NARROW).text, /^ ☐ Model switch/, 'a wrapped question cut the title off');
+  /* The options are not on consecutive lines (a description row sits between), so no buttons: the choice is typed by
+     the person, never answered by a guessed button. */
+  assert.equal(chat.optionsIn(found.text), null, 'buttons were drawn for the safeguards menu');
+  /* Controls: the menu's words in an agent's prose above a live permission prompt; the permission prompt is the one. */
+  const PROSE = ['⏺ The choices are:', '  1. Switch automatically', '  2. Stay on Opus 5.5', '', 'Do you want to proceed?', '❯ 1. Yes', '  2. No'].join('\n');
+  assert.doesNotMatch(chat.questionIn(PROSE).text.split('\n').slice(-3).join('\n'), /Switch automatically/);
+  assert.match(chat.questionIn(PROSE).text, /Do you want to proceed\?\n❯ 1\. Yes/);
+});
+
 test('a screen with no question yields null rather than a guess', () => {
   assert.equal(chat.questionIn('Worked for 3m\n⏵⏵ accept edits on'), null);
   assert.equal(chat.questionIn(''), null);
