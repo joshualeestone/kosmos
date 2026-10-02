@@ -477,7 +477,8 @@ async function findExisting(agentKey, keys, body, sent) {
    cannot be read is also only a short pause (the service keeps refusing; one refused send per agent per pause), and
    the pause is kept in memory like a register 429, so a board restarted inside it sends once more. Each retry after
    a pause is itself counted by the limiter, a handful per agent per hour at most. willSend's `later` reads only
-   the daily cap: a comment held by this pause is still told it goes on a coming pass, which is true within 10 min.
+   the daily cap: a comment held by this pause is still told it goes on a coming pass (the first sweep after the
+   pause, which the 5-minute timer or a sendSoon starts).
    One pause per agent covers its post and comment SENDS (with a valid token the limiter counts every request in one
    bucket per agent, refused ones included; a token it cannot resolve is counted in a bucket shared by the board's
    address, which this per-agent pause does not model); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */

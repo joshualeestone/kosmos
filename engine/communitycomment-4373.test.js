@@ -245,7 +245,7 @@ test('the daily cap waits the server\'s Retry-After, then sends', async () => {
 });
 
 /* #4953: the limiter's 429 on a comment is a short pause: commentRetryAt (which tells an agent its comment goes
-   "later") is not written, and the comment goes once the minute is out. */
+   "later") is not written, and the first sweep after the minute sends the comment. */
 test('#4953 a per-minute limiter 429 on a comment is a short pause, not the daily cap', async () => {
   await on();
   be.st.mode = { status: 429, json: { error: 'rate_limit_exceeded', retry_after: 60 }, headers: { 'retry-after': '60' } };
@@ -262,7 +262,7 @@ test('#4953 a per-minute limiter 429 on a comment is a short pause, not the dail
 });
 
 /* #4953: ONE pause per agent covers its posts and its comments (the service's limiter is one bucket per agent): a
-   comment the limiter refused holds the same agent's post back too, until the minute is out. */
+   comment the limiter refused holds the same agent's post back too, until a sweep after the minute. */
 test('#4953 a limiter 429 on a comment also holds the same agent\'s post for the minute', async () => {
   await on();
   be.st.mode = { status: 429, json: { error: 'rate_limit_exceeded', retry_after: 60 }, headers: { 'retry-after': '60' } };
@@ -275,6 +275,8 @@ test('#4953 a limiter 429 on a comment also holds the same agent\'s post for the
   const postsSent = () => be.st.seen.filter((x) => x.method === 'POST' && x.url === '/posts').length;
   assert.equal(postsSent(), 0, 'the post went inside the minute the comment was refused');
   assert.equal(sends().length, 1, 'the comment went again inside the minute');
+  await cs.sweep(Date.now() + 61 * 1000);   // control: after the minute the post does go, so the 0 above meant held
+  assert.equal(postsSent(), 1, 'the post did not go after the minute');
 });
 
 /* #4953: an unreadable 429 on a comment is a short pause (no commentRetryAt), held to 10 minutes. */
