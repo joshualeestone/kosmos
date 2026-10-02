@@ -15855,6 +15855,7 @@ const server = http.createServer(async (req, res) => {
    * computed separately is exactly #1346: three rows under a heading that said
    * six, because one number came from the data and the other from the DOM.
    */
+  /* #4891: `?project=<id>` naming no project is a 404 "there is no project by that name", in every form. */
   if (pathname === '/api/tasks' && (req.method === 'GET' || req.method === 'HEAD')) {
     let everyProject;
     try {
@@ -15897,6 +15898,14 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       forTasksView = false;
+    }
+    /* #4891 N6: `kosmos task list nosuch` printed "No tasks for this project yet" and exited 0, while `project show
+       nosuch` refuses. An unknown project is said as one (the token-only arm above already did). One answer for every
+       form (review 2): the Tasks view never sends `project=`, and readAll() keeps archived projects, so nothing that
+       reads this route names a project that is not there. */
+    if (projectScope && !(everyProject || []).some((x) => x && x.id === projectScope)) {
+      sendJson(res, 404, { error: 'there is no project by that name' });
+      return;
     }
     const all = tasks.allTasks(everyProject);
     const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
@@ -16515,7 +16524,15 @@ const server = http.createServer(async (req, res) => {
        (`kosmos room`) passes ?as=text, the web board reads JSON. #2702's reject
        and the existing render must agree on which arm this is. */
     let asText = false;
-    try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; 40 when not given or
+       not a whole number in range, so an older CLI and a bad value both get what they always got). */
+    let textRows = 40;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      asText = q.get('as') === 'text';
+      const n = q.get('n');
+      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) textRows = Number(n);
+    } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
        guess otherwise reads identically to genuine silence, and the agent acts on
@@ -16617,7 +16634,7 @@ const server = http.createServer(async (req, res) => {
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
-         The tail only (last 40), oldest first, one line per row, and the
+         The tail only (the last 40, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
          unreadable case says so rather than printing an empty room.
          #2702: `asText` is computed once at the top of this route now and reused
          here, so the reject arm and this render arm cannot disagree. */
@@ -16635,12 +16652,15 @@ const server = http.createServer(async (req, res) => {
            machine the operator is sitting at, never to an error. */
         let zone = null;
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
-        /* #3311: at most 20 of the 40 rows shown come from outside, so a busy
-           peer cannot push every local post out of the view agents read. */
+        /* #3311: at most half the rows shown (20 of the default 40) come from outside, so a busy
+           peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
         const tail = [];
         let outside = 0;
-        for (let i = rows.length - 1; i >= 0 && tail.length < 40; i--) {
-          if (rows[i] && rows[i].kind === 'external') { if (outside >= 20) continue; outside += 1; }
+        /* At least one, so `-n 1` on a room whose newest row came from outside shows that row rather than an older
+           local one, or "nothing has been said" in a room where something was (#4891 review 1). */
+        const outsideCap = Math.max(1, Math.floor(textRows / 2));
+        for (let i = rows.length - 1; i >= 0 && tail.length < textRows; i--) {
+          if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);
         }
         const lines = tail.flatMap((m) => {
