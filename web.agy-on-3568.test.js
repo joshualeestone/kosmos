@@ -597,7 +597,7 @@ test('#4960: the terms are asked in Kosmos\'s panel: the links, the box as Antig
     await f.FR_AGY_SUB.start();   // Sign in with Google
     await f.settle(() => !f.el('fr-gemini-sub-terms-row').hidden);
     assert.equal(f.el('fr-gemini-sub-terms-row').hidden, false, 'the terms were not shown to the person');
-    assert.match(f.view().text, /accept Google's terms, and whether to share your usage data \(optional\)/);
+    assert.equal(f.view().text, 'Almost done. One last step from Google:', 'the status line repeats the row below it');
     assert.equal(f.el('fr-gemini-sub-terms-tos').attrs.href, 'https://antigravity.google/terms');
     assert.equal(f.el('fr-gemini-sub-terms-privacy').attrs.href, 'https://policies.google.com/privacy');
     assert.equal(f.el('fr-gemini-sub-terms-share').checked, true, 'the box did not start as Antigravity has it');

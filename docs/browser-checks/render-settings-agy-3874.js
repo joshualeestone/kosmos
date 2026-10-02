@@ -161,7 +161,7 @@ const view = () => ({
       label: box.labels && box.labels[0] ? box.labels[0].textContent.trim() : '' };
   });
   chk(t1.shown && t1.checked && t1.tos === 'https://antigravity.google/terms' && t1.privacy === 'https://policies.google.com/privacy'
-      && t1.focus === 'acct-gemini-sub-terms-intro' && /whether to share your usage data/.test(t1.text) && /^Also let Google collect/.test(t1.label),
+      && t1.focus === 'acct-gemini-sub-terms-intro' && t1.text === 'Almost done. One last step from Google:' && /^Also let Google collect/.test(t1.label),
     '#4960 the terms are asked in the dialog: both links, the box as Antigravity has it, focus on their first words (not Agree)', JSON.stringify(t1));
   if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-terms-4960.png') });
   await q(() => { document.getElementById('acct-gemini-sub-terms-share').click(); document.getElementById('acct-gemini-sub-terms-go').click(); });
