@@ -4863,9 +4863,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      openConsolidatedTasks; Projects returns the column to the board), so there is always
      a visible way back. Only the h1 stays hidden. */
   html[data-layout="consolidated"] body.consolidated > .apphead header {
-    /* flex-start, not center: kosmos#2624, see the .apphead block near the top. The same 1fr auto 1fr grid as the tab
-       view (not flex space-between), so the center tabs stay on the window's center whatever the Kosmos name's width. */
-    display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: var(--space-5);
+    /* kosmos#2624: top-aligned, see the .apphead block near the top. The tab view's grid and gap (1fr auto 1fr, 24px),
+       not flex space-between, so the center tabs sit on the same pixels in both views whatever the Kosmos name's width
+       (render-tophead-stable-2624, its long-name arm). */
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 24px;
     padding: 8px var(--space-8); min-height: 0; margin: 0;
     background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated > .apphead h1 { display: none; }
