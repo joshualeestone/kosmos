@@ -1003,6 +1003,9 @@ test('the room valve closes across the whole thread regardless of sender, once, 
     assert.equal(sent.state, chat.DELIVERY.COULD_NOT);
     assert.match(sent.because, /asked everyone to bring you in/,
       'the room valve does not carry the ruled sentence');
+    assert.equal(sent.code, 'room_held', '#4934: the loop guard\'s refusal is not marked, so the CLI cannot say nothing was kept');
+    assert.equal(sent.id, null, '#4934: the loop guard kept a copy (the CLI says it does not)');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.text === 'one more').length, 0, '#4934: the refused post was stored');
     assert.equal(tmux.sends().length, 0);
     const valves = messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease');
     assert.equal(valves.length, 1, 'the room valve closing was not logged (or logged per retry)');
@@ -2629,7 +2632,8 @@ test('#4447: a link the agent planted in its own folder cannot turn the spill in
     fs.unlinkSync(inboxOf('mara'));
     fs.mkdirSync(inboxOf('mara'));
     fs.writeFileSync(path.join(inboxOf('mara'), '.gitignore'), '*\n');   // Kosmos's own Inbox, as a first spill leaves it
-    const nextId = () => 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    // #4888: a refused send (step a) has used its id, so the next one is asked of the board, not read off the log.
+    const nextId = () => messages._nextIdForTests();
     for (const kind of ['symbolic', 'hard']) {
       const at = path.join(inboxOf('mara'), nextId() + '.txt');
       if (kind === 'symbolic') fs.symlinkSync(victim, at); else fs.linkSync(victim, at);
@@ -2742,7 +2746,7 @@ test('#4447: a hard link planted at the next id in a read-only Inbox is never wr
     assert.equal(messages.send({ fromPane: '%7', to: 'mara', text: brief() }, board.agents).state, chat.DELIVERY.PLACED);
     const victim = path.join(SANDBOX, 'victim-fallback-' + Date.now() + '.txt');
     fs.writeFileSync(victim, 'untouched\n');
-    const nextId = 'm' + (messages.record().rows.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+    const nextId = messages._nextIdForTests();   // #4888: asked of the board, not read off the log
     fs.linkSync(victim, path.join(inboxOf('mara'), nextId + '.txt'));
     fs.chmodSync(inboxOf('mara'), 0o555);
     try {
@@ -3216,5 +3220,62 @@ test('#4786: with the limit Off, work moving changes nothing: the room still get
       fs.rmSync(limits.FILE, { force: true });
       fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
     }
+  });
+});
+
+test('#4888: two DIFFERENT messages whose deliveries overlap get different ids, in the reply and in the log', async () => {
+  // Rows are appended when a delivery finishes, so the second send starts before the first is in the log.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const slow = () => gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null }));
+  armSender('leo-discord');
+  await withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], async (board) => {
+    const p1 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'first thing' }, board.agents, slow);
+    const p2 = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'second thing' }, board.agents, slow);
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.equal(a.state, chat.DELIVERY.PLACED, JSON.stringify(a));
+    assert.equal(b.state, chat.DELIVERY.PLACED, JSON.stringify(b));
+    assert.equal(b.duplicate, undefined, 'different words were folded as a retry: ' + JSON.stringify(b));
+    assert.notEqual(a.id, b.id, 'two overlapping messages shared one id');
+    const ids = messages.record().rows.filter((m) => m.kind === 'message').map((m) => m.id);
+    assert.equal(ids.length, 2, JSON.stringify(ids));
+    assert.equal(new Set(ids).size, 2, 'the log holds one id twice: ' + JSON.stringify(ids));
+  });
+});
+
+test('#4888: two room posts from two agents at the same moment get different ids', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const slow = () => gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null }));
+  await withFleet(room3(), async (board) => {
+    armSender('mara-discord');
+    const p1 = messages._sendPostWithDelivery({ fromPane: '%7', project: 'henderson-lease', text: 'draft is up' }, board.agents, MEMBERS, slow, true);
+    armSender('leo-discord');
+    const p2 = messages._sendPostWithDelivery({ fromPane: '%7', project: 'henderson-lease', text: 'numbers are in' }, board.agents, MEMBERS, slow, true);
+    release();
+    const [a, b] = await Promise.all([p1, p2]);
+    assert.ok(a.id && b.id, JSON.stringify([a, b]));
+    assert.notEqual(a.id, b.id, 'two overlapping posts shared one id');
+    const ids = messages.record().rows.filter((m) => m.kind === 'post').map((m) => m.id);
+    assert.equal(new Set(ids).size, ids.length, 'the log holds one id twice: ' + JSON.stringify(ids));
+    assert.equal(ids.length, 2, JSON.stringify(ids));
+  });
+});
+
+test('#4888: a send that was refused does not hand its id to the next one', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    // The refusal returns id: null, so the id it used is read from the envelope it was handed.
+    let refusedEnvelope = '';
+    const refused = (_to, envelope) => { refusedEnvelope = envelope; return { state: chat.DELIVERY.COULD_NOT, because: 'the pane closed' }; };
+    const first = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'will not land' }, board.agents, refused);
+    assert.equal(first.state, chat.DELIVERY.COULD_NOT);
+    const usedId = (refusedEnvelope.match(/ · (m\d+)[ \]]/) || [])[1];
+    assert.ok(usedId, 'the refused envelope carried no id: ' + JSON.stringify(refusedEnvelope));
+    const placed = () => ({ state: chat.DELIVERY.PLACED, because: null });
+    const next = messages._sendWithDelivery({ fromPane: '%7', to: 'mara', text: 'lands' }, board.agents, placed);
+    assert.equal(next.state, chat.DELIVERY.PLACED, JSON.stringify(next));
+    assert.notEqual(next.id, usedId, 'the next send was given the id the refused one had used');
   });
 });

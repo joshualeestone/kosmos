@@ -51,6 +51,9 @@ function readThread(page, words) {
       pill: pill ? pill.textContent : null,
       pillClass: pill ? pill.className : null,
       pillBorder: pill ? getComputedStyle(pill).borderTopStyle : null,
+      // #4944: the in-flight "Sending…" is plain text in the time's slot (.msg-t), no pill, so the kept row swaps
+      // in at the same height.
+      slot: (() => { const t = r ? r.querySelector('.msg-t') : null; return t ? t.textContent.trim() : null; })(),
       drawn: Boolean(box && box.height > 0 && box.width > 0),
     };
   }, words);
@@ -101,7 +104,7 @@ function readThread(page, words) {
     console.log('  while sending: ' + JSON.stringify(flying));
     chk(flying.copies === 1 && flying.drawn, 'the message is in the thread while the POST is still open', JSON.stringify(flying));
     chk(flying.you && flying.pending && flying.last, 'as the person\'s own bubble, at the bottom');
-    chk(flying.pill === 'Sending…' && / unsure/.test(' ' + flying.pillClass) && flying.pillBorder === 'dashed', 'marked "Sending…" with the dashed pill, not as delivered', flying.pill + ' / ' + flying.pillClass);
+    chk(flying.slot === 'Sending…' && flying.pill === null, 'marked "Sending…" in the time\'s slot, with no delivery pill (#4944: so it swaps in place), not as delivered', JSON.stringify({ slot: flying.slot, pill: flying.pill, pillClass: flying.pillClass }));
 
     /* 2. The board could not be reached. */
     await page.evaluate(() => window.__post.reject(new TypeError('Failed to fetch')));
@@ -123,7 +126,7 @@ function readThread(page, words) {
     await page.waitForTimeout(400);
     const kept = await readThread(page, 'second try');
     console.log('  once kept: ' + JSON.stringify(kept));
-    chk(kept.copies === 1 && !kept.pending && kept.pill !== 'Sending…', 'once kept, the thread shows the kept row and no second copy', JSON.stringify(kept));
+    chk(kept.copies === 1 && !kept.pending && kept.slot !== 'Sending…', 'once kept, the thread shows the kept row and no second copy', JSON.stringify(kept));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

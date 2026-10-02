@@ -480,6 +480,7 @@ function resetForTests() {
      (the product only appends), and tests reset. */
   READ_CACHE = null;
   IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
+  ID_HIGH = 0;               // #4888: a test that starts a new log starts its ids again
 }
 
 function tmuxBin() {
@@ -853,7 +854,7 @@ function rowShaped(m) {
 }
 
 /* The send path keeps the old contract on purpose: an unreadable log
-   fails OPEN there (the valve cannot count, ids restart) rather than
+   fails OPEN there (the valve cannot count; ids restart only on a board that has minted none since it started) rather than
    blocking every send on a read error -- a RECORDED trade, revisit when
    retention lands. */
 function readLog() {
@@ -958,6 +959,23 @@ const ROOM_PROGRESS_STEPS = 4;
    too: the same send arriving meanwhile waits for the first one's receipt instead of sending again.
    Keyed by sender, place and text; cleared when the first finishes, either way. */
 const IN_FLIGHT_SENDS = new Map();
+/* #4888: a send's row is appended when its delivery FINISHES (deliverAsync, #4468; a room fans out, #4765), so
+   the log alone cannot say which ids two overlapping sends have already taken: both read the same highest id and
+   both took the next one. The board remembers the last id it handed out, and a new id is the larger of that and
+   the log's highest, plus one. An id is taken before any await, so overlapping sends never share one. A send
+   that is then refused has used its id, and the next send takes a new one. */
+let ID_HIGH = 0;
+/* #4888: the id the next send will be given, without taking it (a test plants a file at it). */
+function nextIdForTests() {
+  const inLog = record().parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
+  return 'm' + (Math.max(inLog, ID_HIGH) + 1);
+}
+function mintId(parsed) {
+  // Over the PARSE-ONLY rows: a foreign append that fails shape still burns the id it names.
+  const inLog = parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
+  ID_HIGH = Math.max(inLog, ID_HIGH) + 1;
+  return 'm' + ID_HIGH;
+}
 // A twin still in flight, unless it has been in flight longer than the window (a delivery that never settles must
 // not hold every identical retry forever).
 function inFlightTwin(key) {
@@ -1195,10 +1213,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     if (lim.on) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at };
   }
 
-  // Over the PARSE-ONLY rows: a foreign append that fails shape must
-  // still burn the id it names, or this re-mints an id a recipient may
-  // already have seen and overwrites its spill file.
-  const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+  const id = mintId(rec.parsed);
 
   /* The envelope: one line (a newline in the pane is a submit), sender and
      reply pointer first so the recipient reads WHO before WHAT. Past
@@ -1222,8 +1237,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
 
   const finish = (sent) => {
     if (sent.state === chat.DELIVERY.COULD_NOT) {
-    // A refused delivery must not orphan its spill: the next send mints
-    // the same id and would silently overwrite it with unrelated text.
+    // A refused delivery must not orphan its spill.
       unspill(spillFile);
       return refuse(toName, sent.because);
     }
@@ -1819,11 +1833,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
             because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
         }
       } catch { /* the record is best-effort; the verdict is not */ }
-      return { state: chat.DELIVERY.COULD_NOT, because, id: null, at, outcomes: null };
+      // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
+      // it another way) without reading the person-facing sentence above.
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, id: null, at, outcomes: null };
     }
   }
 
-  const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+  const id = mintId(rec.parsed);
 
   /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
      since #3679 also indentation and fenced code), so the room
@@ -2028,7 +2044,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   if (!reached && charged > 0) {
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
-       rule) and the spill must not wait for the next mint of this id. */
+       rule). */
     /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
@@ -2741,6 +2757,7 @@ module.exports = {
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
+  _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
   setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,

@@ -3094,6 +3094,12 @@ function agyNameOk(bin, platform) { return runners.isAgyName(runners.agyRealName
    AGENT_WORKFORCE_ANTIGRAVITY_WINDOWS=0 or an antigravity-windows.off file). */
 function win32AgyOn() { return require('./win32agy').switchOn(); }
 
+/* #2955: the tmux this board's launcher picked, while the board is still on it or on a tmux status.js switched to
+   itself, and while it exists; null otherwise (an explicit value set later wins). status is required at the top of this
+   file; the guard is for a stub of it in a test. */
+function launcherTmuxSafe() {
+  return status && typeof status.launcherTmux === 'function' ? status.launcherTmux() : null;
+}
 /**
  * Where the two things an agent needs actually live on this computer.
  *
@@ -3125,7 +3131,12 @@ function binPaths(opts) {
     // disagree about where Claude lives.
     claudeBin: (opts && opts.claudeBin)
       || runners.resolveBin('claude').bin,
+    /* #2955: the launcher's pick, not a tmux the board switched to at runtime (status.tmuxRepick): a NEW agent bakes
+       what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
+       removed Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
+       straight to plistFor and is not touched by this. */
     tmuxBin: (opts && opts.tmuxBin)
+      || launcherTmuxSafe()
       || process.env.AGENT_WORKFORCE_TMUX_BIN
       || '/opt/homebrew/bin/tmux',
     // The OpenAI runner (#245, resolution moved to engine/runners.js for
@@ -5055,15 +5066,17 @@ function createAgentInner(opts) {
        What is lost here is the block carrying `kosmos post` and `kosmos msg`, so
        an agent born without it does not know how to answer a person at all, and
        creation said it worked.
-       📌 A code-level break is caught before shipping: making `appendTo` throw
-       reds 6 of the 141 tests in engine/create.test.js, measured. The case this
+       📌 A code-level break is caught before shipping: making `doctrine.atBirth` throw
+       reds 8 of the 214 tests in engine/create.test.js, measured 2026-10-01 (#4890). The case this
        step is for is the DEPLOYMENT one - a partially synced install where the
        shipped code is fine and the file on disk is not - which no test can see
        and which this box has had happen. */
     let defaultsLanded = false;
     try {
-      const withDefaults = require('./defaults').appendTo(text);
+      /* #4890: inside the managed span, so a later change under an existing heading can reach this agent through
+         the consented refresh (doctrine.atBirth). */
       const { MAX_BYTES } = require('./instructions');
+      const withDefaults = require('./doctrine').atBirth(text, undefined, MAX_BYTES);
       /* kosmos#1673 gave this the warning it was missing, and kosmos#1672 extends
          it to the OTHER way the block can be lost. Two failure paths, one report:
            the byte cap drops it   -> #1673's case, warned since #1701
@@ -5790,6 +5803,7 @@ module.exports = {
   SERVICE_LABEL_PREFIX,
   parseServiceLabel,
   workerDir,
+  workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home
   usableRecordedDir,
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving

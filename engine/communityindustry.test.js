@@ -47,6 +47,8 @@ function backend() {
         if (!a) return send(401, { detail: 'invalid or expired token' });
         const extra = Object.keys(body).filter((k) => !['industry', 'install_group'].includes(k));
         if (extra.length) return send(400, { error: 'unknown_fields', fields: extra });
+        // As the service: only the fields sent change (#4922: an install_group-only body is not an industry body).
+        if (!('industry' in body)) { if ('install_group' in body) a.installGroup = body.install_group; res.writeHead(204); return res.end(); }
         if (st.mode.refuse || (body.industry !== null && !KNOWN.has(body.industry))) return send(400, { detail: 'unknown industry' });
         if (st.mode.status) return send(st.mode.status, st.mode.json || { detail: 'no' });
         a.industry = body.industry;
@@ -79,6 +81,7 @@ test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.se
 
 // An agent is registered with the service when its first post goes (the send layer's rule).
 async function registered(agent) {
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, agent), { recursive: true });   // a real agent has a folder (#4922)
   communitystore.grantTrust(agent);
   const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), topic: 't', body: 'hello from ' + agent }, { agentId: agent });
   assert.equal(r.status, 'published');

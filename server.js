@@ -183,22 +183,16 @@ function scanCacheInvalidate() { scanCache = { at: 0, result: null }; }
    deliberately never walks. It therefore needs its OWN cache: reusing scanCache would
    either leak the TCC roots into the auto poll or hide them from the import flow. Fresh
    within SCAN_CACHE_MS; a scan that throws yields null so callers refuse rather than read. */
-let importScanCache = { at: 0, result: null };
-function getImportScan() {
-  const now = Date.now();
-  if (importScanCache.result && now - importScanCache.at < SCAN_CACHE_MS) return importScanCache.result;
-  let out = null;
-  try {
-    out = discover.scan({ importScan: true });
-    /* #3/#2125: do NOT cache a PARTIAL result. scan() returns scanning:true when the TCC-root
-       rows are not ready yet (the app-identity hatch has been asked and has not answered); caching
-       that would keep serving the TCC-less list for SCAN_CACHE_MS. Leaving it uncached means the
-       front-end's retry re-runs scan(), which picks up the scan-result.json the hatch has since
-       written and returns the complete list. A complete result (scanning falsey) caches normally. */
-    if (out && !out.scanning) importScanCache = { at: now, result: out };
-  } catch { out = null; }
-  return out;
-}
+/* kosmos#2461: the cache now lives in engine/importscan.js, which also remembers every file any scan
+   offered, until a FULL scan no longer offers it. So a file the list showed from Downloads/Documents/
+   Desktop can still be added after the 30 s cache expires, when a re-scan comes back partial or without
+   those folders (the hatch's answer is consumed on read and must be asked for again). */
+const importScan = require('./engine/importscan').createImportScan({
+  scan: () => discover.scan({ importScan: true }),
+  now: () => Date.now(),
+  cacheMs: SCAN_CACHE_MS,
+});
+function getImportScan() { return importScan.get(); }
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const a11ystatus = require('./engine/a11ystatus');
@@ -912,6 +906,14 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
+/* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
+   5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
+   as the retry. */
+function communitySendSoon() {
+  setImmediate(() => {
+    try { if (communitysend.switchOn()) communitysend.sendSoon(); } catch { /* the timer retries */ }   // OFF: nothing goes, so no pass
+  });
+}
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
@@ -937,6 +939,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
+const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
@@ -3685,6 +3688,32 @@ function withPreviews(rows) {
   return rows;
 }
 
+/* #4973: a read of /api/status that another of the person's computers' pages caused (#4812: the relay hands the board
+   token to a `same-site` read from the account's listed sibling origins, and passes that read's Origin and
+   Sec-Fetch-Site through unchanged; only this computer's OWN origin is rewritten to loopback, for the board's own
+   guards). Sec-Fetch-Site is the browser's own provenance (a page cannot set it), so the board reads it the way
+   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
+   Agents view on the other computer uses sessionName, name and state, and the rest of the answer (the update state,
+   updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business. A
+   request with no Sec-Fetch-Site (curl, the CLI) is not a sibling read and gets the full answer. An OLD browser's
+   sibling read (no header) is closed by the relay, not here: it withholds the board token without the header
+   (kosmos-relay proxy.rs board_token_allowed) and the board then refuses it. A change to either reopens that. */
+function isSiblingRead(req) {
+  const site = req && req.headers && req.headers['sec-fetch-site'];
+  return typeof site === 'string' && site !== '' && site !== 'same-origin' && site !== 'none';
+}
+function statusForSibling(json) {
+  let full = null;
+  try { full = JSON.parse(json); } catch { full = null; }
+  const agents = full && Array.isArray(full.agents) ? full.agents : [];
+  const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
+  return JSON.stringify({
+    // The guide is left out here (review 1): the other computer's view drops it anyway, so it need not be sent.
+    agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
+      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })),
+  });
+}
+
 function crossSiteRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   if (site && site !== 'same-origin' && site !== 'none') {
@@ -4527,7 +4556,9 @@ const server = http.createServer(async (req, res) => {
           // message can name a file path: a 500 in plain words instead.
           if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+          return;
         }
+        communitySendSoon();   // #4938: after the answer, outside it
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -5461,11 +5492,14 @@ const server = http.createServer(async (req, res) => {
          by the engine rather than asked for again here: a second call would
          report a different moment from the one that just failed. */
       res.writeHead(500, { 'content-type': 'application/json' });
+      // #4973: another computer's page gets that it failed, not why (tmux's words can carry this Mac's paths).
+      if (isSiblingRead(req)) { res.end(JSON.stringify({ error: 'we could not read the agents just now' })); return; }
       let detail = null;
       try { detail = lastLookProblem(); } catch { detail = null; }
       res.end(JSON.stringify({ error: String(err && err.message), detail: detail || undefined }));
       return;
     }
+    if (isSiblingRead(req)) body = statusForSibling(body);   // #4973: another computer's page reads the agents only
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(body);
     return;
@@ -6412,6 +6446,8 @@ const server = http.createServer(async (req, res) => {
       currentVersion: st.currentVersion,
       declined: st.declined === true,
       sections: (st.sections || []).map((s) => s.heading),
+      replacing: st.replacing === true,   // #4890: the click replaces Kosmos's own older, unedited copy
+      updating: st.updating === true,     // #4890: the click rewrites an existing marked block
       span: st.spanNext || null,
       hash: st.hash || null,
     });
@@ -6454,9 +6490,13 @@ const server = http.createServer(async (req, res) => {
       return {
         name: a.name || a.sessionName,
         sessionName: a.sessionName,
-        state: st.declined === true && st.state === 'refresh' ? 'declined' : st.state,
-        because: st.because || null,
+        /* #4890: what the fleet click leaves for the agent's own page (doctrine.fleetLeaves), the list says so. */
+        /* In the click's order (refresh-fleet below): a Not now first, then what the click leaves, then the plan. */
+        state: st.declined === true && st.state === 'refresh' ? 'declined' : doctrine.fleetLeaves(st) ? 'could_not' : st.state,
+        because: st.declined === true && st.state === 'refresh' ? (st.because || null) : (doctrine.fleetLeaves(st) || st.because || null),
         sections: (st.sections || []).map((s) => s.heading),
+        replacing: st.replacing === true,   // #4890, as GET /doctrine
+        updating: st.updating === true,
       };
     });
     sendJson(res, 200, { currentVersion: require('./engine/defaults').DOCTRINE_VERSION, agents: rows });
@@ -6892,7 +6932,7 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const r = teamseed.specs({ team: key, names: body.names, project: body.project, checkTaken: body.check === true,
-          provider: body.provider, account: body.account });   // #4719: one choice for the whole team
+          provider: body.provider, account: body.account, model: body.model });   // #4719/#4935: one choice for the whole team
         if (!r.ok) {
           const code = r.unavailable ? 503 : (r.notFound ? 404 : 400);   // flags, never the English (round 1)
           sendJson(res, code, { error: r.because });
@@ -7639,7 +7679,10 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = await chat.deliverAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    /* #4959: the pickup is the board's own line after a restart (the handoff twin of the wake hello), so it goes
+       through the shared-quota gate like every automatic sender (#4588). A held verdict is COULD_NOT, answered 409
+       below, and the page shows its manual line. */
+    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;
@@ -8268,9 +8311,17 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         candidate.agent = agentId;
+        // #4947: will this post wait past the service's daily post cap? Asked before the store write. The ON period's start
+        // is recorded by #4938's recordPeriodStart just below (postWaits' willSend records the same first-writer-wins
+        // start, so whichever runs first wins and the other changes nothing).
+        let later = false;
+        try { later = communitysend.postWaits(agentId); } catch { later = false; }
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
+        /* #4938: open the send window BEFORE the post is stored, as the release route does. Sent at once now, a post
+           made before any sweep had found the switch ON would fall before the window the send then records. */
+        try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try { r = feedpublish.publishPost(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
@@ -8283,7 +8334,8 @@ const server = http.createServer(async (req, res) => {
         // against it are bounded by the per-agent hourly cap above (10 by default), and
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, ...(later && r.status === 'published' ? { later: true } : {}) });   // a held post is not going yet at all
+        if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
     return;
@@ -8377,6 +8429,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
+        if (r.status === 'published' && sends && !will.later) communitySendSoon();   // #4938 (past the daily cap it goes later, not now)
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
@@ -11464,14 +11517,14 @@ const server = http.createServer(async (req, res) => {
      subset check against this snapshot, so if a TCC-root item it serves is NOT
      here, that check is permanently false and a legitimate dismiss silently
      re-shows the whole scan block for anyone who granted file access. So the
-     snapshot reuses the WARM `importScanCache` (populated by the board's own
-     scan-import polls) when present.
+     snapshot reuses the WARM import cache, `importScan.warm()`, populated by the board's own
+     scan-import polls, when present.
 
      Each population is drawn from ITS OWN source, so the snapshot never depends on
      one scan being a superset of another (an implicit root-ordering assumption a
      future change could quietly break): the auto board population comes from the
      auto scan (a warm `scanCache` when present, else one bounded TCC-free walk),
-     and the TCC-inclusive import population from the warm `importScanCache`.
+     and the TCC-inclusive import population from the warm import cache (`importScan.warm()`).
 
      ⚠️ THE IMPORT CACHE IS READ WARM-ONLY -- a dismiss is a button click and must
      NEVER trigger a fresh `scan({importScan:true})`, which would pop the macOS
@@ -11479,7 +11532,7 @@ const server = http.createServer(async (req, res) => {
      it costs no more than a single board poll, which runs every few seconds anyway;
      the auto scan is a fresh walk only when its cache is cold (the granted case,
      where the board polls scan-import rather than scan-agents). Residual: TCC-root
-     items live ONLY in `importScanCache` (the auto scan is TCC-free by design), so
+     items live ONLY in the import cache (`importScan.warm()`) (the auto scan is TCC-free by design), so
      such an item is snapshotted only when the IMPORT cache is warm; if it is cold
      at the instant of the click (the board has not polled scan-import within
      SCAN_CACHE_MS), the item can miss the snapshot and re-show once, and the next
@@ -11499,9 +11552,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (autoScan) { try { snap.push(...discover.candidateDirs(autoScan)); } catch { /* ignore */ } }
     /* The TCC-inclusive import population, warm cache ONLY (see above). */
-    if (importScanCache.result && (now - importScanCache.at) < SCAN_CACHE_MS) {
-      try { snap.push(...discover.candidateDirs(importScanCache.result)); } catch { /* ignore */ }
-    }
+    { const warm = importScan.warm();
+      if (warm) { try { snap.push(...discover.candidateDirs(warm)); } catch { /* ignore */ } } }
     /* `dismiss()` de-dupes what it is handed, so no Set wrapper is needed here. */
     try { discover.dismiss(snap); }
     catch { sendJson(res, 500, { ok: false, because: 'we could not remember that' }); return; }
@@ -13829,7 +13881,10 @@ const server = http.createServer(async (req, res) => {
      Residual (accepted): O_NOFOLLOW and the lstat check guard the FINAL component only, so
      an intermediate directory swapped to a symlink after scan time would be followed. That
      is outside the threat model here -- loopback-only, board-token-gated, single-user home;
-     anyone who can rename a directory in your home already runs as you. */
+     anyone who can rename a directory in your home already runs as you.
+     kosmos#2461: membership now also honours a file a scan offered earlier, until a FULL scan no longer
+     offers it (engine/importscan.js), so that residual window is no longer bounded by the 30 s cache. The
+     request's path is still never trusted, and every guard below still runs on every add. */
   if (pathname === '/api/agent-import-file' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -13846,8 +13901,7 @@ const server = http.createServer(async (req, res) => {
            lives in a TCC folder the auto scan never walks, so it would never be a member
            there. A scan that cannot run leaves `known` false, so the route refuses rather
            than reading. */
-        const scan = getImportScan();
-        const known = !!(scan && Array.isArray(scan.importable) && scan.importable.some((c) => c && c.file === file));
+        const known = importScan.known(file);   // kosmos#2461: any file a scan offered, unless a FULL scan has since lacked it
         if (!known) {
           sendJson(res, 200, { ok: false, because: 'that file is not one we found on this computer to import' });
           return;
@@ -14645,6 +14699,20 @@ const server = http.createServer(async (req, res) => {
          */
         let chose = (typeof body.chose === 'string' && !chat.messageProblem(body.chose))
           ? body.chose : null;
+        /* #4959: `automatic: true` marks a message the board sends FOR the person (the restart wake 'hello'),
+           not one they typed. It goes through chat.deliverAutomaticAsync, the gate every other automatic sender
+           uses (#4588), so a Gemini (Google subscription) agent is not typed into while this machine's shared
+           quota is out. Exactly `true` or absent: any other value is refused rather than ignored (#4889: a flag
+           read loosely is a flag nobody can trust). And plain text only, since a menu answer, a reply or an
+           attachment is always the person's own act. */
+        if (body.automatic !== undefined && body.automatic !== true) {
+          throw new Error('automatic is true or left out');
+        }
+        const automatic = body.automatic === true;
+        if (automatic && (body.chose !== undefined || (body.reply_to !== undefined && body.reply_to !== null)
+          || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
+          throw new Error('an automatic message is plain text');
+        }
 
         // The write gate FIRST, then the expensive look. `knownAgent` is a
         // `list-panes`; `safeRoster` is that plus a `capture-pane` per agent —
@@ -14864,8 +14932,19 @@ const server = http.createServer(async (req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
-        const delivery = await chat.deliverAsync(name, body.text, roster, envelope,
-          (attachments.wireNote(files.recs) || '') + reactionNote);
+        const delivery = await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
+          envelope, (attachments.wireNote(files.recs) || '') + reactionNote);
+        /* #4959: answered 200 with the held verdict, like every delivery this route answers (the verdict, not the status,
+           says what happened). The handoff pickup route answers its held verdict 409, as it answers every COULD_NOT;
+           a client reads delivery.held on either. */
+        /* #4959: a held automatic message typed nothing, so it is not filed in the thread either (a 'hello' bubble
+           for a hello the agent never got would be the false record). The verdict goes back as it is, held and
+           heldUntil included, and the caller treats anything but placed as not said. */
+        if (automatic && delivery && delivery.held === true) {
+          sendJson(res, 200, { delivery, recorded: false,
+            recordedBecause: 'held: nothing was typed while the shared quota is out, so nothing was kept' });
+          return;
+        }
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case
            most likely to have lost it. Telling twice costs one extra note; not telling is
@@ -15811,6 +15890,7 @@ const server = http.createServer(async (req, res) => {
    * computed separately is exactly #1346: three rows under a heading that said
    * six, because one number came from the data and the other from the DOM.
    */
+  /* #4891: `?project=<id>` naming no project is a 404 "there is no project by that name", in every form. */
   if (pathname === '/api/tasks' && (req.method === 'GET' || req.method === 'HEAD')) {
     let everyProject;
     try {
@@ -15853,6 +15933,14 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       forTasksView = false;
+    }
+    /* #4891 N6: `kosmos task list nosuch` printed "No tasks for this project yet" and exited 0, while `project show
+       nosuch` refuses. An unknown project is said as one (the token-only arm above already did). One answer for every
+       form (review 2): the Tasks view never sends `project=`, and readAll() keeps archived projects, so nothing that
+       reads this route names a project that is not there. */
+    if (projectScope && !(everyProject || []).some((x) => x && x.id === projectScope)) {
+      sendJson(res, 404, { error: 'there is no project by that name' });
+      return;
     }
     const all = tasks.allTasks(everyProject);
     const scoped = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
@@ -16242,7 +16330,8 @@ const server = http.createServer(async (req, res) => {
         // ⚠️ A missing project is a 404 here as it is on GET and DELETE. It
         // used to be a 400 for the identical condition, which told a caller
         // its request was malformed when the request was fine.
-        if (!projects.readAll().some((p) => p.id === id)) {
+        const before = projects.readAll().find((p) => p.id === id);
+        if (!before) {
           const missing = new Error('there is no project by that name');
           missing.status = 404;
           throw missing;
@@ -16272,12 +16361,31 @@ const server = http.createServer(async (req, res) => {
         /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
            a paused project's tasks, and the members' instructions mark them, so a pause re-tells the members (below). */
         if (body.paused !== undefined) { fields.paused = body.paused; fields.viaScreen = isViaScreen(req, body); }
+        /* #4771 review 3/4: an agent's pause silences every member, and the Prompter's nudge now names the verb to an
+           idle agent. So a pause or a resume that did not come from the screen is said in the project's room, naming
+           the agent when its token says exactly which (its display name), else "Someone" (a person's own terminal
+           sends no agent token). Only on a change, so a repeat says nothing; only after the edit landed. */
+        const wasPaused = projects.isPaused(before);
         /* #1994: parent is a carried field like the rest -- the engine's edit
            validates it (self-parent, a missing parent, and cycles are refused)
            before its single write, so a body mixing parent with name or
            description applies whole or not at all. null or '' un-groups. */
         if (body.parent !== undefined) fields.parent = body.parent;
         projects.edit(id, fields);
+        if (fields.paused !== undefined && fields.viaScreen !== true && fields.paused !== wasPaused) {
+          let who = null;
+          try {
+            /* The board's one token-to-card resolver (review 6): a pane agent by its exact name, a paneless one (every
+               Windows agent) by key, and no card when two names share a key (#4792). The card's display name is
+               `name` (engine/status.js), the name the board shows for it. No card: "Someone". */
+            const res = sendertoken.resolve(presentedAgentToken(req, body), safeRoster());
+            const card = (res && res.ok === true && res.card) ? res.card : null;
+            who = (card && typeof card.name === 'string' && card.name.trim()) || null;
+          } catch { who = null; }
+          messages.roomNote(id, fields.paused
+            ? (who || 'Someone') + ' paused this project: nobody is nudged about its tasks or handed them. The person can resume it on the project\'s page.'
+            : (who || 'Someone') + ' resumed this project, not from the project\'s page: its tasks can be nudged about and handed out again.');
+        }
         // The block names the project, so a rename has to reach the agents that
         // were told the old name -- otherwise their instructions describe a
         // project that no longer goes by that. Archiving does NOT re-tell: the
@@ -16471,7 +16579,15 @@ const server = http.createServer(async (req, res) => {
        (`kosmos room`) passes ?as=text, the web board reads JSON. #2702's reject
        and the existing render must agree on which arm this is. */
     let asText = false;
-    try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; 40 when not given or
+       not a whole number in range, so an older CLI and a bad value both get what they always got). */
+    let textRows = 40;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      asText = q.get('as') === 'text';
+      const n = q.get('n');
+      if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) textRows = Number(n);
+    } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
        guess otherwise reads identically to genuine silence, and the agent acts on
@@ -16573,7 +16689,7 @@ const server = http.createServer(async (req, res) => {
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
-         The tail only (last 40), oldest first, one line per row, and the
+         The tail only (the last 40, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
          unreadable case says so rather than printing an empty room.
          #2702: `asText` is computed once at the top of this route now and reused
          here, so the reject arm and this render arm cannot disagree. */
@@ -16591,12 +16707,15 @@ const server = http.createServer(async (req, res) => {
            machine the operator is sitting at, never to an error. */
         let zone = null;
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
-        /* #3311: at most 20 of the 40 rows shown come from outside, so a busy
-           peer cannot push every local post out of the view agents read. */
+        /* #3311: at most half the rows shown (20 of the default 40) come from outside, so a busy
+           peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
         const tail = [];
         let outside = 0;
-        for (let i = rows.length - 1; i >= 0 && tail.length < 40; i--) {
-          if (rows[i] && rows[i].kind === 'external') { if (outside >= 20) continue; outside += 1; }
+        /* At least one, so `-n 1` on a room whose newest row came from outside shows that row rather than an older
+           local one, or "nothing has been said" in a room where something was (#4891 review 1). */
+        const outsideCap = Math.max(1, Math.floor(textRows / 2));
+        for (let i = rows.length - 1; i >= 0 && tail.length < textRows; i--) {
+          if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);
         }
         const lines = tail.flatMap((m) => {
@@ -19414,8 +19533,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       // One sweep soon after boot, so a switch turned on just before a restart does not
-      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a comment or release
-      // request recorded the period's start first: #4373 part B).
+      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a post, comment or
+      // release request recorded the period's start first: #4373 part B, #4938).
       const communityBoot = setTimeout(() => { try { communitysend.sweep(); } catch { /* best-effort */ } }, 15 * 1000);
       if (communityBoot && typeof communityBoot.unref === 'function') communityBoot.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
@@ -19588,6 +19707,37 @@ function start(port = PORT) {
       if (fedTick && typeof fedTick.unref === 'function') fedTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
+      /* #4951: new comments on an agent's own community post: one line to the idle agent, once per comment
+         (engine/replynudge.js holds the gates and is tested there). Shares the Prompter's agent-nudge switch, brake and
+         board-wide hour log (AGENT_NUDGE_SENT). One pass at a time; a pass that is still running when the next is due
+         is skipped, not stacked. unref'd, and first run one interval after boot, off the listen path. */
+      const REPLY_NUDGE_BOOK = new Map();
+      const REPLY_NUDGE_ROTATION = { after: null };   // review 8: each pass starts after the last agent counted
+      const REPLY_NUDGE_IDLE_SEEN = new Map();   // review 14: an agent is nudged only if it was idle at the pass before too
+      let replyNudgeRunning = false;
+      const replyNudgeTick = setInterval(() => {
+        if (replyNudgeRunning) return;
+        replyNudgeRunning = true;
+        replynudge.tick({
+          allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+          prompterOn: () => heartbeatSetting.read().on === true,
+          switchOn: () => communitysend.switchOn(),
+          roster: () => safeRoster(), readProjects: () => projects.readAll(),
+          readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
+          fresh: (session) => communityread.freshReplies(session),
+          marksNow: (session) => communityread.marksStamp(session),
+          readingNow: (session) => communityread.readingNow(session),   // review 12
+          idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },   // review 15
+          readNudged: (session) => replynudge.readNudged(store.ROOT, session),
+          writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
+          book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+          DELIVERY: chat.DELIVERY,
+          log: (r) => process.stdout.write(`reply-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
+        }).catch(() => null).finally(() => { replyNudgeRunning = false; });
+      }, replynudge.REPLY_NUDGE_INTERVAL_MS);
+      if (replyNudgeTick && typeof replyNudgeTick.unref === 'function') replyNudgeTick.unref();
       resolve(server);
     };
     server.once('error', onError);

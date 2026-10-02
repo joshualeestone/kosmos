@@ -97,13 +97,14 @@ const server = http.createServer((req, res) => {
   if (health === 'cutthendie' && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) { req.resume(); req.socket.destroy(); setTimeout(() => process.exit(0), 50); return; }
   // #4580 'posthang': a board still fanning a post out; it takes the post and never answers in the budget.
   if (health === 'posthang' && req.method === 'POST' && req.url.startsWith('/api/post')) { require('node:fs').appendFileSync(firstFile + '.sends', '.'); req.resume(); return; }
-  if ((health === 'cutonce' || health === 'cutalways') && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) {
+  // #4934 'cutheld': cuts the first post, and the loop guard refuses the retry (code room_held).
+  if ((health === 'cutonce' || health === 'cutalways' || health === 'cutheld') && req.method === 'POST' && (req.url.startsWith('/api/msg') || req.url.startsWith('/api/post'))) {
     const fsm = require('node:fs'); fsm.appendFileSync(firstFile + '.sends', '.');
     fsm.appendFileSync(firstFile + '.tokens', String(req.headers['x-kosmos-agent-token'] || '-') + '\\n');
     const n = fsm.readFileSync(firstFile + '.sends', 'utf8').length;
     req.resume();
     if (health === 'cutalways' || n === 1) { req.socket.destroy(); return; }
-    req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"delivery":{"state":"placed","because":null,"id":"m1","duplicate":true}}'); });
+    req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(health === 'cutheld' ? '{"delivery":{"state":"could_not","code":"room_held","because":"held","id":null}}' : '{"delivery":{"state":"placed","because":null,"id":"m1","duplicate":true}}'); });
     return;
   }
   // Cuts EVERY request at once (curl 52: a busy reading that comes back fast), counting them.
@@ -543,6 +544,29 @@ test('#4580 a msg or post whose reply is CUT is asked once more, and the board\'
   assert.match(msg.stderr, /asking once more/);
   assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'exactly one retry');
 }));
+
+test('#4934: a post whose reply is CUT and whose retry the loop guard refuses never says "nothing was sent" (the first may be in the room)', async () => {
+  await withBoard('cutheld', async (port, firstFile) => {
+    const out = await runCli(['post', 'proj', 'draft is in the folder'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
+    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'CONTROL: the retry was asked');
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.doesNotMatch(out.stdout, /Nothing was sent to anyone/);
+    assert.match(out.stdout, /Not posted this time: .*Your first try may have reached the room before that: check kosmos room proj before posting it again\./);
+  });
+  // --stdin case (#4934 review 2)
+  await withBoard('cutheld', async (port, firstFile) => {
+    const tmp = fs.mkdtempSync(path.join(SCRATCH_HOME, 'tmp-'));
+    const out = await runCli(['post', '--stdin', 'proj'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', TMPDIR: tmp }), 40000, 'piped draft in the folder');
+    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'CONTROL: the retry was asked');
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.doesNotMatch(out.stdout, /The piped message was not sent;/);
+    assert.doesNotMatch(out.stdout, /Nothing was sent to anyone/);
+    const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
+    assert.ok(kept, out.stdout);
+    assert.ok(kept[1].startsWith(tmp + path.sep), 'the copy is under the sandboxed TMPDIR: ' + kept[1]);
+    assert.equal(fs.readFileSync(kept[1], 'utf8'), 'piped draft in the folder');
+  });
+});
 
 test('#4580 a post whose reply is CUT is asked once more too; a board that keeps cutting gets ONE retry, not a loop', async () => {
   await withBoard('cutonce', async (port, firstFile) => {

@@ -986,9 +986,9 @@ test('#3939: the pane sweep never reads a Claude transcript for a Muse pane (SOU
   /* The sweep needs a live pane to drive, which no fixture here provides, so the routing is pinned in source. */
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'status.js'), 'utf8');
   assert.match(src, /const isMusePane = pane\.runner === 'muse';/);
-  // #4416: the model is chosen per runner; a Muse pane has its own arm (null) before the Claude reader, which only the
-  // last arm reaches.
-  assert.match(src, /: isMusePane \? \{ model: null \}/, 'a Muse pane reaches the Claude model reader');
+  // #4416: the model is chosen per runner; a Muse pane has its own arm before the Claude reader, which only the last arm
+  // reaches. #4603 N12: that arm reads the model the Muse front kept (museSess), still never the Claude transcript.
+  assert.match(src, /: isMusePane \? \{ model: sessModel\(museSess\) \}/, 'a Muse pane reaches the Claude model reader');
   assert.match(src, /: isCodexPane \? \{ model: sessModel\(codexSess\) \}\n\s+: readModel\(pane\.name, pane\.session\);/, 'the Claude reader is no longer the last arm');
   assert.match(src, /: isMusePane \? \{ tokens: null, percent: null, confidence: CONFIDENCE\.NONE, notYet: false, because: 'Kosmos does not read how full Muse/,
     'a Muse pane reaches the Claude context reader');
@@ -5936,3 +5936,357 @@ test('#1704 a world id ending in -discord does not mangle the roster name', () =
     if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
   }
 });
+
+test('#2955: the version wall says its likely cause; other failures keep their own words', () => {
+  /* Agent1s, 2026-10-01: the board's detail was the bare "server exited unexpectedly" while a newer tmux owned the
+     socket. Reached only after tmuxRepick found nothing, so it promises no remedy. */
+  const status = require('./status');
+  const wall = status.lookProblemFor({ ran: true, status: 1, err: 'server exited unexpectedly' }, '/k/tmux/bin/tmux', 'found-nothing');
+  assert.match(wall, /different version of tmux may be running/);
+  assert.match(wall, /\/k\/tmux\/bin\/tmux/, 'the detail no longer names which tmux could not read it');
+  assert.match(wall, /found no other tmux here that can/);
+  assert.ok(!/Restarting Kosmos/.test(wall), 'the detail promises a remedy it cannot keep');
+  assert.match(status.lookProblemFor({ ran: true, status: 1, err: 'protocol version mismatch (client 8, server 7)' }, 'x'), /different version of tmux/);
+  const perm = status.lookProblemFor({ ran: true, status: 1, err: 'error connecting to /tmp/tmux-501/default (Permission denied)' }, 'x');
+  assert.ok(!/different version/.test(perm) && /Permission denied/.test(perm), perm);
+  assert.equal(status.lookProblemFor({ ran: true, status: 3, err: '' }, 'x'), 'tmux exited 3 without saying why');
+  assert.equal(status.lookProblemFor({ ran: false }, 'x'), 'we could not run tmux at all on this computer');
+});
+
+/* #2955: the board meets the version wall and reads through the tmux that can, without a restart. Fake tmux binaries:
+   the launcher's pick answers like 3.5a against a 3.6a server; a candidate lists. A socket file is on disk, as on
+   Agent1s, so the words are the wall and not the serverless voice. The launcher's pick is read once at module load, so
+   the tests set it through its seam. */
+function wallMachine() {
+  const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'wall-2955-'));
+  const fake = (name, body) => { const f = nodePath.join(sb, name); fs.writeFileSync(f, '#!/bin/sh\n' + body + '\n'); fs.chmodSync(f, 0o755); return f; };
+  const old = fake('old-tmux', 'echo "server exited unexpectedly" >&2; exit 1');
+  const reader = fake('reader-tmux', 'case "$1" in list-panes) printf "%s\\n" "";; esac; exit 0');
+  const refuser = fake('refuser-tmux', 'echo "server exited unexpectedly" >&2; exit 1');
+  const sock = nodePath.join(sb, 'sock');
+  fs.mkdirSync(nodePath.join(sock, 'tmux-' + process.getuid()), { recursive: true });
+  fs.writeFileSync(nodePath.join(sock, 'tmux-' + process.getuid(), 'default'), '');
+  return { sb, old, reader, refuser, sock };
+}
+function withEnv(vars, fn) {
+  const keys = ['AGENT_WORKFORCE_TMUX_BIN', 'KOSMOS_HOME', 'TMUX_TMPDIR', 'PATH'];
+  const was = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try { for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } return fn(); }
+  finally { for (const k of keys) { if (was[k] === undefined) delete process.env[k]; else process.env[k] = was[k]; } }
+}
+// Kosmos's own tmux is pinned to a missing path unless a test sets it: the real one (two up from this engine) must never
+// be asked by a test.
+function seams(status, launcher, cands) { status.setLauncherTmux(launcher); status.setTmuxCandidates(cands); status.setOwnTmux('/nonexistent/own/tmux'); }
+function unseam(status) { status.setLauncherTmux(undefined); status.setTmuxCandidates(null); status.setOwnTmux(null); }
+
+test('#2955: at the version wall the board switches to a tmux that can list the server, PATH included', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [m.refuser, m.reader]);
+      assert.equal(status.tmuxRepick(), true, 'a tmux that can read the server was on the list and not taken');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.reader);
+      assert.ok(process.env.PATH.startsWith(m.sb + nodePath.delimiter), 'a bare tmux would still find the old one first');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: an explicit tmux choice is never replaced (no launcher pick, or a value that is not it), and nothing that cannot list is taken', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, null, [m.reader]);
+      assert.equal(status.tmuxRepick(), false, 'an explicit choice (a harness stub, a person) was replaced');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.old);
+      seams(status, m.refuser, [m.refuser, nodePath.join(m.sb, 'missing-tmux')]);
+      assert.equal(status.tmuxRepick(), false, 'a tmux that cannot list the server was taken');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.old);
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: the launcher pick is read from the marker AND the value it marked (an inherited marker over a new value is a choice)', () => {
+  /* The module reads it once at load; this runs that read in a fresh process with each environment. */
+  const { execFileSync } = require('node:child_process');
+  const real = process.execPath;   // a file that exists: launcherTmux also asks that the pick still be there
+  const read = (env) => execFileSync(process.execPath, ['-e', "process.stdout.write(String(require('./engine/status').launcherTmux()))"],
+    { cwd: nodePath.join(__dirname, '..'), encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env } });
+  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: real, KOSMOS_TMUX_BIN_PICKED: '1', KOSMOS_TMUX_BIN_PICKED_AS: real }), real);
+  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: '/stub/tmux', KOSMOS_TMUX_BIN_PICKED: '1', KOSMOS_TMUX_BIN_PICKED_AS: real }), 'null',
+    'a harness value over an inherited marker was taken as the launcher\'s pick');
+  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: real, KOSMOS_TMUX_BIN_PICKED: '1' }), 'null');
+  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: real }), 'null');
+});
+test('#2955: the board\'s look reads through the switch in the same call (no restart)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [m.reader]);
+      status.setPaneSource(null);
+      const out = status.tmuxPanes();
+      assert.notEqual(out, null, 'the look still failed at the wall although a reader was there');
+      assert.equal(status.lastLookProblem(), null);
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: with no socket on disk the serverless words never start a search (a clean Mac spawns nothing)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: nodePath.join(m.sb, 'empty-sock') }, () => {
+      seams(status, m.old, [m.reader]);
+      status.setPaneSource(null);
+      assert.equal(status.tmuxPanes(), '', 'a clean machine read as anything but empty');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.old, 'the serverless voice of a clean Mac started a search and switched');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: Kosmos\'s own tmux is always a candidate, so the board follows a server back to it; PATH does not grow', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const home = nodePath.join(m.sb, 'kh');
+    fs.mkdirSync(nodePath.join(home, 'tmux', 'bin'), { recursive: true });
+    const own = nodePath.join(home, 'tmux', 'bin', 'tmux');
+    fs.writeFileSync(own, '#!/bin/sh\nexit 0\n'); fs.chmodSync(own, 0o755);
+    // A board whose launcher picked Homebrew's (here m.reader, which now meets the wall): only Kosmos's own can list.
+    fs.writeFileSync(m.reader, '#!/bin/sh\necho "server exited unexpectedly" >&2; exit 1\n');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.reader, []);
+      status.setOwnTmux(own);   // the installed derivation is pinned on its own below; here it is where the fake lives
+      assert.equal(status.tmuxRepick(), true, 'the board could not follow the server to Kosmos\'s own tmux');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, own);
+      fs.writeFileSync(own, '#!/bin/sh\necho "server exited unexpectedly" >&2; exit 1\n');
+      fs.writeFileSync(m.reader, '#!/bin/sh\nexit 0\n');
+      status.setTmuxCandidates([m.reader]);
+      assert.equal(status.tmuxRepick(), true);
+      status.setTmuxCandidates([]);
+      fs.writeFileSync(own, '#!/bin/sh\nexit 0\n');
+      fs.writeFileSync(m.reader, '#!/bin/sh\necho "server exited unexpectedly" >&2; exit 1\n');
+      assert.equal(status.tmuxRepick(), true);
+      const seen = process.env.PATH.split(nodePath.delimiter).filter((d) => d === nodePath.dirname(own)).length;
+      assert.equal(seen, 1, 'PATH grew with each switch: ' + seen);
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: a search that found nothing waits before it runs again, and the detail line says what the search did', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [m.refuser]);
+      status.setPaneSource(null);
+      assert.equal(status.tmuxPanes(), null);
+      assert.match(status.lastLookProblem(), /found no other tmux here that can/);
+      fs.writeFileSync(m.refuser, '#!/bin/sh\nexit 0\n');   // it could list now, but the wait has not passed
+      assert.equal(status.tmuxRepick(), false, 'a failed search ran again at once');
+      assert.equal(status.tmuxPanes(), null);
+      assert.match(status.lastLookProblem(), /looks again within a minute/);
+      seams(status, null, [m.refuser]);
+      assert.equal(status.tmuxPanes(), null);
+      assert.match(status.lastLookProblem(), /not picked by the Kosmos launcher/, 'an explicit tmux was said to have been searched past');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: a new agent bakes the launcher\'s pick, not a tmux the board switched to; a later explicit value wins', () => {
+  const status = require('./status');
+  const create = require('./create');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [m.reader]);
+      assert.equal(create.binPaths().tmuxBin, m.old, 'control: on the launcher\'s pick, it is baked');
+      assert.equal(status.tmuxRepick(), true);
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.reader);
+      assert.equal(create.binPaths().tmuxBin, m.old, 'the switched tmux would be baked into a new agent\'s job');
+      assert.equal(create.binPaths({ tmuxBin: '/somewhere/tmux' }).tmuxBin, '/somewhere/tmux');
+      // A harness that loaded this module first and then set its own stub: a choice, whatever was read at load.
+      process.env.AGENT_WORKFORCE_TMUX_BIN = '/stub/tmux';
+      assert.equal(status.launcherTmux(), null, 'a value set after load was taken as the launcher\'s pick');
+      assert.equal(create.binPaths().tmuxBin, '/stub/tmux');
+      assert.equal(status.tmuxRepick(), false, 'a later explicit value was searched past');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, '/stub/tmux');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: with no seam, the board finds Kosmos\'s own tmux two directories above this engine (the installed layout)', () => {
+  /* status.js is <KOSMOS_HOME>/app/engine/status.js in an install; the bundle is <KOSMOS_HOME>/tmux/bin/tmux. The
+     launcher does not export KOSMOS_HOME, so nothing else could name it. */
+  const status = require('./status');
+  assert.equal(status.ownTmux(), nodePath.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'));
+  /* The lines that lay the files down, not any mention of the paths: the bundle builder puts the engine in app/engine,
+     install_kosmos moves app/ into <home>, and fetch_tmux lays the tmux bundle at <home>/tmux (bin/tmux inside). */
+  const setup = fs.readFileSync(nodePath.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  const build = fs.readFileSync(nodePath.join(__dirname, '..', 'tools', 'build-kosmos-bundle.sh'), 'utf8');
+  assert.match(build, /cp "\$f" "\$STAGE\/app\/engine\/"/, 'the bundle no longer puts the engine at app/engine');
+  assert.match(setup, /^install_kosmos "\$KOSMOS_HOME" \|\|/m, 'the app is no longer installed into <home>');
+  assert.match(setup, /for part in bin app runtime; do\s+rm -rf "\$dest\/\$part"[^\n]*\n\s+mv "\$stage\/\$part" "\$dest\/\$part"/, 'app/ is no longer moved to <home>/app');
+  assert.match(setup, /^fetch_tmux "\$KOSMOS_HOME\/tmux" \|\|/m, 'the tmux bundle is no longer laid at <home>/tmux');
+});
+test('#2955: one probe per real tmux, however many paths name it (the bundle is a symlink to Homebrew\'s on Agent1s)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const probes = nodePath.join(m.sb, 'probes');
+    const counted = nodePath.join(m.sb, 'counted-tmux');
+    fs.writeFileSync(counted, `#!/bin/sh\necho x >> ${JSON.stringify(probes)}\necho "server exited unexpectedly" >&2; exit 1\n`); fs.chmodSync(counted, 0o755);
+    const link = nodePath.join(m.sb, 'link-tmux');
+    fs.symlinkSync(counted, link);
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [counted, link, counted]);
+      status.setOwnTmux(link);
+      assert.equal(status.tmuxRepick(), false);
+      const n = fs.readFileSync(probes, 'utf8').trim().split('\n').length;
+      assert.equal(n, 1, 'one tmux was probed ' + n + ' times');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: a candidate that hangs is given up after 2 s (a probe runs on a board request path)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const slow = nodePath.join(m.sb, 'slow-tmux');
+    fs.writeFileSync(slow, '#!/bin/sh\nsleep 4\nexit 0\n'); fs.chmodSync(slow, 0o755);
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [slow]);
+      status.setOwnTmux(nodePath.join(m.sb, 'no-own'));
+      const t0 = Date.now();
+      assert.equal(status.tmuxRepick(), false, 'a tmux that took 4 s was waited for and taken');
+      const took = Date.now() - t0;
+      assert.ok(took < 3900, 'the search waited for the 4 s tmux (' + took + ' ms)');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: a launcher pick that is gone is not vouched for, and the board looks for another (a brew uninstall after launch)', () => {
+  const status = require('./status');
+  const create = require('./create');
+  const m = wallMachine();
+  try {
+    const gone = nodePath.join(m.sb, 'gone-tmux');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: gone, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, gone, [m.reader]);
+      assert.equal(status.launcherTmux(), null, 'a pick that is gone was vouched for (new agents would bake it)');
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null, 'the board stayed blind with its tmux gone and a reader there');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.reader);
+      assert.equal(status.readerTmux(), m.reader, 'the board reads through the switch and says so (Open in Terminal uses it)');
+      assert.equal(create.binPaths().tmuxBin, m.reader, 'a new agent would bake the tmux that is gone');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: the wall\'s detail line shows the home folder as ~ (no user name on screen)', () => {
+  const status = require('./status');
+  const home = process.env.HOME;
+  const said = status.lookProblemFor({ ran: true, status: 1, err: 'server exited unexpectedly' }, home + '/.local/share/kosmos/tmux/bin/tmux', 'found-nothing');
+  assert.match(said, /\(~\/\.local\/share\/kosmos\/tmux\/bin\/tmux\)/);
+  assert.ok(!said.includes(home), 'the home folder (and the user name in it) reached the detail line');
+});
+test('#2955: readerTmux vouches only for a launcher pick whose last look worked (never an explicit stub, never after a failed look)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.reader, []);
+      assert.equal(status.readerTmux(), null, 'the board vouched for its tmux before any look had listed the server');
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null);
+      assert.equal(status.readerTmux(), m.reader, 'a launcher pick that reads the server was not vouched for');
+      seams(status, null, []);
+      assert.equal(status.readerTmux(), null, 'an explicit choice was vouched for over the agent\'s baked tmux');
+      process.env.AGENT_WORKFORCE_TMUX_BIN = m.refuser;
+      seams(status, m.refuser, []);
+      assert.equal(status.tmuxPanes(), null);
+      assert.equal(status.readerTmux(), null, 'a tmux whose look failed was vouched for');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: the board\'s tmux gone and no server running: Kosmos\'s own takes over (the supervisor\'s fallback too)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const own = nodePath.join(m.sb, 'own-tmux');
+    fs.writeFileSync(own, '#!/bin/sh\necho "error connecting to /x (No such file or directory)" >&2; exit 1\n'); fs.chmodSync(own, 0o755);
+    const gone = nodePath.join(m.sb, 'gone-tmux');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: gone, KOSMOS_HOME: undefined, TMUX_TMPDIR: nodePath.join(m.sb, 'empty-sock') }, () => {
+      seams(status, gone, [m.refuser]);
+      status.setOwnTmux(own);
+      assert.equal(status.tmuxRepick(), true, 'a gone tmux with nothing to list left the board on the gone path');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, own);
+    });
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: gone, KOSMOS_HOME: undefined, TMUX_TMPDIR: nodePath.join(m.sb, 'empty-sock') }, () => {
+      seams(status, gone, []);
+      status.setPaneSource(null);
+      assert.equal(status.tmuxPanes(), null);
+      assert.match(status.lastLookProblem(), /found no other tmux here that it could use/, 'a gone tmux\'s detail dropped what the search found');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: each look\'s detail says only what that look\'s search did, and a server gone takes the reader with it', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [m.refuser]);
+      status.setPaneSource(null);
+      assert.equal(status.tmuxPanes(), null);
+      assert.match(status.lastLookProblem(), /found no other tmux here that can/);
+      // The next look fails without a search (tmux killed by its timeout: ran false, the file there).
+      fs.writeFileSync(m.old, '#!/bin/sh\nkill -9 $$\n');
+      assert.equal(status.tmuxPanes(), null);
+      assert.ok(!/found no other tmux|looks again within a minute/.test(status.lastLookProblem()),
+        'a look that searched nothing reported an earlier search: ' + status.lastLookProblem());
+    });
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.reader, []);
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null);
+      assert.equal(status.readerTmux(), m.reader);
+      fs.writeFileSync(m.reader, '#!/bin/sh\necho "no server running on /x" >&2; exit 1\n');
+      assert.equal(status.tmuxPanes(), '');
+      assert.equal(status.readerTmux(), null, 'with the server gone, the last reader was still vouched for');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: attachTmux picks a tmux whose version matches the server (attach needs the same version), the baked one first', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const fake = (name, version, extra) => { const f = nodePath.join(m.sb, name); fs.writeFileSync(f, `#!/bin/sh\ncase "$1" in -V) echo "tmux ${version}";; list-sessions) echo "${extra || ''}";; esac\nexit 0\n`); fs.chmodSync(f, 0o755); return f; };
+    const reader36 = fake('reader36', '3.6a', '3.5a');      // the board's reader: 3.6a, and the server says 3.5a
+    const baked36 = fake('baked36', '3.6a', '3.5a');
+    const own35 = fake('own35', '3.5a', '3.5a');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: reader36, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, reader36, []);
+      status.setOwnTmux(own35);
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null);
+      assert.equal(status.attachTmux(baked36), own35, 'a 3.6a tmux was handed to attach to a 3.5a server');
+      assert.equal(status.attachTmux(own35), own35, 'a baked tmux that matches was not kept');
+      status.setOwnTmux('/nonexistent/own/tmux');
+      assert.equal(status.attachTmux(baked36), baked36, 'with nothing matching, the baked path is not kept as before');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: Open in Terminal asks each tmux its version once (cached by path and mtime), not on every attach', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const log = nodePath.join(m.sb, 'asked');
+    const fake = (name, version) => { const f = nodePath.join(m.sb, name); fs.writeFileSync(f, `#!/bin/sh\ncase "$1" in -V) echo x >> ${JSON.stringify(log)}; echo "tmux ${version}";; list-sessions) echo "3.5a";; esac\nexit 0\n`); fs.chmodSync(f, 0o755); return f; };
+    const reader = fake('reader-v', '3.6a');
+    const own = fake('own-v', '3.5a');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, reader, []);
+      status.setOwnTmux(own);
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null);
+      assert.equal(status.attachTmux(reader), own);
+      const first = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).length;
+      assert.equal(status.attachTmux(reader), own);
+      const second = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).length;
+      assert.equal(second, first, 'a second attach asked the binaries their versions again');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+

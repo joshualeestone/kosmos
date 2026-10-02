@@ -114,14 +114,28 @@ const bar = (page) => page.evaluate(() => {
     // P4: Log out that works: one POST to the tunnel's route, then the page goes to the address's root (the tunnel's
     // sign-in page, once the session is gone).
     answer = 200;
+    // Review 2: P4 is the bare-'/' branch (only the fragment would change, so the board must reload); say so.
+    chk(await page.evaluate(() => location.pathname === '/' && location.search === ''), 'P4 precondition: the board\'s address is a bare /', await page.evaluate(() => location.href));
     await page.evaluate(() => { window.__before = true; });
     const [req] = await Promise.all([
       page.waitForRequest((r) => r.url().endsWith('/_kosmos/logout') && r.method() === 'POST'),
       page.click('#kplus-logout'),
     ]);
     await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
-    const p4 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, host: location.hostname }));
-    chk(!!req && asked === 2 && p4.reloaded && p4.path === '/' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start', JSON.stringify({ asked, p4 }));
+    const p4 = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, host: location.hostname, hash: location.hash }));
+    // kosmos#4879: to '/#signed-out' (path and fragment compared together: a bare '#name' reads as an element id to
+    // browser-checks-selectors.test.js), which the tunnel's page reads as "You're signed out" (Josh's phone showed raw JSON).
+    chk(!!req && asked === 2 && p4.reloaded && p4.path + p4.hash === '/#signed-out' && p4.host === 'remote.test', 'P4 a log out that works posts once and goes to the address\'s start, signed out', JSON.stringify({ asked, p4 }));
+    // P4b (kosmos#4879 review 1): the same from a tab that writes a query, the other branch of the Log out navigation
+    // (P4 starts from a bare '/', where only a fragment would change and nothing would reload without the reload).
+    await page.goto('http://remote.test:' + port + '/?tab=projects', { waitUntil: 'networkidle' });
+    await page.waitForSelector('#kplus-logout', { timeout: 8000 }).catch(() => {});
+    chk(await page.evaluate(() => location.search === '?tab=projects'), 'P4b precondition: the board kept a query in the address', await page.evaluate(() => location.href));
+    await page.evaluate(() => { window.__before = true; });
+    await page.click('#kplus-logout');
+    await page.waitForFunction(() => !window.__before, null, { timeout: 8000 }).catch(() => {});
+    const p4b = await page.evaluate(() => ({ reloaded: !window.__before, path: location.pathname, search: location.search, hash: location.hash }));
+    chk(asked === 3 && p4b.reloaded && p4b.search === '' && p4b.path + p4b.hash === '/#signed-out', 'P4b a log out from a tab with a query also lands on the address\'s start, signed out', JSON.stringify({ asked, p4b }));
     await page.unroute('**/_kosmos/logout');
 
     // P5: the consolidated layout (its header is not sticky and has no padding): still the first row, edge to edge.

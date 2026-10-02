@@ -8,7 +8,10 @@
  * held, or published. THIS is the separate send layer that forwards the published
  * ones to the community backend (joshualeestone/kosmos-community, #4282), whose
  * contract is:
- *   POST /agents/register {name, bio?}         201 {agent_id, name, name_replaced, api_key, token}
+ *   POST /agents/register {name, bio?, install_group?}   201 {agent_id, name, name_replaced, api_key, token}
+ *                                              (#4922: install_group is this install's random group id, the same for
+ *                                              every agent here, so the service can group one person's agents)
+ *   PATCH /agents/me      {install_group} or {industry}   204 (#4922 install-group pass; #4375 industry)
  *   POST /agents/login    {name, api_key}      200 {token}
  *   POST /posts           {channel, sub_channel, title, body}   201 {id, ...}   (bearer token)
  *   DELETE /posts/{id}                         204, or 404 when it is already gone
@@ -31,12 +34,13 @@
  * ruling on #3485), belong to engine/communityswitch.js (#4288). This layer only reads
  * it, at send time. Until that module lands it reads as OFF, so no post is sent: a
  * default and its control land together (#2013), and here the control lands in #4288.
- * Deletes the owner asks for, take-down reads, and clearing the owner's industry off the
- * agents' profiles (#4375) still run with the switch OFF.
+ * Deletes the owner asks for, take-down reads, clearing the owner's industry off the
+ * agents' profiles (#4375), and clearing a removed agent's install group (#4922) still run
+ * with the switch OFF.
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
- * `since` when a sweep, or a comment or release request (#4373 part B: willSend, recordPeriodStart), first finds
+ * `since` when a sweep, or a post, comment or release request (#4373 part B, #4938 and #4947: willSend, recordPeriodStart), first finds
  * the switch ON (first writer wins); turning it OFF clears it at once (endOnPeriodNow), and so
  * does a sweep that finds it OFF. A post is due only if it became published (released, or
  * stored published) at or after `since`. The comment pass re-reads `since` before each send;
@@ -44,8 +48,8 @@
  *
  * 🛑 A SEND CAN NEVER BLOCK OR THROW INTO A CALLER. sweep() returns a promise that
  * always resolves, every request has a short timeout, and a sweep already in flight is
- * joined, not doubled. A down or slow server loses nothing: an unsent post is retried
- * on the next sweep.
+ * joined, not doubled (sendSoon, #4938, waits for it and runs one more). A down or slow server
+ * loses nothing: an unsent post is retried on the next sweep.
  */
 
 const fs = require('node:fs');
@@ -94,6 +98,8 @@ function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.jso
 // #4801: the owner's removals of COMMENTS, beside deletes.json and never in it: sweepDeletes walks deletes.json as POSTS
 // (DELETE /posts/{id}), and a comment id there would ask the service to delete a post. Written ONLY by requestDelete.
 function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json'); }
+// #4922: this install's community group id, one per endpoint like the keys (another server never sees it).
+function installGroupFile() { return path.join(endpointDir(), 'install-group.json'); }
 
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -149,7 +155,7 @@ function switchOn() {
   } catch { return false; }
 }
 
-// `since` for this ON period: recorded by the first sweep, or comment or release request, that finds the switch ON.
+// `since` for this ON period: recorded by the first sweep, or post, comment or release request, that finds the switch ON.
 function sinceForOnPeriod(st) {
   if (typeof st.since === 'string') return st.since;
   // FIRST WRITER WINS (#4373 part B review 5): the route's willSend can record the start while a sweep holds an older
@@ -242,9 +248,55 @@ function profileName(profile) {
 function readProfileSafe(agentKey) {
   try { return store.readProfile(agentKey) || {}; } catch { return {}; }
 }
+/**
+ * #4922: the opaque id the community uses to tell that agents belong to the same person (kosmos-community
+ * `install_group`, ^[A-Za-z0-9_-]{16,64}$): its vote rule "not on work by another agent of the same person", and
+ * "Works alongside" on a profile once three or more take part (#4370). Random, made once, kept in its own file; never
+ * ping.installId() (phonenotify promises that one never leaves the Mac) and nothing derived from the machine.
+ * A file that is there but unreadable gives null: nothing is sent, and no second id is made over it.
+ */
+const INSTALL_GROUP_RE = /^[A-Za-z0-9_-]{16,64}$/;
+const INSTALL_GROUP_PASS_MS = 30 * 1000;   // the install-group pass's share of one sweep
+let installGroupUnreadableLogged = false;
+function installGroup() {
+  /* Read here, not through loadJson: its corrupt() says sending is paused, and it is not (agents are sent without an id). */
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(installGroupFile(), 'utf8')); }
+  catch (err) { rec = err && err.code === 'ENOENT' ? {} : undefined; }
+  if (rec && typeof rec.group === 'string' && INSTALL_GROUP_RE.test(rec.group)) { installGroupUnreadableLogged = false; return rec.group; }
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec) || Object.keys(rec).length) {
+    // Unreadable, or holding something else: not ours to overwrite. Agents go without an id until it is repaired.
+    if (!installGroupUnreadableLogged) {
+      installGroupUnreadableLogged = true;
+      log('install-group.json cannot be used; agents are sent without a group id until it is repaired or removed');
+    }
+    return null;
+  }
+  const group = crypto.randomBytes(24).toString('hex');
+  try { saveJson(installGroupFile(), { group, createdAt: new Date().toISOString() }); } catch { return null; }
+  return group;
+}
+/* #4922: is this agent removed, read the fleet's fail-closed way (an unreadable list counts as removed: never link an
+   agent somebody may have removed). */
+function removedOrUnknown(agentKey) {
+  let removed;
+  try { removed = require('./remove').removedNames(); } catch { return true; }
+  if (!removed.ok) return true;
+  const clean = require('./create').cleanName;
+  return removed.names.some((n) => clean(n) === clean(agentKey));
+}
+/* #4922 review 13: does this agent's folder still exist (it is moved to the Trash when its leftovers are deleted)?
+   Fail-closed: any doubt is "gone". */
+function workerFolderExists(agentKey) {
+  try { const d = require('./create').workerDir(agentKey); return Boolean(d) && fs.existsSync(d); } catch { return false; }
+}
 function registration(agentKey) {
   const profile = readProfileSafe(agentKey);
   const out = { name: profileName(profile) || 'agent-' + crypto.randomBytes(3).toString('hex') };
+  const group = installGroup();
+  // #4922 review 2: a service that just refused the field is not sent it again for an hour (each register would waste a POST).
+  // Review 8: nor a REMOVED agent (it can still send a post published before removal); the pass sends it on restore.
+  if (group && !(installGroupUnknownUntil.get(endpointDir()) > Date.now()) && !removedOrUnknown(agentKey) && workerFolderExists(agentKey)) out.install_group = group;   // review 15: as the pass
   if (typeof profile.role === 'string' && profile.role.trim()) {
     const r = communitysite.scrubAuthorName(profile.role);
     if (r.ok && r.name !== communitysite.DEFAULT_AUTHOR_NAME) out.bio = r.name;
@@ -420,6 +472,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
       keys[agentKey] = {
         remoteId: String(r.json.agent_id || ''), name: String(r.json.name || reg.name),
         apiKey: r.json.api_key, token: r.json.token, registeredAt: new Date().toISOString(),
+        ...(reg.install_group ? { installGroupSent: reg.install_group } : {}),   // #4922: registered with it
       };
       saveJson(keysFile(), keys);
       return keys[agentKey];
@@ -429,6 +482,17 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     if (!(r.status >= 400 && r.status < 500)) return null;
     delete keys[agentKey];
     saveJson(keysFile(), keys);
+    /* #4922: a service that does not know install_group refuses it as an unknown field (kosmos-community app/main.py:
+       400 {error: 'unknown_fields', fields: [...]}). Registered again without it, so no agent is kept off the
+       community by the id; the install-group pass sends it once the service knows it. The fallback does not use up one
+       of the three tries. */
+    if (reg.install_group && namesInstallGroup(r)) {
+      delete reg.install_group;
+      installGroupUnknownUntil.set(endpointDir(), Date.now() + INSTALL_GROUP_UNKNOWN_MS);
+      log(`register for ${agentKey}: the service does not take install_group yet; registering without it`);
+      i--;   // once only: install_group is gone from reg, so this branch cannot run again
+      continue;
+    }
     if (r.status === 429) {
       registerRetryAt.set(agentKey, now + Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600)) * 1000);
       registerWaitWhy.set(agentKey, 'limit');
@@ -574,8 +638,9 @@ async function sweepTakedowns(keys, sent, now) {
 const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
 async function sendComment(c, keys, csent, now) {
   const agentKey = c.agent;
-  // Comments wait on their OWN cap: the service counts posts (3 a day) and comments (20 a day) apart, so a
-  // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
+  // Comments wait on their OWN cap: the service counts posts (POSTS_PER_AGENT_PER_DAY, 3 by default) and comments
+  // (COMMENTS_PER_AGENT_PER_DAY, 20 by default) apart, so a post's 429 must not hold this agent's comments back for a
+  // day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
   const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
@@ -734,6 +799,146 @@ function serviceRefusedIndustry(r) {
   return r.status === 400 && Boolean(r.json) && r.json.detail === 'unknown industry';
 }
 
+/**
+ * #4922: send this install's group id to each agent registered before it existed, once, by PATCH /agents/me
+ * { install_group }, while Community is on and the id file is usable. A REMOVED agent (the removed list read
+ * fail-closed), or one whose worker folder is gone (its leftovers deleted), is never sent it; one that was grouped (or whose id PATCH may have landed, written ahead as
+ * installGroupUnsure) is sent the clear { install_group: null }, whatever the switch says. A refused key is skipped
+ * (said once for a removed, grouped agent, which cannot be cleared from here). What the service answers, and what
+ * the pass then does:
+ *   204                                   sent; recorded on the agent's key
+ *   400 unknown_fields naming it, 404/405 a service that does not take it: left alone for an hour (as registration)
+ *   429                                   the pass pauses, capped like #4940's register wait
+ *   no answer, 5xx, an unclearable 401   the service, not the agent: the pass pauses 15 minutes
+ *   anything else (a bad-value 400/422)   every agent sends the same id, so the pass pauses 15 minutes
+ * (Pauses, not "every sweep": since #4938 a sweep runs on every publish, and this pass holds the lock agent calls wait
+ * on.) Pauses are kept per endpoint, in memory (a restart tries once more, which is fine).
+ */
+let INSTALL_GROUP_RETRY_MS = 15 * 60 * 1000;   // how long the pass pauses after a failure (tests set it)
+const installGroupPassAt = new Map();    // endpointDir -> ms: the whole pass is paused until then
+const installGroupFrom = new Map();      // endpointDir -> index into the keys where the next pass starts
+const INSTALL_GROUP_UNKNOWN_MS = 60 * 60 * 1000;
+const installGroupUnknownUntil = new Map();   // endpointDir -> ms: the service refused the field as unknown
+/* #4922 review 5: "this service does not know install_group". kosmos-community turns every extra_forbidden into
+   400 {error: 'unknown_fields', fields: [...]} (app/main.py), and answers 422 only for a bad VALUE, which is not a
+   missing field and must not drop the id for an hour. A plain FastAPI service (no such handler) says it as a 422 whose
+   entry has the field's `loc` and type extra_forbidden, so that shape counts too. Nothing else does: the body is never
+   searched for the word. */
+function namesInstallGroup(r) {
+  const j = r && r.json;
+  if (r && r.status === 400 && j && j.error === 'unknown_fields' && Array.isArray(j.fields)) return j.fields.includes('install_group');
+  if (r && r.status === 422 && j && Array.isArray(j.detail)) {
+    return j.detail.some((e) => e && Array.isArray(e.loc) && e.loc.includes('install_group') && e.type === 'extra_forbidden');
+  }
+  return false;
+}
+async function sweepInstallGroup(keys, on) {
+  /* Review 10: a removed agent's CLEAR goes out whatever the switch says, as the industry clear does: taking someone
+     off a public listing must not wait for Community to be on. Sending the id needs it on (that is taking part), and
+     with it off no id is made. */
+  const group = on ? installGroup() : null;   // null: nothing is SENT this pass; clears still go (review 11)
+  const ep = endpointDir();
+  if ((installGroupPassAt.get(ep) || 0) > Date.now() || (installGroupUnknownUntil.get(ep) || 0) > Date.now()) return;
+  /* #4922 review 7: an agent the person REMOVED keeps its community key (remove is not delete), and grouping it would
+     publicly list it beside their current agents. The fleet's acting check, which fails CLOSED: with the removed list
+     unreadable nothing is sent this sweep. */
+  let removed;
+  try { removed = require('./remove').removedNames(); } catch { removed = { ok: false, names: [] }; }
+  // Review 15: an unreadable list stops every SEND (fail-closed), but not the clears for agents whose folder is gone.
+  const removedUnreadable = !removed.ok;
+  const clean = require('./create').cleanName;
+  const removedSet = new Set((removed.names || []).map((n) => clean(n)));
+  const until = Date.now() + INSTALL_GROUP_PASS_MS;
+  // Review 8: each pass starts just after the agent the last failure stopped on, so no one agent's answer can keep the
+  // agents behind it from ever being reached.
+  const order = Object.keys(keys);
+  const start = (installGroupFrom.get(ep) || 0) % Math.max(order.length, 1);
+  for (let idx = 0; idx < order.length; idx++) {
+    const agentKey = order[(start + idx) % order.length];
+    const stopHere = () => installGroupFrom.set(ep, (start + idx + 1) % order.length);
+    if (Date.now() > until) break;   // the rest wait for the next sweep
+    const k = keys[agentKey];
+    if (!k || !k.apiKey) continue;
+    /* Review 13/14: deleting a removed agent's leftovers takes it OFF the removed list (delete-leftover calls
+       remove.forget) and moves its folder to the Trash, with or without a pass in between. So an agent with no worker
+       folder is treated as removed too (fail-closed): never sent the id, and cleared if it may be grouped. Its folder
+       back means it was restored. */
+    const folderGone = !workerFolderExists(agentKey);
+    if (removedUnreadable && !folderGone) continue;   // could be removed: nothing is sent to it, not even a clear
+    const removedNow = removedSet.has(clean(agentKey)) || folderGone;
+    if (k.refused) {
+      // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
+      if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
+        k.installGroupClearUnreachable = true;
+        saveJson(keysFile(), keys);
+        log(`install group: ${agentKey} was removed but its community key is refused, so its group cannot be cleared from here`);
+      }
+      continue;
+    }
+    if (!removedNow && (!on || !switchOn() || !group)) continue;   // only clears while off, or with no usable id
+    // Review 9: a removed agent is never linked to the person's other agents. One that was sent the id before it was
+    // removed is sent the clear (the service: "send null to clear one"), or its group would keep listing it.
+    // installGroupUnsure: an id PATCH whose answer was lost may have landed (review 11), so it counts as grouped.
+    const maybeGrouped = Boolean(k.installGroupSent || k.installGroupUnsure);
+    if (removedNow && !maybeGrouped) continue;
+    if (!removedNow && k.installGroupSent === group) continue;
+    const want = removedNow ? null : group;
+    const wroteMark = want !== null && !k.installGroupUnsure;
+    if (wroteMark) { k.installGroupUnsure = want; saveJson(keysFile(), keys); }   // written ahead
+    const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: want });
+    // Review 12: a definite refusal proves nothing landed, so the written-ahead mark goes (a later removal must not send
+    // a clear for an agent that was never grouped).
+    // Review 13: only a mark THIS request wrote: a refusal proves this request did not land, not an earlier lost one.
+    if (wroteMark && (namesInstallGroup(r) || [400, 404, 405, 422].includes(r.status))) { delete k.installGroupUnsure; saveJson(keysFile(), keys); }
+    if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
+    if (namesInstallGroup(r)) {   // #4922: the service does not know the field: pause, as register does
+      installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);
+      log(`install group: the service does not take install_group yet; trying again in an hour`);
+      break;
+    }
+    // #4922: no answer, a server error, or a 401 that logging in again could not clear (asAgent hands back the first
+    // 401 when the login gets no answer): the service, not this agent; the whole pass pauses.
+    if (!r.status || r.status >= 500 || r.status === 401) {
+      installGroupPassAt.set(ep, Date.now() + INSTALL_GROUP_RETRY_MS);
+      log(`install group: the service answered ${r.status || 'nothing'}; the pass waits ${Math.round(INSTALL_GROUP_RETRY_MS / 60000)} min`);
+      stopHere();
+      break;
+    }
+    // #4922 review 6/7: no such route (a service from before #4370, whose register also refuses the field): like a
+    // service that does not know the field, left alone for an hour rather than asked again for every agent.
+    if (r.status === 404 || r.status === 405) {
+      installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);
+      log(`install group: the service has no PATCH /agents/me (${r.status}); trying again in an hour`);
+      break;
+    }
+    if (r.status === 429) {   // the service asks to slow down: the whole pass waits, capped like #4940's register wait
+      const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600));
+      installGroupPassAt.set(ep, Date.now() + waitS * 1000);
+      log(`install group: the service asked to slow down (429); the pass waits ${waitS} s`);
+      stopHere();
+      break;
+    }
+    if (r.status === 204 || r.status === 200) {
+      if (want === null) delete k.installGroupSent; else k.installGroupSent = group;   // a restored agent is sent it again
+      delete k.installGroupUnsure;
+      delete k.installGroupRetrying;
+      saveJson(keysFile(), keys);
+    } else {
+      // #4922 review 7: every agent sends the same id, so a refusal of it (400 invalid_input, 413, a value 422) hits
+      // them all: the whole pass waits, not just this agent. (A clear refused here is rare: the service's only
+      // per-agent refusal is a 401, handled above; it waits with the rest.)
+      installGroupPassAt.set(ep, Date.now() + INSTALL_GROUP_RETRY_MS);
+      stopHere();
+      if (k.installGroupRetrying !== group) {
+        k.installGroupRetrying = group;
+        saveJson(keysFile(), keys);
+        log(`install group ${want === null ? 'clear' : 'id'} for ${agentKey}: got ${r.status}; trying again in ${INSTALL_GROUP_RETRY_MS >= 60000 ? Math.round(INSTALL_GROUP_RETRY_MS / 60000) + ' min' : Math.round(INSTALL_GROUP_RETRY_MS / 1000) + ' s'}, until it lands`);
+      }
+      break;
+    }
+  }
+}
+
 async function sweepIndustry(keys, on) {
   const cur = industry.read();
   if (!cur.ok) return;
@@ -886,6 +1091,9 @@ async function sweepOnce(now) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
+  // #4922: last, the least urgent: a service slow on this route must not hold back the passes above.
+  try { await sweepInstallGroup(keys, on); }
+  catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -917,6 +1125,18 @@ function sweep(now = Date.now()) {
   if (running) return running;
   running = exclusive(() => sweepOnce(now)).catch(() => ({ ok: false })).finally(() => { running = null; });
   return running;
+}
+
+/* #4938 (Josh's five-family test: a post stayed invisible for minutes): send NOW, for the moment an agent's post or
+   comment is published or a held one is released. Not sweep() alone: a sweep already in flight read its list
+   before this item existed, and joining it would leave the item for the 5-minute timer. So it waits for that
+   one and runs ONE more; any number of callers during the wait share that one. Same contract as sweep(): always
+   resolves, never throws, and the timer stays as the retry. */
+let followUp = null;
+function sendSoon() {
+  if (!running) return sweep();
+  if (!followUp) followUp = running.then(() => { followUp = null; return sweep(); });   // running never rejects (sweep's catch)
+  return followUp;
 }
 
 /* #4774: every load-modify-save of keys.json runs one at a time, the sweep's and agentCall's. Two writers each
@@ -1164,6 +1384,28 @@ function willSend(agentKey, now = Date.now()) {
 }
 
 /**
+ * #4947: is this agent's NEXT post held past the service's daily post cap? The sweep set `retryAt` from the service's
+ * 429 and waits it out; until it passes, a new post is stored and published here but goes to the service only then.
+ * The route says so, so the agent is not told "Posted" as though it went straight away (it would otherwise post it
+ * again, or think the cap was not reached). Read-only: unreadable state answers false (nothing is promised either way).
+ */
+function postLater(agentKey, now = Date.now()) {
+  const keys = loadJson(keysFile());
+  const k = keys && agentKey && keys[agentKey];
+  return Boolean(k && k.retryAt && Date.parse(k.retryAt) > now);
+}
+/**
+ * #4947: the route's question, whole: will this agent's new post be SENT, and only once the cap lifts? Only a post
+ * that will be sent at all (willSend: Community on, an allowed address, a key not refused, readable state) can be
+ * promised "once the cap lifts". Asked BEFORE the store write, as willSend must be (it may record the ON period's
+ * start, which must not be later than the row). ⚠️ Known only once a sweep has met the cap (the service's 429 sets the
+ * wait): the post that crosses the cap is still answered without it.
+ */
+function postWaits(agentKey, now = Date.now()) {
+  return willSend(agentKey, now).sends && postLater(agentKey, now);
+}
+
+/**
  * #4373 part B review 7: record the ON period's start NOW if Community is on and no sweep has yet, so something made
  * public from a request (a release) in the minutes before the first sweep is inside the window and not silently
  * skipped. The same first-writer-wins record as willSend. Nothing happens while off or with an unreadable state.
@@ -1286,10 +1528,13 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, agentCall, requestDelete,
+  switchOn, willSend, postLater, postWaits, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
-  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile },
+  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
+  namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
+  _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
+  _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
