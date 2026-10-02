@@ -85,10 +85,33 @@ test('a token-only agent may remove an agent it created', async () => {
   assert.ok(reachedEngine(r), `its own creation did not reach the removal engine: ${r.code} ${r.text.slice(0, 160)}`);
 });
 
-test('the creator is matched by slug, as the creation cap counts it', async () => {
-  born('Helper Two', 'PM-Agent');
-  const r = await remove('helper-two', asAgent());
-  assert.ok(reachedEngine(r), `a creator spelled with capitals was not matched: ${r.code} ${r.text.slice(0, 160)}`);
+test('the creator is matched in the forms POST /api/team records it: a paneless creator by its store key', async () => {
+  const kip = sendertoken.mint('Dr. Kip');
+  assert.ok(kip.ok, 'could not mint a token for a name with a period: ' + kip.because);
+  born('Kip Kid', store.safeKey('Dr. Kip'));
+  const r = await remove('kip-kid', { 'x-kosmos-agent-token': kip.token });
+  assert.ok(reachedEngine(r), `a creator recorded by its key was not matched: ${r.code} ${r.text.slice(0, 160)}`);
+});
+
+test('a creator recorded in a form the board never writes (capitals) is not matched loosely', async () => {
+  born('Caps Kid', 'PM-Agent');
+  const r = await remove('caps-kid', asAgent());
+  assert.equal(r.code, 403, 'a creator spelling the team route never records was matched: ' + r.text.slice(0, 160));
+});
+
+test('a token-only agent names the target by its board name: another spelling is refused before the engine', async () => {
+  born('Helper Case', 'pm-agent');
+  for (const spelled of ['HELPER-CASE', 'helper.case', 'Helper Case']) {
+    const r = await remove(spelled, asAgent());
+    assert.equal(r.code, 400, `${spelled} was not refused: ${r.code} ${r.text.slice(0, 160)}`);
+    assert.match(r.text, /name the agent by its board name \(helper-case\)/);
+  }
+  assert.ok(reachedEngine(await remove('helper-case', asAgent())), 'CONTROL: the board name did not pass');
+});
+
+test('the person may still use any spelling the engine accepts (the spelling rule is the token-only caller\'s)', async () => {
+  const r = await remove('Some Person Spelling', asPerson());
+  assert.ok(reachedEngine(r), `the board token was held to the board name: ${r.code} ${r.text.slice(0, 160)}`);
 });
 
 test('a token-only agent may not remove an agent another agent created', async () => {

@@ -2614,16 +2614,18 @@ function agentBirthOf(name) {
      guide) never makes an agent of that name the owner;
    - that birth's profile id is the target's current one, so a name freed and used again is not the old creator's;
    - the caller's token carries its agent's name (an older key-only token cannot say which agent it is);
-   - the birth's creator is the caller, by slug. */
+   - the birth's creator is the caller, compared in the forms POST /api/team records a creator in (its card's
+     sessionName: the slug for an agent with a pane, the store key for one without). A profile that cannot be read
+     gives no id, which refuses. */
 function tokenOnlyMayRemove(caller, target) {
   if (!caller || caller.byKey || caller.twins) return false;
   const birth = agentBirthOf(target);
   if (!birth || birth.createdByAgent !== true || !birth.createdBy || !birth.id) return false;
   let current; try { current = store.readProfile(create.slugFor(target)).id; } catch { return false; }
   if (!current || current !== birth.id) return false;
-  let a; let b;
-  try { a = create.slugFor(birth.createdBy); b = create.slugFor(caller.name); } catch { return false; }
-  return Boolean(a) && a === b;
+  let mine;
+  try { mine = new Set([create.slugFor(caller.name), store.safeKey(caller.name)].filter(Boolean)); } catch { return false; }
+  return mine.has(String(birth.createdBy));
 }
 
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
@@ -7529,6 +7531,10 @@ const server = http.createServer(async (req, res) => {
        with `?force` (the person's override). The person, and any caller holding the board token, are as before. */
     const tokenOnly = agentTokenOnlyCaller(req);
     if (tokenOnly !== null) {
+      /* The engine acts on the name as sent; the check above matches by slug. So a token-only caller names the agent
+         exactly by its board name (the slug), and the two cannot read different agents. */
+      let board; try { board = create.slugFor(name); } catch { board = null; }
+      if (!board || board !== name) { sendJson(res, 400, { error: `name the agent by its board name${board ? ` (${board})` : ''}` }); return; }
       if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }
       if (!tokenOnlyMayRemove(tokenOnly, name)) {
         sendJson(res, 403, { error: 'an agent can remove only an agent it created; the person removes other agents from the board' });
