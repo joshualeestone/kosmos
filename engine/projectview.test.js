@@ -73,9 +73,12 @@ test('familyOf: the families as named (Claude, OpenAI for GPT, Gemini, Grok, Met
 /* Real member rows: fleet's cards through projects.describe, never a hand-built row (fixture-discipline).
    mark runs Claude and is working, sam runs Codex and is asking, ghost is on the project and not running. */
 const CODEX_ASKING = '  Do you want to run this?\n› 1. Yes\n  2. No';
+/* #4581: an idle Codex pane, the shape engine/chat.test.js uses; without a screen the engine reads a Codex member as unknown. */
+const CODEX_IDLE = '› Ask Codex to do anything\n';
 const BOARD = fleet.install([
   fleet.agent('mark', { state: 'working', role: 'Project Manager' }),
   fleet.agent('sam', { state: 'needs_you', runner: 'codex', command: 'node', screen: CODEX_ASKING }),
+  fleet.agent('ida', { state: 'idle' }),   // #4581 N10: an idle member, on its own project below
 ]);
 test.after(() => BOARD.restore());
 const RAW = {
@@ -267,6 +270,114 @@ test('round 5: runs of joiners or variation selectors (a zero-width channel) go;
   const lines = v.renderShow({ project: view });
   assert.equal(lines[0], rainbow + ' okx  (id: ff)', JSON.stringify(lines[0]));
   assert.equal(lines[1], 'Folder: /x/???y', 'a carrier in the path was not shown as ?');
+});
+
+/* #4581 N10 (0.7.15 diagnostic): the four-hour rhythm is while WORKING, so a summary that was current when the member
+   went idle is not "behind" after a quiet night. Real member rows (fleet + describe); the report is injected. */
+test('#4581 N10: an idle member whose summary was current when it went idle reads so, with idle since; otherwise stale', () => {
+  const raw = { id: 'ii', name: 'Idle Night', folder: '/p/ii', agents: ['ida'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const ida = described.agents.find((m) => m.sessionName === 'ida');
+  assert.ok(ida && ida.present && ida.tied && ida.state === 'idle', 'fixture: ida is not an idle member: ' + JSON.stringify(ida));
+  const folder = agentFolder('ida', [['2026-09-29-07.md', 600]]);   // written 10h ago
+  const show = (report) => {
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report };
+    const view = v.overviewOf(described, BOARD.agents, o);
+    return { m: view.members[0], text: v.renderShow({ project: view }).join('\n') };
+  };
+  const idleAt = (minAgo) => ({ found: true, state: 'idle', at: new Date(NOW - minAgo * 60000).toISOString() });
+
+  // Went idle 7h ago, 3h after the summary: current when it stopped.
+  const quiet = show(idleAt(420));
+  assert.equal(quiet.m.summary.state, 'idle');
+  assert.match(quiet.text, /summary: current when it went idle \(summaries\/2026-09-29-07\.md, 10h 0m ago; idle since 7h 0m ago\)$/m);
+  assert.doesNotMatch(quiet.text, /older than the 4-hour rhythm/);
+
+  // Went idle 2h ago, 8h after the summary: it was already behind when it stopped.
+  assert.equal(show(idleAt(120)).m.summary.state, 'stale');
+  // CONTROL: a working report, a report that is not found, and one dated in the future leave it stale.
+  assert.equal(show({ found: true, state: 'working', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'stale');
+  assert.equal(show({ found: false }).m.summary.state, 'stale');
+  assert.equal(show({ found: true, state: 'idle', at: new Date(NOW + 60000).toISOString() }).m.summary.state, 'stale');
+  // CONTROL (green on origin/main, which excuses nothing): an idle report OLDER than the summary, and an unreadable
+  // report time, leave it stale (review 1).
+  assert.equal(show(idleAt(660)).m.summary.state, 'stale', 'an idle time before the summary was written excused it');
+  assert.equal(show({ found: true, state: 'idle', at: 'garbage' }).m.summary.state, 'stale');
+  // Review 2: a `started` report (a Claude agent's launch) counts like idle; CONTROL: an operator's clear never does.
+  const started = show({ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() });
+  assert.equal(started.m.summary.state, 'idle');
+  // Review 3: said as a start, not as a turn's end.
+  assert.match(started.text, /summary: current when this session started \(summaries\/2026-09-29-07\.md, 10h 0m ago; started 7h 0m ago and idle since then\)$/m);
+  assert.equal(show({ found: true, state: 'idle', by: 'operator', at: new Date(NOW - 420 * 60000).toISOString() }).m.summary.state, 'stale');
+  // The edge: idle exactly four hours after the summary is still current when it stopped (to the millisecond; the
+  // freshness rule rounds to the minute, so the two can differ by under a minute).
+  assert.equal(show(idleAt(360)).m.summary.state, 'idle');
+  // And one minute past it is not (review 7: pins the strict comparison from the other side).
+  assert.equal(show(idleAt(359)).m.summary.state, 'stale');
+  // CONTROL: a current summary is untouched by any report.
+  const fresh = agentFolder('ida-fresh', [['2026-09-29-16.md', 30]]);
+  const o = { now: NOW, folderOf: () => fresh, readBrief: () => ({ found: false }), readReport: () => idleAt(420) };
+  assert.equal(v.overviewOf(described, BOARD.agents, o).members[0].summary.state, 'current');
+});
+
+/* Review 2: end to end through the REAL report reader (no injected readReport), so a renamed field in
+   selfreport.read cannot silently turn this off while every injected arm stays green. It writes ida's real report
+   file in this file's sandbox: a later test that describes ida must inject readReport or inherit it. */
+test('#4581 N10 review 2: the real selfreport reader feeds the idle excuse', () => {
+  const selfreport = require('./selfreport');
+  const raw = { id: 'ij', name: 'Idle Real', folder: '/p/ij', agents: ['ida'], tasks: [] };
+  const described = projects.describe(raw, BOARD.agents, [raw]);
+  const folder = agentFolder('ida-real', [['2026-09-29-07.md', 600]]);
+  fs.mkdirSync(selfreport.DIR, { recursive: true });
+  fs.appendFileSync(selfreport.fileFor('ida'), JSON.stringify({ v: 1, state: 'idle', because: 'turn ended', by: 'auto', at: new Date(NOW - 420 * 60000).toISOString() }) + '\n');
+  assert.equal(selfreport.read('ida').state, 'idle', 'fixture: the report did not read back');
+  const view = v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }) });
+  assert.equal(view.members[0].summary.state, 'idle', JSON.stringify(view.members[0].summary));
+});
+
+test('#4581 N10 review 3 CONTROL (green on origin/main by design): a member that is not idle is never excused, whatever its report says', () => {
+  // mark is working and sam is asking (the shared board); a `started` or `idle` report changes nothing for them.
+  const folder = agentFolder('notidle', [['2026-09-29-07.md', 600]]);
+  for (const report of [{ found: true, state: 'started', at: new Date(NOW - 420 * 60000).toISOString() }, { found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() }]) {
+    const view = v.overviewOf(DESCRIBED, ROSTER, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }), readReport: () => report });
+    for (const name of ['mark', 'sam']) {
+      const m = view.members.find((x) => x.sessionName === name);
+      assert.equal(m.summary.state, 'stale', name + ' was excused while ' + m.state);
+    }
+  }
+});
+
+test('#4581 N10 review 4: a Codex member is never excused (it reports idle and never working, so an old idle can hide work)', () => {
+  const board = fleet.install([fleet.agent('cody', { state: 'idle', runner: 'codex', command: 'node', screen: CODEX_IDLE })]);
+  try {
+    const raw = { id: 'cx', name: 'Codex Night', folder: '/p/cx', agents: ['cody'], tasks: [] };
+    const described = projects.describe(raw, board.agents, [raw]);
+    const cody = described.agents.find((m) => m.sessionName === 'cody');
+    assert.ok(cody && cody.state === 'idle' && cody.runner === 'codex', 'fixture: cody is not an idle Codex member: ' + JSON.stringify(cody));
+    const folder = agentFolder('cody', [['2026-09-29-07.md', 600]]);
+    const o = { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }),
+      readReport: () => ({ found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() }) };
+    assert.equal(v.overviewOf(described, board.agents, o).members[0].summary.state, 'stale');
+  } finally { board.restore(); }
+});
+
+test('#4581 N10 review 5: only a runner known to report working is excused; a paneless member (no runner) never is', () => {
+  const stale = { state: 'stale', file: 'summaries/2026-09-29-07.md', at: new Date(NOW - 600 * 60000).toISOString(), ageMinutes: 600 };
+  const report = () => ({ found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() });
+  /* A REAL member (fixture-discipline: no hand-built card), an idle Claude one from the fleet fixture through describe(),
+     with only its runner varied: the runners under test include ones no fixture can launch (none, a future one). */
+  const board = fleet.install([fleet.agent('cara', { state: 'idle' })]);
+  try {
+    const raw = { id: 'cr', name: 'Cara Room', folder: '/p/cr', agents: ['cara'], tasks: [] };
+    const real = projects.describe(raw, board.agents, [raw]).agents.find((m) => m.sessionName === 'cara');
+    assert.ok(real && real.present && real.tied && real.state === 'idle', 'fixture: cara is not an idle tied member: ' + JSON.stringify(real));
+    const member = (runner) => Object.assign({}, real, { runner });
+    // The positive arm: a Claude member is excused.
+    assert.equal(v.idleExcused(stale, member('claude'), report, NOW).state, 'idle');
+    for (const runner of [null, undefined, 'codex', 'someday-runner']) {
+      assert.equal(v.idleExcused(stale, member(runner), report, NOW).state, 'stale', 'excused a member with runner ' + runner);
+    }
+  } finally { board.restore(); }
 });
 
 test('#4896: renderShow says a menu title one way whatever its case, and leaves any other role to its own words', () => {
