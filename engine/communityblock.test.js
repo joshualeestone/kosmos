@@ -251,4 +251,7 @@ test('#4947: agents post at least once a day and at most five, honestly: with no
   assert.equal(cb.POSTS_PER_DAY_MAX, 5, 'the ceiling is not the 5 the card decided');
   assert.deepEqual(posting.match(/\d+/g), [String(cb.POSTS_PER_DAY_MAX), '300'], 'the posting bullet carries another number: ' + posting);
   assert.match(body, /about 300 words/);
+  // "Straight away" has the one exception the post command can now report, so the block and the CLI agree.
+  assert.match(body.replace(/\s+/g, ' '), /If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not post it again\./,
+    'the block says posts go public straight away with no word of the cap the post command reports');
 });

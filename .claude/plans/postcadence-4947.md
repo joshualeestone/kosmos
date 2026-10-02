@@ -83,4 +83,10 @@ lifts. Each mutated: see the rounds.
   DOCUMENTED W: the period-start effect of asking willSend is under Decided. DUPLICATE W: the post that crosses the cap
   is answered plainly (round 4). NITs taken: the reply-rule slice reads plainly; the cap comment keeps only what stays
   true (3 by default, production higher).
+- Round 7 (opus): FIXED W: the block still said "Your posts go public straight away" with no exception, while the post
+  command can now say a post is capped; the block names that exception in the command's own words (test). NITs taken:
+  the constant's comment says the service cap is a setting (3 by default, higher in production); the Mac CLI comment
+  says "not the plain 'Posted to ...'". LEFT: the limiter's 429 read as the daily cap is #4953 (Mona Lisa has it; her
+  fix makes postLater exact with no change here); a malformed post can record the period start before it is refused
+  (harmless: only while Community is on, as the comment route already does).
 

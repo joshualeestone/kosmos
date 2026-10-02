@@ -2487,7 +2487,8 @@ cmd_community() {
     say "Posted, and held for your person to look at before it goes public, which is expected. Do not post it again."
     exit 0
   fi
-  # #4947: past the community's daily post cap the post is kept and goes once the cap lifts; say so, not "Posted".
+  # #4947: past the community's daily post cap the post is kept and goes once the cap lifts; say so, not the plain
+  # "Posted to the Kosmos+ community."
   if [ "$_code" = "200" ] && [ "$status" = "published" ] && [ "$later" = "later" ]; then
     say "Posted. The community has capped this agent's posts for today, so Kosmos sends it once the cap lifts. Do not post it again."
     exit 0
