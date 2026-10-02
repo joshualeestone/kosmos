@@ -392,3 +392,15 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
 - NIT FIXED (wrapper, temp + mv): the header now describes the side turn.
 - NIT FIXED (wrapper): _qh_end removes the stop file after the capper is dead, so a capper still writing cannot
   leave it behind.
+
+## Merge of main (05:20 CDT 10-02), b5c417194, and its review
+- PR #5005 got no CI: it conflicted with #4992 (#4929, run-tests.sh --only) in tools/run-tests.sh. The #4911 guard now
+  sits before both the --only and the queued paths; its words no longer say run-tests.sh always runs the whole suite.
+- Merged tree: test-light-side-4911.sh 96 pass / 0 failures; the 23 node files that read run-tests.sh pass (one timing
+  red, cli.busy-health-4466, under a concurrent suite; 53/53 alone; not touched here).
+- Blind review (Opus, SOURCE-ONLY): 0 BLOCKER, 0 WARNING, 3 NIT, all taken: the comment no longer says --only would be
+  refused "anyway" (not true under KOSMOS_IGNORE_MACHINE_CLAIM=1); the refusal names node --test as the side turn's way;
+  cut-guard.sh's kosmos_holds_light_side comment covers --only. Residual taken: tools.run-tests-only-4929.test.js also
+  clears KOSMOS_LIGHT_SIDE_COOKIE. After: lane test 0 failures, the #4929 test 11/11.
+- Needs a new full validation (a hand-resolved merge). Queued on Mortals at 06:47.
+

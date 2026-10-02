@@ -1387,7 +1387,8 @@ kosmos_light_side_take() {
 
 # kosmos_holds_light_side: true only when THIS run (or a child carrying its cookie) holds the live side claim.
 # run-tests.sh asks it: a side turn runs its tests directly; through run-tests.sh it would queue behind the heavy
-# holder's claim while holding the side claim (review 2), so run-tests.sh refuses at once inside a side turn.
+# holder's claim while holding the side claim (review 2), and a --only run (#4929) would be refused by that claim, so
+# run-tests.sh refuses at once inside a side turn, --only included.
 kosmos_holds_light_side() {
   local active self="${KOSMOS_LIGHT_SIDE_COOKIE:-}"
   [ -n "$self" ] || return 1
