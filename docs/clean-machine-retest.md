@@ -27,6 +27,10 @@ rm -rf ~/Library/Application\ Support/Kosmos ~/Kosmos/Projects
 curl -fsSL https://installkosmos.com/setup | sh
 ```
 
+A STAGING build (#5032) installs from `/setup-staging`, with the channel on the `sh`:
+`curl -fsSL https://installkosmos.com/setup-staging | KOSMOS_UPDATE_CHANNEL=staging sh`. The sandboxed
+harness walks it with `KOSMOS_VERIFY_SETUP=setup-staging bash tools/clean-machine.sh`.
+
 ## Re-arm the wizard only (keeps everything)
 
 One file: the flag. Agents, records, and projects survive.

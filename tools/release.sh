@@ -674,8 +674,8 @@ if [ "$CUT_CHANNEL" = staging ]; then
   git -C "$SITE" fetch -q origin || { echo "could not fetch the site's origin to check its vercel.json"; exit 1; }
   # Captured, then matched: `git show | grep -q` can SIGPIPE-abort under pipefail once the file outgrows a pipe buffer.
   _vj="$(git -C "$SITE" show origin/main:vercel.json 2>/dev/null)" || _vj=""
-  case "$_vj" in *'"source": "/setup-staging"'*) ;; *) echo "the site's origin/main vercel.json has no /setup-staging headers (no-store, text/plain): merge the site half of #5032 first"; exit 1 ;; esac
-  case "$_vj" in *'"source": "/setup-staging.sha256"'*) ;; *) echo "the site's origin/main vercel.json has no /setup-staging.sha256 headers: merge the site half of #5032 first"; exit 1 ;; esac
+  [[ "$_vj" =~ \"source\"[[:space:]]*:[[:space:]]*\"/setup-staging\" ]] || { echo "the site's origin/main vercel.json has no /setup-staging headers (no-store, text/plain): merge the site half of #5032 first"; exit 1; }
+  [[ "$_vj" =~ \"source\"[[:space:]]*:[[:space:]]*\"/setup-staging\.sha256\" ]] || { echo "the site's origin/main vercel.json has no /setup-staging.sha256 headers: merge the site half of #5032 first"; exit 1; }
 fi
 
 step "== 2. the version, in one place =="
