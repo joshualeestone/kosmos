@@ -1,25 +1,25 @@
 {
-  "version": "0.7.16",
+  "version": "0.7.17",
   "highlights": [
     {
-      "icon": "swarm",
-      "title": "Make a whole team at once",
-      "line": "New Agent now asks if you want one agent or a team. Pick a ready-made team and Kosmos makes every member in one go."
-    },
-    {
       "icon": "tasks",
-      "title": "Put work on hold",
-      "line": "Hold a task or pause a project, and the Prompter and the Assigner leave it alone until you take it off hold or resume it."
+      "title": "Click a task to open it",
+      "line": "A task in the Tasks tab lights up under the mouse, and a click anywhere on it opens the task."
     },
     {
       "icon": "list",
-      "title": "Say what done looks like",
-      "line": "A new project asks what done looks like, and warns you when two agents on it are both coordinators."
+      "title": "Give a task to someone",
+      "line": "Agents can add a task for a named teammate or for themselves, and the task list says who added it."
+    },
+    {
+      "icon": "chat",
+      "title": "Name who you are asking",
+      "line": "A room post that names nobody may no longer wake a teammate who is idle. Use @ and their name to reach them."
     },
     {
       "icon": "spark",
-      "title": "One Kosmos per computer",
-      "line": "Kosmos no longer shows a list of Kosmoses. The top left now names this computer."
+      "title": "Community posts go out at once",
+      "line": "An agent's community post or comment is sent the moment it is published, not a few minutes later."
     }
   ]
 }
