@@ -13,6 +13,10 @@
  * a wrapped notice sizes the row. No source grep can say where a control lands. This
  * reads getBoundingClientRect in both views.
  *
+ * Since 10-02 it also pins the center tabs (Agents / Projects / Tasks): with a long Kosmos name they start at the same
+ * x in both views. The consolidated header used flex space-between, so the tabs sat after the switcher and moved 90.5px
+ * when the view flipped (1440px, a 220px switcher); it now shares the tab view's 1fr auto 1fr grid.
+ *
  * Measured on the served 0.6.95 build before the fix: the controls sat 33px lower in
  * the tab view at 1440px and 92px lower at 1100px, and a notice moved them in EITHER
  * view. This reds on that CSS (origin/main before kosmos#2624).
@@ -41,8 +45,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 // is what matters: a centred row put the controls at the middle of it.
 const NOTICE = '<div data-check-notice style="width:240px;height:84px"></div>';
 
-async function measure(page, view, notice) {
-  return page.evaluate(([view, notice, NOTICE]) => {
+async function measure(page, view, notice, name) {
+  return page.evaluate(([view, notice, NOTICE, name]) => {
     // Every notice slot off (over file:// the offline notice shows, since no board
     // answers), then one tall notice on when asked for.
     for (const id of ['utoast-slot', 'uabort-slot', 'login-adv-slot', 'uoffline-slot']) {   // #3955 removed unote/unews
@@ -55,6 +59,9 @@ async function measure(page, view, notice) {
     // is measured, which is all this check is about.
     const sw = document.querySelector('.apphead header .worldsw');
     if (sw) { sw.hidden = false; sw.style.display = 'inline-flex'; }
+    // The Kosmos name, when asked for: a real one is as long as the person typed (the button caps at 220px).
+    const swName = document.querySelector('.apphead header .worldsw-name');
+    if (name && swName) swName.textContent = name;
     const cons = view === 'consolidated';
     document.documentElement.setAttribute('data-layout', cons ? 'consolidated' : 'tabs');
     document.body.classList.toggle('consolidated', cons);
@@ -75,13 +82,16 @@ async function measure(page, view, notice) {
       noteTop: (() => { const n = document.querySelector('[data-check-notice]'); if (!n) return null; const r = n.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? Math.round(r.top * 10) / 10 : null; })(),
       headBottom: hdr ? Math.round(hdr.getBoundingClientRect().bottom * 10) / 10 : null,
       tabsShown: top('.apphead header .tabs') !== null,
+      // The center tabs' left edge, and the switcher's width (so a long-name arm can prove the name widened it).
+      tabsX: (() => { const t = document.querySelector('.apphead header .tabs'); if (!t) return null; const r = t.getBoundingClientRect(); return r.width > 0 ? Math.round(r.left * 10) / 10 : null; })(),
+      worldswW: (() => { const w = document.querySelector('.apphead header .worldsw'); return w ? Math.round(w.getBoundingClientRect().width * 10) / 10 : null; })(),
       // #4345: the center tabs now show in the consolidated view too, so they cannot tell the two
       // views apart. What the consolidated CSS still does, and only when its layout attribute and
       // class are both in force, is hide the header's h1 (not body.consolidated itself: this
       // function sets that class, so reading it back would prove nothing).
       consolidated: (() => { const h = document.querySelector('.apphead h1'); return !!h && getComputedStyle(h).display === 'none'; })(),
     };
-  }, [view, notice, NOTICE]);
+  }, [view, notice, NOTICE, name]);
 }
 
 (async () => {
@@ -159,6 +169,16 @@ async function measure(page, view, notice) {
       else console.log(`  PASS  ${width}px ${view} with no notice: the line keeps its place (margin-top 0px)`);
       await page.evaluate(() => { const c = document.getElementById('conn'); c.hidden = true; c.textContent = ''; });
     }
+    // The center tabs sit on the same pixels in both views, whatever the Kosmos name's width: the consolidated header
+    // used to lay them out after the left cluster (flex space-between), so a longer name moved them sideways when the
+    // view flipped (90px at 1400px with a 220px switcher). CONTROL: the long name really widened the switcher.
+    const LONG = 'Weekend launch Kosmos for every computer';
+    const long = {};
+    for (const view of ['tabs', 'consolidated']) long[view] = await measure(page, view, false, LONG);
+    if (!(long.tabs.worldswW > ref.worldswW)) problems.push(`CONTROL failed: ${width}px: the long Kosmos name did not widen the switcher (${ref.worldswW} -> ${long.tabs.worldswW})`);
+    if (long.tabs.tabsX === null || long.consolidated.tabsX === null) problems.push(`${width}px: the center tabs do not render with a long Kosmos name`);
+    else if (long.tabs.tabsX !== long.consolidated.tabsX) problems.push(`${width}px with a long Kosmos name: the center tabs start at x ${long.tabs.tabsX} in the tab view and ${long.consolidated.tabsX} in consolidated (they move ${Math.round((long.consolidated.tabsX - long.tabs.tabsX) * 10) / 10}px when the view flips)`);
+    if (ref.tabsX !== long.consolidated.tabsX) problems.push(`${width}px consolidated: the center tabs moved with the Kosmos name's width (${ref.tabsX} -> ${long.consolidated.tabsX})`);
     await page.close();
   }
 
