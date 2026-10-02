@@ -92,8 +92,10 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   assert.match(done, /case \.current, \.board, \.refused:/);
   // Review 5: an install this app did not see finish (another run of it started it) still gets its Restart:
   // the CLI names the version on disk, and one that differs from the running app, with an app carrying it, is offered.
-  assert.match(done, /case \.current\(let v\) where installedUpdate == nil && v != runningAppVersion\(\) && Self\.freshAppURL\(theirs: v\) != nil:\n(\s+\/\/.*\n)*\s+showInstalledOffer\(v\)\n/);
-  assert.ok(done.indexOf('case .current(let v) where') < done.indexOf('case .current, .board, .refused:'), 'the version arm comes after the general one and never runs');
+  // Review 6: only an install NEWER than the running app is offered (restartWanted's rows are in the update selftest).
+  assert.match(done, /case \.current\(let v\) where installedUpdate == nil && Self\.restartWanted\(running: runningAppVersion\(\), onDisk: v\)\n\s+&& Self\.freshAppURL\(theirs: v\) != nil:\n(\s+\/\/.*\n)*\s+showInstalledOffer\(v\)\n/);
+  assert.match(SRC, /static func restartWanted\(running: String\?, onDisk: String\) -> Bool \{\n\s+guard let running else \{ return false \}\n\s+return isBehind\(running, onDisk\) == true\n/);
+  assert.ok(done.indexOf('case .current(let v) where') < done.indexOf('case .current, .board, .refused:'), 'the version arm must come before the general one, or it never runs');
   assert.match(SRC, /case \("current", 2\) where version\(words\[1\]\): return \.current\(words\[1\]\)/);
   // Review 5: a refusal nobody pressed for (an install under way) is looked at again within the hour, once.
   assert.match(done, /if !updateLookIsRetry \{\n\s+if case \.unknown = answer \{ retryUpdateLookSoon\(\) \}\n(\s+\/\/.*\n)*\s+if case \.refused = answer, !asked \{ retryUpdateLookSoon\(\) \}\n\s+\}/);

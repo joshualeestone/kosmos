@@ -122,3 +122,12 @@ cannot start. NIT measured FALSE: "BSD find rounds -mmin up, so -30 means 29 min
 `find -mmin -30` matches a 1799 s old file and not a 1801 s one, so it already agrees with the app's 30
 minutes; `-31` would have opened a minute's gap the other way. Kept -30, with the measurement in a comment.
 Left: a retry that fires during a pressed look is dropped with a log line (the daily look covers it).
+
+### Iteration 6 (sonnet, blind): 1 warning (low-medium), 1 convention, 1 nit.
+1. WARNING: the `.current(v)` arm offered "Restart" into an OLDER version when a hand-run app is newer than
+   its install (pickFresh accepts the running bundle as fresh). Fixed: `restartWanted(running:onDisk:)`
+   requires the running app to be strictly behind (isBehind == true; unreadable offers nothing), with five
+   update-selftest rows (23 in all).
+2. CONVENTION: the order assertion's message was backwards, and the arm's logic was pinned only as text.
+   Fixed: message reworded; the logic now has executable selftest rows.
+NIT left: a later look can clear a standing "Quit Kosmos and open it again" note (at worst a day's delay).
