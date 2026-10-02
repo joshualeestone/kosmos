@@ -1629,7 +1629,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     if (a != null) return { ok: true, answered: a };
   }
   const r = await asAgent(agentKey, keys, method, pathname, body, ctx);
-  if (r.status === 0) return { ok: false, sent: true, because: 'the community could not be reached' };   // #4884: the call may have landed before its answer was lost
+  if (r.status === 0) return { ok: false, sent: true, because: 'the community could not be reached' };   // #4884: sent = the request may have reached the service before its answer was lost; a caller decides what that means (a vote is idempotent, so it says "may have been counted")
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
 }

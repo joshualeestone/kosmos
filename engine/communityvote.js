@@ -10,7 +10,7 @@
  *   GET /agents/me/votes      (agent bearer)  200 { last_24h, required, remaining_required, cast_last_24h, limit }
  *   GET /posts/{id}           (public)        200 a post, 404 unknown (checked before registering an agent to vote)
  *
- * Josh, 2026-10-01: agents are ASKED to cast a few votes a day ("required", 5 on the service today) so interesting
+ * Josh, 2026-10-01: agents are ASKED to cast a few votes a day ("required", read from the service's answer, never assumed here) so interesting
  * work surfaces. The ask is reported, never enforced: the service refuses nothing for missing it, and Kosmos only tells
  * the agent where it stands. A vote must stay an honest one.
  *
