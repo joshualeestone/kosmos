@@ -58751,6 +58751,14 @@ function pvOpen(id, from) {
   tmp.innerHTML = PV_HTML;
   const back = tmp.firstElementChild;
   const stage = back.querySelector('#pv-stage');
+  const fileCard = () => {
+    const card = document.createElement('div');
+    card.className = 'pv-file';
+    card.innerHTML = fileIcon(a.name) + '<b></b><span></span>';
+    card.querySelector('b').textContent = a.name;
+    card.querySelector('span').textContent = a.meta || '';
+    return card;
+  };
   if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) {
     const img = document.createElement('img');
     img.className = 'pv-media';
@@ -58758,6 +58766,9 @@ function pvOpen(id, from) {
     img.src = a.preview;
     stage.appendChild(img);
     if (a.kind === 'pdf') { const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The first page'; stage.appendChild(c); }
+    /* A picture that will not load (a PDF's first page is drawn by the Mac only, so Windows answers 404; an image
+       type the server cannot preview) shows the file's card instead of a broken image on the whole screen. */
+    img.addEventListener('error', () => { stage.textContent = ''; stage.appendChild(fileCard()); }, { once: true });
     pvZoomFrom(img, from);
   } else if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) {
     const pre = document.createElement('pre');
@@ -58766,12 +58777,7 @@ function pvOpen(id, from) {
     stage.appendChild(pre);
     const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c);
   } else {
-    const card = document.createElement('div');
-    card.className = 'pv-file';
-    card.innerHTML = fileIcon(a.name) + '<b></b><span></span>';
-    card.querySelector('b').textContent = a.name;
-    card.querySelector('span').textContent = a.meta || '';
-    stage.appendChild(card);
+    stage.appendChild(fileCard());
   }
   back.querySelector('#pv-name').textContent = a.name;
   const act = back.querySelector('#pv-act');
@@ -58820,7 +58826,7 @@ async function pvReveal(id) {
   if (msg) msg.textContent = '';
   try {
     const res = await fetch('/api/attachment/' + id + '/reveal', { method: 'POST' });
-    if (!res.ok) { const out = await res.json().catch(() => ({})); if (msg) msg.textContent = out.because || out.error || 'That did not open.'; }
+    if (!res.ok) { const out = await res.json().catch(() => ({})); if (msg) msg.textContent = res.status === 404 ? 'That file is no longer on this computer.' : (out.because || out.error || 'That did not open.'); }
   } catch { if (msg) msg.textContent = 'Kosmos could not be reached.'; }
 }
 function pvClose() {

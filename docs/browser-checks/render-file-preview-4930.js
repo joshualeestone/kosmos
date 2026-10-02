@@ -40,6 +40,7 @@ if (!ENGINES.length || ENGINES.length !== ASKED.length) {
 const HTML = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'index.html'), 'utf8');
 const IMG_ID = 'a1'.repeat(12);
 const PDF_ID = 'b2'.repeat(12);
+const NOPAGE_ID = 'e5'.repeat(12);   // a PDF whose first page the server cannot draw (Windows): its preview is a 404
 const TXT_ID = 'c3'.repeat(12);
 const DOC_ID = 'd4'.repeat(12);
 /* A 1200 x 800 PNG drawn in the page itself is the picture; the stub hands it back as the preview. */
@@ -59,14 +60,14 @@ async function runOn(engine, base, say) {
         if (u.pathname === '/' || u.pathname === '/index.html') return route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
         const rv = u.pathname.match(/^\/api\/attachment\/([0-9a-f]{24})\/reveal$/);
         if (rv && route.request().method() === 'POST') { reveals.push(rv[1]); return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
-        if (/^\/api\/attachment\/[0-9a-f]{24}\/preview$/.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+        if (/^\/api\/attachment\/[0-9a-f]{24}\/preview$/.test(u.pathname)) return u.pathname.includes(NOPAGE_ID) ? route.fulfill({ status: 404, body: '' }) : route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
         if (u.pathname.startsWith('/api/')) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"stub"}' });
         return route.fulfill({ status: 404, body: '' });
       });
       await pg.goto(base + '/', { waitUntil: 'load' });
       await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvOpen === 'function');
       // A strip over the page holding real cards, above anything the page draws while its API calls fail.
-      await pg.evaluate(({ IMG_ID, PDF_ID, TXT_ID, DOC_ID }) => {
+      await pg.evaluate(({ IMG_ID, PDF_ID, TXT_ID, DOC_ID, NOPAGE_ID }) => {
         const strip = document.createElement('div');
         strip.setAttribute('data-pv-test', '');
         strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;padding:6px;';
@@ -75,9 +76,10 @@ async function runOn(engine, base, say) {
           { name: 'report.pdf', type: 'application/pdf', size: 99000, kind: 'pdf', url: '/api/attachment/' + PDF_ID, preview: '/api/attachment/' + PDF_ID + '/preview' },
           { name: 'notes.md', type: 'text/markdown', size: 400, kind: 'text', url: '/api/attachment/' + TXT_ID, preview: '# Notes\n<img src=x onerror="window.__ran=1">\nline three' },
           { name: 'deck.pptx', type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', size: 2048000, kind: 'other', url: '/api/attachment/' + DOC_ID },
+          { name: 'windows.pdf', type: 'application/pdf', size: 5000, kind: 'pdf', url: '/api/attachment/' + NOPAGE_ID, preview: '/api/attachment/' + NOPAGE_ID + '/preview' },
         ] });
         document.body.appendChild(strip);
-      }, { IMG_ID, PDF_ID, TXT_ID, DOC_ID });
+      }, { IMG_ID, PDF_ID, TXT_ID, DOC_ID, NOPAGE_ID });
       await pg.waitForFunction(() => { const i = document.querySelector('[data-pv-test] .att-image img'); return i && i.complete && i.naturalWidth > 0; });
       const card = (id) => '[data-pv-test] a.att[data-att="' + id + '"]';
       const open = () => pg.evaluate(() => !!document.getElementById('pv-preview'));
@@ -201,6 +203,11 @@ async function runOn(engine, base, say) {
       await pg.click(card(PDF_ID));
       const pdf = await pg.evaluate(() => ({ img: !!document.querySelector('#pv-preview img.pv-media'), note: (document.querySelector('#pv-preview .pv-note') || {}).textContent }));
       say(pdf.img && pdf.note === 'The first page', tag + ' P6: a PDF shows its first page', JSON.stringify(pdf));
+      await pg.keyboard.press('Escape');
+      await pg.click(card(NOPAGE_ID));
+      await pg.waitForTimeout(250);
+      const noPage = await pg.evaluate(() => ({ img: !!document.querySelector('#pv-preview img.pv-media'), card: (document.querySelector('#pv-preview .pv-file b') || {}).textContent }));
+      say(!noPage.img && noPage.card === 'windows.pdf', tag + ' P6: a PDF whose first page will not load shows its card, not a broken image', JSON.stringify(noPage));
       await pg.keyboard.press('Escape');
       await pg.click(card(TXT_ID));
       await pg.waitForTimeout(150);

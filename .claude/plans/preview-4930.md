@@ -49,11 +49,17 @@ Every place the page shows a person's file was printed, not counted (a search ag
 
 ## Rejected / not in this PR
 - The Files lists: they show no images and have no route that serves a file's bytes; a preview there needs one.
+  Tracked as kosmos#4997, with the whole-PDF and whole-text-file half.
 - Arrows and swipe to step through a conversation's images (the card marks it optional).
 - A full PDF or a full text file: there is no inline route for either today (the attachment route always downloads,
   by design: "an HTML one never renders on the board's origin"). The first page and the opening are what the card
   already had; the action reaches the whole file.
 - The link-preview picture (an unfurled web page's image): it opens the web page, which is what a person expects.
+
+- A picture that will not load (a PDF's first page is drawn by the Mac only, so Windows answers 404; an image type
+  the server cannot preview) falls back to the file's card, not a broken image (P6 arm; measured red without it).
+- An "other" file (a zip, a pptx) also opens the preview, with its icon, name and size: the card asks for exactly that
+  ("Any other type shows its icon, name and size with the same two buttons").
 
 ## Weakest premise
 That a plain click on a card is never meant as "download". It always was a download until now; a person who wants
