@@ -562,3 +562,24 @@ test('while a retirement is stuck, the install group is never sent to the delete
     assert.deepEqual(sentGroup, [], 'the install group was sent to the deleted agent\'s account');
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 });
+
+test('an unreadable retire request holds the install-group pass for live agents, rather than clearing every one', async () => {
+  const AVA = { remoteId: 'a1', name: 'ava', apiKey: 'kc_key_a1', token: 'tok_a1', registeredAt: '2026-09-28T07:00:00.000Z', installGroupSent: 'old-group' };
+  be.st.agents.set('tok_a1', 'a1');
+  const folder = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'ava');
+  assert.ok(folder.startsWith(SANDBOX), 'refusing to write a worker folder outside this test\'s sandbox');
+  fs.mkdirSync(folder, { recursive: true });               // a live agent
+  const patches = () => be.st.seen.filter((x) => x.method === 'PATCH' && x.auth === 'tok_a1' && x.body && 'install_group' in x.body);
+  try {
+    writeJson(cs._paths.keysFile(), { ava: AVA });
+    await cs.sweep();
+    assert.ok(patches().length > 0, 'CONTROL: the install-group pass does reach a live agent in this setup');
+    be.st.seen.length = 0;
+    writeJson(cs._paths.keysFile(), { ava: AVA });         // back to a group to change
+    fs.mkdirSync(cs._paths.retireDir(), { recursive: true });
+    fs.writeFileSync(path.join(cs._paths.retireDir(), `${Date.now()}-bad.json`), '{ not json');
+    cs._installGroupRetry(0);
+    await cs.sweep();
+    assert.deepEqual(patches(), [], 'a live agent\'s install group was changed while the retire list could not be read');
+  } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+});

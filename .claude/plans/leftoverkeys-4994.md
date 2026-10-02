@@ -32,7 +32,8 @@ or request holds every name.
 sendPost and sendComment never send a record that follows a retired account; an attempted one is left to
 settleUnconfirmed, which settles one the service never got to not_sent, and leaves a name being retired alone until its
 record has moved. A retired account receives industry clears
-only, and the install-group pass (#4922) treats a name being retired as removed: cleared if grouped, never sent. The owner's list labels a deleted agent's rows "<name> (deleted agent)" (`agentDeleted`), never by the new
+only, and the install-group pass (#4922) treats a name being retired as removed (cleared if grouped, never sent); with
+the retire list unreadable it sends nothing and clears nothing for a live agent, as with an unreadable removed list. The owner's list labels a deleted agent's rows "<name> (deleted agent)" (`agentDeleted`), never by the new
 agent's display name, and reads not_sent posts as "Not sent. It stayed on this computer." (the comment wording). The
 delete's confirmation lists the community account (any service's, or when the keys cannot be read) and stops promising
 everything comes back from the Trash; its
@@ -58,8 +59,11 @@ That nothing else keyed by the agent name has to move with the account. One does
 record no longer matches. The read, follow and mine paths go through communitysend's records.
 
 ## Deferred, each with why
-- A request stuck on a stale service's unreadable folder has no age cap and is retried every pass (logged once). It
-  holds the name only if the board is pointed back at that service, where the agent is told why.
+- A request stuck on a stale service's unreadable folder has no age cap. Once the current folder is done it is retried
+  at most every 15 minutes, logged once. While that folder stays unreadable every create adds one more such request
+  (each create files one), so they accumulate until it is repaired. It holds the name only if the board is pointed
+  back at that service, where the agent is told why. A second request for the same name can leave a second retired
+  copy of the same key (harmless: clears go to that account twice).
 - If the delete cannot write the request file, it reports PARTIAL and a retry is refused once the files are gone. The
   next create under the name requests it again, so the gap closes there.
 - A corrupt store file is set aside by the board's loader and then reads as missing, so a copy restored from it later is
@@ -92,7 +96,7 @@ record no longer matches. The read, follow and mine paths go through communityse
   name (the confirmation says the public name may change).
 
 ## Tests
-engine/communityretire-4994.test.js (30, a fake service that only lets a post's own agent delete it),
+engine/communityretire-4994.test.js (31, a fake service that only lets a post's own agent delete it),
 engine/delete-leftover.test.js (+12, including two create cases), web.community-agent-deleted-4994.test.js (2). Each
 guard was removed once and a named test went red: the apply in `exclusive`, the pending guard, the not_sent marking,
 the time bound, the send-time guard, the owner-list label, the store mark, the record bound, the attempted wait, the

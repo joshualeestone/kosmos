@@ -886,8 +886,11 @@ async function sweepInstallGroup(keys, on) {
        back means it was restored. */
     const folderGone = !workerFolderExists(agentKey);
     if (removedUnreadable && !folderGone) continue;   // could be removed: nothing is sent to it, not even a clear
+    // #4994: with the retire list unreadable, which names are being retired is unknown: as an unreadable removed list,
+    // nothing is sent and nothing cleared for an agent whose folder is there.
+    if (retireListUnreadable() && !folderGone) continue;
     // #4994: a name being retired is the deleted agent's until its key moves: treated as removed, so cleared, never sent.
-    const removedNow = removedSet.has(clean(agentKey)) || folderGone || retiring(agentKey);
+    const removedNow = removedSet.has(clean(agentKey)) || folderGone || retiringListed(agentKey);
     if (k.refused) {
       // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
       if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
@@ -1241,6 +1244,12 @@ function pendingRetirements() {
   pendingCache = { mtimeMs, dir: retireDir(), list: out, unreadable: unreadableRequest };
   return out;
 }
+// Retiring by the list alone, without the unreadable-folder hold (for a pass that must not act on every name at once).
+function retiringListed(agentKey) {
+  const here = path.basename(endpointDir());
+  return pendingRetirements().some((r) => r.agent === agentKey && !r.done.includes(here));
+}
+function retireListUnreadable() { pendingRetirements(); return retireUnreadable; }
 function retiring(agentKey) {
   const here = path.basename(endpointDir());
   const pending = pendingRetirements();
@@ -1298,7 +1307,7 @@ function hasAccount(agentKey) {
   }
   return false;
 }
-/* Called from the board process (the delete route), the same process as the sweep: `exclusive` is in-memory, and the
+/* Called from the board process (the delete route and every create), the same process as the sweep: `exclusive` is in-memory, and the
    store's writes are load-modify-save with no lock between processes. A delete moved out of the board would need both
    to become cross-process first. The request is written BEFORE the store is marked: applyRetirements marks it again
    (it is idempotent) while the request is pending, so a failure after the write is finished there, and a failed write
@@ -1332,9 +1341,10 @@ function retireIn(epDir, agentKey, at) {
   const live = keys[agentKey];
   const madeAt = live && (live.triedAt || live.registeredAt || (live.registering && live.registering.at));
   const newer = typeof madeAt === 'string' && madeAt > at;
-  // Copied on every apply, not once: while the live entry stays (a folder that could not be moved yet), what a pass
-  // changes on it (an install group sent, a token refreshed) must reach the retired entry too.
-  if (live && !newer) { keys[to] = live; saveJson(kf, keys); }
+  // Merged on every apply, not copied once: while the live entry stays (a folder that could not be moved yet), what a
+  // pass changes on it (an install group sent, a token refreshed) must reach the retired entry too, and what a pass set
+  // only on the retired entry (a take-down read time) is kept.
+  if (live && !newer) { keys[to] = { ...(keys[to] || {}), ...live }; saveJson(kf, keys); }
   let moved = false;
   const ofName = (item) => item && item.agent === agentKey && item.author && item.author.type === 'agent';
   // Both sides are toISOString() output (the store's nowISO, requestRetire), so the strings order as the times do.
@@ -1369,8 +1379,13 @@ const neverSent = (rec) => rec.state === 'pending' && !rec.attempted;
 const reportedStuck = new Set();
 /* One request at a time, each in its own try (applyRetirements), so one that cannot save its progress does not hold up
    the others. */
+/* A request waiting only on another service's folder (the current one is done) is tried at most every
+   STALE_RETRY_MS, not on every keys.json section: such a folder may stay unreadable for good. */
+const STALE_RETRY_MS = 15 * 60 * 1000;
+const staleRetryAt = new Map();
 function applyOne(r, eps) {
   const file = path.join(retireDir(), r.file);
+  if (r.done.includes(path.basename(endpointDir())) && (staleRetryAt.get(r.file) || 0) > Date.now()) return;
   // Until the store is marked, the current folder is not done, so the name stays held and nothing of the deleted
   // agent can go out as a new one (a folder with nothing to move would otherwise finish the request).
   let marked = r.marked;                           // once it has landed it is not read again every pass
@@ -1413,10 +1428,13 @@ function applyOne(r, eps) {
     for (const k of [...reportedStuck]) if (k.startsWith(r.file + ':')) reportedStuck.delete(k);
     // Only when something moved: every create files a request, and most names have nothing to retire.
     if (movedAny) log(`${r.agent}'s community account is retired: a new agent under the name joins as itself`);
-  } else if (done.size > r.done.length || stuck.size !== r.stuck.length || [...stuck].some((n) => !r.stuck.includes(n))
-    || marked !== r.marked) {
-    saveJson(file, { agent: r.agent, at: r.at, done: [...done], stuck: [...stuck], marked });
-    pendingCache.mtimeMs = null;
+  } else {
+    if (done.has(path.basename(endpointDir()))) staleRetryAt.set(r.file, Date.now() + STALE_RETRY_MS);
+    if (done.size > r.done.length || stuck.size !== r.stuck.length || [...stuck].some((n) => !r.stuck.includes(n))
+      || marked !== r.marked) {
+      saveJson(file, { agent: r.agent, at: r.at, done: [...done], stuck: [...stuck], marked });
+      pendingCache.mtimeMs = null;
+    }
   }
 
 }

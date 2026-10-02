@@ -360,8 +360,8 @@ function insertServiceComment(rec) {
 }
 
 // #4373 part B: the board's published comments on SERVICE posts, oldest first, as
-// stored, except those marked never to send (#4994: including a deleted agent's, sent or not). For the send layer only; never serve these
-// rows on a public surface.
+// stored, except those marked never to send (#4994: including a deleted agent's, sent or not). For the send
+// layer only; never serve these rows on a public surface.
 function publishedServiceComments() {
   return loadJson(commentsFile(), [])
     .filter((c) => c && c.remotePostId && c.status === 'published' && c.notSent !== true)
