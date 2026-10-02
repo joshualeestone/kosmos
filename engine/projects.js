@@ -2988,7 +2988,11 @@ function blockBody(projects, sessionName) {
   return [
     '## Your projects',
     '',
-    'Kosmos records which projects you are on, and this is where their folders are.',
+    'Kosmos records which projects you are on, and this is where their folders are on this computer.',
+    /* #4927: an agent in a sandbox sees this computer's folders under its own mounts, whose names can change; Kosmos
+       cannot see those, so it says how to find the folder there. */
+    'If you work in a sandbox that shows this computer\'s folders under other paths (mount names can change between',
+    'sessions), find a project\'s folder there by its name, the last part of its path.',
     '',
     ...lines,
     ...(any ? [
@@ -3209,6 +3213,19 @@ function healColleagues(text) {
    an operator marker on a line no operator wrote would be a lie about who is
    speaking. Delivery states come back as chat.deliver's own; a stopped agent
    answers could_not, which is fine, because the file is its mechanism. */
+/* #4927: the folder as the join line names it. Checked on this computer first: a folder that is not there (moved,
+   removed, a drive not mounted) is said so, never handed over as a path to go and work in. The path is this
+   computer's; an agent in a sandbox may see it under another path (its section of the instructions says how to find
+   it there), which Kosmos cannot see. */
+function folderSentence(project) {
+  if (!project || !project.folder) return '';
+  const f = oneLine(project.folder);
+  let there = false;
+  try { there = fs.statSync(project.folder).isDirectory(); } catch { there = false; }
+  return there
+    ? ' Its folder on this computer is `' + f + '`.'
+    : ' Its folder `' + f + '` is not on this computer right now (moved, removed, or on a drive that is not connected), so ask your person where it is before you work in it.';
+}
 function membershipLine(project, kind) {
   const name = oneLine((project && project.name) || 'a project');
   if (kind === 'left') {
@@ -3219,7 +3236,7 @@ function membershipLine(project, kind) {
      this says what is newly true, that the instructions now list it, rather than announcing the
      join a second time (#304). */
   if (kind === 'listed') {
-    const lfolder = project && project.folder ? ' Its folder is `' + oneLine(project.folder) + '`.' : '';
+    const lfolder = folderSentence(project);
     const lroom = project && project.id
       ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
       : '';
@@ -3228,7 +3245,7 @@ function membershipLine(project, kind) {
   if (kind === 'removed') {
     return 'The project "' + name + '" was removed from Kosmos. Your instructions no longer list it; do not post to its room.';
   }
-  const folder = project && project.folder ? ' Its folder is `' + oneLine(project.folder) + '`.' : '';
+  const folder = folderSentence(project);
   const room = project && project.id
     ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
     : '';
