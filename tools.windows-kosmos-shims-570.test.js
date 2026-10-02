@@ -28,26 +28,33 @@ const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe';
 
 /* A message with every character a shell hop has mangled: a newline, embedded
    quotes, &, %VAR%, a caret and a pipe. */
+const HARD = 'She said "go & echo INJECTED" ok, 100%PATH% ^ | done';
+
 /* #5010: Windows will not remove a folder while a process still runs from it or holds a
    file in it, and a child of the shell under test (the zip's runtime\node.exe) can
    outlive that shell by a moment. A bare rmSync then threw EPERM and the test went red
    on unrelated PRs. So cleanup retries the codes Windows gives for that, pausing a
-   little longer each time (about 7 s in all), and only then throws. */
+   little longer each time (about 7 s in all), and only then throws, naming the folder so
+   a red reads as cleanup, not as the shims. That throw still replaces an assertion error
+   from the test body (as the bare rmSync's did): a folder left behind must stay red. */
 const REMOVE_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'ENOTEMPTY', 'EACCES']);
 function removeTree(dir, opts) {
   const o = opts || {};
   const rm = o.rm || ((d) => fs.rmSync(d, { recursive: true, force: true }));
   const pause = o.pause || ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms));
-  const tries = o.tries || 8;
+  const tries = o.tries ?? 8;
   for (let attempt = 1; ; attempt += 1) {
     try { rm(dir); return attempt; } catch (err) {
-      if (attempt >= tries || !REMOVE_RETRY_CODES.has(err && err.code)) throw err;
+      if (!REMOVE_RETRY_CODES.has(err && err.code)) throw err;
+      if (attempt >= tries) {
+        const e = new Error('cleanup could not remove ' + dir + ' after ' + attempt + ' tries (a process still holds it): ' + err.message);
+        e.code = err.code;
+        throw e;
+      }
       pause(250 * attempt);
     }
   }
 }
-
-const HARD = 'She said "go & echo INJECTED" ok, 100%PATH% ^ | done';
 
 function zipRoot() {
   /* Long form (#4267): a runner's temp can be an 8.3 name (C:\Users\RUNNER~1\...),
@@ -136,6 +143,7 @@ test('PowerShell: a 40,000-character message (past one environment variable\'s l
 test('PowerShell: with no node.exe the shim says so and exits 1, never 0', { skip: !ON_WINDOWS && 'Windows only' }, () => {
   const root = zipRoot();
   try {
+    // Part of the case, not cleanup: nothing has run from the zip yet, so nothing holds node.exe.
     fs.rmSync(path.join(root, 'runtime', 'node.exe'));
     const r = ps(root, ['kosmos reply hello', '"exit=$LASTEXITCODE"']);
     assert.equal(r.lines[r.lines.length - 1], 'exit=1', 'a message nobody sent was reported as sent: ' + r.lines.join(' | '));
@@ -296,7 +304,7 @@ test('no hang: `kosmos feedback write` with no text (the one verb that reads std
       assert.match(r.out, /^Nothing to write/);
       assert.match(r.out, /in PowerShell, pass the text as an argument/);
     }
-  } finally { removeZip(root); removeTree(data); }
+  } finally { try { removeZip(root); } finally { removeTree(data); } }
 });
 
 test('Git Bash: a report piped into `kosmos feedback write` is saved with its non-ASCII characters intact', { skip: (!ON_WINDOWS || !fs.existsSync(USR_BASH)) && 'Windows with Git Bash only' }, async () => {
@@ -309,7 +317,7 @@ test('Git Bash: a report piped into `kosmos feedback write` is saved with its no
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /Saved today's product-feedback report/);
     assert.match(r.out, /caf\u00e9 piped/, 'the piped report changed on the way: ' + r.out);
-  } finally { removeZip(root); removeTree(data); }
+  } finally { try { removeZip(root); } finally { removeTree(data); } }
 });
 
 test('PowerShell: numbers go as the text the agent typed, not PowerShell\'s reading of it', { skip: !ON_WINDOWS && 'Windows only' }, () => {
@@ -341,8 +349,16 @@ test('#5010: cleanup retries EPERM and EBUSY with a growing pause, then removes'
 
 test('#5010: cleanup gives up after its tries and throws the last error', () => {
   const { rm, calls } = failingRm(['EPERM', 'EPERM', 'EPERM', 'EPERM']);
-  assert.throws(() => removeTree('X', { rm, pause: () => {}, tries: 3 }), { code: 'EPERM' });
+  assert.throws(() => removeTree('X', { rm, pause: () => {}, tries: 3 }), { code: 'EPERM', message: /^cleanup could not remove X after 3 tries/ });
   assert.equal(calls.length, 3);
+});
+
+test('#5010: the default pause really waits before the next try', () => {
+  const { rm, calls } = failingRm(['EBUSY']);
+  const started = Date.now();
+  assert.equal(removeTree('X', { rm }), 2);
+  assert.ok(Date.now() - started >= 200, 'the second try came without the first pause');
+  assert.equal(calls.length, 2);
 });
 
 test('#5010: cleanup does not retry an error that waiting cannot fix', () => {
