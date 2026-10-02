@@ -82,7 +82,7 @@ function fresh() {
   cs.setSender((url, init) => fetch(url, init));
   cs.setTimeoutMs(2000);
 }
-test.beforeEach(async () => { fresh(); be = await backend(); });
+test.beforeEach(async () => { fresh(); cs.resetPauses(); be = await backend(); });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
 
 function comment(agent, text, { trusted = true, post = POST } = {}) {

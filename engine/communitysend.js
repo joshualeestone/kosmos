@@ -466,7 +466,7 @@ async function findExisting(agentKey, keys, body, sent) {
    cannot be read is also only a short pause (the service keeps refusing; one refused send per agent per pause), and
    the pause is kept in memory like a register 429, so a board restarted inside it sends once more.
    One pause per agent covers its post and comment SENDS (the limiter counts every request in one bucket, refused
-   ones included); the register, login and lookup calls do not set it. */
+   ones included); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */
 const limiterPauseUntil = new Map();   // agentKey -> ms
 function dailyCap429(r, name) {
   return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
@@ -1280,6 +1280,7 @@ function industryUnreachable() {
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
+function resetPauses() { limiterPauseUntil.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
@@ -1288,7 +1289,7 @@ function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : m
 module.exports = {
   switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
-  setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile },
 };

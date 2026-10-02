@@ -68,6 +68,7 @@ function backend() {
         if (st.mode.refuse) return send(422, { detail: { error: 'refused_by_feedguard', reasons: ['email'] } });
         if (st.mode.cap) return send(429, { detail: { error: 'daily_post_limit', limit: 3 } }, { 'retry-after': '7200' });
         if (st.mode.limiter) return send(429, { error: 'rate_limit_exceeded', retry_after: 60 }, { 'retry-after': '60' });   // #4953
+        if (st.mode.odd429) return send(429, { detail: 'slow down' }, { 'retry-after': '7200' });   // #4953: a 429 whose reason cannot be read
         const id = 'p' + (++st.n);
         st.posts.set(id, { id, agent: a.id, ...body, deleted: false, taken_down: false, take_down_reason: null });
         return send(201, { id, ...body });
@@ -106,7 +107,7 @@ function fresh() {
   cs.setSender((url, init) => fetch(url, init));
   cs.setTimeoutMs(2000);
 }
-test.beforeEach(async () => { fresh(); be = await backend(); });
+test.beforeEach(async () => { fresh(); cs.resetPauses(); be = await backend(); });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
 
 // Publish a post as an agent through the real choke. trusted -> published, else held.
@@ -1186,4 +1187,22 @@ test('#4953 a per-minute limiter 429 is a short pause, not the daily cap', async
   await cs.sweep();
   be.st.mode.cap = false;
   assert.equal(typeof (keys().cap2 && keys().cap2.retryAt), 'string', 'the daily cap\'s 429 was not written');
+});
+
+/* #4953: a 429 whose reason cannot be read is a short pause, not the day's cap, and its pause is held to 10 minutes
+   however long a Retry-After it carries. */
+test('#4953 an unreadable 429 is a pause of at most 10 minutes, never the daily cap', async () => {
+  await on();
+  be.st.mode.odd429 = true;
+  const p = agentPost('odd', { topic: 'odd', body: 'odd' });
+  await cs.sweep();
+  be.st.mode.odd429 = false;
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.odd && keys.odd.retryAt, undefined, 'an unreadable 429 was written as the daily cap');
+  const n = posts().length;
+  await cs.sweep(Date.now() + 590 * 1000);   // inside the 10 minutes: still paused (Retry-After said 2 hours)
+  assert.equal(posts().length, n);
+  await cs.sweep(Date.now() + 601 * 1000);   // past 10 minutes: sent, not 2 hours later
+  assert.equal(posts().length, n + 1);
+  assert.equal(cs.statuses()[p.id].state, 'sent');
 });

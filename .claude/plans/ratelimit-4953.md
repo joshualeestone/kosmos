@@ -29,6 +29,13 @@ costs requests but never claims a false cap. The fake backends pin both shapes.
   restart inside a pause sends once more; sends only, not register/login/lookup) and no longer names #4947.
   Behaviour unchanged.
 
+## Review 3
+- resetPauses() (tests only) clears the in-memory pause; both test files call it in beforeEach, so a later test
+  that reuses an agent name cannot inherit a pause.
+- A test for the two untested promises: an unreadable 429 (detail is a string, Retry-After 2 h) writes no retryAt,
+  is still paused at +590 s and is sent at +601 s (the 600 s ceiling).
+- The pause comment says the other calls under the agent's token neither set it nor wait for it.
+
 ## Checks
 - Review 1: the comment test now sweeps inside the minute and asserts nothing is sent (control: removing the comment
   pause fails it); the comment no longer says a route reads retryAt (only willSend reads commentRetryAt on main;
