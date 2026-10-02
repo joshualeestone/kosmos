@@ -1,0 +1,95 @@
+'use strict';
+/**
+ * #4896: one folder is one agent. Connecting a folder another name already records was allowed, because every
+ * check asked only about the NEW name. Both names then resolved to the same instructions file, so every one of
+ * them showed the same name and role on the board and on a project ("every member shows the joining role"), and
+ * starting both put two Claudes in one worker folder. Measured before the fix (2026-10-01, origin/main a7cae2b3e):
+ * ann and bob both connected to one folder, and both read { displayName: 'Ann', role: 'project manager' }.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-onefolder-'));
+process.env.HOME = path.join(SB, 'home');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
+process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
+fs.mkdirSync(process.env.HOME, { recursive: true });
+fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
+
+const create = require('./create');
+create.setDryRun(true);
+const discover = require('./discover');
+const store = require('./store');
+const status = require('./status');
+
+test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
+/* An empty board through the paneSource seam, as connect-agent.test.js does (#1794). */
+test.beforeEach(() => { status.setPaneSource(() => ''); });
+test.afterEach(() => { status.setPaneSource(null); });
+
+let seq = 0;
+function folder(body) {
+  seq += 1;
+  const dir = path.join(SB, 'theirs', 'f' + seq);
+  fs.mkdirSync(dir, { recursive: true });
+  if (body != null) fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body);
+  return dir;
+}
+
+test('#4896: a folder already connected under one name is refused under another, and nothing is recorded', () => {
+  const dir = folder('You are **Ann**, a project manager.\n');
+  const a = discover.connect(dir, { name: 'ann1' });
+  assert.equal(a.ok, true, a.because);
+  const b = discover.connect(dir, { name: 'bob1' });
+  assert.equal(b.ok, false, 'a second name was connected to the same folder');
+  assert.match(b.because, /already connected as Ann, and one folder holds one agent/);
+  assert.equal(store.readProfile('bob1').dir, undefined, 'the refused name still recorded the folder');
+  assert.notEqual(create.workerDir('bob1'), dir, 'the refused name still resolves to the first agent\'s folder');
+  assert.equal(status.readIdentity('bob1').role, null, 'the refused name still reads the first agent\'s role');
+});
+
+test('#4896: the folder-only path (no instructions, a typed name) refuses a second name the same way', () => {
+  const dir = folder(null);
+  const a = discover.connect(dir, { name: 'cy1' });
+  assert.equal(a.ok, true, a.because);
+  assert.equal(a.registered, true, 'fixture: this did not take the folder-only path');
+  const b = discover.connect(dir, { name: 'dee1' });
+  assert.equal(b.ok, false);
+  assert.match(b.because, /already connected as cy1, and one folder holds one agent/);
+  assert.equal(store.readProfile('dee1').dir, undefined);
+});
+
+test('#4896 CONTROL: the same name connecting its own folder again, and a different folder under a new name, are allowed', () => {
+  const dir = folder('You are **Eve**, a designer.\n');
+  assert.equal(discover.connect(dir, { name: 'eve1' }).ok, true);
+  const again = discover.connect(dir, { name: 'eve1' });
+  assert.doesNotMatch(String(again.because || ''), /one folder holds one agent/, 'the same name was refused its own folder');
+  const other = discover.connect(folder('You are **Fay**, a writer.\n'), { name: 'fay1' });
+  assert.equal(other.ok, true, other.because);
+});
+
+test('#4896: the found list counts a folder recorded under ANY name as already in', () => {
+  const dir = folder('You are **Gus**, an editor.\n');
+  assert.equal(discover.alreadyIn(dir, []), false, 'CONTROL: a folder nobody records is offered');
+  assert.equal(discover.connect(dir, { name: 'gus-typed' }).ok, true);
+  assert.equal(discover.alreadyIn(dir, []), true, 'a folder recorded under a typed name is still offered');
+});
+
+test('#4896: profiles that cannot be read refuse the connect rather than add blind', () => {
+  const dir = folder('You are **Hal**, a researcher.\n');
+  const profiles = store.PROFILES;
+  fs.mkdirSync(profiles, { recursive: true });
+  fs.chmodSync(profiles, 0o000);
+  try {
+    let readable = true;
+    try { fs.readdirSync(profiles); } catch { readable = false; }
+    if (readable) return;   // running as root: the directory cannot be made unreadable, so this arm cannot be measured
+    const out = discover.connect(dir, { name: 'hal1' });
+    assert.equal(out.ok, false);
+    assert.match(out.because, /could not check which agents this computer already has/);
+  } finally { fs.chmodSync(profiles, 0o755); }
+});

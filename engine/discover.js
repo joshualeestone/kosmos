@@ -264,6 +264,12 @@ function alreadyIn(dir, roster) {
     const p = store.readProfile(name);
     if (p && p.dir && p.dir === dir) return true;
   } catch { /* no record is not a reason to hide it */ }
+  /* #4896: recorded under ANY name is in, so the list does not offer a folder connect would now refuse. An
+     unreadable profile list leaves it offered (connect itself refuses that case with its reason). */
+  try {
+    const taken = folderTakenBy(dir, name, { store });
+    if (taken.ok && taken.other) return true;
+  } catch { /* no record is not a reason to hide it */ }
   if (runningUnderName(name, roster)) return true;
   return false;
 }
@@ -1580,6 +1586,33 @@ function scan(opts) {
  * they do there. Doing less work is not the same as doing less checking, and a
  * shorter path that skipped the guards would be the actual danger.
  */
+/**
+ * #4896: the OTHER name that already records this folder, if any.
+ *
+ * 🛑 ONE FOLDER IS ONE AGENT. Every reader resolves an agent's instructions through the folder its profile records
+ * (create.workerDir), so two names recording one folder read ONE file: the same "You are ..., <role>" line, so every
+ * one of them shows the same name and role on the board and on a project, and starting both is two Claudes in one
+ * worker folder (the #362 harm). The per-name checks never saw it: `hasJob`, the running pane and the profile's own
+ * folder are all asked of the NEW name, and the new name has none of them.
+ *
+ * Returns { ok: true, other: null } when no other name records it, { ok: true, other } when one does, and
+ * { ok: false } when the profiles could not be read: that refuses, like the roster check above it, because adding
+ * blind is the failure and the refusal is not.
+ */
+function folderTakenBy(dir, name, { store }) {
+  const listed = require('./register').known();
+  if (!listed.ok) return { ok: false, other: null };
+  for (const other of listed.names) {
+    if (other === name) continue;
+    let p = null;
+    try { p = store.readProfile(other); } catch { p = null; }
+    if (p && p.dir === dir) return { ok: true, other: (typeof p.displayName === 'string' && p.displayName.trim()) || other };
+  }
+  return { ok: true, other: null };
+}
+const FOLDER_UNREADABLE = 'we could not check which agents this computer already has, so we did not add it';
+const folderTakenSentence = (other) => 'that folder is already connected as ' + other + ', and one folder holds one agent';
+
 function registerOnly(given, name, { create, store }) {
   if (!create.nameUsable(name)) {
     return { ok: false, because: 'that name cannot be used as an agent name' };
@@ -1599,6 +1632,9 @@ function registerOnly(given, name, { create, store }) {
   if (before && before.dir && before.dir !== given) {
     return { ok: false, because: 'an agent by that name is already connected to a different folder' };
   }
+  const taken = folderTakenBy(given, name, { store });
+  if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
+  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other) };
   /* The display name is the name they typed. There is no file to disagree with it,
      which is the whole reason this path exists. */
   try { store.writeProfile(name, { dir: given, displayName: name }); }
@@ -1775,6 +1811,11 @@ function connect(dir, opts) {
   if (before && before.dir && before.dir !== given) {
     return { ok: false, because: 'an agent by that name is already connected to a different folder' };
   }
+  /* #4896: and not when ANOTHER name already records this folder (see folderTakenBy). Before the profile write,
+     which is what would make the second name read the first one's file. */
+  const taken = folderTakenBy(given, name, { store });
+  if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
+  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other) };
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
      adoption write a codex JOB; the profile still said nothing, and
      `server.js` derives a card's runner from `profile.provider` whenever the
