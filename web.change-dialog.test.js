@@ -55,6 +55,9 @@ function world(html, fetchImpl) {
     document: { getElementById: el, addEventListener: () => {}, removeEventListener: () => {} },
     CURRENT: currentCard(),
     fetch: fetchImpl, encodeURIComponent, tick: async () => {}, agentShown: () => 'Mara', console,
+    /* #4963: a waking restart arms changeDialog's never-a-trap fallback timer; recorded, never fired here
+       (web.change-dialog-exit-1313.test.js runs it). */
+    setTimeout: () => 0,
     /* #2716: changeModelNow/changeProviderNow now fire autoHelloOnSwitchRestart on a real
        restart. `lift` only pulls the two function declarations, so stub it as a no-op
        here: this file is about the SENTENCES the dialog shows, and the auto-hello side
@@ -85,7 +88,8 @@ test('a successful change is said in the dialog with Done; a saved-but-not-resta
      message to wake them." The engine's fuller sentence still stands on the section line behind the
      dialog. */
   assert.equal(got.msg, 'Restarted on Claude. Waking them…');
-  assert.equal(got.keep.textContent, 'Done'); assert.equal(got.keep.hidden, false);
+  /* #4963 (Josh, 0.7.16): no button while it is waking; the wake helper shows Done when it finishes. */
+  assert.equal(got.keep.hidden, true, 'a button is offered while the agent is still waking');
   got = await change(world(CURRENT_PAGE, ok('partial', 'We saved Claude Fable 5, but could not start it again.')));
   assert.match(got.msg, /^We saved/); assert.equal(got.keep.textContent, 'Close'); assert.equal(got.keep.hidden, false);
   got = await change(world(CURRENT_PAGE, async () => ({ ok: false, json: async () => ({ outcome: 'refused', because: 'that agent has no startup file' }) })));

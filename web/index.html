@@ -46207,7 +46207,13 @@ async function moveAccountNow(say) {
 const WAKE_SPIN_HTML = '<span class="spin spin-sweep wake-spin" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 const WAKE_DONE_HTML = '<svg class="wake-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
+  /* #4963: set once the run has said a restart is waking the agent. From then the switch no longer needs
+     the person, so Escape may close the dialog: the wake goes on without it. */
+  let wakingNow = false;
   const back = document.getElementById('chg-modal');
+  /* #4963: which opening is current, kept on the dialog (one element, reused), so a timer armed by one
+     opening never acts on the next. */
+  const openGen = back.__openGen = (back.__openGen || 0) + 1;
   const t = document.getElementById('chg-title');
   const sm = document.getElementById('chg-small');
   const keep = document.getElementById('chg-keep');
@@ -46229,6 +46235,9 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
      switch went ahead: the person would believe they cancelled something that
      is happening. A key that silently means the opposite of what it says is
      worse than a key that does nothing.
+     #4963: one exception, once a restart is waking the agent: the request has
+     answered and the switch has happened, and the wake carries on whether or not
+     the dialog is open, so Escape closing it says nothing untrue.
      📌 The listener is removed in `close`, so opening this dialog repeatedly
      does not stack handlers. */
   const close = () => {
@@ -46246,7 +46255,7 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
     document.removeEventListener('keydown', onEsc);
   };
   const onEsc = (e) => {
-    if (e.key !== 'Escape' || back.hidden || goBtn.disabled) return;
+    if (e.key !== 'Escape' || back.hidden || (goBtn.disabled && !wakingNow)) return;
     close();
   };
   document.addEventListener('keydown', onEsc);
@@ -46301,6 +46310,23 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
         if (waking && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
         goBtn.hidden = true;
         keep.textContent = ok ? 'Done' : 'Close';
+        /* #4963 (Josh, 0.7.16): "you should not be able to press Done ... we shouldnt even show that button
+           until the process is totally complete". While the agent is waking there is no button: the
+           wake helper (autoHelloOnSwitchRestart) shows Done, gold, when it finishes. Escape still closes
+           the dialog (onEsc), and closing never stops the wake. If the helper never reports, Close comes
+           back once its longest possible wait has passed, so the dialog is never a trap (#1313). */
+        if (waking) {
+          keep.hidden = true;
+          wakingNow = true;
+          const window_ = (typeof RESTART_READY_WINDOW_MS === 'number' ? RESTART_READY_WINDOW_MS : 30000) + 30000;
+          setTimeout(() => {
+            if (openGen !== back.__openGen || back.hidden || !keep.hidden) return;
+            keep.textContent = 'Close';
+            keep.hidden = false;
+            try { keep.focus(); } catch { /* the sentence stands on its own */ }
+          }, window_);
+          return;
+        }
         keep.hidden = false;
         try { keep.focus(); } catch { /* the sentence stands on its own */ }
       };
@@ -52675,9 +52701,12 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
     const title = document.getElementById('chg-title');
     if (title && doneTitle) title.textContent = doneTitle;
     const keep = document.getElementById('chg-keep');
-    if (keep && !keep.hidden) {
+    if (keep) {
+      /* #4963: the button appears only now, when the wait is over (changeDialog hides it while waking). */
+      keep.textContent = 'Done';
+      keep.hidden = false;
       if (keep.classList) keep.classList.add('uprime');
-      // Only if it is not there already (say's render focused it): a second focus re-announces the button.
+      // Only if it is not there already: a second focus re-announces the button.
       try { if (document.activeElement !== keep) keep.focus(); } catch { /* the line stands on its own */ }
     }
   };

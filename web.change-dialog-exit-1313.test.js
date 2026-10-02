@@ -57,6 +57,7 @@ async function press(run) {
   const changeDialog = new Function('document', `${page.lift(SCRIPT, 'changeDialog')}\nreturn changeDialog;`)(document);
   changeDialog({ title: 't', small: 's', go: 'Go', run });
   await nodes['chg-go'].onclick();
+  nodes.__listeners = listeners;   // #4963: so a test can press Escape
   return nodes;
 }
 
@@ -86,6 +87,31 @@ test('#1313: a run that DOES speak is unchanged, and its own sentence wins', asy
     'the run said one thing and the dialog showed another');
   assert.equal(n['chg-keep'].textContent, 'Done',
     'a successful run should offer Done rather than Close');
+});
+
+/* #4963 (Josh, 0.7.16): "you should not be able to press Done ... we shouldnt even show that button until
+   the process is totally complete". While a restart is waking the agent the dialog shows no button. That is
+   only acceptable because it is still not a trap: Escape closes it (the wake goes on without the dialog),
+   and if the wake helper never reports, Close comes back once its longest wait has passed. */
+test('#4963: while the agent is waking there is no button, but Escape still closes the dialog', async () => {
+  const n = await press(async (say) => { say('Restarted on Gemini. Waking them…', true, true); });
+  assert.equal(n['chg-keep'].hidden, true, 'a button is offered while the agent is still waking');
+  assert.equal(n['chg-msg'].textContent, 'Restarted on Gemini. Waking them…');
+  const esc = n.__listeners.filter((l) => l.type === 'keydown');
+  assert.equal(esc.length, 1, 'the dialog lost its Escape handler');
+  esc[0].fn({ key: 'Escape' });
+  assert.equal(n['chg-modal'].hidden, true, 'Escape did not close a dialog whose switch has already happened');
+});
+
+test('#4963: if the wake never reports, Close comes back, so the dialog is never a trap', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const n = await press(async (say) => { say('Restarted on Gemini. Waking them…', true, true); });
+  assert.equal(n['chg-keep'].hidden, true);
+  t.mock.timers.tick(59000);
+  assert.equal(n['chg-keep'].hidden, true, 'the button came back before the wake could have finished');
+  t.mock.timers.tick(2000);
+  assert.ok(wayOut(n), 'the dialog stayed with nothing to press after the longest wake had passed');
+  assert.equal(n['chg-keep'].textContent, 'Close', 'an unfinished wake must not be offered as Done');
 });
 
 test('CONTROL: the harness can observe the trap, so the assertions above are live', async () => {
