@@ -592,6 +592,11 @@ function chk(ok, label, extra) {
           const waiting = await rows(page);
           chk(waiting[2].state === 'Waiting for it to start…' && hellos.filter((h) => h.who === 'zed').length === 0,
             `${E} #4936 a member the board cannot read yet shows "Waiting for it to start…" and is not typed into`, JSON.stringify([waiting[2], hellos.map((h) => h.who)]));
+          // Review 19: still unknown for over three gaps: a loop that waited only a gap or two would have given up by now.
+          await page.waitForTimeout(1500);
+          const still = await rows(page);
+          chk(still[2].state === 'Waiting for it to start…' && hellos.filter((h) => h.who === 'zed').length === 0,
+            `${E} #4936 it is still waited for after more than three gaps, and still not typed into`, JSON.stringify([still[2], hellos.map((h) => h.who)]));
           delete stateOf.zed;   // it comes up
           await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
           chk(hellos.filter((h) => h.who === 'zed').length === 1 && await page.evaluate(() => TC === null),

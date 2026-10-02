@@ -48699,21 +48699,28 @@ async function tcHelloOne(m, gen) {
   /* Review 9: "the board can see it" is not "it can take a message". A member asking something (needs_you: Enter
      would pick an option), signed out, at its limit, or not up is not typed into: its row says why, with Try again. */
   // Review 11: asked before EVERY try, not only the first: a member can draw a question between two tries.
+  /* Review 14/18/19: a member "not ready yet" (just made, still starting) is waited out, one gap between every look,
+     up to TC_HELLO_WAITS looks, and the waiting uses up none of the TC_HELLO_TRIES sends; a member that needs the
+     person, is signed out, at its limit or stopped will not clear in seconds, so it stops at once. */
   let got = 'failed';
   let why = null;
+  let sends = 0;
   let waits = 0;
-  for (let i = 0; i < TC_HELLO_TRIES && got === 'failed'; i++) {
-    if (i) await new Promise((r) => setTimeout(r, TC_HELLO_GAP_MS));
+  let looks = 0;
+  while (sends < TC_HELLO_TRIES && got === 'failed') {
+    if (looks++) await new Promise((r) => setTimeout(r, TC_HELLO_GAP_MS));   // a gap before every look but the first
     if (gen !== TC_GEN) return;
     const held = await tcHelloHeld(m.made.name);
     if (gen !== TC_GEN || !TC) return;
-    // Review 18: waiting for a member to start does not use up a send try; it has its own, longer allowance.
-    if (held && held.transient && ++waits < TC_HELLO_WAITS) { i--; TC_STATUS_READ = null; if (m.hello !== 'waiting') { m.hello = 'waiting'; tcPaint(); } continue; }
-    // Review 14: "not ready yet" (just made, still starting) is waited out like a busy window, try after try; a
-    // member that needs the person, is signed out or at its limit will not clear in seconds, so it stops at once.
-    if (held && held.transient) { got = 'failed'; why = held.text; TC_STATUS_READ = null; m.hello = 'waiting'; tcPaint(); continue; }
-    if (m.hello === 'waiting') { m.hello = 'sending'; tcPaint(); }
+    if (held && held.transient) {
+      if (++waits > TC_HELLO_WAITS) { got = 'failed'; why = held.text; break; }   // waited long enough
+      TC_STATUS_READ = null;   // the next look reads the board afresh, one gap from now
+      if (m.hello !== 'waiting') { m.hello = 'waiting'; tcPaint(); }
+      continue;
+    }
     if (held) { m.hello = 'failed'; m.helloWhy = held.text; tcPaint(); return; }
+    if (m.hello === 'waiting') { m.hello = 'sending'; tcPaint(); }
+    sends++;
     ({ got, why } = await tcHelloSend(m.made.name));
   }
   if (gen !== TC_GEN || !TC) return;
@@ -48786,6 +48793,10 @@ function tcGoToTeam(auto) {
   const until = Date.now() + TC_JUST_MADE_MS;
   let first = null;
   let focused = false;
+  // Review 19: once the person clicks or presses a key, focus is theirs: the mark loop stops putting it back.
+  const theirs = () => { focused = false; };
+  document.addEventListener('pointerdown', theirs, { once: true, capture: true });
+  document.addEventListener('keydown', theirs, { once: true, capture: true });
   const sel = names.map((n) => '.acard[data-agent="' + CSS.escape(n) + '"], .lrow[data-agent="' + CSS.escape(n) + '"]').join(', ');
   const mark = () => {
     const live = Date.now() < until;
@@ -48825,7 +48836,8 @@ function tcGoToTeam(auto) {
       where = (names.length === 1 ? 'Look for it on your board.' : 'Look for them on your board.');
       // Review 18: no card to focus (the consolidated layout draws project rows): focus the agents view itself, not the page.
       const at = document.activeElement;
-      const host = [document.getElementById('panel-cons-agents'), document.getElementById('panel-agents')].find((e) => e && e.offsetParent);
+      // Review 19: the tabs layout's board is #grid (its cards are redrawn inside it; it stays).
+      const host = [document.getElementById('panel-cons-agents'), document.getElementById('grid')].find((e) => e && e.offsetParent);
       if (host && (!at || at === document.body || document.getElementById('panel-create').contains(at))) { host.tabIndex = -1; host.focus({ preventScroll: true }); }
     }
     live.textContent = notSaid === 0 ? 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. ' : 'team. ') + where
