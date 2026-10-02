@@ -932,17 +932,31 @@ _busy_person_hint() {
 # A DETERRENT, not access control: it stops an agent that follows the CLI's own advice into a restart
 # loop. An agent that passes --force or clears its markers gets through, and so does one launched before
 # #4466 with none of the markers. Never rely on it as a security boundary.
-# kosmos#2600: a board started from a remote (SSH) session on a Mac runs in that session's security context, which
-# cannot read the login Keychain. `claude auth status` there answers loggedIn:false, so the board calls EVERY Claude
-# account "Anthropic says this account is not signed in" while the same account is signed in on the Mac itself
-# (measured on Mortals 2026-09-30, three arms: from ssh false, from the agents' tmux session true, and all five
-# accounts connected once the board was restarted from the right context). This says so BEFORE it happens, in one
-# sentence, and never refuses: advice, so a false positive costs one line. The signal is the SSH variables a remote
-# login sets; a session that strips them is not caught. KOSMOS_UNAME lets a test stand in for macOS.
-ssh_keychain_note() {   # <start|restart>
+# kosmos#2600: a board launched DIRECTLY (the nohup path below) runs in the security session of whatever started it,
+# and a remote (SSH) session cannot use the login Keychain. `claude auth status` there answers loggedIn:false, so the
+# board calls EVERY Claude account "Anthropic says this account is not signed in" while the same account is signed in
+# on the Mac itself (measured on Mortals 2026-09-30, three arms; cost 14 hours on 09-29). A SUPERVISED start is not
+# affected: it asks launchd to start the login job in the person's desktop session, so this is called only on the
+# direct path, just before it launches.
+# The signal is the question itself, asked read-only: `security show-keychain-info` on the login keychain. Measured
+# 2026-10-02: from SSH it fails ("User interaction is not allowed", rc 36); in the agents' tmux server and in a desktop
+# session it answers (rc 0). It never raises a dialog. Rejected: the SSH variables (tmux copies them into windows of a
+# session that CAN read the Keychain) and `launchctl managername` (it says Background in all three contexts).
+# Advice, never a refusal: a board that is up and wrong beats one that is down. KOSMOS_UNAME and
+# KOSMOS_KEYCHAIN_PROBE let a test stand in for macOS and for the probe.
+keychain_note() {
   [ "${KOSMOS_UNAME:-$(uname -s 2>/dev/null)}" = Darwin ] || return 0
-  [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ] || return 0
-  say "Note: this is a remote (SSH) session. A Kosmos started from here cannot read this Mac's Keychain, so it will show your Claude accounts as not signed in even when they are. To avoid that, start Kosmos on the Mac itself (open the Kosmos app, or run \`kosmos $1\` in Terminal there)."
+  if [ -n "${KOSMOS_KEYCHAIN_PROBE:-}" ]; then
+    "$KOSMOS_KEYCHAIN_PROBE" >/dev/null 2>&1 && return 0
+  else
+    command -v security >/dev/null 2>&1 || return 0
+    security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 && return 0
+  fi
+  if _invoked_by_agent; then
+    say "Note: this Kosmos is starting in a session that cannot read this Mac's Keychain, so it will show the Claude accounts as not signed in even when they are. Tell the person who runs this computer: running \`kosmos restart\` in Terminal on the Mac itself fixes it."
+  else
+    say "Note: this Kosmos is starting in a session that cannot read this Mac's Keychain (a remote SSH session is the usual reason), so it will show your Claude accounts as not signed in even when they are. To fix that, run \`kosmos restart\` in Terminal on the Mac itself."
+  fi
   return 0
 }
 
@@ -1182,6 +1196,7 @@ cmd_start() {
     _await_board_up && return 0
     die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
   fi
+  keychain_note   # kosmos#2600: only on this direct path; the supervised start above runs in the desktop session
   say "Bringing the board up."
   _mark_board_started
   # Detached from this terminal, with everything it prints kept in a log so a
@@ -4304,9 +4319,9 @@ if [ "${BASH_SOURCE[0]:-$0}" != "$0" ]; then
   return 0 2>/dev/null || true
 fi
 case "${1:-}" in
-  start)   agent_board_guard "$@"; ssh_keychain_note start; cmd_start ;;     # #4466: agent_board_guard gets the verb as $1
+  start)   agent_board_guard "$@"; cmd_start ;;     # #4466: agent_board_guard gets the verb as $1
   stop)    agent_board_guard "$@"; cmd_stop ;;
-  restart) agent_board_guard "$@"; ssh_keychain_note restart; cmd_restart ;;
+  restart) agent_board_guard "$@"; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
   status)  cmd_status ;;
   open)    cmd_open ;;
