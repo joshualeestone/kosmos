@@ -9,8 +9,10 @@
 # the cut asked the coordinator anything.
 #
 # THE CHECK. tools/coordinator-floor lists those relay commits. For each one the connector's relay commit
-# (its .commit sidecar, connector-provenance.sh) contains, the coordinator's /v1/meta "build" must contain
-# it too. By ANCESTRY in the relay checkout: the coordinator is deployed from a relay commit and reports
+# (its .commit sidecar, connector-provenance.sh) may carry, the coordinator's /v1/meta "build" must contain
+# it too. "May carry" is everything but PROVABLY OLDER (review 1): the connector's commit a strict ancestor
+# of the floor commit. kosmos-relay squash-merges, so a connector built from the pre-squash branch carries the
+# change without descending from the floor commit; it is asked about, not waved through. By ANCESTRY in the relay checkout: the coordinator is deployed from a relay commit and reports
 # it; a build that cannot be resolved there, or that is not a descendant, is refused.
 #
 # FAILS CLOSED. A /v1/meta that cannot be read, has no build, or names a commit the relay checkout does
@@ -40,16 +42,21 @@ coordinator_floor_check() {
     sha="${line%% *}"; why="${line#* }"; [ "$why" = "$line" ] && why=""
     git -C "$relay" cat-file -e "${sha}^{commit}" 2>/dev/null \
       || { echo "coordinator_floor: the floor names $sha, which is not in $relay (fetch it); refused." >&2; return 1; }
-    git -C "$relay" merge-base --is-ancestor "$sha" "$built" 2>/dev/null || continue
+    # Provably older (a strict ancestor of the floor commit, on the same line) is the only case not asked about.
+    if [ "$(git -C "$relay" rev-parse "${built}^{commit}")" != "$(git -C "$relay" rev-parse "${sha}^{commit}")" ] \
+       && git -C "$relay" merge-base --is-ancestor "$built" "$sha" 2>/dev/null; then
+      continue
+    fi
     needed="${needed}${sha} ${why}"$'\n'
   done < "$floor"
   [ -n "$needed" ] || return 0   # the connector carries no floor change: nothing to ask the coordinator
   meta="$(curl -fsS -m 15 "$url/v1/meta" 2>/dev/null)" \
     || { echo "coordinator_floor: could not read $url/v1/meta, so whether the coordinator carries what this connector needs is UNKNOWN; refused." >&2; return 1; }
-  build="$(printf '%s' "$meta" | sed -n 's/.*"build":[[:space:]]*"\([0-9a-f]\{7,40\}\)".*/\1/p')"
+  build="$(printf '%s' "$meta" | sed -n 's/.*"build":[[:space:]]*"\([0-9a-f]\{7,40\}\(-dirty\)\{0,1\}\)".*/\1/p')"
   [ -n "$build" ] || { echo "coordinator_floor: $url/v1/meta names no build; refused." >&2; return 1; }
+  case "$build" in *-dirty) echo "coordinator_floor: the coordinator reports a DIRTY build ($build), so what it carries is unknown; redeploy it from a clean relay main at or above the floor. Refused." >&2; return 1 ;; esac
   build_full="$(git -C "$relay" rev-parse -q --verify "${build}^{commit}" 2>/dev/null)" \
-    || { echo "coordinator_floor: the coordinator reports build $build, which is not in $relay (deployed from an unpushed commit?); refused." >&2; return 1; }
+    || { echo "coordinator_floor: the coordinator reports build $build, which is not in $relay: deployed from a branch (before a squash merge) or an unpushed commit. Redeploy it from relay main at or above the floor. Refused." >&2; return 1; }
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     sha="${line%% *}"

@@ -34,5 +34,9 @@ reported 592c8dc1, a relay main commit); if a deploy ever stamps something else,
 build), it does not pass.
 
 ## Residual
+- Mac cut only: the Windows lane (build-kosmos-windows.sh stages kosmos-tunnel.exe with a .commit) does not
+  run release.sh and does not ask the coordinator. Step 1d has the same gap.
+- A coordinator deployed from a branch before the squash merge reports a sha the relay checkout lacks; the
+  gate refuses (safe) and says to redeploy from relay main.
 - Checks the coordinator at cut time only. A coordinator rolled back after the cut is #4869 step 2's
   rule, not this gate's.

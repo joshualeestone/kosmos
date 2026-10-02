@@ -41,13 +41,21 @@ coordinator "${FLOOR:0:8}"; run && ok "a coordinator AT the floor (short build i
 coordinator "$NEWER"; run && ok "a coordinator ABOVE the floor (full build id) passes" || bad "above-floor coordinator refused: $(cat "$T/err")"
 connector "$FLOOR"; coordinator "${OLD:0:8}"
 run && bad "a connector built exactly at the floor commit was not checked" || ok "a connector built exactly at the floor commit is checked too"
+# 3b. review 1: relay squash-merges, so a connector built from the PRE-SQUASH branch carries the change without
+# descending from the floor commit. It must be asked about, not waved through (the gate used to pass it).
+g -C "$T/relay" checkout -q -b signacct "$OLD"; echo floor-on-branch >> "$T/relay/g"; g -C "$T/relay" add -A; g -C "$T/relay" commit -q -m "branch copy of the floor change"
+BRANCH="$(g -C "$T/relay" rev-parse HEAD)"; g -C "$T/relay" checkout -q main
+connector "$BRANCH"; coordinator "${OLD:0:8}"
+run && bad "a connector from the pre-squash branch passed without asking the coordinator" || ok "a connector off the floor's line (a pre-squash branch) is asked about, and refused beside an older coordinator"
+coordinator "${FLOOR:0:8}"; run && ok "CONTROL: the same branch connector passes once the coordinator carries the floor" || bad "branch connector refused beside an at-floor coordinator: $(cat "$T/err")"
 
 # 4. fails closed: no meta, no build in it, a build the relay does not have, a floor commit it does not have
 connector "$NEWER"
 coordinator none; run && bad "an unreadable /v1/meta was waved on" || { grep -q "UNKNOWN" "$T/err" && ok "an unreadable /v1/meta refuses (unknown is not assumed)" || bad "wrong refusal for no meta: $(cat "$T/err")"; }
 rm -rf "$T/coord"; mkdir -p "$T/coord/v1"; printf '{"domain":"x"}' > "$T/coord/v1/meta"
 run && bad "a meta with no build was waved on" || { grep -q "names no build" "$T/err" && ok "a meta with no build refuses" || bad "wrong refusal for no build: $(cat "$T/err")"; }
-coordinator deadbeef0; run && bad "a build the relay does not have was waved on" || { grep -q "not in" "$T/err" && ok "a build the relay checkout does not have refuses" || bad "wrong refusal for an unknown build: $(cat "$T/err")"; }
+coordinator deadbeef0; run && bad "a build the relay does not have was waved on" || { grep -q "deployed from a branch" "$T/err" && ok "a build the relay checkout does not have refuses, naming the branch-deploy case" || bad "wrong refusal for an unknown build: $(cat "$T/err")"; }
+coordinator "${NEWER:0:8}-dirty"; run && bad "a dirty coordinator build was waved on" || { grep -q "DIRTY build" "$T/err" && ok "a dirty coordinator build refuses, said as dirty" || bad "wrong refusal for a dirty build: $(cat "$T/err")"; }
 coordinator "$NEWER"; printf '%s why\n' "0123456789012345678901234567890123456789" > "$T/floor2"
 KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor2" 2>"$T/err" \
   && bad "a floor commit the relay does not have was waved on" || { grep -q "the floor names" "$T/err" && ok "a floor naming a commit the relay does not have refuses" || bad "wrong refusal for a bad floor: $(cat "$T/err")"; }
@@ -64,7 +72,7 @@ KOSMOS_ALLOW_COORDINATOR_BEHIND=yes KOSMOS_COORDINATOR_URL="file://$T/coord" coo
 REAL_FLOOR="$(grep -v '^#' tools/coordinator-floor | awk 'NF{print $1}')"
 [ -n "$REAL_FLOOR" ] && printf '%s\n' "$REAL_FLOOR" | grep -qvE '^[0-9a-f]{40}$' && bad "tools/coordinator-floor has a line that is not a full sha" || ok "tools/coordinator-floor holds full shas only"
 printf '%s\n' "$REAL_FLOOR" | grep -qx "534f36980f2f364b178193eb54958329d3daf6d5" && ok "tools/coordinator-floor carries #4869 (534f36980)" || bad "tools/coordinator-floor lacks #4869"
-grep -qF 'coordinator_floor_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"' tools/release.sh && grep -qF '. "$REPO/tools/lib/coordinator-floor.sh"' tools/release.sh \
+grep -qF '"${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1' tools/release.sh && grep -qF '. "$REPO/tools/lib/coordinator-floor.sh"' tools/release.sh \
   && ok "release.sh sources the check and runs it (step 1d2)" || bad "release.sh does not run coordinator_floor_check"
 # It runs BEFORE the version bump (step 2), so a refusal leaves no pushed bump.
 a="$(grep -n 'coordinator_floor_check "\${KOSMOS_TUNNEL_BIN' tools/release.sh | head -1 | cut -d: -f1)"; b="$(grep -n 'step "== 2. the version, in one place ==' tools/release.sh | head -1 | cut -d: -f1)"
