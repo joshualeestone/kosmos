@@ -310,6 +310,9 @@ function emitPrefixes(src) {
    different lines, which git merges. KEEP IT SORTED (a test below enforces it): an
    appended line lands where every other PR appends too. Two new checks that sort
    next to each other can still touch adjacent lines; that conflict is "keep both".
+   ONE LINE CAN COUNT IN BOTH SCANS: they tally different properties of a line, not a
+   partition, so a single-line top-level `.catch((e) => console.error('FAIL  x threw: ' + e))`
+   is [1, 1] on its own. That is not double counting.
    The history of the old totals is in git, not here. */
 const SITE_COUNTS = {
   'contrast.js': [0, 1],
@@ -508,19 +511,35 @@ function assertSiteCounts(measured, slot, what) {
     if (want === got) continue;
     wrong.push(SITE_COUNTS[f]
       ? `${f}: ${got} ${what} sites matched, its SITE_COUNTS line says ${want}`
-      : `${f}: ${got} ${what} sites matched and it has no SITE_COUNTS line`);
+      : `${f}: ${got} ${what} sites matched and it has no SITE_COUNTS line `
+        + `(add '${f}': [${slot === 0 ? got : 0}, ${slot === 1 ? got : 0}], in sorted order)`);
   }
   assert.deepEqual(wrong, [],
     `${what} sites do not match SITE_COUNTS. The LIKELY cause is an emit site added or `
     + 'removed without updating its line: check the diff first, and if that is it, fix the '
-    + `line deliberately (number ${slot + 1} of the pair is ${what}). If EVERY line is listed, `
+    + `line deliberately (number ${slot + 1} of the pair is ${what}). If every line with a nonzero number in that slot is listed, `
     + 'the matcher has drifted and examines nothing -- the dangerous cause, and the reason '
     + 'this is an equality:\n  ' + wrong.join('\n  '));
 }
 
 test('SITE_COUNTS is sorted, one well-formed line per check, and names only checks that exist', () => {
   const keys = Object.keys(SITE_COUNTS);
-  assert.deepEqual(keys, [...keys].sort(), 'keep SITE_COUNTS sorted by file name, so new lines do not all land in one place');
+  /* Code-unit order, the same as `LC_ALL=C sort` and JS's default sort. A locale sort
+     (glibc en_US ignores '-' and '.') puts some lines elsewhere. */
+  for (let i = 1; i < keys.length; i++) {
+    assert.ok(keys[i - 1] < keys[i],
+      `SITE_COUNTS is out of order: '${keys[i]}' must come before '${keys[i - 1]}' `
+      + '(code-unit order, as LC_ALL=C sort; keep it sorted so new lines do not all land in one place)');
+  }
+  /* 🛑 A DUPLICATE KEY IS INVISIBLE TO THE OBJECT: JS keeps the last one and Object.keys
+     shows it once, so a stale copy left by a "keep both" merge would sit there unread.
+     Count the keys in the SOURCE. */
+  const src = fs.readFileSync(__filename, 'utf8');
+  const table = src.slice(src.indexOf('const SITE_COUNTS = {'), src.indexOf('\n};', src.indexOf('const SITE_COUNTS = {')));
+  const seen = [...table.matchAll(/^  '([^']+)': \[/gm)].map((m) => m[1]);
+  assert.equal(seen.length, keys.length,
+    'SITE_COUNTS has a duplicate line (a merge kept both copies?): '
+    + seen.filter((k, i) => seen.indexOf(k) !== i).join(', '));
   const onDisk = new Set(fs.readdirSync(DIR).filter((f) => f.endsWith('.js')));
   for (const [f, pair] of Object.entries(SITE_COUNTS)) {
     assert.ok(onDisk.has(f), `SITE_COUNTS names ${f}, which is not in docs/browser-checks`);
@@ -536,7 +555,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
   /* No file-count floor here. There was one, at `>= 40` against an actual 63,
      and by this file's own rule a floor with 23 of slack is decoration. The
      exact site count below is the real backstop: a broken directory read
-     yields zero sites, which is not 29. */
+     yields zero sites, and every SITE_COUNTS line then goes red. */
 
   const bad = [];
   const perFile = Object.create(null);
