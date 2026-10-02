@@ -2609,23 +2609,19 @@ function agentBirthOf(name) {
 }
 /* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
    Only when all of these hold, else refused:
-   - the newest birth for the target was made at an agent's own request (createdByAgent, set by engine/team.js), so
-     a fixed creator word the person's paths record ("operator" from the org-chart import, "kosmos" for the setup
-     guide) never makes an agent of that name the owner;
-   - that birth's profile id is the target's current one, so a name freed and used again is not the old creator's;
-   - the caller's token carries its agent's name (an older key-only token cannot say which agent it is);
-   - the birth's creator is the caller, compared in the forms POST /api/team records a creator in (its card's
-     sessionName: the slug for an agent with a pane, the store key for one without). A profile that cannot be read
-     gives no id, which refuses. */
+   - the target's newest birth carries `createdByName`: the exact name on the token of the agent that asked for it
+     through POST /api/team (engine/team.js records it only for an agent that is not the setup guide). The person's
+     paths record none, so a fixed creator word they write ("operator", "kosmos") never makes an agent its owner;
+   - that birth's profile id is the target's current one (a profile that cannot be read gives none), so a name
+     freed and used again is not the old creator's;
+   - the caller's token carries its name, and that name is `createdByName` exactly. */
 function tokenOnlyMayRemove(caller, target) {
-  if (!caller || caller.byKey || caller.twins) return false;
+  if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return false;
   const birth = agentBirthOf(target);
-  if (!birth || birth.createdByAgent !== true || !birth.createdBy || !birth.id) return false;
+  if (!birth || typeof birth.createdByName !== 'string' || !birth.createdByName || !birth.id) return false;
   let current; try { current = store.readProfile(create.slugFor(target)).id; } catch { return false; }
   if (!current || current !== birth.id) return false;
-  let mine;
-  try { mine = new Set([create.slugFor(caller.name), store.safeKey(caller.name)].filter(Boolean)); } catch { return false; }
-  return mine.has(String(birth.createdBy));
+  return birth.createdByName === caller.name;
 }
 
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
@@ -4193,8 +4189,8 @@ function agentTokenOk(req) {
 /* #4491 slice 4: did this request get past the board-token gate on its agent token ALONE? Returns null when it did
    not (the board is not enforcing, or the caller also holds the person's credential: the page, the person's
    terminal, every agent's CLI today), else the caller for tokenOnlyOnProject (below), or '' when the
-   token names nobody. For the READ handlers only: they have no body, and the gate has already checked the token,
-   so this is the same header read twice.
+   token names nobody. For handlers that read no body (the reads, and DELETE .../removal, #4475): the gate has already
+   checked the token, so this is the same header read twice.
    #4792: a token minted with its agent's name is matched by that exact name, as the slice-3 writes compare a
    carded caller, or by the stored key while no second name holds a named token (tokenOnlyOnProject's key arm). An older token carries only its key (store.safeKey of the name) and is matched BY KEY, as before:
    a project that lists "a.b" admits it when its key is "ab". That older path is refused when a second name has
@@ -7187,6 +7183,7 @@ const server = http.createServer(async (req, res) => {
         const presented = presentedAgentToken(req, body);
         let effectiveCreator;
         let callerKind;
+        let creatorTokenName = null;
         if (presented) {
           const authRoster = safeRoster();
           if (authRoster === null) {
@@ -7201,6 +7198,10 @@ const server = http.createServer(async (req, res) => {
           if (!sender.ok) { sendJson(res, 403, { error: sender.because }); return; }
           effectiveCreator = sender.card.sessionName;
           callerKind = 'agent';
+          /* #4475: the creator's exact name as its token carries it, recorded on each birth so the removal route can
+             match its creator exactly (the sessionName above is a slug or a store key, both lossy). A key-only token
+             (before #4792) carries none, and its births are then not removable by it. */
+          try { const named = sendertoken.resolveName(presented); creatorTokenName = (named && named.ok === true && typeof named.name === 'string' && named.name) ? named.name : null; } catch { creatorTokenName = null; }
         } else {
           // OPERATOR path: no agent token, so on an enforcing board the board token
           // is required (computed only here -- it is never read on the agent path).
@@ -7395,6 +7396,7 @@ const server = http.createServer(async (req, res) => {
           members: overCap ? members : liveMembers,
           fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
           fromGuide,
+          creatorTokenName,   // #4475: recorded on each birth (createdByName) for an agent that is not the guide
         };
         let result;
         if (callerKind === 'agent') {

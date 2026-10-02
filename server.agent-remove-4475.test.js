@@ -47,14 +47,15 @@ test.before(async () => {
   pmToken = minted.token;
 });
 
-/* A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: createdByAgent, and the
-   profile id the agent's profile carries (minted on the profile's first write). `extra` overrides fields per case. */
+/* A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: createdByName (the
+   asking agent's exact token name), and the profile id the agent's profile carries (minted on the profile's first
+   write). `extra` overrides fields per case. */
 function born(name, createdBy, extra = {}) {
   fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
   store.writeProfile(create.slugFor(name), {});
   const id = store.readProfile(create.slugFor(name)).id;
   assert.ok(id, 'the test could not mint a profile id for ' + name);
-  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ name, outcome: 'created', createdBy, createdByAgent: true, id, ...extra }) + '\n');
+  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ name, outcome: 'created', createdBy, createdByName: createdBy, id, ...extra }) + '\n');
 }
 async function remove(name, headers, query = '') {
   const res = await fetch(`${base}/api/agent/${encodeURIComponent(name)}/removal${query}`, { method: 'DELETE', redirect: 'manual', headers });
@@ -85,18 +86,31 @@ test('a token-only agent may remove an agent it created', async () => {
   assert.ok(reachedEngine(r), `its own creation did not reach the removal engine: ${r.code} ${r.text.slice(0, 160)}`);
 });
 
-test('the creator is matched in the forms POST /api/team records it: a paneless creator by its store key', async () => {
+test('the creator is matched by its exact token name: a name with a period, and an adopted agent\'s capitals', async () => {
   const kip = sendertoken.mint('Dr. Kip');
   assert.ok(kip.ok, 'could not mint a token for a name with a period: ' + kip.because);
-  born('Kip Kid', store.safeKey('Dr. Kip'));
-  const r = await remove('kip-kid', { 'x-kosmos-agent-token': kip.token });
-  assert.ok(reachedEngine(r), `a creator recorded by its key was not matched: ${r.code} ${r.text.slice(0, 160)}`);
+  born('Kip Kid', 'Dr. Kip');
+  assert.ok(reachedEngine(await remove('kip-kid', { 'x-kosmos-agent-token': kip.token })), 'a creator with a period was not matched');
+  const casey = sendertoken.mint('Casey');
+  assert.ok(casey.ok);
+  born('Casey Kid', 'Casey');
+  assert.ok(reachedEngine(await remove('casey-kid', { 'x-kosmos-agent-token': casey.token })), 'an adopted creator with capitals was not matched');
 });
 
-test('a creator recorded in a form the board never writes (capitals) is not matched loosely', async () => {
+test('a different agent whose name folds to the same slug or key is not the creator', async () => {
+  born('Kip Kid Two', 'Dr. Kip');
+  for (const other of ['dr-kip', 'drkip', 'DR. KIP']) {
+    const t = sendertoken.mint(other);
+    assert.ok(t.ok, 'could not mint ' + other);
+    const r = await remove('kip-kid-two', { 'x-kosmos-agent-token': t.token });
+    assert.equal(r.code, 403, `${other} removed an agent Dr. Kip made: ${r.text.slice(0, 160)}`);
+  }
+});
+
+test('a creator spelled differently (capitals) is a different agent', async () => {
   born('Caps Kid', 'PM-Agent');
   const r = await remove('caps-kid', asAgent());
-  assert.equal(r.code, 403, 'a creator spelling the team route never records was matched: ' + r.text.slice(0, 160));
+  assert.equal(r.code, 403, 'pm-agent removed an agent PM-Agent made: ' + r.text.slice(0, 160));
 });
 
 test('a token-only agent names the target by its board name: another spelling is refused before the engine', async () => {
@@ -127,7 +141,8 @@ test('a token-only agent may not remove an agent with no recorded creator (the p
   assert.match(r.text, NOT_YOURS);
 });
 
-test('a token-only agent may not remove itself', async () => {
+test('a token-only agent may not remove itself (it was made by another agent, or by the person)', async () => {
+  born('PM Agent', 'other-agent');
   const r = await remove('pm-agent', asAgent());
   assert.equal(r.code, 403);
   assert.match(r.text, NOT_YOURS);
@@ -150,11 +165,11 @@ test('a refused birth does not make its creator the owner', async () => {
   assert.match(r.text, NOT_YOURS);
 });
 
-test('a birth the person made (no createdByAgent) never makes an agent of the recorded creator\'s name the owner', async () => {
+test('a birth the person made (no createdByName) never makes an agent of the recorded creator\'s name the owner', async () => {
   // The org-chart import records createdBy "operator" and the setup guide "kosmos"; an agent can take either name.
   const op = sendertoken.mint('operator');
   assert.ok(op.ok);
-  born('Imported Kid', 'operator', { createdByAgent: undefined });
+  born('Imported Kid', 'operator', { createdByName: undefined });
   const r = await remove('imported-kid', { 'x-kosmos-agent-token': op.token });
   assert.equal(r.code, 403, 'an agent named operator removed an agent the person imported: ' + r.text.slice(0, 160));
   assert.match(r.text, NOT_YOURS);

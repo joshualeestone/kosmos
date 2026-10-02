@@ -280,6 +280,8 @@ test('AUTH: a valid AGENT token creates, and createdBy is the AUTHENTICATED call
     assert.ok(b, 'the agent-created member has no birth record');
     assert.equal(b.createdBy, 'pmagent', 'createdBy must be the authenticated caller, not the forged body.creator');
     assert.notEqual(b.createdBy, 'IMPERSONATED', 'a self-declared creator was trusted (forgery)');
+    // #4475: the birth carries the creator's exact token name, which the removal route matches.
+    assert.equal(b.createdByName, 'pmagent', 'the agent path did not record its token name on the birth');
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
@@ -296,6 +298,7 @@ test('AUTH: the BOARD token drives the operator path (createdBy = body.creator)'
     const b = birthOf('opsmadeone');
     assert.ok(b);
     assert.equal(b.createdBy, 'opsboss', 'the operator path records the operator-supplied creator');
+    assert.equal(b.createdByName, undefined, '#4475: the operator path recorded a creator token name, so an agent named opsboss could remove this');
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 

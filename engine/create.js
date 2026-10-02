@@ -4094,9 +4094,9 @@ function createAgent(opts) {
        recorded, never a gate. */
     createdBy: (opts && opts.createdBy) ? String(opts.createdBy).slice(0, 120) : null,
     purpose: (opts && opts.purpose) ? String(opts.purpose).slice(0, 300) : null,
-    /* #4475: true only when engine/team.js made this agent for an agent that asked on its own token; the removal route
-       lets that agent remove it. Absent otherwise (older lines, the person's creates, the setup guide's). */
-    ...((opts && opts.createdByAgent === true) ? { createdByAgent: true } : {}),
+    /* #4475: the exact token name of the agent that asked for this one on its own token, set only by engine/team.js;
+       the removal route lets that agent remove it. Absent otherwise (older lines, the person's creates, the guide's). */
+    ...((opts && typeof opts.createdByName === 'string' && opts.createdByName) ? { createdByName: String(opts.createdByName).slice(0, 120) } : {}),
     outcome: (out && out.outcome) || 'unknown',
     because: (out && out.because) ? String(out.because).slice(0, 300) : null,
     /* #170: the same id the profile carries, on the creation line, so "was
