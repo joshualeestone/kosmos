@@ -2577,7 +2577,10 @@ function retireResetLimits(text, nowMs) {
     /* Up to the footer, or to the NEXT limit row of any wording if one shares this footer (review rounds 2 and 3): an
        expired row must never take a live one with it. The vendor's own /usage-credits upsell row is part of this
        block, not another limit, so it goes with it. A "hit your" row is judged on its own when the loop reaches it. */
-    const anotherLimit = (row) => !/\/usage-credits\b/.test(row) && RATE_LIMIT_MARKERS.some((re) => re.test(row));
+    /* The upsell row STARTS with the command ("     /usage-credits to finish..."); a limit row that merely mentions it
+       ("You've reached your Fable 5 limit. Run /usage-credits to continue or", observed 2026-08-21) is another limit
+       (review round 5). */
+    const anotherLimit = (row) => !/^\s*\/usage-credits\b/.test(row) && RATE_LIMIT_MARKERS.some((re) => re.test(row));
     for (let k = i; k < footer && (k === i || !anotherLimit(rows[k])); k++) drop.add(k);
   });
   return drop.size ? rows.filter((_, k) => !drop.has(k)).join('\n') : text;
