@@ -297,6 +297,60 @@ esac
 say() { printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"; }
 die() { printf '  %s\n' "$*" >&2; exit 1; }
 
+# kosmos#4889: a verb's text is everything its own options did not take, so an option it does not know
+# (`report working --bogusflag x`, `report needs_you --clear`) used to become the text, exit 0, and the
+# agent believed the option had done something. Every verb that takes text runs what is left through
+# this first: an argument shaped like an option (--word or --word=value) refuses with the verb's usage.
+# A bare `--` ends the check and is dropped, so text that starts with dashes still goes:
+# `kosmos report working -- --like this`. One dash is never an option here ("-5 degrees" is text).
+# It checks separate arguments only, so a quoted sentence that mentions a flag is still one sentence.
+# Sets KOSMOS_TEXT_ARGS to what is left; callers `set --` from it.
+# The letters are listed, not [A-Za-z]: under a UTF-8 locale bash's range matches accented letters too, and the
+# Windows command's /^--[A-Za-z]/ does not (review 2), so the two would disagree about `--é`.
+# A 4th argument "target" is a refusal in an agent or project slot, where `--` is not an escape (review 2).
+_refuse_option() {
+  say "$3 is not an option of kosmos $1, so nothing was done."
+  say "$2"
+  [ "${4:-}" = target ] || say "To say something that starts with --, put -- before it: kosmos $1 ... -- --your words"
+  exit 2
+}
+# Review 4: an option given as another option's VALUE (`report blocked --on --owner bob`) was taken as the value,
+# and the agent believed it had set both. <verb> <option> <value> <usage>.
+_opt_value() {
+  case "$3" in
+    --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) say "$2 needs a value, and $3 is an option, so nothing was done."; say "$4"; exit 2 ;;
+  esac
+}
+# Reviews 5 and 6: a verb that reads words by position never looked past the last one, so a word after it
+# (`task close p 3 --note done`, `react p m5 x --remove`) went nowhere while the command said it had worked.
+# <verb> <max words> <usage> args... ; an option-shaped extra is named, otherwise the count is.
+_no_more_words() {
+  local _verb="$1" _max="$2" _usage="$3" _w _i=0; shift 3
+  [ $# -gt "$_max" ] || return 0
+  for _w in "$@"; do
+    _i=$((_i + 1))
+    [ "$_i" -gt "$_max" ] || continue
+    case "$_w" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "$_verb" "$_usage" "$_w" target ;; esac
+  done
+  say "kosmos $_verb takes no more words than its usage shows, so nothing was done. Quote anything of more than one word."
+  say "$_usage"
+  exit 2
+}
+KOSMOS_TEXT_ARGS=()
+_text_args() {
+  local _verb="$1" _usage="$2" _a _past=0; shift 2
+  KOSMOS_TEXT_ARGS=()
+  for _a in "$@"; do
+    if [ "$_past" = 0 ]; then
+      case "$_a" in
+        --) _past=1; continue ;;
+        --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "$_verb" "$_usage" "$_a" ;;
+      esac
+    fi
+    KOSMOS_TEXT_ARGS+=("$_a")
+  done
+}
+
 # Whether this Mac has the lsof the port checks use (one answer for all three). A function so a test
 # can take it away.
 _lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
@@ -1471,6 +1525,7 @@ cmd_msg() {
   local from_stdin=0 _orig="" _trimmed _keep
   if [ "${1:-}" = "--stdin" ]; then from_stdin=1; shift; fi
   to="${1:-}"
+  case "$to" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option msg "Usage: kosmos msg [--stdin] <agent> <what you want to tell them>" "$to" target ;; esac   # kosmos#4889
   shift 2>/dev/null || true
   if [ "$from_stdin" = 1 ]; then
     if [ -n "$to" ] && [ $# -gt 0 ]; then
@@ -1488,6 +1543,7 @@ cmd_msg() {
         exit 2
       fi
     done
+    _text_args msg "Usage: kosmos msg [--stdin] <agent> <what you want to tell them>" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
     text="$*"
   fi
   if [ -z "$to" ] || [ -z "$text" ]; then
@@ -1659,6 +1715,8 @@ cmd_reply() {
         exit 2
       fi
     done
+    _text_args reply "Usage: kosmos reply [--stdin] <what you want to tell them>" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+    text="$*"
   fi
   if [ -z "$text" ]; then
     say "Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and \$ arrive as written)"
@@ -1899,6 +1957,7 @@ cmd_post() {
     exit 2
   fi
   project="${1:-}"
+  case "$project" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option post "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>" "$project" target ;; esac   # kosmos#4889
   shift 2>/dev/null || true
   if [ "$from_stdin" = 1 ]; then
     if [ -n "$project" ] && [ $# -gt 0 ]; then
@@ -1917,6 +1976,7 @@ cmd_post() {
         exit 2
       fi
     done
+    _text_args post "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
     text="$*"
   fi
   if [ -z "$project" ] || [ -z "$text" ]; then
@@ -2130,6 +2190,12 @@ cmd_connect() {
       say "Which service? For example: printf '%s' \"\$TOKEN\" | kosmos connect brave-search   (kosmos connections lists them)"
       exit 2 ;;
   esac
+  # kosmos#4889 review 6, as the Windows command already does: a word after the service (a token, or an option) was
+  # never read; refuse it rather than connect without it.
+  if [ $# -gt 1 ]; then
+    say "Give the token on stdin, not as an argument. Nothing was sent. For example: printf '%s' \"\$TOKEN\" | kosmos connect $svc"
+    exit 2
+  fi
   if [ -t 0 ]; then
     say "Give the token on stdin, not as an argument. For example: printf '%s' \"\$TOKEN\" | kosmos connect $svc"
     exit 2
@@ -2291,14 +2357,23 @@ cmd_report() {
   # project a report is about (#763). Anything else is the sentence.
   while [ $# -gt 0 ]; do
     case "$1" in
-      --on)    on="${2:-}";    shift 2 2>/dev/null || break ;;
-      --owner) owner="${2:-}"; shift 2 2>/dev/null || break ;;
-      --until) until="${2:-}"; shift 2 2>/dev/null || break ;;
-      --project) project="${2:-}"; shift 2 2>/dev/null || break ;;
+      --on)    _opt_value report --on "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]"; on="${2:-}";    shift 2 2>/dev/null || break ;;
+      --owner) _opt_value report --owner "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]"; owner="${2:-}"; shift 2 2>/dev/null || break ;;
+      --until) _opt_value report --until "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]"; until="${2:-}"; shift 2 2>/dev/null || break ;;
+      --project) _opt_value report --project "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]"; project="${2:-}"; shift 2 2>/dev/null || break ;;
       --auto)  auto=1;          shift 1 2>/dev/null || break ;;
       *) break ;;
     esac
   done
+  local _use="Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]"
+  # Review 1: an option of report's own given last with no value (`report blocked --on`) is left here by the loop's
+  # `shift 2 || break`; say what it needs rather than calling it unknown.
+  # (Not `case "${1:-}"`: the verbs-parity test reads that shape as a subcommand list.)
+  if [ $# -eq 1 ]; then case "$1" in --on|--owner|--until|--project) say "$1 needs a value: $_use"; exit 2 ;; esac; fi
+  # The card's own case: an agent sent `report needs_you --clear` believing it cleared the card. Say how.
+  # #4891 added the verb for it, so the hint names it.
+  if [ "${1:-}" = "--clear" ]; then say "To take a needs_you or blocked off the board, run: kosmos report clear"; fi
+  _text_args report "$_use" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   text="$*"
   # #4891 review 2/3: an automatic working cannot replace a needs_you (#900), so `clear --auto` could only be
   # refused by the board. Judged from the parsed flag, so a note that mentions --auto is still a note.
@@ -2307,7 +2382,7 @@ cmd_report() {
     exit 2
   fi
   if [ -z "$state" ]; then
-    say "Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]"
+    say "$_use"
     say "  kosmos report show     (what the board has for you now; kosmos report status is the same)"
     say "  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)"
     exit 2
@@ -2516,11 +2591,14 @@ cmd_community() {
   local topic="" text
   while [ $# -gt 0 ]; do
     case "$1" in
-      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; topic="$2"; shift 2 ;;
-      --topic=*) topic="${1#--topic=}"; shift ;;
+      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
+      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
       *) break ;;
     esac
   done
+  if [ $# -gt 0 ]; then
+    _text_args "community post" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+  fi
   if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin)."
@@ -2586,7 +2664,8 @@ cmd_community_comment() {
     -h|--help) say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"; exit 0 ;;
   esac
   # #4833: --reply-to <comment-id> answers one comment (the id read --post shows after "comment"), before or after
-  # the post id. Only there: past the post id and the flag, everything is the comment's text.
+  # the post id. Only there: past the post id and the flag, everything is the comment's text, except that an
+  # option-shaped word there is refused (kosmos#4889).
   local post="" parent="" text
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -2595,16 +2674,21 @@ cmd_community_comment() {
           say "Usage: kosmos community comment <post-id> --reply-to <comment-id> <text>   (the comment id is the one kosmos community read --post shows)"
           exit 2
         fi
+        _opt_value "community comment" --reply-to "$2" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>"
         parent="$2"; shift 2 ;;
       *)
         if [ -n "$post" ]; then break; fi
         [ -n "$1" ] || break   # an empty post id (an unset variable) is the usage error below, never skipped
+        case "$1" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>" "$1" target ;; esac   # kosmos#4889 review 4
         post="$1"; shift ;;
     esac
   done
   if [ -z "$post" ]; then
     say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (the post id is the one kosmos community read shows)"
     exit 2
+  fi
+  if [ $# -gt 0 ]; then
+    _text_args "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
   if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
@@ -2745,6 +2829,7 @@ cmd_community_read() {
 cmd_community_follow() {
   local verb="$1"; shift
   # Review 1: every remaining word is the name, joined by one space, so `follow Echo Two` needs no quotes.
+  _text_args "community $verb" "Usage: kosmos community $verb <agent-name>   (the name as it appears in the community)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   local _name="$*"
   if [ -z "$(printf '%s' "$_name" | tr -d '[:space:]')" ]; then
     say "Usage: kosmos community $verb <agent-name>   (the name as it appears in the community)"
@@ -2814,6 +2899,7 @@ cmd_react() {
     say "Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])"
     exit 2
   fi
+  _no_more_words react 3 "Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])" "$@"   # kosmos#4889 review 6
   if ! healthy; then
     say_not_up "the reaction could not be kept"
     exit 1
@@ -2902,6 +2988,7 @@ cmd_room() {
       say "Usage: kosmos room reopen <project-id>   (clears a room the loop-guard is holding, so the next post lands)"
       exit 2
     fi
+    _no_more_words "room reopen" 1 "Usage: kosmos room reopen <project-id>   (clears a room the loop-guard is holding, so the next post lands)" "${@:2}"   # kosmos#4889 review 6
     if ! healthy; then
       say_not_up "the room cannot be reopened"
       exit 1
@@ -3183,6 +3270,9 @@ cmd_feedback() {
   case "$sub" in
     write)
       local body
+      if [ $# -gt 0 ]; then
+        _text_args "feedback write" "Usage: kosmos feedback write [text]      (or pipe the report in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+      fi
       if [ $# -gt 0 ]; then body="$*"; else body="$(cat)"; fi
       if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
         say "Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin)."
@@ -3330,8 +3420,13 @@ cmd_task() {
       case "${2:-}" in --who|--who=*) say "Put what the task is first: kosmos task add <project-id> \"<what the task is>\" --who <agent>"; exit 2 ;; esac
       # #3861: --parent must carry a task number; checked here so a bad one is named even
       # when the board is stopped. Parsed for real in the add arm below.
-      local _a _want=0 _wantwho=0
-      for _a in "$@"; do
+      # kosmos#4889 review 2: `add <p> -- "--title"` escapes a title that starts with dashes; then a title is required.
+      # Review 3: it escapes the TITLE only; after it, --parent, --who and the option check work as usual, so
+      # `add <p> -- --t --parent 3` files a subtask rather than "--parent 3" as silent detail.
+      [ "${2:-}" != "--" ] || [ -n "${3:-}" ] || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me]"; exit 2; }
+      local _a _want=0 _wantwho=0 _past=0 _from=2
+      [ "${2:-}" != "--" ] || _from=4   # the escaped title ($3) is not checked
+      for _a in "${@:_from}"; do
         if [ "$_want" = 1 ]; then
           case "$_a" in ''|*[!0-9]*) say "--parent needs a task number, from: kosmos task list <project-id>."; exit 2 ;; esac
           _want=2
@@ -3340,12 +3435,15 @@ cmd_task() {
           case "$_a" in ''|-*) say "--who needs the name of an agent on the project (or me)."; exit 2 ;; esac
           [ -n "$(printf '%s' "$_a" | tr -d '[:space:]\001-\037\177')" ] || { say "--who needs the name of an agent on the project (or me)."; exit 2; }
           _wantwho=2
+        elif [ "$_past" = 1 ]; then :           # kosmos#4889: past a bare --, everything is words
+        elif [ "$_a" = "--" ]; then _past=1
         elif [ "$_a" = "--parent" ]; then _want=1
         elif [ "$_a" = "--who" ]; then _wantwho=1
         else
           case "$_a" in
             --parent=*) say "Write it as --parent <task-number>, with a space."; exit 2 ;;
             --who=*) say "Write it as --who <agent>, with a space."; exit 2 ;;
+            --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task add" "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me]" "$_a" ;;   # kosmos#4889
           esac
         fi
       done
@@ -3353,13 +3451,22 @@ cmd_task() {
       [ "$_wantwho" != 1 ] || { say "--who needs the name of an agent on the project (or me)."; exit 2; } ;;
     close)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
-      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      _no_more_words "task close" 2 "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)" "$@" ;;   # kosmos#4889 review 6
     message)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; }
-      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> \"<what to say>\"" "${@:3}"   # kosmos#4889
+      # Review 1: `message p 3 --` leaves no words once the -- is dropped; that is the usage error, not an empty send.
+      [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; } ;;
     built)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"what is left\"]   (or --clear to take the mark off)"; exit 2; }
-      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      local _c _cpast=0   # kosmos#4889: --clear is built's one option; any other --word is refused
+      for _c in "${@:3}"; do
+        if [ "$_cpast" = 1 ]; then break; fi
+        case "$_c" in --) _cpast=1 ;; --clear) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"what is left\"]   (or --clear to take the mark off)" "$_c" ;; esac
+      done ;;
     assign)
       # #4914: <project> <task-number> <agent|me|nobody> [--part <n>], checked before the board as --parent is.
       local _usage="Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>]"
@@ -3384,7 +3491,8 @@ cmd_task() {
       [ "$_whos" = 1 ] || { say "$_usage"; exit 2; } ;;
     hold|unhold)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task $sub <project-id> <task-number>"; exit 2; }
-      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      _no_more_words "task $sub" 2 "Usage: kosmos task $sub <project-id> <task-number>" "$@" ;;   # kosmos#4889 review 6
     *)
       say "Unknown: kosmos task $sub. Try: list | add | assign | close | message | built | hold | unhold"
       exit 2 ;;
@@ -3429,6 +3537,9 @@ cmd_task() {
     add)
       local project sentence detail
       project="${1:-}"; sentence="${2:-}"   # both validated non-empty before the health check above
+      # kosmos#4889 review 2/3: a -- before the title escapes the title only; the detail is parsed as usual.
+      local _apast=0
+      if [ "$sentence" = "--" ]; then sentence="${3:-}"; shift 1; fi
       # Fold EVERY arg after the sentence into detail, so an unquoted multi-word detail is not
       # silently dropped (bash word-splits it into $4, $5, ... which a $3-only read would lose).
       shift 2 2>/dev/null || true   # drop project + sentence; the remaining args are the detail
@@ -3440,8 +3551,9 @@ cmd_task() {
       for _arg in "$@"; do
         if [ "$_next" = 1 ]; then parent="$_arg"; _next=0; continue; fi
         if [ "$_nextwho" = 1 ]; then who="$_arg"; _nextwho=0; continue; fi
-        if [ "$_arg" = "--parent" ]; then _next=1; continue; fi
-        if [ "$_arg" = "--who" ]; then _nextwho=1; continue; fi
+        if [ "$_apast" = 0 ] && [ "$_arg" = "--" ]; then _apast=1; continue; fi   # kosmos#4889
+        if [ "$_apast" = 0 ] && [ "$_arg" = "--parent" ]; then _next=1; continue; fi
+        if [ "$_apast" = 0 ] && [ "$_arg" = "--who" ]; then _nextwho=1; continue; fi
         detail="${detail:+$detail }$_arg"
       done
       # Leading zeros off, so "007" is said back as task 7 (the Windows command does the same).
@@ -3554,8 +3666,10 @@ cmd_task() {
       # The agent token names who marked it (the pane is the fallback, as for message).
       local project num note="" clear=false _b
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
+      local _bpast=0
       for _b in "$@"; do
-        if [ "$_b" = "--clear" ]; then clear=true; else note="${note:+$note }$_b"; fi
+        if [ "$_bpast" = 0 ] && [ "$_b" = "--" ]; then _bpast=1; continue; fi   # kosmos#4889
+        if [ "$_bpast" = 0 ] && [ "$_b" = "--clear" ]; then clear=true; else note="${note:+$note }$_b"; fi
       done
       if [ "$clear" = true ] && [ -n "$note" ]; then
         say "--clear takes the mark off, so it takes no note. Run it without the note."; exit 2
@@ -3590,7 +3704,9 @@ cmd_task() {
       # number into the text, so an unquoted multi-word message is not word-split away
       # (the same treatment `add` gives its detail).
       local project num text; project="${1:-}"; num="${2:-}"
-      shift 2 2>/dev/null || true; text="$*"
+      shift 2 2>/dev/null || true
+      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> \"<what to say>\"" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+      text="$*"
       local esc_text esc_pane
       esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
       # from_pane lets the board resolve WHO is sending, so the sender is not notified
@@ -3648,7 +3764,15 @@ cmd_project() {
     # malformed call is named even when the board is stopped (not hidden behind
     # "not running").
     create)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos project create \"<name>\" <folder> [\"<description>\"]   (quote the name; folder is a path)"; exit 2; } ;;
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos project create \"<name>\" <folder> [\"<description>\"]   (quote the name; folder is a path)"; exit 2; }
+      # kosmos#4889 review 4: `create N f --description "d"` made "--description" the description and dropped "d".
+      local _p
+      for _p in "${1:-}" "${2:-}" "${3:-}"; do
+        case "$_p" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "project create" "Usage: kosmos project create \"<name>\" <folder> [\"<description>\"]   (quote the name; folder is a path)" "$_p" target ;; esac
+      done
+      # Review 5: a word after the description was never read, so `create N f "d" --private` (or an unquoted
+      # description's later words) went nowhere while the command said it had worked.
+      _no_more_words "project create" 3 "Usage: kosmos project create \"<name>\" <folder> [\"<description>\"]   (quote the name; folder is a path)" "$@" ;;
     # #4771 (Josh's 0.7.15 report): a pause said in the room never reached the Prompter, because only the screen could
     # set it, so an agent held every task by hand. An agent pauses when its person asks; resuming stays on the screen
     # (Splinter's call on #4771): the board refuses an agent lifting the person's own pause (engine/projects.js), and
@@ -3808,7 +3932,15 @@ cmd_agent() {
       if [ "$2" = "--new-role" ]; then
         { [ -n "${3:-}" ] && [ "${4:-}" = "--from" ] && [ -n "${5:-}" ]; } || { say "Usage: kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]   (kosmos agent role-draft prints the text to start from)"; exit 2; }
         [ -f "$5" ] && [ -r "$5" ] || { say "We could not read $5. Write the role's text to a file first (kosmos agent role-draft --to role-<short-name>.md, then edit it)."; exit 2; }
-      fi ;;
+      fi
+      # kosmos#4889 review 4: an option in a name, role, label or why slot was taken as that word.
+      local _g _slots _max
+      if [ "$2" = "--new-role" ]; then _slots="1 3 6"; _max=6; else _slots="1 2 3"; _max=3; fi
+      for _g in $_slots; do
+        case "${!_g:-}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent create" "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (or --new-role \"<label>\" --from <file>)" "${!_g}" target ;; esac
+      done
+      # Review 5: a word after the last one read (`create N worker why --model opus`) was silently dropped.
+      _no_more_words "agent create" "$_max" "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (or --new-role \"<label>\" --from <file> [\"<why>\"])" "$@" ;;
     roles) : ;;
     role-draft)
       if [ "${1:-}" = "--to" ] && [ -z "${2:-}" ]; then say "Usage: kosmos agent role-draft [--to <file>]"; exit 2; fi
