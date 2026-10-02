@@ -6446,6 +6446,8 @@ const server = http.createServer(async (req, res) => {
       currentVersion: st.currentVersion,
       declined: st.declined === true,
       sections: (st.sections || []).map((s) => s.heading),
+      replacing: st.replacing === true,   // #4890: the click replaces Kosmos's own older, unedited copy
+      updating: st.updating === true,     // #4890: the click rewrites an existing marked block
       span: st.spanNext || null,
       hash: st.hash || null,
     });
@@ -6488,9 +6490,13 @@ const server = http.createServer(async (req, res) => {
       return {
         name: a.name || a.sessionName,
         sessionName: a.sessionName,
-        state: st.declined === true && st.state === 'refresh' ? 'declined' : st.state,
-        because: st.because || null,
+        /* #4890: what the fleet click leaves for the agent's own page (doctrine.fleetLeaves), the list says so. */
+        /* In the click's order (refresh-fleet below): a Not now first, then what the click leaves, then the plan. */
+        state: st.declined === true && st.state === 'refresh' ? 'declined' : doctrine.fleetLeaves(st) ? 'could_not' : st.state,
+        because: st.declined === true && st.state === 'refresh' ? (st.because || null) : (doctrine.fleetLeaves(st) || st.because || null),
         sections: (st.sections || []).map((s) => s.heading),
+        replacing: st.replacing === true,   // #4890, as GET /doctrine
+        updating: st.updating === true,
       };
     });
     sendJson(res, 200, { currentVersion: require('./engine/defaults').DOCTRINE_VERSION, agents: rows });

@@ -39228,14 +39228,23 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   const plan = DOCTRINE_PLAN;
   if (!plan) return;
   const who = (CURRENT && CURRENT.name) || plan.sessionName;
-  document.getElementById('doc-title').textContent = 'Add the working rules to ' + who + '’s instructions?';
+  document.getElementById('doc-title').textContent = (plan.replacing || plan.updating)
+    ? 'Update the working rules in ' + who + '’s instructions?'   // #4890
+    : 'Add the working rules to ' + who + '’s instructions?';
   /* #1841: the button is now "Add Instructions & Restart", so the dialog says
      the restart is part of the deal and names the one cost of it (an empty
      memory), the same consequence the restart confirm states. Named, never
      "it". */
-  document.getElementById('doc-body').textContent =
-    'Your words stay exactly as they are. These go underneath, under their own '
-    + 'heading, so you can see where yours end and ours begin. Adding them restarts '
+  /* #4890: the sentence follows what the plan says the click writes (plan.replacing, plan.updating). */
+  document.getElementById('doc-body').textContent = (plan.replacing
+    ? (plan.updating ? 'Your words outside the marked block stay exactly as they are. ' : 'Your words stay exactly as they are. ')
+      + 'The older copy of these rules that Kosmos added is replaced with the current one. '
+    : plan.updating
+      ? 'Your words outside the marked block stay exactly as they are. The working rules in it are brought up to date. '
+      : 'Your words stay exactly as they are. These go underneath, under their own '
+        + 'heading, so you can see where yours end and ours begin. ')
+    + (plan.updating ? 'Anything changed inside the marked block is set to the current rules. ' : '')
+    + ((plan.replacing || plan.updating) ? 'This restarts ' : 'Adding them restarts ')
     + who + ' to read them right away, so ' + who + '’s memory starts empty.';
   const list = document.getElementById('doc-list');
   list.textContent = '';
@@ -39256,7 +39265,9 @@ document.getElementById('d-doctrine-add').addEventListener('click', () => {
   /* #1841: through the modal container too, for the same reason the line above
      is -- a bare getElementById('doc-go') here would be the "first such lookup"
      the test the comment names anchors on. */
-  document.getElementById('doc-modal').querySelector('#doc-go').textContent = 'Add & Restart';
+  /* #4890: the button names the act the title names. The banner's "Add Instructions & Restart" stays: Josh's one
+     label for every case (the comment above #d-doctrine-note). */
+  document.getElementById('doc-modal').querySelector('#doc-go').textContent = (plan.replacing || plan.updating) ? 'Update & Restart' : 'Add & Restart';
   document.getElementById('doc-keep').textContent = 'Keep as it is';
   DOC_OPENER = document.getElementById('d-doctrine-add');
   document.getElementById('doc-modal').hidden = false;
@@ -39313,7 +39324,8 @@ document.getElementById('doc-go').addEventListener('click', async () => {
       document.getElementById('d-doctrine-note').hidden = true;
       loadInstructions(plan.sessionName); // the box below shows the file that now exists
       const who2 = (CURRENT && CURRENT.name) || plan.sessionName;
-      msg.textContent = 'Added. Restarting ' + who2 + ' to read them…';
+      const did = (plan.replacing || plan.updating) ? 'Updated' : 'Added';   // #4890: the verb the title used
+      msg.textContent = did + '. Restarting ' + who2 + ' to read them…';
       try {
         const rr = await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/restart', { method: 'POST' });
         const rout = await rr.json().catch(() => null);
@@ -39322,7 +39334,7 @@ document.getElementById('doc-go').addEventListener('click', async () => {
              person to say hello by hand. Guard the receipt on the open agent still
              being this one (like the trust-restart handlers) so a mid-wait switch
              does not land the line in another agent's dialog. */
-          msg.textContent = 'Added and restarted. Waking ' + who2 + '…';
+          msg.textContent = did + ' and restarted. Waking ' + who2 + '…';
           const forAgent = plan.sessionName;
           // #4008: the Sweep loader in front of the waiting line; the report's textContent write replaces it.
           if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
@@ -39332,13 +39344,13 @@ document.getElementById('doc-go').addEventListener('click', async () => {
           // regenerated-away node a clean no-op rather than a throw.
           autoHelloAfterRestart(forAgent,
             (t) => { if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected) msg.textContent = t; },
-            'Added and restarted, and said hello to wake ' + who2 + '.',
-            'Added and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.');
+            did + ' and restarted, and said hello to wake ' + who2 + '.',
+            did + ' and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.');
         } else {
-          msg.textContent = 'Added, but the restart did not take. ' + restartFailureLine(rout);
+          msg.textContent = did + ', but the restart did not take. ' + restartFailureLine(rout);
         }
       } catch {
-        msg.textContent = 'Added, but we could not reach Kosmos to restart ' + who2
+        msg.textContent = did + ', but we could not reach Kosmos to restart ' + who2
           + '. They will read the new rules on their next restart.';
       }
       keep.textContent = 'Close';

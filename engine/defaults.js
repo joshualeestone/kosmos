@@ -253,14 +253,12 @@ const BLOCK = [
   'headings written with `#` through `######`, **bold**, *italic*,',
   '~~strikethrough~~, `inline code`, fenced code blocks, ordered and unordered',
   'lists, tables, a `---` rule, and emoji. A web address that starts with',
-  '`http://` or `https://` becomes a link on its own, so paste the whole',
-  'address rather than hiding it behind words.',
+  '`http://` or `https://` becomes a link on its own. A `[label](address)`',
+  'link shows the label with the address after it in parentheses, so the person',
+  'always sees where a link goes.',
   '',
-  '**What it does not, so do not reach for these:** a `[label](address)` link',
-  'shows only the label and drops the address in both a room and your dialogue',
-  'with the person, which is why you paste the bare address when the person',
-  'needs to open it. Anything written as raw HTML is shown the way you typed',
-  'it, not turned into a page. And a line that',
+  '**What it does not, so do not reach for these:** anything written as raw',
+  'HTML is shown the way you typed it, not turned into a page. And a line that',
   'starts with `>` becomes a quote in your dialogue with the person but stays',
   'literal text in a project room, so lean on it only there, never in a room.',
   '',
@@ -657,7 +655,7 @@ function block() {
  *     told an agent that, so agents guessed and mostly sent flat paragraphs. A
  *     NEW section states the capability and the default: use the subset from the
  *     first message, in rooms and dialogues, with the two things that do NOT
- *     render (a `[label](url)` link shows label only; a `>` line stays literal in
+ *     render (a `[label](url)` link showed label only until #4627; a `>` line stays literal in
  *     a room) and the shell trap (backticks and `$` in a double-quoted message
  *     are eaten by the shell; single-quote instead).
  *     ⭐ NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
@@ -845,8 +843,18 @@ function block() {
  *     so existing agents are re-offered it). The board also hides a leading self-name when it renders a message
  *     (web/index.html), so a message written before this lands, or one that slips through, reads cleanly.
  *     WEAKEST PREMISE, NAMED: one instruction against a habit; the render half is what makes the room clean.
+ *  23. kosmos#4890 (Josh's five-family diagnostic, items H9 and N7): "Send readable messages" said a
+ *     `[label](address)` link drops the address. Since #4627 it shows "label (address)", so the sentence now says
+ *     that, under "What a room shows you". SAME HEADING, and this version is the first whose same-heading changes
+ *     reach EXISTING agents: an agent is now born with the rules inside the managed span (doctrine.atBirth), and an
+ *     older agent whose plain copy byte-matches an earlier version (engine/doctrine-past.js) is offered the
+ *     current rules through the same consented dialog, which puts them inside the span.
+ *     WEAKEST PREMISE, NAMED: that most existing agents carry an unedited copy. Measured on this Mac on
+ *     2026-10-01: 3 of 3 instruction files holding the rules matched an earlier version exactly (v15 twice, v18
+ *     once), none was in a span. A person who edited theirs, or whose file has Windows line endings, is offered
+ *     only missing headings, as before.
  */
-const DOCTRINE_VERSION = 22;
+const DOCTRINE_VERSION = 23;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
