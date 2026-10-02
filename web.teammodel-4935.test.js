@@ -176,3 +176,26 @@ test('#4935 roles not read yet: loading holds Create, then the plain /api/roles 
   assert.equal(w.sel.dataset.loading, '');
   assert.equal(w.paints(), 1);
 });
+
+/* Review 6: a switch to a provider with nothing to load, while a list is loading, offers Create again at once (the
+   stale answer is dropped by its generation, so nothing else would). */
+test('#4935 switching provider mid-load releases Create and Try again', async () => {
+  const w = paintWorld({ openai: { ok: true, models: [{ key: 'gpt-5', label: 'GPT-5' }] } });
+  w.ctx.paint('openai', '/acct/o');
+  assert.equal(w.go.disabled, true, 'premise: held while loading');
+  w.ctx.paint('google', '');   // Gemini picks its own: nothing to load
+  assert.equal(w.go.disabled, false, 'Create stayed held after the load was abandoned');
+  assert.equal(w.retry.disabled, false);
+  await tick(); await tick(); await tick();
+  assert.equal(w.sel.dataset.loading, '', 'the abandoned OpenAI answer must not land');
+});
+
+/* Review 6: a failed roles read is not retried in a loop: it waits until the list is held by another path. */
+test('#4935 a failed roles read marks a retry and does not fetch again by itself', async () => {
+  const w = paintWorld({ rolesBody: null });
+  w.ctx.paint('anthropic', '');
+  await tick(); await tick(); await tick();
+  assert.equal(w.sel.dataset.retry, '1');
+  assert.equal(w.fetched.length, 1, 'one read, not a loop');
+  assert.equal(w.paints(), 1);
+});

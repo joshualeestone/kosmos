@@ -48655,6 +48655,8 @@ function tcSyncModel() {
   if (!sel || !TC || !step || step.hidden) return;
   const pv = (document.getElementById('tc-provider') || {}).value || '';
   const ac = (document.getElementById('tc-account') || {}).value || '';
+  /* A failed roles read is painted again once another path has read the list (never in a loop against a failing read). */
+  if (sel.dataset.retry === '1' && CREATE_MODELS.length) TC_MODEL_FOR = null;
   /* Once the choice is fixed the menu is not repainted, so it keeps what the members were made on. */
   if (TC_MODEL_FOR !== pv + '|' + ac && !tcChoiceFixed()) { TC_MODEL_FOR = pv + '|' + ac; tcPaintModel(pv, ac); }
   sel.disabled = tcChoiceFixed() || TC_FILLING > 0 || sel.dataset.fixed === '1';
@@ -48667,12 +48669,16 @@ function tcPaintModel(pv, ac) {
   const prev = sel.value;
   /* `loading` holds Create down (tcPaint): pressed then, the team would be made on no model, the default, silently. */
   const show = (html, fixed, note, keep, loading) => {
+    const was = sel.dataset.loading === '1';
     sel.innerHTML = html;
     sel.dataset.fixed = fixed ? '1' : '';
     sel.dataset.loading = loading ? '1' : '';
-    if (loading) {   // held at once, whatever started the load; tcPaint offers them again when it lands
-      const go = document.getElementById('tc-go'); if (go) go.disabled = true;
-      for (const b of document.querySelectorAll('#tc-list .tc-retry')) b.disabled = true;
+    sel.dataset.retry = '';
+    /* Held at once, whatever started the load; offered again the moment loading ends, whatever ended it (the list
+       landing, or a switch to a provider with nothing to load, whose stale answer is then dropped). */
+    if (loading || was) {
+      const go = document.getElementById('tc-go'); if (go) go.disabled = Boolean(loading) || Boolean(TC && TC.busy);
+      for (const b of document.querySelectorAll('#tc-list .tc-retry')) b.disabled = Boolean(loading);
     }
     if (keep && prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;   // a pick the new list still offers is kept
     sel.disabled = fixed || tcChoiceFixed() || TC_FILLING > 0;
@@ -48713,7 +48719,7 @@ function tcPaintModel(pv, ac) {
       if (gen !== TC_MODEL_GEN) return;
       if (!CREATE_MODELS.length && body && Array.isArray(body.models)) CREATE_MODELS = body.models;
       if (CREATE_MODELS.length) claude();
-      else { show('<option value="" selected>Kosmos\'s default model</option>', true, '', false); TC_MODEL_FOR = null; }   // the next paint tries again
+      else { show('<option value="" selected>Kosmos\'s default model</option>', true, '', false); sel.dataset.retry = '1'; }   // tried again once the list is held
       if (TC) tcPaint();   // Create is offered again
     });
 }
