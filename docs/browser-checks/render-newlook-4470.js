@@ -27,6 +27,9 @@
  *    look); and with the look off, today's bordered card, tile and New agent tile (the control),
  *  - an agent's page in the new look (DM_LOOK): the conversation on the page's ground, your message grey, an agent's
  *    with no bubble, the composer a grey pill with no stroke; with the look off, today's (the control),
+ *  - an agent's left column in the new look (DLEFT_LOOK): one grey box with 28px corners, the open section a tile in the
+ *    page's ground and the rest flat, no edge and no gold; Files with no card under a hairline and a sentence-case
+ *    heading; 300 to 380px wide on a desktop; with the look off, today's (the control),
  *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
  *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
  *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
@@ -146,6 +149,22 @@ const DM_LOOK = `(() => {
   return out;
   } finally { a.remove(); b.remove(); }
   } finally { if (panel) panel.hidden = wasHidden; }
+})()`;
+/* #4470, an agent's page, slice 2: its left column, read with the panel shown and put back as DM_LOOK does: the
+   column's ground and corners, the open section button and a closed one (ground, edge, ink), the Files section's
+   ground and top hairline, its heading's case and spacing, and the column's width. */
+const DLEFT_LOOK = `(() => {
+  const left = document.querySelector('#panel-detail .dleft'), files = document.getElementById('d-files'), head = document.getElementById('d-files-h');
+  const on = document.querySelector('#d-nav button.on:not(.dnav-swarm)'), off = document.querySelector('#d-nav button:not(.on):not(.dnav-swarm):not([hidden])');
+  if (!left || !files || !head || !on || !off) return { found: false };
+  const panel = document.getElementById('panel-detail'); const wasHidden = panel ? panel.hidden : false; if (panel) panel.hidden = false;
+  const filesHidden = files.hidden; files.hidden = false;
+  try {
+    const L = getComputedStyle(left), F = getComputedStyle(files), H = getComputedStyle(head), O = getComputedStyle(on), X = getComputedStyle(off);
+    return { found: true, ground: L.backgroundColor, radius: L.borderTopLeftRadius, width: Math.round(left.getBoundingClientRect().width),
+      onBg: O.backgroundColor, onEdge: O.borderTopColor, onInk: O.color, offBg: X.backgroundColor, offEdge: X.borderTopColor, offInk: X.color,
+      filesBg: F.backgroundColor, filesRule: F.borderTopWidth, headCase: H.textTransform, headSpacing: H.letterSpacing };
+  } finally { files.hidden = filesHidden; if (panel) panel.hidden = wasHidden; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
@@ -360,6 +379,7 @@ const AGENTS_LOOK = `(() => {
 
       const before = await page.evaluate(PAGE_STATE);
       const dmBefore = await page.evaluate(DM_LOOK);   // today's DM, before the switch is ever touched (the off control's baseline)
+      const dlBefore = await page.evaluate(DLEFT_LOOK);   // and today's left column, for the same control
       chk(before.look === null, `${tag} nothing stored: no data-look attribute`, JSON.stringify(before));
       chk(before.kbg && before.kbg !== NEW[theme], `${tag} nothing stored: today's page colour, not the new look's`, before.kbg);
 
@@ -416,6 +436,15 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, an agent's page: the conversation on the page's ground, your message grey, an agent's with no bubble`, JSON.stringify(dmOn));
       chk(dmOn.found && dmOn.composer === GREY_OF[theme] && dmOn.composerBorderW === '0px' && dmOn.composerRadius === '24px',
         `${tag} On, an agent's page: the composer is the grey pill with no stroke`, JSON.stringify(dmOn));
+      const dlOn = await page.evaluate(DLEFT_LOOK);
+      const CLEAR = 'rgba(0, 0, 0, 0)';
+      chk(dlOn.found && dlOn.ground === GREY_OF[theme] && dlOn.radius === '28px',
+        `${tag} On, an agent's page: the left column is the one grey box with 28px corners`, JSON.stringify(dlOn));
+      chk(dlOn.found && dlOn.onBg === PAGE_OF[theme] && dlOn.onEdge === CLEAR && dlOn.offBg === CLEAR && dlOn.offEdge === CLEAR && dlOn.onInk !== dlOn.offInk,
+        `${tag} On, an agent's page: the open section is a tile in the page's ground, the others lie flat, no edge and no gold, the open one in a different ink`, JSON.stringify(dlOn));
+      chk(dlOn.found && dlOn.filesBg === CLEAR && dlOn.filesRule === '1px' && dlOn.headCase === 'none' && (dlOn.headSpacing === 'normal' || dlOn.headSpacing === '0px'),
+        `${tag} On, an agent's page: Files has no card, a hairline above it, and a sentence-case heading`, JSON.stringify(dlOn));
+      if (width >= 1088) chk(dlOn.found && dlOn.width >= 300 && dlOn.width <= 380, `${tag} On, an agent's page: the left column is the project page's 300 to 380px`, JSON.stringify(dlOn));
       const tk = await page.evaluate(TASK_ROWS);
       chk(tk.rows >= 3 && tk.boxed === 0 && tk.hashShown && tk.wordHidden && tk.claimShown,
         `${tag} On: tasks are compact rows (the number with a hash sign, no box), and the agent's claim line still shows`, JSON.stringify(tk));
@@ -462,6 +491,9 @@ const AGENTS_LOOK = `(() => {
         const dmForced = await page.evaluate(DM_LOOK);   // the generated forced-dark rules sit later in the sheet (round 1)
         chk(dmForced.found && dmForced.box === 'rgb(0, 0, 0)' && dmForced.you === GREY_OF.dark && dmForced.agent === 'rgb(0, 0, 0)' && dmForced.tail === 'rgb(0, 0, 0)' && dmForced.composer === GREY_OF.dark,
           `${tag} On + chosen Dark: an agent's page has the black ground, dark-grey own messages and composer`, JSON.stringify(dmForced));
+        const dlForced = await page.evaluate(DLEFT_LOOK);
+        chk(dlForced.found && dlForced.ground === GREY_OF.dark && dlForced.onBg === 'rgb(0, 0, 0)',
+          `${tag} On + chosen Dark: an agent's left column is the dark grey box, the open section a black tile`, JSON.stringify(dlForced));
         await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
       }
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `newlook-project-${theme}-${width}.png`) });
@@ -622,6 +654,12 @@ const AGENTS_LOOK = `(() => {
       chk(dmOff.found && dmBefore.found && JSON.stringify(dmOff) === JSON.stringify(dmBefore) && dmOff.you !== GREY_OF[theme] && dmOff.agent !== PAGE_OF[theme]
         && dmOff.composerBorderW !== '0px' && dmOff.composerRadius === '12px',
         `${tag} Off, an agent's page: exactly today's conversation and bordered composer, as before the switch was touched (the control)`, JSON.stringify({ off: dmOff, before: dmBefore }));
+      const dlOff = await page.evaluate(DLEFT_LOOK);
+      /* Equal to the before-switch reading AND today's values pinned: the open button's gold edge, a closed one's
+         edge, and FILES in capitals. */
+      chk(dlOff.found && dlBefore.found && JSON.stringify(dlOff) === JSON.stringify(dlBefore) && dlOff.onEdge !== 'rgba(0, 0, 0, 0)' && dlOff.offEdge !== 'rgba(0, 0, 0, 0)'
+        && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme],
+        `${tag} Off, an agent's page: exactly today's left column (edged buttons, FILES in capitals), as before the switch was touched (the control)`, JSON.stringify({ off: dlOff, before: dlBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));

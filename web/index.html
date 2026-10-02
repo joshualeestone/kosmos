@@ -10143,6 +10143,21 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg .msg-bd::after { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox { border: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox:not(.dragging) { background: var(--nl-grey); }
+/* #4470, an agent's page, slice 2: the left column in the project page's language. One grey box (as the
+   project page's) holds the name, the section buttons and Files, at the project page's column width on a
+   desktop. The buttons lie flat on the box with no edge and no gold; the open one is a tile in the page's
+   ground with its label in full ink, so it differs in shape as well as colour. Files drops its card and its
+   spaced capitals for the project page's heading under a hairline. The swarm button keeps its state tint. */
+@media (min-width: 68rem) {
+  :root[data-look="new"] body:not(.consolidated) #panel-detail .dbody { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 40px; }
+}
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dleft { background: var(--nl-grey); border-radius: 28px; padding: 24px 28px; }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm) { border-color: transparent; background: none; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm):not(.on):hover { background: color-mix(in srgb, var(--k-bg) 55%, transparent); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on { background: var(--k-bg); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on .dnav-ico { color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #panel-detail #d-files.pjcard { border: 0; border-radius: 0; background: none; padding: 22px 0 0; margin-top: 22px; border-top: 1px solid var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #d-files .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
 /* #4470: the header in the new look: the back chevron as a round button, then "Projects /
    <ancestors> / <name>" large, as the conversation's own header. The project name's h2 is
    visually hidden (still the page's heading for a screen reader), since the crumb now shows it. */
