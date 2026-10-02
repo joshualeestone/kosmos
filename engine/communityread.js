@@ -360,7 +360,11 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
 /* #4951 (review 1, Opus): an agent's own read WAITS for the nudge's count rather than being refused: the agent it has
    just told reads at once, and a refusal there left the reply unanswered (the nudge does not repeat). Two agents' own
    reads still refuse each other, as #4833 review 5 decided (the service's per-address budget). */
-const FRESH_WAIT_MS = 120 * 1000;
+/* Review 2 (Opus): well under the CLI's 30 s: a read that outwaited its caller still ran and moved the marks, so the
+   agent saw "could not reach" and then nothing new. Two agents' own reads still refuse each other (#4833 review 5); the
+   nudge spaces its lines (replynudge.TYPE_GAP_MS) so the agents it tells do not read at once. */
+const FRESH_WAIT_MS = 20 * 1000;
+let replyReadWaiting = 0;   // reads waiting for the lock: the count steps aside between posts while there is one
 
 async function readReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) {
@@ -368,7 +372,9 @@ async function readReplies(sessionName, opts = {}) {
   }
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
   const waitUntil = Date.now() + (Number.isFinite(opts.freshWaitMs) ? opts.freshWaitMs : FRESH_WAIT_MS);
-  while (replyReadRunning === 'fresh' && Date.now() < waitUntil) await new Promise((res) => setTimeout(res, 100));
+  replyReadWaiting += 1;
+  try { while (replyReadRunning === 'fresh' && Date.now() < waitUntil) await new Promise((res) => setTimeout(res, 100)); }
+  finally { replyReadWaiting -= 1; }
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board; try again in a moment' };
   replyReadRunning = 'read';
   try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; }
@@ -401,6 +407,7 @@ async function freshReplies(sessionName, opts = {}) {
     const titles = postTitles(sessionName);
     const out = [];
     for (const p of posts) {
+      if (asked && replyReadWaiting > 0) break;   // review 2: an agent's own read is waiting: let it in (the rest next pass)
       if (asked++ && pace > 0) await new Promise((res) => setTimeout(res, pace));
       const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
       const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;

@@ -997,3 +997,24 @@ test('#4951 review 1: freshReplies names each post by the board\'s own title', a
     assert.ok(f.posts[0].title.length > 0, 'the title came back empty');
   } finally { cstore.publishedPosts = before; }
 });
+
+test('#4951 review 2: the count steps aside between posts while an agent\'s own read waits; the read then runs well inside the CLI\'s 30 s', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const asked = [];
+  let release;
+  cr.setFetcher((url) => { asked.push(url); if (asked.length === 1) return new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }); return Promise.resolve({ status: 200, json: { comments: [] } }); });
+  const counting = cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  await new Promise((res) => setImmediate(res));
+  const t0 = Date.now();
+  const own = cr.readReplies('Nia4951', { now: NOW });
+  await new Promise((res) => setTimeout(res, 120));
+  release();
+  await counting;
+  const r = await own;
+  assert.equal(r.ok, true, r.because);
+  assert.ok(Date.now() - t0 < 5000, 'the agent\'s own read waited too long');
+  assert.equal(asked.filter((u) => u.includes('order=newest')).length >= 1, true);
+  assert.equal(asked.length < 4, true, 'the count went on to its second post while the agent\'s read was waiting: ' + asked.length);
+});

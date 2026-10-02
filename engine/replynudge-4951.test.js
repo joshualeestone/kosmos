@@ -39,7 +39,7 @@ function rig(over) {
   const store = new Map();
   const typed = [];
   const o = Object.assign({
-    roster: [card('kim')], projects: [], book: new Map(), sent: [], limit: { on: false }, betweenAgentsMs: 0,
+    roster: [card('kim')], projects: [], book: new Map(), sent: [], limit: { on: false }, betweenAgentsMs: 0, typeGapMs: 0,
     fresh: fresh([{ remoteId: P1, title: 'Shipping notes', ids: ['r1', 'r2'] }]),
     readNudged: (s) => new Set(store.get(s) || []), writeNudged: (s, set) => { store.set(s, [...set]); return true; },
     deliver: (s, text) => { typed.push({ s, text }); return { state: D.PLACED }; }, DELIVERY: D,
@@ -200,4 +200,23 @@ test('#4951 review 2: the gap follows every read that ran (agents with nothing n
   const s = rig({ sent: [later] });   // agentnudge pushed a later pass-start time already
   await rn.sweepOnce(s.o);
   assert.ok(s.o.sent.length === 2 && s.o.sent[0] <= s.o.sent[1], 'the shared hour log is out of time order: ' + JSON.stringify(s.o.sent));
+});
+
+test('#4951 review 2: replies an agent was already told about take no cap slot; a later agent is still read and told', async () => {
+  const typed = [];
+  const store = new Map([['kim', ['r-kim']], ['ann', ['r-ann']]]);
+  const { o } = rig({ roster: [card('kim'), card('ann'), card('bo')], limit: { on: true, perHour: 1 },
+    fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }),
+    readNudged: (s) => new Set(store.get(s) || []), writeNudged: (s, set) => { store.set(s, [...set]); return true; },
+    deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+  await rn.sweepOnce(o);
+  assert.deepEqual(typed, ['bo'], 'agents already told used up the cap before the one with a new reply');
+});
+
+test('#4951 review 2: if the told store cannot be written, the next pass still does not repeat the nudge', async () => {
+  const typed = [];
+  const { o } = rig({ writeNudged: () => false, readNudged: () => new Set(), deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+  await rn.sweepOnce(o);
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'a reply was nudged again because its record could not be written');
 });

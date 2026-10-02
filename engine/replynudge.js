@@ -40,6 +40,7 @@ const path = require('node:path');
 const HOUR_MS = 60 * 60 * 1000;
 const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_TRIES = 3;
+const TYPE_GAP_MS = 20 * 1000;   // review 2: between two agents' lines, so each told agent reads with the lock free
 /* Ids kept per agent. One read shows at most 30 and a pass sees at most 10 posts' first pages, so this holds weeks. */
 const NUDGED_MAX = 1000;
 const TITLE_CAP = 80;
@@ -148,28 +149,40 @@ async function sweepOnce(o) {
         readOne = true;
         const fresh = await o.fresh(session);
         if (fresh && fresh.busy) { results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because }); continue; }
-        if (fresh && fresh.ok === true && Array.isArray(fresh.posts) && fresh.posts.length) counted.push({ session, fresh });
+        // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
+        const told = o.readNudged(session);
+        const memo = book.get(session);
+        if (memo && memo.told instanceof Set) for (const id of memo.told) told.add(id);
+        const anyNew = fresh && fresh.ok === true && Array.isArray(fresh.posts) && fresh.posts.some((p) => (p.ids || []).some((id) => !told.has(id)));
+        if (anyNew) counted.push({ session, fresh });
       } catch (err) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
     }
+    /* Review 2 (Opus): the lines are SPACED (typeGapMs, default TYPE_GAP_MS), so each agent told has the read lock to
+       itself when it reads (two agents' own reads refuse each other, #4833). Review 1: so the card is read AGAIN before
+       each line: an agent that started working (or was stood down) meanwhile is left for the next pass (#4624). */
+    const typeGap = Number.isFinite(o.typeGapMs) ? o.typeGapMs : TYPE_GAP_MS;
+    let typedOne = false;
     for (const { session, fresh } of counted) {
       try {
-        /* Review 1: the card is read AGAIN before anything is typed: an agent that started working (or was stood down)
-           while the counts were read is left for the next pass, never typed into mid-turn (#4624). */
+        if (typedOne && typeGap > 0) await new Promise((res) => setTimeout(res, typeGap));
         let roster = o.roster;
         let projects = o.projects;
-        if (typeof o.rosterNow === 'function') { const r = o.rosterNow(); if (!Array.isArray(r)) continue; roster = r; }
-        if (typeof o.projectsNow === 'function') { const r = o.projectsNow(); if (!Array.isArray(r)) continue; projects = r; }
+        if (typeof o.rosterNow === 'function') { let r = null; try { r = o.rosterNow(); } catch { r = null; } if (!Array.isArray(r)) continue; roster = r; }
+        if (typeof o.projectsNow === 'function') { let r = null; try { r = o.projectsNow(); } catch { r = null; } if (!Array.isArray(r)) continue; projects = r; }
         const card = roster.find((x) => x && x.sessionName === session);
         const display = plainWords((card && card.name) || session, 80);
         const nudged = o.readNudged(session);
-        const p = plan(card, fresh, nudged, book.get(session), projects);
+        const memo0 = book.get(session);
+        if (memo0 && memo0.told instanceof Set) for (const id of memo0.told) nudged.add(id);
+        const p = plan(card, fresh, nudged, memo0, projects);
         if (p.act !== 'nudge') continue;
         prune();
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;
         let held = false;
+        typedOne = true;
         try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
         if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because }); continue; }
@@ -180,8 +193,9 @@ async function sweepOnce(o) {
         const tries = (prev && prev.key === p.key && Number.isInteger(prev.tries) ? prev.tries : 0) + 1;
         if (mayHaveReached) {
           for (const id of p.ids) nudged.add(id);
-          o.writeNudged(session, nudged);
-          book.delete(session);
+          /* Review 2: if the store cannot be written, the ids are kept in memory too, so the next pass does not repeat. */
+          if (o.writeNudged(session, nudged) === true) book.delete(session);
+          else book.set(session, { told: new Set([...((memo0 && memo0.told) || []), ...p.ids]) });
           /* Review 1: when it went, not when the pass began. Review 2: kept in time order (agentnudge prunes from the front,
              assuming that order, and pushes its pass's start time). */
           const at = clock();
