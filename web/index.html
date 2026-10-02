@@ -25555,9 +25555,15 @@ async function paintAccounts(opts) {
         state = res.ok ? (j.state || 'unknown') : 'unknown';
       } catch { state = 'unknown'; }
       if (state === 'unknown') {
-        btn.textContent = 'Could not check, try again';
-        btn.disabled = false;
-        setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);
+        /* #3997 review 3: a failed check can take this row's login-green away on the server, so repaint before
+           saying so; otherwise the row stays green beside "Could not check". The repaint rebuilds the row, so the
+           sentence goes on the NEW button for this folder (or on the old one if the repaint failed). */
+        try { await paintAccounts(); } catch { /* the old row stays; the sentence still goes on its button */ }
+        const fresh = [...box.querySelectorAll('[data-check-claude]')].find((b) => b.dataset.checkClaude === dir) || btn;
+        const freshLabel = fresh === btn ? label : fresh.textContent;
+        fresh.textContent = 'Could not check, try again';
+        fresh.disabled = false;
+        setTimeout(() => { if (fresh.isConnected) fresh.textContent = freshLabel; }, 4000);
         return;
       }
       /* connected -> green, none -> the honest "not connected": both recorded, so

@@ -9154,7 +9154,7 @@ const server = http.createServer(async (req, res) => {
              board started, carries that date; the page shows it as a calm "login good until". Green only with the
              switch on. */
           const loginArgs = { badge: v.badge, checkLiveState: a.connection && a.connection.state,
-            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), checkRefused: claudeloginlive.checkRefused(a.dir), now: nowMs };
+            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), checkRefused: claudeloginlive.checkRefused(a.dir, obs && obs.at), now: nowMs };
           const loginOk = claudeloginlive.loginGood(loginArgs);
           const loginGreen = loginOk && claudeloginlive.greenFromLogin(loginArgs);
           return {

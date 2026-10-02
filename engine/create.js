@@ -3799,11 +3799,11 @@ async function claudeAccountLive(configDir) {
 }
 /* #3997 review 1: the same verdict, plus `refused`: an UNKNOWN whose probe reported an exit code other than 0 and
    whose output has neither the capacity nor the dead-sign-in words. With the real probe (defaultClaudeProbe) that is
-   BROAD, measured from its code by review 2: it reports 1 for any error without a numeric code, so a refusal (a 403
-   permission error, a disabled organisation), a timeout, claude not being found, or a network failure all count.
-   Every one of those is a Check now that failed, which Josh's ruling A keeps non-green, so the row falls back to
-   unverified until a later check answers. Capacity is not `refused` (the account is fine, only busy), and neither is
-   a probe that throws or reports no exit code. Check now uses it so a row's login-green does not outlive a failed
+   BROAD, measured from its code by reviews 2 and 3: it reports 1 for any error without a numeric code, so a refusal
+   (a 403 permission error, a disabled organisation), a timeout (killed, no code) or a failed exec all count. Every one
+   of those is a Check now that failed, which Josh's ruling A keeps non-green, so the row falls back to unverified
+   until a later outcome. Not `refused`: capacity (the account is fine, only busy), a probe that throws, and a claude
+   that cannot be found at all (the probe reports no exit code then). Check now uses it so a row's login-green does not outlive a failed
    check it just saw; the create gate still reads only the state, so it is unchanged. */
 async function claudeAccountCheck(configDir) {
   const subscription = require('./subscription');
@@ -3822,8 +3822,8 @@ async function claudeAccountCheck(configDir) {
   if (CLAUDE_CAPACITY.test(text)) return { state: subscription.STATE.UNKNOWN, refused: false }; // live but capped/overloaded
   if (CLAUDE_DEAD_AUTH.test(text)) return { state: subscription.STATE.NONE, refused: false };   // positively dead
   if (exit === 0) return { state: subscription.STATE.CONNECTED, refused: false };           // a real call went through cleanly
-  // network/unrunnable/other. A numeric non-zero exit means claude ran and said no; a null exit (it never ran,
-  // or was killed) is not a refusal.
+  // network/unrunnable/other. A non-zero exit code is a failed check (see above); no exit code (claude was not
+  // found) is not.
   return { state: subscription.STATE.UNKNOWN, refused: exit !== null && exit !== 0 };
 }
 
