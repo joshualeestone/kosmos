@@ -3326,6 +3326,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    max-width:100% so it cannot overflow a narrow column (render-settings-nav.js confirms no
    overflow at 420px). */
 #s-nav { width: max-content; max-width: 100%; }
+/* #4979: the app header (.apphead) is sticky too and drawn above the page, so a nav stuck 16px from
+   the window's top sat under it on any long Settings section and its first pill could not be
+   clicked. Stick 16px below the header instead. Its height is not one value (51px on a wide window,
+   77px at 900px where it wraps), so it is measured into --apphead-h; unmeasured, this is the old
+   16px. Below 56rem .snav is static and this does not apply. */
+#s-nav { top: calc(var(--apphead-h, 0px) + 16px); }
 /* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
    side padding, because that centered full-width pill was the longest label and word-wrapped.
    #3500 supersedes it: the pill is relabelled "AI Settings" (shorter), the buttons are flex
@@ -37917,6 +37923,20 @@ function settingsOpen(sec, opts) {
   if (sec === 'connect') { paintConnLive(); paintConnShelf(); }
   if (sec === 'usage') paintUsage();
 }
+/* #4979: the app header's height, for the sticky Settings nav's top (see the #s-nav rule). One
+   observer on its border box, so a header that wraps or unwraps on a resize moves the nav with it. */
+(() => {
+  const head = document.querySelector('.apphead');
+  if (!head || typeof head.getBoundingClientRect !== 'function') return;
+  const write = () => {
+    try {
+      const h = head.getBoundingClientRect().height;
+      if (typeof h === 'number' && Number.isFinite(h)) document.documentElement.style.setProperty('--apphead-h', h + 'px');
+    } catch { /* unmeasured: the nav keeps the old 16px */ }
+  };
+  write();
+  if (typeof ResizeObserver === 'function') new ResizeObserver(write).observe(head, { box: 'border-box' });
+})();
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
