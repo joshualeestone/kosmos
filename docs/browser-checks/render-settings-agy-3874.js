@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-gemini-flow acct-gemini-pick acct-gemini-sub-step acct-keyed-install acct-gemini-sub-paste-row acct-gemini-sub-paste acct-gemini-sub-paste-go acct-gemini-sub-page
+// Browser-check-surface: acct-gemini-flow acct-gemini-pick acct-gemini-sub-step acct-keyed-install acct-gemini-sub-paste-row acct-gemini-sub-paste acct-gemini-sub-paste-go acct-gemini-sub-page acct-gemini-sub-terms-row acct-gemini-sub-terms-share acct-gemini-sub-terms-go
 'use strict';
 /**
  * kosmos#3874: Settings, AI Models, Add a provider offers Gemini on a Google subscription, as the
@@ -11,13 +11,15 @@
  *   - "Sign in with Google" walks not installed -> Install Antigravity -> Sign in with Google (the
  *     hidden sign-in, #3998) -> the code pasted in the dialog -> the gold connected box, in the
  *     dialog, each press posting only its own route, with focus kept inside the dialog;
+ *   - #4960: Antigravity's terms are asked in the dialog (both links, the data-sharing box as
+ *     Antigravity has it, focus on Agree and continue), and the person's answer goes to the board;
  *   - Stop partway returns to the choice;
  *   - a slow availability read answering after the dialog closed, or after a switch to Grok, paints
  *     no Gemini choice (the visit re-check after agyAsk), and the same read on an open dialog does;
  *   - a keyboard press on the step's button keeps focus in the dialog (on Stop) while it hides;
  *   - at a 320px viewport the "Google Gemini (Google subscription)" row keeps its mark and name on one line;
  *   - control: where it is NOT offered, the choice never shows and Gemini goes to its download.
- * SHOT_DIR=<dir> saves screenshots of the choice and of Ready.
+ * SHOT_DIR=<dir> saves screenshots of the choice, the terms (#4960) and of Ready.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-settings-agy-3874.js
  */
@@ -47,12 +49,13 @@ async function openPage(browser, offered) {
       const u = String(url);
       const post = opts && opts.method === 'POST';
       // #3998: the hidden sign-in's addresses (engine/agysignin.js stood in for).
-      if (/\/api\/antigravity\/signin(\/(code|show|stop))?$/.test(u)) {
+      if (/\/api\/antigravity\/signin(\/(code|show|stop|agree))?$/.test(u)) {
         const which = u.endsWith('/signin') ? 'signin' : u.split('/').pop();
         const ID = 'a1b2c3d4e5f60718';   // the sign-in start() names; every state read carries it
         if (!post) return enc({ id: ID, ...(window.__signin.length > 1 ? window.__signin.shift() : window.__signin[0]) });
         window.__posts.push(which);
         if (which === 'code') { const b = JSON.parse(opts.body || '{}'); window.__codeSent = b.code; window.__codeId = b.id; }
+        if (which === 'agree') { window.__agree = JSON.parse(opts.body || '{}'); window.__signin = [{ state: 'setup', step: 'terms' }, { state: 'done' }]; }
         return enc({ ok: true, id: ID, state: which === 'signin' ? 'starting' : 'checking' });
       }
       if (/\/api\/antigravity\/(check|install)$/.test(u) && post) {
@@ -144,8 +147,27 @@ const view = () => ({
       && d3.page === 'https://accounts.google.com/o/oauth2/auth?x=1' && d3.focus === 'acct-gemini-sub-paste',
     '#3998 Sign in with Google starts the hidden sign-in and asks for Google\'s code in the dialog, focus in the box', JSON.stringify(d3));
   if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-paste-3998.png') });
-  await q(() => { document.getElementById('acct-gemini-sub-paste').value = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v'; window.__signin = [{ state: 'setup', step: 'terms' }, { state: 'done' }]; document.getElementById('acct-gemini-sub-paste-go').click(); });
+  /* #4960: after the code, Antigravity's terms, asked in the dialog with the box as Antigravity has it (ticked). */
+  await q(() => { document.getElementById('acct-gemini-sub-paste').value = '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v';
+    window.__signin = [{ state: 'checking', step: 'code-sent' }, { state: 'terms', step: 'terms', terms: { dataUse: true, termsUrl: 'https://antigravity.google/terms', privacyUrl: 'https://policies.google.com/privacy' } }];
+    document.getElementById('acct-gemini-sub-paste-go').click(); });
   await q(() => new Promise((r) => setTimeout(r, 2800)));
+  const t1 = await q(() => {
+    const row = document.getElementById('acct-gemini-sub-terms-row');
+    const box = document.getElementById('acct-gemini-sub-terms-share');
+    return { shown: !row.hidden && row.offsetParent !== null, checked: box.checked,
+      tos: document.getElementById('acct-gemini-sub-terms-tos').getAttribute('href'), privacy: document.getElementById('acct-gemini-sub-terms-privacy').getAttribute('href'),
+      focus: document.activeElement && document.activeElement.id, text: document.getElementById('acct-gemini-sub-code').textContent,
+      label: box.labels && box.labels[0] ? box.labels[0].textContent.trim() : '' };
+  });
+  chk(t1.shown && t1.checked && t1.tos === 'https://antigravity.google/terms' && t1.privacy === 'https://policies.google.com/privacy'
+      && t1.focus === 'acct-gemini-sub-terms-go' && /whether to share your usage data/.test(t1.text) && /^Also let Google collect/.test(t1.label),
+    '#4960 the terms are asked in the dialog: both links, the box as Antigravity has it, focus on Agree and continue', JSON.stringify(t1));
+  if (shots) await page.locator('#acct-add-dialog').screenshot({ path: path.join(shots, 'settings-gemini-terms-4960.png') });
+  await q(() => { document.getElementById('acct-gemini-sub-terms-share').click(); document.getElementById('acct-gemini-sub-terms-go').click(); });
+  await q(() => new Promise((r) => setTimeout(r, 2800)));
+  const t2 = await q(() => window.__agree);
+  chk(t2 && t2.id === 'a1b2c3d4e5f60718' && t2.dataUse === false, '#4960 Agree and continue sends the person\'s answer (unticked: no data sharing) for this sign-in', JSON.stringify(t2));
   const d4 = await q(() => ({
     code: window.__codeSent, codeId: window.__codeId, box: !document.getElementById('acct-success-box').hidden,
     focusIn: !!(document.activeElement && document.activeElement !== document.body && document.activeElement.closest('#acct-add-dialog')),
