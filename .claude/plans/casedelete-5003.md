@@ -21,3 +21,15 @@ been fine ("X is running"); that is the safe side, and such a volume is rare for
 delete-leftover.test.js +1: asked as miles5003 / MILES5003 while Miles5003 runs, plan refuses and del leaves the folder and
 the plist; control: own case also refused, and a stopped leftover is offered. Sabotage (caseBlind = false): red.
 Sibling files green: web.delete-leftover 7/7, jobexists.win32-570 14/14.
+
+## Review 1 (blind): 0 blockers, 1 warning, 1 nit; both taken
+- W (on main) a STOPPED leftover asked as 'miles' for Miles: files found case-blind, but launchctl bootout used label
+  ...miles (launchd is case-sensitive, so Miles's job stayed loaded with its plist in the Trash) and remove.forget('miles')
+  missed Miles's removed record (a new Miles came up hidden). -> realCaseName(): plan() takes the agent's own spelling
+  from the folder's real name (realpathSync.native) or, for a job-only Mac leftover, from the plist's real name
+  (parseServiceLabel); only when the two differ in case alone; never through a link. Every later step uses it.
+  Tests +2 (stopped folder+job: plan name, bootout label, removed record; job-only: name and label). Sabotages red:
+  realCaseName returns asked (2 fail); no plist branch (1 fail).
+- N the case-blind refusal did not say the names were taken as one -> "(this computer does not tell X and Y apart)".
+- Note, measured: with realCaseName in place the case-blind running check is a SECOND line (it fires only when the
+  disk read fails, which falls back to the asked name); its sabotage alone is no longer red. Kept on purpose.

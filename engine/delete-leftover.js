@@ -174,6 +174,25 @@ function trashCanTake(p) {
  * when it must not be offered. The confirmation paints THESE words, never its
  * own, so the description of the act cannot drift from the act.
  */
+/* #5003: the agent's own spelling of `asked`, read from the disk: its folder's real name, or (a Mac leftover with only
+   an auto-start file) the name inside that file's real name. Only on a case-blind platform, only when the two differ
+   in case alone, and a link is never followed (plan() refuses a linked folder). Anything unreadable leaves `asked`. */
+function realCaseName(asked, platform) {
+  if (platform !== 'darwin' && platform !== 'win32') return asked;
+  const sameButCase = (real) => (typeof real === 'string' && real !== asked && real.toLowerCase() === asked.toLowerCase() ? real : null);
+  try {
+    const dir = create.workerDir(asked);
+    const st = fs.lstatSync(dir);
+    if (st.isDirectory() && !st.isSymbolicLink()) return sameButCase(path.basename(fs.realpathSync.native(dir))) || asked;
+  } catch { /* no folder: try the auto-start file */ }
+  if (platform !== 'darwin') return asked;
+  try {
+    const real = path.basename(fs.realpathSync.native(create.plistPath(asked)), '.plist');
+    const parsed = create.parseServiceLabel(real);
+    return sameButCase(parsed && parsed.name) || asked;
+  } catch { return asked; }
+}
+
 function plan(name, opts) {
   const now = (opts && opts.now) || Date.now();
   /* ⚠️ INJECTED, NOT READ (#570). This module decides whether a NAME IS FREE,
@@ -183,7 +202,10 @@ function plan(name, opts) {
      The default is the real platform, so production is unchanged; the parameter
      is what lets the fleet's Macs drive the win32 arm. */
   const platform = (opts && opts.platform) || process.platform;
-  const clean = create.cleanName(name);
+  /* #5003: on a case-blind disk the leftover may be asked for in a case other than its own ('miles' for Miles). The
+     files are found either way, but launchd's label, the removed-list record and the board's other records are
+     keyed by the agent's OWN spelling, so every later step uses the name as it is on disk. */
+  const clean = realCaseName(create.cleanName(name), platform);
   const unsafe = remove.unsafeToActOn(clean);
   if (unsafe) return { ok: false, because: unsafe };
   const shown = status.readIdentity(clean).displayName || clean;
@@ -192,7 +214,8 @@ function plan(name, opts) {
   /* #5003: a Mac's or a Windows disk does not tell case apart, so workerDir('miles') and plistPath('miles') find the
      files of an agent named Miles. The running check must be just as blind to case, or a delete asked as 'miles'
      while Miles runs finds no live session and moves the RUNNING agent's folder and job. Case-blind here is the safe
-     side: on a rare case-sensitive disk it refuses a delete that would have been fine, and says why. */
+     side: on a rare case-sensitive disk it refuses a delete that would have been fine, and the sentence says the two
+     names were taken as one. */
   const caseBlind = platform === 'darwin' || platform === 'win32';
   const sameName = (a) => (caseBlind ? String(a).toLowerCase() === clean.toLowerCase() : a === clean);
   try { live = status.paneRoster().find((c) => sameName(c.sessionName)) || null; }
@@ -201,7 +224,8 @@ function plan(name, opts) {
   }
   if (live) {
     const who = live.sessionName === clean ? shown : (status.readIdentity(live.sessionName).displayName || live.sessionName);
-    return { ok: false, because: `${who} is running, so there is nothing left over to delete. Remove it first if you want it gone.` };
+    const same = live.sessionName === clean ? '' : ` (this computer does not tell ${clean} and ${live.sessionName} apart)`;
+    return { ok: false, because: `${who} is running${same}, so there is nothing left over to delete. Remove it first if you want it gone.` };
   }
 
   const folderPath = create.workerDir(clean);

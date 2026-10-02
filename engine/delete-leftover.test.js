@@ -322,3 +322,32 @@ test('#5003: a delete asked in another case while the agent runs is refused, and
   quiet();
   assert.equal(mac.plan('Miles5003').ok, true, 'a stopped leftover was refused');
 });
+
+test('#5003: a STOPPED leftover asked in another case is deleted under its own name: launchd label and removed record too', (t) => {
+  leftoverAgent('Rosa5003');
+  if (!fs.existsSync(create.workerDir('rosa5003'))) { t.skip('this disk tells case apart'); return; }
+  quiet();
+  const rec = remove.remove('Rosa5003');
+  assert.notEqual(rec.outcome, remove.OUTCOME.REFUSED, rec.because);
+  assert.equal(remove.isHidden('Rosa5003'), true, 'control: the fixture is on the removed list');
+  const p = mac.plan('rosa5003');
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.name, 'Rosa5003', 'the plan did not take the agent\'s own spelling');
+  calls.length = 0;
+  const done = mac.del('rosa5003');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  const boot = calls.find((c) => c[0] === 'launchctl' && c[1][0] === 'bootout');
+  assert.ok(boot && boot[1][1].endsWith('/' + create.serviceLabel('Rosa5003')), 'launchd was asked to stop a label that is not the agent\'s: ' + JSON.stringify(boot));
+  assert.equal(remove.isHidden('Rosa5003'), false, 'the removed record of the agent\'s own spelling outlived the delete');
+});
+
+test('#5003: a Mac leftover with only its auto-start file, asked in another case, is stopped under its own label', (t) => {
+  leftoverAgent('Juno5003');
+  fs.rmSync(create.workerDir('Juno5003'), { recursive: true, force: true });
+  if (!fs.existsSync(create.plistPath('juno5003'))) { t.skip('this disk tells case apart'); return; }
+  quiet();
+  const p = mac.plan('juno5003');
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.name, 'Juno5003', 'a job-only plan did not take the agent\'s own spelling');
+  assert.equal(p.job.label, create.serviceLabel('Juno5003'));
+});
