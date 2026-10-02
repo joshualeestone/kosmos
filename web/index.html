@@ -48458,7 +48458,9 @@ function tcPaint() {
   const had = document.activeElement;
   const hadRow = had && list.contains(had) ? had.closest('li') : null;
   const hadSlot = hadRow ? hadRow.dataset.slot : null;
-  const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : 'name') : null;
+  // #4936 review 6: focus left on the row itself (a Try again was pressed and the row rebuilt without it) goes back to a
+  // new Try again if the attempt failed again, not to the name box, which is disabled on a made row.
+  const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : (had === hadRow ? 'row' : 'name')) : null;
   const hadCaret = (had && hadKind === 'name' && typeof had.selectionStart === 'number') ? had.selectionStart : null;
   /* Round 28: the whole selection, not only its start. A person who selected a failed row's name to replace
      it and typed as a repaint landed had their text put in front of the old name ("AdaLeo"), which was
@@ -48521,7 +48523,7 @@ function tcPaint() {
     }
     if (m.state === 'made' && m.hello === 'failed') {   // #4936: a member that did not start is said, with a retry
       const why = document.createElement('p'); why.className = 'tc-why';
-      why.textContent = 'Kosmos could not say hello to it, so it has not started. Try again, or say hello to it on its page.';
+      why.textContent = 'Kosmos could not say hello to it, so it may not have started. Try again, or say hello to it on its page.';
       const again = document.createElement('button');
       again.type = 'button'; again.className = 'btn tc-retry'; again.textContent = 'Try again';
       again.setAttribute('aria-label', 'Try again: say hello to the ' + m.title);
@@ -48540,7 +48542,7 @@ function tcPaint() {
   }));
   if (hadSlot && !list.contains(had)) {
     const row = list.querySelector('li[data-slot="' + CSS.escape(hadSlot) + '"]');
-    const back = row && ((hadKind === 'retry' && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
+    const back = row && (((hadKind === 'retry' || hadKind === 'row') && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
     if (back && !back.disabled) {
       back.focus({ preventScroll: true });
       if (hadCaret !== null && back.classList.contains('tc-name')) { try { back.setSelectionRange(hadCaret, hadEnd); } catch { /* not a text box */ } }
@@ -48620,13 +48622,19 @@ function tcPaint() {
 const TC_HELLO_TRIES = 3;
 let TC_AUTO_HELLO = true;     // a browser check whose arm is not about #4936 turns it off
 let TC_HELLO_GAP_MS = 3000;   // a browser check can shorten it
+let TC_HELLO_TIMEOUT_MS = 30000;   // review 6: a hello the board never answers is given up as unconfirmed
 async function tcHelloSend(name) {
+  /* Review 6: a board that takes the request and never answers would leave the row "Saying hello…" for good and keep
+     the team live. After TC_HELLO_TIMEOUT_MS it is given up as unconfirmed (it may have arrived), never re-sent. */
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), TC_HELLO_TIMEOUT_MS) : null;
   try {
-    const r = await postWakeHello(name);   // the same request sendWakeHello makes
+    const r = await postWakeHello(name, ctl ? ctl.signal : undefined);   // the same request sendWakeHello makes
     if (!r.ok) return r.status >= 500 ? 'unsure' : 'failed';   // a 5xx may have placed it already
     const state = r.delivery && r.delivery.state;
     return state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure');
   } catch { return 'unsure'; }   // the request may have reached the board
+  finally { if (timer) clearTimeout(timer); }
 }
 async function tcHelloOne(m, gen) {
   if (!m) return;
@@ -52736,9 +52744,10 @@ async function restartReadyWait(name, mine) {
    messages. Existing callers omit it and get the 'hello' behaviour unchanged. */
 /* #4936: the wake hello request itself, shared by sendWakeHello and the team step (tcHelloSend), so there is one copy.
    Resolves { ok, status, delivery } (delivery null when the answer had none); throws only when the board was not reached. */
-async function postWakeHello(name) {
+async function postWakeHello(name, signal) {
   const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
     method: 'POST',
+    signal,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text: 'hello' }),
   });

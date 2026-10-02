@@ -202,11 +202,15 @@ function chk(ok, label, extra) {
           const helloFail = new Set();
           const helloHold = {};   // name -> a promise its hello's answer waits for (to see the lead go first, alone)
           const helloUnsure = new Set();   // names whose hello comes back unconfirmed (it may have arrived)
+          const helloStatus = {};   // name -> an HTTP status its hello is refused with (a 4xx before delivery, a 5xx)
+          const helloHang = new Set();   // names whose hello the board takes and never answers
           await page.route('**/api/agent/*/thread', async (r) => {
             if (r.request().method() !== 'POST') return r.continue();
             const who = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
             hellos.push({ who, text: (JSON.parse(r.request().postData() || '{}')).text });
             if (helloHold[who]) await helloHold[who];
+            if (helloHang.has(who)) return;   // never answered: the page must give up on its own
+            if (helloStatus[who]) return r.fulfill({ status: helloStatus[who], json: { error: 'refused here' } });
             const state = helloFail.has(who) ? 'could_not' : (helloUnsure.has(who) ? 'unconfirmed' : 'placed');
             return r.fulfill({ status: 200, json: { ok: true, delivery: { state } } });
           });
@@ -214,7 +218,7 @@ function chk(ok, label, extra) {
           await clearFirstRun(page);
           // #4936: off unless an arm is about it (the others settle on rows reading Running); fast retries, a long mark.
           await page.evaluate(() => { TC_AUTO_HELLO = false; TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold, helloUnsure };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold, helloUnsure, helloStatus, helloHang };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -372,6 +376,8 @@ function chk(ok, label, extra) {
           await page.click('#tc-list li[data-slot="social"] .tc-retry');
           await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || '') && hellos.filter((h) => h.who === 'ana').length === 6);
           chk(await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden), `${E} #4936 a Try again that fails again keeps the step`);
+          chk(await page.evaluate(() => (document.activeElement || {}).matches && document.activeElement.matches('#tc-list li[data-slot="social"] .tc-retry')),
+            `${E} #4936 after a Try again fails again, focus is on the new Try again, not dropped on the row`, await page.evaluate(() => (document.activeElement || {}).outerHTML || '').then((h) => h.slice(0, 120)));
           /* Review 5: Back, then the same team again: a member not said hello to keeps the team, so it is resumed with
              its rows and Try again, not dropped for a new team. */
           await page.click('#tc-back');
@@ -491,7 +497,40 @@ function chk(ok, label, extra) {
           chk(hellos.filter((h) => h.who === 'kit').length === 1, `${E} #4936 an unconfirmed hello is sent once, never again (it may have arrived)`, JSON.stringify(hellos.map((h) => h.who)));
           chk(u[1].state === 'Hello not confirmed' && !u[1].retry && /Look at its page/.test(u[1].why || ''), `${E} #4936 its row says to look, with no Try again`, JSON.stringify(u[1]));
           chk(kept, `${E} #4936 with one unconfirmed, the step stays`);
+          /* Review 5/6: an unconfirmed hello has no retry, so it does not keep the team: Back drops it and the same team
+             picked again is a new one, not the finished one resumed. */
+          await page.click('#tc-back');
+          const dropped = await page.evaluate(() => TC === null);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3 && !document.getElementById('tc-go').hidden);
+          const fresh = await rows(page);
+          chk(dropped && fresh.every((r) => r.editable && r.state === ''), `${E} #4936 Back after an unconfirmed hello drops the team; the same team again starts fresh`, JSON.stringify({ dropped, fresh: fresh.map((r) => [r.state, r.editable]) }));
           chk(errs.length === 0, `${E} no page errors (#4936 unconfirmed arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936 review 6: the refusals: a 4xx before delivery is tried 3 times and offers Try again; a 5xx and a hello
+           the board never answers may have arrived, so each is sent once and never again --------------------------- */
+        {
+          const { page, errs, hellos, helloStatus, helloHang } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; TC_HELLO_TIMEOUT_MS = 800; });
+          helloHang.add('gus'); helloStatus.hal = 404; helloStatus.ivy = 503;
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Gus');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Hal');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Ivy');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Could not say hello|Hello not confirmed)$/.test(s.textContent)));
+          await page.waitForTimeout(400);   // room for a wrong resend
+          const st = await rows(page);
+          const sent = (n) => hellos.filter((h) => h.who === n).length;
+          chk(st[0].state === 'Hello not confirmed' && !st[0].retry && sent('gus') === 1, `${E} #4936 a hello the board never answers is given up as not confirmed, sent once`, JSON.stringify([st[0], sent('gus')]));
+          chk(st[1].state === 'Could not say hello' && st[1].retry && sent('hal') === 3, `${E} #4936 a 4xx refusal (before delivery) is tried three times, then offers Try again`, JSON.stringify([st[1], sent('hal')]));
+          chk(st[2].state === 'Hello not confirmed' && !st[2].retry && sent('ivy') === 1, `${E} #4936 a 5xx may have placed it: sent once, never again`, JSON.stringify([st[2], sent('ivy')]));
+          chk(errs.length === 0, `${E} no page errors (#4936 refusals arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
         }
