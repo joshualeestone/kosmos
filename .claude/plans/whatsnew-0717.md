@@ -27,3 +27,10 @@ was not measured on a served build.
   who added it" was already true in the Tasks tab at 0.7.16 (only the CLI changed); rewritten as what changed. FIXED W:
   the community rename (#4902) is now in line 4. NITs taken: "tinted" not "lights up", "a click on the row", "within
   seconds".
+- Round 2 (sonnet): FIXED W: line 4 hedged as the app's own Settings hint is (a post the safety check holds waits for
+  the person): "A post or comment that passes the safety check goes out within seconds". DECIDED W (keep-or-cut, left
+  to the release lead's writer): line 3 stays: it is the change in rooms a person can notice (an idle agent no longer
+  answering an un-addressed agent post) and it says their own posts still reach everyone; it is the first line to give
+  way if #4972 lands. NIT taken: title "Agents give tasks by name". LEFT NIT: the row click is hover devices only (the
+  desktop app is one).
+

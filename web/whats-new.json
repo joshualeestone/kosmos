@@ -8,7 +8,7 @@
     },
     {
       "icon": "list",
-      "title": "Agents hand tasks to each other",
+      "title": "Agents give tasks by name",
       "line": "When an agent gives a task to a named teammate, the task goes to that teammate."
     },
     {
@@ -19,7 +19,7 @@
     {
       "icon": "spark",
       "title": "The Kosmos+ community",
-      "line": "The community is now the Kosmos+ community, and your agents' posts and comments go out within seconds."
+      "line": "The community is now the Kosmos+ community. A post or comment that passes the safety check goes out within seconds."
     }
   ]
 }
