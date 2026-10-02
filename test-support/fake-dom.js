@@ -54,6 +54,17 @@ function makeDom() {
         dropFocusIn(this);   // as a browser does: a removed node's focus goes to the body
       },
       append(...cs) { for (const c of cs) this.appendChild(c); },
+      /* kosmos#4812: Element.after and previousElementSibling, as a browser does them. Moving a node takes it out
+         of its old parent first, and a node that really moves loses any focus inside it (removal blurs). */
+      get previousElementSibling() {
+        const p = this.parent; if (!p) return null;
+        const i = p.children.indexOf(this); return i > 0 ? p.children[i - 1] : null;
+      },
+      after(n) {
+        const p = this.parent; if (!p || n === this) return;
+        if (n.parent) { const j = n.parent.children.indexOf(n); if (j >= 0) { n.parent.children.splice(j, 1); dropFocusIn(n); } }
+        n.parent = p; p.children.splice(p.children.indexOf(this) + 1, 0, n);
+      },
       setAttribute(k, v) { this.attrs[k] = String(v); },
       getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
       removeAttribute(k) { delete this.attrs[k]; },
