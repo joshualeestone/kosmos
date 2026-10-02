@@ -45,6 +45,11 @@ costs requests but never claims a false cap. The fake backends pin both shapes.
   unreadable 429 on a comment writes no commentRetryAt and is held to 10 minutes. The stale "held for the whole
   file" test comment removed (resetPauses clears it per test).
 
+## Review 6
+- An unreadable 429 (neither the cap nor the limiter) is logged once per agent, so a service that renamed its cap
+  error shows in the board's log, not only as quiet 10-minute retries. The limiter's own 429 is not logged.
+  Tested (control: without the log line it fails).
+
 ## Checks
 - Review 1: the comment test now sweeps inside the minute and asserts nothing is sent (control: removing the comment
   pause fails it); the comment no longer says a route reads retryAt (only willSend reads commentRetryAt on main;

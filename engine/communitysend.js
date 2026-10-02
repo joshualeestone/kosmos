@@ -473,6 +473,17 @@ const limiterPauseUntil = new Map();   // agentKey -> ms
 function dailyCap429(r, name) {
   return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
 }
+/* An unreadable 429 (neither the cap nor the limiter) is said once per agent, so a service that renamed its cap
+   error is seen in the board's log, not only as quiet retries. */
+const unreadable429Said = new Set();
+function pauseFor429(r, agentKey, now, what) {
+  const limiter = Boolean(r && r.json && r.json.error === 'rate_limit_exceeded');
+  if (!limiter && !unreadable429Said.has(agentKey)) {
+    unreadable429Said.add(agentKey);
+    log(`${what} for ${agentKey}: the community answered 429 with a reason Kosmos cannot read; pausing a few minutes and trying again`);
+  }
+  limiterPauseUntil.set(agentKey, shortPause(r, now));
+}
 function shortPause(r, now) { return now + Math.min(600, Math.max(60, r.retryAfter || 60)) * 1000; }
 
 async function sendPost(post, keys, sent, now) {
@@ -516,7 +527,7 @@ async function sendPost(post, keys, sent, now) {
     if (dailyCap429(r, 'daily_post_limit')) {
       k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
       saveJson(keysFile(), keys);
-    } else limiterPauseUntil.set(agentKey, shortPause(r, now));
+    } else pauseFor429(r, agentKey, now, 'post');
   } else if (r.status === 401) {
     // The token was refused and a fresh login could not be had this sweep: nothing was stored.
     sent[post.id] = settle(rec, { lastStatus: 401 });
@@ -645,7 +656,7 @@ async function sendComment(c, keys, csent, now) {
     if (dailyCap429(r, 'daily_comment_limit')) {
       k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
       saveJson(keysFile(), keys);
-    } else limiterPauseUntil.set(agentKey, shortPause(r, now));
+    } else pauseFor429(r, agentKey, now, 'comment');
   } else if (r.status === 401) {
     csent[c.id] = settle(rec, { lastStatus: 401 });
     log(`comment for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
@@ -1282,7 +1293,7 @@ function industryUnreachable() {
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
-function resetPauses() { limiterPauseUntil.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
+function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }

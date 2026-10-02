@@ -1206,3 +1206,25 @@ test('#4953 an unreadable 429 is a pause of at most 10 minutes, never the daily 
   assert.equal(posts().length, n + 1);
   assert.equal(cs.statuses()[p.id].state, 'sent');
 });
+
+/* #4953 review 6: an unreadable 429 is said in the board's log, once per agent; the limiter's own 429 is not. */
+test('#4953 an unreadable 429 is logged once; the limiter\'s is not', async () => {
+  await on();
+  const lines = [];
+  const orig = console.error;   // communitysend's log() writes to stderr
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  try {
+    be.st.mode.odd429 = true;
+    agentPost('oddlog', { topic: 'a', body: 'a' });
+    await cs.sweep();
+    await cs.sweep(Date.now() + 601 * 1000);
+    be.st.mode.odd429 = false;
+    be.st.mode.limiter = true;
+    agentPost('limlog', { topic: 'b', body: 'b' });
+    await cs.sweep();
+    be.st.mode.limiter = false;
+  } finally { console.error = orig; }
+  const said = lines.filter((l) => /cannot read/.test(l));
+  assert.equal(said.filter((l) => /oddlog/.test(l)).length, 1, JSON.stringify(said));
+  assert.equal(said.filter((l) => /limlog/.test(l)).length, 0, JSON.stringify(said));
+});
