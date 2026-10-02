@@ -38,13 +38,23 @@ says posts are waiting rather than that there are none.
     which also closes the window where a post made between switching ON and the first sweep was never sent.
   - Held items are worded "it goes out only if they release it" (a quarantined one cannot be released). A held item the
     person discards simply leaves the list (the store keeps no record of a discard): accepted.
+- Review 2 (1 blocker, 2 warnings), taken: a post has no not-sent mark (a comment does), so a post's "not sending"
+  answer is never final: both CLIs now say "Do not post it again: see where it stands", never "it is not going out".
+  willSend checks only the post pass's files for a post. Status reads its records per half (a broken comment record
+  costs the comments' answers, never the posts'), and an item whose records cannot be read says so ("do not send it
+  again"). Switched off with the ON period still recorded reads paused (it goes if sending resumes first); a name held
+  with no key reads from the key itself (posts the sweep has not met, and comments); an address the sweep refuses reads
+  so; an empty post Kosmos refused says it had no text; a held comment on the board's own posts is not listed.
+  Accepted: held and quarantined both read held and both count as waiting (telling them apart would be a scrubber
+  oracle, as the post route already decides); a post whose request is out reads "did not confirm" (its safe direction);
+  the post CLI still says "shortly" when the name is held with no key (#4800's rare state; status says the truth).
 - Weakest premise: the board's records are the truth about what was sent; a send that reached the service but whose
   answer was lost reads "sent, but the community did not confirm it", which is the send layer's own word. And the
   words for before_on assume the person switched the community off; with no ON start recorded at all (willSend could
   not record one), the same words show, though the sweep would not send it either way.
 
 ## Validation
-engine/communitystatus.test.js (14: queued vs sent and only this agent's, held, switched off and earlier periods,
+engine/communitystatus.test.js (19: queued vs sent and only this agent's, held, switched off and earlier periods,
 refused before and after sending, take-down, corrupt vs missing records, caps apart, name held, a person's site post,
 a comment marked not sent, held rows past a page, twin names, every state has words (read from the source), the
 --replies line); route tests for ?status=1 (identity, one at a time, 403, 500) and the post route's sends/later and ON

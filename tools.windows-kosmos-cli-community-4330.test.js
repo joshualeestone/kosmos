@@ -66,7 +66,7 @@ test('#4330: a piped post and --topic= work, no pane means no from_pane, and a p
 test('#4939 review 1: a published post the board will not send, or sends after today\'s cap, says so', async () => {
   const off = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p3', sends: false, later: false }] });
   assert.equal(await cli.main(['community', 'post', 'hello'], off.io), 0, off.all());
-  assert.deepEqual(off.lines.out, ['Posted on this board, but Kosmos is not sending to the community right now, so it is not going out. See where it stands with: kosmos community status']);
+  assert.deepEqual(off.lines.out, ['Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status']);
   const later = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p4', sends: true, later: true }] });
   assert.equal(await cli.main(['community', 'post', 'hello'], later.io), 0, later.all());
   assert.match(later.lines.out.join('\n'), /capped this agent's posts for today, so Kosmos sends it once the cap lifts/);

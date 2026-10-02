@@ -71,6 +71,7 @@ test('review 1: switched off, an unsent post is NOT "waiting" (OFF ends the ON p
   post('ava', 'Made then switched off');
   assert.equal(stateOfTitle('ava', 'Made then switched off'), 'queued', 'CONTROL: on, inside the ON period');
   switchOn = false;
+  cs.endOnPeriodNow();   // what switching OFF does (communityswitch): the ON period ends at once
   assert.equal(stateOfTitle('ava', 'Made then switched off'), 'before_on');
   assert.match(status.statusText('ava').text, /not sent, and it will not be: the community was switched off before it went out/);
   assert.equal(status.waitingPosts('ava'), 0, 'a post that will never go counted as waiting');
@@ -103,22 +104,77 @@ test('review 1: a post the community\'s moderators took down says so', () => {
   assert.match(status.statusText('ava').text, /"Taken".*taken down by the community's moderators/);
 });
 
-test('review 1: a corrupt send record is "cannot say", never every sent post read as queued; a MISSING one is empty', () => {
+test('review 1/2: a corrupt send record is "cannot say", never every sent post read as queued; per half; a MISSING one is empty', () => {
   const a = post('ava', 'Sent one');
-  assert.equal(status.statusText('ava').ok, true, 'CONTROL: no send records yet reads as empty, not unreadable');
+  comment('ava', 'A comment');
+  assert.equal(stateOfTitle('ava', 'Sent one'), 'queued', 'CONTROL: no send records yet reads as empty, not unreadable');
   writeJson(cs._paths.sentFile(), { [a.id]: { state: 'sent', agent: 'ava', remoteId: 'r1' } });
   assert.equal(stateOfTitle('ava', 'Sent one'), 'sent');
-  for (const f of [cs._paths.sentFile(), cs._paths.keysFile(), cs._paths.stateFile(), cs._paths.commentsSentFile()]) {
+  const cases = [[cs._paths.sentFile(), 'unreadable', 'queued'], [cs._paths.commentsSentFile(), 'sent', 'unreadable'],
+    [cs._paths.keysFile(), 'unreadable', 'unreadable'], [cs._paths.stateFile(), 'unreadable', 'unreadable']];
+  for (const [f, postState, commentState] of cases) {
     const before = fs.existsSync(f) ? fs.readFileSync(f) : null;
     fs.mkdirSync(path.dirname(f), { recursive: true });
     fs.writeFileSync(f, '{corrupt');
-    assert.equal(status.itemsFor('ava'), null, path.basename(f) + ' corrupt still answered');
-    const r = status.statusText('ava');
-    assert.equal(r.ok, false, path.basename(f));
-    assert.match(r.because, /could not read what Kosmos has sent/);
+    assert.deepEqual([stateOfTitle('ava', 'Sent one'), stateOfTitle('ava', 'A comment')], [postState, commentState], path.basename(f));
     if (before) fs.writeFileSync(f, before); else fs.rmSync(f);
   }
+  fs.writeFileSync(cs._paths.sentFile(), '{corrupt');
+  assert.match(status.statusText('ava').text, /"Sent one".*cannot read its send records just now.*do not send it again/);
+  fs.writeFileSync(cs._paths.sentFile(), JSON.stringify({ [a.id]: { state: 'sent', agent: 'ava', remoteId: 'r1' } }));
   assert.equal(stateOfTitle('ava', 'Sent one'), 'sent', 'CONTROL: restored, it answers again');
+});
+
+test('review 2: switched off with the ON period still recorded (ending it is best effort), an unsent post waits; it is never "post it again"', () => {
+  post('ava', 'Paused');
+  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+  switchOn = false;
+  assert.equal(stateOfTitle('ava', 'Paused'), 'paused');
+  assert.match(status.statusText('ava').text, /waiting: Kosmos is not sending to the community right now; do not send it again/);
+  writeJson(cs._paths.stateFile(), {});
+  assert.equal(stateOfTitle('ava', 'Paused'), 'before_on', 'CONTROL: the period ended, it never goes');
+});
+
+test('review 2: a community name held with no key reads it, before the sweep has met the post, and for comments', () => {
+  post('ava', 'Unmet post');
+  comment('ava', 'Unmet comment');
+  writeJson(cs._paths.keysFile(), { ava: { registering: { taken: true } } });
+  assert.deepEqual([stateOfTitle('ava', 'Unmet post'), stateOfTitle('ava', 'Unmet comment')], ['name_unclaimed', 'name_unclaimed']);
+  writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', registering: { taken: true } } });
+  assert.equal(stateOfTitle('ava', 'Unmet post'), 'queued', 'CONTROL: with a key it goes');
+});
+
+test('review 2: an address the sweep will not send to reads so, not "queued"', (t) => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  t.after(() => { if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; });
+  post('ava', 'Insecure');
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://community.example.com';
+  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+  assert.equal(stateOfTitle('ava', 'Insecure'), 'address_refused');
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://127.0.0.1:9';
+  writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
+  assert.equal(stateOfTitle('ava', 'Insecure'), 'queued', 'CONTROL: a local address is sent to');
+});
+
+test('review 2: an empty post Kosmos itself refused says so; a held comment on the board\'s own post is not listed', () => {
+  const a = post('ava', 'Empty');
+  writeJson(cs._paths.sentFile(), { [a.id]: { state: 'refused', agent: 'ava', reasons: ['empty'] } });
+  assert.equal(stateOfTitle('ava', 'Empty'), 'refused_empty');
+  const rows = [{ id: 'lc', kind: 'community_post', agent: 'ava', author: { type: 'agent', name: 'ava' }, body: 'on a board post', postId: 'p1', status: 'held', receivedAt: '2026-09-01T00:00:00.000Z' },
+    { id: 'rc', kind: 'community_post', agent: 'ava', author: { type: 'agent', name: 'ava' }, body: 'on a community post', remotePostId: '7a1b2c3d-0000-4000-8000-000000000001', status: 'held', receivedAt: '2026-09-01T00:00:01.000Z' }];
+  writeJson(communitystore._paths.commentsFile(), rows);
+  const held = status.itemsFor('ava').filter((x) => x.kind === 'comment').map((x) => x.id);
+  assert.deepEqual(held, ['rc']);
+});
+
+test('review 2: willSend for a post ignores the comment records (a broken comment file does not stop posts)', () => {
+  writeJson(cs._paths.commentsSentFile(), {});
+  assert.equal(cs.willSend('ava', Date.now(), 'post').sends, true, 'CONTROL');
+  fs.writeFileSync(cs._paths.commentsSentFile(), '{corrupt');
+  assert.equal(cs.willSend('ava', Date.now(), 'post').sends, true, 'a corrupt comment record stopped a post');
+  assert.equal(cs.willSend('ava').sends, false, 'a comment still needs its records');
+  fs.writeFileSync(cs._paths.sentFile(), '{corrupt');
+  assert.equal(cs.willSend('ava', Date.now(), 'post').sends, false, 'a corrupt post record still stops a post');
 });
 
 test('review 1: past the daily cap a queued post or comment says it waits for the cap, not "within a few minutes"', () => {

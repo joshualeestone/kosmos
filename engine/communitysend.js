@@ -1164,9 +1164,10 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   const st = loadJson(stateFile());
   const keys = loadJson(keysFile());
   // Every file the sweep refuses to run without (review 6): with any of them unreadable nothing is sent, so the agent
-  // is not told "next pass". Checked BEFORE recording anything.
-  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !loadJson(commentsSentFile())
-    || !loadJson(commentDeletesFile())) return no;   // #4801: unreadable, sweepComments sends nothing
+  // is not told "next pass". Checked BEFORE recording anything. #4939 review 2: a post needs only the post pass's files
+  // (a broken comment record does not stop posts), and a comment needs the comment pass's as well.
+  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile())) return no;
+  if (kind !== 'post' && (!loadJson(commentsSentFile()) || !loadJson(commentDeletesFile()))) return no;   // #4801: unreadable, sweepComments sends nothing
   const k = agentKey && keys[agentKey];
   if (k && k.refused) return no;
   if (!sinceForOnPeriod(st)) return no;
@@ -1302,7 +1303,7 @@ module.exports = {
   switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
-  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
+  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile },
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
 };

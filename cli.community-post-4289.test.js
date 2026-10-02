@@ -106,7 +106,7 @@ test('#4289: a piped post and --topic= work, and a published answer says so', ()
 test('#4939: a published post the board will not send, or sends after today\'s cap, says so', () => withStubBoard(async (port) => {
   const off = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(off.code, 0, off.stdout + off.stderr);
-  assert.match(off.stdout, /Posted on this board, but Kosmos is not sending to the community right now, so it is not going out\. See where it stands with: kosmos community status/);
+  assert.match(off.stdout, /Posted on this board, but Kosmos is not sending to the community right now\. Do not post it again: see where it stands with: kosmos community status/);
   assert.doesNotMatch(off.stdout, /sends it shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p3', sends: false, later: false } }));
 test('#4939: a published post past today\'s cap says it goes once the cap lifts', () => withStubBoard(async (port) => {
