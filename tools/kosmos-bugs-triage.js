@@ -86,6 +86,10 @@ function scrub(text, names) {
   t = t.replace(/([A-Za-z]:\\+Users\\+)[^\\\s]+(?: [^\\\s]+)?(?=\\)/gi, '$1[user]');   // "C:\\Users\\Maria Lopez\\x": one or two words, up to the next \\
   t = t.replace(/([A-Za-z]:\\+Users\\+)[^\\\s]+/gi, '$1[user]');
   t = t.replace(/(?<![\p{L}\p{N}])~[\p{L}_][\p{L}\p{N}_.-]*/gu, '~[user]');   // ~jsmith/notes, (~jsmith), "~jsmith/x" (review 6)
+  /* Review 10: a private key block goes whole, and a value after a secret-ish label goes whatever its shape (an AWS secret
+     key has "/" in it, which split it into short runs the long-run rule below never reaches). The label stays. */
+  t = t.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, '[secret-removed]');
+  t = t.replace(/\b((?:aws_)?(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)\w*["']?\s*[:=]\s*["']?|Bearer\s+)[^\s"',;]{8,}/gi, '$1[secret-removed]');
   /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
   t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret-removed]');
   /* A long unbroken run with upper and lower case AND digits reads as a secret. Not a path (no "/"), and not plain hex: a
@@ -285,6 +289,10 @@ function writeDigest(o, state, extra) {
   lines.push(`## Reply due (its card is closed; reply on the post as an agent, then: replied <post>): ${extra.replyDue.length}`);
   if (extra.lookupFailed) lines.push(`⚠️ ${extra.lookupFailed} card state lookup(s) failed, so this list may be short.`);
   for (const r of extra.replyDue) lines.push(`- post ${r.postId}: card #${r.card} closed`);
+  /* Review 10: a group left "filing" was in no section, and its posts are seen, so it vanished from every digest. */
+  const stuck = Object.entries(state.groups).filter(([, g]) => g.status === 'filing');
+  if (stuck.length) lines.push('', `## Interrupted while filing (look for its card on GitHub; found: dup <group> <card>; none: file <group> --retry): ${stuck.length}`,
+    ...stuck.map(([id, g]) => `- ${id}: ${g.draft.title} (posts ${g.posts.map((p) => p.id).join(', ')})`));
   const reopen = Object.entries(state.groups).filter(([, g]) => g.linkedWhileClosed && g.status === 'dup');
   if (reopen.length) lines.push('', `## Linked to a card that was already closed (check the bug is not back): ${reopen.length}`, ...reopen.map(([id, g]) => `- ${id}: #${g.card}, posts ${g.posts.map((p) => p.id).join(', ')}`));
   const digest = lines.join('\n') + '\n';
@@ -346,7 +354,7 @@ function pendingGroup(state, id, allowFiling = false) {
   const g = state.groups[id];
   if (!g) throw new Error(`no group ${id}`);
   if (g.status === 'filing' && allowFiling) return g;
-  if (g.status === 'filing') throw new Error(`group ${id} was being filed when a run stopped; look for its card, then dup ${id} <card> (or skip ${id})`);
+  if (g.status === 'filing') throw new Error(`group ${id} was being filed when a run stopped; look for its card, then dup ${id} <card>; if there is none, file ${id} --retry (or skip ${id})`);
   if (g.status !== 'pending') throw new Error(`group ${id} is already ${g.status}${g.card ? ' (#' + g.card + ')' : ''}`);
   return g;
 }
@@ -359,7 +367,9 @@ function file(id, opts = {}) {
 function fileLocked(id, o) {
   const gh = o.gh || ghRun;
   const state = loadState(o.state);
-  const g = pendingGroup(state, id);
+  /* Review 10: --retry files a group left "filing" once the person has looked and found no card (nothing else could). */
+  const g = pendingGroup(state, id, Boolean(o.retry));
+  if (o.retry && g.status !== 'filing') throw new Error(`--retry is only for a group left filing; ${id} is ${g.status}`);
   /* Review 4: marked BEFORE the card is made, so a run that dies between the two leaves "filing", which refuses a retry. */
   g.status = 'filing'; saveState(o.state, state);
   const title = o.title ? normal(o.title) : g.draft.title;
@@ -386,7 +396,8 @@ function fileLocked(id, o) {
 function dup(id, card, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   const n = Number(card);
-  if (!Number.isInteger(n) || n < 1) throw new Error('dup needs a card number');
+  /* Review 10: digits only; Number('0x10') is 16, so "0x10" recorded #16 while saying #0x10. */
+  if (!/^\d+$/.test(String(card)) || !Number.isInteger(n) || n < 1) throw new Error('dup needs a card number');
   return withLock(o.state, () => {
     const state = loadState(o.state);
     const g = pendingGroup(state, id, true);
@@ -420,7 +431,7 @@ function replied(postId, opts = {}) {
   });
 }
 
-const USAGE = 'usage: kosmos-bugs-triage.js [read] | file <group> [--title T] | dup <group> <card> | skip <group> | replied <post>'
+const USAGE = 'usage: kosmos-bugs-triage.js [read] | file <group> [--title T] [--retry] | dup <group> <card> | skip <group> | replied <post>'
   + '   (options: --base --state --digest --repo)';
 function parseArgs(argv) {
   const o = {}; const pos = [];
@@ -429,7 +440,8 @@ function parseArgs(argv) {
     if (['--base', '--state', '--digest', '--repo', '--title'].includes(a)) {
       if (argv[i + 1] === undefined) throw new Error(a + ' needs a value. ' + USAGE);
       o[a.slice(2)] = argv[i + 1]; i += 1;
-    } else if (a.startsWith('--')) throw new Error('unknown option ' + a + '. ' + USAGE);
+    } else if (a === '--retry') o.retry = true;
+    else if (a.startsWith('--')) throw new Error('unknown option ' + a + '. ' + USAGE);
     else pos.push(a);
   }
   return { verb: pos[0] || 'read', args: pos.slice(1), opts: o };
@@ -438,6 +450,7 @@ function parseArgs(argv) {
 async function main(argv) {
   const { verb, args, opts } = parseArgs(argv);
   if (opts.title !== undefined && verb !== 'file') throw new Error('--title is only for file. ' + USAGE);
+  if (opts.retry && verb !== 'file') throw new Error('--retry is only for file. ' + USAGE);
   if (verb === 'read' && !args.length) {
     try { return (await read(opts)).digest; } catch (e) {
       /* Review 5: a failed daily read says so in the digest, so yesterday's file is never read as today's. */

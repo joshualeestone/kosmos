@@ -345,3 +345,25 @@ test('#5062 review 9: a JSON-escaped Windows home folder is scrubbed; dup refuse
   t.replied('7', o);   // the CLI always passes a string
   assert.ok('7' in JSON.parse(fs.readFileSync(o.state, 'utf8')).replied);
 });
+
+test('#5062 review 10: a group left "filing" stays in the digest and can be retried; labelled secrets and key blocks go; dup takes digits only', async () => {
+  const s = site([post('k1', 'Board idle while capped', 'x', 'Ana')]);
+  const o = opts('r10', { fetchFn: s.fetchFn });
+  await t.read({ ...o, gh: fakeGh().gh });
+  const noUrl = (args) => (args[1] === 'create' ? { status: 0, stdout: 'created\n', stderr: '' } : fakeGh().gh(args));
+  assert.throws(() => t.file('g1', { ...o, gh: noUrl }), /printed no card number/);
+  const r = await t.read({ ...o, gh: fakeGh().gh });
+  assert.match(r.digest, /## Interrupted while filing .*: 1\n- g1: /, 'a group left filing vanished from the digest:\n' + r.digest);
+  assert.throws(() => t.file('g1', { ...o, gh: fakeGh().gh }), /was being filed when a run stopped/, 'a plain file must still refuse');
+  const g = fakeGh();
+  assert.equal(t.file('g1', { ...o, gh: g.gh, retry: true }), 9001);
+  assert.doesNotMatch((await t.read({ ...o, gh: fakeGh().gh })).digest, /Interrupted while filing/);
+  assert.throws(() => t.file('g1', { ...o, gh: fakeGh().gh, retry: true }), /already filed/);
+  await assert.rejects(t.main(['skip', 'g1', '--retry', '--state', o.state]), /--retry is only for file/);
+  const out = t.scrub('aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY and Authorization: Bearer ab/cd+ef.gh12\n'
+    + '-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkq\nMzEfYyjiWA4R4/M2bS1G\n-----END RSA PRIVATE KEY-----\nthen the token expired', []);
+  assert.doesNotMatch(out, /wJalr|K7MDENG|EXAMPLEKEY|ab\/cd|MIIEvQ|MzEfY|M2bS1G/, out);
+  assert.match(out, /aws_secret_access_key = \[secret-removed\]/);
+  assert.match(out, /then the token expired/, 'plain prose about a token was taken for a secret');
+  assert.throws(() => t.dup('g1', '0x10', o), /dup needs a card number/);
+});
