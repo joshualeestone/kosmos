@@ -52599,7 +52599,7 @@ async function sendWakeHello(name, token, report, saidText, manualText, deliver)
           const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text: 'hello' }),
+            body: JSON.stringify({ text: 'hello', automatic: true }),   // #4959: held while the shared quota is out
           });
           const out = await res.json().catch(() => null);
           return (res.ok && out && out.delivery) ? out.delivery : null;

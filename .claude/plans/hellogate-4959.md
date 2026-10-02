@@ -1,0 +1,41 @@
+# hellogate-4959: the automatic wake hello goes through the shared-quota gate (kosmos#4959)
+
+Written 2026-10-01 23:01 CDT, night shift. Base origin/main a7cae2b3e.
+
+## Cause (measured, source)
+The restart wake ('hello' after a restart, model switch, provider switch) is sent by the page's sendWakeHello as
+POST /api/agent/:name/thread {text:'hello'}, the person's own route, which calls chat.deliverAsync. Automatic
+senders are meant to use chat.deliverAutomatic(Async) (#4588), which holds a Gemini (Google subscription) agent
+while this machine's shared Google quota is out. So the wake was typed into an agent whose pool is empty.
+
+## Change
+- server.js, the DM thread POST: an optional body flag, automatic. Exactly true or absent: any other value is
+  refused 400 (the #4889 lesson: a flag read loosely is a flag nobody can trust). Only on plain text: with chose,
+  reply_to or an attachment it is refused 400, since those are always the person's own act. With the flag, delivery
+  is chat.deliverAutomaticAsync. A HELD verdict typed nothing, so the route answers it as it is (held, heldUntil)
+  with recorded:false and does NOT file a 'hello' row in the thread.
+- web/index.html, sendWakeHello: posts {text:'hello', automatic:true}. A held answer is not placed, so the site's
+  existing manual line shows ("Send them a message to wake them"); nothing new is claimed.
+
+## Decided, and rejected
+- Rejected: a new page line "Kosmos will say hello when the Google quota is back" (the card's suggestion). Nothing
+  re-sends the wake after the reset, so that sentence would be false. The manual line is true: the person's own
+  message is never held (#4588 by design).
+- Rejected: filing a held hello in the thread. A bubble for a hello the agent never got is the false record.
+- The team hello (#4936, April, branch teamhello-4936, no PR yet) refactors this fetch into postWakeHello. Whichever
+  lands second carries { automatic: true } into postWakeHello; told on both cards.
+
+## Weakest premise
+That a held wake leaves the person no worse off: they see the manual line and their own message goes through
+unheld, into the same empty pool. If Josh wants the wake RETRIED after the reset, that is a timer like the room's
+quota-held retry (#4588), its own card.
+
+## Validation
+- server.automatic-hello-4959.test.js (real route, both deliver paths recorded): 4/4. Against origin/main's
+  server.js: 3 red, the person's-message CONTROL green.
+- web.wake-hello-automatic-4959.test.js: 2/2. Against origin/main's page: the body test red; the held-reads-manual
+  test is green on main too (it pins existing behaviour: only placed reads as said).
+- Siblings run: web.handoff-restart-3492, server.agyhold-4588 (its source pins): green, 33/33 with the new files.
+- docs/browser-checks/render-autohello-2686.js: asserts the hello is sent as automatic, and a new arm 5b (held ->
+  manual line). Syntax-checked; RUN queued on Agent1s.
+- Full suite before merge.

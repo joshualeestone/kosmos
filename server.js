@@ -14645,6 +14645,20 @@ const server = http.createServer(async (req, res) => {
          */
         let chose = (typeof body.chose === 'string' && !chat.messageProblem(body.chose))
           ? body.chose : null;
+        /* #4959: `automatic: true` marks a message the board sends FOR the person (the restart wake 'hello'),
+           not one they typed. It goes through chat.deliverAutomaticAsync, the gate every other automatic sender
+           uses (#4588), so a Gemini (Google subscription) agent is not typed into while this machine's shared
+           quota is out. Exactly `true` or absent: any other value is refused rather than ignored (#4889: a flag
+           read loosely is a flag nobody can trust). And plain text only, since a menu answer, a reply or an
+           attachment is always the person's own act. */
+        if (body.automatic !== undefined && body.automatic !== true) {
+          throw new Error('automatic is true or left out');
+        }
+        const automatic = body.automatic === true;
+        if (automatic && (body.chose !== undefined || (body.reply_to !== undefined && body.reply_to !== null)
+          || body.attachment || (Array.isArray(body.attachments) && body.attachments.length))) {
+          throw new Error('an automatic message is plain text');
+        }
 
         // The write gate FIRST, then the expensive look. `knownAgent` is a
         // `list-panes`; `safeRoster` is that plus a `capture-pane` per agent —
@@ -14864,8 +14878,16 @@ const server = http.createServer(async (req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
-        const delivery = await chat.deliverAsync(name, body.text, roster, envelope,
-          (attachments.wireNote(files.recs) || '') + reactionNote);
+        const delivery = await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
+          envelope, (attachments.wireNote(files.recs) || '') + reactionNote);
+        /* #4959: a held automatic message typed nothing, so it is not filed in the thread either (a 'hello' bubble
+           for a hello the agent never got would be the false record). The verdict goes back as it is, held and
+           heldUntil included, and the caller treats anything but placed as not said. */
+        if (automatic && delivery && delivery.held === true) {
+          sendJson(res, 200, { delivery, recorded: false,
+            recordedBecause: 'held: nothing was typed while the shared quota is out, so nothing was kept' });
+          return;
+        }
         /* Only PLACED counts as told. The note is the tail of the wire, so an UNCONFIRMED
            send (a paste that failed part-way, a pane that changed before Enter) is the case
            most likely to have lost it. Telling twice costs one extra note; not telling is
