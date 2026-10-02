@@ -88,3 +88,23 @@ Tests: test-browser-gate-cut-claim-1398.sh 8/8; 4 sabotages red (no guard, refus
 override, override not honoured); test-machine-claim-1962.sh 22/22, test-pw-version-assert.sh, test-cut-parallel-
 region.sh green. No gate process or frozen copy left behind after any run (checked each time).
 LANDS AFTER 0.7.17 IS SERVED (the 05:15 cut runs browser-checks.sh and release.sh).
+
+## Review 2 (opus, blind, 2026-10-02 00:53): 1 blocker, 2 warnings, 4 nits, all taken
+- BLOCKER: WAITING was wrong. A waiting gate had already run kosmos_mark_run, so it counted as a live browser run,
+  and a cut's 3b starting during the wait refused it: the card's abort re-opened for the whole 20-minute bound. The
+  gate now REFUSES AT ONCE under a foreign claim (exit 75), and asks BEFORE kosmos_mark_run, so a refused gate
+  leaves no marker a cut can see (tested: no browser.* marker after the refusal; the call is before the mark).
+- W: a waiting gate would have started in step with the next queued-heavy turn; gone with the wait. To wait your
+  turn, launch the gate through queued-heavy.sh (it waits for the claim and then holds it).
+- W/N: comments corrected (who is and is not stopped; 75 is for a person, no wrapper treats it specially).
+- N: the test header says what actually stops a boot (no Playwright findable); the static launch count matches every
+  non-comment launch line and requires exactly 2.
+- Found while testing (mine): the gate re-runs itself from a frozen copy of the last COMMIT, so the test was
+  exercising the committed child, which hid uncommitted changes and made a sabotage hang in the old waiting code
+  (killed and cleaned, nothing left behind). The test now passes KOSMOS_BC_FROZEN_RUNNER=1 so the gate runs in
+  place: the working tree is what is tested, and no frozen worktree is made in the shared repo.
+- Not taken, stated: the gate does not unset the wait-control vars it inherits (KOSMOS_IGNORE_MACHINE_CLAIM from
+  the cut reaches its children); nothing under the gate reads them today. release.sh has no arm for exit 75 (the
+  cut cannot hit it: it passes the override).
+Tests: test-browser-gate-cut-claim-1398.sh 9/9; sabotages red: no guard, refusal exits 1, cut launch without the
+override, guard moved after kosmos_mark_run; 1962 22/22, pw-version and parallel-region green; no leftovers.
