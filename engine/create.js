@@ -3130,7 +3130,7 @@ function linuxTmuxBin(platform = process.platform, env = process.env, runnable =
    * on every platform. */
   if (platform === 'linux') {
     const pathDirs = String(env.PATH || '').split(path.delimiter).filter(Boolean);
-    const dirs = [...new Set([...pathDirs, '/usr/local/bin', '/usr/bin', '/bin'])];
+    const dirs = [...new Set([...pathDirs, '/usr/local/bin', '/usr/bin', '/bin', '/snap/bin', '/home/linuxbrew/.linuxbrew/bin'])];
     return dirs.map((dir) => path.join(dir, 'tmux')).find((candidate) => runnable(candidate)) || null;
   }
   return null;

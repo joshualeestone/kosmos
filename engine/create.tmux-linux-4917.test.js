@@ -25,10 +25,22 @@ test('#4917 Linux resolves tmux from PATH before the usual system locations', ()
 test('#4917 Linux ignores a present but non-executable tmux', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-tmux-linux-mode-'));
   try {
-    const bad = path.join(root, 'tmux');
+    const badDir = path.join(root, 'bad');
+    const goodDir = path.join(root, 'good');
+    fs.mkdirSync(badDir, { recursive: true });
+    const bad = path.join(badDir, 'tmux');
     fs.writeFileSync(bad, 'not executable', { mode: 0o644 });
-    assert.equal(create.linuxTmuxBin('linux', { PATH: root }), null);
+    const good = executable(goodDir);
+    assert.equal(create.linuxTmuxBin('linux', { PATH: `${badDir}${path.delimiter}${goodDir}` }), good);
+    assert.equal(create.linuxTmuxBin('linux', { PATH: badDir }, () => false), null);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('#4917 Linux discovers tmux in snap or linuxbrew directories when missing from PATH', () => {
+  const snapTmux = path.join('/snap/bin', 'tmux');
+  const linuxbrewTmux = path.join('/home/linuxbrew/.linuxbrew/bin', 'tmux');
+  assert.equal(create.linuxTmuxBin('linux', { PATH: '' }, (p) => p === snapTmux), snapTmux);
+  assert.equal(create.linuxTmuxBin('linux', { PATH: '' }, (p) => p === linuxbrewTmux), linuxbrewTmux);
 });
 
 test('#4917 explicit tmux paths stay authoritative on every platform', () => {
