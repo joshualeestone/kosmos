@@ -1589,19 +1589,42 @@ function scan(opts) {
  * they do there. Doing less work is not the same as doing less checking, and a
  * shorter path that skipped the guards would be the actual danger.
  */
-/**
- * #4896: the OTHER name that already records this folder, if any.
- *
- * 🛑 ONE FOLDER IS ONE AGENT. Every reader resolves an agent's instructions through the folder its profile records
- * (create.workerDir), so two names recording one folder read ONE file: the same "You are ..., <role>" line, so every
- * one of them shows the same name and role on the board and on a project, and starting both is two Claudes in one
- * worker folder (the #362 harm). The per-name checks never saw it: `hasJob`, the running pane and the profile's own
- * folder are all asked of the NEW name, and the new name has none of them.
- *
- * Returns { ok: true, other: null } when no other name records it, { ok: true, other } when one does, and
- * { ok: false } when the profiles could not be read: that refuses, like the roster check above it, because adding
- * blind is the failure and the refusal is not.
- */
+function registerOnly(given, name, { create, store }) {
+  if (!create.nameUsable(name)) {
+    return { ok: false, because: 'that name cannot be used as an agent name' };
+  }
+  if (create.hasJob(name)) {
+    return { ok: false, because: 'Kosmos already looks after an agent by that name' };
+  }
+  const running = runningUnderName(name);
+  if (running === undefined) {
+    return { ok: false, because: 'we could not check what is running on this computer, so we did not add it' };
+  }
+  if (running) {
+    return { ok: false, because: 'an agent is already running under that name, started some other way' };
+  }
+  let before = {};
+  try { before = store.readProfile(name); } catch { before = {}; }
+  if (before && before.dir && before.dir !== given) {
+    return { ok: false, because: 'an agent by that name is already connected to a different folder' };
+  }
+  const taken = folderTakenBy(given, name, { store });
+  if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
+  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
+  /* The display name is the name they typed. There is no file to disagree with it,
+     which is the whole reason this path exists. */
+  try { store.writeProfile(name, { dir: given, displayName: name }); }
+  catch { return { ok: false, because: 'we could not record where that agent lives' }; }
+  HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
+  return { ok: true, name, dir: given, displayName: name, registered: true, started: false };
+}
+
+/* ---- #4896: ONE FOLDER IS ONE AGENT ----------------------------------------------------------------------------
+   Every reader resolves an agent's instructions through create.workerDir (its recorded folder, or <workers>/<name>),
+   so two names on one folder read ONE file: the same "You are ..., <role>" line, so every one of them shows the same
+   name and role on the board and on a project, and starting both is two Claudes in one worker folder (the #362 harm).
+   The per-name checks never saw it: `hasJob`, the running pane and the profile's own folder are all asked of the NEW
+   name, and the new name has none of them. The helpers below sit AFTER registerOnly so its doc comment stays on it. */
 /* Every profile that records a folder: { key, canon, other, removed } per holder, where `removed` says the holder
    is on the removed list but may still be running there (stopped:false, or left running by choice). A removal that
    actually STOPPED frees its folder and is left out (restoring it is refused while another name holds the folder:
@@ -1613,7 +1636,7 @@ function folderHolders({ store }) {
     if (err && err.code === 'ENOENT') return { ok: true, holders: [] };   // nothing has ever been recorded
     return { ok: false, holders: [] };
   }
-  const keyOf = (n) => { try { return store.profileFileName(n); } catch { return null; } };
+  const keyOf = (n) => profileKey(n, { store });
   const stopped = new Set();
   const stillThere = new Set();
   try {
@@ -1646,8 +1669,7 @@ function folderHolders({ store }) {
 function folderTakenBy(dir, name, { store }) {
   const got = folderHolders({ store });
   if (!got.ok) return { ok: false, other: null };
-  let self = null;
-  try { self = name ? store.profileFileName(name) : null; } catch { self = null; }
+  const self = name ? profileKey(name, { store }) : null;
   const want = canonDir(dir);
   const h = got.holders.find((x) => x.key !== self && x.canon === want);
   if (h) return { ok: true, other: h.other, removed: h.removed };
@@ -1655,9 +1677,19 @@ function folderTakenBy(dir, name, { store }) {
      folder is called (a slug folder like icecreamkitty recorded by "ice-cream-kitty"). */
   if (self && got.holders.some((x) => x.key === self && x.canon === want)) return { ok: true, other: null };
   const home = createdHomeOf(want, { store });
-  /* Review 6: compared by FILE key, not by spelling: Bobby and bobby are one agent on a case-folding volume. */
-  if (home && (!self || store.profileFileName(home) !== self)) return { ok: true, other: home, removed: false, home: true };
+  if (home.unknown) return { ok: false, other: null };
+  /* Review 6: compared by FILE key, not by spelling: Bobby and bobby are one agent on a case-folding volume.
+     Review 7: a name with no key (safeKey empties it) is a different agent from the asker, never a throw. */
+  if (home.name && (!self || profileKey(home.name, { store }) !== self)) {
+    return { ok: true, other: home.name, removed: home.removed, home: true };
+  }
   return { ok: true, other: null };
+}
+
+/* Review 7: store.profileFileName throws for a name safeKey empties (an agent named only with letters it strips).
+   Every key lookup here goes through this, so an odd name is "no key", never an uncaught throw. */
+function profileKey(n, { store }) {
+  try { return store.profileFileName(n); } catch { return null; }
 }
 
 /* Review 5: an agent Kosmos CREATED records no folder (create.workerDir falls back to <workers>/<name>), so no profile
@@ -1668,17 +1700,27 @@ function createdHomeOf(canon, { store }) {
   const create = require('./create');
   let root = null;
   try { root = canonDir(create.workersDir()); } catch { root = null; }
-  if (!root || path.dirname(canon) !== root) return null;
+  if (!root || path.dirname(canon) !== root) return { name: null };
   const base = path.basename(canon);
-  if (!base) return null;
-  /* Review 6: only an agent that EXISTS has a home: a job under the name, or a profile for it. A leftover or
-     hand-made folder in the workers root belongs to nobody, so any name may adopt it (alreadyIn offers it too). */
-  let exists = false;
-  try { exists = create.hasJob(base); } catch { exists = false; }
-  if (!exists) {
-    try { exists = fs.existsSync(path.join(store.PROFILES, store.profileFileName(base))); } catch { exists = false; }
-  }
-  return exists ? base : null;
+  if (!base) return { name: null };
+  /* Review 7: it is that agent's home only if that agent really RESOLVES there. An agent of that name whose profile
+     records a folder elsewhere does not live here, so the folder is nobody's (and the found list offers it). */
+  let resolves = false;
+  try { resolves = canonDir(create.workerDir(base)) === canon; } catch { resolves = false; }
+  if (!resolves) return { name: null };
+  /* Review 6: only an agent that EXISTS has a home: a job under the name, or a profile for it. Review 7: a job we
+     could not check is not "no job"; that answers unknown, which refuses like every other unreadable case. */
+  let job = 'no';
+  try { job = create.jobPresence(base); } catch { job = 'unknown'; }
+  let profile = false;
+  const key = profileKey(base, { store });
+  try { profile = !!key && fs.existsSync(path.join(store.PROFILES, key)); } catch { profile = false; }
+  if (job !== 'yes' && !profile) return job === 'unknown' ? { name: null, unknown: true } : { name: null };
+  /* Review 7: a removed created agent keeps its home (removal keeps its profile), so the sentence says it was removed
+     rather than naming an agent the person cannot see on the board. */
+  let removed = false;
+  try { removed = require('./remove').removedAgents().some((r) => r && profileKey(r.name, { store }) === key); } catch { removed = false; }
+  return { name: base, removed };
 }
 
 /* Review 4: the found list asks per candidate folder, and reading every profile per candidate measured 8.5 ms a call
@@ -1713,39 +1755,10 @@ function canonDir(d) {
   }
 }
 const FOLDER_UNREADABLE = 'we could not check which agents this computer already has, so we did not add it';
-const folderTakenSentence = (other, home) => (home
-  ? 'that folder is ' + other + '\u2019s own folder in Kosmos, and one folder holds one agent'
+const folderTakenSentence = (other, home, removed) => (home
+  ? 'that folder is ' + other + '\u2019s own folder in Kosmos' + (removed ? ' (an agent you removed)' : '') + ', and one folder holds one agent'
   : 'that folder is already connected as ' + other + ', and one folder holds one agent');
 
-function registerOnly(given, name, { create, store }) {
-  if (!create.nameUsable(name)) {
-    return { ok: false, because: 'that name cannot be used as an agent name' };
-  }
-  if (create.hasJob(name)) {
-    return { ok: false, because: 'Kosmos already looks after an agent by that name' };
-  }
-  const running = runningUnderName(name);
-  if (running === undefined) {
-    return { ok: false, because: 'we could not check what is running on this computer, so we did not add it' };
-  }
-  if (running) {
-    return { ok: false, because: 'an agent is already running under that name, started some other way' };
-  }
-  let before = {};
-  try { before = store.readProfile(name); } catch { before = {}; }
-  if (before && before.dir && before.dir !== given) {
-    return { ok: false, because: 'an agent by that name is already connected to a different folder' };
-  }
-  const taken = folderTakenBy(given, name, { store });
-  if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
-  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home) };
-  /* The display name is the name they typed. There is no file to disagree with it,
-     which is the whole reason this path exists. */
-  try { store.writeProfile(name, { dir: given, displayName: name }); }
-  catch { return { ok: false, because: 'we could not record where that agent lives' }; }
-  HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
-  return { ok: true, name, dir: given, displayName: name, registered: true, started: false };
-}
 
 function connect(dir, opts) {
   const create = require('./create');
@@ -1920,7 +1933,7 @@ function connect(dir, opts) {
      which is what would make the second name read the first one's file. */
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
-  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home) };
+  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home, taken.removed) };
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
      adoption write a codex JOB; the profile still said nothing, and
      `server.js` derives a card's runner from `profile.provider` whenever the

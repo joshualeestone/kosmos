@@ -273,3 +273,42 @@ test('#4896 r6: a folder in the workers root whose agent never existed belongs t
   const home = createdAgent('real6', 'editor');
   assert.equal(discover.folderTakenBy(home, 'casey6', { store }).other, 'real6', 'CONTROL: an existing agent still holds its home');
 });
+
+/* ---- review 7 ---- */
+test('#4896 r7: an agent of the folder\'s name that LIVES ELSEWHERE does not hold the leftover folder; list and connect agree', () => {
+  const elsewhere = folder('You are **Bea**, a lead.\n');
+  assert.equal(discover.connect(elsewhere, { name: 'bea7' }).ok, true);
+  const left = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bea7');
+  fs.mkdirSync(left, { recursive: true });
+  fs.writeFileSync(path.join(left, 'CLAUDE.md'), 'You are **Old**, a leftover.\n');
+  const t = discover.folderTakenBy(left, 'cal7', { store });
+  assert.equal(t.other, null, 'a folder bea7 does not live in was claimed for bea7: ' + JSON.stringify(t));
+  assert.equal(discover.alreadyIn(left, []) === true, false, 'CONTROL of agreement: the list offers it');
+  assert.doesNotMatch(String(discover.connect(left, { name: 'cal7' }).because || ''), /own folder in Kosmos/,
+    'the list offered a folder connect then refused with a false sentence');
+});
+
+test('#4896 r7: a created agent whose name safeKey empties (a job, no profile) holds its home without a throw', () => {
+  const odd = 'éé';
+  const home = path.join(process.env.AGENT_WORKFORCE_WORKERS, odd);
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'You are **Ee**, a singer.\n');
+  const plist = create.plistPath(odd);
+  fs.mkdirSync(path.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, '<plist/>');   // the job is what makes the agent exist; safeKey cannot give it a profile
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = discover.connect(home, { name: 'carol7' }); }, 'an odd created name threw out of connect');
+    assert.equal(out.ok, false, JSON.stringify(out));
+    assert.match(out.because, /own folder in Kosmos, and one folder holds one agent/);
+  } finally { fs.rmSync(plist, { force: true }); }
+});
+
+test('#4896 r7: a REMOVED created agent\'s home names it as removed', () => {
+  const home = createdAgent('gil7', 'analyst');
+  withRemoved([{ name: 'gil7', removedAt: new Date().toISOString(), stopped: true }], () => {
+    const b = discover.connect(home, { name: 'hob7' });
+    assert.equal(b.ok, false);
+    assert.match(b.because, /that folder is gil7’s own folder in Kosmos \(an agent you removed\), and one folder holds one agent/);
+  });
+});

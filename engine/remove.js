@@ -1630,7 +1630,10 @@ function restoreInner(name, platform) {
       const own = JSON.parse(fs.readFileSync(path.join(store.PROFILES, store.profileFileName(clean)), 'utf8'));
       dirNow = own && typeof own.dir === 'string' && own.dir ? own.dir : null;
     } catch (err) { if (!(err && err.code === 'ENOENT')) ownUnreadable = true; }
-    const taken = ownUnreadable ? { ok: false } : dirNow ? require('./discover').folderTakenBy(dirNow, clean, { store }) : { ok: true, other: null };
+    let taken;
+    try {
+      taken = ownUnreadable ? { ok: false } : dirNow ? require('./discover').folderTakenBy(dirNow, clean, { store }) : { ok: true, other: null };
+    } catch { taken = { ok: false } /* review 7: a throw is "could not check", never an uncaught error */; }
     if (!taken.ok) {
       return { outcome: OUTCOME.REFUSED, because: `we could not check which agents use ${shown}'s folder, so we did not restore it. Try again in a moment.`, steps: [] };
     }

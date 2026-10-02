@@ -138,3 +138,16 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
   but its basename. Now a home only for an agent that EXISTS (a job, or a profile, under that name).
 - Tests: 3 arms incl. a CONTROL that an existing agent still holds its home; red on the previous commit. 130/130 with
   connect-agent, remove.test.js and discover.test.js.
+
+## Review 7 (23:24 CDT): 0 BLOCKER, 2 SHOULD-FIX, 3 NITs, all taken (findings 1-3 measured by the reviewer)
+- SHOULD-FIX: createdHomeOf read "an agent of that name exists" as "this is its home", but an agent of that name
+  connected ELSEWHERE does not live in <workers>/<name>; the list offered the folder and connect refused it with a
+  false sentence. A home now counts only when canonDir(create.workerDir(name)) IS the folder.
+- SHOULD-FIX: store.profileFileName throws for a name safeKey empties (a created agent named only with letters it
+  strips); connect threw and the person saw a reason-less failure. Every key lookup goes through profileKey (no
+  key, never a throw), and restore wraps folderTakenBy as "could not check".
+- NIT: a job we could not check (create.jobPresence 'unknown') now refuses like every other unreadable case.
+- NIT: a removed created agent keeps its home; the sentence says "(an agent you removed)".
+- NIT: the helpers had landed between registerOnly and its doc comment. Moved below registerOnly; the duplicate top
+  comment is now a plain section note.
+- Tests: 3 arms, red on the previous commit (the odd-name arm reproduces the throw with a real job file).
