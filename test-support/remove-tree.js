@@ -2,10 +2,10 @@
 /**
  * removeTree(dir, opts): remove a test's temp folder, outlasting a Windows hold (kosmos#5010, #5074).
  * Moved here from tools.windows-kosmos-shims-570.test.js so the shims test and the grok and
- * codex win32 runner tests share one retry with its own tests
- * (test-support.remove-tree.test.js), not rmSync's maxRetries: on win32 this hold surfaces as
- * permission_denied, which rmSync's own retry covers only from Node 26.8 on (read from Node's
- * source in review, not measured here), and CI floats on Node 26.
+ * codex win32 runner tests share one retry, tested in test-support.remove-tree.test.js.
+ * It is used instead of rmSync's maxRetries: on win32 this hold surfaces as permission_denied,
+ * which rmSync's own retry covers only from Node 26.8 on (read from Node's source in review,
+ * not measured here), and CI floats on Node 26.
  */
 const fs = require('node:fs');
 
@@ -14,8 +14,9 @@ const fs = require('node:fs');
    outlive that shell by a moment. A bare rmSync then threw EPERM and the test went red
    on unrelated PRs. So cleanup retries the codes Windows gives for that, pausing a
    little longer each time (about 7 s in all), and only then throws, naming the folder so
-   a red reads as cleanup, not as the test's subject. That throw still replaces an assertion error
-   from the test body (as the bare rmSync's did): a folder left behind must stay red.
+   a red reads as cleanup, not as the test's subject. Called from a finally, that throw replaces an
+   assertion error from the test body (as the bare rmSync's did), unless the caller catches it: a folder
+   left behind must stay red.
    #5074: the win32 runner tests hit the same hold when they remove a tree holding an exe they just ran
    (grok.exe, codex.exe: copies of node.exe). */
 const REMOVE_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'ENOTEMPTY', 'EACCES']);

@@ -24,6 +24,12 @@ bare rmSync: the strongest hold case of the set. Same class, same file family, s
 
 Rejected: catching and ignoring cleanup errors (hides a real leak).
 
+Codex "win32 A" (review round 5): when an assertion in its body already failed, a cleanup that gives up is written
+to stderr and the assertion stays the red; with no body failure the cleanup error still fails the test. It is the
+strongest hold in the set and runs only on Windows CI, so losing the real assertion would make a red hard to read.
+The grok test's test.after does the reverse on purpose (its cwd-leak assertion runs in a finally after the cleanup):
+both outcomes are red, and the leak is the one nothing else would show.
+
 Weakest premise: the hold clears within removeTree's budget (about 7 s). An antivirus scan could take longer; the
 throw then names the folder, so the red reads as cleanup.
 
