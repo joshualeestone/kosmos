@@ -121,14 +121,38 @@ test('managedSettingsPresent is false off darwin, and refreshTokenOnlyGuards war
   assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(tokenAbs())})`), 'echo was listed as guarded but its settings lack the token deny');
 });
 
+test('off darwin, refreshTokenOnlyGuards guards without warning (managed-settings is a macOS concept)', () => {
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['lin'] }) + '\n');
+  const warned = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = (s) => { warned.push(String(s)); return true; };
+  let out;
+  try {
+    out = setup.refreshTokenOnlyGuards({ ...DEPS, platform: 'linux', workerDir: (n) => agentDir('lin-' + n) });
+  } finally { process.stderr.write = realWrite; }
+  assert.deepEqual(out.guarded, ['lin'], 'the agent was not guarded off darwin');
+  assert.ok(!warned.join('').includes('#4491'), 'the managed-belt warning fired off darwin, where it is misleading');
+  assert.equal(readSettings(agentDir('lin-lin')).sandbox, undefined, 'a sandbox block was written off darwin');
+});
+
 test('refreshTokenOnlyGuards is a safe no-op when the list is absent', () => {
   try { fs.rmSync(sendertoken.tokenOnlyFile()); } catch { /* already gone */ }
   const out = setup.refreshTokenOnlyGuards(DEPS);
   assert.deepEqual(out.guarded, []);
 });
 
-test('no em dash in anything written to a settings file', () => {
-  const dir = agentDir('pilot-a');
+test('no em dash in a settings file this test writes', () => {
+  const dir = agentDir('pilot-emdash');
+  setup.guardTokenOnlyFolder(dir, 'pilot-emdash', DEPS);
   const raw = fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8');
   assert.ok(!raw.includes('—'), 'an em dash reached a written settings file');
+});
+
+test('sendertoken.tokenOnlyList is the one parse site and tokenOnlyFor reads it', () => {
+  fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['a', 'b', 42, ''] }) + '\n');
+  assert.deepEqual(sendertoken.tokenOnlyList(), ['a', 'b'], 'non-string/empty entries were not filtered');
+  assert.equal(sendertoken.tokenOnlyFor('a'), true);
+  assert.equal(sendertoken.tokenOnlyFor('z'), false);
+  try { fs.rmSync(sendertoken.tokenOnlyFile()); } catch { /* gone */ }
+  assert.deepEqual(sendertoken.tokenOnlyList(), [], 'an absent list is not empty');
 });

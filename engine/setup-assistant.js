@@ -450,15 +450,16 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const settingsDir = path.join(dir, '.claude');
   const userClaude = path.join(home, '.claude');
   const tokenPath = path.join(dataRoot, tokenFile);
+  const tokenTmp = path.join(dataRoot, '.' + tokenFile);   // the temporary copy while the token is rewritten
   const deny = [
     `Read(${ruleAbs(tokenPath)})`,
-    `Read(${ruleAbs(path.join(dataRoot, '.' + tokenFile))}.*)`,   // the temporary copy while the token is rewritten
+    `Read(${ruleAbs(tokenTmp)}.*)`,
     `Edit(${ruleAbs(path.join(settingsDir, 'settings.json'))})`,
     `Edit(${ruleAbs(path.join(settingsDir, 'settings.local.json'))})`,
     `Edit(${ruleAbs(path.join(userClaude, 'settings.json'))})`,
     `Edit(${ruleAbs(path.join(userClaude, 'settings.local.json'))})`,
   ];
-  return { deny, settingsDir, userClaude, tokenPath };
+  return { deny, settingsDir, userClaude, tokenPath, tokenTmp };
 }
 
 /*
@@ -519,12 +520,14 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
   }
 }
 
-/* #4491: the root-owned managed-settings file whose presence makes the token-only guard durable (only
-   managed settings may relax the sandbox, and the agent's uid cannot write this path). Its install is an
-   admin step, parked on the card; this only READS whether it is there, to warn. macOS only. */
+/* #4491: Claude Code's root-owned managed-settings file on macOS. Its presence makes the token-only
+   guard durable: only managed settings may relax the sandbox, and the agent's uid cannot write this
+   path, so a listed agent cannot disable its own guard through it. Installing it is an admin step,
+   parked on the card; this code only READS whether it is there, to warn when it is not. */
+const MANAGED_SETTINGS_PATH = '/Library/Application Support/ClaudeCode/managed-settings.json';
 function managedSettingsPresent(platform = process.platform) {
-  if (platform !== 'darwin') return false;
-  try { return fs.existsSync('/Library/Application Support/ClaudeCode/managed-settings.json'); } catch { return false; }
+  if (platform !== 'darwin') return false;   // managed-settings is a macOS/Seatbelt concept here
+  try { return fs.existsSync(MANAGED_SETTINGS_PATH); } catch { return false; }
 }
 
 /* #4491: at board start, guard every agent currently listed in agent-token-only.json, so a pilot listed
@@ -532,20 +535,19 @@ function managedSettingsPresent(platform = process.platform) {
    root-owned managed belt is absent (the durable close is the parked admin step). workerDir is
    overridable for tests. { guarded: [names], managed: boolean }. Never throws. */
 function refreshTokenOnlyGuards(deps = {}) {
-  const out = { guarded: [], managed: managedSettingsPresent(deps.platform) };
-  let names = [];
-  try {
-    const sendertoken = require('./sendertoken');
-    const j = JSON.parse(fs.readFileSync(sendertoken.tokenOnlyFile(), 'utf8'));
-    if (j && Array.isArray(j.agents)) names = j.agents.filter((n) => typeof n === 'string' && n);
-  } catch { return out; }
+  const platform = deps.platform || process.platform;
+  const out = { guarded: [], managed: managedSettingsPresent(platform) };
+  let names;
+  try { names = require('./sendertoken').tokenOnlyList(); } catch { return out; }   // one parse site (#4491)
   const toDir = deps.workerDir || create.workerDir;
   for (const name of names) {
     let dir = null;
     try { dir = toDir(name); } catch { dir = null; }
     if (dir && guardTokenOnlyFolder(dir, name, deps).ok) out.guarded.push(name);
   }
-  if (names.length && !out.managed) {
+  // The managed-belt warning is a macOS-only concern: off darwin no sandbox block is written and
+  // managed-settings does not apply, so warning there would be misleading.
+  if (names.length && platform === 'darwin' && !out.managed) {
     process.stderr.write('#4491: ' + names.length + ' token-only agent(s) guarded by per-agent settings only; the root-owned managed-settings belt is absent, so the guard is defense-in-depth (see card #4491).\n');
   }
   return out;
