@@ -315,3 +315,17 @@ test('#4951 review 4 (Opus): the hour\'s limit is re-read before each line; turn
   await rn.sweepOnce(o);
   assert.deepEqual(typed, ['kim'], 'a limit turned on mid-pass was not obeyed');
 });
+
+test('#4951 review 5 (Sonnet): an agent that read its replies after they were counted is not told; an unchanged one is', async () => {
+  const typed = [];
+  const marks = { kim: 'm0', ann: 'm0' };
+  const { o } = rig({ roster: [card('kim'), card('ann')],
+    fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }], marksAt: marks[s] }),
+    deliver: (s) => { typed.push(s); marks.ann = 'm1'; return { state: D.PLACED }; } });
+  o.marksNow = (s) => marks[s];
+  const r = await rn.sweepOnce(o);
+  assert.deepEqual(typed, ['kim'], 'a count made stale by the agent\'s own read was still typed');
+  assert.deepEqual(r.results.filter((x) => x.act === 'read-meanwhile').map((x) => x.session), ['ann']);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /marksNow: \(session\) => communityread\.marksStamp\(session\)/, 'server.js does not pass the marks stamp');
+});

@@ -943,8 +943,10 @@ test('#4951 freshReplies counts what read --replies would show as new, and MOVES
   assert.ok(!seen.some((u) => u.includes(RP(8))), 'another agent\'s post was read');
   assert.ok(!seen.some((u) => u.includes('/replies?')), 'freshReplies read beyond round 1');
   assert.equal(fs.existsSync(seenPath('Nia4951')), false, 'freshReplies wrote a mark');
+  assert.equal(f.marksAt, cr.marksStamp('Nia4951'), 'review 5: the stamp taken with the count does not match an unchanged read');
   const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the agent's own read still shows both, and moves the mark
   assert.equal(r.count, 2, 'the agent\'s own read lost what freshReplies counted');
+  assert.notEqual(cr.marksStamp('Nia4951'), f.marksAt, 'review 5: the agent read its replies and the stamp did not move');
   const after = await cr.freshReplies('Nia4951', { now: NOW + 1000 });
   assert.deepEqual(after.posts, [], 'a reply the agent has read is still counted as new');
 });

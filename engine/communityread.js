@@ -303,6 +303,12 @@ function seenFile(sessionName) {
   return path.join(store.ROOT, 'communityread', 'replies-seen', h + '.json');
 }
 const validAt = (v) => Number.isFinite(v) && v > 0 && v < 8.64e15;
+/* #4951 review 5 (Sonnet): what the agent's read marks were when its replies were counted. The nudge compares it again
+   just before typing; a changed stamp means the agent read its replies meanwhile, so the count is stale and it is not told. */
+function marksStamp(sessionName, marks) {
+  try { return JSON.stringify(marks || readMarks(sessionName)); } catch { return null; }
+}
+
 function readMarks(sessionName) {
   try {
     const j = JSON.parse(fs.readFileSync(seenFile(sessionName), 'utf8'));
@@ -424,7 +430,7 @@ async function freshReplies(sessionName, opts = {}) {
       fresh.sort(byPos);
       if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', ids: fresh.map((x) => x.id) });
     }
-    return { ok: true, posts: out };
+    return { ok: true, posts: out, marksAt: marksStamp(sessionName, marks) };
   } catch (err) {
     return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };
   } finally { replyReadRunning = false; }
@@ -553,4 +559,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, readReplies, freshReplies, FRESH_WAIT_MS, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

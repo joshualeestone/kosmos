@@ -19605,6 +19605,7 @@ function start(port = PORT) {
           roster: () => safeRoster(), readProjects: () => projects.readAll(),
           readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
           fresh: (session) => communityread.freshReplies(session),
+          marksNow: (session) => communityread.marksStamp(session),
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT,

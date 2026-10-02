@@ -205,6 +205,12 @@ async function sweepOnce(o) {
         if (!(nudged instanceof Set)) continue;   // review 3: unreadable record: skip, never re-tell
         const memo0 = book.get(session);
         if (memo0 && memo0.told instanceof Set) for (const id of memo0.told) nudged.add(id);
+        /* Review 5 (Sonnet): the count may be minutes old by this line (lines are spaced). If the agent's read marks moved
+           since, it read its replies meanwhile: the count is stale, so it is not told; the next pass counts afresh. */
+        if (typeof o.marksNow === 'function' && fresh && fresh.marksAt != null) {
+          let now = null; try { now = o.marksNow(session); } catch { now = null; }
+          if (now !== fresh.marksAt) { results.push({ session, name: display, act: 'read-meanwhile', because: 'it read its replies after they were counted' }); continue; }
+        }
         const p = plan(card, fresh, nudged, memo0, projects);
         if (p.act !== 'nudge') continue;
         prune();

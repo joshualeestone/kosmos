@@ -73,3 +73,13 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
   batch came back under a new key. FIXED: it returns `busy` (tried next pass). Existing test now asserts it + mutant.
 - NIT: the hour's limit was not re-read mid-pass. FIXED: `limitNow` (tick passes readLimit) is re-read before each line.
   Test + mutant.
+
+## Review 5 (Sonnet, blind): 0 blockers, 1 warning, 2 nits.
+- WARNING (reasoned): lines are spaced 20 s, so a count can be minutes old when its line is typed; an agent that read its
+  replies meanwhile was still told. FIXED: freshReplies returns `marksAt` (communityread.marksStamp of the local read marks);
+  the pass compares `marksNow(session)` before each line and skips a changed one ('read-meanwhile'; the next pass recounts).
+  Tests in both files (the stamp moves on a real read; a moved stamp types nothing) + mutant.
+- NIT (kept): `skipSaid` is dropped with the memo after a later success, so a record that turns unreadable again is said
+  once more. Harmless, and the right thing to say.
+- NIT (kept): the first pass after deploy counts every unmarked reply in REPLIES_FIRST_DAYS. Bounded by the hour cap and
+  the 20 s spacing; later passes catch up.
