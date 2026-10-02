@@ -4012,6 +4012,7 @@ if [ "$(uname -s)" = "Linux" ]; then
 [Unit]
 Description=Kosmos Board
 After=network.target
+ConditionPathExists=!$KOSMOS_HOME/board.stopped
 
 [Service]
 Type=simple
