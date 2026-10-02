@@ -148,11 +148,15 @@ test('a multibyte UTF-8 character split across two appends folds correctly (byte
   fs.appendFileSync(file, buf1);
   const a = codex.read(cwd, home);
   assert.equal(a.messages, 1, 'the first multibyte line was not counted');
-  // now append a turn_context in two raw halves, splitting a 3-byte char across the writes
+  // append a turn_context in two raw halves, cutting INSIDE the 3-byte U+2603 so the first read's
+  // fragment ends mid-character. The read must not advance its offset into the partial char nor corrupt
+  // the fold; the completed line must fold correctly on the next read.
   const row2 = Buffer.from(JSON.stringify({ type: 'turn_context', timestamp: '2026-10-02T09:00:02Z', payload: { model: 'sn☃w' } }) + '\n', 'utf8');
-  const cut = row2.length - 4;   // land inside the trailing bytes
+  const snowAt = row2.indexOf(Buffer.from('☃', 'utf8'));
+  const cut = snowAt + 1;   // 1 byte into the 3-byte snowman: a genuinely mid-character boundary
   fs.appendFileSync(file, row2.slice(0, cut));
   const mid = codex.read(cwd, home);   // fragment ends mid-character; must not corrupt the offset
+  assert.equal(mid.model, null, 'a mid-character fragment was wrongly folded as a model');
   fs.appendFileSync(file, row2.slice(cut));
   const done = codex.read(cwd, home);
   assert.equal(done.model, 'sn☃w', 'the split multibyte line did not fold to the right value');
