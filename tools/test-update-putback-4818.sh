@@ -270,8 +270,13 @@ case "$MARKSET" in *'_kosmos_marker_ours="$_kosmos_was_running"'*) : ;;
 MARKOFF="$(awk '/^  _kosmos_marker_ours=no   # #5033/{print; exit}' "$SETUP")"
 case "$MARKOFF" in *"_kosmos_marker_ours=no"*) : ;;
   *) echo "FAIL: could not extract the #5033 disarm line (anchor drift?)" >&2; exit 1 ;; esac
-L_STOP=$(ln '  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true')
 L_MSET=$(ln '  _kosmos_marker_ours="$_kosmos_was_running"')
+# The pause's own stop, read as the line just above (an earlier `kosmos stop --force` elsewhere in setup.sh would
+# satisfy a first-match search and prove nothing about this one).
+L_STOP=""
+if [ -n "$L_MSET" ] && [ "$(sed -n "$((L_MSET - 1))p" "$SETUP")" = '  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true' ]; then
+  L_STOP=$((L_MSET - 1))
+fi
 L_MOFF=$(ln '  _kosmos_marker_ours=no   # #5033')
 if [ -n "$L_STOP" ] && [ -n "$L_MSET" ] && [ -n "$L_MOFF" ] \
    && [ "$L_STOP" -lt "$L_MSET" ] && [ "$L_MSET" -lt "$L_OURS" ] && [ "$L_MSET" -lt "$L_APP" ] \
