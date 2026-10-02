@@ -191,8 +191,25 @@ const SETTINGS_LOOK = `(() => {
     const box = panel.querySelector('.dbox'), lab = panel.querySelector('.dbox .flabel');
     if (!on || !off || !box || !lab) return { found: false, on: !!on, off: !!off, box: !!box, lab: !!lab };
     const N = getComputedStyle(nav), O = getComputedStyle(on), X = getComputedStyle(off), B = getComputedStyle(box), L = getComputedStyle(lab);
-    return { found: true, navBg: N.backgroundColor, navRadius: N.borderTopLeftRadius, onBg: O.backgroundColor, onEdge: O.borderTopColor,
-      offBg: X.backgroundColor, offEdge: X.borderTopColor, boxEdge: B.borderTopColor, boxRadius: B.borderTopLeftRadius, labelCase: L.textTransform };
+    const out = { found: true, navBg: N.backgroundColor, navRadius: N.borderTopLeftRadius, onBg: O.backgroundColor, onEdge: O.borderTopColor,
+      offBg: X.backgroundColor, offEdge: X.borderTopColor, boxEdge: B.borderTopColor, boxRadius: B.borderTopLeftRadius, labelCase: L.textTransform,
+      navW: Math.round(nav.getBoundingClientRect().width), vw: innerWidth, sw: document.documentElement.scrollWidth };
+    /* Round 1: the needs-you dot on the current item (the dark red was tuned for the gold), and the Kosmos+ section,
+       which repaints the page navy (body.plus-active) and must keep today's chrome. Both set here and put back. */
+    /* The dot is drawn only on the Kosmos+ item (the only one that carries one), so that item is made current with its
+       dot on for the read; with no dot element the read says 'absent' rather than reading the button's own ground. */
+    const plusBtn = nav.querySelector('button[data-go="plus"]'), dot = plusBtn && plusBtn.querySelector('.dot');
+    if (!dot) out.dotBg = 'absent';
+    else {
+      const wasOn = plusBtn.classList.contains('on'), hadDot = plusBtn.hasAttribute('data-dot');
+      on.classList.remove('on'); plusBtn.classList.add('on'); plusBtn.setAttribute('data-dot', '');
+      out.dotBg = getComputedStyle(dot).backgroundColor;
+      if (!wasOn) plusBtn.classList.remove('on'); if (!hadDot) plusBtn.removeAttribute('data-dot'); on.classList.add('on');
+    }
+    const hadPlus = document.body.classList.contains('plus-active'); document.body.classList.add('plus-active');
+    out.plusNavBg = getComputedStyle(nav).backgroundColor; out.plusOnEdge = getComputedStyle(on).borderTopColor;
+    if (!hadPlus) document.body.classList.remove('plus-active');
+    return out;
   } finally { panel.hidden = wasHidden; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
@@ -485,6 +502,16 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, Settings: the nav ${navWide ? 'is the grey box, the current item a tile in the page' : 'stays a scroller, the current item a grey tile'}; no edge and no gold`, JSON.stringify(setOn));
       chk(setOn.found && setOn.boxEdge === CLEAR && setOn.boxRadius === '28px' && setOn.labelCase === 'none',
         `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
+      const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
+      chk(setOn.found && setOn.dotBg !== OLD_DOT && setOn.dotBg !== CLEAR && setOn.dotBg !== 'absent' && setOn.plusNavBg !== GREY_OF[theme] && setOn.plusOnEdge !== CLEAR,
+        `${tag} On, Settings: the current item's needs-you dot is not the gold-era dark red, and the Kosmos+ section keeps today's nav`, JSON.stringify(setOn));
+      if (width === 1280) {
+        await page.setViewportSize({ width: 800, height: 900 }); await page.waitForTimeout(150);
+        const set800 = await page.evaluate(SETTINGS_LOOK);
+        chk(set800.found && set800.navBg === GREY_OF[theme] && set800.navW <= set800.vw && set800.sw <= set800.vw,
+          `${tag} On, Settings at 800 wide: the nav box wraps its items inside the page, no sideways scroll`, JSON.stringify(set800));
+        await page.setViewportSize({ width, height: 900 }); await page.waitForTimeout(150);
+      }
       chk(dlOn.boxFound && dlOn.boxEdge === CLEAR && dlOn.boxRadius === '28px' && dlOn.labelCase === 'none' && (dlOn.labelSpacing === 'normal' || dlOn.labelSpacing === '0px'),
         `${tag} On, an agent's Profile: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(dlOn));
       chk(dlOn.boxFound && dlOn.headCase2 === 'none' && dlOn.talkRadius === '0px',
@@ -718,7 +745,7 @@ const AGENTS_LOOK = `(() => {
         && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme] && dlOff.boxEdge !== 'rgba(0, 0, 0, 0)' && dlOff.labelCase === 'uppercase' && dlOff.headCase2 === 'uppercase',
         `${tag} Off, an agent's page: exactly today's left column (edged buttons, FILES in capitals), as before the switch was touched (the control)`, JSON.stringify({ off: dlOff, before: dlBefore }));
       const setOff = await page.evaluate(SETTINGS_LOOK);
-      chk(setOff.found && setBefore.found && JSON.stringify(setOff) === JSON.stringify(setBefore) && setOff.onEdge !== 'rgba(0, 0, 0, 0)' && setOff.boxEdge !== 'rgba(0, 0, 0, 0)' && setOff.labelCase === 'uppercase',
+      chk(setOff.found && setBefore.found && JSON.stringify(setOff) === JSON.stringify(setBefore) && setOff.onEdge !== 'rgba(0, 0, 0, 0)' && setOff.boxEdge !== 'rgba(0, 0, 0, 0)' && setOff.labelCase === 'uppercase' && setOff.dotBg === 'rgb(122, 27, 18)',
         `${tag} Off, Settings: exactly today's gold current item, edged boxes and capital labels, as before the switch was touched (the control)`, JSON.stringify({ off: setOff, before: setBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
