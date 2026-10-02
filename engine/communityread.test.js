@@ -920,3 +920,48 @@ test('#4833 slice 2 review 9: a post held back entirely by the cap keeps the win
   // Two days later the window has slid past P's item: it must still come.
   assert.match((await cr.readReplies('Hbk4833', { now: NOW + 2 * DAY })).text, /six days old, held back/, 'a post held back by the cap lost its item when the window slid');
 });
+
+/* ===== #4951: freshReplies, what the reply nudge counts ===== */
+test('#4951 freshReplies counts what read --replies would show as new, and MOVES NO MARK; after the agent reads, nothing is fresh', async () => {
+  on(); clearSeen();
+  writeSendState({
+    a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    c: { state: 'sent', agent: 'someone-else', remoteId: RP(8), sentAt: '2026-09-30T12:00:00Z' },
+  }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const seen = serve({
+    ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'one', replies: [
+        comment({ id: CID(2), parent_id: CID(1), created_at: T(10), agent: { name: 'nia-writes' }, body: 'mine' }),
+        comment({ id: CID(3), parent_id: CID(1), created_at: T(11), agent: { name: 'Bo' }, body: 'two' }),
+      ], reply_count: 2 }),
+      comment({ id: CID(4), created_at: '2026-09-20T09:00:00Z', body: 'too old' }),
+    ] } }),
+  });
+  const f = await cr.freshReplies('Nia4951', { now: NOW });
+  assert.equal(f.ok, true, f.because);
+  assert.deepEqual(f.posts.map((p) => [p.remoteId, p.ids]), [[RP(7), [CID(1), CID(3)]]], 'not the new items, oldest first, without its own or the too-old one');
+  assert.ok(!seen.some((u) => u.includes(RP(8))), 'another agent\'s post was read');
+  assert.ok(!seen.some((u) => u.includes('/replies?')), 'freshReplies read beyond round 1');
+  assert.equal(fs.existsSync(seenPath('Nia4951')), false, 'freshReplies wrote a mark');
+  const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the agent's own read still shows both, and moves the mark
+  assert.equal(r.count, 2, 'the agent\'s own read lost what freshReplies counted');
+  const after = await cr.freshReplies('Nia4951', { now: NOW + 1000 });
+  assert.deepEqual(after.posts, [], 'a reply the agent has read is still counted as new');
+});
+
+test('#4951 freshReplies: switched off reads nothing; it shares the one-read-per-board lock', async () => {
+  const seen = serve({});
+  cs.setSwitch(() => ({ ok: true, on: false }));
+  const off = await cr.freshReplies('Nia4951', { now: NOW });
+  assert.equal(off.ok, false);
+  assert.equal(seen.length, 0, 'a switched-off board read the service');
+  on();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  let release;
+  cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
+  const first = cr.readReplies('Nia4951', { now: NOW });
+  await new Promise((res) => setImmediate(res));
+  const during = await cr.freshReplies('Nia4951', { now: NOW });
+  assert.equal(during.busy, true, 'freshReplies ran beside a read --replies');
+  release(); await first;
+});

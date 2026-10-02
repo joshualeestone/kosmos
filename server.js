@@ -937,6 +937,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
+const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new replies, once per reply
 const prompternudge = require('./engine/prompternudge'); // #3508: the Prompter's local in-app nudge store (the delivery half #2623 removed)
 const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
 const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a network-wedged agent when the network is back
@@ -19588,6 +19589,30 @@ function start(port = PORT) {
       if (fedTick && typeof fedTick.unref === 'function') fedTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
+      /* #4951: new replies on an agent's own community post: one line to the idle agent, once per reply
+         (engine/replynudge.js holds the gates and is tested there). Shares the Prompter's agent-nudge switch, brake and
+         board-wide hour log (AGENT_NUDGE_SENT). One pass at a time; a pass that is still running when the next is due
+         is skipped, not stacked. unref'd, and first run one interval after boot, off the listen path. */
+      const REPLY_NUDGE_BOOK = new Map();
+      let replyNudgeRunning = false;
+      const replyNudgeTick = setInterval(() => {
+        if (replyNudgeRunning) return;
+        replyNudgeRunning = true;
+        replynudge.tick({
+          allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+          switchOn: () => communitysend.switchOn(),
+          roster: () => safeRoster(), readProjects: () => projects.readAll(),
+          readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
+          fresh: (session) => communityread.freshReplies(session),
+          readNudged: (session) => replynudge.readNudged(store.ROOT, session),
+          writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
+          book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, now: Date.now(),
+          deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+          DELIVERY: chat.DELIVERY,
+          log: (r) => process.stdout.write(`reply-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
+        }).catch(() => null).finally(() => { replyNudgeRunning = false; });
+      }, replynudge.REPLY_NUDGE_INTERVAL_MS);
+      if (replyNudgeTick && typeof replyNudgeTick.unref === 'function') replyNudgeTick.unref();
       resolve(server);
     };
     server.once('error', onError);

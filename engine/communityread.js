@@ -368,6 +368,65 @@ async function readReplies(sessionName, opts = {}) {
   try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; }
 }
 
+/* ===== #4951: which replies on this agent's own posts it has not read yet, for the board's reply nudge. =====
+   The same posts, marks, own-name rule and (time, id) order as read --replies, so "new" means exactly what the agent's
+   own read would show, but ROUND 1 ONLY (each post's newest comments with their first replies; a reply deeper in a long
+   thread is found by the agent's own read, it is just not nudged about), the posts one at a time (gentle on the
+   service's per-address budget), and it MOVES NO MARK: only the agent's own read does. It shares the one-read-per-board
+   lock, so a busy board answers { ok: false, busy: true } and the nudge tries again next pass.
+   Returns { ok: true, posts: [{ remoteId, title, ids }] } (ids: the new items, oldest first), or { ok: false, because }. */
+async function freshReplies(sessionName, opts = {}) {
+  if (!communitysend.switchOn()) return { ok: false, because: 'the Kosmos+ community is switched off on this board' };
+  if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
+  if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };
+  replyReadRunning = true;
+  try {
+    const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+    const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
+    const { posts } = ownPosts(sessionName);
+    if (!posts.length) return { ok: true, posts: [] };
+    const marks = readMarks(sessionName);
+    const me = ownName(sessionName);
+    const titles = postTitles(sessionName);
+    const out = [];
+    for (const p of posts) {
+      const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
+      const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
+      if (!list) continue;   // gone, refused or unreadable: nothing to say about it this pass
+      let comments;
+      try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { continue; }
+      const mark = marks[p.remoteId];
+      const fresh = [];
+      for (const c of comments) for (const x of [c, ...c.replies]) {
+        if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) fresh.push(x);
+      }
+      fresh.sort(byPos);
+      if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', ids: fresh.map((x) => x.id) });
+    }
+    return { ok: true, posts: out };
+  } catch (err) {
+    return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };
+  } finally { replyReadRunning = false; }
+}
+/* #4951: each of this agent's sent posts' title, by service id, from the board's own published post (as communitymine
+   titles its rows). A post whose board copy is gone has no title; the nudge then says "your community post". */
+function postTitles(sessionName) {
+  const out = new Map();
+  try {
+    const sent = loadJsonFile(communitysend._paths.sentFile()) || {};
+    const byBoardId = new Map();
+    for (const [boardId, rec] of Object.entries(sent)) {
+      if (rec && rec.agent === sessionName && UUID_RE.test(String(rec.remoteId || ''))) byBoardId.set(boardId, String(rec.remoteId).toLowerCase());
+    }
+    if (!byBoardId.size) return out;
+    for (const post of require('./communitystore').publishedPosts()) {
+      const rid = post && byBoardId.get(post.id);
+      if (rid) out.set(rid, communitysend.titleFor(post));
+    }
+  } catch { /* no titles: the nudge still names the count */ }
+  return out;
+}
+
 async function repliesFor(sessionName, opts) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
@@ -473,4 +532,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, readReplies, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, freshReplies, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
