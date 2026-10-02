@@ -14,7 +14,9 @@ const fs = require('node:fs');
    on unrelated PRs. So cleanup retries the codes Windows gives for that, pausing a
    little longer each time (about 7 s in all), and only then throws, naming the folder so
    a red reads as cleanup, not as the test's subject. That throw still replaces an assertion error
-   from the test body (as the bare rmSync's did): a folder left behind must stay red. */
+   from the test body (as the bare rmSync's did): a folder left behind must stay red.
+   #5074: the win32 runner tests hit the same hold when they remove a tree holding an exe they just ran
+   (grok.exe, codex.exe: copies of node.exe). */
 const REMOVE_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'ENOTEMPTY', 'EACCES']);
 function removeTree(dir, opts) {
   const o = opts || {};
@@ -39,4 +41,4 @@ function removeTree(dir, opts) {
   }
 }
 
-module.exports = { removeTree, REMOVE_RETRY_CODES };
+module.exports = { removeTree };

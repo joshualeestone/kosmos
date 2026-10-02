@@ -10,7 +10,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { removeTree } = require('./test-support/remove-tree');
 
-
 function failingRm(codes) {
   const calls = [];
   const rm = (dir) => { calls.push(dir); const code = codes.shift(); if (code) { const e = new Error(code + ': busy'); e.code = code; throw e; } };
@@ -47,7 +46,7 @@ test('#5010: cleanup does not retry an error that waiting cannot fix', () => {
 });
 
 test('#5010: a real folder is removed on the first try', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kosmos-shims-5010-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-remove-tree-'));
   fs.writeFileSync(path.join(dir, 'f'), 'x');
   assert.equal(removeTree(dir), 1);
   assert.equal(fs.existsSync(dir), false);
