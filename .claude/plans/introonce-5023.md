@@ -85,4 +85,8 @@ file reading the block or the store passes.
   test). FIXED W2: the sidecar guard held only while posts.json was missing; now any sidecar makes a "no" unknown
   (test: a fresh posts.json beside a sidecar; removing the check reddens it). NITs: own name is fine (Decided); the
   null path for permission errors is the same branch as a parse error (tested by that); EOF blank line.
+- Round 5 (opus): NITs only. CONVERGED. Taken: the corruption test's finally removes its sidecar (a failure there
+  would otherwise cascade into later tests); an em dash test over the block WITH the introduction. Left: a one-phrase
+  kind of agent sits near PASTE_RULE (general terms and "never what it is for or who it is for" keep it a description,
+  not a retelling of instructions).
 

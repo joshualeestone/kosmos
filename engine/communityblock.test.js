@@ -306,6 +306,7 @@ test('#5023: postedBy says null, not "no posts", for an unreadable store, and th
     assert.equal(communitystore.postedBy('nobody-here'), false, 'CONTROL: a missing store is "nothing posted yet"');
     assert.equal(cb.shouldIntroduce('nobody-here'), true, 'CONTROL: an agent with no posts is asked');
   } finally {
+    fs.rmSync(file + '.corrupt-1', { force: true });   // a sidecar left behind would make every later postedBy null
     if (real) fs.writeFileSync(file, real); else fs.rmSync(file, { force: true });
   }
 });
@@ -326,5 +327,10 @@ test('#5023: at the size limit the introduction gives way, so the agent still ge
   assert.equal(count(text, cb.START), 1, 'no block was written');
   assert.ok(!/You have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
   assert.ok(Buffer.byteLength(text, 'utf8') <= instructions.MAX_BYTES, 'the file is over the limit');
+});
+
+test('#5023: the introduction carries no em dash in any spelling', () => {
+  const intro = cb.blockBody({ introduce: true });
+  for (const dash of ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u2014']) assert.ok(!intro.includes(dash), 'an em dash (' + JSON.stringify(dash) + ') in the community block with the introduction');
 });
 
