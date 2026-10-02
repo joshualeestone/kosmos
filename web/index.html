@@ -3425,7 +3425,10 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    keyboard user's next Tab lands inside; the section is a tabindex=-1 landing spot, not a tab
    stop, and the control that Tab reaches shows its own ring. The old 2px ink :focus-visible
    outline drew a black stroke round the 16px-radius card in the Mac app, where WebKit matches
-   :focus-visible on that focus even after a click (Safari does not focus the clicked button). */
+   :focus-visible on that focus even after a click (Safari does not focus the clicked button).
+   This drops #350's ring for keyboard users on purpose: the pill they pressed shows as current
+   and the section it revealed is what they now see, and a ring round a whole card is the
+   stroke Josh asked to remove. */
 .dsec:focus { outline: none; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
    none while the box is showing. ⚠️ ORDER-DEPENDENT: the sibling rule last

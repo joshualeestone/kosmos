@@ -5,8 +5,8 @@
  * Direct Message section after clicking its pill. Cause: a nav click moves focus into the section
  * (detailGo, so a keyboard user's next Tab lands inside), and WebKit, the engine the Mac app runs,
  * matches :focus-visible on that programmatic focus after a click. `.dsec:focus-visible` then drew
- * a 2px ink outline round the 16px-radius section. Chromium does not match it, so a Chromium-only
- * check never saw it.
+ * a 2px ink outline round the 16px-radius section. Chromium does not match it on a click, so a
+ * click-only Chromium check never saw it.
  *
  * Playwright's WebKit does not reproduce the click case (Safari does not focus a button on click,
  * so the focus that follows reads as keyboard-ish; Playwright's build does focus it). Activating a
@@ -95,7 +95,7 @@ const drawsNoRing = (f) => f.style === 'none' || parseFloat(f.width) === 0;
           /* Control: force a visible outline on the focused section; the instrument must read it. */
           await page.addStyleTag({ content: '#panel-detail .dsec:focus { outline: 2px solid red !important; }' });
           const c = await readFocus(page);
-          chk(!drawsNoRing(c), `${tag}: control: a forced outline on the focused section reads as an outline`, JSON.stringify(c));
+          chk(c.sec === 'talk' && !drawsNoRing(c), `${tag}: control: a forced outline on the focused section reads as an outline`, JSON.stringify(c));
           chk(errs.length === 0, `${tag}: no page errors`, errs.join(' | '));
         } finally {
           await browser.close();
