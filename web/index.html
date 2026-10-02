@@ -8354,8 +8354,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   border-radius: var(--radius-control); display: flex; flex-direction: column; gap: 8px; }
 .tc-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
 /* #4936: the members a team just made, marked on the agents view for a few seconds after Create a Team. */
-.just-made { outline: 2px solid var(--gold-edge); outline-offset: 2px; transition: outline-color .6s ease; }
-@media (prefers-reduced-motion: reduce) { .just-made { transition: none; } }
+.just-made { outline: 2px solid var(--gold-edge); outline-offset: 2px; }
 .tc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: center; }
 .tc-seat { color: var(--label-2); }
 .tc-seat b { color: var(--label); font-weight: 600; }
@@ -48230,7 +48229,7 @@ let IMPORT_GEN = 0;
    nothing) and the page MAKES each one through POST /api/agents, one request per agent, so every agent
    gets a single agent's full birth and a failed one is retried alone without redoing the rest.
    The lead is made first: the others report to it by name, so they wait until it exists. */
-let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, paintedSig }
+let TC = null;       // { key, team, leadSlot, members:[{slot,title,name,firstName,state,why,made,seen,portrait,renamedFrom,warn,together,stale,maybeMade,hello}], newProjectName, newProjectBase, newProjectNext, project, started, busy, running, again, watching, watchUntil, paintedSig, helloStarted, greeting }   // #4936: hello is sending|started|failed|unsure
 let TC_UPLOADING = 0;   // pictures going up; not on TC, because they outlive it (review 28)
 let TC_GEN = 0;      // bumped when the step is left or reopened, so a late answer cannot paint over it
 
@@ -48254,7 +48253,8 @@ async function openTeamCreate(key) {
     tcPaint();
     if (TC.key !== key) {
       msg.hidden = false; msg.dataset.kind = 'resume';
-      msg.textContent = 'Kosmos is still making ' + ((TC.team && TC.team.label) || 'a team') + '. You can make another team once it finishes.';
+      // Review 5: a team already made and being said hello to is not "still making".
+      msg.textContent = (TC.greeting && !TC.running ? 'Kosmos is still saying hello to ' : 'Kosmos is still making ') + ((TC.team && TC.team.label) || 'a team') + '. You can make another team once it finishes.';
     }
     if (!TC.running && !TC.watching && TC.members.some((m) => m.state === 'made' && m.seen !== 'running')) {
       for (const m of TC.members) if (m.seen === 'unseen') m.seen = null;
@@ -48425,9 +48425,11 @@ function tcFinished() {
 }
 function tcLive() {
   // #4936: a team still being greeted is live too, so Back or opening it again resumes it rather than dropping it.
-  // A member not greeted keeps it live too: its row and Try again must not be dropped by Back or a reopen.
+  // A member whose hello failed keeps it live too: its row and Try again must not be dropped by Back or a reopen.
+  // Review 5: an UNCONFIRMED hello does not: it has no retry, so it would hold the team live for good and the same
+  // team picked again would resume a finished team instead of making a new one.
   return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting
-    || (TC.helloStarted && TC.members.some((m) => m.hello !== 'started'))));
+    || (TC.helloStarted && TC.members.some((m) => m.hello !== 'started' && m.hello !== 'unsure'))));
 }
 
 function tcFillProjects() {
@@ -48495,6 +48497,8 @@ function tcPaint() {
       made: made + (m.portrait === 'failed' ? ' (picture not set)' : ''), failed: 'Not made' })[m.state] || '';
     // #4936: once it is running, Kosmos says hello to it; the row says where that is.
     if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', started: 'Said hello', failed: 'Could not say hello', unsure: 'Hello not confirmed' })[m.hello] || st.textContent;
+    // Review 5: and in its own colour: only "Said hello" is the success green; a failed hello is red, the rest plain.
+    if (m.state === 'made' && m.hello && m.hello !== 'started') st.className = 'tc-state' + (m.hello === 'failed' ? ' failed' : '');
     row.append(seat, input, st);
     if (m.renamedFrom) {
       const note = document.createElement('p'); note.className = 'tc-why';
@@ -48587,7 +48591,11 @@ function tcPaint() {
     if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look;
     else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
       : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at its row.') + look;
-    else note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : 'each of them') + '…' + look;
+    else {
+      // Review 5: during a Try again only some are being said hello to, so the note says how many.
+      const sayingN = TC.members.filter((m) => m.hello === 'sending').length;
+      note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : (sayingN && sayingN < n ? (sayingN === 1 ? '1 of them' : sayingN + ' of them') : 'each of them')) + '…' + look;
+    }
   } else {
     note = madeN + ' of ' + n + ' made' + (runningN ? ', ' + runningN + ' running' : '') + (failedN ? ', ' + failedN + ' not made' : '') + '.';
   }
@@ -48679,6 +48687,7 @@ function tcGoToTeam(auto) {
   if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); } else showTab('agents');
   const until = Date.now() + TC_JUST_MADE_MS;
   let first = null;
+  let focused = false;
   const sel = names.map((n) => '.acard[data-agent="' + CSS.escape(n) + '"], .lrow[data-agent="' + CSS.escape(n) + '"]').join(', ');
   const mark = () => {
     const live = Date.now() < until;
@@ -48689,8 +48698,16 @@ function tcGoToTeam(auto) {
         el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
         // Focus leaves the hidden step for the first new member, unless the person has already moved it elsewhere.
         const at = document.activeElement;
-        if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { el.tabIndex = -1; el.focus({ preventScroll: true }); }
+        if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { el.tabIndex = -1; el.focus({ preventScroll: true }); focused = true; }
       }
+    }
+    /* Review 5: the board rebuilds its cards on every poll, so the focused card is replaced and focus drops to the
+       page. While the mark is up, focus goes back to the same agent's new card, unless the person moved it. */
+    if (live && focused && first && !first.isConnected) {
+      const again = [...document.querySelectorAll(sel)].find((e) => e.dataset.agent === first.dataset.agent && e.offsetParent);
+      const at = document.activeElement;
+      if (again && (!at || at === document.body)) { again.tabIndex = -1; again.focus({ preventScroll: true }); first = again; }
+      else if (again) focused = false;
     }
     if (live) setTimeout(mark, 500);
   };
@@ -48702,7 +48719,7 @@ function tcGoToTeam(auto) {
   const where = names.length === 1 ? 'It is marked on your board.' : 'The new agents are marked on your board.';
   setTimeout(() => {
     live.textContent = notSaid === 0 ? 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. ' : 'team. ') + where
-      : (notSaid === 1 ? '1 of them' : notSaid + ' of them') + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;
+      : (names.length === 1 ? 'Your agent' : (notSaid === 1 ? '1 of them' : notSaid + ' of them')) + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;
   }, 100);
 }
 /* The lead as the list marks it ("leads the team"), and the name it was made under. */
