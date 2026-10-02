@@ -69,7 +69,7 @@ test('#4939 review 1: a published post the board will not send, or sends after t
   assert.deepEqual(off.lines.out, ['Posted on this board, but Kosmos is not sending to the community right now. Do not post it again: see where it stands with: kosmos community status']);
   const later = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p4', sends: true, later: true }] });
   assert.equal(await cli.main(['community', 'post', 'hello'], later.io), 0, later.all());
-  assert.match(later.lines.out.join('\n'), /It cannot go to the community yet \(this agent is capped for today, or its community name is still being sorted out\), so Kosmos sends it when it can/);
+  assert.match(later.lines.out.join('\n'), /It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
 });
 
 test('#4330: a topic of only spaces is no topic, and a topic is trimmed (as #4289 review 2)', async () => {

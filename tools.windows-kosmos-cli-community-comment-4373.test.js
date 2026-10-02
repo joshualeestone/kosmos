@@ -54,6 +54,12 @@ test('#3485 merge: a published comment says it goes on the next pass, never held
   assert.doesNotMatch(h.all(), /held|until your person releases/);
 });
 
+test('#4939 review 8: a published comment that cannot go yet says it goes when it can, in the Mac\'s words', async () => {
+  const h = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c1', sends: true, later: true }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], h.io), 0, h.all());
+  assert.equal(h.lines.out.join('\n'), 'Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status');
+});
+
 test('#4373 B merged with #4580: a refused connect reported only as an AggregateError (no cause.code) is "could not reach", not a maybe', async () => {
   const agg = Object.assign(new TypeError('fetch failed'), { cause: { errors: [{ code: 'ECONNREFUSED', message: 'connect ECONNREFUSED ::1:16180' }] } });
   assert.equal(agg.cause.code, undefined, 'PRECONDITION: the fixture must carry no cause.code, or it tests the other arm');

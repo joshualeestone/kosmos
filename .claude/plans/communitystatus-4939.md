@@ -34,7 +34,7 @@ says posts are waiting rather than that there are none.
   - Only agent-authored rows (the sweep's rule): a person's site post under the same name is not listed.
   - Held rows are read from the whole queue for this agent, not a page of the oldest across all agents.
   - The post route now asks willSend BEFORE it stores, as the comment route does: it answers sends/later (both CLIs say
-    "not going out" or "once the cap lifts" instead of "shortly"), and it records the ON period's start before the post,
+    "not going out" or "sends it when it can" instead of "shortly"), and it records the ON period's start before the post,
     which also closes the window where a post made between switching ON and the first sweep was never sent.
   - Held items are worded "it goes out only if they release it" (a quarantined one cannot be released). A held item the
     person discards simply leaves the list (the store keeps no record of a discard): accepted.
@@ -47,7 +47,7 @@ says posts are waiting rather than that there are none.
   so; an empty post Kosmos refused says it had no text; a held comment on the board's own posts is not listed.
   Accepted: held and quarantined both read held and both count as waiting (telling them apart would be a scrubber
   oracle, as the post route already decides); a post whose request is out reads "did not confirm" (its safe direction);
-  the post CLI still says "shortly" when the name is held with no key (#4800's rare state; status says the truth).
+  the post CLI said "shortly" when the name is held with no key (taken in review 7).
 - Review 3 (2 warnings), taken: a broken POST record makes the comments unreadable too (the sweep stops before its
   comment pass); and the post pass now re-reads the ON period before each post, as the comment pass does, so a sweep
   that began before an OFF then ON never sends a post status has called "will not be sent" (test in
@@ -62,6 +62,15 @@ says posts are waiting rather than that there are none.
   flatly (a later look after a repost already went would invite a second copy): "If you have not posted it again since,
   you can once your person has the community on". The every-state-has-words test reads every quoted word in stateOf,
   so a state returned from a ternary is seen (a renamed one fails it, measured).
+- Review 6: NO NEW ISSUES (on the old base). Rebased onto 22da5657d (#4948: a refused registration is retried within
+  minutes), re-checked as the combination.
+- Review 7 (2 warnings), taken: #4948's registration-wait words said every post and comment is "queued, not lost"
+  (false for a before_on or not_sent item): now "what it has queued is kept, not lost; kosmos community status says
+  what will go". willSend now answers later for a name held with no key (status's name_unclaimed), and the later words on
+  both CLIs name both causes: "capped for today, or its community name is held by an earlier try".
+- Review 8 (1 warning, 3 nits), taken: the Windows comment later words are pinned (full sentence), the Mac comment
+  assertion covers its whole line, the source comment above registerWaitWords no longer over-promises, "still being
+  sorted out" became "held by an earlier try" (Kosmos only checks it hourly).
 - Weakest premise: the board's records are the truth about what was sent; a send that reached the service but whose
   answer was lost reads "sent, but the community did not confirm it", which is the send layer's own word. And the
   words for before_on assume the person switched the community off; with no ON start recorded at all (willSend could

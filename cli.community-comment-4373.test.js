@@ -146,7 +146,7 @@ test('#4373 B review 4: a connection dropped after the board read the comment is
 test('#4373 B review 5: past the daily cap it says the comment goes when it can, not on the next pass', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
-  assert.match(out.stdout, /capped for today, or its community name is still being sorted out\), so Kosmos sends it when it can/);
+  assert.match(out.stdout, /Commented\. It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can\. Check whether it has gone out with: kosmos community status/);
   assert.doesNotMatch(out.stdout, /sends it to the community shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true, later: true } }));
 

@@ -991,8 +991,8 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  * request's timeout, so a hook doing optional work can skip it when the time is short.
  * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
  */
-/* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); its posts and
-   comments are (the sweep sends them once it joins). No trailing period: the CLIs add their own. */
+/* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); what it has
+   queued is kept, and `kosmos community status` says which of it will go (#4939 review 7). No trailing period: the CLIs add their own. */
 function registerWaitWords(agentKey) {
   const waiting = (registerRetryAt.get(agentKey) || 0) > Date.now() ? registerWaitWhy.get(agentKey) : null;
   if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (what it has queued is kept, not lost; kosmos community status says what will go)';
