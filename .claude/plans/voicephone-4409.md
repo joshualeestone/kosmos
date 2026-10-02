@@ -206,4 +206,9 @@ press stops through voiceStop and marks the stop.
   (round 16)). W3 (the Mac no-speech change) was already decided and not re-reported. LEFT NITs: emit reads the shared
   id (every handler is guarded by rec !== mine; making it per-session restructures every handler); dlgSaid is global
   (traced: every stop clears it); long comment lines.
+- Round 17 (opus): FIXED W: an error answering our own stop (a quick second tap before audio began) was said as a
+  failure; during the shim's stop wait only a refusal or a no-speech is still said (check P8d, with the unasked error as
+  its control; the fix removed reddens only P8d). NITs taken: a result with no alternative no longer throws; the mic
+  has touch-action: manipulation (a start-stop tap pair is not a double-tap zoom). LEFT NITs: the bar does not follow
+  pinch zoom (the labels and dialog lines still say who hears); the source-shape unit assertion; "built-in engines".
 

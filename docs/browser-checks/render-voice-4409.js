@@ -444,7 +444,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
           setTimeout(() => this.onstart && this.onstart(), 0);
         }
         // Two results, the second with no leading space, as a phone's recognizer sends them.
-        stop() { window.__rec.push('stop'); if (window.__recNoEnd) return; setTimeout(() => { this.onresult && this.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: 'call the' }], { isFinal: true }), Object.assign([{ transcript: 'client' }], { isFinal: true })] }); this.onend && this.onend(); }, 0); }
+        stop() { window.__rec.push('stop'); if (window.__recStopErr) { setTimeout(() => { this.onerror && this.onerror({ error: window.__recStopErr }); this.onend && this.onend(); }, 0); return; } if (window.__recNoEnd) return; setTimeout(() => { this.onresult && this.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: 'call the' }], { isFinal: true }), Object.assign([{ transcript: 'client' }], { isFinal: true })] }); this.onend && this.onend(); }, 0); }
         // As a real one: an abort is followed, later, by an 'aborted' error and an end.
         abort() { window.__rec.push('abort'); setTimeout(() => { this.onerror && this.onerror({ error: 'aborted' }); this.onend && this.onend(); }, 0); } };
     };
@@ -626,6 +626,20 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     chk(!/Nothing was heard/.test(quiet.after) && /Nothing was heard/.test(quiet.none),
       'P8c a no-speech after words says nothing; with no words it still says Nothing was heard', JSON.stringify(quiet));
     await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; document.getElementById('d-say').value = ''; });
+    // P8d (round 17): a browser answering OUR stop with an error is not a failure: a quick second tap says no error.
+    // The control, the same error with no stop of ours, still says one.
+    const own = {};
+    for (const mine of [true, false]) {
+      await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
+      await phone.tap('#d-mic');
+      await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+      if (mine) { await phone.evaluate(() => { window.__recStopErr = 'aborted'; }); await phone.tap('#d-mic'); }
+      else await phone.evaluate(() => window.__recLast.onerror({ error: 'aborted' }));
+      await phone.waitForFunction(() => !VOICE.btn);
+      own[mine ? 'ours' : 'theirs'] = await phone.evaluate(async () => { await new Promise((r) => setTimeout(r, 30)); window.__recStopErr = ''; return document.getElementById('d-say-msg').textContent; });
+    }
+    chk(!/error/.test(own.ours) && /error/.test(own.theirs), 'P8d an error answering our own stop says nothing; the same error unasked still says one', JSON.stringify(own));
+    await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
     // P10: the bar follows the visible area while it is up (the keyboard, a scroll), and stops following after.
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');

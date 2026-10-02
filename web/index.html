@@ -7311,7 +7311,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* #4409: the mic in the composers, drawn only where html.has-voice says a voice bridge exists (the Mac app's
    on-device one, or on a phone the browser's recognizer, slice 3). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
    aria-pressed says so to a screen reader. */
-.micbtn { display: none; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
+.micbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
 /* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
@@ -60304,7 +60304,7 @@ function voicePhoneBridge() {
                  first thing after a restart cannot be told from one sent back, and is taken as sent back: a known loss
                  of that result (in practice a short one: "no", "okay"). */
               let j = from;
-              while (j < e.results.length && j < raw.length && e.results[j].isFinal && fold(e.results[j][0].transcript) === raw[j]) j += 1;
+              while (j < e.results.length && j < raw.length && e.results[j].isFinal && fold((e.results[j][0] || {}).transcript) === raw[j]) j += 1;
               raw.length = j;
               doneIdx = j;
             }
@@ -60314,7 +60314,7 @@ function voicePhoneBridge() {
             };
             const interim = [];
             for (let i = doneIdx; i < e.results.length; i += 1) {
-              const part = tidy(e.results[i][0].transcript);
+              const part = tidy((e.results[i][0] || {}).transcript);
               if (!part) { if (e.results[i].isFinal && i === doneIdx) { raw[i] = ''; doneIdx = i + 1; } continue; }
               if (e.results[i].isFinal && i === doneIdx) {
                 /* Android Chrome is reported to repeat the previous result inside the next ("call the", then "call the
@@ -60338,10 +60338,13 @@ function voicePhoneBridge() {
           mine.onerror = (e) => {
             if (rec !== mine) return;   // ours to ignore: our own cancel or a newer start set rec first, aborted included
             // An 'aborted' that is still ours came from the browser or the phone (a call, another app taking the mic).
+            /* Round 17: an error while our own stop is waiting answers that stop (a quick second tap, before audio began),
+               so it is not a failure: only a refusal is still said. A no-speech still says nothing was heard. */
+            const ownStop = !!stopTimer && !['not-allowed', 'service-not-allowed', 'audio-capture', 'no-speech'].includes(e.error);
             unwait();
             rec = null;
             try { mine.abort(); } catch { /* already ended */ }
-            emit({ kind: 'error', reason: REASON[e.error] || 'recognizer' });
+            if (!ownStop) emit({ kind: 'error', reason: REASON[e.error] || 'recognizer' });
             emit({ kind: 'stopped' });
           };
           mine.onend = () => { if (rec === mine) { unwait(); rec = null; emit({ kind: 'stopped' }); } };
