@@ -390,7 +390,7 @@ test('#5003: on the Mac the auto-start file\'s spelling wins over the folder\'s'
   assert.equal(p.job.label, create.serviceLabel('vela5003'));
 });
 
-test('#5003: the win32 arm reads a stopped leftover\'s own spelling from its folder too', () => {
+test('#5003: the win32 arm reads a stopped leftover\'s own spelling from its folder too', (t) => {
   leftoverAgent('Ida5003', { job: false });
   /* Task Scheduler answers "no such task", so the plan gets as far as the folder (the stub is the one this module's
      win32 arm reads through; nothing here runs schtasks). */
@@ -398,6 +398,6 @@ test('#5003: the win32 arm reads a stopped leftover\'s own spelling from its fol
   win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.' }));
   let win;
   try { win = leftover.plan('ida5003', { platform: 'win32' }); } finally { win32job.setRunner(null); }
-  if (!fs.existsSync(create.workerDir('ida5003'))) return; // a case-sensitive disk has nothing to read
+  if (!fs.existsSync(create.workerDir('ida5003'))) { t.skip('this disk tells case apart'); return; }
   assert.equal(win.name || 'refused: ' + win.because, 'Ida5003');
 });

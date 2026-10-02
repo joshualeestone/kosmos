@@ -172,7 +172,7 @@ function trashCanTake(p) {
 /* #5003: the agent's own spelling of `asked`, read from the disk, on a case-blind platform, and only when the two differ
    in case alone. In order:
    1. (Mac) the name inside its auto-start file's real name: that file IS the launchd label the delete must stop, so
-      when it exists its spelling wins.
+      when it exists its spelling wins and the folder is NOT read at all (the early return is deliberate).
    2. its folder's real name, but only when no folder is recorded for the agent, so the folder is the default one in
       the workers folder (workerDir answers a recorded folder or that, nothing else). A connected agent's recorded
       folder can be named anything (discover.connect lets a person type the name), so its name says nothing.

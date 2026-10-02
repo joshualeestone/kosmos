@@ -57,3 +57,7 @@ Sibling files green: web.delete-leftover 7/7, jobexists.win32-570 14/14.
 - N win32 folder arm untested -> test +1 (stubbed schtasks "no such task"; ida5003 plans as Ida5003).
 - N the running test no longer exercises the case-blind running check alone: documented since review 1.
 Sabotages, each red: no recorded check (1); plist branch off (2); folder branch returns asked (1).
+
+## Review 4 (blind, whole diff): 0 blockers, 0 warnings, 2 nits; both taken -> CONVERGED
+- N the win32 test returned silently on a case-sensitive disk -> t.skip with a reason, like its siblings.
+- N say outright that the folder is never read when an auto-start file exists -> comment.
