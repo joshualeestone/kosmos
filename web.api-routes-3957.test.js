@@ -55,7 +55,7 @@ const SERVED_ELSEWHERE = {
 const CANARIES = ['/api/accounts', '/api/federation/invite', '/api/federation/join', '/api/remote/devices/x', '/api/update/rollback'];
 
 /* Measured 2026-09-26 on main. Growth reds; shrinking is fine (lower these when it happens). */
-const UNREAD_CEILING = 20; // +1 (#4557): tcPortrait fetches the seed's portrait, a STATIC file path from the catalogue (web/avatars/teams/...), never an /api route, so it cannot be a literal.
+const UNREAD_CEILING = 19; // -1 (#4720): tcPortrait reads /api/catalogue/portrait now (a literal), not a static path from the catalogue.
 const UNREADABLE_CEILING = 1;
 
 /* A lexical mask over a source text: CODE, COMMENT (JS and HTML), STRING (inside a string literal),

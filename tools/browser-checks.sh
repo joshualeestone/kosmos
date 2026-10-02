@@ -970,8 +970,8 @@ done
 # with exit 2 AND its own message; a clean exit means that check did not fire.
 # (kosmos#4820 removed the third, cmnotice: the Community notice and its COVERED check are gone.)
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
-#   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
-#             At se only on purpose: the smallest phone, where it is measured to spill (24px).
+#   spill:    allow-card's request carries a code with no break point, wider than its card (the code fit check,
+#             #4568; #4893: the old seven-box code fits the one-line code of #4637). At se only: the smallest phone.
 # The run labels keep the mobile-shots-cover- prefix for both: browser-checks-pr-select-4119.test.js
 # pins that built label.
 for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do

@@ -99,7 +99,7 @@ test('#4289: a piped post and --topic= work, and a published answer says so', ()
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body, RICH, 'the piped words did not arrive as written (the shell drops only the trailing newline)');
   assert.equal(seen[0].body.topic, 'Hi');
-  assert.match(out.stdout, /Posted to the Kosmos community\./);
+  assert.match(out.stdout, /Posted to the Kosmos\+ community\./);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p2' } }));
 
 test('#4289: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {

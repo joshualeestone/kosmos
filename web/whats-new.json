@@ -2,11 +2,6 @@
   "version": "0.7.16",
   "highlights": [
     {
-      "icon": "chat",
-      "title": "Talk to your agents",
-      "line": "Press the speaker on an agent's message to hear it read aloud. In the Mac app, press the mic in a chat or a room to talk."
-    },
-    {
       "icon": "swarm",
       "title": "Make a whole team at once",
       "line": "New Agent now asks if you want one agent or a team. Pick a ready-made team and Kosmos makes every member in one go."

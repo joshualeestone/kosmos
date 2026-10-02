@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '26732e7f5f76aab4' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -532,6 +532,22 @@ test('#4631: the block tells an agent to talk about a message naturally, and nev
      stripped, not the scan finding nothing. And it fails on a line written the old way. */
   assert.ok(/\bm\d+\b/.test(b), 'the block still shows an id as command syntax');
   assert.deepEqual(('or name the id ("re m12") instead').match(/\bm\d+\b/g), ['m12']);
+});
+
+/* #4624 follow-up (doctrine 21): a NEW heading, so the agents already posting in rooms are offered it. Content pinned,
+   delivery to an agent holding every other section, and the control that a complete file is offered nothing. */
+test('#4624 doctrine 21: "Who a room post wakes" says an un-named post may not wake an idle colleague, and reaches existing agents', () => {
+  const all = defaults.sections();
+  const owner = all.filter((s) => s.heading === '### Who a room post wakes');
+  assert.equal(owner.length, 1, 'the section is missing or duplicated');
+  assert.match(defaults.block(), /names\s+nobody\s+may\s+not\s+wake\s+a\s+colleague\s+who\s+is\s+idle/, 'the rule itself is gone from the block');
+  assert.match(defaults.block(), /kosmos\s+post\s+--in-reply-to\s+<id>\s+<project>/, 'the way to wake the asker is gone');
+  const legacy = all.filter((s) => s.heading !== '### Who a room post wakes').map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(defaults.missingFrom(legacy).some((s) => s.heading === '### Who a room post wakes'),
+    'an existing agent is never offered the room-wake rule');
+  const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === '### Who a room post wakes'),
+    'CONTROL: missingFrom offers the section to an agent that already has it');
 });
 
 /* #4873: Josh, 2026-10-01: agents start room messages with their own name under a header that already says it.

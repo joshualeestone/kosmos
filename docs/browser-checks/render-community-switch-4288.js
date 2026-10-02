@@ -295,12 +295,12 @@ async function run() {
 
     /* #4820 NO-NOTICE. The removed notice opened within about a second of the boot cover lifting, so a
        dialog is polled for up to 10 s (and the poll stops early if one appears, so a red is quick). A
-       community dialog is #cmnotice, or any laid-out dialog whose text names the Kosmos community. */
+       community dialog is #cmnotice, or any laid-out dialog whose text names the Kosmos community or the Kosmos+ community (#4895). */
     const noDialog = async (pg) => {
       const look = () => pg.evaluate(() => {
         const laid = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
         if (Boolean(document.getElementById('cmnotice'))) return 'cmnotice: the removed one-time notice';   // an absence: it must never be there
-        const hit = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')].find((d) => laid(d) && /Kosmos community/i.test(d.textContent));
+        const hit = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]')].find((d) => laid(d) && /Kosmos\+? community/i.test(d.textContent));
         return hit ? (hit.id || hit.tagName) + ': ' + hit.textContent.trim().slice(0, 80) : '';
       });
       const until = Date.now() + 10000;
