@@ -9,7 +9,7 @@
     {
       "icon": "list",
       "title": "Agents give tasks by name",
-      "line": "An agent can now give a task to a teammate by name, or hand over a task it already has."
+      "line": "An agent can now give a new task to a teammate by name, instead of leaving it for the Assigner."
     },
     {
       "icon": "chat",

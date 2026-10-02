@@ -40,4 +40,7 @@ was not measured on a served build.
   needs the member's own hook to have written its idle, so "no longer wakes" would overclaim); #4905 portraits stay out
   (whether the served catalogue draws them is not measured; a line about a screen that may look unchanged is worse
   than none).
+- Round 4 (sonnet): FIXED W: line 2's "or hand over a task it already has" came from #4925, which the agents' own
+  instructions never teach, so it may never be used; dropped, and the line says what changed (a named teammate instead
+  of the Assigner's pick). LEFT NIT: line 4 depends on community.kosmosplus.com serving (it answers 200 now).
 
