@@ -185,6 +185,13 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
       b.st.mode = { status: gw, body: { detail: 'gateway' } };
       assert.equal((await cv.vote('mara', 'post', POST, 'up')).maybe, true, 'a gateway ' + gw + ' may follow a vote that landed');
     }
+    /* The rule is the whole 5xx range, not a list: its edges, and the 4xx just below it, which stays a plain answer. */
+    for (const code of [501, 505, 599]) {
+      b.st.mode = { status: code, body: { detail: 'x' } };
+      assert.equal((await cv.vote('mara', 'post', POST, 'up')).maybe, true, 'a ' + code + ' is treated as may-have-counted');
+    }
+    b.st.mode = { status: 499, body: { detail: 'x' } };
+    assert.notEqual((await cv.vote('mara', 'post', POST, 'up')).maybe, true, 'a 499 is not a 5xx');
     b.st.mode = { status: 200, body: { value: 1, changed: true, score: 1 } };   // asked to clear, answered "up"
     const wrong = await cv.vote('mara', 'post', POST, 'clear');
     assert.equal(wrong.ok, false, 'an answer for a different vote than the one asked is not reported as done');
