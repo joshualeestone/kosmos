@@ -592,3 +592,33 @@ test('#5062 review 16: a report back after its group was filed says so beside it
   assert.match(r.digest, /1 report\(s\) came back after their group was decided/);
   assert.ok(!/in their drafts again/.test(r.digest), 'a return to a decided group was also counted as back in its draft');
 });
+
+test('#5062 review 17: rescrubbing at file time touches the reports only; the header, title prefix and a second pass stay intact', async () => {
+  const o = opts('r17a', {});
+  const s = site([post('m1', 'Board idle when typing', 'my Kosmos agent froze', 'Kosmos Agent')]);
+  const r = await t.read({ ...o, fetchFn: s.fetchFn, gh: fakeGh().gh });
+  assert.ok(s.asked.every((u) => new URL(u).searchParams.get('sort') === 'new'), 'the feed was read without asking for newest first');
+  const g = fakeGh();
+  t.file('g1', { ...o, gh: g.gh });
+  const sent = g.created()[0];
+  const title = sent.args[sent.args.indexOf('--title') + 1];
+  assert.match(title, /^Community report: /);
+  assert.match(sent.body, /^Reported on the Kosmos community's Kosmos bugs channel/);
+  assert.match(sent.body, /kosmos#5062/);
+  assert.ok(!/an an agent/.test(sent.body + title + r.digest), 'a second pass rescrubbed its own replacement');
+  assert.match(sent.body, /my an agent froze/, 'the report text itself was not scrubbed');
+  assert.equal(t.scrub(t.scrub('ask Agent Smith', ['Agent Smith', 'Agent', 'Smith']), ['Agent', 'an']), 'ask an agent');
+});
+
+test('#5062 review 17: a search left stale by a failed redraft is tried again on the next good read', async () => {
+  const a = post('x1', 'Board idle when typing', 'k', 'A1');
+  const b = post('x2', 'Board idle when typing fast', 'gone', 'B1');
+  const o = opts('r17b', {});
+  await t.read({ ...o, fetchFn: site([a, b]).fetchFn, gh: fakeGh().gh });
+  await assert.rejects(t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh({ failSearchAfter: 0 }).gh }), /gh search failed/);
+  const known = [{ number: 55, title: 'Board idle on login', state: 'OPEN' }];
+  const r = await t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh({ known }).gh });
+  assert.equal(r.state.groups.g1.matchesStale, undefined, 'the stale search was never retried');
+  assert.deepEqual(r.state.groups.g1.matches.map((m) => m.number), [55]);
+  assert.ok(!/search did not finish/.test(r.digest));
+});
