@@ -90,7 +90,8 @@ _kosmos_supervisor_tmux() {
     # The bundled 3.5a says these same words with NO server at all (it spawns one that exits at once). Only with a
     # socket on disk are they the wall, as in engine/status.js tmuxSaidNoServer, so a clean Mac searches for nothing at
     # every agent start. One difference: status.js reads an unreadable socket directory as "could not check", while
-    # [ -e ] reads it as absent; here that only means no search and the baked path stays, the conservative side.
+    # [ -e ] reads it as absent; and only the default socket is looked at, so a server on another socket (-L, or a
+    # $TMUX of its own) starts no search either. Both mean no search and the baked path stays, the conservative side.
     *"server exited unexpectedly"*) [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ] || return 0 ;;
     *) return 0 ;;
   esac
@@ -101,7 +102,7 @@ _kosmos_supervisor_tmux() {
   _own="${KOSMOS_TMUX_OWN-}"
   if [ -z "$_own" ]; then
     local _ptr _engdir=""
-    _ptr="$(dirname "$0")/engine-path"   # the same spelling resolve_token_engine uses
+    _ptr="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/engine-path"   # the same spelling resolve_token_engine uses
     if [ -f "$_ptr" ]; then IFS= read -r _engdir < "$_ptr" || true; fi
     if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="$(dirname "$0")/../tmux/bin/tmux"; fi
     # Normalized, so the equality below recognises it as the baked path and PATH never gets a ../.. entry.

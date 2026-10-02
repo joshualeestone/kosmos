@@ -6141,4 +6141,20 @@ test('#2955: one probe per real tmux, however many paths name it (the bundle is 
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
+test('#2955: a candidate that hangs is given up after 2 s (a probe runs on a board request path)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const slow = nodePath.join(m.sb, 'slow-tmux');
+    fs.writeFileSync(slow, '#!/bin/sh\nsleep 4\nexit 0\n'); fs.chmodSync(slow, 0o755);
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [slow]);
+      status.setOwnTmux(nodePath.join(m.sb, 'no-own'));
+      const t0 = Date.now();
+      assert.equal(status.tmuxRepick(), false, 'a tmux that took 4 s was waited for and taken');
+      const took = Date.now() - t0;
+      assert.ok(took < 3500, 'the search blocked for ' + took + ' ms');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
 

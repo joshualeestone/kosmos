@@ -328,9 +328,9 @@ function sh(cmd, args) {
  * `status`, and one that never started (ENOENT) or was killed by the timeout
  * does not.
  */
-function shDetail(cmd, args) {
+function shDetail(cmd, args, timeoutMs) {
   try {
-    return { ran: true, status: 0, out: execFileSync(cmd, args, { encoding: 'utf8', timeout: 5000 }), err: '' };
+    return { ran: true, status: 0, out: execFileSync(cmd, args, { encoding: 'utf8', timeout: timeoutMs || 5000 }), err: '' };
   } catch (e) {
     const status = e && typeof e.status === 'number' ? e.status : null;
     return {
@@ -553,7 +553,7 @@ function tmuxRepick() {
     if (!r || seen.has(r)) continue;
     seen.add(r);
     try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
-    const tried = shDetail(c, ['list-sessions']);
+    const tried = shDetail(c, ['list-sessions'], 2000);   // a probe, on a board request path: 2 s, not the 5 s a look gets
     if (tried.ran && tried.status === 0) {
       process.env.AGENT_WORKFORCE_TMUX_BIN = c;
       TMUX_SWITCHED_TO = c;
@@ -8397,7 +8397,9 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, launcherTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; }, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
+  // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
+  tmuxRepick, tmuxPanes, launcherTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,

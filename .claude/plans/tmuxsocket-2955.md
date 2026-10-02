@@ -128,4 +128,11 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   fetch_tmux "$KOSMOS_HOME/tmux"); moving the engine in the bundle builder reds it. NITs taken: the explicit-choice
   arm passes a stale recorded value, so removing the launcher's unset reds it; the supervisor's candidates are tried
   once per path; its pointer uses dirname "$0" as resolve_token_engine does; two detail wordings corrected.
+- Round 8 (sonnet): FIXED W: a candidate probe could block a board request for 5 s each; probes now give up after 2 s
+  (test: a 4 s candidate is abandoned in under 3.5 s; restoring 5 s reds it). FIXED W: the supervisor's socket check
+  comment now says only the default socket is looked at (another socket starts no search, the conservative side).
+  FIXED W: the pointer is read through the same normalized spelling as resolve_token_engine. DUPLICATE W: a board not
+  started through the launcher has no pick and never switches (named in round 6's wording fix; the reviewer found the
+  message true). NIT taken: the export line is split, the #2955 seams on their own lines. LEFT NIT: the supervisor
+  de-duplicates by path, the board by real path (one extra probe on a symlinked bundle, harmless).
 
