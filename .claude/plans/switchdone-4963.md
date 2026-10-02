@@ -49,3 +49,17 @@ So the change dialog was the only place with a button during work in progress.
   waking state, so it asserts nothing about it).
 - Queued on Agent1s: render-autohello-switch-2716, render-model-change, render-model-restart-interstitial,
   render-autohello-2686. Full suite before merge.
+
+## Review 4 (sonnet, 2026-10-01 22:38 CDT): 0 BLOCKER, 0 SHOULD-FIX = CONVERGED at 7309edf65. Two NITs DEFERRED:
+- The fallback sentence ('Send them a message to wake them.' and the /Waking them…$/ match) is written in two places
+  (changeDialog and autoHelloOnSwitchRestart). A reword of one loses gold Done on a late report; only browser arm 4b
+  catches it. Follow-up: one shared constant.
+- No single test drives the real changeDialog and the helper together (the unit tests prove the hide; browser check
+  2716 proves the reveal with a stubbed hidden button).
+Deferred because either edit would have staled the queued checks and reopened the loop for a NIT.
+
+## Validation results (2026-10-02 01:20 CDT)
+- b-4963 (Agent1s, 00:35, head 7309edf65): render-autohello-switch-2716, render-model-change,
+  render-model-restart-interstitial, render-autohello-2686 all rc 0; selectors 0.
+- Mortals full suite on 7309edf65: 13687 pass, 0 fail. RED only on the browser-check SURFACE gate: render-unread-edge-3743
+  and render-agentdm-3414 (token 'msg'). Both queued to RUN on this head (b-4963s); then per-check trailers citing it.
