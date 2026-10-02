@@ -428,6 +428,9 @@ test('#4933 blocked direct loopback with a forwarding proxy: the board is reache
     assert.equal(out.code, 0, out.stdout + out.stderr);
     assert.match(out.stdout, /Kosmos is running at/);
     assert.ok(hits.some((u) => u.includes(':' + port + '/')), 'the board was not reached through the proxy: ' + JSON.stringify(hits));
+    // A verb that goes through kosmos_curl (the post) takes the same route.
+    await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
+    assert.ok(hits.some((u) => u.includes(':' + port + '/api/post')), 'the post did not go through the proxy: ' + JSON.stringify(hits));
     const left = await bash(`source "${CLI}"; printf '%s' "$NO_PROXY"`, env);
     assert.equal(left.stdout, '127.0.0.1,localhost,corp.example', 'the exported exemption was rewritten');
   } finally { await new Promise((r) => proxy.close(r)); }
