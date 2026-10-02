@@ -40,4 +40,8 @@ The capture had blank and border rows stripped; the test puts them back where Cl
   two verbatim screen rows joined with " / ", shown under "screen said:"; both rows are on the screen.
   Measured 13:23, each red by name: no last-"1." check -> ABOVE; evidence without the model -> evidence arm; no evidence -> evidence arm.
   239/239.
-- Round 2: PENDING.
+- Round 2 (sonnet, blind): 0 BLOCKER, 0 SHOULD-FIX. CONVERGED (13:27). "Last 1. row" holds: the menu is the bottom-most interactive element;
+  a "1." below it gives the generic reason (safe); a cursor on option 2 still names it; Codex panes cannot reach the branch (OPTION_LINE needs
+  ❯). NITs recorded, not taken (all fail safe to the generic reason, state unchanged): the 3-row window, the $ anchor and the 40-character
+  model cap are unpinned (mutants survive); an option-1 description wrapped onto 3+ rows pushes "Stay on" out of the window (generic); the
+  reason's "it" could read as "the response above", the vendor's wording.
