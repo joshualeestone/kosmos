@@ -46,6 +46,39 @@ if [ "$KOSMOS_TEST_PART" != all ]; then
   fi
   echo "run-tests: running ONLY the $KOSMOS_TEST_PART part of the suite${KOSMOS_SHELL_SHARD:+ (shard $KOSMOS_SHELL_SHARD)} (#4317); the other part runs in its own job" >&2
 fi
+# #4929: `tools/run-tests.sh --only <file>...` runs the named test files with everything below that a test needs (the
+# dead-port URLs, the fake gh and vercel, the unsets, the per-run temp root, the --require guards, the leak guards),
+# and without what belongs to the whole suite: the queue (a light queue turn already holds its place), the coverage
+# count, the shell part and the branch's browser-check gates. A bare `node --test <file>` skips all of it.
+KOSMOS_ONLY=0
+KOSMOS_ONLY_FILES=()
+if [ "${1:-}" = --only ]; then
+  shift
+  if [ "$KOSMOS_TEST_PART" != all ]; then
+    echo "run-tests: --only runs named files; it does not take KOSMOS_TEST_PART (got '$KOSMOS_TEST_PART')" >&2
+    exit 2
+  fi
+  if [ "$#" -eq 0 ]; then
+    echo "run-tests: --only needs one or more test files, e.g. tools/run-tests.sh --only engine/tasks.test.js" >&2
+    exit 2
+  fi
+  for _only_f in "$@"; do
+    case "$_only_f" in
+      -*) echo "run-tests: --only takes test files, not node --test options (got '$_only_f')" >&2; exit 2 ;;
+      *.test.js) ;;
+      *) echo "run-tests: --only takes *.test.js files (got '$_only_f')" >&2; exit 2 ;;
+    esac
+    if [ ! -f "$_only_f" ]; then
+      echo "run-tests: no test file '$_only_f' (a relative path is read from the repo root)" >&2
+      exit 2
+    fi
+    KOSMOS_ONLY_FILES+=("$_only_f")
+  done
+  set --
+  KOSMOS_ONLY=1
+  KOSMOS_TEST_PART=node
+  echo "run-tests: --only: ${#KOSMOS_ONLY_FILES[@]} named file(s), not the whole suite (#4929)" >&2
+fi
 # Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
 if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
   echo "run-tests: KOSMOS_TEST_PART=shell runs no node tests, so it takes no node --test arguments (got: $*)" >&2
@@ -241,7 +274,7 @@ _rt_box_clear() {
   fi
   return 0
 }
-if command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
+if [ "$KOSMOS_ONLY" != 1 ] && command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
   if [ "$_rt_suite_check" = 1 ]; then
     kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear || exit 1
   else
@@ -327,6 +360,9 @@ fi
 # node_modules and .git -- the same set the durable test's walker skips, so the runtime
 # guard and the test agree on what counts. If a real test dir beyond root/engine/ is ever
 # added, update the glob here (the point of this guard is that you cannot forget to).
+if [ "$KOSMOS_ONLY" = 1 ]; then
+  KOSMOS_TEST_FILES=("${KOSMOS_ONLY_FILES[@]}")   # #4929: the named files; the whole-suite count below does not apply
+else
 shopt -s nullglob
 KOSMOS_TEST_FILES=(engine/*.test.js *.test.js)
 shopt -u nullglob
@@ -344,6 +380,7 @@ if [ "$_considered" -ne "$_exist" ]; then
   echo "  glob matches; widen the glob above so it is considered. considered > exist: find did not descend a" >&2
   echo "  directory the glob did (e.g. a symlinked engine/); make the two agree. Canonical helper: yarn test." >&2
   exit 1
+fi
 fi
 
 # --- #3011: snapshot the real ~/Library/LaunchAgents before the suite runs ----
@@ -432,7 +469,8 @@ fi
 # The lib is fail-soft (returns 0 when it cannot diff), so this only ever reds a
 # real branch gap: on main / a detached HEAD / a fresh clone origin/main...HEAD is
 # empty or unreadable and the gate passes.
-if [ "$NODE_STATUS" -eq 0 ]; then
+# (#4929: not for --only, which runs named files and says nothing about the branch.)
+if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_ONLY" != 1 ]; then
   ( . "$(dirname "$0")/lib/browser-check-gate.sh" && kosmos_browser_check_gate )
   NODE_STATUS=$?
 fi
@@ -440,7 +478,7 @@ fi
 # a token a browser-check asserts (its `// Browser-check-surface:` annotation) without
 # updating that check, catching the specific staleness the coarse gate above lets through.
 # Same subshell isolation + fail-soft contract.
-if [ "$NODE_STATUS" -eq 0 ]; then
+if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_ONLY" != 1 ]; then
   ( . "$(dirname "$0")/lib/browser-check-surface-gate.sh" && kosmos_browser_check_surface_gate )
   NODE_STATUS=$?
 fi
