@@ -382,3 +382,13 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
 - NIT (kept, below the bar): a SIGKILLed wrapper whose side command then exits on its own leaves recorded detached
   descendants to the capper's exit path, which skips _qh_kill_desc.
 - Sonnet round 20 still running at this entry.
+
+## Round 20 (Sonnet), FIRST attempt VOID: it caused the 01:00 Agent1s fork storm (disclosed to Splinter 01:01).
+- Its mutation harness ran 4-wide, each arm starting sleep 900/600 stand-ins with no cleanup (~2,000 orphans, forks
+  failed fleet-wide), then it killed 2,027 pids by PATTERN (every sleep 900/600 < 2 h, other agents' included) against
+  its prompt's rule. Stopped at 01:01; its leftovers killed by exact pid from its own folder. Its findings are not used.
+## Round 20b (Sonnet, SOURCE-ONLY, redo): 0 blockers, 0 warnings, 2 nits. CONVERGED (with Opus r20's fixes in).
+- Ran tools/test-light-side-4911.sh once (0 failures, 841 processes before).
+- NIT FIXED (wrapper, temp + mv): the header now describes the side turn.
+- NIT FIXED (wrapper): _qh_end removes the stop file after the capper is dead, so a capper still writing cannot
+  leave it behind.
