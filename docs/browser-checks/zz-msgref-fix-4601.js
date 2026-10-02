@@ -327,7 +327,11 @@ async function paintRoom(page) {
         chk(r12a.open && r12a.sel === '', '[webkit] R12 a real right-click on a word opens the menu (and leaves no stray word selected)', JSON.stringify(r12a));
         console.log('PROBE-4601 pre-copy ' + JSON.stringify(await page.evaluate(() => ({ poll: window.__poll, ev: (window.__ev || []).slice(-8), sc: (window.__sc || []).slice(-6) }))));
         if (r12a.open) {
-          await page.click('#msg-menu-copy');
+          // THE FIX under test, part 3 (#4601): page.click scrolls its target into view first, and ANY scroll closes this
+          // menu (the page's close-on-scroll), so on Linux the click often found it hidden. A person clicks the item
+          // where it is drawn: a real mouse click at its centre, with no scroll.
+          const ib = await page.evaluate(() => { const r = document.getElementById('msg-menu-copy').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+          await page.mouse.click(ib.x, ib.y);
           await page.waitForTimeout(150);
         }
         const r12b = await page.evaluate(() => ({ copied: window.__copied.slice(), hidden: !document.getElementById('msg-menu') || document.getElementById('msg-menu').hidden }));
