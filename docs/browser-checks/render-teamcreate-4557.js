@@ -410,21 +410,23 @@ function chk(ok, label, extra) {
           await settle(page, () => document.querySelectorAll('.just-made').length >= 3);
           const went = await page.evaluate(() => ({ team: TC === null, panel: !document.getElementById('panel-create').hidden, opened: window.__tcOpened || null,
             marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort(),
-            focus: ((document.activeElement || {}).dataset || {}).agent || null }));
+            // Review 29: focus is on the card's "Open <name>" button; the card it sits in names the agent.
+            focus: (((document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-agent]')) || {}).dataset || {}).agent || null,
+            named: !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('.namego, [data-agent]')) }));
           await settle(page, () => /may not have started/.test((document.getElementById('tc-done-live') || { textContent: '' }).textContent));
           const wentSaid = await page.evaluate(() => (document.getElementById('tc-done-live') || { textContent: '' }).textContent);
           chk(wentSaid === '1 of them may not have started: look at its page. The new agents are marked on your board.',
             `${E} #4936 with a member not greeted, the screen reader is told so, never "said hello to your team"`, wentSaid);
-          chk(went.team && !went.panel && !went.opened && went.marked.join() === 'ana,leo-two,maya-okafor' && went.marked.includes(went.focus),
+          chk(went.team && !went.panel && !went.opened && went.marked.join() === 'ana,leo-two,maya-okafor' && went.marked.includes(went.focus) && went.named,
             `${E} #4936 Go to your team leaves the create view for the agents view, the new members' cards marked and one focused, no team left to resume`, JSON.stringify(went));
           /* Review 5: the board rebuilds its cards every poll; focus must come back to the new card, not stay on the page. */
-          await page.evaluate(() => { if (document.activeElement) document.activeElement.__before = 1; });
+          await page.evaluate(() => { const c = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-agent]'); if (c) c.__before = 1; });
           // Review 13: wait for an actual rebuild (the board's poll, up to 12 s), not a fixed time; then give the mark loop
           // its 500 ms to put focus back.
           await page.waitForFunction(() => ![...document.querySelectorAll('.acard, .lrow')].some((e) => e.__before), null, { timeout: 12000 }).catch(() => null);
           await page.waitForTimeout(700);
-          const kept = await page.evaluate(() => ({ focus: ((document.activeElement || {}).dataset || {}).agent || null, body: document.activeElement === document.body,
-            rebuilt: !(document.activeElement || {}).__before }));
+          const kept = await page.evaluate(() => { const a = document.activeElement; const c = a && a.closest && a.closest('[data-agent]');
+            return { focus: (c && c.dataset.agent) || null, body: a === document.body, rebuilt: !!c && !c.__before }; });
           chk(kept.rebuilt && !kept.body && ['ana', 'leo-two', 'maya-okafor'].includes(kept.focus), `${E} #4936 after a board poll rebuilt the cards, focus is on a new member's card`, JSON.stringify(kept));
           /* Review 28: opening a team after that must not show the finished team's Go to your team while the new
              one loads. The load is never answered here, so this is the screen as it stands mid-load. */
@@ -698,8 +700,8 @@ function chk(ok, label, extra) {
           await page.context().close();
         }
 
-        /* --- #4936 review 6: the refusals: a 4xx before delivery is tried 3 times and offers Try again; a 5xx and a hello
-           the board never answers may have arrived (a 400 too: the route's catch-all), so each is sent once, never again --------------------------- */
+        /* --- #4936 review 6: the refusals: a 404 (before delivery) is tried 3 times and offers Try again; a 400 and a hello
+           the board never answers may have arrived (a 400 is the route's catch-all), so each is sent once, never again --------------------------- */
         {
           const { page, errs, hellos, helloStatus, helloHang } = await newPage(1280);
           await page.evaluate(() => { TC_AUTO_HELLO = true; TC_HELLO_TIMEOUT_MS = 800; });

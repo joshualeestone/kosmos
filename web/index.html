@@ -8356,7 +8356,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 /* #4936: the members a team just made, marked on the agents view for a few seconds after Create a Team. */
 .just-made { outline: 2px solid var(--gold-edge); outline-offset: 2px; }
 .tc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: center; }
-.tc-seat { color: var(--label-2); min-width: 0; overflow-wrap: anywhere; }   /* #4936 review 20: wraps beside a long hello state */
+.tc-seat { color: var(--label-2); min-width: 0; overflow-wrap: break-word; }   /* #4936 review 20: wraps beside a long hello state */
 .tc-seat b { color: var(--label); font-weight: 600; }
 .tc-name { min-width: 0; font: var(--text-callout) var(--font-ui); color: var(--label);
   background: var(--bg, transparent); border: 0.5px solid var(--border-strong);
@@ -48291,7 +48291,7 @@ async function openTeamCreate(key) {
   document.getElementById('tc-tell').disabled = true;
   // The progress line is the previous team's: the load can take seconds now that it may download (#4632).
   document.getElementById('tc-note').textContent = '';
-  msg.hidden = true; msg.textContent = '';
+  msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;   // #4936 review 29: no kind carried to the next team
   let body = null;
   try {
     const res = await fetch('/api/teams/seeded/' + encodeURIComponent(key));
@@ -48844,7 +48844,8 @@ function tcGoToTeam(auto) {
         el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
         // Focus leaves the hidden step for the first new member, unless the person has already moved it elsewhere.
         const at = document.activeElement;
-        if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { el.tabIndex = -1; el.focus({ preventScroll: true }); focused = true; }
+        // Review 29: the card's own "Open <name>" button when it has one (a named control), else the card itself.
+        if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { const t = el.querySelector('.namego') || el; if (t === el) el.tabIndex = -1; t.focus({ preventScroll: true }); focused = true; }
       }
     }
     /* Review 5: the board rebuilds its cards on every poll, so the focused card is replaced and focus drops to the
@@ -48852,7 +48853,7 @@ function tcGoToTeam(auto) {
     if (live && focused && first && !first.isConnected) {
       const again = [...document.querySelectorAll(sel)].find((e) => e.dataset.agent === first.dataset.agent && e.offsetParent);
       const at = document.activeElement;
-      if (again && (!at || at === document.body)) { again.tabIndex = -1; again.focus({ preventScroll: true }); first = again; }
+      if (again && (!at || at === document.body)) { const t = again.querySelector('.namego') || again; if (t === again) again.tabIndex = -1; t.focus({ preventScroll: true }); first = again; }
       else if (again) focused = false;
     }
     if (live) setTimeout(mark, 150);
@@ -48883,6 +48884,8 @@ function tcGoToTeam(auto) {
 }
 /* #4936: a polite live region outside the step, which outlives it (the step is hidden or replaced when it speaks). */
 function tcDoneLive() {
+  // Review 29: it sits in the page's markup from load (a region made at the moment it speaks is often not announced);
+  // made here only if the markup ever loses it.
   let live = document.getElementById('tc-done-live');
   if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
   live.textContent = '';
@@ -71968,5 +71971,8 @@ setInterval(ageCheckedStamp, 1000);
   }
 })();
 </script>
+<!-- #4936: the team step's "done" announcement, outside the step (it is hidden or replaced when this speaks), in the
+     markup from load so a screen reader hears its first change. -->
+<p class="vh" id="tc-done-live" aria-live="polite"></p>
 </body>
 </html>
