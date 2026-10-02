@@ -168,12 +168,15 @@ test('msg, post and react: never exempt for a network peer or with NO credential
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];
   /* #4914 added `assign` to the task verbs: its handler identifies the caller from the token (processCaller) and refuses
      an agent not on the project (notOnProjectRefusal), measured in server.task-assign-4914.test.js. */
-  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/];',
+  /* #4475 step 3 added DELETE .../removal: its handler identifies the caller from the token (agentTokenOnlyCaller) and
+     refuses any target the caller did not create, and any `?force`, measured in server.agent-remove-4475.test.js. */
+  assert.equal(patterns, 'const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \\/api\\/project\\/[^/]+\\/task\\/\\d+\\/(?:message|built|close|assign)$/, /^POST \\/api\\/project\\/[^/]+\\/tasks$/, /^GET \\/api\\/project\\/[^/]+\\/overview$/, /^GET \\/api\\/project\\/[^/]+\\/room$/, /^DELETE \\/api\\/agent\\/[^/]+\\/removal$/];',
     'AGENT_TOKEN_ROUTE_PATTERNS changed: every WRITE a pattern admits must identify its caller from the header token, and every read of people\'s work must be narrowed to the caller\'s own projects (agentTokenOnlyCaller)');
   assert.match(src, /const agentTokenRoute = \(key\) => AGENT_TOKEN_ROUTES\.has\(key\) \|\| AGENT_TOKEN_ROUTE_PATTERNS\.some\(/, 'the route check no longer reads the set and the patterns');
   assert.match(src, /agentTokenRoute\([^)]*\) && agentTokenOk\(req\)/, 'the agent-token exemption no longer requires a valid token');
-  /* Slice 4: both narrowed reads ask who came through on a token alone. Two call sites, so dropping one is an edit here. */
-  assert.equal((src.match(/const tokenOnly = agentTokenOnlyCaller\(req\);/g) || []).length, 2, 'the room and task reads no longer both narrow a token-only caller');
+  /* Slice 4: both narrowed reads ask who came through on a token alone; #4475 added the removal route as a third.
+     Three call sites, so dropping one is an edit here. */
+  assert.equal((src.match(/const tokenOnly = agentTokenOnlyCaller\(req\);/g) || []).length, 3, 'the room and task reads and the removal no longer all narrow a token-only caller');
   /* #4491 slice 3: a network peer stays refused on the pattern routes too: remoteWriteGuard reads only the exact
      REMOTE_AGENT_ROUTES set, never the agent-token set or its patterns, and that set names no task route. */
   const guard = (src.match(/function remoteWriteGuard\([^)]*\) \{[\s\S]*?\n\}/) || [''])[0];
