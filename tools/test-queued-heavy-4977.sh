@@ -84,7 +84,7 @@ ok "TERM to a side run stops its group, its capper, and releases" '[ "$e_started
 o=$(/bin/bash $QH --light "f-light" true 2>&1)
 ok "a waiting side-aware heavy run does not hold side turns off" '[[ "$o" == *"SIDE TURN"* ]]'
 ok "the aware waiter marker says aware" 'grep -qx aware $S/m/suitewait.$F'
-kill $F 2>/dev/null
+kill $F 2>/dev/null; wait $F 2>/dev/null   # review 6: no job notice in the output
 # inherited cookie is not ours
 o=$(KOSMOS_LIGHT_SIDE_COOKIE=inherited /bin/bash $QH --light "g" true 2>&1)
 ok "an inherited side cookie is cleared" '[[ "$o" == *"SIDE TURN"* ]]'
