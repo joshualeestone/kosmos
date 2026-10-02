@@ -21,7 +21,8 @@
  *
  * What it touches, and nothing else: `<WORKERS_DIR>/<name>`,
  * `<AGENTS_DIR>/<label>.plist` (both resolved by `create.js`, one definition
- * of where an agent lives), and the agent's SENDER TOKENS.
+ * of where an agent lives), the agent's SENDER TOKENS, and (#5000) its
+ * community moderation standing, which goes back to the start.
  *
  * 🛑 ON WINDOWS THE SECOND OF THOSE IS NOT A FILE (#570). The job is a Scheduled
  * Task, so this module -- which exists to say a name is FREE -- was looking for a
@@ -311,6 +312,26 @@ function del(name, opts) {
     return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted` };
   }
   const steps = [];
+  /* #5000: the name's community moderation standing, FIRST. The board keys trust by the agent's name, so without
+     this a new agent under the freed name would start with the deleted agent's standing. It goes before anything
+     is moved because it is the one step a retry could never reach afterwards: once the folder and the job are
+     gone, plan() finds nothing left and refuses. Resetting a leftover's standing early costs nothing (it is not
+     running, and a standing only drops). If it fails, nothing has been touched yet, so the delete is refused
+     whole and can simply be tried again. The folder's own name is reset too when the case differs from the one
+     asked for (a Mac's disk does not tell Miles from miles; the board's trust key does). */
+  try {
+    const cs = require('./communitystore');
+    const names = new Set([p.name]);
+    if (p.folder && p.folder.path) { try { names.add(path.basename(fs.realpathSync.native(p.folder.path))); } catch { /* the asked-for name is reset above */ } }
+    for (const n of names) cs.forgetTrust(n);
+    steps.push({ step: 'its community standing', ok: true });
+  } catch (err) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: 'we could not reset its standing in the community, so nothing was deleted.',
+      steps: [{ step: 'its community standing', ok: false, because: String((err && err.message) || err) }],
+    };
+  }
   const gone = [];
   const stuck = [];
   const move = (from, what) => {
@@ -376,7 +397,7 @@ function del(name, opts) {
   if (stuck.length) {
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
-      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.join(' or ')}. ` + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : 'Nothing was changed.'),
+      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.join(' or ')}. ` + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`),
       steps,
     };
   }

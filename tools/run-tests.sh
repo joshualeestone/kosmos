@@ -20,14 +20,16 @@
 # stubs launchctl), so this names contention; it does not paper over a test
 # that reaches shared state. Such a test is a bug, and its red still shows.
 set -uo pipefail
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"   # CDPATH= : #4929 review 16, an exported CDPATH bends a relative cd
 cd "$REPO"
 
 # #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
 #   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
 #   node  the node suite only;
 #   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
-# Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates).
+# Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
+# below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,
+# the shell part and the browser-check gates.
 # A value it does not know refuses HERE, first, before the machine claim, the temp root or any test,
 # rather than running a subset silently. tools.shell-shard-4317.test.js runs each refusal.
 KOSMOS_TEST_PART="${KOSMOS_TEST_PART:-all}"
@@ -45,6 +47,85 @@ if [ "$KOSMOS_TEST_PART" != all ]; then
     exit 2
   fi
   echo "run-tests: running ONLY the $KOSMOS_TEST_PART part of the suite${KOSMOS_SHELL_SHARD:+ (shard $KOSMOS_SHELL_SHARD)} (#4317); the other part runs in its own job" >&2
+fi
+# #4929: `tools/run-tests.sh --only <file>...` runs the named test files with everything below that a test needs (the
+# dead-port URLs, the fake gh and vercel, the unsets, the per-run temp root, the --require guards, the leak guards),
+# and without what belongs to the whole suite: the queue WAIT (a light queue turn already holds its place; the release
+# claim and install-harness refusals are still asked, once), the coverage count, the shell part and the branch's
+# browser-check gates. A bare `node --test <file>` skips all of it. Other suites' "is a suite live" checks still see
+# a --only run as one (it is run-tests.sh), so they wait for it or refuse: the safe direction. A --only run itself
+# does NOT wait for or refuse a live suite (no queue wait, above): it is meant for inside a light queue turn. So a
+# --only run outside one can overlap a suite or a live board, and its #3011 LaunchAgents guard can then red on THEIR
+# plist; that red names the cause. The trade-off is taken for not waiting.
+KOSMOS_ONLY=0
+KOSMOS_ONLY_FILES=()
+# --only counts only as the FIRST argument. Anywhere else it would reach node --test beside every suite file, so the
+# whole suite would run; it refuses instead.
+# The --only=<file> spelling is refused too, wherever it is: it is not a leading --only, so it would take the
+# full-suite path, where the suite's files come first and node ignores the extra argument: the whole suite would run
+# (after a heavy queue turn), not the file. This block scans every argument on purpose, full-suite runs included.
+for _only_f in "$@"; do
+  case "$_only_f" in --only=*) echo "run-tests: --only takes its files as separate arguments (tools/run-tests.sh --only <file>...), not --only=<file>" >&2; exit 2 ;; esac
+done
+if [ "${1:-}" != --only ]; then
+  for _only_f in "$@"; do
+    if [ "$_only_f" = --only ]; then
+      echo "run-tests: --only must come first (tools/run-tests.sh --only <file>...); refusing rather than running the whole suite" >&2
+      exit 2
+    fi
+  done
+fi
+if [ "${1:-}" = --only ]; then
+  shift
+  if [ "$KOSMOS_TEST_PART" != all ] || [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
+    echo "run-tests: --only runs named files; it does not take KOSMOS_TEST_PART or KOSMOS_SHELL_SHARD (got part '$KOSMOS_TEST_PART'${KOSMOS_SHELL_SHARD:+, shard '$KOSMOS_SHELL_SHARD'})" >&2
+    exit 2
+  fi
+  if [ "$#" -eq 0 ]; then
+    echo "run-tests: --only needs one or more test files, e.g. tools/run-tests.sh --only engine/tasks.test.js" >&2
+    exit 2
+  fi
+  _only_rel=0
+  _only_repo="$(CDPATH= cd "$REPO" && pwd -P)"   # the repo's physical path, the same spelling as each file's below
+  for _only_f in "$@"; do
+    case "$_only_f" in /*) ;; *) _only_rel=1 ;; esac
+    case "$_only_f" in
+      -*) echo "run-tests: --only takes test files, not node --test options (got '$_only_f')" >&2; exit 2 ;;
+      *.test.js) ;;
+      *) echo "run-tests: --only takes *.test.js files (got '$_only_f')" >&2; exit 2 ;;
+    esac
+    if [ ! -f "$_only_f" ]; then
+      case "$_only_f" in /*) echo "run-tests: no test file '$_only_f'" >&2 ;; *) echo "run-tests: no test file '$_only_f' (a relative path is read from the repo root)" >&2 ;; esac
+      exit 2
+    fi
+    # One spelling per file (a.test.js, ./a.test.js, p/../a.test.js, a symlinked folder, its absolute path): the
+    # folder's physical path plus the name.
+    # CDPATH= : an exported CDPATH would send a relative cd into ANOTHER tree and print its path into the result.
+    _only_f="$(CDPATH= cd -P -- "$(dirname "$_only_f")" && pwd -P)/$(basename "$_only_f")"   # -P: through a symlink then .., the same file -f found
+    # node --test reads each name as a glob: a path with [ * ? { ( ! or \ in it can match nothing (red, "Could not
+    # find") or, with an extglob such as @(x), run zero tests and exit 0 (green, measured). So it is refused. A file
+    # inside this repo goes to node by its repo-relative name (node runs from the repo root), so only that part is
+    # checked: a checkout folder such as "kosmos (copy)" does not refuse every file.
+    case "$_only_f" in "$_only_repo"/*) _only_f="${_only_f#"$_only_repo"/}" ;; esac
+    case "$_only_f" in *'['*|*'*'*|*'?'*|*'{'*|*'('*|*'!'*|*'\'*) echo "run-tests: --only cannot take '$_only_f': node --test reads [ * ? { ( ! \\ as a pattern, so it could run nothing" >&2; exit 2 ;; esac
+    # A repo file named -x.test.js: node --test starts each file as a child by the name it was given, and a relative
+    # "-x.test.js" (even spelled ./-x.test.js) reaches that child as an option. Its absolute path cannot (measured).
+    case "$_only_f" in -*) _only_f="$_only_repo/$_only_f" ;; esac
+    _only_dup=0
+    for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
+    [ "$_only_dup" = 1 ] || KOSMOS_ONLY_FILES+=("$_only_f")   # a file named twice runs once
+  done
+  set --
+  KOSMOS_ONLY=1
+  echo "run-tests: --only: ${#KOSMOS_ONLY_FILES[@]} named file(s), not the whole suite (#4929)" >&2
+  # Relative names are read from THIS runner's repo root, not the caller's folder: print what will run, and say so
+  # when the caller is elsewhere (another worktree's runner would otherwise test its own copy of the file, green).
+  # OLDPWD is the caller's folder: the `cd "$REPO"` at the top is the only cd before here.
+  for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do case "$_only_f" in /*) echo "run-tests: --only:   $_only_f" >&2 ;; *) echo "run-tests: --only:   $_only_repo/$_only_f" >&2 ;; esac; done
+  # Physical paths both sides: a caller in this tree through a symlinked spelling is not told otherwise.
+  if [ "$_only_rel" = 1 ] && [ -n "${OLDPWD:-}" ] && [ "$(CDPATH= cd "$OLDPWD" 2>/dev/null && pwd -P)" != "$_only_repo" ]; then
+    echo "run-tests: --only: note: relative names are read from this runner's tree ($REPO), not from your folder ($OLDPWD)" >&2
+  fi
 fi
 # Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
 if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
@@ -226,7 +307,8 @@ KOSMOS_QUEUE_CLASS=heavy
 # case after four bounds plus one per waiter ahead at entry (#4574; tools/lib/cut-guard.sh,
 # kosmos_wait_until_clear). A run that skips the suite check (the override or a run inside a test,
 # below) does not queue, and waits 20 minutes from its start. KOSMOS_NO_WAIT=1
-# refuses at once; this runner's arguments all go to node --test, so it has no --no-wait flag.
+# refuses at once; this runner's arguments all go to node --test (with a leading --only, the named files replace the suite list and
+# nothing else is passed through), so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
 _rt_suite_check=1
@@ -241,7 +323,28 @@ _rt_box_clear() {
   fi
   return 0
 }
-if command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
+# #4911: inside a light run's SIDE turn (queued-heavy.sh --light beside a heavy run), refuse at once, a --only run
+# too. A full run queued here would wait behind the heavy holder's claim while holding the side claim, which holds that
+# holder's page layer too; a --only run would otherwise meet that claim (foreign to the side turn) and be refused in
+# words about a release. A side turn runs its one file with node --test directly.
+if command -v kosmos_holds_light_side >/dev/null 2>&1 && kosmos_holds_light_side; then
+  echo "this test run is inside a light run's side turn (#4911): run-tests.sh, --only included, does not run beside the heavy run that holds the box. Run the file with node --test directly in the side turn, or take an ordinary turn: queued-heavy.sh without --light." >&2
+  exit 2
+fi
+if [ "$KOSMOS_ONLY" = 1 ]; then
+  # #4929: no queue wait, but a foreign machine claim and a live install harness still refuse, asked once (fail-open
+  # on a missing lib, as above). A run that holds the claim's own KOSMOS_MACHINE_CLAIM_COOKIE is not refused by it
+  # (tools.run-tests-only-4929.test.js).
+  # Worded apart from the full suite's lines on purpose: tools/test-cut-guard.sh pins those by their text.
+  if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
+    if ! kosmos_holds_machine_claim; then
+      kosmos_refuse_if_machine_claimed "this --only run" || exit 1
+      if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+        kosmos_refuse_if_harness_live "this --only run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs it anyway" || exit 1
+      fi
+    fi
+  fi
+elif command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
   if [ "$_rt_suite_check" = 1 ]; then
     kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear || exit 1
   else
@@ -327,6 +430,15 @@ fi
 # node_modules and .git -- the same set the durable test's walker skips, so the runtime
 # guard and the test agree on what counts. If a real test dir beyond root/engine/ is ever
 # added, update the glob here (the point of this guard is that you cannot forget to).
+if [ "$KOSMOS_ONLY" = 1 ]; then
+  # #4929: a second stop for an empty list. With no files, bash 5 expands an empty array cleanly and a bare node --test
+  # discovers and runs EVERY *.test.js, so the refusal at the top must not be the only thing standing in the way.
+  if [ "${#KOSMOS_ONLY_FILES[@]}" -eq 0 ]; then
+    echo "run-tests: --only with no files would run the whole suite; refusing" >&2
+    exit 2
+  fi
+  KOSMOS_TEST_FILES=("${KOSMOS_ONLY_FILES[@]}")   # #4929: the named files; the whole-suite count below does not apply
+else
 shopt -s nullglob
 KOSMOS_TEST_FILES=(engine/*.test.js *.test.js)
 shopt -u nullglob
@@ -345,13 +457,14 @@ if [ "$_considered" -ne "$_exist" ]; then
   echo "  directory the glob did (e.g. a symlinked engine/); make the two agree. Canonical helper: yarn test." >&2
   exit 1
 fi
+fi
 
 # --- #3011: snapshot the real ~/Library/LaunchAgents before the suite runs ----
 # A test that creates agents without sandboxing AGENT_WORKFORCE_LAUNCH leaks a real
 # com.kosmos.agent.* plist into launchd (phantom agents on the board). Snapshot the
 # real set now; the leak check after the suite refuses any created or modified during
 # it. Fail-soft: a snapshot failure leaves an empty baseline, never a false red here.
-. "$(dirname "$0")/lib/launchagent-leak-guard.sh"
+. "$REPO/tools/lib/launchagent-leak-guard.sh"   # $REPO, not $(dirname "$0"): a relative $0 no longer resolves after cd "$REPO" (#4929 review 17)
 # $HOME here, while the #3605 guards use the account home: they agree unless HOME is redirected.
 _la_guard_dir="${HOME}/Library/LaunchAgents"
 _la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_guard_before=""
@@ -361,7 +474,7 @@ _la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_
 # Snapshot the loaded launchd labels now; after the suite, lib/test-leak-guard.sh
 # checks all three, each scoped to THIS run's temp root so a suite running beside
 # another never blames or kills the other's. Only when the per-run root exists.
-. "$(dirname "$0")/lib/test-leak-guard.sh"
+. "$REPO/tools/lib/test-leak-guard.sh"   # $REPO: as above
 _tl_labels_before=""
 if [ "${TMPDIR:-}" = "$KOSMOS_RUN_TMPDIR" ]; then
   _tl_labels_before="$(mktemp "$KOSMOS_RUN_TMPDIR/tl-labels.XXXXXXXXXX")" || _tl_labels_before=""
@@ -382,7 +495,9 @@ if [ "$KOSMOS_TEST_PART" != shell ]; then
 node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 fi
-if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
+if [ "$KOSMOS_ONLY" = 1 ]; then
+  :   # #4929: --only runs named node files; the shell part is the whole suite's
+elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
   else
@@ -432,16 +547,17 @@ fi
 # The lib is fail-soft (returns 0 when it cannot diff), so this only ever reds a
 # real branch gap: on main / a detached HEAD / a fresh clone origin/main...HEAD is
 # empty or unreadable and the gate passes.
-if [ "$NODE_STATUS" -eq 0 ]; then
-  ( . "$(dirname "$0")/lib/browser-check-gate.sh" && kosmos_browser_check_gate )
+# (#4929: not for --only, which runs named files and says nothing about the branch.)
+if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_ONLY" != 1 ]; then
+  ( . "$REPO/tools/lib/browser-check-gate.sh" && kosmos_browser_check_gate )
   NODE_STATUS=$?
 fi
 # #2518: the SURFACE-SPECIFIC companion -- refuses a web/index.html change that touches
 # a token a browser-check asserts (its `// Browser-check-surface:` annotation) without
 # updating that check, catching the specific staleness the coarse gate above lets through.
 # Same subshell isolation + fail-soft contract.
-if [ "$NODE_STATUS" -eq 0 ]; then
-  ( . "$(dirname "$0")/lib/browser-check-surface-gate.sh" && kosmos_browser_check_surface_gate )
+if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_ONLY" != 1 ]; then
+  ( . "$REPO/tools/lib/browser-check-surface-gate.sh" && kosmos_browser_check_surface_gate )
   NODE_STATUS=$?
 fi
 

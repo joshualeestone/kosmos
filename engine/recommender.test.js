@@ -191,6 +191,20 @@ test('membersFrom: real project records, archived left out, members are session 
   } finally { b.restore(); }
 });
 
+test('#4771 membersFrom: a paused project is not acted in, whoever paused it; resumed, it is again', () => {
+  const b = stuckBoard([{ name: 'pz1' }]);
+  try {
+    const p = projects.create({ name: 'Recommender Paused' });
+    projects.addAgent(p.id, b.key.pz1, b.cards);
+    assert.equal(r.membersFrom(projects.readAll()).has(p.id), true, 'control: a live project is acted in');
+    projects.edit(p.id, { paused: true });   // an agent's pause (no viaScreen)
+    assert.equal(r.membersFrom(projects.readAll()).has(p.id), false, 'a paused project is still acted in');
+    assert.equal(projects.isPaused(projects.readAll().find((x) => x.id === p.id)), true, 'the inline rule disagrees with projects.isPaused');
+    projects.edit(p.id, { paused: false });
+    assert.equal(r.membersFrom(projects.readAll()).has(p.id), true, 'a resumed project is not acted in again');
+  } finally { b.restore(); }
+});
+
 test('an item is convened once: PLACED or UNCONFIRMED ends it; COULD_NOT retries the playbook only, capped', () => {
   const b = stuckBoard([{ name: 'once', report: STUCK('which of two layouts to ship') }]);
   try {

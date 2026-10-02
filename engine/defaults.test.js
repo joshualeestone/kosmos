@@ -36,11 +36,19 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
     `the block's text changed but DOCTRINE_VERSION did not: bump it, log it, and pin the new fingerprint '${print}'`);
+  /* #4890 review 20: every pinned (released) version has its exact block in engine/doctrine-past.js, so an agent holding
+     an unedited copy of it is offered the current rules. A row with the version number is not enough: an unreleased
+     interim block from a branch can carry the same number. */
+  const past = require('./doctrine-past');
+  for (const [v, prefix] of Object.entries(PINNED)) {
+    assert.ok(past.some((r) => r.version === Number(v) && r.sha256.startsWith(prefix)),
+      `released doctrine v${v} (${prefix}) has no row in engine/doctrine-past.js: run node tools/doctrine-past.js`);
+  }
 });
 
 /**
@@ -548,4 +556,18 @@ test('#4624 doctrine 21: "Who a room post wakes" says an un-named post may not w
   const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
   assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === '### Who a room post wakes'),
     'CONTROL: missingFrom offers the section to an agent that already has it');
+});
+
+/* #4873: Josh, 2026-10-01: agents start room messages with their own name under a header that already says it.
+   Pinned as CONTENT, wrap-tolerant; its own heading so existing agents are offered it through the refresh. */
+test('#4873: the block tells every agent not to start a message with its own name', () => {
+  const b = defaults.block();
+  const has = (words, why) => assert.match(b, new RegExp(words.split(' ').map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')), why);
+  assert.match(b, /^### Your name is already on your message$/m, 'the section is missing, or not under its own heading');
+  has('Kosmos shows your name above every message you post in a room', 'the reason (the name is already shown) is gone');
+  has('never start a message with your own name', 'the rule itself is gone');
+  const section = defaults.sections().find((x) => x.heading === '### Your name is already on your message');
+  assert.ok(section, 'sections() does not split it out as its own section');
+  assert.deepEqual(defaults.missingFrom(b.replace(section.text, '')).map((x) => x.heading), ['### Your name is already on your message'],
+    'an agent holding every other section would not be offered this one');
 });

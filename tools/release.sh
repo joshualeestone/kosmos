@@ -393,6 +393,13 @@ fi
 # inherited by this cut's OWN gate subprocesses (step 3's `yarn test`, 3b's page
 # layer, 4b's harness), so they self-exclude and are never refused by their own cut.
 kosmos_claim_machine >/dev/null 2>&1 || true
+# #4911: a light run may hold a SIDE turn beside a heavy one (kosmos_light_side_clear). The claim above already stops a
+# new one (a side turn is never taken beside a cut); one that is running ends in minutes, so wait for it here rather
+# than share the box with it. KOSMOS_CUT_IGNORE_SIDE=1 cuts anyway.
+if [ "${KOSMOS_CUT_IGNORE_SIDE:-0}" != 1 ] && command -v kosmos_refuse_if_light_side_live >/dev/null 2>&1; then
+  _rel_side() { kosmos_refuse_if_light_side_live "this cut"; }
+  kosmos_wait_until_clear "this cut" _rel_side || exit 1
+fi
 
 # #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the operator's STORE
 # and ACCOUNTS.
@@ -836,7 +843,7 @@ if [ "$_cut_parallel" = 1 ]; then
   _suite_bg_pid=$!
   # The render checks, foreground at NORMAL priority: the SAME command, env
   # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
-  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?   # #1398: the cut owns the box; its page layer is never refused by the claim
   # Reap the backgrounded suite; `|| _suite_exit=$?` captures its exit without
   # tripping errexit, exactly as the serial `( ... ) || _suite_exit=$?` does.
   wait "$_suite_bg_pid" || _suite_exit=$?
@@ -965,7 +972,7 @@ _page_exit=0
 # a seeded account, the same shape server.projects.test.js already uses, and then RUNNING
 # the page gate. Carded rather than done, and named here so the exclusion cannot be
 # mistaken for coverage.
-( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?   # #1398: the cut owns the box; its page layer is never refused by the claim
 fi
 # #4160: QUARANTINED lines too, so a cut refused for a quarantine says so here.
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|^QUARANTINED|^quarantined|retried:|all page|every page check' "$_page_log" || true

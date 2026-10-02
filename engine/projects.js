@@ -1415,6 +1415,22 @@ function revealFolder(folder) {
   }
 }
 
+/**
+ * #4930: show one file selected in its folder (Finder's `open -R`; File Explorer's /select), never opening it. The
+ * path is the caller's, already resolved from a stored record. Same runner seam and error rule as revealFolder.
+ */
+function revealFile(file) {
+  if (revealOnWindows()) return win32explorer.revealFile(file);
+  try {
+    if (revealRunner) return revealRunner('/usr/bin/open', ['-R', file]);
+    execFileSync('/usr/bin/open', ['-R', file], { timeout: 5000, stdio: 'ignore' });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ReferenceError || err instanceof TypeError) throw err;
+    return { ok: false, because: 'Finder did not open' };
+  }
+}
+
 /* #2245: the bounds on the documents walk. See listFiles. LIST_SKIP_DIRS is dependency,
    cache and BUILD-OUTPUT trees: a list sorted newest first would otherwise fill with a
    fresh build's artefacts. The cost is that a file a person saved into a folder named
@@ -2981,14 +2997,28 @@ function blockBody(projects, sessionName) {
       const T = require('./tasks');
       if (!isPaused(p) && !T.isOnHold(t)) return '';
       const person = (isPaused(p) && p.pausedByPerson === true) || (T.isOnHold(t) && t.onHoldByPerson === true);
-      return person ? ' [on hold: the person parked it; do not start it]' : ' [on hold: do not start it until it is taken off hold]';
+      // Review 6: the person's hold in an agent-paused project names the pause too, so lifting the hold alone is not read as go.
+      if (person && isPaused(p) && p.pausedByPerson !== true) return ' [on hold: the person parked it, and the project is paused; do not start it]';
+      if (person) return ' [on hold: the person parked it; do not start it]';
+      // Review 1: an agent's pause is lifted on the screen (no verb resumes one), so say so rather than "taken off hold".
+      // Review 2: held AND paused needs both undone, so both are named.
+      if (isPaused(p) && T.isOnHold(t)) return ' [on hold: the project is paused and the task is on hold; do not start it until both are lifted]';
+      return isPaused(p) ? ' [on hold: the project is paused; do not start it until your person resumes it]'
+        : ' [on hold: do not start it until it is taken off hold]';
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');
   });
   return [
     '## Your projects',
     '',
-    'Kosmos records which projects you are on, and this is where their folders are.',
+    'Kosmos records which projects you are on, and the folder it has recorded for each, on this computer.',
+    /* #4927: an agent in a sandbox sees this computer's folders under its own mounts, whose names can change; Kosmos
+       cannot see those, so it says how to find the folder there. Review 1: the heading names the RECORDED folder, so it
+       does not certify a path that may have moved since (the section is not re-checked against the disk on purpose:
+       a drive coming and going would rewrite every agent's file). */
+    'If you work in a sandbox that shows this computer\'s folders under other paths (mount names can change between',
+    'sessions), find a project\'s folder there by the folder\'s own name, the last part of its path (it can differ',
+    'from the project\'s name).',
     '',
     ...lines,
     ...(any ? [
@@ -3000,6 +3030,15 @@ function blockBody(projects, sessionName) {
          it applies to, and re-spliced on every membership change so existing agents learn it too. */
       `When you have built one and it is waiting to be released or checked, mark it:`,
       `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
+    ] : []),
+    /* #4771 (Josh's 0.7.15 report): a pause the person asked for in the room never reached the Prompter, so an agent
+       held every task by hand. Taught to every member, not only those holding tasks (review 1: a coordinator with no
+       tasks is the likeliest to be asked). Resuming is the person's, on the screen, so no verb for it exists. */
+    ...(sessionName ? [
+      '',
+      `When your person asks to pause a whole project, pause it: \`${cliShown} project pause <project-id>\`.`,
+      'Nobody is then nudged about its tasks or handed them, and the room is told you paused it. It is resumed on the',
+      'screen, by your person: do not resume it yourself; if they ask you to, tell them it is on the project\'s page.',
     ] : []),
   ].join('\n');
 }
@@ -3209,6 +3248,23 @@ function healColleagues(text) {
    an operator marker on a line no operator wrote would be a lie about who is
    speaking. Delivery states come back as chat.deliver's own; a stopped agent
    answers could_not, which is fine, because the file is its mechanism. */
+/* #4927: the folder as the join line names it, read through the board's one folder check (folderState, as the
+   project page reads it, so the two never disagree). A folder that is not there (moved, removed, a drive not
+   connected) or is a file is said so, never handed over as a path to go and work in. One the board is not allowed to
+   read (a locked parent, macOS privacy for the board's own process) IS there, and the agent's window may well read it
+   (review 1). The path is this computer's; an agent in a sandbox may see it under another path, which Kosmos cannot
+   see (its section of the instructions says how to find it there). Like every folderState read, a synchronous stat. */
+function folderSentence(project) {
+  if (!project || !project.folder) return '';
+  const f = oneLine(project.folder);
+  const st = folderState(project.folder).state;
+  if (st === FOLDER.READABLE) return ' Its folder on this computer is `' + f + '`.';
+  if (st === FOLDER.UNREADABLE) {
+    // Review 2: not "on this computer" here: an unreachable drive or a broken parent lands here too.
+    return ' Its folder is recorded as `' + f + '`, but Kosmos could not check it just now, so check that you can open it before you work in it.';
+  }
+  return ' Its folder `' + f + '` is not on this computer right now (moved, removed, or on a drive that is not connected), so ask your person where it is before you work in it.';
+}
 function membershipLine(project, kind) {
   const name = oneLine((project && project.name) || 'a project');
   if (kind === 'left') {
@@ -3219,7 +3275,7 @@ function membershipLine(project, kind) {
      this says what is newly true, that the instructions now list it, rather than announcing the
      join a second time (#304). */
   if (kind === 'listed') {
-    const lfolder = project && project.folder ? ' Its folder is `' + oneLine(project.folder) + '`.' : '';
+    const lfolder = folderSentence(project);
     const lroom = project && project.id
       ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
       : '';
@@ -3228,7 +3284,7 @@ function membershipLine(project, kind) {
   if (kind === 'removed') {
     return 'The project "' + name + '" was removed from Kosmos. Your instructions no longer list it; do not post to its room.';
   }
-  const folder = project && project.folder ? ' Its folder is `' + oneLine(project.folder) + '`.' : '';
+  const folder = folderSentence(project);
   const room = project && project.id
     ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
     : '';
@@ -3318,6 +3374,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
   isUnderTmpDir, tmpFolderRefused,
 };

@@ -94,7 +94,7 @@ test('#4765: every member\'s paste-to-Enter wait is open at the same time, and e
   });
 });
 
-test('#4765: when one member fails, the others are still reached, and the failure is told only after all have finished', async () => {
+test('#4765: when one member fails, the others are still reached, and the answer comes only after all have finished (#4926: as unconfirmed, not a failure)', async () => {
   await withRoom(async (roster) => {
     const calls = arm();
     let n = 0;
@@ -105,11 +105,12 @@ test('#4765: when one member fails, the others are still reached, and the failur
       await new Promise((r) => setTimeout(r, 10 + 5 * mine));
       if (mine === 2) throw new Error('the second member\'s typing path broke');
     });
-    await assert.rejects(
-      post(roster, 'one line for the whole room').catch((err) => { settledBeforeReject = enters(calls).length; throw err; }),
-      /the second member's typing path broke/);
-    /* Every member but the broken one had its Enter pressed, and all of them before the failure was reported. */
-    assert.equal(settledBeforeReject, MEMBERS.length - 1, 'the failure was reported before the other members were reached');
+    const d = await post(roster, 'one line for the whole room').then((v) => { settledBeforeReject = enters(calls).length; return v; });
+    /* #4926: the post is not refused: it reached five members. The broken one is unconfirmed (it may have been typed). */
+    assert.equal(d.state, chat.DELIVERY.UNCONFIRMED, 'a post that reached five members was answered as ' + d.state);
+    assert.equal(Object.values(d.outcomes).filter((v) => v === chat.DELIVERY.UNCONFIRMED).length, 1);
+    /* Every member but the broken one had its Enter pressed, and all of them before the answer. */
+    assert.equal(settledBeforeReject, MEMBERS.length - 1, 'the answer came before the other members were reached');
     /* CONTROL: the broken member really was the one not entered, so the count above is not a coincidence. */
     assert.equal(enters(calls).length, MEMBERS.length - 1);
   });
@@ -142,7 +143,7 @@ test('#4765 review 1: one member starts per turn of the event loop, so the board
   });
 });
 
-test('#4765 review 1: a member whose delivery throws at once still lets every other member finish before the failure is told', async () => {
+test('#4765 review 1: a member whose delivery throws at once still lets every other member finish before the answer (#4926: unconfirmed)', async () => {
   await withRoom(async (roster) => {
     const calls = arm();
     chat.setPauser(() => new Promise((r) => setTimeout(r, 5)));
@@ -152,9 +153,10 @@ test('#4765 review 1: a member whose delivery throws at once still lets every ot
     chat.deliverAsync = (name, ...rest) => { if (name === roster[2].sessionName) throw new Error('the third member\'s typing path threw at once'); return realDeliverAsync(name, ...rest); };
     let enteredBeforeReject = null;
     try {
-      await assert.rejects(post(roster, 'one line for the whole room').catch((err) => { enteredBeforeReject = enters(calls).length; throw err; }), /threw at once/);
+      const d = await post(roster, 'one line for the whole room').then((v) => { enteredBeforeReject = enters(calls).length; return v; });
+      assert.equal(d.outcomes[roster[2].sessionName], chat.DELIVERY.UNCONFIRMED, 'the throwing member is not unconfirmed');
     } finally { chat.deliverAsync = realDeliverAsync; }
-    assert.equal(enteredBeforeReject, MEMBERS.length - 1, 'the failure was told before the other members had finished');
+    assert.equal(enteredBeforeReject, MEMBERS.length - 1, 'the answer came before the other members had finished');
     assert.ok(!enters(calls).some((t) => t.includes('=' + third + ':')), 'control: the throwing member was typed at');
   });
 });

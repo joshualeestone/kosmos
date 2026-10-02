@@ -183,6 +183,15 @@ kosmos_mark_run() {
 # no longer matches the one recorded at mark time (a recycled pid, #2215), or a
 # pre-#2215 marker with no recorded command. Read-only w.r.t. a run it CAN verify
 # is live (pid alive AND command matches).
+# #4911: true when KOSMOS_EXCLUDE_PGID names <pid>'s process group. Set only by browser-checks.sh's pre-wait check, so
+# the live side turn's OWN page layer (its command runs in its own group, published beside the side claim) does not make
+# a heavy holder's page layer refuse: that one waits for the side turn instead. Unset, nothing is excluded.
+_kosmos_in_excluded_pgid() {
+  local want="${KOSMOS_EXCLUDE_PGID:-}" pg
+  case "$want" in ''|*[!0-9]*) return 1 ;; esac
+  pg="$(ps -o pgid= -p "$1" 2>/dev/null | tr -d '[:space:]')"
+  [ -n "$pg" ] && [ "$pg" = "$want" ]
+}
 _kosmos_marker_other_live() {
   local type="${1:-}" dir uc self f pid cookie stored_cmd live_cmd
   [ -n "$type" ] || return 0
@@ -216,6 +225,7 @@ _kosmos_marker_other_live() {
     fi
     cookie="$(sed -n '1p' "$f" 2>/dev/null)"
     { [ -n "$self" ] && [ "$cookie" = "$self" ]; } && continue   # my own run
+    _kosmos_in_excluded_pgid "$pid" && continue                 # #4911: the live side turn's own run, when asked
     printf 'a marked %s run (pid %s)\n' "$type" "$pid"
     return 0
   done
@@ -347,6 +357,10 @@ kosmos_refuse_if_browser_run_live() {
   # its own directory (test-cut-parallel-region.sh does), or it writes a marker this check will see.
   if [ -n "$out" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
+  fi
+  # #4911: the live side turn's own page layer, when the caller asks (see _kosmos_in_excluded_pgid).
+  if [ -n "$out" ] && [ -n "${KOSMOS_EXCLUDE_PGID:-}" ]; then
+    out="$(printf '%s\n' "$out" | while IFS= read -r l; do [ -n "$l" ] || continue; _kosmos_in_excluded_pgid "${l%% *}" || printf '%s\n' "$l"; done)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
@@ -619,7 +633,11 @@ kosmos_mark_suite_waiting() {
   dir="$(_kosmos_marker_dir)"; mkdir -p "$dir" 2>/dev/null || return 0
   # #4609 light lane: line 5 is this run's class (KOSMOS_QUEUE_CLASS=light, anything else is heavy). An older copy of
   # this lib reads lines 1 to 4 only, so it keeps plain oldest-first order.
-  printf '%s %s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  # #4911: line 6 is "side" when this run asks for side turns (KOSMOS_SIDE_CAPABLE=1, queued-heavy.sh sets it), so a
+  # light waiter that never will (an older queued-heavy, KOSMOS_SIDE_LANE=0) does not hold the side lane for others.
+  # "aware" when it is a queued-heavy.sh that knows about side turns (KOSMOS_SIDE_AWARE=1) but does not take them.
+  local l6=""; if [ "${KOSMOS_SIDE_CAPABLE:-0}" = 1 ]; then l6=side; elif [ "${KOSMOS_SIDE_AWARE:-0}" = 1 ]; then l6=aware; fi
+  printf '%s %s\n%s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" "$l6" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }
@@ -631,8 +649,23 @@ kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_ko
 # of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
 # 10:07): 22 waiters, 19 of them one-offs that hold the box 7 to 200 s, queued behind suites that hold it 15 to 20 min.
 _kosmos_queue_class() { case "${KOSMOS_QUEUE_CLASS:-}" in light) echo light ;; *) echo heavy ;; esac; }
-# _kosmos_queue_rank <queue time> <class> <now>: 0 a heavy waiter past the starve line, 1 a light one, 2 any other heavy.
+# _kosmos_queue_rank <queue time> <class> <now>: 0 any waiter past the starve line, 1 a light one, 2 any other heavy.
+# #4911: a LIGHT waiter past the starve line is rank 0 too (it ages like a heavy one). Before this a light waiter could
+# never reach rank 0, so once every heavy waiter was past 45 min (most of the day on 2026-10-01) the light lane stood
+# still: Baron's one test file waited 185 min behind full suites. Among rank 0 the order is queue time, as before.
 _kosmos_queue_rank() {
+  local starve="${KOSMOS_QUEUE_STARVE_S:-2700}"
+  case "$starve" in ''|*[!0-9]*) starve=2700 ;; esac
+  if [ $(( $3 - $1 )) -ge "$starve" ]; then echo 0
+  elif [ "$2" = light ]; then echo 1
+  else echo 2; fi
+}
+
+# The #4609 rank, for a waiter whose marker an older lib wrote (5 lines): a light waiter never ages there. Compared
+# against such a waiter, BOTH ranks use it, so this run and that one read the same order: with two rules, a starving
+# light waiter of an older lib and a starving heavy one of this lib each named the other as ahead and both waited
+# (review 3, reproduced).
+_kosmos_queue_rank_legacy() {
   local starve="${KOSMOS_QUEUE_STARVE_S:-2700}"
   case "$starve" in ''|*[!0-9]*) starve=2700 ;; esac
   if [ "$2" = light ]; then echo 1
@@ -644,7 +677,7 @@ _kosmos_queue_rank() {
 # them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
 # Ahead means first by rank (_kosmos_queue_rank), then by queue time, then by pid.
 _kosmos_suite_waiters_ahead() {
-  local dir f pid mine_ts mine_pid ts cls rank mine_rank now
+  local dir f pid mine_ts mine_pid ts cls rank mine_rank mine_cls now legacy=0 seen="" lines
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
   # A caller that already read this run's queue time passes it (the bound, review 23), so there is no gap between a
   # check that the marker exists and this read; otherwise it is read here.
@@ -658,8 +691,9 @@ _kosmos_suite_waiters_ahead() {
   fi
   if [ -n "$mine_ts" ]; then
     cls="$(sed -n '5p' "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null)" || cls=""; [ -n "$cls" ] || cls="$(_kosmos_queue_class)"
-    mine_rank="$(_kosmos_queue_rank "$mine_ts" "$cls" "$now")"
+    mine_cls="$cls"
   fi
+  # Pass 1: the live waiters, with their class and whether an OLDER lib wrote the marker (fewer than 6 lines).
   for f in "$dir"/suitewait.*; do
     [ -e "$f" ] || continue
     case "${f##*/}" in *.tmp.*) continue ;; esac   # a marker half-written (before its mv) is not a waiter; the NAME only, so a marker dir whose path holds ".tmp." still counts
@@ -669,12 +703,42 @@ _kosmos_suite_waiters_ahead() {
     _kosmos_suite_waiter_live "$pid" || continue
     read -r ts _ 2>/dev/null < "$f" || continue
     case "$ts" in ''|*[!0-9]*) continue ;; esac
-    if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
     cls="$(sed -n '5p' "$f" 2>/dev/null)" || cls=""   # an older lib's marker has no line 5 (or it just left): heavy
-    rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"
-    if [ "$rank" -lt "$mine_rank" ] || { [ "$rank" -eq "$mine_rank" ] && { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; }; }; then
-      echo "$pid"
-    fi
+    case "$cls" in ''|*[!a-z]*) cls=heavy ;; esac
+    # Review 12: a marker of 4 lines or fewer is a lib from before #4609, which orders strictly oldest-first; one of 5
+    # lines is #4609's (light ahead, starving heavy first). The oldest generation live decides the rule for everyone.
+    lines="$(sed -n '$=' "$f" 2>/dev/null)"   # review 15: read once (a marker can go between two reads)
+    case "$lines" in
+      ''|*[!0-9]*) continue ;;   # review 14: gone between its read and this count (it is leaving to start): not a waiter
+      *) if [ "$lines" -le 4 ]; then legacy=2
+         elif [ "$lines" -lt 6 ] && [ "$legacy" != 2 ]; then legacy=1; fi ;;
+    esac
+    seen="$seen$pid $ts $cls
+"
+  done
+  # #4911 review 4: while ANY waiter of an older lib (which never ages a light run) is live, EVERY comparison in this
+  # pass uses that older rule, so every reader, old lib or new, reads one order. Switching rule per pair was not
+  # enough: a new light, a new heavy and an old heavy, all starving, could each name another as ahead in a circle and
+  # wait on an idle box until the bound (reproduced). One rule for all is one total order: rank, queue time, pid.
+  # legacy 2 (a pre-#4609 waiter is live): no single rule agrees with both older readers (review 13: oldest-first,
+  # tried in round 12, made a #4609 reader and this one name each other). So another waiter is ahead of this one only
+  # when it is ahead by BOTH older rules (oldest-first, and #4609's rank). Two waiters can then never each name the
+  # other: an older reader that names this one has, by its own rule, this one ahead, which this reader's "both" test
+  # then cannot contradict. The cost is the other direction, two waiters each reading themselves first, which the
+  # claim and the live-suite checks already serialise.
+  if [ -n "$mine_ts" ]; then
+    if [ "$legacy" = 1 ] || [ "$legacy" = 2 ]; then mine_rank="$(_kosmos_queue_rank_legacy "$mine_ts" "$mine_cls" "$now")"
+    else mine_rank="$(_kosmos_queue_rank "$mine_ts" "$mine_cls" "$now")"; fi
+  fi
+  printf '%s' "$seen" | while read -r pid ts cls; do
+    [ -n "$pid" ] || continue
+    if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
+    if [ "$legacy" = 1 ] || [ "$legacy" = 2 ]; then rank="$(_kosmos_queue_rank_legacy "$ts" "$cls" "$now")"
+    else rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"; fi
+    older=0; { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; } && older=1
+    ahead_by_rank=0; { [ "$rank" -lt "$mine_rank" ] || { [ "$rank" -eq "$mine_rank" ] && [ "$older" = 1 ]; }; } && ahead_by_rank=1
+    if [ "$legacy" = 2 ]; then [ "$ahead_by_rank" = 1 ] && [ "$older" = 1 ] && echo "$pid"
+    elif [ "$ahead_by_rank" = 1 ]; then echo "$pid"; fi
   done
   return 0
 }
@@ -702,18 +766,36 @@ _kosmos_wait_now() {
 # kosmos_wait_until_clear <what> [--suite-queue] <check> [args...]: run <check> (a function or
 # command that returns 0 for "go" and prints its refusal on stderr) until it passes or the bound runs
 # out. --suite-queue joins the suite queue above (run-tests.sh). Returns 0 to go, 1 to refuse.
+# #4911: --side <check> (after --suite-queue) offers a queued run a SIDE turn: on every pass once it is queued, if
+# <check> <what> passes, it returns 0 at once, whatever is ahead of it. KOSMOS_WAIT_LANE says which turn it got (side,
+# or main for an ordinary one), so the caller takes the matching claim. On a side turn the queue marker is LEFT in
+# place: the caller asks the check again under its take lock (the check reads this run's queue place) and unmarks
+# after the take, so a take that loses keeps its place. Only queued-heavy.sh passes it, for a light run
+# (kosmos_light_side_clear); run-tests.sh does not.
 kosmos_wait_until_clear() {
   local what="$1"; shift
   local queue=0; [ "${1:-}" = --suite-queue ] && { queue=1; shift; }
+  local side=""
+  if [ "$queue" = 1 ] && [ "${1:-}" = --side ]; then
+    [ $# -ge 3 ] || { echo "kosmos_wait_until_clear: --side needs a side check and then the check" >&2; return 1; }
+    side="$2"; shift 2
+  fi
+  KOSMOS_WAIT_LANE=main
   # #4574: in the suite queue the bound is 2700 s and counts from the last time a waiter ahead left (the queue note).
   local dflt=1200; [ "$queue" = 1 ] && dflt=2700
   local every="${KOSMOS_WAIT_EVERY_S:-30}" max="${KOSMOS_WAIT_MAX_S:-$dflt}" sleeper="${KOSMOS_WAIT_SLEEP:-sleep}"
   local ceil="${KOSMOS_WAIT_QUEUE_CEIL_S:-}" over=0
-  local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart
+  local waited=0 said=0 err ts="" start next_note=300 ahead prev="" wblk=0 bstart side_err=""
   start="$(_kosmos_wait_now)"; bstart="$start"
   # A marker under this run's pid left by a dead run (a recycled pid) would make this run read as already queued, with
   # that run's old place: the liveness check removes it (its start time is not this run's).
   [ "$queue" = 1 ] && { _kosmos_suite_waiter_live "$$" || true; }
+  # #4911: a marker of this run's that is still live (the check above keeps only one whose start time is this run's) is
+  # this run's place, left by a side turn's take that lost (see --side below): resume it rather than join at the back.
+  if [ "$queue" = 1 ] && [ -e "$(_kosmos_suite_waiter_file "$$")" ]; then
+    read -r ts _ 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || ts=""
+    case "$ts" in *[!0-9]*) ts="" ;; esac
+  fi
   case "$every" in ''|*[!0-9]*|0) every=30 ;; esac
   case "$max" in ''|*[!0-9]*) max="$dflt" ;; esac
   # #4574: a hard ceiling on a queued wait, so ending it never rests on the restart heuristic. By default it is four
@@ -727,6 +809,12 @@ kosmos_wait_until_clear() {
     # #4574: a queued run whose own marker vanished (a failed ps reads it as stale and removes it) writes it again with its
     # old queue time. Unmarked, it would count every waiter as ahead and the others would count it as a running suite.
     if [ "$queue" = 1 ] && [ -n "$ts" ] && [ ! -e "$(_kosmos_suite_waiter_file "$$")" ]; then kosmos_mark_suite_waiting "$ts"; fi
+    # #4911: the side turn. Asked only once this run holds a queue place (its place orders it among light waiters).
+    if [ -n "$side" ] && [ -n "$ts" ] && side_err="$("$side" "$what" 2>&1)"; then
+      KOSMOS_WAIT_LANE=side
+      echo "a side turn is free beside a heavy run after waiting ${waited}s; $what starts now (#4911)." >&2
+      return 0
+    fi
     if err="$("$@" 2>&1)" && { [ "$queue" = 0 ] || kosmos_refuse_if_earlier_suite_waiter "$what" 2>/dev/null; }; then
       if [ "$queue" = 1 ] && [ -n "$ts" ]; then
         kosmos_unmark_suite_waiting
@@ -797,7 +885,14 @@ kosmos_wait_until_clear() {
       fi
       said=1
     elif [ "$waited" -ge "$next_note" ]; then
-      echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      # #4911: say the queue position too. The reason above is the FIRST check that refused, so while any run holds the
+      # box it is always the claim, and a waiter fifth in line read as if it were at the front (Angel, #4921, 20:38).
+      if [ "$queue" = 1 ] && [ -n "$prev" ]; then
+        echo "still waiting (${waited}s so far; ${prev} queued ahead of this run): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      else
+        echo "still waiting (${waited}s so far): $(printf '%s' "$err" | head -1 | cut -c1-160)" >&2
+      fi
+      [ -n "$side" ] && [ -n "$side_err" ] && echo "  no side turn either: $(printf '%s' "$side_err" | head -1 | cut -c1-160)" >&2
       next_note=$((next_note + 300))
     fi
     "$sleeper" "$every"
@@ -922,7 +1017,21 @@ kosmos_claim_machine() {
   # over the target, so a concurrent consult reads either the old line or the
   # new one, never a partial one.
   tmp="$dir/.machine-claim.$$.tmp"
-  printf '%s %s %s %s %s\n' "$cookie" "$$" "$exp" "$host" "release ${V:-cut}" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  # #4911: KOSMOS_CLAIM_LABEL names a claim that is NOT a release (queued-heavy.sh's ordinary turns: "queued run (not a
+  # cut): <what>"). Before, every queued turn was labelled "release (not a cut) queued one-off", which read as a release
+  # reservation jumping the queue (Splinter's 20:38 rule, withdrawn at 20:40). A cut's own claim is unchanged.
+  local label="${KOSMOS_CLAIM_LABEL:-release ${V:-cut}}" cur
+  # #4911 (review 11): KOSMOS_CLAIM_KEEP_LABEL=1 (a renewal) keeps the label the live claim already carries under THIS
+  # cookie. A cut run through a queued turn relabels the claim "release <version>" under the turn's cookie; the turn's
+  # renewer used to write its own label back every 10 minutes.
+  if [ "${KOSMOS_CLAIM_KEEP_LABEL:-0}" = 1 ]; then
+    cur="$(_kosmos_machine_claim_active)"
+    if [ -n "$cur" ] && [ "$(printf '%s' "$cur" | awk '{print $1}')" = "$cookie" ]; then
+      label="$(printf '%s' "$cur" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
+    fi
+  fi
+  label="$(printf '%s' "$label" | tr '\n\r' '  ')"   # review 11: one line, always (a label with a newline split the file)
+  printf '%s %s %s %s %s\n' "$cookie" "$$" "$exp" "$host" "$label" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
   mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
   return 0
 }
@@ -960,7 +1069,9 @@ kosmos_refuse_if_machine_claimed() {
   exp="$(printf '%s'   "$active" | awk '{print $3}')"
   host="$(printf '%s'  "$active" | awk '{print $4}')"
   label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
-  echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp"); $what would share the box and could corrupt both results (a gate that passes alone fails under a concurrent one). Wait for it to finish (kosmos_machine_claim_status, or tools/who-has-the-box.sh, says when), or KOSMOS_IGNORE_MACHINE_CLAIM=1 to run anyway." >&2
+  local held="reserved for a release (${label:-a cut}"
+  case "$label" in "queued run"*) held="held by an ordinary queued turn (${label}" ;; esac
+  echo "the machine is ${held}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp"); $what would share the box and could corrupt both results (a gate that passes alone fails under a concurrent one). Wait for it to finish (kosmos_machine_claim_status, or tools/who-has-the-box.sh, says when), or KOSMOS_IGNORE_MACHINE_CLAIM=1 to run anyway." >&2
   return 1
 }
 
@@ -989,19 +1100,374 @@ kosmos_holds_machine_claim() {
   [ "$cookie" = "$self" ]
 }
 
-# kosmos_machine_claim_status  -- the "who has the box?" answer, one line to
-# stdout. Prints the holder + until for an active claim, else the all-clear.
+# kosmos_machine_claim_status  -- the "who has the box?" answer to stdout: the holder + until for an active
+# claim, else the all-clear, then (#4911) one more line while a light run's side turn is live.
 kosmos_machine_claim_status() {
-  local active pid exp host label
+  local active pid exp host label side
   active="$(_kosmos_machine_claim_active)"
+  # #4911 (review 10): a light run's side turn is a tenant too. Said on its own line, so the status is never the bare
+  # free line while one runs (heavy-gate compares the whole answer with that line, and who-has-the-box prints it).
+  side=""
+  if command -v _kosmos_light_side_active >/dev/null 2>&1; then
+    side="$(_kosmos_light_side_active)"
+    [ -n "$side" ] && side="a light run has a side turn on the box ($(printf '%s' "$side" | awk '{$1=$2=$3=""; sub(/^ +/,""); print}'), pid $(printf '%s' "$side" | awk '{print $2}')) until $(_kosmos_epoch_hhmm "$(printf '%s' "$side" | awk '{print $3}')")."
+  fi
   if [ -z "$active" ]; then
     echo "no release holds the machine right now."
+    [ -n "$side" ] && echo "$side"
     return 0
   fi
   pid="$(printf '%s'   "$active" | awk '{print $2}')"
   exp="$(printf '%s'   "$active" | awk '{print $3}')"
   host="$(printf '%s'  "$active" | awk '{print $4}')"
   label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
-  echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")."
+  case "$label" in
+    "queued run"*) echo "the machine is held by an ordinary queued turn (${label}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")." ;;
+    *) echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")." ;;
+  esac
+  [ -n "$side" ] && echo "$side"
   return 0
+}
+
+# --- #4911: a light SIDE turn beside a heavy run ------------------------------
+# Measured 2026-10-01 (card #4911): every queued turn claimed the whole box, the median wait was 75 min, and the box was
+# 76 to 85% idle while a held full suite ran (load about 3 on 10 cores). So ONE light run (a browser check, a focused
+# test file) may run BESIDE a heavy holder when the box has room. Never beside another light run, never beside a cut,
+# an install harness or another browser run, and never when the load is half the cores or more.
+# The side turn has its own claim, ONE file, "<cookie> <pid> <expires> <label>", written atomically, cleaned when its
+# holder is dead or it expired (the machine claim's posture). Who asks about it:
+#   - queued-heavy.sh: a MAIN turn of either class waits for it (_qh_clear);
+#   - browser-checks.sh: WAITS for it rather than refusing (a heavy holder's page layer must not read red because a
+#     light check is running beside it);
+#   - test-install.sh and release.sh: wait for it.
+# A suite (run-tests.sh) does NOT ask: a suite beside one light run is the pairing this exists to allow.
+# KOSMOS_SIDE_LANE=0 turns the side turn off (kosmos_light_side_clear always refuses).
+_kosmos_light_side_file() { printf '%s' "$(_kosmos_marker_dir)/light-side-claim"; }
+
+# _kosmos_light_side_active: echo the live side claim's line, or nothing. Self-cleans a dead or expired one. A malformed
+# line is no claim (fail-open, as the machine claim).
+_kosmos_light_side_active() {
+  local f line cookie pid exp now
+  f="$(_kosmos_light_side_file)"
+  [ -f "$f" ] || return 0
+  line="$(cat "$f" 2>/dev/null)" || return 0
+  cookie="$(printf '%s' "$line" | awk '{print $1}')"
+  pid="$(printf '%s' "$line" | awk '{print $2}')"
+  exp="$(printf '%s' "$line" | awk '{print $3}')"
+  [ -n "$cookie" ] || return 0
+  case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+  case "$exp" in ''|*[!0-9]*) return 0 ;; esac
+  now="$(_kosmos_now_epoch)"
+  if [ "$exp" -le "$now" ] 2>/dev/null || ! kill -0 "$pid" 2>/dev/null; then
+    # Round 16 (Sonnet): only the line read is removed; a fresh claim moved in since (under the take lock) stays.
+    # Round 18 (Sonnet): moved aside FIRST, then compared, so a claim moved in between the compare and the removal is
+    # put back (never over a newer one, mv -n) rather than deleted.
+    local aside="$f.stale.$$"
+    if [ "$(cat "$f" 2>/dev/null)" = "$line" ] && mv -f "$f" "$aside" 2>/dev/null; then
+      if [ "$(cat "$aside" 2>/dev/null)" = "$line" ]; then rm -f "$aside" 2>/dev/null; else mv -n "$aside" "$f" 2>/dev/null; rm -f "$aside" 2>/dev/null; fi
+    fi
+    return 0
+  fi
+  printf '%s\n' "$line"
+}
+
+# kosmos_claim_light_side [minutes]: take or renew THIS run's side claim (cookie KOSMOS_LIGHT_SIDE_COOKIE, exported so
+# the run's children are not foreign to it). Returns 1 when another live side claim holds it (so a take under a lock
+# cannot overwrite a winner), 0 once written.
+kosmos_claim_light_side() {
+  local minutes="${1:-30}" dir f tmp cookie active
+  case "$minutes" in ''|*[!0-9]*) minutes=30 ;; esac
+  dir="$(_kosmos_marker_dir)"; mkdir -p "$dir" 2>/dev/null || return 1
+  f="$(_kosmos_light_side_file)"
+  cookie="${KOSMOS_LIGHT_SIDE_COOKIE:-}"
+  if [ -z "$cookie" ]; then
+    cookie="$$-$(date +%s 2>/dev/null || echo 0)-${RANDOM:-0}${RANDOM:-0}"
+    export KOSMOS_LIGHT_SIDE_COOKIE="$cookie"
+  fi
+  active="$(_kosmos_light_side_active)"
+  if [ -n "$active" ] && [ "$(printf '%s' "$active" | awk '{print $1}')" != "$cookie" ]; then return 1; fi
+  tmp="$dir/.light-side-claim.$$.tmp"
+  # Review 11: the label on ONE line. A <what> with a newline wrote a two-line claim, whose cookie then read back with
+  # the second line glued on: the run refused its own claim and could not release it, holding the queue to expiry.
+  printf '%s %s %s %s\n' "$cookie" "$$" "$(( $(_kosmos_now_epoch) + minutes * 60 ))" "$(printf '%s' "${KOSMOS_SIDE_LABEL:-a light run}" | tr '\n\r' '  ')" > "$tmp" 2>/dev/null \
+    || { rm -f "$tmp" 2>/dev/null; return 1; }
+  mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
+  return 0
+}
+
+# kosmos_publish_light_side_pgid <pgid>: the side command's process group, beside OUR side claim ("<cookie> <pgid>"), so
+# a heavy holder's page layer can tell the side turn's own browser run from anyone else's (review 5).
+kosmos_publish_light_side_pgid() {
+  local f tmp; f="$(_kosmos_light_side_file).pgid"; tmp="$f.$$.tmp"
+  case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "${KOSMOS_LIGHT_SIDE_COOKIE:-}" ] || return 1
+  printf '%s %s\n' "$KOSMOS_LIGHT_SIDE_COOKIE" "$1" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null
+}
+# _kosmos_light_side_pgid: the live side turn's published process group, or nothing (no live claim, or a sidecar left by
+# another claim).
+_kosmos_light_side_pgid() {
+  local active line
+  active="$(_kosmos_light_side_active)"; [ -n "$active" ] || return 0
+  line="$(cat "$(_kosmos_light_side_file).pgid" 2>/dev/null)" || return 0
+  [ "$(printf '%s' "$line" | awk '{print $1}')" = "$(printf '%s' "$active" | awk '{print $1}')" ] || return 0
+  printf '%s' "$line" | awk '{print $2}'
+}
+
+# kosmos_release_light_side: drop OUR side claim (cookie match); never a foreign one.
+kosmos_release_light_side() {
+  local self="${KOSMOS_LIGHT_SIDE_COOKIE:-}" f line
+  [ -n "$self" ] || return 0
+  f="$(_kosmos_light_side_file)"
+  [ -f "$f" ] || return 0
+  line="$(cat "$f" 2>/dev/null)" || return 0
+  [ "$(printf '%s' "$line" | awk '{print $1}')" = "$self" ] && rm -f "$f" "$f.pgid" 2>/dev/null
+  return 0
+}
+
+# kosmos_refuse_if_light_side_live <what>: refuses while a FOREIGN side turn is live (our own cookie is not foreign).
+kosmos_refuse_if_light_side_live() {
+  local what="${1:-this run}" active
+  active="$(_kosmos_light_side_active)"
+  [ -n "$active" ] || return 0
+  [ -n "${KOSMOS_LIGHT_SIDE_COOKIE:-}" ] && [ "$(printf '%s' "$active" | awk '{print $1}')" = "$KOSMOS_LIGHT_SIDE_COOKIE" ] && return 0
+  echo "a light run has a side turn beside the heavy one ($(printf '%s' "$active" | awk '{$1=$2=$3=""; sub(/^ +/,""); print}'), pid $(printf '%s' "$active" | awk '{print $2}')); $what waits for it, which is minutes (#4911)." >&2
+  return 1
+}
+
+# _kosmos_load_and_cores: "<1-min load> <cores>", or what it could read. KOSMOS_LOAD_PROBE (a command printing the same)
+# is the test seam.
+_kosmos_load_and_cores() {
+  if [ -n "${KOSMOS_LOAD_PROBE:-}" ]; then "$KOSMOS_LOAD_PROBE" 2>/dev/null; return 0; fi
+  local l c
+  l="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+  [ -n "$l" ] || l="$(awk '{print $1}' /proc/loadavg 2>/dev/null)"
+  c="$(sysctl -n hw.ncpu 2>/dev/null)"
+  [ -n "$c" ] || c="$(getconf _NPROCESSORS_ONLN 2>/dev/null)"
+  printf '%s %s\n' "$l" "$c"
+}
+
+# _kosmos_playwright_browsers: "pid command" of each running Playwright BROWSER (an executable under an ms-playwright
+# browser folder), rc 0 even when none; 2+ when pgrep could not run. Review 6: matching the bare folder name also caught
+# any command that mentions the path (an `ls` or `du` of it). An agent's Playwright MCP browser IS one and holds side
+# turns off while it runs (the safe side).
+_kosmos_playwright_browsers() {
+  local raw rc
+  raw="$(pgrep -fl 'ms-playwright/' 2>/dev/null)"; rc=$?
+  [ "$rc" -ge 2 ] && return "$rc"
+  # Review 7: not WebKit's XPC helpers. launchd starts them (parent pid 1, their own process group), so they are
+  # never the side command's descendants and a side WebKit check would yield to its OWN helpers on every poll. Its UI
+  # process (webkit-*/Playwright.app/...) is a descendant and stays in the list. Review 10: likewise Chrome's crash
+  # reporter (chrome_crashpad_handler), which double-forks to parent pid 1 (every Chrome-family handler on this box
+  # does); excluding it hides no browser run, whose own browser process is always listed.
+  printf '%s\n' "$raw" | grep -E '^[0-9]+ +[^ ]*ms-playwright/(chromium|chromium_headless_shell|firefox|webkit)[^/ ]*/' | grep -v -e '\.xpc/' -e 'chrome_crashpad_handler' || true
+  return 0
+}
+
+# kosmos_light_side_clear <what>: 0 when THIS light run may take a side turn now. Refuses (1, the reason on stderr)
+# unless every one of these holds:
+#   1. this run is light, and KOSMOS_SIDE_LANE is not 0;
+#   2. no side turn is live (one light run beside a heavy one, never two);
+#   3. the box HAS a heavy holder of THIS wrapper generation: a live machine claim labelled "queued run (not a cut)"
+#      and not "[light]" (round 17: an older wrapper's label cannot say its class, so no side turn beside it). A bare
+#      suite with no claim does not count (its age is not readable), and a free box is the main queue's business, so
+#      the side turn never jumps a waiter for an idle box;
+#   4. that claim is at least KOSMOS_SIDE_MIN_HOLD_S old (default 90 s): the load figure is a 1-minute average, so it
+#      reads low for a holder that has only just started a build;
+#   5. no cut, no install harness and no other browser run is live, and no Playwright browser is running (most one-off
+#      checks run `node docs/browser-checks/x.js` directly, which the browser-run guard cannot see; two Playwright
+#      runs competing for CPU is the hazard that guard names);
+#   6. the 1-minute load is below half the cores (KOSMOS_SIDE_MAX_LOAD sets the line instead);
+#   7. no SIDE-CAPABLE light waiter is ahead of this one (earlier queue time, then lower pid; marker line 6), so light
+#      runs keep their order;
+#   8. no queued-heavy.sh older than #4911 is waiting (it would take a main turn without asking about a side turn).
+# The take (kosmos_light_side_take) also records the holder this check validated (KOSMOS_SIDE_SEEN_HOLDER).
+kosmos_light_side_clear() {
+  local what="${1:-this run}" active label cookie born now lc load cores maxl dir f pid ts cls mine_ts mine_pid minhold
+  [ "${KOSMOS_SIDE_LANE:-1}" != 0 ] || { echo "the side turn is off (KOSMOS_SIDE_LANE=0)." >&2; return 1; }
+  [ "$(_kosmos_queue_class)" = light ] || { echo "$what is not a light run; only a light run takes a side turn." >&2; return 1; }
+  kosmos_refuse_if_light_side_live "$what" || return 1
+  now="$(_kosmos_now_epoch)"
+  active="$(_kosmos_machine_claim_active)"
+  if [ -n "$active" ]; then
+    cookie="$(printf '%s' "$active" | awk '{print $1}')"
+    label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
+    case "$label" in *"(not a cut)"*) ;; *) echo "the box is held by a cut ($label); no side turn beside a cut." >&2; return 1 ;; esac
+    # Round 17 (Sonnet): only a holder from THIS wrapper generation, whose label says its class. An older queued-heavy.sh
+    # labels every turn "release (not a cut) queued one-off", light ones included, so its light turn read as a heavy
+    # holder and a side turn joined it: two light runs at once. Unknown class, no side turn (the cost is none beside an
+    # older wrapper during the rollout).
+    case "$label" in "queued run (not a cut)"*) ;; *) echo "the box is held by a run whose class cannot be read ($label); no side turn beside it." >&2; return 1 ;; esac
+    case "$label" in *"[light]"*) echo "the box is held by a light run ($label); never two light runs at once." >&2; return 1 ;; esac
+    KOSMOS_SIDE_SEEN_HOLDER="$cookie"   # round 18: the holder THIS check validated (the take records exactly this one)
+    minhold="${KOSMOS_SIDE_MIN_HOLD_S:-90}"; case "$minhold" in ''|*[!0-9]*) minhold=90 ;; esac
+    born="$(printf '%s' "$cookie" | awk -F- '{print $2}')"
+    case "$born" in ''|*[!0-9]*) born="$now" ;; esac   # an unreadable start is taken as just now: wait, the safe side
+    if [ $(( now - born )) -lt "$minhold" ]; then echo "the heavy run started $(( now - born ))s ago; its load is not readable yet (${minhold}s)." >&2; return 1; fi
+  else
+    # Review 2: only a CLAIMED holder qualifies. A bare suite (validate.sh's yarn test) carries no start time a reader
+    # can trust without a ps parse, and one seconds old reads as a low load: the ramp the 90 s rule is for.
+    echo "no queued heavy run holds the box; $what takes an ordinary turn." >&2; return 1
+  fi
+  kosmos_refuse_if_cut_live "$what" || return 1
+  kosmos_refuse_if_harness_live "$what" "" || return 1
+  kosmos_refuse_if_browser_run_live "$what" || return 1
+  local pw pwrc
+  if [ -n "${KOSMOS_PW_PROBE:-}" ]; then pw="$("$KOSMOS_PW_PROBE" 2>/dev/null)"; pwrc=$?
+  else pw="$(_kosmos_playwright_browsers)"; pwrc=$?; fi
+  if [ "$pwrc" -ge 2 ]; then echo "could not tell whether a Playwright browser is running; no side turn for $what." >&2; return 1; fi
+  [ -n "$pw" ] && pw="$(printf '%s\n' "$pw" | _kosmos_drop_test_fixtures || true)"   # review 8: a suite's stand-in is not a browser
+  if [ -n "$pw" ]; then echo "a Playwright browser is running ($(printf '%s\n' "$pw" | head -1 | cut -c1-80)); no side turn beside it." >&2; return 1; fi
+  lc="$(_kosmos_load_and_cores)"; load="${lc%% *}"; cores="${lc##* }"
+  maxl="${KOSMOS_SIDE_MAX_LOAD:-}"
+  if ! awk -v l="$load" -v c="$cores" -v m="$maxl" 'BEGIN {
+      if (l !~ /^[0-9]+(\.[0-9]+)?$/ || c !~ /^[0-9]+$/ || c + 0 <= 0) exit 1
+      line = (m ~ /^[0-9]+(\.[0-9]+)?$/) ? m + 0 : c / 2
+      exit (l + 0 < line) ? 0 : 1 }'; then
+    echo "the load is ${load:-unreadable} on ${cores:-?} cores; a side turn needs it below ${maxl:-half the cores}." >&2
+    return 1
+  fi
+  read -r mine_ts mine_pid 2>/dev/null < "$(_kosmos_suite_waiter_file "$$")" || { echo "$what holds no queue place yet." >&2; return 1; }
+  case "$mine_ts" in ''|*[!0-9]*) echo "$what has no readable queue place." >&2; return 1 ;; esac
+  case "$mine_pid" in ''|*[!0-9]*) mine_pid="$$" ;; esac   # review: a one-field marker still orders by this run's pid
+  dir="$(_kosmos_marker_dir)"
+  local l6
+  for f in "$dir"/suitewait.*; do
+    [ -e "$f" ] || continue
+    case "${f##*/}" in *.tmp.*) continue ;; esac
+    pid="${f##*.}"
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    [ "$pid" = "$$" ] && continue
+    l6="$(sed -n '6p' "$f" 2>/dev/null)" || l6=""
+    # Review 3: a queued-heavy.sh from before #4911 checks no side claim when it takes a main turn, so while one waits
+    # a side turn could find a main turn started beside it. No side turn until every such waiter has gone (rollout).
+    # Round 16: the intruder asks the same (_kosmos_old_qh_waiter_live), for one that queues after the take.
+    case "$(sed -n '2p' "$f" 2>/dev/null)" in *queued-heavy*)
+      if [ "$l6" != side ] && [ "$l6" != aware ] && _kosmos_suite_waiter_live "$pid"; then
+        echo "a queued run from a queued-heavy.sh older than #4911 is waiting (pid $pid); it would not wait for a side turn, so none is taken until it has gone." >&2; return 1
+      fi ;;
+    esac
+    cls="$(sed -n '5p' "$f" 2>/dev/null)" || cls=""
+    [ "$cls" = light ] || continue
+    [ "$l6" = side ] || continue   # review 2: only a waiter that asks for side turns
+    _kosmos_suite_waiter_live "$pid" || continue
+    read -r ts _ 2>/dev/null < "$f" || continue
+    case "$ts" in ''|*[!0-9]*) continue ;; esac
+    if [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; then
+      echo "an earlier light run (pid $pid) takes the side turn first." >&2; return 1
+    fi
+  done
+  return 0
+}
+
+# kosmos_light_side_take <what> [minutes]: the side take, for a caller that holds its take lock. Asks
+# kosmos_light_side_clear again (the wait asked outside the lock), then claims the side turn; only a won take drops the
+# queue marker, so a lost one keeps its place (the next wait resumes it). 0 on a win.
+kosmos_light_side_take() {
+  local what="${1:-this run}" minutes="${2:-15}"
+  kosmos_light_side_clear "$what" >/dev/null 2>&1 || return 1
+  kosmos_claim_light_side "$minutes" || { unset KOSMOS_LIGHT_SIDE_COOKIE; return 1; }   # review 15: either loss clears it
+  # Review 3: a cut, an install harness and a page layer MARK themselves and then look for a side claim; this side
+  # looked first and claimed second, so one could slip into the gap. Claimed now, it asks again: anything that marked
+  # before the claim is seen here, and anything after it sees the claim. Either way one of the two waits.
+  KOSMOS_SIDE_SEEN_HOLDER=""
+  if ! kosmos_light_side_clear "$what" >/dev/null 2>&1; then kosmos_release_light_side; unset KOSMOS_LIGHT_SIDE_COOKIE; return 1; fi
+  # Round 18 (Sonnet): the holder recorded is the one the re-check validated, and it must still hold the box now. A
+  # separate read could come back empty (the intruder's cookie test then never fires) or name a claim that replaced the
+  # holder in between (which then never reads as an intruder). Either way, no side turn.
+  local seen="${KOSMOS_SIDE_SEEN_HOLDER:-}" now_holder
+  now_holder="$(_kosmos_machine_claim_active | awk '{print $1}')"
+  if [ -z "$seen" ] || [ "$now_holder" != "$seen" ]; then kosmos_release_light_side; unset KOSMOS_LIGHT_SIDE_COOKIE; return 1; fi
+  kosmos_unmark_suite_waiting
+  # Round 17 (Opus): the holder this side turn runs beside, by its claim's cookie. The intruder yields when ANOTHER
+  # claim takes the box: an older queued-heavy.sh that found the queue empty never writes a waiter marker, so the
+  # marker checks cannot see it, but its claim can be seen. Kept in the run's environment (the capper inherits it).
+  KOSMOS_SIDE_HOLDER_COOKIE="$seen"; export KOSMOS_SIDE_HOLDER_COOKIE
+  return 0
+}
+
+# kosmos_holds_light_side: true only when THIS run (or a child carrying its cookie) holds the live side claim.
+# run-tests.sh asks it: a side turn runs its tests directly; through run-tests.sh it would queue behind the heavy
+# holder's claim while holding the side claim (review 2), and a --only run (#4929) would be refused by that claim, so
+# run-tests.sh refuses at once inside a side turn, --only included.
+kosmos_holds_light_side() {
+  local active self="${KOSMOS_LIGHT_SIDE_COOKIE:-}"
+  [ -n "$self" ] || return 1
+  active="$(_kosmos_light_side_active)"
+  [ -n "$active" ] && [ "$(printf '%s' "$active" | awk '{print $1}')" = "$self" ]
+}
+
+# _kosmos_old_qh_waiter_live: 0 (echoing its pid) while a queued-heavy.sh older than #4911 (a 'suitewait' marker whose
+# line 2 names queued-heavy and whose line 6 is neither side nor aware) is waiting. Such a waiter takes a main turn
+# without asking about a side turn (round 16, Sonnet): the take refuses while one waits, and the intruder yields to one
+# that queued after the take, before it can take a turn beside this one.
+_kosmos_old_qh_waiter_live() {
+  local f pid l6
+  for f in "$(_kosmos_marker_dir)"/suitewait.*; do
+    [ -e "$f" ] || continue
+    case "${f##*/}" in *.tmp.*) continue ;; esac
+    pid="${f##*.}"; case "$pid" in ''|*[!0-9]*) continue ;; esac
+    [ "$pid" = "$$" ] && continue
+    case "$(sed -n '2p' "$f" 2>/dev/null)" in *queued-heavy*) ;; *) continue ;; esac
+    l6="$(sed -n '6p' "$f" 2>/dev/null)" || l6=""
+    [ "$l6" = side ] || [ "$l6" = aware ] && continue
+    _kosmos_suite_waiter_live "$pid" || continue
+    echo "$pid"; return 0
+  done
+  return 1
+}
+
+# kosmos_light_side_intruder <root pid>: 0 (and why, on stdout) when the side turn should YIELD; 1 to stay. queued-heavy.sh
+# asks it every few seconds through a side turn and stops its command when it says yes. Yields on: an older
+# queued-heavy.sh's waiter (round 16); a machine claim other than the holder the take recorded (round 17: an older
+# wrapper that found the queue empty marks nothing); a cut; an install harness (review 6); a browser run that is not the
+# side command's own (root pid and its descendants); a Playwright browser that is not its own (review 5). The start
+# gate cannot see what starts AFTER the side turn did; yielding protects the holder whatever it runs, and the light run
+# takes the red, which is the side turn's bargain. Same probes as the start gate (KOSMOS_BC_PROBE, KOSMOS_PW_PROBE), plus
+# the run markers. A probe that cannot answer is an intruder (the safe side: the light run stops).
+kosmos_light_side_intruder() {
+  local root="${1:-}" lines rc l pid f
+  case "$root" in ''|*[!0-9]*) echo "no side command to protect"; return 0 ;; esac
+  if pid="$(_kosmos_old_qh_waiter_live)"; then echo "a queued-heavy.sh older than #4911 queued (pid $pid); it would take a turn beside this one"; return 0; fi
+  # Round 17 (Opus): a claim that is not the holder's took the box (an older wrapper that found the queue empty, so it
+  # marked nothing). The holder's renewals keep its cookie, and a cut it runs keeps it too (and is caught below).
+  if [ -n "${KOSMOS_SIDE_HOLDER_COOKIE:-}" ]; then
+    l="$(_kosmos_machine_claim_active | awk '{print $1}')"
+    if [ -n "$l" ] && [ "$l" != "$KOSMOS_SIDE_HOLDER_COOKIE" ]; then echo "another run took the box after the heavy holder this side turn started beside"; return 0; fi
+  fi
+  # Review 6: a cut or an install harness that starts during the side turn is an intruder too (the start gate saw
+  # neither, and one on a branch older than #4911 does not wait for a side turn).
+  if ! kosmos_refuse_if_cut_live "a side turn" >/dev/null 2>&1; then echo "a cut started"; return 0; fi
+  if ! kosmos_refuse_if_harness_live "a side turn" "" >/dev/null 2>&1; then echo "an install harness started"; return 0; fi
+  if [ -n "${KOSMOS_BC_PROBE:-}" ]; then lines="$("$KOSMOS_BC_PROBE" 2>/dev/null)"; rc=$?
+  else
+    # Review 6: pgrep's own status, not the filter's (a pgrep that failed read as "nothing live").
+    lines="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null)"; rc=$?; [ "$rc" -le 1 ] && rc=0
+    lines="$(printf '%s\n' "$lines" | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)' || true)"
+  fi
+  [ "$rc" -ge 2 ] && { echo "could not tell whether a browser run is live"; return 0; }
+  [ -n "$lines" ] && lines="$(printf '%s\n' "$lines" | _kosmos_drop_test_fixtures || true)"   # a suite's fixture is not a run
+  if [ -n "${KOSMOS_PW_PROBE:-}" ]; then l="$("$KOSMOS_PW_PROBE" 2>/dev/null)"; rc=$?
+  else l="$(_kosmos_playwright_browsers)"; rc=$?; fi
+  [ "$rc" -ge 2 ] && { echo "could not tell whether a Playwright browser is live"; return 0; }
+  [ -n "$l" ] && l="$(printf '%s\n' "$l" | _kosmos_drop_test_fixtures || true)"   # review 8: a suite's stand-in is not a browser
+  lines="$lines
+$l"
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    pid="${l%% *}"; case "$pid" in ''|*[!0-9]*) continue ;; esac
+    kill -0 "$pid" 2>/dev/null || continue
+    _kosmos_pid_is_self_or_descendant "$pid" "$root" && continue
+    echo "a browser run that is not this side turn's started ($(printf '%s' "$l" | cut -c1-80))"; return 0
+  done <<EOL
+$lines
+EOL
+  for f in "$(_kosmos_marker_dir)"/browser.*; do
+    [ -e "$f" ] || continue
+    pid="${f##*.}"; case "$pid" in ''|*[!0-9]*) continue ;; esac
+    kill -0 "$pid" 2>/dev/null || continue
+    _kosmos_pid_is_self_or_descendant "$pid" "$root" && continue
+    [ "$(sed -n '2p' "$f" 2>/dev/null)" = "$(ps -ww -o command= -p "$pid" 2>/dev/null)" ] || continue   # a recycled pid is no run
+    echo "a marked browser run that is not this side turn's started (pid $pid)"; return 0
+  done
+  return 1
 }

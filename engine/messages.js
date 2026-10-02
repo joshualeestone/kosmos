@@ -480,6 +480,9 @@ function resetForTests() {
      (the product only appends), and tests reset. */
   READ_CACHE = null;
   IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
+  UNRECORDED_SENDS.clear();
+  UNRECORDED_POSTS.length = 0;
+  ID_HIGH = 0;               // #4888: a test that starts a new log starts its ids again
 }
 
 function tmuxBin() {
@@ -853,7 +856,7 @@ function rowShaped(m) {
 }
 
 /* The send path keeps the old contract on purpose: an unreadable log
-   fails OPEN there (the valve cannot count, ids restart) rather than
+   fails OPEN there (the valve cannot count; ids restart only on a board that has minted none since it started) rather than
    blocking every send on a read error -- a RECORDED trade, revisit when
    retention lands. */
 function readLog() {
@@ -958,6 +961,43 @@ const ROOM_PROGRESS_STEPS = 4;
    too: the same send arriving meanwhile waits for the first one's receipt instead of sending again.
    Keyed by sender, place and text; cleared when the first finishes, either way. */
 const IN_FLIGHT_SENDS = new Map();
+/* #4926 review 2 (Sonnet): a post the members got whose record could not be written has no row for recentSameSend to
+   fold a retry into, so its answer is kept here for the dedup window. */
+const UNRECORDED_SENDS = new Map();
+/* Review 7 (Opus): EVERY post the record could not take (the person's too), by room, with its start: when the record
+   keeps failing (a full disk) no later post leaves a row, so these are what break a twin's quiet. */
+const UNRECORDED_POSTS = [];
+let unrecordedSeq = 0;
+/* Review 3 (Opus): the same quiet rule as the record's fold: anything posted in the room since breaks it (a repeat
+   after others spoke is a real second post). Agents' posts only (review 4: see where it is kept). In memory only: a board restart forgets it (and after a restart the next post can reuse the unrecorded post's id: #4888's ID_HIGH stops reuse only while the board runs). */
+function unrecordedTwin(key, log, projectId) {
+  for (const [k, u] of UNRECORDED_SENDS) if (Date.now() - u.keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_SENDS.delete(k);   // pruned on every look
+  for (let i = UNRECORDED_POSTS.length - 1; i >= 0; i -= 1) if (Date.now() - UNRECORDED_POSTS[i].keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_POSTS.splice(i, 1);
+  const u = UNRECORDED_SENDS.get(key);
+  if (!u) return null;
+  const start = Date.parse(u.result.at);
+  const sinceUnrecorded = UNRECORDED_POSTS.some((p) => p.projectId === projectId && p.seq !== u.seq && p.at >= start);
+  const since = sinceUnrecorded || (Array.isArray(log) ? log : []).some((r) => r && (r.kind === 'post' || r.kind === 'external') && r.project === projectId && Date.parse(r.at) >= Date.parse(u.result.at));   // review 4: from the post's own START (rows carry their start; a post that began while this one was still typing counts); >=: it has no row of its own
+  if (since) { UNRECORDED_SENDS.delete(key); return null; }
+  return u.result;
+}
+/* #4888: a send's row is appended when its delivery FINISHES (deliverAsync, #4468; a room fans out, #4765), so
+   the log alone cannot say which ids two overlapping sends have already taken: both read the same highest id and
+   both took the next one. The board remembers the last id it handed out, and a new id is the larger of that and
+   the log's highest, plus one. An id is taken before any await, so overlapping sends never share one. A send
+   that is then refused has used its id, and the next send takes a new one. */
+let ID_HIGH = 0;
+/* #4888: the id the next send will be given, without taking it (a test plants a file at it). */
+function nextIdForTests() {
+  const inLog = record().parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
+  return 'm' + (Math.max(inLog, ID_HIGH) + 1);
+}
+function mintId(parsed) {
+  // Over the PARSE-ONLY rows: a foreign append that fails shape still burns the id it names.
+  const inLog = parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
+  ID_HIGH = Math.max(inLog, ID_HIGH) + 1;
+  return 'm' + ID_HIGH;
+}
 // A twin still in flight, unless it has been in flight longer than the window (a delivery that never settles must
 // not hold every identical retry forever).
 function inFlightTwin(key) {
@@ -967,6 +1007,37 @@ function inFlightTwin(key) {
   return pending;
 }
 function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
+/* #4926: which of a room's held post ids are too stale to wake a member about (roomhold.withoutStale): the post is older
+   than HELD_TELL_MAX_MS, or the room's loop guard stopped the conversation after it (a 'valve' row with stopped !== false
+   in that project, later than the post). An id not in the record yet (a post still being delivered) is not stale.
+   `member`: whose held ids these are (its quota pause, if any, starts the clock). */
+const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
+function staleHeld(projectId, ids, log, now, member) {
+  const out = new Set();
+  try {
+    const rows = Array.isArray(log) ? log : readLog();
+    const t = Number.isFinite(now) ? now : Date.now();
+    const want = new Set(ids);
+    let stoppedAt = 0;
+    for (const r of rows) {
+      if (!r || r.project !== projectId) continue;
+      if (r.kind === 'valve' && r.stopped !== false) { const v = Date.parse(r.at); if (Number.isFinite(v) && v > stoppedAt) stoppedAt = v; }
+    }
+    for (const r of rows) {
+      if (!r || r.kind !== 'post' || r.project !== projectId || !want.has(r.id)) continue;
+      const at = Date.parse(r.at);
+      if (!Number.isFinite(at)) continue;
+      /* Review 5 (Opus): a post held for THIS member on the shared Google quota was kept for it while it was paused
+         (the sender was told so); its age counts from the pause's end (heldUntil), not from the post. The loop guard
+         still applies. */
+      const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
+      const from = Number.isFinite(until) && until > at ? until : at;
+      if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
+    }
+  } catch { /* nothing is dropped */ }
+  return out;
+}
+
 /* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
    (or nobody to deliver to) is placed; anything else is unconfirmed.
    #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
@@ -1195,10 +1266,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     if (lim.on) return { state: chat.DELIVERY.COULD_NOT, because, id: null, at };
   }
 
-  // Over the PARSE-ONLY rows: a foreign append that fails shape must
-  // still burn the id it names, or this re-mints an id a recipient may
-  // already have seen and overwrites its spill file.
-  const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+  const id = mintId(rec.parsed);
 
   /* The envelope: one line (a newline in the pane is a submit), sender and
      reply pointer first so the recipient reads WHO before WHAT. Past
@@ -1222,8 +1290,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
 
   const finish = (sent) => {
     if (sent.state === chat.DELIVERY.COULD_NOT) {
-    // A refused delivery must not orphan its spill: the next send mints
-    // the same id and would silently overwrite it with unrelated text.
+    // A refused delivery must not orphan its spill.
       unspill(spillFile);
       return refuse(toName, sent.because);
     }
@@ -1612,6 +1679,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const answeredId = answered ? answered.id : null;
   const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
   if (operator !== true) {
+    const unrecorded = unrecordedTwin(postKey, log, projectId);   // #4926 review 2: delivered but not recorded
+    if (unrecorded) return asDuplicate(unrecorded);
     const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
     // An outside party's reply in a federated room is an 'external' row: it breaks the quiet like any post.
     if (samePost && quietSince(log, samePost, (r) => (r.kind === 'post' || r.kind === 'external') && r.project === projectId)) {
@@ -1825,7 +1894,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     }
   }
 
-  const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
+  const id = mintId(rec.parsed);
 
   /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
      since #3679 also indentation and fenced code), so the room
@@ -1863,6 +1932,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
   const heldUntil = {};
   let reached = 0;
+  const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
+  const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
   const deliverOne = (name) => {
     if (offHere.has(name)) return null;
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
@@ -1976,18 +2047,22 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       : '';
     /* #4624: posts held for this member in this room while it was working ride on this arrival, as one
        line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
-    const heldIds = roomhold.take(name, projectId);
+    const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name), name);   // #4926
+    takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
-         hold (its id, marked when it names them), so it counts as placed for the sender and is told in one line by the
+         hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless stale, counted from the pause's end) in one line by the
          idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
       if (sent && sent.held === true) {
         roomhold.restore(name, projectId, heldIds);
         unspill(spilled[name]);
-        if (roomhold.hold(name, projectId, mentioned.has(name) ? roomhold.addressedId(id) : id)) {
+        /* #4926 review 1 (Opus): an answer to this member's OWN post (--in-reply-to, no @) asks for its attention too, so it
+           is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
+        const asksIt = mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
+        if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
           reached += 1;
@@ -2013,9 +2088,31 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     const typeInto = operator === true || roomhold.off(process.env)
       ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
     let sent;
+    typingStarted.add(name);
     try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
+  };
+
+  /* #4926: a member whose typing path THREW (not one that answered could_not) is that member's outcome, not the post's.
+     It used to throw the whole post after every other member had been typed into and before the row was written: the
+     sender read "refused", posted again, and with no row the retry was not folded, so every other member got it twice.
+     A throw once the typing path was entered can come after the paste went in, so it is UNCONFIRMED ("may have
+     reached"): the post is recorded, the sender is told not to re-post, and a retry folds into this row. */
+  const typingBroke = (name, err) => {
+    /* Review 2 (Sonnet): a throw BEFORE the typing path was entered (the hold check, the spill, a lookup) typed nothing:
+       that member could not be reached, and a post where that is every member is refused as before. */
+    if (outcomes[name] === undefined) {
+      if (typingStarted.has(name)) { outcomes[name] = chat.DELIVERY.UNCONFIRMED; reached += 1; }
+      else {
+        outcomes[name] = chat.DELIVERY.COULD_NOT; unspill(spilled[name]);   // review 3: no inbox file for a post it never got
+        // Review 6 (Sonnet): its held ids were taken for a line it never got; put them back (putBack covers a throw
+        // inside the typing path).
+        if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { roomhold.restore(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
+      }
+    }
+    // Review 8 (Sonnet): the error's CODE only, never its message (a tmux error can echo the pasted text).
+    try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.code) || 'error').slice(0, 40) + '); recorded as ' + outcomes[name] + '\n'); } catch { /* never breaks the post */ }
   };
 
   const finishDeliveries = () => {
@@ -2030,7 +2127,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   if (!reached && charged > 0) {
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
-       rule) and the spill must not wait for the next mint of this id. */
+       rule). */
     /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
@@ -2044,30 +2141,47 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   // A requote whose whitespace was reflowed across a newline simply is not
   // tagged -- fewer matches, never a false one, which is exactly #460's law
   // that an ambiguous quote resolves to no styling.
-  const quotes = quotedSegments(stored, from, projectId, log);
-  appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
-    ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
-    ...(quotes.length ? { quotes } : {}),
-    /* #185: the tokenizer's verdict, persisted at the one moment it runs.
-       The unanswered state keys on WHO WAS ASKED, and re-deriving that at
-       render time would be a second tokenizer that can drift from this
-       one. */
-    ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
-    /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
-    ...(ambiguous.size ? { ambiguousMentions: [...ambiguous] } : {}),
-    ...(operator === true ? { operator: true } : {}),
-    /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
-       "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
-       an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
-    ...(replyExpected === false ? { replyExpected: false } : {}),
-    /* #3224: a post sent with --new is the agent's own answer to "which room": it
-       acknowledges the questions it owed elsewhere at that moment (owedElsewhere stops
-       asking about them) and it is not a suspected misroute in the daily count. */
-    ...(newPost === true && operator !== true ? { newPost: true } : {}),
-    /* #3745: stored only when this post answers another, so an ordinary post's row is unchanged. */
-    ...(answered ? { replyTo: answered.id } : {}),
-    ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
-    ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
+  /* #4926 review 2 (Sonnet): the quoted-words pass runs after delivery too, so a throw from it must not turn into "refused". */
+  let quotes = [];
+  try { quotes = quotedSegments(stored, from, projectId, log); } catch { quotes = []; }
+  /* #4926 review 1 (Opus): the members have it by now. A record that cannot be written must not turn into a thrown
+     "refused" (the sender would post it again, and nothing could fold the twin): it is answered unconfirmed. */
+  try {
+    appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
+      ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
+      ...(quotes.length ? { quotes } : {}),
+      /* #185: the tokenizer's verdict, persisted at the one moment it runs.
+         The unanswered state keys on WHO WAS ASKED, and re-deriving that at
+         render time would be a second tokenizer that can drift from this
+         one. */
+      ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
+      /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
+      ...(ambiguous.size ? { ambiguousMentions: [...ambiguous] } : {}),
+      ...(operator === true ? { operator: true } : {}),
+      /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
+         "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
+         an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
+      ...(replyExpected === false ? { replyExpected: false } : {}),
+      /* #3224: a post sent with --new is the agent's own answer to "which room": it
+         acknowledges the questions it owed elsewhere at that moment (owedElsewhere stops
+         asking about them) and it is not a suspected misroute in the daily count. */
+      ...(newPost === true && operator !== true ? { newPost: true } : {}),
+      /* #3745: stored only when this post answers another, so an ordinary post's row is unchanged. */
+      ...(answered ? { replyTo: answered.id } : {}),
+      ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
+      ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
+  } catch (err) {
+    try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
+    const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
+    /* Review 2: an agent's retry folds. Review 4 (Sonnet): NOT the person's. Folded, the page says "Posted." again for a
+       post the room never shows, so the person's every repeat vanished until the window passed; a second delivery in
+       this rare case (the record could not be written) is the lesser harm. */
+    const seq = (unrecordedSeq += 1);
+    for (let i = UNRECORDED_POSTS.length - 1; i >= 0; i -= 1) if (Date.now() - UNRECORDED_POSTS[i].keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_POSTS.splice(i, 1);   // review 8: pruned here too
+    UNRECORDED_POSTS.push({ projectId, at: Date.parse(at), seq, keptAt: Date.now() });   // review 7: breaks a twin's quiet, whoever posted it
+    if (operator !== true) UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now(), seq });
+    return unrecorded;
+  }
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
      sentence must be built from `outcomes` per recipient (a post to
      three that reaches two must never render as sent). */
@@ -2085,7 +2199,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        and what deliverOne shares (outcomes, spilled, the held posts) is keyed by the member's name. Each
        deliverOne's synchronous part still runs in turn, in the members' order.
        Every delivery is ALLOWED TO FINISH before the answer, so the person is never told "could not post"
-       while members are still being typed at; then the first failure is thrown, as the old loop threw it.
+       while members are still being typed at. A member whose typing threw is that member's unconfirmed outcome
+       (#4926, typingBroke above), so the post is recorded and the sender is never told it failed when it landed.
        One difference, on purpose: the old loop stopped at a failure, so the members after it were never
        tried; now they are.
        ⚠️ ONE MEMBER PER TURN OF THE EVENT LOOP. Each delivery's tmux calls are synchronous (execFileSync), so
@@ -2095,7 +2210,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        overlap because each start is only one member's tmux calls after the last. The Enters are spread only as
        far as the starts were: waits that come due together still end in one turn (review 2 measured two or
        three members' Enters per turn on 20 members), which is short of one block of all of them. A synchronous throw from
-       deliverOne is caught and becomes that member's failure, so it too waits for the others. */
+       deliverOne is caught and becomes that member's outcome (#4926: unconfirmed once its typing path was entered,
+       could_not before it), so it too waits for the others. */
     const pending = (async () => {
       const runs = [];
       for (let i = 0; i < recipients.length; i++) {
@@ -2106,13 +2222,14 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
         runs.push(run);
       }
       const settled = await Promise.allSettled(runs);
-      const failed = settled.find((s) => s.status === 'rejected');
-      if (failed) throw failed.reason;
+      settled.forEach((s, i) => { if (s.status === 'rejected') typingBroke(recipients[i], s.reason); });
       return finishDeliveries();
     })();
     return operator === true ? pending : trackInFlight(postKey, pending);
   }
-  for (const name of recipients) deliverOne(name);
+  for (const name of recipients) {
+    try { deliverOne(name); } catch (err) { typingBroke(name, err); }
+  }
   return finishDeliveries();
 }
 
@@ -2740,9 +2857,11 @@ function projectOfPost(id) {
 }
 
 module.exports = {
+  staleHeld, HELD_TELL_MAX_MS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
+  _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
   setSenderTextFilter, filteredText, // #3769
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,

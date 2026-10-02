@@ -216,3 +216,86 @@ test('#4006: deleting a leftover clears its failed-restart record', () => {
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.equal(disruption.read('failgone').found, false, 'the failed record outlived the delete');
 });
+
+test('#5000: a trusted name is put back at the start by the delete, so a new agent under it is not trusted', () => {
+  const cs = require('./communitystore');
+  leftoverAgent('trusty');
+  cs.grantTrust('trusty');
+  cs.grantTrust('bystander5000');
+  assert.equal(cs.trustState('trusty'), 'trusted', 'control: the agent had earned trust before it was deleted');
+  quiet();
+  const done = mac.del('trusty');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  const step = done.steps.find((x) => x.step === 'its community standing');
+  assert.ok(step && step.ok === true, 'the standing step was not recorded as done');
+  createAgain('trusty');
+  assert.equal(cs.trustState('trusty'), 'untrusted', 'the new agent under the freed name inherited the deleted one\'s trust');
+  assert.equal(cs.trustState('bystander5000'), 'trusted', 'the delete changed another agent\'s standing');
+});
+
+test('#5000: a standing that cannot be reset refuses the whole delete with nothing touched, and a retry then works', () => {
+  const cs = require('./communitystore');
+  leftoverAgent('stucktrust');
+  cs.grantTrust('stucktrust');
+  /* A FILE where the community folder goes: the write cannot make its folder, a real failure, not a stub. */
+  const dir = cs._paths.dir();
+  const had = fs.existsSync(dir);
+  const moved = had ? dir + '.aside-5000' : null;
+  if (had) fs.renameSync(dir, moved);
+  fs.writeFileSync(dir, 'not a folder');
+  let done;
+  try {
+    quiet();
+    done = mac.del('stucktrust');
+  } finally {
+    fs.rmSync(dir, { force: true });
+    if (had) fs.renameSync(moved, dir);
+  }
+  assert.equal(done.outcome, leftover.OUTCOME.REFUSED, 'a delete that could not reset the standing went ahead');
+  assert.match(done.because, /standing/, 'the refusal does not say which part failed');
+  assert.ok(fs.existsSync(create.workerDir('stucktrust')), 'the folder was moved although the delete was refused');
+  /* The retry, which is the reason the reset goes first: with the folder still there, plan() offers the delete
+     again and the reset now succeeds. */
+  quiet();
+  const again = mac.del('stucktrust');
+  assert.equal(again.outcome, leftover.OUTCOME.DELETED, again.because);
+  assert.equal(cs.trustState('stucktrust'), 'untrusted', 'the retry did not reset the standing');
+});
+
+test('#5000: the folder\'s own name is reset when it is asked for in another case', (t) => {
+  const cs = require('./communitystore');
+  leftoverAgent('Miles5000');
+  cs.grantTrust('Miles5000');
+  /* Only a disk that does not tell case apart (a Mac's, by default) can be asked for the folder in another case,
+     so only there does this exercise the real-case lookup. Elsewhere it says so rather than passing vacuously. */
+  if (!fs.existsSync(create.workerDir('miles5000'))) { t.skip('this disk tells case apart'); return; }
+  quiet();
+  const done = mac.del('miles5000');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  assert.equal(cs.trustState('Miles5000'), 'untrusted', 'the folder\'s own name kept its standing');
+});
+
+test('#5000: a folder that cannot be moved still leaves the name reset, because the reset comes first', () => {
+  const cs = require('./communitystore');
+  leftoverAgent('halfgone', { job: false });
+  cs.grantTrust('halfgone');
+  const realRename = fs.renameSync;
+  const realRm = fs.rmSync;
+  const folder = create.workerDir('halfgone');
+  fs.renameSync = (from, to) => { if (from === folder) throw new Error('busy'); return realRename(from, to); };
+  fs.rmSync = (target, o) => { if (target === folder) throw new Error('busy'); return realRm(target, o); };
+  let done;
+  try {
+    quiet();
+    done = mac.del('halfgone');
+  } finally {
+    fs.renameSync = realRename;
+    fs.rmSync = realRm;
+  }
+  assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'control: the folder was meant to be stuck');
+  assert.ok(done.steps.some((x) => x.step === 'its community standing' && x.ok), 'the standing step did not run');
+  assert.equal(cs.trustState('halfgone'), 'untrusted', 'a partial delete left the standing in place');
+  /* The sentence the person reads: true about what happened, and no card number in it. */
+  assert.match(done.because, /None of its files were moved\. Its standing in the community was reset/, done.because);
+  assert.ok(!/#\d/.test(done.because), 'a card number reached the person: ' + done.because);
+});

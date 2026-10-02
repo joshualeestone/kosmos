@@ -49,7 +49,8 @@ fi
 # The refusals test-install.sh makes before it judges anything: a busy box (a suite, a cut, a release
 # reservation), a guard that could not tell (#4410 review 13), or a disk too full to start. None is the
 # gate's verdict, so each is a SKIP with exit 3.
-REFUSED_RE='is already running on this Mac|a cut is running on this Mac|reserved for a release|could not tell whether|could not read free space|MB free on'
+# #4911: an ordinary queued turn's hold and a light run's side turn are busy boxes too.
+REFUSED_RE='is already running on this Mac|a cut is running on this Mac|reserved for a release|held by an ordinary queued turn|has a side turn beside the heavy one|could not tell whether|could not read free space|MB free on'
 busy_refusal() {
   grep -qE "$REFUSED_RE" "$1" || return 1
   echo "SKIP: a gate run was refused before it judged anything, so this control cannot answer: $(grep -E "$REFUSED_RE" "$1" | head -1 | cut -c1-160)"

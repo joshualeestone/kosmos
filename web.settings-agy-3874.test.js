@@ -206,7 +206,8 @@ test('#3874: people are pointed at Settings\' Add a provider for it, not the gui
   const conn = fs.readFileSync(nodePath.join(__dirname, 'engine', 'connections.js'), 'utf8');
   assert.doesNotMatch(conn, /Connect on Gemini/);
   assert.match(conn, /Grok and Gemini each take a subscription sign-in or a key, all in Settings,/);
-  assert.equal((PAGE.match(/Add a provider, then Google Gemini\./g) || []).length, 4);
+  // 5: #4935 adds the team step's model note, the single create's own Antigravity hint word for word.
+  assert.equal((PAGE.match(/Add a provider, then Google Gemini\./g) || []).length, 5);
 });
 
 test('#3874: the agents\' guide names the Settings button as the page labels it, and first run\'s as it does', () => {
