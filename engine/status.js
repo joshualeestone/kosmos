@@ -2401,10 +2401,22 @@ const ASKING_GENERIC = 'it is asking you something';
  * A missed limit is #880's regression and is worse than a rare false pause, so
  * the remaining false positive is LEFT IN and recorded rather than traded for
  * one. Narrowing these two needs a SECOND observed screen, not a cleverer regex.
+ *
+ * 🛑 #5029, OBSERVED 2026-10-02 on three capped panes and the modal menu:
+ *
+ *   You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
+ *
+ * "hit your" is not "reached your", so a pane WITHOUT the /usage-credits line
+ * (one of the three, and the modal) read idle, and the Guide's hosted fallback
+ * (#3660) never switched on. The marker needs the "you've": the #966 promo
+ * says "If you hit your limit" on a healthy agent and must stay calm. It
+ * allows any word before "limit" for the same reason as its sibling: one plan
+ * tier said "weekly", and another may say "session" or "5-hour".
  */
 const RATE_LIMIT_MARKERS = [
   /reached your .{0,40}limit/i,   // observed 2026-08-21
   /\/usage-credits\b/,            // observed 2026-08-21
+  /you['’]ve hit your .{0,40}limit/i, // observed 2026-10-02 (#5029)
 ];
 
 /**
@@ -3557,12 +3569,12 @@ function messageAt(text, markers) {
   const CONTINUES = /^[A-Za-z0-9/]/;
   for (let i = 0; i < rows.length; i += 1) {
     if (!markers.some((re) => re.test(rows[i]))) continue;
-    let out = rows[i].replace(/^[\s>│├└─*❯›]+/, '').trim();
+    let out = rows[i].replace(/^[\s>│├└─*❯›⎿]+/, '').trim();
     if (!out) continue;
     for (let extra = 0; extra < 2 && !ENDS.test(out); extra += 1) {
       const next = rows[i + 1 + extra];
       if (next === undefined) break;
-      const line = next.replace(/^[\s>│├└─*❯›]+/, '').trim();
+      const line = next.replace(/^[\s>│├└─*❯›⎿]+/, '').trim();
       if (!line || !CONTINUES.test(line)) break;
       out += ' ' + line;
     }
