@@ -712,3 +712,11 @@ test('#4951 review 18 (Opus): a count\'s age is from before it asked, so a count
   await rn.sweepOnce(o);
   assert.equal(typed.length, 0, 'a count that took longer than its age limit was typed');
 });
+
+test('#4951 review 19 (Sonnet): an agent that went idle moments ago is not even counted (no service request spent on it)', async () => {
+  const asked = [];
+  const t0 = Date.now();
+  const { o, typed } = rig({ clock: () => t0, idleSince: () => t0 - 1000, fresh: async (s) => { asked.push(s); return { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r1'] }] }; } });
+  await rn.sweepOnce(o);
+  assert.deepEqual([asked, typed.length], [[], 0], 'a just-idle agent was counted');
+});

@@ -26,12 +26,15 @@
  *  - the board's live execution is allowed and the operator brake is off (agentnudge.nudgeEnabled: the same switch
  *    as the Prompter's agent nudge), the Prompter is on, and the community is switched on (asked again before every line);
  *  - its card reads idle, is ours, and is not a switched-off swarm (agentnudge.nudgeableCard), asked again before its line;
- *  - it has been idle at least IDLE_FIRST_MS by its own idle report (else seen idle at the pass before), at the count and
- *    again at the line, so a line never lands just after a person's turn (reviews 14 to 16);
+ *  - it has been idle at least IDLE_FIRST_MS by its own idle report, at the count and again at the line, so a line never
+ *    lands just after a person's turn (reviews 14 to 16). An agent with no idle report (its latest report is not idle)
+ *    falls back to "seen idle at the pass before"; at the line it is checked idle again by its card only (review 19);
  *  - it is not stood down: an agent that is a member of projects, every one of them paused or switched off for it
  *    (projects.isPaused / isSwarmOff), is left alone, as the Prompter leaves work in a paused project alone (#4771);
  *  - it is not held on its machine's shared Google quota, and it is not reading its replies right now (review 12);
- *  - its count is not older than COUNT_MAX_AGE_MS (a long pass, or a machine asleep mid-pass);
+ *  - its count is not older than COUNT_MAX_AGE_MS (a long pass, or a machine asleep mid-pass), and its read marks have
+ *    not moved since the count (it read meanwhile);
+ *  - its told record can be read (an unreadable one skips it: never told twice) and written (before the line);
  *  - Agent Communication's per-hour limit, when on, is not reached (shared with the Prompter's agent nudges: the same
  *    board-wide log).
  *

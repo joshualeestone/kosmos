@@ -295,3 +295,11 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
   an unanswered round-2 page is partial.
 - NIT (kept): NO_ANSWER_STOP is exported for the tests only.
 - Targeted files: 276/276.
+
+## Review 19 (Sonnet, blind, convergence): 0 blockers, 0 warnings, 3 nits. CONVERGED.
+- NIT FIXED: the header claimed the idle-for-an-interval check at the line for every agent; it holds on the report path,
+  and an agent with no idle report is checked idle again by its card only. Header now says so.
+- NIT FIXED: the count-stage idle gate (it saves service requests) had no test; added (a just-idle agent is not even
+  counted). Mutant killed.
+- NIT FIXED: the header's "who is told" list adds the marks-moved check and the told-record read/write rules.
+- Targeted files: 277/277.
