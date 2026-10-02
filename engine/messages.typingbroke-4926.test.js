@@ -286,13 +286,19 @@ test('#4926 review 3 (Opus): a member that fails after its long post was spilled
 test('#4926 review 4 (Sonnet): a post that began while the unrecorded one was still being typed breaks its quiet', async () => {
   await withRoom(async (roster) => {
     arm();
+    chat.setPauser(() => new Promise((r) => setTimeout(r, 80)));   // the post takes a while to type
+    const t0 = Date.now();
     let restore = failLogOnce();
     let d;
     try { d = await agentPost(roster, 'slow one', false); } finally { restore(); }
-    // A row whose START is after the unrecorded post's start but before it finished (its keptAt).
-    const between = new Date(Date.parse(d.at) + 1).toISOString();
+    const tEnd = Date.now();
+    assert.ok(tEnd - t0 >= 60, 'fixture: the post was not slow enough to start something during it');
+    // Review 7: timed from OUR clock (t0), not from d.at, so a wrong d.at (the send's end) cannot move the row with it.
+    const between = new Date(t0 + 30).toISOString();
     fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm77', project: 'room4926', from: 'cy', to: ['ava'], text: 'meanwhile', at: between, outcomes: { ava: 'placed' } }) + '\n');
     assert.ok(messages.list().some((r) => r.id === 'm77'), 'fixture: the record reader dropped the meanwhile row');
+    assert.ok(Date.parse(d.at) <= t0 + 30, 'the unrecorded post\'s own time is not its start');
+    chat.setPauser(() => Promise.resolve());
     const again = await agentPost(roster, 'slow one', false);
     assert.ok(!again.duplicate, 'a repeat after a post that began meanwhile was folded');
   });
@@ -334,6 +340,42 @@ test('#4926 review 6 (Sonnet): a member that throws AFTER its held ids were take
     try { d = await agentPost(roster, '@cy a question', false); } finally { roomhold.clauseFor = real; }
     assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT, 'fixture: cy did not fail before typing');
     assert.deepEqual(roomhold.heldIn('cy', 'room4926'), ['m55'], 'the held id taken for a line cy never got was lost');
+    roomhold.forget('cy');
+  });
+});
+
+test('#4926 review 7 (Opus): with the record failing THROUGHOUT, a post in between (the person\'s or a colleague\'s) still breaks the twin\'s quiet', async () => {
+  for (const who of ['person', 'colleague']) {
+    await withRoom(async (roster) => {
+      const calls = arm();
+      const real = fs.appendFileSync;
+      fs.appendFileSync = (f, ...rest) => { if (f === messages.LOG) throw new Error('ENOSPC'); return real(f, ...rest); };
+      try {
+        await agentPost(roster, 'yes', false);
+        if (who === 'person') await opPost(roster, 'ava, please say that again?'); else await postAs(roster, 'cy', 'say that again?');
+        const before = enters(calls).length;
+        const again = await agentPost(roster, 'yes', false);
+        assert.ok(!again.duplicate, who + ': a real repeat after another post was swallowed');
+        assert.ok(enters(calls).length > before, who + ': the repeat was not typed');
+      } finally { fs.appendFileSync = real; }
+    });
+  }
+});
+
+test('#4926 review 7 (Opus): on the typed arrival, a quota hold is aged from the pause\'s end (a 3 h old post released 10 min ago is told)', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    roomhold.forget('cy');
+    const old = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+    const released = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm91', project: 'room4926', from: 'bix', to: ['cy'], text: 'while you were paused', at: old, outcomes: { cy: 'held' }, heldUntil: { cy: released } }) + '\n');
+    assert.ok(messages.list().some((r) => r.id === 'm91'), 'fixture: the record reader dropped the row');
+    roomhold.hold('cy', 'room4926', 'm91');
+    calls.length = 0;
+    await postAs(roster, 'ava', '@cy a question');
+    const typed = calls.map((a) => a.join(' ')).join('\n');
+    assert.ok(typed.includes('(m91)'), 'a quota hold released 10 min ago was dropped as stale on the typed arrival');
     roomhold.forget('cy');
   });
 });

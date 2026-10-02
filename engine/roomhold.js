@@ -220,7 +220,7 @@ function clauseFor(projectId, shown, ids) {
 }
 
 /* #4926: telling a member about a held post is a WAKE (a typed line into an idle agent, which then answers it). A held
-   post that asks nothing of the member and has gone stale (stale(projectId, plainIds) -> Set of stale plain ids: the
+   post that asks nothing of the member and has gone stale (stale(projectId, plainIds, member) -> Set of stale plain ids: the
    caller decides, messages.staleHeld says older than HELD_TELL_MAX_MS or the room's loop guard has stopped it since) is
    dropped rather than told: hours later, or after the room was stopped, it woke agents into one more short reply after
    the person had asked for quiet. A held post that names the member and asks for an answer is always told. The post
@@ -230,7 +230,10 @@ function withoutStale(projectId, ids, stale, name) {
   let gone;
   try { gone = stale(projectId, ids.map(plainId), name); } catch { return ids; }
   if (!(gone instanceof Set) || !gone.size) return ids;
-  return ids.filter((x) => plainId(x) !== x || !gone.has(x));
+  const kept = ids.filter((x) => plainId(x) !== x || !gone.has(x));
+  // Review 7 (Opus): a drop is said, so "why did my agent never hear about mN" has an answer in the board's log.
+  if (kept.length < ids.length) { try { process.stdout.write('room-hold: ' + (name || '?') + ' dropped ' + (ids.length - kept.length) + ' stale held post(s) in ' + projectId + ' (' + ids.filter((x) => !kept.includes(x)).join(', ') + ')\n'); } catch { /* never breaks a flush */ } }
+  return kept;
 }
 
 /* The turn ended: tell the member, one line per project, about what was held. `deliver` is the board's

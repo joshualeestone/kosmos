@@ -481,6 +481,7 @@ function resetForTests() {
   READ_CACHE = null;
   IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
   UNRECORDED_SENDS.clear();
+  UNRECORDED_POSTS.length = 0;
 }
 
 function tmuxBin() {
@@ -962,13 +963,20 @@ const IN_FLIGHT_SENDS = new Map();
 /* #4926 review 2 (Sonnet): a post the members got whose record could not be written has no row for recentSameSend to
    fold a retry into, so its answer is kept here for the dedup window. */
 const UNRECORDED_SENDS = new Map();
+/* Review 7 (Opus): EVERY post the record could not take (the person's too), by room, with its start: when the record
+   keeps failing (a full disk) no later post leaves a row, so these are what break a twin's quiet. */
+const UNRECORDED_POSTS = [];
+let unrecordedSeq = 0;
 /* Review 3 (Opus): the same quiet rule as the record's fold: anything posted in the room since breaks it (a repeat
    after others spoke is a real second post). Agents' posts only (review 4: see where it is kept). In memory only: a board restart forgets it (and the next post can reuse the unrecorded post's id, as before this). */
 function unrecordedTwin(key, log, projectId) {
   for (const [k, u] of UNRECORDED_SENDS) if (Date.now() - u.keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_SENDS.delete(k);   // pruned on every look
+  for (let i = UNRECORDED_POSTS.length - 1; i >= 0; i -= 1) if (Date.now() - UNRECORDED_POSTS[i].keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_POSTS.splice(i, 1);
   const u = UNRECORDED_SENDS.get(key);
   if (!u) return null;
-  const since = (Array.isArray(log) ? log : []).some((r) => r && (r.kind === 'post' || r.kind === 'external') && r.project === projectId && Date.parse(r.at) >= Date.parse(u.result.at));   // review 4: from the post's own START (rows carry their start; a post that began while this one was still typing counts); >=: it has no row of its own
+  const start = Date.parse(u.result.at);
+  const sinceUnrecorded = UNRECORDED_POSTS.some((p) => p.projectId === projectId && p.seq !== u.seq && p.at >= start);
+  const since = sinceUnrecorded || (Array.isArray(log) ? log : []).some((r) => r && (r.kind === 'post' || r.kind === 'external') && r.project === projectId && Date.parse(r.at) >= Date.parse(u.result.at));   // review 4: from the post's own START (rows carry their start; a post that began while this one was still typing counts); >=: it has no row of its own
   if (since) { UNRECORDED_SENDS.delete(key); return null; }
   return u.result;
 }
@@ -2023,7 +2031,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       : '';
     /* #4624: posts held for this member in this room while it was working ride on this arrival, as one
        line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
-    const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name));   // #4926
+    const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name), name);   // #4926
     takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
@@ -2152,7 +2160,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     /* Review 2: an agent's retry folds. Review 4 (Sonnet): NOT the person's. Folded, the page says "Posted." again for a
        post the room never shows, so the person's every repeat vanished until the window passed; a second delivery in
        this rare case (the record could not be written) is the lesser harm. */
-    if (operator !== true) UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now() });
+    const seq = (unrecordedSeq += 1);
+    UNRECORDED_POSTS.push({ projectId, at: Date.parse(at), seq, keptAt: Date.now() });   // review 7: breaks a twin's quiet, whoever posted it
+    if (operator !== true) UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now(), seq });
     return unrecorded;
   }
   /* The aggregate state is a SUMMARY, not the receipt: the receipt

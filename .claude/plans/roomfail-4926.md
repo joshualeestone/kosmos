@@ -138,3 +138,16 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
 - NIT (kept, by design): a quota hold is aged from the heldUntil recorded when it was held; a pause that ran more than
   2 h past that estimate can drop it.
 - Related files: 272/272.
+
+## Review 7 (Opus, blind, convergence): 0 blockers, 3 warnings, 2 nits.
+- WARNING (reproduced) FIXED: when the record keeps failing (a full disk), no later post leaves a row, so nothing broke
+  an agent's unrecorded twin: "yes", the person asks again, "yes" again was swallowed. Every post the record could not
+  take (the person's too) is now kept in memory by room and start (UNRECORDED_POSTS, pruned with the window) and breaks
+  any other twin's quiet in that room. Test with the record failing throughout, person and colleague; 2 mutants killed.
+- WARNING (test gap) FIXED: the "began meanwhile" test timed its row from d.at, the field under test. It now slows the
+  post, times the row from its own clock, and asserts d.at is the start. The at-is-end mutant is killed.
+- WARNING (test gap) FIXED: the typed-arrival path's quota aging (member passed) had no test; added (3 h old post
+  released 10 min ago is told). Mutant killed.
+- NIT FIXED: a stale drop is logged ("room-hold: <name> dropped N stale held post(s) in <room> (ids)").
+- NIT FIXED: withoutStale's judge signature comment includes the member. NIT (kept): `until > at` is defensive.
+- Related files: 274/274.
