@@ -8,10 +8,12 @@
  * sit between them in the DOM, so Terminal never got its margin.
  *
  * Boots a sandboxed board with one agent and, on chromium and webkit, opens each grouped pill
- * (AI Settings, Profile) and measures the vertical gap between every pair of consecutive VISIBLE
- * sections: each must be at least 20px. Control: the first visible section of each pill has no top
- * margin (the rule must not push the lone first section down), and the pair count per pill is the
- * group size minus one, so a pill that showed fewer sections cannot pass by measuring nothing.
+ * (AI Settings, Profile), at 1280px and at a 390px phone width (where Memory and Fresh start stack),
+ * and measures the vertical gap between every pair of consecutive VISIBLE sections: each must be the
+ * same 24px (within 1px). Control: the pair count per pill is the group size minus one, so a pill
+ * that showed fewer sections cannot pass by measuring nothing. Guard: the first visible section has
+ * no top margin (the rule must not push a lone first section down); it reads the same on the old
+ * rule, so it guards against an over-broad selector rather than proving this fix.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dsec-gap-4961.js
  */
@@ -61,7 +63,8 @@ const readGaps = (page) => page.evaluate(() => {
     for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
       try {
-        const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+       for (const [vw, vh] of [[1280, 900], [390, 844]]) {
+        const page = await browser.newPage({ viewport: { width: vw, height: vh } });
         const errs = [];
         page.on('pageerror', (e) => errs.push(e.message));
         await page.goto(URL);
@@ -72,15 +75,17 @@ const readGaps = (page) => page.evaluate(() => {
           await page.locator(`#panel-detail [data-go="${go}"]`).first().click();
           await page.waitForTimeout(300);
           const r = await readGaps(page);
-          const tag = `${engineName} ${go}`;
+          const tag = `${engineName} ${vw}px ${go}`;
           chk(r.pairs.length === size - 1, `${tag}: control: ${size} sections showing, ${size - 1} gaps measured`, JSON.stringify(r.secs));
-          chk(r.firstMargin === '0px', `${tag}: control: the first section is not pushed down`, r.firstMargin);
+          chk(r.firstMargin === '0px', `${tag}: guard: the first section is not pushed down`, r.firstMargin);
           for (const p of r.pairs) {
-            chk(p.gap >= 20, `${tag}: ${p.from} -> ${p.to}: at least 20px between the cards`, String(p.gap) + 'px');
+            chk(Math.abs(p.gap - 24) <= 1, `${tag}: ${p.from} -> ${p.to}: the same 24px between the cards`, String(p.gap) + 'px');
           }
           ran += 1;
         }
-        chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
+        chk(errs.length === 0, `${engineName} ${vw}px: no page errors`, errs.join(' | '));
+        await page.close();
+       }
       } finally {
         await browser.close();
       }
@@ -89,7 +94,7 @@ const readGaps = (page) => page.evaluate(() => {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 4, 'precondition: both engines and both pills ran', String(ran));
+  chk(ran === 8, 'precondition: both engines, both widths and both pills ran', String(ran));
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
