@@ -1521,11 +1521,13 @@ cmd_version() {
 #                                                     unless --install (the person chose it).
 # The last line on stdout is the answer, for the app:
 #   current <v> | newer <v> | updated <v> | failed <v> | board | unknown <why> | refused <why>
-# Exit 0 for the first four and board, 1 for failed and unknown, 2 for a wrong call, 3 for refused.
+# Exit 0 for current, newer, updated and board; 1 for failed and unknown; 2 for a wrong call; 3 for refused.
 # Refused: an agent asked, or this computer is not set to connect elsewhere (the mode file does not
 # read exactly "connect"). Such a computer runs its own board, which looks for itself; an install from
 # here would restart a board its person may have stopped, and an agent must not replace the Kosmos it
-# runs under.
+# runs under. Also refused while another install here is under way (logs/install.started younger than
+# 30 minutes): the app that started it may have quit, and its installer runs on. An interrupted install
+# leaves the marker behind (update.js reads it), so an older one is not in the way.
 # The installer's own output goes to logs/install.log, as an update the board starts does.
 cmd_update() {
   local _install=0 _node _said _rc=0 _mode kind v consent setup base pointer channel started code
@@ -1542,6 +1544,10 @@ cmd_update() {
   _mode="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _mode=""
   if [ "$_mode" != connect ]; then
     printf 'refused\tthis computer is not set to connect to agents elsewhere; its own board keeps it updated\n'
+    exit 3
+  fi
+  if [ -n "$(find "$LOG_DIR/install.started" -mmin -30 2>/dev/null)" ]; then
+    printf 'refused\tan update is already being installed on this computer\n'
     exit 3
   fi
   # A running board looks for itself, every fifteen minutes, and two installers must never race.
@@ -3388,7 +3394,7 @@ kosmos_command_list() {
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
   printf '  kosmos agents        list the agent sessions running on this computer\n'
   printf '  kosmos version       say which version of Kosmos this is\n'
-  printf '  kosmos update        install a newer Kosmos when one is published (the app runs this on a computer that runs no board)\n'
+  printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
   printf '  kosmos reply         answer the person in your conversation with them\n'

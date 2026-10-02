@@ -401,10 +401,10 @@ enum UpdateAnswer: Equatable {
 /// only a version of the board's own shape (a.b.c): anything else is unknown, never current, so a
 /// garbled answer can neither hide an update nor offer one.
 func updateAnswer(fromOutput text: String) -> UpdateAnswer {
-    guard let last = text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).last(where: { !$0.allSatisfy({ $0 == " " || $0 == "\t" }) })
+    guard let last = text.split(whereSeparator: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }).last(where: { !$0.allSatisfy({ $0 == " " || $0 == "\t" }) })
     else { return .unknown }
     // `refused<TAB><why>`: the reason is for people and the log, so only the word and the tab are read.
-    if last.hasPrefix("refused\t"), last.count > "refused\t".count { return .refused }
+    if last.hasPrefix("refused\t"), last.dropFirst("refused\t".count).contains(where: { $0 != " " && $0 != "\t" }) { return .refused }
     let words = last.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
     func version(_ v: String) -> Bool {
         let p = v.split(separator: ".", omittingEmptySubsequences: false)
@@ -2342,9 +2342,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// finished on this computer, opens as it would on a fresh one.
     @objc func runAgentsHere(_ sender: Any?) {
         guard computerMode == .connect, let home = modeHome else { return }
-        guard stopsInFlight == 0 else {
-            logLine("#4356: Run agents refused for now: a stop or an update of ours is still running")
-            let detail = updateLookInFlight
+        // #4382: an install this app started before it quit is not counted in stopsInFlight; its marker is.
+        let installing = updateLookInFlight || Self.installUnderWay(kosmosHome: home)
+        guard stopsInFlight == 0, !installing else {
+            logLine("#4356: Run agents refused for now: a stop or an update is still running")
+            let detail = installing
                 ? "Kosmos is still updating on this computer. Try again when it has finished."
                 : "Kosmos is still stopping the board on this computer. Try again in a moment."
             showStartupFailureAlert(detail: detail, title: "One moment")
@@ -2429,6 +2431,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         showUpdateOffer(nil)
     }
 
+    /// #4382: an install under way here, as `kosmos update` judges it: logs/install.started younger than
+    /// 30 minutes. An interrupted install leaves an older marker behind, which is not in the way.
+    static func installUnderWay(kosmosHome: String) -> Bool {
+        let marker = kosmosHome + "/logs/install.started"
+        guard let at = (try? FileManager.default.attributesOfItem(atPath: marker))?[.modificationDate] as? Date else { return false }
+        return Date().timeIntervalSince(at) < 30 * 60
+    }
+
     /// One more look an hour after one that could not reach the release host, not a day later.
     private func retryUpdateLookSoon() {
         guard updateRetry == nil else { return }
@@ -2450,7 +2460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // rather than starting a board in the middle of it.
         stopsInFlight += 1
         if install {
-            updateBarLabel?.stringValue = "Updating Kosmos…"
+            updateBarLabel?.stringValue = "Updating Kosmos. It restarts when the update is installed."
             updateBarButton?.isHidden = true   // pressed once is enough; it comes back with the answer
         }
         let port = modePort   // read here, on the main thread, not from the queue below
@@ -2475,9 +2485,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .failed(let v):
             showUpdateOffer(v, note: "Kosmos could not update to \(v). Press Update to try again.")
         case .updated(let v) where asked && !ownDialogOpen:
-            // The person pressed Update: the restart is what they asked for.
-            installedUpdate = nil
-            showUpdateOffer(nil)
+            // The person pressed Update, and the bar said it restarts when done. The offer is kept
+            // underneath, so a relaunch that fails leaves Restart on offer, not nothing.
+            showInstalledOffer(v)
             relaunchAfterUpdate(to: v)
         case .updated(let v):
             // Installed because updates are on, or a dialog of ours is open: never restart unasked.
@@ -2485,7 +2495,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .unknown where asked:
             // The person pressed Update and the release host could not be reached: say so, keep the offer.
             showUpdateOffer(offeredUpdate, note: "Kosmos could not reach its update server. Check your internet connection and try again.")
-        case .current, .board, .unknown, .refused:
+        case .unknown:
+            // Could not look: what is on offer stays on offer (a missed look is not "nothing newer").
+            if let v = installedUpdate { showInstalledOffer(v) }
+        case .current, .board, .refused:
             // A later look finds the installed version current; an installed update still waits for Restart.
             if let v = installedUpdate { showInstalledOffer(v) } else { showUpdateOffer(nil) }
         }
@@ -2567,7 +2580,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// The menu item and the bar's button: restart into an installed version, or install the offered
     /// one whatever the Updates switch says, because the person chose it.
     @objc func updateKosmosNow(_ sender: Any?) {
-        guard computerMode == .connect, !updateLookInFlight else { return }
+        guard computerMode == .connect else { return }
+        guard !updateLookInFlight else { logLine("#4382: Update pressed while a look is running; it answers shortly"); return }
         if let v = installedUpdate {
             relaunchAfterUpdate(to: v)
             return
@@ -5483,7 +5497,9 @@ if CommandLine.arguments.contains("--kosmos-app-update-selftest") {
     row("Newer 0.7.19\n", .unknown, "case matters, as the CLI prints it")
     row("refused\tthis computer is not set to connect to agents elsewhere\n", .refused, "refused: nothing to retry")
     row("refused\n", .unknown, "refused with no reason is not the CLI's answer")
-    let expected = 16
+    row("refused\t   \n", .unknown, "a reason of only spaces is no reason")
+    row("Kosmos is starting\r\nnewer 0.7.19\r\n", .newer("0.7.19"), "CRLF lines split too (Swift reads CRLF as one Character)")
+    let expected = 18
     if ran != expected { print("\nupdate-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nupdate-check: \(bad) row(s) wrong"); exit(1) }
     print("\nupdate-check: all good (\(ran) rows)")

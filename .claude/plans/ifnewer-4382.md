@@ -84,3 +84,16 @@ Each new guard was perturbed: removing it fails exactly one test.
 NITs taken: a comment that no tab field may be empty (IFS read collapses them); an answer the app cannot
 read is logged with what the CLI said. Not changed: a press during a dialog of ours offers Restart rather
 than restarting under it (intended).
+
+### Iteration 3 (opus, blind): 2 warnings, 1 convention, nits. All taken.
+1. WARNING: quit during an install, reopen, and a second installer started over the first (the app's
+   in-flight count is in memory; the installer outlives the app). Fixed: the CLI refuses while
+   logs/install.started is younger than 30 minutes (an interrupted install leaves an older marker, which
+   update.js already reads, so it is not in the way), and Run agents refuses on the same test
+   (`installUnderWay`). CLI test: fresh marker refused and kept; 31-minute marker installs.
+2. WARNING (lower confidence): the person's Update relaunched minutes after the press with no warning.
+   Fixed: the bar says "Updating Kosmos. It restarts when the update is installed."
+3. CONVENTION: the exit-code comment contradicted itself. Rewritten.
+NITs taken: a look that could not look keeps the offer it had; a press during a look is logged; the person's
+relaunch keeps the Restart offer under it, so a failed relaunch leaves it; `refused` with only spaces is
+unknown, and CRLF output splits (18 selftest rows); the help line says the verb is for connect computers.

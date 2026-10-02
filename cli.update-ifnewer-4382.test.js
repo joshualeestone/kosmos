@@ -230,3 +230,21 @@ test('#4382: the look never starts the board\'s own install, even with Updates o
   assert.match(out, /^newer 1\.2\.0 on /, out);
   assert.equal(fs.existsSync(BEGAN), false, 'checkNow() reached beginInstall: the board\'s auto-install ran inside the look');
 });
+
+test('#4382: an install already under way here (a fresh logs/install.started) is not raced; an interrupted one is not in the way', async () => {
+  const MARK = path.join(HOME, 'logs', 'install.started');
+  reset({ prod: '1.2.0' });
+  fs.mkdirSync(path.dirname(MARK), { recursive: true });
+  fs.writeFileSync(MARK, '2026-10-02T15:00:00Z\n');
+  const r = await run(['--if-newer', '--install']);
+  assert.equal(r.code, 3, r.stdout + r.stderr);
+  assert.equal(r.last, 'refused\tan update is already being installed on this computer');
+  assert.equal(ran(), '', 'a second installer ran beside the first');
+  assert.equal(fs.existsSync(MARK), true, 'the other install\'s marker was taken away');
+  // An interrupted install leaves its marker behind; 31 minutes old, it no longer holds anything off.
+  reset({ prod: '1.2.0' });
+  fs.writeFileSync(MARK, '2026-10-02T15:00:00Z\n');
+  const old = new Date(Date.now() - 31 * 60 * 1000);
+  fs.utimesSync(MARK, old, old);
+  assert.equal((await run(['--if-newer', '--install'])).last, 'updated 1.2.0');
+});
