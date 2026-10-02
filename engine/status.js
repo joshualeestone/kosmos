@@ -464,6 +464,7 @@ function oneLine(text, max) {
 }
 
 function tmuxPanes() {
+  TMUX_LAST_SEARCH = 'none';   // the detail line says only what a search in THIS look did
   let got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
   /* The wall, or the tmux itself gone (ran false and the file missing: a `brew uninstall`): either way another tmux may
      read the server. A run that timed out is also ran false but its file is there, so it starts no search. */
@@ -473,7 +474,7 @@ function tmuxPanes() {
   // rejects, which is the honest reading of "tmux answered, and there are no
   // sessions" — and it is a different value from the `null` that means we never
   // got an answer.
-  if (tmuxSaidNoServer(got)) { LAST_LOOK_PROBLEM = null; return ''; }
+  if (tmuxSaidNoServer(got)) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = null; return ''; }   // no server: nothing proven
   /* ⚠️ TWO DIFFERENT FAILURES AND THEY NEED DIFFERENT WORDS. A process that
      never started (`ran` false: not installed, not on PATH, killed by the
      timeout) has no stderr to quote, and quoting an empty string would put an

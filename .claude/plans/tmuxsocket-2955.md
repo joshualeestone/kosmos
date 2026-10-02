@@ -57,14 +57,14 @@ changes (Kosmos keeps its own tmux); only a live server that our tmux cannot rea
 same way, by asking that server.
 
 ## Weakest premise
-That the board and the supervisors converge: both ask the live server the same question, so they land on the same tmux,
-but only the board re-asks while it runs; a supervisor asks once per start. A supervisor that started a bundled server
-before any newer one existed keeps it, and then the newer tmux (a person's, the fleet's) is the one that cannot read
-(Kosmos sees its agents; the person's own tmux client does not). Not measured on a real reboot of a Mac with
-Kosmos-created agents and a newer Homebrew tmux. And it can switch more than once: each time the server's owner changes
-(a Kosmos-started server after a Homebrew one, then back), the board follows, one log line and one PATH entry each
-time; only a search that found nothing is damped. Following the owner is the point, so this is accepted; a fleet that
-mixes owners on one socket would show it as repeated switch lines in the board log.
+That the board and the supervisors converge at boot and after. Both ask the live server the same question in the same
+order, and the wall runs one way (measured: a newer tmux reads an older server, never the reverse), so whoever owns the
+socket, the newest tmux on the Mac can read it and both sides move to it. But only the board re-asks while it runs; a
+supervisor asks once per start, so one that started on a tmux that could read the server keeps it until its agent
+restarts. Not measured on a real reboot of a Mac with Kosmos-created agents and a newer Homebrew tmux. "Follows a
+server back to Kosmos's own" matters only when the board's tmux is gone or is older than the bundle. The board switches
+again each time the owner changes (one log line and one PATH entry each time); only a search that found nothing is
+damped.
 
 ## Tests
 engine/status.test.js: the switch (env and PATH), an explicit choice never replaced, nothing that cannot list taken,
@@ -181,4 +181,11 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   mid-life PATH move (decided in round 6). NIT taken: the plan states the supervisor's order as the code has it.
   LEFT NIT: a harness that inherits all three launcher values consistently is treated as a launcher pick; it can only
   change its own process.
+- Round 13 (opus): FIXED W: the detail line could say what an EARLIER search found (a timeout or a missing bare name
+  starts none); the search state is reset at the start of each look (test). FIXED W: readerTmux kept vouching after the
+  server went (the no-server branch left the last reader set); it is cleared there (test). FIXED NITs: the supervisor's
+  no-pointer fallback was one directory short for the bundle (app/bin is two below <home>/tmux); the plan's weakest
+  premise contradicted the one-way measurement and now says what the measurement allows. LEFT NITs: the worst-case
+  search stall (2 s per candidate, a minute apart; round 8); test state after the last tests (they are last, each sets
+  what it reads).
 

@@ -108,7 +108,9 @@ _kosmos_supervisor_tmux() {
     local _ptr _engdir=""
     _ptr="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/engine-path"   # the same spelling resolve_token_engine uses
     if [ -f "$_ptr" ]; then IFS= read -r _engdir < "$_ptr" || true; fi
-    if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="$(dirname "$0")/../tmux/bin/tmux"; fi
+    # No pointer: the copy in the bundle (<KOSMOS_HOME>/app/bin) is two directories below <KOSMOS_HOME>/tmux; anywhere
+    # else this names nothing and no own candidate is tried.
+    if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="$(dirname "$0")/../../tmux/bin/tmux"; fi
     # Normalized, so the equality below recognises it as the baked path and PATH never gets a ../.. entry.
     _ownd="$(cd "${_own%/*}" 2>/dev/null && pwd)" || _ownd=""
     if [ -n "$_ownd" ]; then _own="$_ownd/tmux"; else _own=""; fi

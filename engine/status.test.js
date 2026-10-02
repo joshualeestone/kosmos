@@ -6222,4 +6222,30 @@ test('#2955: the board\'s tmux gone and no server running: Kosmos\'s own takes o
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
+test('#2955: each look\'s detail says only what that look\'s search did, and a server gone takes the reader with it', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [m.refuser]);
+      status.setPaneSource(null);
+      assert.equal(status.tmuxPanes(), null);
+      assert.match(status.lastLookProblem(), /found no other tmux here that can/);
+      // The next look fails without a search (tmux killed by its timeout: ran false, the file there).
+      fs.writeFileSync(m.old, '#!/bin/sh\nkill -9 $$\n');
+      assert.equal(status.tmuxPanes(), null);
+      assert.ok(!/found no other tmux|looks again within a minute/.test(status.lastLookProblem()),
+        'a look that searched nothing reported an earlier search: ' + status.lastLookProblem());
+    });
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.reader, []);
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null);
+      assert.equal(status.readerTmux(), m.reader);
+      fs.writeFileSync(m.reader, '#!/bin/sh\necho "no server running on /x" >&2; exit 1\n');
+      assert.equal(status.tmuxPanes(), '');
+      assert.equal(status.readerTmux(), null, 'with the server gone, the last reader was still vouched for');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
 
