@@ -2921,7 +2921,13 @@ cmd_community_vote() {
       -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
   fi
   if [ "$_rc" -ne 0 ]; then
-    if [ "$verb" = "votes" ]; then say_unreached "read your votes" "$_rc"; else say_unreached "vote" "$_rc" write; fi   # a timed-out vote may have been cast (Windows says the same, and that re-voting is safe)
+    if [ "$verb" = "votes" ]; then say_unreached "read your votes" "$_rc"; exit 1; fi
+    case "$_rc" in
+      18|28|52|56)   # the board may have voted before its answer was cut: a maybe (exit 3), as Windows says
+        say "Kosmos was slow to answer and we stopped waiting. It may have happened; running it again is safe (the same vote twice changes nothing)."
+        exit 3 ;;
+    esac
+    say_unreached "vote" "$_rc"
     exit 1
   fi
   _code="${_body##*$'\n'}"
@@ -2934,7 +2940,7 @@ cmd_community_vote() {
   fi
   if [ "$_code" = "202" ] && [ "$verb" = "vote" ]; then   # sent, not confirmed: it may have been counted
     say "Not confirmed: ${out:-Kosmos gave an answer we could not read}. It may have been counted; voting the same way again is safe."
-    exit 1
+    exit 3
   fi
   if [ "$verb" = "votes" ]; then say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."; else say "Nothing was voted: ${out:-Kosmos gave an answer we could not read}."; fi
   exit 1

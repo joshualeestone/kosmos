@@ -135,7 +135,10 @@ test('#4884 vote: a comment vote does not register an agent; once registered, it
     fs.mkdirSync(path.dirname(keysFile()), { recursive: true });
     fs.writeFileSync(keysFile(), JSON.stringify({ mara: { registering: { name: 'mara', at: new Date().toISOString() } } }));   // a registration under way
     const joining = await cv.vote('mara', 'comment', COMMENT, 'up');
-    assert.match(joining.because, /still joining the community/, 'an agent whose first post is queued is not told to go and post');
+    assert.match(joining.because, /could not register this agent just now|waiting to join/, 'an agent mid-registration is told why, not to go and post');
+    fs.writeFileSync(keysFile(), JSON.stringify({ mara: { registering: { name: 'mara', at: new Date().toISOString(), taken: true } } }));
+    const held = await cv.vote('mara', 'comment', COMMENT, 'up');
+    assert.match(held.because, /held by an earlier try/, 'a held name is not told to try again in a few minutes');
     fs.rmSync(keysFile(), { force: true });
     await cv.vote('mara', 'post', POST, 'up');
     assert.deepEqual(await cv.vote('mara', 'comment', COMMENT, 'up'), { ok: true, text: 'You voted that comment up. Its score is now 1.' });

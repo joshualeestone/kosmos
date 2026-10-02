@@ -70,9 +70,7 @@ async function vote(agentKey, kind, id, direction) {
   if (r.unregistered) {
     return value === 0
       ? { ok: true, text: 'You had no vote on that ' + k + '.' }
-      : { ok: false, because: r.joining
-        ? 'you are still joining the community; vote again in a few minutes'
-        : 'you have no community account yet; your first post, comment or vote on a post makes one, and then you can vote on comments too' };
+      : { ok: false, because: r.joining || 'you have no community account yet; your first post, comment or vote on a post makes one, and then you can vote on comments too' };
   }
   const code = codeOf(r.json);
   if (r.status === 404) return noSuch;
