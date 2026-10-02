@@ -259,3 +259,9 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
 - NIT (Opus) wording: the brief's "never beside a real suite" was MY wording and wrong; the design allows a suite beside
   one side turn; a side turn never runs beside a cut, an install harness, a browser run or an old-wrapper main turn.
 - NIT (kept): kill -9 of queued-heavy.sh leaves the side command running (same posture as the machine claim).
+- Round 16 CONTROL RESULT (pre-round-16 wrapper, same dry harness): the 9 new _qh_scan forms all BAD (the arms can fail).
+  The detached-descendant arm did not print BAD: it HUNG, because the setsid'd sleep the old wrapper left alive held the
+  harness's output pipe open (one stray lived 13+ min from the first control run, one from the rerun). I killed both strays
+  by pid, after which the arm printed OK, so that printed line is NOT a control result. The evidence is the hang and the
+  live strays under the old wrapper versus no stray and no hang under the new one (66/66 at 22:3x). Harness weakness noted:
+  the arm should send the detached child's output away from the $( ) so a failure reads BAD instead of hanging.
