@@ -64,14 +64,14 @@ test('#4382: an update counts as a stop of ours, so Run agents cannot start a bo
   // And the refusal it relies on is still there, now also for an install an earlier run of the app started.
   const runHere = body('@objc func runAgentsHere(_ sender: Any?)');
   assert.match(runHere, /let installing = updateLookInFlight \|\| Self\.installUnderWay\(kosmosHome: home\)\n\s+guard stopsInFlight == 0, !installing else \{/);
-  assert.match(SRC, /let marker = kosmosHome \+ "\/logs\/install\.started"[\s\S]{0,200}return Date\(\)\.timeIntervalSince\(at\) < 30 \* 60/,
+  assert.match(SRC, /let marker = kosmosHome \+ "\/logs\/install\.started"[\s\S]{0,200}let age = Date\(\)\.timeIntervalSince\(at\)\n\s+return age >= 0 && age < 30 \* 60/,
     'the app and the CLI disagree on when an install is under way');
 });
 
 test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   const done = body('private func updateLookDone(_ answer: UpdateAnswer, asked: Bool)');
   assert.match(done, /guard computerMode == \.connect else \{ showUpdateOffer\(nil\); return \}/);
-  assert.match(done, /case \.newer\(let v\):\n\s+showUpdateOffer\(v\)/);
+  assert.match(done, /case \.newer\(let v\):\n(\s+\/\/.*\n)*\s+showUpdateOffer\(v\)\n/);
   assert.match(done, /case \.failed\(let v\):\n\s+showUpdateOffer\(v, note:/);
   // Review 1: only the person's own Update restarts at once, and never under a dialog of ours. An install
   // made because updates are on waits for Restart, so words typed on the page are never lost to it.
@@ -91,6 +91,11 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   // Once: the retry's own unknown is not retried, and a refusal (not a connect computer, or an agent) never is.
   assert.match(done, /if case \.unknown = answer, !updateLookIsRetry \{ retryUpdateLookSoon\(\) \}/);
   assert.match(done, /case \.current, \.board, \.refused:/);
+  // Review 4: a pressed Update that could not start says so and keeps the offer, rather than vanishing.
+  assert.match(done, /case \.board where asked, \.refused where asked:\n(\s+\/\/.*\n)*\s+showUpdateOffer\(offeredUpdate, note: "Kosmos is already being updated on this computer\. Try again in a few minutes\."\)\n/);
+  assert.ok(done.indexOf('case .board where asked') < done.indexOf('case .current, .board, .refused:'), 'the asked arm comes after the general one and never runs');
+  // Review 4: Not Now holds for that version whatever the bar says about it.
+  assert.match(SRC, /guard let text, version == nil \|\| version != updateBarDismissed else \{/);
   assert.match(body('private func lookForUpdate(install: Bool, retry: Bool = false)'), /updateLookInFlight = true\n\s+updateLookIsRetry = retry\n/);
   assert.match(SRC, /static let updateRetryAfterUnknown: TimeInterval = 60 \* 60\n/);
   const retry = body('private func retryUpdateLookSoon()');
@@ -110,7 +115,7 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
 test('#4382: the person\'s choice installs whatever the Updates switch says; the CLI is told so', () => {
   const now = body('@objc func updateKosmosNow(_ sender: Any?)');
   assert.match(now, /guard !updateLookInFlight else \{ logLine\(/, 'a second press runs a second installer');
-  assert.match(now, /if let v = installedUpdate \{\n\s+relaunchAfterUpdate\(to: v\)\n\s+return\n\s+\}\n\s+guard offeredUpdate != nil else \{ return \}\n\s+lookForUpdate\(install: true\)/);
+  assert.match(now, /if let v = installedUpdate \{\n\s+updateBarDismissed = nil\n\s+relaunchAfterUpdate\(to: v\)\n\s+return\n\s+\}\n\s+guard offeredUpdate != nil else \{ return \}\n\s+updateBarDismissed = nil.*\n\s+lookForUpdate\(install: true\)/);
   assert.match(SRC, /process\.arguments = install \? \["update", "--if-newer", "--install"\] : \["update", "--if-newer"\]/);
 });
 
