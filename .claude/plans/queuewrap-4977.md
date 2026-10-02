@@ -16,8 +16,8 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 - `tools/test-queued-heavy-4977.sh`: Pete's dry harness (74 arms: side turns, yields, TERM and SIGKILL handling, nested turns, claim labels, which commands take an ordinary turn), run against this tree's own lib, plus:
   - every run of the wrapper goes through a shim that refuses (exit 99) unless KOSMOS_RUN_MARKER_DIR is inside the test's own mktemp dir; a control arm proves the shim refuses;
   - fake package managers first on PATH (as the harness had);
-  - stray processes are stopped only by an exact `^sleep <N>$` match on lengths unique to this run (no broad pkill), and an EXIT trap cleans up;
-  - it counts: 0 BAD and exactly 76 OK, else it fails (74 seeded arms, the shim control, the killed wrapper's temp files).
+  - stray processes are stopped only by an exact `^sleep <N>$` match on lengths unique to this run (no broad pkill); an EXIT trap stops the background wrappers it started (a wrapper run inside a command substitution ends by its own arm's wait and the shim's 240 s deadline);
+  - it counts: 0 BAD and exactly 77 OK, else it fails (74 seeded arms, the shim control, the killed wrapper's temp files, a missing lib checkout exits 3).
 - `package.json`: `test:shell` runs it (tools.every-test-runs.test.js would otherwise flag it as orphaned).
 
 ## Review rounds
@@ -30,6 +30,7 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 - After the rebase (new loop, iteration 1): the temp-file cleanup arm could pass if the files were never made (the fixture arm now requires them in this test's TMPDIR); the header said the live copy is installed from this file (it is not; reworded); this plan's base and validation lines were stale.
 - Iteration 2: the test now runs from an empty dir, so the relative real scripts its cases name (`bash tools/test-install.sh`) cannot run if a refusal lapsed. Left as found: `_qh_take`'s stale-lock takeover can let two waiters in when the lock's holder died holding it (both read the dead pid; the second's `rm -rf` removes the first's new lock). It is #4911's lock, already in the live copy; this branch pins the wrapper rather than redesigning it. Logged on #4977 as a follow-up.
 - Iteration 3: the wrapper's comments said the guards are read from a checkout at origin/main; they are read from whatever checkout QUEUED_HEAVY_LIB names, and nothing updates it (reworded).
+- Iteration 4: an arm for a lib checkout without cut-guard.sh (exit 3, nothing runs); `bash -n` of both scripts in `test:shell`; the plan's cleanup line says what the trap stops. Left as found: the test writes the machine-claim line in the lib's format by hand; if that format changes the hold arms go red, not green.
 
 ## Decisions
 - The repo copy keeps reading the guards from ONE main checkout, not the worktree it runs from: every worktree reading its own branch's lib is how several lib generations end up in one queue (item 1's cause).
