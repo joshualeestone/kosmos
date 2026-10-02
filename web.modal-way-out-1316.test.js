@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 20,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice)
-    `${found.length} modals now, up from 20 (#4820 removed the Community notice). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 21,   // 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview
+    `${found.length} modals now, up from 21 (#4930's file preview). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -94,6 +94,9 @@ const ESCAPES_VIA = {
   /* #4080: "Lost your phone?" (the second-step reset), the same machinery: a document-level Escape guarded on
      hidden, and a Tab trap between Close and Reset; Close returns focus to the link. */
   'plus-lost-modal': /plus-lost-modal'\)\.hidden\) plusLostClose/,
+  /* #4930: the full-page file preview. Its Escape is a capture-phase document keydown that finds it by id and closes it
+     (its backdrop id sits in PV_HTML so this sweep can name it). */
+  'pv-preview':      /getElementById\('pv-preview'\);\n\s*if \(!back\) return;\n\s*if \(e\.key === 'Escape'\)/,
 };
 
 test('every modal has a named way out with Escape, and the table covers them all', () => {

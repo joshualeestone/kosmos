@@ -15029,6 +15029,16 @@ const server = http.createServer(async (req, res) => {
       .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not keep that file') }));
     return;
   }
+  /* #4930: the full-page preview's "Open in Finder": the attachment's own file, selected in its folder (never opened).
+     The file is the stored record's, found by id alone, so no path from the request reaches the opener. */
+  const attachReveal = pathname.match(/^\/api\/attachment\/([0-9a-f]{24})\/reveal$/);
+  if (attachReveal && req.method === 'POST') {
+    const rec = attachments.read(attachReveal[1]);
+    if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
+    const r = projects.revealFile(rec.file);
+    sendJson(res, r && r.ok ? 200 : 500, r && r.ok ? { ok: true } : { error: (r && r.because) || 'Finder did not open' });
+    return;
+  }
   const attachGet = pathname.match(/^\/api\/attachment\/([0-9a-f]{24})(\/preview)?$/);
   if (attachGet && (req.method === 'GET' || req.method === 'HEAD')) {
     const rec = attachments.read(attachGet[1]);

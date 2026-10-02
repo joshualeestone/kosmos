@@ -7002,6 +7002,32 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .att-txt { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; min-width: 0; }
 .att-name { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+
+/* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right,
+   the action bottom left. Its own layer above the board, like the other dialogs. */
+.pv-back { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .9); }
+.pv-box { position: absolute; inset: 0; display: flex; flex-direction: column; outline: none; }
+.pv-x { position: absolute; top: 14px; right: 14px; z-index: 1; width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, .12); color: #fff; font: 400 26px/1 var(--font-ui); cursor: pointer; }
+.pv-x:hover { background: rgba(255, 255, 255, .2); }
+.pv-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 64px 24px 12px; }
+.pv-media { max-width: 100%; max-height: 100%; min-height: 0; object-fit: contain; border-radius: 4px; }
+.pv-note { margin: 0; color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
+.pv-text { margin: 0; max-width: min(100%, 48rem); max-height: 100%; overflow: auto; padding: 18px 20px; border-radius: 8px;
+  background: rgba(255, 255, 255, .06); color: #f2f2f2; font: 13px/1.5 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; }
+.pv-file { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #fff; text-align: center; }
+.pv-file svg { width: 56px; height: 56px; }
+.pv-file b { font: 600 1.0625rem var(--font-ui); }
+.pv-file span { color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
+.pv-bar { display: flex; align-items: center; gap: 14px; padding: 14px 18px 18px; min-width: 0; }
+.pv-btn { flex: none; padding: 9px 14px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .14); color: #fff;
+  font: 600 .875rem var(--font-ui); text-decoration: none; cursor: pointer; }
+.pv-btn:hover { background: rgba(255, 255, 255, .22); }
+.pv-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, .72);
+  font: var(--text-caption) var(--font-ui); }
+.pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
+.att[data-att] { cursor: zoom-in; }
 .attachbtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
@@ -58637,6 +58663,8 @@ function pjPreviewCard(preview) {
 /* Every file on a message, in order: `attachments` when the row carries it
    (#426), else the single `attachment` older rows have. One reading for the
    four renderers, so none of them can draw a different count. */
+/* #4930: attachment id -> what its card showed, filled as cards are drawn (pvOpen reads it). */
+const PV_ATTS = new Map();
 function pjFiles(m) {
   const many = m && Array.isArray(m.attachments) ? m.attachments.filter((a) => a && typeof a === 'object') : [];
   if (many.length) return many;
@@ -58681,11 +58709,132 @@ function pjAttachmentCard(att) {
   const meta = [pjFileWord(a.type, name, kind), pjSize(a.size) || null].filter(Boolean).join(' · ');
   const pic = preview && (kind === 'image' || kind === 'pdf')
     ? '<span class="att-pic"><img src="' + esc(preview) + '" alt="" loading="lazy"></span>' : '';
-  return '<a class="att att-' + kind + (pic ? ' haspic' : '') + '" href="' + esc(a.url) + '" download="' + esc(name) + '">'
+  /* #4930: a click opens the full-page preview (pvOpen); the card stays a download link for a modifier-click. */
+  const id = (a.url.match(/^\/api\/attachment\/([0-9a-f]{24})$/) || [])[1];
+  if (id) PV_ATTS.set(id, { id, name, kind, meta, url: a.url, preview: a.preview });
+  return '<a class="att att-' + kind + (pic ? ' haspic' : '') + '" href="' + esc(a.url) + '" download="' + esc(name) + '"'
+    + (id ? ' data-att="' + id + '"' : '') + '>'
     + pic
     + '<span class="att-txt"><span class="att-name">' + esc(name) + '</span>'
     + (meta ? '<span class="att-meta">' + esc(meta) + '</span>' : '') + '</span></a>';
 }
+
+/* #4930 (Josh, 2026-10-01 20:17: "if I clicked on a image (or even possibly a document) it zoomed up and rendered it
+   full page preview with a very dark background modal. And then gave me a button to close ... in the top right with
+   a X or an open in finder button on the bottom left"): a click on a file a message carries opens it full page.
+   An image at its own size (fitted, never cropped), a PDF as its first page, a text file as its opening, anything
+   else as its name and size. X (top right), Escape and a click on the dark closes it. Bottom left: Open in Finder
+   (Show in File Explorer on Windows) selects the file on this computer; over Kosmos+ the file is not on the
+   computer in front of you, so it is Download instead. Read-only: nothing here changes or moves the file. */
+let PV_OPENER = null;
+const PV_HTML = '<div class="pv-back" id="pv-preview">'
+  + '<div class="pv-box" role="dialog" aria-modal="true" aria-labelledby="pv-name" tabindex="-1">'
+  + '<button type="button" class="pv-x" id="pv-x" aria-label="Close">&times;</button>'
+  + '<div class="pv-stage" id="pv-stage"></div>'
+  + '<div class="pv-bar"><span id="pv-act"></span><span class="pv-name" id="pv-name"></span><span class="pv-msg" id="pv-msg" role="status"></span></div>'
+  + '</div></div>';
+function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }
+function pvOpen(id, from) {
+  const a = PV_ATTS.get(id);
+  if (!a) return false;
+  pvClose();
+  const tmp = document.createElement('div');
+  tmp.innerHTML = PV_HTML;
+  const back = tmp.firstElementChild;
+  const stage = back.querySelector('#pv-stage');
+  if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) {
+    const img = document.createElement('img');
+    img.className = 'pv-media';
+    img.alt = a.kind === 'pdf' ? 'The first page of ' + a.name : a.name;
+    img.src = a.preview;
+    stage.appendChild(img);
+    if (a.kind === 'pdf') { const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The first page'; stage.appendChild(c); }
+    pvZoomFrom(img, from);
+  } else if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) {
+    const pre = document.createElement('pre');
+    pre.className = 'pv-text';
+    pre.textContent = a.preview;   // the file's own words, as text, never markup
+    stage.appendChild(pre);
+    const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c);
+  } else {
+    const card = document.createElement('div');
+    card.className = 'pv-file';
+    card.innerHTML = fileIcon(a.name) + '<b></b><span></span>';
+    card.querySelector('b').textContent = a.name;
+    card.querySelector('span').textContent = a.meta || '';
+    stage.appendChild(card);
+  }
+  back.querySelector('#pv-name').textContent = a.name;
+  const act = back.querySelector('#pv-act');
+  if (kplusRemote()) {
+    const dl = document.createElement('a');
+    dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
+    act.replaceWith(dl);
+  } else {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = pvRevealWord();
+    b.addEventListener('click', () => pvReveal(a.id));
+    act.replaceWith(b);
+  }
+  back.querySelector('#pv-x').addEventListener('click', pvClose);
+  back.addEventListener('click', (e) => { if (e.target === back || e.target === stage) pvClose(); });
+  PV_OPENER = from || document.activeElement;
+  document.body.appendChild(back);
+  back.querySelector('.pv-box').focus();
+  return true;
+}
+/* The picture grows from the card it was clicked on, unless the person asked for less motion. */
+function pvZoomFrom(img, from) {
+  const src = from && from.querySelector && from.querySelector('.att-pic img');
+  if (!src || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  const go = () => {
+    const a = src.getBoundingClientRect();
+    const b = img.getBoundingClientRect();
+    if (!a.width || !b.width) return;
+    img.style.transformOrigin = '0 0';
+    img.style.transform = 'translate(' + (a.left - b.left) + 'px,' + (a.top - b.top) + 'px) scale(' + (a.width / b.width) + ')';
+    img.getBoundingClientRect();
+    img.style.transition = 'transform 220ms ease-out';
+    img.style.transform = '';
+  };
+  if (img.complete && img.naturalWidth) requestAnimationFrame(go); else img.addEventListener('load', () => requestAnimationFrame(go), { once: true });
+}
+async function pvReveal(id) {
+  const msg = document.getElementById('pv-msg');
+  if (msg) msg.textContent = '';
+  try {
+    const res = await fetch('/api/attachment/' + id + '/reveal', { method: 'POST' });
+    if (!res.ok) { const out = await res.json().catch(() => ({})); if (msg) msg.textContent = out.error || 'That did not open.'; }
+  } catch { if (msg) msg.textContent = 'Kosmos could not be reached.'; }
+}
+function pvClose() {
+  const back = document.getElementById('pv-preview');
+  if (!back) return;
+  back.remove();
+  const to = PV_OPENER;
+  PV_OPENER = null;
+  if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
+}
+/* A plain click on a file card opens the preview; a modifier-click (or a middle click) keeps the download. */
+document.addEventListener('click', (e) => {
+  const card = e.target && e.target.closest ? e.target.closest('a.att[data-att]') : null;
+  if (!card || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  if (pvOpen(card.getAttribute('data-att'), card)) e.preventDefault();
+});
+/* On the document, in the capture phase, like the update window: Escape closes it before a dialog under it, and
+   Tab stays between the X and the action while it is up. */
+document.addEventListener('keydown', (e) => {
+  const back = document.getElementById('pv-preview');
+  if (!back) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pvClose(); return; }
+  if (e.key !== 'Tab') return;
+  e.stopPropagation();
+  const f = [back.querySelector('#pv-x'), back.querySelector('#pv-do')].filter(Boolean);
+  const at = f.indexOf(document.activeElement);
+  if (at === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }
+  if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+}, true);
 
 function pjSize(bytes) {
   const n = Number(bytes);
