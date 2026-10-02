@@ -1016,7 +1016,6 @@ function staleHeld(projectId, ids, log, now, member) {
    (or nobody to deliver to) is placed; anything else is unconfirmed.
    #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
    the folded retry of one (it reports the first copy's outcomes). */
-
 function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
   return states.every((v) => v === chat.DELIVERY.PLACED || v === roomhold.HELD) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
@@ -1910,6 +1909,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const heldUntil = {};
   let reached = 0;
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
+  const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
   const deliverOne = (name) => {
     if (offHere.has(name)) return null;
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
@@ -2024,6 +2024,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     /* #4624: posts held for this member in this room while it was working ride on this arrival, as one
        line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
     const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name));   // #4926
+    takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
@@ -2079,7 +2080,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        that member could not be reached, and a post where that is every member is refused as before. */
     if (outcomes[name] === undefined) {
       if (typingStarted.has(name)) { outcomes[name] = chat.DELIVERY.UNCONFIRMED; reached += 1; }
-      else { outcomes[name] = chat.DELIVERY.COULD_NOT; unspill(spilled[name]); }   // review 3: no inbox file for a post it never got
+      else {
+        outcomes[name] = chat.DELIVERY.COULD_NOT; unspill(spilled[name]);   // review 3: no inbox file for a post it never got
+        // Review 6 (Sonnet): its held ids were taken for a line it never got; put them back (putBack covers a throw
+        // inside the typing path).
+        if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { roomhold.restore(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
+      }
     }
     // Review 1: the error's first line only, cut short (a tmux error can carry its arguments, the pasted text among them).
     try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + '); recorded as ' + outcomes[name] + '\n'); } catch { /* never breaks the post */ }

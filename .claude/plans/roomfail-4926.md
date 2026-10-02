@@ -129,3 +129,12 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
   throws); NIT (kept): the twin's quiet looks at start times only (a row that started before but finished after the
   unrecorded post does not break it); NIT (kept, other card): outbox replay of an old kept post.
 - Related files: 271/271.
+
+## Review 6 (Sonnet, blind, convergence): 0 blockers, 1 warning, 2 nits. All test files pass.
+- WARNING FIXED: a member that threw after its held ids were taken for this arrival's line but before its typing path
+  (clauseFor, say) lost those ids (putBack only covers a throw inside the typing path). typingBroke now puts them back
+  on the could_not branch. Test (clauseFor made to throw) + mutant.
+- NIT FIXED: aggregateState's doc comment is attached to it again.
+- NIT (kept, by design): a quota hold is aged from the heldUntil recorded when it was held; a pause that ran more than
+  2 h past that estimate can drop it.
+- Related files: 272/272.

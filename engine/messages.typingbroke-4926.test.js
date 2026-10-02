@@ -322,3 +322,18 @@ test('#4926 review 5 (Opus): an outside party\'s reply (an external row) in the 
   const at = src.indexOf('function unrecordedTwin(');
   assert.match(src.slice(at, at + 1200), /r\.kind === 'post' \|\| r\.kind === 'external'/, 'the twin\'s quiet no longer counts an outside party\'s reply');
 });
+
+test('#4926 review 6 (Sonnet): a member that throws AFTER its held ids were taken but before typing gets them back', async () => {
+  await withRoom(async (roster) => {
+    arm();
+    roomhold.forget('cy');
+    roomhold.hold('cy', 'room4926', 'm55');   // a held id, not in the record (never stale)
+    const real = roomhold.clauseFor;
+    roomhold.clauseFor = (...a) => { throw new Error('clause broke'); };
+    let d;
+    try { d = await agentPost(roster, '@cy a question', false); } finally { roomhold.clauseFor = real; }
+    assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT, 'fixture: cy did not fail before typing');
+    assert.deepEqual(roomhold.heldIn('cy', 'room4926'), ['m55'], 'the held id taken for a line cy never got was lost');
+    roomhold.forget('cy');
+  });
+});
