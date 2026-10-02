@@ -47,11 +47,24 @@ got="$( REPO="$F"; eval "$BLK" && printf '%s' "$KM_SETUP_SHA" )" ; rc=$?
 printf '%064d  setup\n' 0 > "$F/dist/setup.sha256"
 ( REPO="$F"; eval "$BLK" ) 2>/dev/null && bad "release: a lying dist/setup.sha256 was accepted" || pass "release: a dist/setup.sha256 that does not name dist/setup refuses the cut"
 
-# 1f: a staging cut refuses before the bump unless the site serves /setup-staging uncached.
+# 1f: a staging cut refuses before the bump unless the site's ORIGIN/MAIN vercel.json serves /setup-staging uncached.
+# The block is extracted and RUN against fixture sites (a bare origin, a checkout of it).
 a="$(grep -n 'step "== 1f. the site serves /setup-staging uncached' "$REPO/tools/release.sh" | cut -d: -f1)"; b="$(grep -n 'step "== 2. the version, in one place ==' "$REPO/tools/release.sh" | cut -d: -f1)"
-[ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && grep -qF 'git -C "$SITE" show origin/main:vercel.json 2>/dev/null | grep -q '"'"'"source": "/setup-staging"'"'"'' "$REPO/tools/release.sh" \
-  && pass "release: a staging cut checks the site's /setup-staging headers before the bump" || bad "release: no pre-bump check of the site's /setup-staging headers ($a vs $b)"
-grep -q '"source": "/setup-staging"' "$REPO/../chaoskosmos-site-setupstaging-5032/vercel.json" 2>/dev/null && pass "site half: vercel.json carries /setup-staging (CONTROL: what 1f looks for exists)" || echo "SKIP  site half not beside this checkout"
+[ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && pass "release: step 1f sits before the version bump" || bad "release: step 1f is not before the bump ($a vs $b)"
+F1F="$(sed -n "$((a+1)),$((b-1))p" "$REPO/tools/release.sh")"
+site_with(){ # <vercel.json text> -> a checkout whose origin/main holds it
+  local o d; o="$(mktemp -d "$T/vo.XXXXXX")"; d="$(mktemp -d "$T/vs.XXXXXX")"
+  git init -q --bare "$o"; git -C "$d" init -q; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+  printf '%s\n' "$1" > "$d/vercel.json"; git -C "$d" add vercel.json; git -C "$d" commit -qm v
+  git -C "$d" remote add origin "$o"; git -C "$d" push -q origin HEAD:main; printf '%s' "$d"
+}
+WITH="$(site_with '{"headers":[{"source": "/setup-staging","headers":[]}]}')"; WITHOUT="$(site_with '{"headers":[]}')"
+( CUT_CHANNEL=staging; SITE="$WITH"; eval "$F1F" ) >/dev/null 2>&1 && pass "release 1f: passes when the site's origin/main has the /setup-staging rule" || bad "release 1f refused a site that has the rule"
+( CUT_CHANNEL=staging; SITE="$WITHOUT"; eval "$F1F" ) >/dev/null 2>&1 && bad "release 1f passed a site without the rule" || pass "release 1f: refuses when the site's origin/main lacks it"
+# The local working tree is NOT what counts: a rule only in the checkout (uncommitted) still refuses.
+printf '{"headers":[{"source": "/setup-staging"}]}\n' > "$WITHOUT/vercel.json"
+( CUT_CHANNEL=staging; SITE="$WITHOUT"; eval "$F1F" ) >/dev/null 2>&1 && bad "release 1f trusted the local working tree" || pass "release 1f: reads origin/main, not the local checkout"
+( CUT_CHANNEL=prod; SITE="$WITHOUT"; eval "$F1F" ) >/dev/null 2>&1 && pass "release 1f: CONTROL a prod cut is not asked" || bad "release 1f refused a prod cut"
 
 # ---- verify-served.sh: only the two names, refused before any fetch ----
 # HOST is a port nothing listens on: a name that got past the gate would fail at the network

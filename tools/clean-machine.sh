@@ -96,6 +96,9 @@ done
 # /setup-staging; /setup stays prod's until the promote). Default: /setup, prod.
 SETUP_NAME="${KOSMOS_VERIFY_SETUP:-setup}"
 case "$SETUP_NAME" in setup|setup-staging) ;; *) fail "KOSMOS_VERIFY_SETUP must be setup or setup-staging"; exit 1 ;; esac
+# The staging installer installs the STAGING build: without the channel it would read the prod pointer and pair
+# itself with the prod tarball, the pairing #5032 removes. run_setup passes this through.
+CHANNEL_FOR_SETUP=""; [ "$SETUP_NAME" = setup-staging ] && CHANNEL_FOR_SETUP=staging
 say "== fetching the SERVED installer from $HOST/$SETUP_NAME =="
 curl -fsSL "$HOST/$SETUP_NAME" -o "$SB/setup" || { fail "could not fetch $HOST/$SETUP_NAME"; exit 1; }
 say "   $(wc -c < "$SB/setup" | tr -d ' ') bytes"
@@ -127,7 +130,7 @@ run_setup() {
   HOME="$SBHOME" TMUX_TMPDIR="$SB/tmux-sock" \
   AGENT_WORKFORCE_LAUNCH="$SBHOME/Library/LaunchAgents" \
   KOSMOS_APP_DIR="$SB/app" KOSMOS_SYS_APP_DIR="$SB/Applications" \
-  KOSMOS_PORT="$PORT" KOSMOS_NO_OPEN=1 \
+  KOSMOS_PORT="$PORT" KOSMOS_NO_OPEN=1 KOSMOS_UPDATE_CHANNEL="$CHANNEL_FOR_SETUP" \
   sh "$SB/setup" "$@" > "$SB/out.$_label.log" 2>&1
 }
 
