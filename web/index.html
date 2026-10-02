@@ -27592,6 +27592,7 @@ let OA_COMPUTERS_AT = 0;
 const OA_SEEN = new Map();             // address -> { state: 'ok'|'notin'|'blocked'|'out', agents, at }
 let OA_TIMER = null;
 let OA_BUSY = false;
+let OA_PAINTED = '';                  // oaPaintKey of what #oa-groups shows now
 
 function oaThisOnly() {
   try { return localStorage.getItem('kosmos.agents.thisOnly') === '1'; } catch { return false; }
@@ -27628,9 +27629,16 @@ function oaRemember(seen, address, state, agents, now) {
   seen.set(address, next);
   return next;
 }
+/* Only the three fields this section shows, each a string: the rows go through this board's sortAgents, which reads
+   more fields than these and would throw on a malformed one from another computer. */
 function oaAgentsOf(body) {
   return body.agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true
-    && typeof a.sessionName === 'string' && a.sessionName);
+    && typeof a.sessionName === 'string' && a.sessionName)
+    .map((a) => ({
+      sessionName: a.sessionName,
+      name: typeof a.name === 'string' ? a.name : '',
+      state: typeof a.state === 'string' ? a.state : '',
+    }));
 }
 function oaAgentHref(address, sessionName) {
   return 'https://' + address + '/?agent=' + encodeURIComponent(sessionName);
@@ -27656,13 +27664,15 @@ async function oaReadOne(c) {
 }
 function oaNote(c, seen, now) {
   const st = seen ? seen.state : 'reading';
-  const last = typeof c.lastSeen === 'number' ? agoWords(now - c.lastSeen * 1000) : '';
+  /* This page's own last good read, never the coordinator's lastSeen: that is refreshed only on a reconnect or once
+     a day, so it would say "a day ago" of a computer that was answering minutes before. */
+  const last = seen && typeof seen.at === 'number' ? agoWords(now - seen.at) : '';
   if (st === 'reading') return 'Reading its agents...';
   if (st === 'ok') return '';
   if (st === 'notin') return 'This browser is not let in on ' + c.name + ' yet. Open it to sign in.';
   const kept = seen && seen.agents ? ' Showing what this page last read.' : '';
   if (st === 'blocked') return c.name + ' is online but did not let this page read its agents.' + kept;
-  return 'Not connected' + (last ? ', last seen ' + last : '') + '.' + kept;
+  return 'Not connected' + (last ? ', this page last read it ' + last : '') + '.' + kept;
 }
 function oaCard(a, c, off) {
   const el = document.createElement(off ? 'div' : 'a');
@@ -27721,28 +27731,45 @@ function oaGroup(c, seen, now) {
   }
   return g;
 }
+/* The grid is on screen: neither it nor anything holding it is hidden (the consolidated view hides its panel, not
+   the grid). Nothing is read from the other computers while it is not. */
+function oaGridShown(grid) {
+  return !!grid && !grid.closest('[hidden]');
+}
 function oaPaint() {
   const wrap = document.getElementById('oa-wrap');
   const grid = document.getElementById('grid');
   if (!wrap || !grid) return;
   const others = OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
-  wrap.hidden = grid.hidden || others.length === 0;
+  wrap.hidden = !oaGridShown(grid) || others.length === 0;
   if (wrap.hidden) return;
   const only = oaThisOnly();
   const box = document.getElementById('oa-only');
   if (box) box.checked = only;
   const groups = document.getElementById('oa-groups');
   groups.hidden = only;
-  groups.textContent = '';
-  if (only) return;
+  if (only) { groups.textContent = ''; OA_PAINTED = ''; return; }
   const now = Date.now();
+  /* Rebuilt only when what it shows changed: a rebuild every round would take keyboard and screen-reader focus off
+     a card twice every 15 seconds. */
+  const said = oaPaintKey(others, OA_SEEN, now, typeof AGENT_SORT === 'string' ? AGENT_SORT : 'name');
+  if (said === OA_PAINTED && groups.children.length) return;
+  OA_PAINTED = said;
+  groups.textContent = '';
   for (const c of others) groups.appendChild(oaGroup(c, OA_SEEN.get(c.address), now));
+}
+/* Everything oaGroup paints from, as one string: the computers, each one's note and state, its agents and the sort. */
+function oaPaintKey(others, seen, now, sort) {
+  return JSON.stringify([sort, others.map((c) => {
+    const s = seen.get(c.address);
+    return [c.name, c.address, oaNote(c, s, now), s ? s.state : 'reading', s && Array.isArray(s.agents) ? s.agents : null];
+  })]);
 }
 async function oaRound() {
   if (OA_BUSY || typeof location === 'undefined' || location.protocol !== 'https:') return;
   if (document.hidden) return;
   const grid = document.getElementById('grid');
-  if (!grid || grid.hidden) { oaPaint(); return; }
+  if (!oaGridShown(grid)) { oaPaint(); return; }
   OA_BUSY = true;
   try {
     const now = Date.now();
@@ -44026,7 +44053,8 @@ function placeAgentsPanel(consolidated) {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
   let wrap = document.getElementById('panel-cons-agents');
-  const ids = ['grid', 'orgview'];
+  /* kosmos#4812: the other computers' section travels with the grid, or it stays behind as a band of its own. */
+  const ids = ['grid', 'oa-wrap', 'orgview'];
   if (consolidated) {
     if (!wrap) {
       wrap = document.createElement('div');

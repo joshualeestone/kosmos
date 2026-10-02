@@ -40,6 +40,8 @@ const SRC = [
   slice('oaNote'),
   slice('oaCard'),
   slice('oaGroup'),
+  slice('oaGridShown'),
+  slice('oaPaintKey'),
 ].join('\n');
 
 /* One sandbox per test: the page's functions, a fake document, a fake fetch, and a sortAgents stand-in that
@@ -52,7 +54,7 @@ function load(fetchImpl) {
     const AGENT_SORT = 'name';
     function sortAgents(list, mode, projects) { calls.sort.push([mode, projects]); return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))); }
     ${SRC}
-    return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, OA_SEEN };
+    return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaPaintKey, OA_SEEN };
   `)(t.document, fetchImpl || (async () => { throw new Error('no fetch in this test'); }), calls);
   return { api, calls, d: t };
 }
@@ -108,14 +110,35 @@ test('remember: unreachable keeps the last list to grey, not let in drops it', (
 
 test('read: asks that computer with this browser\'s credentials and keeps only real agents', async () => {
   const asked = [];
+  const optsSeen = [];
   const { api } = load(async (url, opts) => {
     asked.push([url, opts.credentials, opts.mode]);
+    optsSeen.push(opts);
     return { status: 200, json: async () => ({ agents: [{ sessionName: 'angel', name: 'Angel' }, { sessionName: 'g', isGuide: true }, { name: 'nosession' }, null] }) };
   });
   const r = await api.oaReadOne(LIST.computers[1]);
   assert.deepEqual(asked, [['https://agent1s.kosmosplus.com/api/status', 'include', 'cors']]);
   assert.equal(r.state, 'ok');
   assert.deepEqual(r.agents.map((a) => a.sessionName), ['angel'], 'guides and rows with no session are dropped');
+  /* A simple GET with no header and no body, so the browser sends no preflight (the relay refuses one). The browser
+     check cannot prove this: Playwright answers an intercepted preflight itself. */
+  const o = optsSeen[0];
+  assert.equal(o.method === undefined || o.method === 'GET', true, 'GET');
+  assert.equal(o.headers, undefined, 'no headers: any would make the browser send a preflight');
+  assert.equal(o.body, undefined, 'no body');
+  assert.deepEqual(Object.keys(o).sort(), ['cache', 'credentials', 'mode', 'signal'], 'nothing else rides along');
+});
+
+test('read: rows keep only three string fields, so a malformed one cannot reach this board\'s sort', async () => {
+  const { api } = load(async () => ({ status: 200, json: async () => ({ agents: [
+    { sessionName: 'a', name: 'Ann', state: 'idle', role: 42, runner: { x: 1 }, profile: null },
+    { sessionName: 'b', name: { not: 'text' }, state: 7 },
+  ] }) }));
+  const r = await api.oaReadOne(LIST.computers[1]);
+  assert.deepEqual(r.agents, [
+    { sessionName: 'a', name: 'Ann', state: 'idle' },
+    { sessionName: 'b', name: '', state: '' },
+  ]);
 });
 
 test('read: no readable answer is blocked from an online computer, out from an offline one', async () => {
@@ -124,15 +147,16 @@ test('read: no readable answer is blocked from an online computer, out from an o
   assert.equal((await api.oaReadOne(LIST.computers[2])).state, 'out');
 });
 
-test('note: says which of the four it is, with last seen for one not connected', () => {
+test('note: says which of the four it is, with this page\'s own last read for one not connected', () => {
   const { api } = load();
   const c = LIST.computers[2];
   const now = 1000 * 1000 + 3 * 3600 * 1000;
   assert.equal(api.oaNote(c, undefined, now), 'Reading its agents...');
   assert.equal(api.oaNote(c, { state: 'ok' }, now), '');
   assert.match(api.oaNote(c, { state: 'notin' }, now), /not let in on pizzarama/);
-  assert.equal(api.oaNote(c, { state: 'out', agents: null }, now), 'Not connected, last seen 3 hours ago.');
-  assert.equal(api.oaNote(c, { state: 'out', agents: [{}] }, now), 'Not connected, last seen 3 hours ago. Showing what this page last read.');
+  const read = now - 3 * 3600 * 1000;
+  assert.equal(api.oaNote(c, { state: 'out', agents: [{}], at: read }, now), 'Not connected, this page last read it 3 hours ago. Showing what this page last read.');
+  assert.equal(api.oaNote(c, { state: 'out', agents: null, at: null }, now), 'Not connected.', 'the coordinator\'s lastSeen (refreshed daily) is never shown as a time');
   assert.equal(api.oaNote({ ...c, lastSeen: null }, { state: 'out', agents: null }, now), 'Not connected.', 'never a made-up time');
   assert.match(api.oaNote(LIST.computers[1], { state: 'blocked', agents: null }, now), /online but did not let this page read/);
 });
@@ -170,4 +194,29 @@ test('group: sorted with this board\'s sort, greyed when not current, gate shows
   assert.equal(out.querySelectorAll('.oa-open').length, 0, 'no link to a computer that is not connected');
   const empty = api.oaGroup(c, { state: 'ok', agents: [] }, 0);
   assert.match(empty.textContent, /No agents on agent1s\./);
+});
+
+test('the section reads and shows only while the grid is on screen, a hidden holder included', () => {
+  const { api, d } = load();
+  const panel = d.add('panel-cons-agents');
+  const grid = d.create('div');
+  panel.appendChild(grid);
+  assert.equal(api.oaGridShown(grid), true, 'control: shown');
+  panel.hidden = true;
+  assert.equal(api.oaGridShown(grid), false, 'the consolidated view hides its panel, not the grid');
+  panel.hidden = false; grid.hidden = true;
+  assert.equal(api.oaGridShown(grid), false);
+  assert.equal(api.oaGridShown(null), false);
+});
+
+test('paint key: unchanged rounds give the same key, so focus is not taken off a card', () => {
+  const { api } = load();
+  const others = api.oaOthers(LIST);
+  const seen = new Map([['agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'A', state: 'idle' }], at: 5 }]]);
+  const k1 = api.oaPaintKey(others, seen, 10000, 'name');
+  assert.equal(api.oaPaintKey(others, new Map(seen), 25000, 'name'), k1, 'a second round with the same answers repaints nothing');
+  seen.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'A', state: 'working' }], at: 25 });
+  assert.notEqual(api.oaPaintKey(others, seen, 25000, 'name'), k1, 'a state change repaints');
+  assert.notEqual(api.oaPaintKey(others, new Map(), 25000, 'name'), k1, 'a computer back to reading repaints');
+  assert.notEqual(api.oaPaintKey(others, seen, 25000, 'role'), api.oaPaintKey(others, seen, 25000, 'name'), 'a sort change repaints');
 });
