@@ -29,7 +29,7 @@ function world(projects, { current = null, readFailed = false } = {}) {
   const els = {};
   const el = (id) => (els[id] = els[id] || { id, hidden: false, value: '', textContent: '', innerHTML: '', disabled: false, selectedIndex: 0, focused: 0, focus() { this.focused += 1; focusLog.push(id); } });
   const focusLog = [];
-  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-detail', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
+  for (const id of ['nt-projrow', 'nt-proj', 'nt-in', 'nt-in-pick', 'nt-project', 'nt-what', 'nt-detail', 'nt-voice-msg', 'nt-who', 'nt-msg', 'nt-go', 'nt-modal', 'nt-back', 'tsk-new', 'pj-newtask']) el(id);
   els['nt-projrow'].hidden = true;
   els['nt-modal'].hidden = true;
   const box = { attrs: { 'aria-describedby': 'nt-in' }, setAttribute(k, v) { this.attrs[k] = v; } };
