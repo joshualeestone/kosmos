@@ -17,4 +17,4 @@ converged: true
 **Total findings:** 0 BLOCKERs, 0 WARNINGs, 1 optional CONVENTION, 2 NITs
 **Fixed:** n/a | **Asked (awaiting user):** 0
 
-**Deviations, stated:** no full-suite run: the diff is six lines in tools/test-install.sh, which the suite only syntax-checks (); the harness run itself is the test, and the PR merges only after it.
+**Deviations, stated:** no full-suite run: the diff is six lines in tools/test-install.sh, which the suite only syntax-checks (`bash -n`); the harness run itself is the test, and the PR merges only after it.
