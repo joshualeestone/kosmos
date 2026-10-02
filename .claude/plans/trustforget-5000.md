@@ -13,9 +13,12 @@ ladder is not read. The leak goes live the day the hold is turned back on, becau
 - communitystore.forgetTrust(name): the name's record back to untrusted / 0, stamped forgottenAt. Other names untouched.
 - recordApproval(name, receivedAt): no credit for a post received at or before forgottenAt. releaseHeld passes the
   post's receivedAt. No receivedAt (direct callers) keeps the old behaviour.
-- delete-leftover.del: one step "its community standing", NOT best-effort (failure -> PARTIAL, no "name is free"),
-  gated on the folder and job being gone (a retry reaches it then), and the LAST step so a failure cannot skip #4994's
-  community retirement (Angel's point, 03:12).
+- delete-leftover.del: the reset is the FIRST step (after review 1). A failure refuses the whole delete with nothing
+  touched, so a retry works; once the folder and job are gone plan() refuses, so this is the only order a retry can
+  reach. Resetting a leftover early costs nothing (it is not running; a standing only drops). Being first, it cannot
+  skip #4994's community retirement either (Angel's ordering point, 03:12). The folder's real-case name
+  (realpathSync.native) is reset too.
+- grantTrust / revokeTrust keep forgottenAt.
 
 ## Rejected
 - Using #4994's notSent mark for the releaseHeld half: couples the two PRs; the timestamp is self-contained.
@@ -30,3 +33,14 @@ make the new agent's first posts uncredited (fails toward untrusted, the safe si
 ## Tests
 communitystore.test.js +2, delete-leftover.test.js +3. Sabotages, each red: no forgetTrust call in del (2 fail); no
 receivedAt check (1); no gate (1); forget resets every name (1).
+
+## Review 1 (blind, general-purpose): 0 blockers, 3 warnings, 1 convention, 2 nits; all taken or answered
+- W1 a failed reset at the end could never be retried (plan() refuses once files are gone) -> reset moved FIRST, failure refuses whole.
+- W2 grant/revoke erased forgottenAt (revoke then release re-opened the leak) -> keepForgotten; test.
+- W3 comment cited #4994's step that is not on main -> gone with the move.
+- C "could not move its community standing" wording -> gone (own refusal sentence).
+- N case: p.name vs the folder's real case -> realpathSync.native basename also reset; test (my first try used
+  basename(p.folder.path), which is built from the asked name and did nothing; caught before commit).
+- N clock stepped back: already the plan's weakest premise; fails toward untrusted.
+Sabotages after the fixes, each red: no realpath name (1), failed reset does not refuse (1), keepForgotten no-op (1),
+no reset in del (4).

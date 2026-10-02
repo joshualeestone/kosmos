@@ -312,6 +312,26 @@ function del(name, opts) {
     return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted` };
   }
   const steps = [];
+  /* #5000: the name's community moderation standing, FIRST. The board keys trust by the agent's name, so without
+     this a new agent under the freed name would start with the deleted agent's standing. It goes before anything
+     is moved because it is the one step a retry could never reach afterwards: once the folder and the job are
+     gone, plan() finds nothing left and refuses. Resetting a leftover's standing early costs nothing (it is not
+     running, and a standing only drops). If it fails, nothing has been touched yet, so the delete is refused
+     whole and can simply be tried again. The folder's own name is reset too when the case differs from the one
+     asked for (a Mac's disk does not tell Miles from miles; the board's trust key does). */
+  try {
+    const cs = require('./communitystore');
+    const names = new Set([p.name]);
+    if (p.folder && p.folder.path) { try { names.add(path.basename(fs.realpathSync.native(p.folder.path))); } catch { /* the asked-for name is reset above */ } }
+    for (const n of names) cs.forgetTrust(n);
+    steps.push({ step: 'its community standing', ok: true });
+  } catch (err) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: 'we could not reset its standing in the community, so nothing was deleted. Try again.',
+      steps: [{ step: 'its community standing', ok: false, because: String((err && err.message) || err) }],
+    };
+  }
   const gone = [];
   const stuck = [];
   const move = (from, what) => {
@@ -373,21 +393,6 @@ function del(name, opts) {
   } else {
     stuck.push('its sender tokens');
     steps.push({ step: 'its sender tokens', ok: false, because: (tokens && tokens.because) || 'no reason given' });
-  }
-  /* #5000: the name's community moderation standing. The board keys trust by the agent's name, so without this a
-     new agent under the freed name would start with the deleted agent's standing (trusted, if it had earned it).
-     NOT best-effort, like the tokens: the outcome must not say the name is free while it still carries that.
-     Only once the folder and the job are gone (while either is left the agent can still start, and a retry will
-     reach this step again). 🛑 KEEP THIS THE LAST STEP: #4994's community step is gated on nothing but the tokens
-     being stuck, so a failure here placed before it would silently skip a retirement no retry can make up. */
-  if (!stuck.some((s) => s !== 'its sender tokens')) {
-    try {
-      require('./communitystore').forgetTrust(p.name);
-      steps.push({ step: 'its community standing', ok: true });
-    } catch (err) {
-      stuck.push('its community standing');
-      steps.push({ step: 'its community standing', ok: false, because: String((err && err.message) || err) });
-    }
   }
   if (stuck.length) {
     return {

@@ -330,3 +330,16 @@ test('#5000: a held post the deleted agent left behind credits nobody when relea
   cs.releaseHeld(fresh.id);
   assert.equal(cs.trustRecord('Heir5000').approved_count, 1, 'a new agent\'s released post was not credited');
 });
+
+test('#5000: a grant or a revoke after the delete keeps the stamp, so the old agent\'s held post still credits nobody', () => {
+  const old = cs.insertPost({ status: 'held', agent: 'Kept5000', topic: 't', body: 'from the deleted agent' });
+  nextMillisecond();
+  cs.forgetTrust('Kept5000');
+  nextMillisecond();
+  cs.revokeTrust('Kept5000');
+  assert.equal(typeof cs.trustRecord('Kept5000').forgottenAt, 'string', 'revoke dropped the stamp');
+  cs.releaseHeld(old.id);
+  assert.equal(cs.trustRecord('Kept5000').approved_count, 0, 'after a revoke, the deleted agent\'s post credited the new agent');
+  cs.grantTrust('Kept5000');
+  assert.equal(typeof cs.trustRecord('Kept5000').forgottenAt, 'string', 'grant dropped the stamp');
+});

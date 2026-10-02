@@ -609,9 +609,15 @@ function recordApproval(agentId, receivedAt) {
 }
 
 // Explicit operator/admin grant — promotes immediately, no ladder.
+// #5000: a grant or a revoke keeps a forgotten name's forgottenAt, so a held post the deleted agent left behind still
+// credits nobody afterwards.
+function keepForgotten(prev, rec) {
+  if (prev && typeof prev.forgottenAt === 'string') rec.forgottenAt = prev.forgottenAt;
+  return rec;
+}
 function grantTrust(agentId) {
   const all = loadTrust();
-  all[trustKey(agentId)] = { trust: 'trusted', approved_count: PROMOTE_THRESHOLD };
+  all[trustKey(agentId)] = keepForgotten(all[trustKey(agentId)], { trust: 'trusted', approved_count: PROMOTE_THRESHOLD });
   saveJson(trustFile(), all);
   return all[trustKey(agentId)];
 }
@@ -620,7 +626,7 @@ function grantTrust(agentId) {
 // untrusted, to re-earn trust. Resets the ladder.
 function revokeTrust(agentId) {
   const all = loadTrust();
-  all[trustKey(agentId)] = { trust: 'untrusted', approved_count: 0 };
+  all[trustKey(agentId)] = keepForgotten(all[trustKey(agentId)], { trust: 'untrusted', approved_count: 0 });
   saveJson(trustFile(), all);
   return all[trustKey(agentId)];
 }

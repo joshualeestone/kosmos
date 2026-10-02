@@ -233,28 +233,47 @@ test('#5000: a trusted name is put back at the start by the delete, so a new age
   assert.equal(cs.trustState('bystander5000'), 'trusted', 'the delete changed another agent\'s standing');
 });
 
-test('#5000: a standing that cannot be reset makes the delete PARTIAL, never a DELETED that says the name is free', () => {
+test('#5000: a standing that cannot be reset refuses the whole delete with nothing touched, and a retry then works', () => {
   const cs = require('./communitystore');
   leftoverAgent('stucktrust');
+  cs.grantTrust('stucktrust');
   /* A FILE where the community folder goes: the write cannot make its folder, a real failure, not a stub. */
   const dir = cs._paths.dir();
   const had = fs.existsSync(dir);
   const moved = had ? dir + '.aside-5000' : null;
   if (had) fs.renameSync(dir, moved);
   fs.writeFileSync(dir, 'not a folder');
+  let done;
   try {
     quiet();
-    const done = mac.del('stucktrust');
-    assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'standing kept + "the name is free" was reported as a clean delete');
-    assert.match(done.because, /community standing/, 'the refusal does not say which part failed');
-    assert.ok(!/name is free/.test(done.said || ''), 'it promised the name was free while its standing survived');
+    done = mac.del('stucktrust');
   } finally {
     fs.rmSync(dir, { force: true });
     if (had) fs.renameSync(moved, dir);
   }
+  assert.equal(done.outcome, leftover.OUTCOME.REFUSED, 'a delete that could not reset the standing went ahead');
+  assert.match(done.because, /standing/, 'the refusal does not say which part failed');
+  assert.ok(fs.existsSync(create.workerDir('stucktrust')), 'the folder was moved although the delete was refused');
+  /* The retry, which is the reason the reset goes first: with the folder still there, plan() offers the delete
+     again and the reset now succeeds. */
+  quiet();
+  const again = mac.del('stucktrust');
+  assert.equal(again.outcome, leftover.OUTCOME.DELETED, again.because);
+  assert.equal(cs.trustState('stucktrust'), 'untrusted', 'the retry did not reset the standing');
 });
 
-test('#5000: while the folder is still there the standing is kept, so a retry still reaches it', () => {
+test('#5000: the folder\'s own name is reset when it is asked for in another case', () => {
+  const cs = require('./communitystore');
+  leftoverAgent('Miles5000');
+  cs.grantTrust('Miles5000');
+  const insensitive = fs.existsSync(create.workerDir('miles5000'));
+  quiet();
+  const done = mac.del(insensitive ? 'miles5000' : 'Miles5000');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  assert.equal(cs.trustState('Miles5000'), 'untrusted', 'the folder\'s own name kept its standing');
+});
+
+test('#5000: a folder that cannot be moved still leaves the name reset, because the reset comes first', () => {
   const cs = require('./communitystore');
   leftoverAgent('halfgone', { job: false });
   cs.grantTrust('halfgone');
@@ -263,14 +282,15 @@ test('#5000: while the folder is still there the standing is kept, so a retry st
   const folder = create.workerDir('halfgone');
   fs.renameSync = (from, to) => { if (from === folder) throw new Error('busy'); return realRename(from, to); };
   fs.rmSync = (target, o) => { if (target === folder) throw new Error('busy'); return realRm(target, o); };
+  let done;
   try {
     quiet();
-    const done = mac.del('halfgone');
-    assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'control: the folder was meant to be stuck');
-    assert.ok(!done.steps.some((x) => x.step === 'its community standing'), 'the standing was reset while the agent can still start');
-    assert.equal(cs.trustState('halfgone'), 'trusted');
+    done = mac.del('halfgone');
   } finally {
     fs.renameSync = realRename;
     fs.rmSync = realRm;
   }
+  assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'control: the folder was meant to be stuck');
+  assert.ok(done.steps.some((x) => x.step === 'its community standing' && x.ok), 'the standing step did not run');
+  assert.equal(cs.trustState('halfgone'), 'untrusted', 'a partial delete left the standing in place');
 });
