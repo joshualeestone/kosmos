@@ -20,7 +20,7 @@
 # stubs launchctl), so this names contention; it does not paper over a test
 # that reaches shared state. Such a test is a bug, and its red still shows.
 set -uo pipefail
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"   # CDPATH= : #4929 review 16, an exported CDPATH bends a relative cd
 cd "$REPO"
 
 # #4317: CI runs the two halves as separate parallel jobs. KOSMOS_TEST_PART picks one:
@@ -61,8 +61,9 @@ KOSMOS_ONLY=0
 KOSMOS_ONLY_FILES=()
 # --only counts only as the FIRST argument. Anywhere else it would reach node --test beside every suite file, so the
 # whole suite would run; it refuses instead.
-# The --only=<file> spelling is refused too, wherever it is: node 26 takes it as its own --only option, so the whole
-# suite would run (after a heavy queue turn) and the named file would not.
+# The --only=<file> spelling is refused too, wherever it is: it is not a leading --only, so it would take the
+# full-suite path, where the suite's files come first and node ignores the extra argument: the whole suite would run
+# (after a heavy queue turn), not the file. This block scans every argument on purpose, full-suite runs included.
 for _only_f in "$@"; do
   case "$_only_f" in --only=*) echo "run-tests: --only takes its files as separate arguments (tools/run-tests.sh --only <file>...), not --only=<file>" >&2; exit 2 ;; esac
 done
@@ -85,6 +86,7 @@ if [ "${1:-}" = --only ]; then
     exit 2
   fi
   _only_rel=0
+  _only_repo="$(CDPATH= cd "$REPO" && pwd -P)"   # the repo's physical path, the same spelling as each file's below
   for _only_f in "$@"; do
     case "$_only_f" in /*) ;; *) _only_rel=1 ;; esac
     case "$_only_f" in
@@ -101,7 +103,10 @@ if [ "${1:-}" = --only ]; then
     # CDPATH= : an exported CDPATH would send a relative cd into ANOTHER tree and print its path into the result.
     _only_f="$(CDPATH= cd -- "$(dirname "$_only_f")" && pwd -P)/$(basename "$_only_f")"
     # node --test reads each name as a glob: a path with [ * ? { ( ! or \ in it can match nothing (red, "Could not
-    # find") or, with an extglob such as @(x), run zero tests and exit 0 (green, measured). So it is refused.
+    # find") or, with an extglob such as @(x), run zero tests and exit 0 (green, measured). So it is refused. A file
+    # inside this repo goes to node by its repo-relative name (node runs from the repo root), so only that part is
+    # checked: a checkout folder such as "kosmos (copy)" does not refuse every file.
+    case "$_only_f" in "$_only_repo"/*) _only_f="${_only_f#"$_only_repo"/}" ;; esac
     case "$_only_f" in *'['*|*'*'*|*'?'*|*'{'*|*'('*|*'!'*|*'\'*) echo "run-tests: --only cannot take '$_only_f': node --test reads [ * ? { ( ! \\ as a pattern, so it could run nothing" >&2; exit 2 ;; esac
     _only_dup=0
     for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
@@ -113,8 +118,9 @@ if [ "${1:-}" = --only ]; then
   # Relative names are read from THIS runner's repo root, not the caller's folder: print what will run, and say so
   # when the caller is elsewhere (another worktree's runner would otherwise test its own copy of the file, green).
   # OLDPWD is the caller's folder: the `cd "$REPO"` at the top is the only cd before here.
-  for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do echo "run-tests: --only:   $_only_f" >&2; done
-  if [ "$_only_rel" = 1 ] && [ -n "${OLDPWD:-}" ] && [ "$OLDPWD" != "$REPO" ]; then
+  for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do case "$_only_f" in /*) echo "run-tests: --only:   $_only_f" >&2 ;; *) echo "run-tests: --only:   $_only_repo/$_only_f" >&2 ;; esac; done
+  # Physical paths both sides: a caller in this tree through a symlinked spelling is not told otherwise.
+  if [ "$_only_rel" = 1 ] && [ -n "${OLDPWD:-}" ] && [ "$(CDPATH= cd "$OLDPWD" 2>/dev/null && pwd -P)" != "$_only_repo" ]; then
     echo "run-tests: --only: note: relative names are read from this runner's tree ($REPO), not from your folder ($OLDPWD)" >&2
   fi
 fi
