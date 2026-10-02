@@ -87,10 +87,11 @@ function backend() {
       if (req.method === 'PATCH' && req.url === '/agents/me' && body && 'install_group' in body) {
         if (!a) return send(401, { detail: 'invalid or expired token' });
         if (st.mode.noGroupRoute) return send(404, { detail: 'not found' });
+        if (st.mode.groupForbid) return send(403, { detail: 'not allowed for this agent' });   // one agent's failure
         if (st.mode.slowDown) return send(429, { detail: 'slow down' }, { 'retry-after': '60' });
         if (st.mode.groupDown) return send(503, { detail: 'unavailable' });
         if (st.mode.refuseGroup) return send(400, { error: 'unknown_fields', fields: ['install_group'] });
-        if (typeof body.install_group !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(body.install_group)) return send(422, { detail: 'bad install_group' });
+        if (typeof body.install_group !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(body.install_group)) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: "String should match pattern '^[A-Za-z0-9_-]{16,64}$'", type: 'string_pattern_mismatch' }] });
         a.installGroup = body.install_group;
         return send(204);
       }
@@ -1264,20 +1265,19 @@ test('4922: an agent registered before the id existed is sent it once, only whil
   assert.equal(groupPatches().length, 1, 'it was sent again after it landed');
 });
 
-test('4922: a missing route (404) is tried again after its wait, then lands', async () => {
+test('4922: a missing route (404) leaves the service alone for the hour, then lands', async () => {
   await on();
-  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
-  agentPost('ava', { topic: 'One', body: 'First note.' });
+  for (const n of ['ava', 'dex']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
   await cs.sweep();
-  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
+  const k = readKeys(); delete k.ava.installGroupSent; delete k.dex.installGroupSent; writeKeys(k);
   be.st.mode.noGroupRoute = true;
   await cs.sweep(); await cs.sweep();
-  assert.equal(groupPatches().length, 2, 'a 404 was given up on');
-  assert.equal(readKeys().ava.installGroupRetrying, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'the retry mark is not tied to the id');
+  assert.equal(groupPatches().length, 1, 'a service with no such route was asked again (or for every agent)');
   be.st.mode.noGroupRoute = false;
+  cs._installGroupRetry(0);   // the hour over
   await cs.sweep();
   assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
-  assert.equal(readKeys().ava.installGroupRetrying, undefined);
+  assert.equal(readKeys().dex.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
 });
 
 test('4922: a failed PATCH waits before it is tried again (a sweep runs on every publish since #4938)', async () => {
@@ -1287,10 +1287,11 @@ test('4922: a failed PATCH waits before it is tried again (a sweep runs on every
   agentPost('ava', { topic: 'One', body: 'First note.' });
   await cs.sweep();
   const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
-  be.st.mode.noGroupRoute = true;
+  be.st.mode.groupForbid = true;
   await cs.sweep(); await cs.sweep(); await cs.sweep();
   assert.equal(groupPatches().length, 1, 'a failed PATCH was sent again before its wait ran out');
-  be.st.mode.noGroupRoute = false;
+  assert.equal(readKeys().ava.installGroupRetrying, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'the retry mark is not tied to the id');
+  be.st.mode.groupForbid = false;
   cs._installGroupRetry(0);   // the wait over (the map is cleared with it)
   await cs.sweep();
   assert.equal(groupPatches().length, 2, 'not tried again once the wait was over');
@@ -1434,10 +1435,10 @@ test('4922: a wait after a failed PATCH is for that id: a new id is sent at once
   agentPost('ava', { topic: 'One', body: 'First note.' });
   await cs.sweep();
   const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
-  be.st.mode.noGroupRoute = true;
+  be.st.mode.groupForbid = true;
   await cs.sweep();
   assert.equal(groupPatches().length, 1, 'premise: one failed PATCH');
-  be.st.mode.noGroupRoute = false;
+  be.st.mode.groupForbid = false;
   // The id file now holds another id (repaired, or another install's file restored): its PATCH is not held back by the
   // old id's wait. CONTROL: the same id stays held (the first assertion after this line would pass either way alone).
   await cs.sweep();

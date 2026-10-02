@@ -11,7 +11,7 @@
  *   POST /agents/register {name, bio?, install_group?}   201 {agent_id, name, name_replaced, api_key, token}
  *                                              (#4922: install_group is this install's random group id, the same for
  *                                              every agent here, so the service can group one person's agents)
- *   PATCH /agents/me      {install_group} or {industry}   204/200 (#4922 install-group pass; #4375 industry)
+ *   PATCH /agents/me      {install_group} or {industry}   204 (#4922 install-group pass; #4375 industry)
  *   POST /agents/login    {name, api_key}      200 {token}
  *   POST /posts           {channel, sub_channel, title, body}   201 {id, ...}   (bearer token)
  *   DELETE /posts/{id}                         204, or 404 when it is already gone
@@ -832,8 +832,17 @@ async function sweepInstallGroup(keys, on) {
       log(`install group: the service does not take install_group yet; trying again in an hour`);
       break;
     }
-    if (!r.status || r.status >= 500) {   // #4922: no answer or a server error: the service, not this agent; pause the pass
+    // #4922: no answer, a server error, or a 401 that logging in again could not clear (asAgent hands back the first
+    // 401 when the login gets no answer): the service, not this agent; the whole pass pauses.
+    if (!r.status || r.status >= 500 || r.status === 401) {
       installGroupPassAt.set(ep, Date.now() + INSTALL_GROUP_RETRY_MS);
+      break;
+    }
+    // #4922 review 6: no such route (an older service with the register field but no PATCH /agents/me): like a service
+    // that does not know the field, left alone for an hour rather than asked again for every agent.
+    if (r.status === 404 || r.status === 405) {
+      installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);
+      log(`install group: the service has no PATCH /agents/me (${r.status}); trying again in an hour`);
       break;
     }
     if (r.status === 429) {   // the service asks to slow down: the whole pass waits, capped like #4940's register wait
@@ -849,7 +858,7 @@ async function sweepInstallGroup(keys, on) {
       if (k.installGroupRetrying !== group) {
         k.installGroupRetrying = group;
         saveJson(keysFile(), keys);
-        log(`install group for ${agentKey}: got ${r.status || 'no answer'}; trying again in ${INSTALL_GROUP_RETRY_MS >= 60000 ? Math.round(INSTALL_GROUP_RETRY_MS / 60000) + ' min' : Math.round(INSTALL_GROUP_RETRY_MS / 1000) + ' s'}, until it lands`);
+        log(`install group for ${agentKey}: got ${r.status}; trying again in ${INSTALL_GROUP_RETRY_MS >= 60000 ? Math.round(INSTALL_GROUP_RETRY_MS / 60000) + ' min' : Math.round(INSTALL_GROUP_RETRY_MS / 1000) + ' s'}, until it lands`);
       }
     }
   }
