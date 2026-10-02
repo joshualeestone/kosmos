@@ -18,7 +18,8 @@ Loosening SHORT_WALK_MIN_KEYLIKE so digit chunks count: that rule keeps ordinary
 would cover only about a quarter of the failing draws (the rest are madeOfWords).
 
 ## Weakest premise
-That the five seeded tokens (6, 9, 8, 9 and 8 of 11 chunks key-like) stay representative of the keys this rule is for.
+That the five seeded tokens (6, 9, 8, 9 and 8 of their 11 chunks contain a hex letter; at least 6 by any count, against
+SHORT_WALK_MIN_KEYLIKE of 2) stay representative of the keys this rule is for.
 A held hex key inside either documented limit is not covered here, by design.
 
 ## Tests
