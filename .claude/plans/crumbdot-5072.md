@@ -33,7 +33,19 @@ render-subback-4586.js, crumbGeom(): dots found as characters and counted as dra
 Other checks' selectors (`#tsk-crumb button`, `[data-open-project]`, `[data-proj=""]`, empty-crumb textContent) are
 descendant selectors or an empty-text test.
 
+## Review (challenge loop, blind, alternating Opus/Sonnet; diff vs origin/chevwrap-5053)
+Converged at iteration 8 (Sonnet): no BLOCKER/WARNING/CONVENTION. Rounds 2-8 reviewed Mona Lisa's layout (round 1 the
+superseded build). Fixed along the way: arm guards that could pass vacuously or on font luck (1, 2, 3, 7), an
+unmeasured midpoint tolerance (2), a hidden crumb passing (3), the 30rem/40rem wording (3), README row (4), a missing
+surface token tsk-crumb-sep (5), a false "textContent is unchanged" plan claim written by this loop, deleted (6).
+NITs left: touch (hover: none) between 30rem and 40rem is reasoned, not run; the 700 "wraps" arm alone does not
+discriminate (the dot assert after it does).
+NOT DONE, and required before the proof: step 6j validation, which waits for #5053 to merge and this branch to be
+rebased onto main (the proof's diff_hash is against main), and a free test slot.
+
 ## Status
-- Fix + pin committed. Shots in ~/work/design-shots/kosmos-5072 show the SUPERSEDED first build: retake.
-- Both static gates pass.
-- TODO: retake shots; blind review; run render-subback-4586.js on the fix and on the old markup (control) in a free slot; validation.
+- Shots in ~/work/design-shots/kosmos-5072 show the SUPERSEDED first build: retake.
+- Static gates pass at 43e68384d (both, rerun 18:21).
+- TODO, in order: run render-subback-4586.js on the fix AND on the old markup (control: expect the 5072 asserts to fail)
+  in a free slot; retake shots and post on #5072 for Mona Lisa; after #5053 merges, rebase onto main, validation (6j),
+  proof, PR, merge.
