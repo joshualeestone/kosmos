@@ -217,3 +217,26 @@ test('#4896 r4: a recorded folder that does not exist yet is matched through a s
   assert.equal(taken.ok, true);
   assert.equal(taken.other !== null, true, 'a missing leaf under a symlinked parent read as a different folder');
 });
+
+/* ---- review 5 ---- */
+test('#4896 r5: an agent Kosmos CREATED (no recorded folder) holds its home; another name is refused, its own is not', () => {
+  const home = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'alice5');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'You are **Alice**, a writer.\n');
+  store.writeProfile('alice5', { role: 'Writer' });   // what create writes: a role, no dir
+  assert.equal(create.workerDir('alice5'), home, 'fixture: the created agent does not live in its default home');
+  const b = discover.connect(home, { name: 'bob5' });
+  assert.equal(b.ok, false, 'a second name was connected to a created agent\'s own folder');
+  assert.match(b.because, /that folder is alice5’s own folder in Kosmos, and one folder holds one agent/);
+  assert.notEqual(create.workerDir('bob5'), home);
+  const own = discover.folderTakenBy(home, 'alice5', { store });
+  assert.equal(own.other, null, 'CONTROL: the created agent\'s own name is not a second holder of its home');
+});
+
+test('#4896 r5: a RELATIVE recorded dir holds nothing (no agent lives at a path relative to the board\'s cwd)', () => {
+  const dir = folder('You are **Pia**, a poet.\n');
+  store.writeProfile('pia-rel', { dir: path.relative(process.cwd(), dir) });
+  const taken = discover.folderTakenBy(dir, 'pia2', { store });
+  assert.equal(taken.ok, true);
+  assert.equal(taken.other, null, 'a relative recorded dir was counted as holding the folder');
+});

@@ -114,3 +114,16 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
 - NIT taken: canonDir resolves the nearest EXISTING ancestor, so a recorded folder that is missing still matches
   through a symlinked parent.
 - Tests: 3 new arms, red on the previous commit; 109/109 with connect-agent, remove.test.js and member-roles.
+
+## Review 5 (23:17 CDT): 0 BLOCKER, 1 SHOULD-FIX (measured), 2 NITs
+- SHOULD-FIX taken: an agent Kosmos CREATED records no folder (create.workerDir falls back to <workers>/<name>), so no
+  profile names it, and connect gave its home to a second name (measured by the reviewer: same workerDir for both).
+  createdHomeOf: a folder directly inside the workers root is the home of the agent of that name; any other name is
+  refused with "that folder is <name>'s own folder in Kosmos, and one folder holds one agent". create.js now exports
+  workersDir for this. The found list is deliberately NOT changed for these folders: a leftover worker folder is
+  offered under its own name as before, and connect refuses any other name.
+- NIT taken: a relative recorded dir holds nothing (create.usableRecordedDir rejects it too).
+- NIT accepted and stated in the HELD_MEMO comment: removals and restores (remove.js) do not clear the 2 s memo;
+  neither direction can record a second holder.
+- Tests: 2 new arms incl. the CONTROL that the created agent's own name is not a second holder; red on the previous
+  commit. 111/111 with connect-agent, remove.test.js and member-roles.

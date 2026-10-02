@@ -261,6 +261,8 @@ function alreadyIn(dir, roster) {
   /* #4896: recorded under ANY name is in, so the list does not offer a folder connect would refuse. Asked first,
      because a basename that is not a usable name (review 3) can still be a folder another, typed, name records. An
      unreadable profile list leaves it offered (connect itself refuses that case with its reason). */
+  /* A created agent's own home (<workers>/<name>) is NOT hidden here by that rule alone: a leftover worker folder
+     is offered under its own name as before, and connect refuses any OTHER name for it (createdHomeOf). */
   try {
     if (dir && heldFolders({ store }).has(canonDir(String(dir)))) return true;
   } catch { /* no record is not a reason to hide it */ }
@@ -1629,7 +1631,8 @@ function folderHolders({ store }) {
     if (!f.endsWith('.json') || stopped.has(f)) continue;
     let p = null;
     try { p = JSON.parse(fs.readFileSync(path.join(store.PROFILES, f), 'utf8')); } catch { p = null; }
-    if (!p || typeof p.dir !== 'string' || !p.dir) continue;
+    /* Review 5: a relative recorded dir is not where anybody lives (create.usableRecordedDir rejects it too). */
+    if (!p || typeof p.dir !== 'string' || !p.dir || !path.isAbsolute(p.dir)) continue;
     holders.push({ key: f, canon: canonDir(p.dir), removed: stillThere.has(f),
       other: (typeof p.displayName === 'string' && p.displayName.trim()) || f.slice(0, -'.json'.length) });
   }
@@ -1647,12 +1650,29 @@ function folderTakenBy(dir, name, { store }) {
   try { self = name ? store.profileFileName(name) : null; } catch { self = null; }
   const want = canonDir(dir);
   const h = got.holders.find((x) => x.key !== self && x.canon === want);
-  return h ? { ok: true, other: h.other, removed: h.removed } : { ok: true, other: null };
+  if (h) return { ok: true, other: h.other, removed: h.removed };
+  const home = createdHomeOf(want);
+  if (home && home !== name) return { ok: true, other: home, removed: false, home: true };
+  return { ok: true, other: null };
+}
+
+/* Review 5: an agent Kosmos CREATED records no folder (create.workerDir falls back to <workers>/<name>), so no profile
+   names it and the holders above cannot see it. A folder directly inside the workers root is the home of the agent
+   of that name, whoever else asks for it. Returns that name, or null. The same name asking for its own home is not a
+   second agent (the caller compares). */
+function createdHomeOf(canon) {
+  let root = null;
+  try { root = canonDir(require('./create').workersDir()); } catch { root = null; }
+  if (!root || path.dirname(canon) !== root) return null;
+  return path.basename(canon) || null;
 }
 
 /* Review 4: the found list asks per candidate folder, and reading every profile per candidate measured 8.5 ms a call
    (2.5 s for 300 x 300). The set of held folders is reused for two seconds: long enough for one scan, short enough
    that a list drawn after a connect sees it. Connect and restore never use this; they read fresh. */
+/* Review 5, stated: remove.js (a removal, a restore) does not clear this. Within 2 s of one, the list can still offer a
+   folder a restore just took (connect then refuses it, with the reason) or hide one a removal just freed (the next
+   draw offers it). Neither can record a second holder, since connect and restore read fresh. */
 let HELD_MEMO = { at: 0, set: null };
 function heldFolders({ store }) {
   const now = Date.now();
@@ -1679,7 +1699,9 @@ function canonDir(d) {
   }
 }
 const FOLDER_UNREADABLE = 'we could not check which agents this computer already has, so we did not add it';
-const folderTakenSentence = (other) => 'that folder is already connected as ' + other + ', and one folder holds one agent';
+const folderTakenSentence = (other, home) => (home
+  ? 'that folder is ' + other + '\u2019s own folder in Kosmos, and one folder holds one agent'
+  : 'that folder is already connected as ' + other + ', and one folder holds one agent');
 
 function registerOnly(given, name, { create, store }) {
   if (!create.nameUsable(name)) {
@@ -1702,7 +1724,7 @@ function registerOnly(given, name, { create, store }) {
   }
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
-  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other) };
+  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home) };
   /* The display name is the name they typed. There is no file to disagree with it,
      which is the whole reason this path exists. */
   try { store.writeProfile(name, { dir: given, displayName: name }); }
@@ -1884,7 +1906,7 @@ function connect(dir, opts) {
      which is what would make the second name read the first one's file. */
   const taken = folderTakenBy(given, name, { store });
   if (!taken.ok) return { ok: false, because: FOLDER_UNREADABLE };
-  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other) };
+  if (taken.other) return { ok: false, because: folderTakenSentence(taken.other, taken.home) };
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
      adoption write a codex JOB; the profile still said nothing, and
      `server.js` derives a card's runner from `profile.provider` whenever the
