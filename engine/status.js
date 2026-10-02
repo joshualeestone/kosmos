@@ -2422,8 +2422,9 @@ const ASKING_GENERIC = 'it is asking you something';
  * tool-output glyph ⎿ (the 2026-08-21 screens had no ⎿, so it is optional);
  * agent prose starts with ●. Case-sensitive like /usage-credits: the vendor
  * capitalises it. (The curly ’ is ASSUMED, not observed: every capture has '.) And it counts only with Claude Code's turn footer at column
- * 0 within two rows after it (limitMarkersFor, below), which a tool result
- * that prints the same sentence mid-turn does not have (review round 2).
+ * 0 as the first column-0 row after it, within six rows (limitMarkersFor,
+ * below), which a tool result that prints the same sentence mid-turn does not
+ * have (review rounds 2 and 7).
  *
  * Still read wrong, stated rather than guessed at: an agent's indented SECOND
  * paragraph opening with exactly this sentence AND followed by a footer; a
@@ -2460,7 +2461,12 @@ const RATE_LIMIT_MARKERS = [
    AT COLUMN 0, "✻ Cooked for 0s · done 10:35 PM"; inside a tool result every row is indented, a copied footer too.
    NOT airtight: a turn that ends right after such a tool result puts the REAL footer at column 0 under it, and that
    pane reads rate_limited (the third residual in the doc above, review round 3).
-   So that one marker counts only with such a footer within two rows of a match. NOT "no ● row after it": Claude
+   So that one marker counts only when the FIRST non-blank column-0 row after it is such a footer, within six rows.
+   Review round 7: Claude Code 2.1.287 draws up to five rows of its own between the limit line and the footer, all
+   indented in the same ⎿ column (a note, "Press ⏎ to continue after reset", "✓ checkpointed — see <path>" and its
+   "/rewind" line, then the upsell such as "/upgrade to increase your usage limit."), so a two-row window left those
+   capped panes idle. Six = those five + the footer; the cap keeps the residuals above from reaching deep into a long
+   indented tool result. NOT "no ● row after it": Claude
    Code's own session survey ("● How is Claude doing this session?") followed the limit on one real capped pane.
    Only that marker: the two 2026-08-21 markers keep their accepted behaviour. Found by its text because the array
    must stay a literal (status.pane-states-1889.test.js lifts it from the source). */
@@ -2475,10 +2481,14 @@ if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LI
    gets a column-0 row under a tool result when its turn ends, which is the turn-ends-on-a-tool-call residual above.
    What it must NOT take is the mid-turn spinner, which also uses the ✻ frame ("✻ Improvising… (35s · thought for 8s)"):
    a healthy agent that cats a capture mid-turn has that spinner right under the tool result. */
-const TURN_FOOTER = /^✻ (?:\S+ for \d[\d.hms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
+const TURN_FOOTER = /^✻ (?:\S+ for \d[\d.dhms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
 function limitMarkersFor(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
-  const vendor = rows.some((row, i) => HIT_YOUR_LIMIT.test(row) && rows.slice(i + 1, i + 3).some((next) => TURN_FOOTER.test(next)));
+  const vendor = rows.some((row, i) => {
+    if (!HIT_YOUR_LIMIT.test(row)) return false;
+    const next = rows.slice(i + 1, i + 7).find((r) => /^\S/.test(r));
+    return next !== undefined && TURN_FOOTER.test(next);
+  });
   return vendor ? RATE_LIMIT_MARKERS : RATE_LIMIT_MARKERS.filter((re) => re !== HIT_YOUR_LIMIT);
 }
 

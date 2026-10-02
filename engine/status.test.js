@@ -4207,13 +4207,31 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
   assert.notEqual(classify(pane, SPINNER).state, STATE.RATE_LIMITED, 'the mid-turn spinner counted as a turn footer');
   /* Review round 5: Claude Code's own footer slot. The clock is optional ("✻ Cooked for 12s", the shape in
      status.pane-states-1889's binary-derived screen), and with a background agent pending the slot holds the waiting
-     row instead. Both are a capped pane, and must not read idle. Both shapes are vendor render code, not a capture. */
-  for (const [label, footer] of [['a footer with no clock', '✻ Cooked for 12s'], ['a sub-second footer', '✻ Cooked for 0.4s'],
+     row instead. All are a capped pane, and must not read idle. Every shape here is vendor render code (2.1.287),
+     not a capture: its duration formatter prints "0.0s" under a millisecond and "1d 2h 3m" past a day. */
+  for (const [label, footer] of [['a footer with no clock', '✻ Cooked for 12s'], ['a sub-second footer', '✻ Cooked for 0.0s'],
+    ['a footer past a day', '✻ Cooked for 1d 2h 3m · done 1:00 PM'],
     ['the background-agent waiting row', '✻ Waiting for 1 background agent to finish']]) {
     const capped = '> hello\n'
       + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n" + footer + '\n' + STATUS;
     assert.equal(classify(pane, capped).state, STATE.RATE_LIMITED, label + ': a capped Claude Code reads ' + classify(pane, capped).state);
   }
+  /* Review round 7: Claude Code draws up to five rows of its own between the limit line and the footer, all in the
+     indented ⎿ column (vendor render code, 2.1.287; not yet captured live). A two-row window left these idle: the
+     #5029 silence again. And the bound: a seventh row is past anything the vendor draws, so it does not count. */
+  for (const [label, between] of [
+    ['the press-to-continue and upgrade rows', ['     Press ⏎ to continue after reset', '     /upgrade to increase your usage limit.']],
+    ['the login upsell', ['     Press ⏎ to continue after reset', '     /login to switch to an API usage-billed account.']],
+    ['the checkpoint rows', ['     Press ⏎ to continue after reset', '     ✓ checkpointed — see ~/.claude/x.jsonl', "       or /rewind to undo this turn's file edits"]],
+    ['all five rows', ['     A note from your admin', '     Press ⏎ to continue after reset', '     ✓ checkpointed — see ~/.claude/x.jsonl', "       or /rewind to undo this turn's file edits", '     /upgrade to increase your usage limit.']],
+  ]) {
+    const capped = '> hello\n' + "  ⎿  You've hit your session limit · resets 4pm (America/Chicago)\n"
+      + between.join('\n') + '\n✻ Cooked for 0s · done 10:35 PM\n' + STATUS;
+    assert.equal(classify(pane, capped).state, STATE.RATE_LIMITED, label + ': a capped Claude Code reads ' + classify(pane, capped).state);
+  }
+  const SIX_BETWEEN = '● Bash(cat x)\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     row\n'.repeat(6) + DONE + STATUS;
+  assert.notEqual(classify(pane, SIX_BETWEEN).state, STATE.RATE_LIMITED, 'a footer seven rows down, past what the vendor draws, counted');
   /* Review round 6: the waiting alternative needs a COUNT. "✻ Waiting for permission" is a live row on a healthy agent
      (observed, see the #-wait tests above); a bare /Waiting for/ would read this catted capture as capped. */
   const PERMISSION_WAIT = '● Bash(cat x)\n'
