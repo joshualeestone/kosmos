@@ -10249,6 +10249,27 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn) { background: var(--nl-raise); border-color: transparent; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):not(:disabled):hover { background: var(--nl-raise-hover); box-shadow: 0 2px 6px rgba(0, 0, 0, .18); }
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):disabled { background: transparent; border-color: currentColor; box-shadow: none; }
+/* #4470, the last page in the card's order, the phone (and what it showed on a desktop too). An agent's message has
+   no bubble in the new look, so its avatar no longer sits beside a bubble's tail: it goes to the top, beside the name
+   and time, as Josh's drawing draws it (Files/kosmos-project-two-col-v9). Your own messages keep their bubble and
+   today's foot-aligned avatar. Tasks' "+ New task" is the drawing's main action, a gold pill ("Post"). On a phone the
+   project's gear sits in the crumb's row instead of a line of its own; the "Made by" line stays below. */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg:not(.you) { align-items: flex-start; }
+:root[data-look="new"] body:not(.consolidated) #panel-tasks #tsk-new { border-radius: 999px; }
+@media (max-width: 40rem) {
+  /* placeLook moves the crumb row into .pjmidhead beside .pjhead, so the gear (in .pjhead > .pjtitle > .pjtitle-row)
+     is not the crumb's sibling, and on a phone .pjmidhead is a column: it becomes a wrapping row and the two
+     wrappers dissolve, so the gear's row joins the crumb's line. */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjhead,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle { display: contents; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .pjmidhead > .pj-crumbrow { flex: 1 1 0; min-width: 0; }   /* .pjmid: outweighs the look's later flex: 1 1 auto */
+  /* 4px of room on the right: on touch the cog's tap area is 36px centred on its 28px (#4663, "room all round"),
+     and at the row's end it would reach 4px past the page. */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
+}
 /* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
    there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
