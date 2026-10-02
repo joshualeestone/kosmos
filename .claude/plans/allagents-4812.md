@@ -145,3 +145,11 @@ erasing the kept list and asking for a sign-in; now only a body that fails to PA
 anything else is no answer (tested both arms, sabotages red). Nits: a read this page aborted itself is "out", not
 "did not let this page read" (NOT unit-tested: the abort is internal to oaReadOne's 10 s timer); a greyed list from
 a refusing computer says when this page last read it (tested). Unit 31/31.
+
+### Review 9 (opus, blind, whole diff, 2026-10-01 21:52): 0 blockers, 1 warning, 2 nits, all taken
+W: a failure AFTER the headers came through (a dropped body) on an online computer read as a refusal; oaReadOne
+now records that the headers arrived and reads any later failure as not connected (the test now asserts 'out' on
+an online computer with a TypeError body; the old test only asserted "not notin", which a 'blocked' regression
+passed). Nits: the computers route is asked at most once a minute even while no list is known (tested); the
+read-on-return comment no longer claims oaStart waits out first run (it does not; reads under the first-run cover
+show nothing and reach only this account's computers, so no wait was added). Unit 32/32; 2 sabotages red.
