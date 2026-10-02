@@ -11,8 +11,7 @@
  *     key moves and chooses; opening the screen again starts on the folder;
  *   - with none: the control is in the page but hidden, and the folder's list shows (nothing to switch to);
  *   - Home and End choose the first and last segment; a failed Open in Finder shows its sentence on the
- *     folder's segment; a reopen while the first room read is out shows each conversation file once; a
- *     reopen from the keyboard puts focus back on the chosen segment;
+ *     folder's segment; a reopen while the first room read is out shows each conversation file once;
  *   - at 320px wide the switch fits on one row with no sideways scroll.
  * Controls: the stub's conversation file reaches the page (its row is in the DOM), so "not on screen"
  * means hidden, not missing; with none, the room read was ANSWERED before the switch is judged.
@@ -93,21 +92,6 @@ const shown = (page, sel) => page.evaluate((s) => {
           await page.keyboard.press('Home');
           const atHome = await segNow();
           chk(atEnd.seg === 'convo' && atEnd.focus === 'convo' && atHome.seg === 'folder' && atHome.focus === 'folder', `${tag}: End and Home choose the last and first segment`, JSON.stringify({ atEnd, atHome }));
-          await page.focus('#docs-seg [data-docseg="folder"]');
-          /* The room read is held across frames, as a real board's is, so the browser really drops focus while
-             the switch is hidden (a stub answering in one frame never lets it). */
-          const back = await page.evaluate(async () => {
-            let release;
-            window.HOLD_ROOM = new Promise((r) => { release = r; });
-            const opened = openDocsView();
-            await new Promise((r) => setTimeout(r, 120));
-            const during = document.activeElement === document.body;
-            release(); window.HOLD_ROOM = null;
-            await opened;
-            await new Promise((r) => setTimeout(r, 150));
-            return { during, after: document.activeElement && document.activeElement.dataset.docseg };
-          });
-          chk(back.during && back.after === 'folder', `${tag}: a reopen from the keyboard puts focus back on the chosen segment`, JSON.stringify(back));
           await page.click('#docs-seg [data-docseg="convo"]');
           await page.click('#docs-finder');
           await page.waitForTimeout(150);

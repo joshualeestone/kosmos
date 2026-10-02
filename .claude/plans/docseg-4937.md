@@ -36,11 +36,11 @@ the project folder" and delete or default to "In the project folder.""
 - Each open counts itself; neither read from an earlier open (the conversation's or the folder's) paints.
   A reopen while the room read was out appended its rows twice (check arm: 2 rows without the guard, 1 with,
   both engines, measured). Each open also hides the last project's pager until its own folder lists.
-- A reopen from the keyboard puts focus back on the chosen segment once the switch shows again (hiding it
-  drops focus to the page; check arm holds the read across frames, red without the restore, measured).
-  Not restored when the switch stays hidden after a reopen (the conversation's files went away between two
-  opens, or its read failed): focus can be on the switch only while it shows, so this needs the files to vanish
-  mid-visit; focus falls to the page, as any hidden control's does.
+- No focus restore on a reopen: the screen is opened only by the project view's "View All" (hidden while
+  Documents shows) and by the docs=1 link at startup, so focus cannot be on the switch when it is reopened.
+  (Built in round 7, measured working on a synthetic reopen, then removed in round 9 as unreachable.)
+- Built alongside #4930 as the card asks: preview-4930 changes nothing on the Documents screen (openDocsView,
+  #docs-convo, #docs-list, its markup), so the two do not collide.
 - A conversation read that fails leaves the switch hidden and says nothing, as main's conversation list did
   (the folder half stands alone). Not in the card; a sentence for it would be new copy on a failure nobody
   has reported.
@@ -55,7 +55,7 @@ Second: that opening on the folder is right even when the folder is empty and th
 screen says "Nothing here yet" beside a switch that holds files). The card says default to the folder.
 
 ## Evidence
-- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 37 PASS;
+- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 35 PASS;
   red on main.
 - node --test browser-checks-*, web.*, tools.browser-checks-*: 2351/2351.
 - Surface gate: render-consolidated-nav-4345, render-subback-4586, render-subview-cleanup-3502 pass on

@@ -57799,7 +57799,6 @@ async function openDocsView() {
   document.getElementById('docs-pager').hidden = true;          // the last project's pages; a listed folder shows it again
   const docsOpen = (DOCS_OPEN_GEN += 1);                         // #4937: only this open's reads may paint
   docsSegShow('folder');                                        // #4937: every open starts on the folder
-  const segHadFocus = document.getElementById('docs-seg').contains(document.activeElement);   // a reopen from the keyboard
   document.getElementById('docs-seg').hidden = true;             // until the conversation has files
   pjView('docs');
   const forProject = PJ_CURRENT;
@@ -57830,7 +57829,6 @@ async function openDocsView() {
         b.append(n, w); convo.append(b);
       }
       document.getElementById('docs-seg').hidden = false;      // #4937: the switch names the two sources
-      if (segHadFocus) { const on = document.querySelector('#docs-seg [aria-checked="true"]'); if (on) on.focus(); }   // hiding it dropped focus to the page
     } catch { /* the folder half stands alone */ }
   })();
   try {
