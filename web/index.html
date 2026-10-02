@@ -8377,10 +8377,11 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    footer is its one row. The member box keeps its own top margin as the gap below the purpose line. */
 #cstep-teammake .field { border-top: 0; padding-top: 0; margin-top: var(--space-7); }
 #cstep-teammake .flabel[for="tc-project"] { margin-top: 0; }
-#cstep-team .flabel, #cstep-teammake .flabel { margin-bottom: var(--space-3); }
+#team-seeded-pick .flabel, #cstep-teammake .flabel { margin-bottom: var(--space-3); }
 #cstep-teammake #tc-project, #cstep-teammake #tc-provider, #cstep-teammake #tc-account,
 #cstep-teammake #tc-model { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
 #cstep-teammake .mstep:has(> #tc-account-row[hidden]) { padding-left: 0; }
+#tc-model-why { margin: 8px 0 0; }
 #cstep-teammake .mstep:has(> #tc-account-row[hidden])::before { content: none; }
 #cstep-teammake .tc-list { margin: var(--space-6) 0 0; }
 #cstep-teammake #tc-note { margin-top: var(--space-7); }
@@ -8390,7 +8391,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    about half this column, in place of .nak-team-opt's full width. */
 #cstep-team #team-seeded { width: 18rem; max-width: 100%; }
 #cstep-team #team-seeded-desc { margin-top: var(--space-4); }
-#cstep-team .importrow { margin-top: var(--space-6); }
+#team-seeded-pick .importrow { margin-top: var(--space-6); }
 /* Item 7: the status column is a fixed width, so a row's name does not move sideways as its status changes
    ("Making…" to "Made, starting…" to "Running"); a longer status wraps inside it instead. */
 #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 11rem; }
@@ -14776,7 +14777,7 @@ window.kosmosMeasureScrollbarWidth();
           <div class="frow" id="tc-account-row" hidden><select id="tc-account" aria-label="Account"></select></div>
           <div class="mstep">
             <div class="frow" id="tc-model-row"><select id="tc-model" aria-label="Model"></select></div>
-            <p class="dhint" id="tc-model-why" style="margin:8px 0 0;" hidden></p>
+            <p class="dhint" id="tc-model-why" hidden></p>
           </div>
         </div>
       </div>
@@ -48313,6 +48314,7 @@ async function openTeamCreate(key) {
   }
   const gen = ++TC_GEN;
   TC = null;
+  TC_MODEL_FOR = null;   // #4935: a new team starts on the default model, not the last team's pick
   const msg = document.getElementById('tc-msg');
   document.getElementById('tc-title').textContent = 'Loading the team…';
   document.getElementById('tc-purpose').textContent = '';
@@ -48418,7 +48420,7 @@ async function tcFillProviderNow(gen) {
   const stale = () => gen !== undefined && gen !== TC_GEN;   // another team was opened while this one read
   TC_PROVIDER_TOUCHED = false;
   // The menus still hold the last team's options during the wait: not choosable until they are this one's.
-  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
+  for (const id of ['tc-provider', 'tc-account', 'tc-model']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   /* The team step can be opened without the create form (openTeamCreate from the Team path), so the
      account list may not be read yet; read it the way the form does. Without it every member would go to
      Claude, which is the failure #4719 exists for. /api/accounts checks each account live and can be
@@ -48479,10 +48481,13 @@ let TC_MODEL_FOR = null;   // the provider|account the model menu was last paint
 let TC_MODEL_GEN = 0;      // a newer paint supersedes a list still being read
 function tcSyncModel() {
   const sel = document.getElementById('tc-model');
-  if (!sel) return;
+  const step = document.getElementById('cstep-teammake');
+  /* Only an open team step: the subscription and Muse answers that call this come from every screen (the agent
+     page, Settings, first run), the same reason tcProviderSettle returns early. */
+  if (!sel || !TC || !step || step.hidden) return;
   const pv = (document.getElementById('tc-provider') || {}).value || '';
   const ac = (document.getElementById('tc-account') || {}).value || '';
-  /* A member exists: the team's model is the one it was made on (TC.model), shown and fixed. */
+  /* Once the choice is fixed the menu is not repainted, so it keeps what the members were made on. */
   if (TC_MODEL_FOR !== pv + '|' + ac && !tcChoiceFixed()) { TC_MODEL_FOR = pv + '|' + ac; tcPaintModel(pv, ac); }
   sel.disabled = tcChoiceFixed() || TC_FILLING > 0 || sel.dataset.fixed === '1';
 }
@@ -48523,14 +48528,18 @@ function tcPaintModel(pv, ac) {
   const claude = () => show(CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>'
     + esc(m.label) + '</option>').join(''), false, '', true);
   if (CREATE_MODELS.length) { claude(); return; }
-  /* The team step can open before the create form has read the roles: read them the way the form does. Until
-     they come, nothing is chosen, so a team made meanwhile gets create's default, which is the same model. */
+  /* The team step can open before the create form has read the roles: the plain read the agent page uses, never
+     ?catalogue=1 (only the role picker downloads the catalogue, #4632). Until it comes, nothing is chosen, so a
+     team made meanwhile gets create's default. */
   show('<option value="" selected>Loading the models…</option>', true, '', false);
-  Promise.resolve().then(() => fetchRoles()).catch(() => null).then(() => {
-    if (gen !== TC_MODEL_GEN) return;
-    if (CREATE_MODELS.length) claude();
-    else show('<option value="" selected>Kosmos\'s default model</option>', true, '', false);
-  });
+  fetch('/api/roles', { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    .then((body) => {
+      if (gen !== TC_MODEL_GEN) return;
+      if (!CREATE_MODELS.length && body && Array.isArray(body.models)) CREATE_MODELS = body.models;
+      if (CREATE_MODELS.length) claude();
+      else show('<option value="" selected>Kosmos\'s default model</option>', true, '', false);
+    });
 }
 
 /* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
@@ -48787,7 +48796,7 @@ document.getElementById('tc-go').addEventListener('click', async () => {
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
   TC.busy = true;   // live from the click: Back or a reopen now keeps it (the project may be being made)
-  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
+  for (const id of ['tc-provider', 'tc-account', 'tc-model']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   tcPaint();        // the name boxes lock here (review 27)
   try {
     // Names first, with nothing made: a refused name, or one already taken on this computer, must not
