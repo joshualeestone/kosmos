@@ -20,7 +20,7 @@ converged: true
 **Deviations, stated:**
 - The full suite ran on Mortals, not on Agent1s.
 - After convergence, two small fixes (a health-probe stub and the #4581 pins) were blind-reviewed clean at 20:00 on 2026-10-01.
-- Main moved after an earlier Mortals pass and the branch conflicted in tools/windows/kosmos-cli.js (main added , this branch added ). I resolved it as the union (merge commit, not a rebase) and ran the related tests (77 + 18). The one-line union resolution itself was NOT blind-reviewed. The Mortals pass above is for the merged head.
+- Main moved after an earlier Mortals pass and the branch conflicted in tools/windows/kosmos-cli.js (main added task assign, this branch added project pause). I resolved it as the union (merge commit, not a rebase) and ran the related tests (77 + 18). The one-line union resolution itself was NOT blind-reviewed. The Mortals pass above is for the merged head.
 - Reviews were source-only; a served-build check of the board's own Pause (reading 2) needs a release, so the card is parked needs-release for it.
 
 ### Per-Iteration Breakdown
