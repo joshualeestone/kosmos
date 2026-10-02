@@ -351,3 +351,16 @@ test('#5003: a Mac leftover with only its auto-start file, asked in another case
   assert.equal(p.name, 'Juno5003', 'a job-only plan did not take the agent\'s own spelling');
   assert.equal(p.job.label, create.serviceLabel('Juno5003'));
 });
+
+test('#5003: a recorded folder named like the agent in another case does not rename it (only the workers folder counts)', () => {
+  /* A connected agent `cato5003` whose recorded folder is workers/team/Cato5003: inside the workers folder, so plan()
+     accepts it, but its name is not the agent's. The agent's own spelling stays as asked. */
+  const dir = nodePath.join(create.WORKERS_DIR, 'team', 'Cato5003');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'x\n');
+  store.writeProfile('cato5003', { dir });
+  assert.equal(create.workerDir('cato5003'), dir, 'control: the recorded folder is what workerDir answers');
+  quiet();
+  const p = mac.plan('cato5003');
+  assert.equal(p.name, 'cato5003', 'a recorded folder\'s name was taken as the agent\'s: ' + p.name);
+});

@@ -33,3 +33,14 @@ Sibling files green: web.delete-leftover 7/7, jobexists.win32-570 14/14.
 - N the case-blind refusal did not say the names were taken as one -> "(this computer does not tell X and Y apart)".
 - Note, measured: with realCaseName in place the case-blind running check is a SECOND line (it fires only when the
   disk read fails, which falls back to the asked name); its sabotage alone is no longer red. Kept on purpose.
+
+## Review 2 (blind, whole diff): 0 blockers, 1 warning, 3 nits; all taken
+- W realCaseName read the name of create.workerDir(asked), which is a connected agent's RECORDED folder first (anywhere,
+  any name); inside the workers folder (workers/team/Miles) it would rename `miles` to `Miles` and del() would stop the
+  wrong label and miss miles's own records -> the folder counts only when its real parent IS the workers folder.
+  Test +1 (recorded workers/team/Cato5003 for cato5003: name stays as asked; control: workerDir answers the recorded
+  folder). Sabotage (no parent check): red.
+- N the new function sat under plan()'s doc comment -> moved above it.
+- N "(this computer does not tell X and Y apart)" is false on a case-sensitive volume -> "(Kosmos treats X and Y as the
+  same name here)".
+- N "a link is never followed" overstated -> "A linked folder is not read here (plan() refuses it)".
