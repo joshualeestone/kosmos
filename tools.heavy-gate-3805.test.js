@@ -16,7 +16,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const TOOL = path.join(__dirname, 'tools', 'heavy-gate.sh');
 const FREE = 'no release holds the machine right now.';
@@ -282,6 +282,29 @@ test('the real reservation line is one of the wordings the tool reads', () => {
   const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
   fs.rmSync(env.KOSMOS_HG_SNAPSHOT, { force: true });
   assert.match(r.stdout, /^reservation: (none \(no release holds|HELD \((the machine is reserved for a release|the machine is held by an ordinary queued turn|no release holds the machine right now\.\na light run has a side turn))/m, r.stdout);
+});
+
+/* #4911 review 11: the two new wordings in the live test above are only ever met while the box is held, so a quiet box
+   (CI) could never show them drifting from what the status prints. Here they are made: a private marker folder holding
+   an ordinary queued turn's claim, then a light run's side turn, each read through the real tool. */
+test('#4911 the real tool prints the held wordings the live test accepts', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hg-wordings-'));
+  const holder = spawn('sleep', ['60'], { stdio: 'ignore' });
+  t.after(() => { try { holder.kill(); } catch { /* gone */ } fs.rmSync(dir, { recursive: true, force: true }); });
+  const now = Math.floor(Date.now() / 1000);
+  const env = { ...process.env, KOSMOS_RUN_MARKER_DIR: dir, KOSMOS_HG_SNAPSHOT: path.join(dir, 'empty') };
+  fs.writeFileSync(env.KOSMOS_HG_SNAPSHOT, '');
+  delete env.KOSMOS_HG_CLAIM;
+  const LIVE = /^reservation: (none \(no release holds|HELD \((the machine is reserved for a release|the machine is held by an ordinary queued turn|no release holds the machine right now\.\na light run has a side turn))/m;
+  fs.writeFileSync(path.join(dir, 'machine-claim'), `c-${now}-1 ${holder.pid} ${now + 600} host queued run (not a cut): a full suite\n`);
+  let r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
+  assert.match(r.stdout, /HELD \(the machine is held by an ordinary queued turn/, r.stdout);
+  assert.match(r.stdout, LIVE, r.stdout);
+  fs.rmSync(path.join(dir, 'machine-claim'));
+  fs.writeFileSync(path.join(dir, 'light-side-claim'), `s-${now}-1 ${holder.pid} ${now + 600} one check\n`);
+  r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
+  assert.match(r.stdout, /HELD \(no release holds the machine right now\.\na light run has a side turn/, r.stdout);
+  assert.match(r.stdout, LIVE, r.stdout);
 });
 
 test('--except-cwd rules out your own run, exact or below, and not a sibling that shares the prefix', (t) => {

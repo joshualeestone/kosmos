@@ -309,6 +309,27 @@ st="$(kosmos_machine_claim_status)"
 kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null; rm -f "$M/light-side-claim"
 [ "$(kosmos_machine_claim_status)" = "no release holds the machine right now." ] && pass "CONTROL: with nothing live the status is the exact free line" \
   || fail "CONTROL: the free line changed ($(kosmos_machine_claim_status))"
+# Review 11: a renewal (KOSMOS_CLAIM_KEEP_LABEL=1) keeps the label the claim carries under this cookie (a cut run
+# through a queued turn relabelled it "release <version>"). CONTROL: without it the caller's label is written.
+( export KOSMOS_MACHINE_CLAIM_COOKIE=keep-cookie; KOSMOS_CLAIM_LABEL="queued run (not a cut): a turn" kosmos_claim_machine 5
+  V=0.9.99 KOSMOS_CLAIM_LABEL= kosmos_claim_machine 5
+  KOSMOS_CLAIM_KEEP_LABEL=1 KOSMOS_CLAIM_LABEL="queued run (not a cut): a turn" kosmos_claim_machine 5 )
+has "$(cat "$M/machine-claim")" "release 0.9.99" && pass "a renewal keeps the label the cut set under the same cookie" || fail "a renewal overwrote the cut's label ($(cat "$M/machine-claim"))"
+( export KOSMOS_MACHINE_CLAIM_COOKIE=keep-cookie; KOSMOS_CLAIM_LABEL="queued run (not a cut): a turn" kosmos_claim_machine 5 )
+has "$(cat "$M/machine-claim")" "queued run (not a cut): a turn" && pass "CONTROL: a claim that is not a renewal writes its own label" || fail "CONTROL: a plain claim kept the old label"
+rm -f "$M/machine-claim"
+# Review 11: a label with a newline stays one line, so the run still holds and releases its own claims.
+bash -c '. "$1"; export KOSMOS_LIGHT_SIDE_COOKIE=nl-cookie; KOSMOS_SIDE_LABEL="$(printf "two\nlines")" kosmos_claim_light_side 5 && exec sleep 30' _ "$HERE/lib/cut-guard.sh" </dev/null >/dev/null 2>&1 & sp=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && break; sleep 0.2; done
+n1="$(grep -c . "$M/light-side-claim")"
+( export KOSMOS_LIGHT_SIDE_COOKIE=nl-cookie; kosmos_holds_light_side ); h=$?
+( export KOSMOS_LIGHT_SIDE_COOKIE=nl-cookie; kosmos_release_light_side ); 
+{ [ "$n1" = 1 ] && [ "$h" -eq 0 ] && [ ! -e "$M/light-side-claim" ]; } && pass "a side label with a newline stays one line: the run holds and releases its claim" \
+  || fail "a newline label broke the side claim (lines=$n1 holds_rc=$h left=$([ -e "$M/light-side-claim" ] && echo yes || echo no))"
+kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null; rm -f "$M/light-side-claim"
+( export KOSMOS_MACHINE_CLAIM_COOKIE=nl2; KOSMOS_CLAIM_LABEL="$(printf 'queued run (not a cut): a\nb')" kosmos_claim_machine 5 )
+[ "$(grep -c . "$M/machine-claim")" = 1 ] && pass "a machine-claim label with a newline stays one line" || fail "a newline split the machine claim"
+rm -f "$M/machine-claim"
 # The still-waiting note names the queue position (the reason alone is the first check that refused, the claim).
 printf '%s %s\n%s\n%s\n%s\nheavy\n\n' "$((NOW - 100))" "$OTHER" "$(ps -ww -o command= -p "$OTHER")" "$(_kosmos_pid_started_local "$OTHER")" "$(_kosmos_pid_started "$OTHER")" > "$M/suitewait.$OTHER"
 held() { echo "the machine is held" >&2; return 1; }

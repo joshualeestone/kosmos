@@ -176,6 +176,22 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   trap-reset subshell made bash 3.2 warn on 7 of 8 side turns, now 0 of 8; (8) labels shown whole. Dry run 45/45.
   Not taken: an lsof that hangs inside the intruder check would hold the cap off (the side claim then lapses under
   a live run); no hang has been seen, and a timeout wrapper on bash 3.2 is its own moving part.
+- Round 11 (Sonnet + Opus, blind): no blocker. Fixed: (1) a <what> with a newline split a claim file (side and
+  machine), so the run refused its own side claim and could not release it, holding the queue to expiry: labels are
+  written on one line (tested; red without it); (2) the round-10 release-label exception was wrong both ways (it
+  wrote the queue's own V label over a cut's, and fired on a mere mention of release.sh): removed; instead a RENEWAL
+  (KOSMOS_CLAIM_KEEP_LABEL=1, the queued-heavy renewer) keeps the label the claim carries under this cookie, so a
+  cut's "release <version>" survives the turn's renewals (lib test both ways; dry run with a 1 s renewer); (3) _qh_scan
+  also maps ( ) { } < > quotes $ ` to spaces ((cd /x && yarn test), yarn "test", $(yarn test), yarn test>log);
+  (4) the heavy-gate live test's new wordings are now MADE in a private marker dir and read through the real tool
+  (red when the status sentence drifts), so a quiet box cannot hide drift; (5) the "one line" comments on
+  who-has-the-box and the status say there is a second line for a side turn. Dry run 49/49 (fake yarn/npm/pnpm first
+  on its PATH: at 21:04 an unquoted heredoc that built the harness ran a real `yarn test`, which joined the real
+  queue as a waiter for 6 minutes before I found and stopped it; it never ran a test).
+- WEAKEST PREMISE, added round 11 (Opus): the aging is OFF while any waiter from a lib older than #4911 is live (every
+  reader then uses the older rule, which is what prevents the three-waiter circle). A run-tests.sh from any branch not
+  yet rebased past this merge writes such a marker, so the 367-minute light wait is fixed only as branches rebase
+  (most within a day). The side turn is not affected by this; the aging is.
 - KNOWN LIMIT, measured 19:35: an agent's long-lived Playwright browser (one had run 5 h 50 min) is a Playwright
   browser, so it holds side turns off while it runs. That is the safe direction; it means the side lane opens less
   often than the load figures alone suggest. The before/after measurement shows how much.

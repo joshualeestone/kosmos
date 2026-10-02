@@ -1006,7 +1006,18 @@ kosmos_claim_machine() {
   # #4911: KOSMOS_CLAIM_LABEL names a claim that is NOT a release (queued-heavy.sh's ordinary turns: "queued run (not a
   # cut): <what>"). Before, every queued turn was labelled "release (not a cut) queued one-off", which read as a release
   # reservation jumping the queue (Splinter's 20:38 rule, withdrawn at 20:40). A cut's own claim is unchanged.
-  printf '%s %s %s %s %s\n' "$cookie" "$$" "$exp" "$host" "${KOSMOS_CLAIM_LABEL:-release ${V:-cut}}" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  local label="${KOSMOS_CLAIM_LABEL:-release ${V:-cut}}" cur
+  # #4911 (review 11): KOSMOS_CLAIM_KEEP_LABEL=1 (a renewal) keeps the label the live claim already carries under THIS
+  # cookie. A cut run through a queued turn relabels the claim "release <version>" under the turn's cookie; the turn's
+  # renewer used to write its own label back every 10 minutes.
+  if [ "${KOSMOS_CLAIM_KEEP_LABEL:-0}" = 1 ]; then
+    cur="$(_kosmos_machine_claim_active)"
+    if [ -n "$cur" ] && [ "$(printf '%s' "$cur" | awk '{print $1}')" = "$cookie" ]; then
+      label="$(printf '%s' "$cur" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
+    fi
+  fi
+  label="$(printf '%s' "$label" | tr '\n\r' '  ')"   # review 11: one line, always (a label with a newline split the file)
+  printf '%s %s %s %s %s\n' "$cookie" "$$" "$exp" "$host" "$label" > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
   mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
   return 0
 }
@@ -1075,8 +1086,8 @@ kosmos_holds_machine_claim() {
   [ "$cookie" = "$self" ]
 }
 
-# kosmos_machine_claim_status  -- the "who has the box?" answer, one line to
-# stdout. Prints the holder + until for an active claim, else the all-clear.
+# kosmos_machine_claim_status  -- the "who has the box?" answer to stdout: the holder + until for an active
+# claim, else the all-clear, then (#4911) one more line while a light run's side turn is live.
 kosmos_machine_claim_status() {
   local active pid exp host label side
   active="$(_kosmos_machine_claim_active)"
@@ -1156,7 +1167,9 @@ kosmos_claim_light_side() {
   active="$(_kosmos_light_side_active)"
   if [ -n "$active" ] && [ "$(printf '%s' "$active" | awk '{print $1}')" != "$cookie" ]; then return 1; fi
   tmp="$dir/.light-side-claim.$$.tmp"
-  printf '%s %s %s %s\n' "$cookie" "$$" "$(( $(_kosmos_now_epoch) + minutes * 60 ))" "${KOSMOS_SIDE_LABEL:-a light run}" > "$tmp" 2>/dev/null \
+  # Review 11: the label on ONE line. A <what> with a newline wrote a two-line claim, whose cookie then read back with
+  # the second line glued on: the run refused its own claim and could not release it, holding the queue to expiry.
+  printf '%s %s %s %s\n' "$cookie" "$$" "$(( $(_kosmos_now_epoch) + minutes * 60 ))" "$(printf '%s' "${KOSMOS_SIDE_LABEL:-a light run}" | tr '\n\r' '  ')" > "$tmp" 2>/dev/null \
     || { rm -f "$tmp" 2>/dev/null; return 1; }
   mv -f "$tmp" "$f" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
   return 0
