@@ -518,3 +518,105 @@ test('#5000: a folder that cannot be moved still leaves the name reset, because 
   assert.match(done.because, /None of its files were moved\. Its standing in the community was reset/, done.because);
   assert.ok(!/#\d/.test(done.because), 'a card number reached the person: ' + done.because);
 });
+
+test('#5003: a delete asked in another case while the agent runs is refused, and its folder stays where it is', () => {
+  leftoverAgent('Miles5003');
+  const running = () => status.setPaneSource(() => fleet.line({ session: 'Miles5003', claim: 'Miles5003', title: '✳ Claude Code' }));
+  /* The control on the same path: asked in its own case while running, it is refused as before. */
+  running();
+  const own = mac.plan('Miles5003');
+  assert.equal(own.ok, false, 'control: a running agent asked by its own name was offered for deletion');
+  for (const asked of ['miles5003', 'MILES5003']) {
+    running();
+    const p = mac.plan(asked);
+    assert.equal(p.ok, false, `a running agent asked as ${asked} was offered for deletion`);
+    assert.match(p.because, /is running/, p.because);
+    running();
+    const done = mac.del(asked);
+    assert.equal(done.outcome, leftover.OUTCOME.REFUSED, `a delete asked as ${asked} went ahead on a running agent`);
+    assert.ok(fs.existsSync(create.workerDir('Miles5003')), `the running agent's folder was moved by a delete asked as ${asked}`);
+    assert.ok(fs.existsSync(create.plistPath('Miles5003')), `the running agent's auto-start file was moved by a delete asked as ${asked}`);
+  }
+  /* And once it is not running, the leftover is offered again: the refusal above is about running, not about case. */
+  quiet();
+  assert.equal(mac.plan('Miles5003').ok, true, 'a stopped leftover was refused');
+});
+
+test('#5003: a STOPPED leftover asked in another case is deleted under its own name: launchd label and removed record too', (t) => {
+  leftoverAgent('Rosa5003');
+  if (!fs.existsSync(create.workerDir('rosa5003'))) { t.skip('this disk tells case apart'); return; }
+  quiet();
+  const rec = remove.remove('Rosa5003');
+  assert.notEqual(rec.outcome, remove.OUTCOME.REFUSED, rec.because);
+  assert.equal(remove.isHidden('Rosa5003'), true, 'control: the fixture is on the removed list');
+  const p = mac.plan('rosa5003');
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.name, 'Rosa5003', 'the plan did not take the agent\'s own spelling');
+  calls.length = 0;
+  const done = mac.del('rosa5003');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  const boot = calls.find((c) => c[0] === 'launchctl' && c[1][0] === 'bootout');
+  assert.ok(boot && boot[1][1].endsWith('/' + create.serviceLabel('Rosa5003')), 'launchd was asked to stop a label that is not the agent\'s: ' + JSON.stringify(boot));
+  assert.equal(remove.isHidden('Rosa5003'), false, 'the removed record of the agent\'s own spelling outlived the delete');
+});
+
+test('#5003: a Mac leftover with only its auto-start file, asked in another case, is stopped under its own label', (t) => {
+  leftoverAgent('Juno5003');
+  fs.rmSync(create.workerDir('Juno5003'), { recursive: true, force: true });
+  if (!fs.existsSync(create.plistPath('juno5003'))) { t.skip('this disk tells case apart'); return; }
+  quiet();
+  const p = mac.plan('juno5003');
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.name, 'Juno5003', 'a job-only plan did not take the agent\'s own spelling');
+  assert.equal(p.job.label, create.serviceLabel('Juno5003'));
+});
+
+test('#5003: a recorded folder named like the agent in another case does not rename it (only the workers folder counts)', () => {
+  /* A connected agent `cato5003` whose recorded folder is workers/team/Cato5003: inside the workers folder, so plan()
+     accepts it, but its name is not the agent's. The agent's own spelling stays as asked. */
+  const dir = nodePath.join(create.WORKERS_DIR, 'team', 'Cato5003');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'x\n');
+  store.writeProfile('cato5003', { dir });
+  assert.equal(create.workerDir('cato5003'), dir, 'control: the recorded folder is what workerDir answers');
+  quiet();
+  const p = mac.plan('cato5003');
+  assert.equal(p.name, 'cato5003', 'a recorded folder\'s name was taken as the agent\'s: ' + p.name);
+});
+
+test('#5003: a connected agent whose recorded folder sits in the workers folder under another case keeps its own name', () => {
+  /* discover.connect names the agent as typed: `nero5003`, recorded folder workers/Nero5003, label ...nero5003. */
+  const dir = nodePath.join(create.WORKERS_DIR, 'Nero5003');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'x\n');
+  store.writeProfile('nero5003', { dir });
+  assert.equal(create.workerDir('nero5003'), dir, 'control: the recorded folder is what workerDir answers');
+  quiet();
+  const p = mac.plan('nero5003');
+  assert.equal(p.name, 'nero5003', 'the recorded folder\'s spelling was taken as the agent\'s: ' + p.name);
+});
+
+test('#5003: on the Mac the auto-start file\'s spelling wins over the folder\'s', (t) => {
+  /* The folder says Vela5003 but the job was written for vela5003: the label is what bootout must name. */
+  leftoverAgent('vela5003');
+  const folder = create.workerDir('vela5003');
+  const upper = nodePath.join(nodePath.dirname(folder), 'Vela5003');
+  fs.renameSync(folder, upper);
+  if (!fs.existsSync(create.workerDir('vela5003'))) { t.skip('this disk tells case apart'); return; }
+  quiet();
+  const p = mac.plan('VELA5003');
+  assert.equal(p.name, 'vela5003', 'the folder\'s spelling won over the auto-start file\'s: ' + p.name);
+  assert.equal(p.job.label, create.serviceLabel('vela5003'));
+});
+
+test('#5003: the win32 arm reads a stopped leftover\'s own spelling from its folder too', (t) => {
+  leftoverAgent('Ida5003', { job: false });
+  /* Task Scheduler answers "no such task", so the plan gets as far as the folder (the stub is the one this module's
+     win32 arm reads through; nothing here runs schtasks). */
+  const win32job = require('./win32job');
+  win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.' }));
+  let win;
+  try { win = leftover.plan('ida5003', { platform: 'win32' }); } finally { win32job.setRunner(null); }
+  if (!fs.existsSync(create.workerDir('ida5003'))) { t.skip('this disk tells case apart'); return; }
+  assert.equal(win.name || 'refused: ' + win.because, 'Ida5003');
+});
