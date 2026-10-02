@@ -281,10 +281,13 @@ if [ "$KOSMOS_ONLY" = 1 ]; then
   # on a missing lib, as above). A run started inside a queued-heavy.sh turn inherits that turn's
   # KOSMOS_MACHINE_CLAIM_COOKIE (kosmos_claim_machine exports it before the command runs), so the turn's own claim
   # is not foreign and does not refuse it.
-  if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
-    kosmos_refuse_if_machine_claimed "this test run" || exit 1
-    if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
-      kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || exit 1
+  # Worded apart from the full suite's lines on purpose: tools/test-cut-guard.sh pins those by their text.
+  if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
+    if ! kosmos_holds_machine_claim; then
+      kosmos_refuse_if_machine_claimed "this --only run" || exit 1
+      if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+        kosmos_refuse_if_harness_live "this --only run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs it anyway" || exit 1
+      fi
     fi
   fi
 elif command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then

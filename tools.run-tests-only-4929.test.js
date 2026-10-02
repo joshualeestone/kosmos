@@ -26,6 +26,8 @@ const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'only-4929-'));
 const RUNNER_SET = ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'AGENT_WORKFORCE_COMMUNITY_URL',
   'KOSMOS_CATALOGUE_BASE', 'AGENT_WORKFORCE_GH_BIN', 'AGENT_WORKFORCE_VERCEL_BIN', 'KOSMOS_NO_LEGACY_MIGRATION',
   'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD',
+  // A queue turn or a cut runs this file holding a machine claim; its cookie would make the test's own claims ours.
+  'KOSMOS_MACHINE_CLAIM_COOKIE',
   // node --test marks its children with NODE_TEST_CONTEXT; a nested node --test that inherits it reports to this one
   // instead of printing. The runs below are separate runs, so it goes too.
   'NODE_TEST_CONTEXT'];
@@ -122,9 +124,10 @@ test('--only asks the machine claim once: a foreign claim refuses it; the claim\
   const lib = path.join(__dirname, 'tools', 'lib', 'cut-guard.sh');
   /* A live holder: a claim whose holder has gone is stale and refuses nothing, so it stays alive until the end. */
   const holder = require('node:child_process').spawn('bash', ['-c',
-    `. "${lib}" && kosmos_claim_machine 5 && printf 'COOKIE %s\\n' "$KOSMOS_MACHINE_CLAIM_COOKIE" && sleep 120`],
+    `. "${lib}" && kosmos_claim_machine 5 && printf 'COOKIE %s\\n' "$KOSMOS_MACHINE_CLAIM_COOKIE" && exec sleep 120`],
     { env: cleanEnv({ KOSMOS_RUN_MARKER_DIR: markers }), stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { try { holder.kill('SIGTERM'); } catch { /* gone */ } });
+  // exec: the holder IS the sleep, so killing it leaves nothing holding the pipe (bash 3.2 does not exec the last command).
+  t.after(() => { try { holder.kill('SIGTERM'); } catch { /* gone */ } try { holder.stdout.destroy(); } catch { /* gone */ } });
   const cookie = await new Promise((resolve) => {
     let buf = '';
     const done = setTimeout(() => resolve(''), 15000);
