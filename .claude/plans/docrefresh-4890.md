@@ -21,7 +21,7 @@ behaviour that had changed (#4627 links, #4582 `reply --stdin`) because their in
    dialog. The click replaces that copy where it stands, inside the span. The dialog says so (`replacing`).
    A copy the person edited fails the byte match and keeps today's rule (missing headings only).
 3. "Send readable messages" said a `[label](address)` link drops the address; since #4627 it shows "label
-   (address)". Fixed, doctrine v21.
+   (address)". Fixed, doctrine v23 (main took v21 for #4624 and v22 for #4873 while this was in review).
 
 ## Decided, not missed
 - Nothing is rewritten without the person's click: the ownership rule stands. Birth needs no click because nothing
@@ -162,4 +162,9 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   overwrite. NITs only otherwise. CONVERGED.
 - NEXT: #4873 also takes doctrine v21. Whichever merges second renumbers to v22, re-pins defaults.test.js,
   regenerates engine/doctrine-past.js and gets one more blind round before its final validation.
+- 05:40 10-02 (after #4873 merged as v22): merged origin/main. The version log keeps main's 21 (#4624) and 22 (#4873),
+  this card's entry is now 23, DOCTRINE_VERSION 23, pinned 91ad3a6c31f4b409. tools/doctrine-past.js re-run AFTER the
+  merge was committed (run before it, HEAD's history lacked main's v22 and the table had no v22 row): 30 blocks, v20
+  to v23 present; the extra rows are this branch's unreleased earlier blocks (no agent holds them, so they match
+  nothing). defaults, doctrine, doctrine-4890 and doctrine-consent tests green. One review round on the merged tree next.
 
