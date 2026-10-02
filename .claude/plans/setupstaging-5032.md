@@ -65,6 +65,9 @@ That no installer change must reach prod boxes before their app update. The esca
 prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
 
 ## Residuals
+- promote is not atomic across latest.json and the /setup pair; a failure between them is refused by deploy-site and
+  the message names the by-hand finish (review 12, kept). An aborted cut's restore also reverts an UNCOMMITTED promote
+  in the site checkout (setup with latest.json, consistently); commit a promote before cutting again.
 - `curl .../setup-staging | sh` WITHOUT `KOSMOS_UPDATE_CHANNEL=staging` on the sh installs the prod tarball with the
   staging installer. setup.sh cannot tell which URL served it; every doc and the hand-off put the variable on the
   sh, and update.js passes it.
@@ -83,7 +86,7 @@ prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
   installs (from /setup-staging) exercise the installer the promote will put on /setup.
 - Kosmos.pkg: a staging cut whose pkg inputs changed still copies the rebuilt .pkg into the site's dist/,
   the prod download button. Same class (a staging cut reaching prod), not fixed here.
-- publish-staging-pointer.sh keeps setup_sha256 only when it republishes the same version and artifact
+- publish-staging-pointer.sh keeps setup_sha256 only when it republishes the same version, artifact and sha
   the current staging pointer names (review 2); any other republish names no installer, and a promote of
   it leaves /setup as it is, with a WARNING when a differing setup-staging is committed.
 - Rollback: the deploy guard REFUSES a #5032 pointer served beside the wrong installer, so the operator
