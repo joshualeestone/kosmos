@@ -1159,6 +1159,9 @@ if git -C "$SITE" rev-parse -q --verify "$H:setup-staging" >/dev/null 2>&1; then
   _svss_sum=$(mktemp "${TMPDIR:-/tmp}/deploy-site-setupstsum.XXXXXX")
   curl -fsSL -H 'Cache-Control: no-cache' "$HOST/setup-staging.sha256" -o "$_svss_sum" || { echo "deploy-site: could not fetch the served /setup-staging.sha256 after deploy -- investigate."; rm -f "$_svss_sum"; exit 1; }
   _svss_want=$(awk '{print $1; exit}' "$_svss_sum"); rm -f "$_svss_sum"
+  # The served script must be the COMMITTED one too (a stale but self-consistent edge pair would pass the agreement).
+  _svss_commit=$(git -C "$SITE" show "$H:setup-staging" | shasum -a 256 | awk '{print $1}')
+  [ "$_svss_got" = "$_svss_commit" ] || { echo "deploy-site: the served /setup-staging (sha $_svss_got) is not the committed setup-staging ($_svss_commit) -- refusing to certify; purge+warm the edge and re-check (#5032)."; exit 1; }
   [ -n "$_svss_want" ] && [ "$_svss_want" = "$_svss_got" ] || { echo "deploy-site: the served /setup-staging (sha $_svss_got) does NOT match its served /setup-staging.sha256 (${_svss_want:-<none>}) -- refusing to certify. Re-run the deploy and/or purge+warm the edge for both."; exit 1; }
 fi
 
