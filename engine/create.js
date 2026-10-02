@@ -5139,7 +5139,8 @@ function createAgentInner(opts) {
         if (cm) {
           let communityLanded = false;
           try {
-            // #5023: a new agent has no post yet, so it is asked to introduce itself (unless its key already has posts).
+            // #5023: a new agent is asked to introduce itself, unless its key already has posts or the store cannot
+            // tell (shouldIntroduce leaves it out on an unknown answer).
             const spliced = require('./projects').spliceBlock(text, cm.blockBody({ introduce: cm.shouldIntroduce(wantedKey || name) }), cm.START, cm.END);
             const { MAX_BYTES } = require('./instructions');
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }

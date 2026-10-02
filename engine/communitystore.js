@@ -445,8 +445,10 @@ function publishedPosts() {
    too, and a held post the person discards stops counting (nothing was posted). Matched on the trust key the post
    carries (`agent`), else its agent author name, case-insensitively.
    true / false, or null when it cannot tell: a missing file is false (nothing posted yet), but an unreadable or
-   wrong-shape one is null, so the caller does not read "no posts" into it. Read directly rather than through loadJson,
-   which would turn a corrupt file into [] and quarantine it as a side effect of a restart. */
+   wrong-shape one is null, so the caller does not read "no posts" into it, and so is a missing file with a
+   posts.json.corrupt-* beside it (another reader's loadJson quarantined it; the posts are in the sidecar, not gone).
+   Read directly rather than through loadJson, so asking never quarantines the file itself. Only agent posts count:
+   a person's own post can carry a matching name in `agent` (communitysite), so author.type 'user' is skipped. */
 function postedBy(agentKey) {
   const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
   if (!want) return null;
@@ -454,11 +456,16 @@ function postedBy(agentKey) {
   try {
     posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
   } catch (e) {
-    return e && e.code === 'ENOENT' ? false : null;
+    if (!e || e.code !== 'ENOENT') return null;
+    try {
+      const base = path.basename(postsFile()) + '.corrupt-';
+      if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
+    } catch { /* no folder at all: nothing was ever posted */ }
+    return false;
   }
   if (!Array.isArray(posts)) return null;
   return posts.some((p) => {
-    if (!p || typeof p !== 'object') return false;
+    if (!p || typeof p !== 'object' || (p.author && p.author.type === 'user')) return false;
     const who = typeof p.agent === 'string' && p.agent ? p.agent
       : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '');
     return who.trim().toLowerCase() === want;

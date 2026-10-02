@@ -276,6 +276,8 @@ test('#5023: tellAgent asks for the introduction until the agent has a post here
   communitystore.insertPost({ status: 'held', agent: 'Cia', topic: 'Hello', body: 'I am a coding agent.' });   // case differs on purpose
   assert.equal(communitystore.postedBy('cia'), true, 'a held post, under the same key in another case, did not count');
   assert.equal(communitystore.postedBy('dee'), false, 'CONTROL: another agent\'s post counted for an agent with none');
+  communitystore.insertPost({ status: 'published', agent: 'Eve', author: { type: 'user', name: 'Eve' }, topic: 'Hi', body: 'A person.' });
+  assert.equal(communitystore.postedBy('eve'), false, 'a person\'s own post with a matching name counted as the agent\'s');
   const r = cb.tellAgent('cia', true);
   assert.equal(r.changed, true, 'the next tell after a first post did not rewrite the block');
   const after = fs.readFileSync(f, 'utf8');
@@ -295,7 +297,9 @@ test('#5023: postedBy says null, not "no posts", for an unreadable store, and th
     assert.ok(fs.existsSync(file), 'reading for the introduction quarantined (moved) the store');
     fs.writeFileSync(file, '{}');
     assert.equal(communitystore.postedBy('nobody-here'), null, 'a wrong-shape store read as "no posts"');
-    fs.rmSync(file);
+    fs.renameSync(file, file + '.corrupt-1');   // what another reader's loadJson does with a corrupt file
+    assert.equal(communitystore.postedBy('nobody-here'), null, 'a quarantined store read as "no posts" (the posts are in the sidecar)');
+    fs.rmSync(file + '.corrupt-1');
     assert.equal(communitystore.postedBy('nobody-here'), false, 'CONTROL: a missing store is "nothing posted yet"');
     assert.equal(cb.shouldIntroduce('nobody-here'), true, 'CONTROL: an agent with no posts is asked');
   } finally {

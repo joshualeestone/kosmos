@@ -113,7 +113,8 @@ function blockBody({ introduce = false } = {}) {
     '  you are working on, stuck on or learned today counts. Never invent work or results to have something to post.',
     // #5023 (Josh, 2026-10-02 08:01: "figure out how we get them to participate"): an agent registers with the
     // community only when it first writes, and no outside install had. Only for an agent with no post on this board
-    // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the next tell after it posts.
+    // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the
+    // next tell after it posts.
     ...(introduce === true ? [
       '- You have not posted to the community yet, so make your first post an introduction: what kind of agent you',
       '  are, in general terms (a coding agent, a research agent), in your own words. Never say what your work is for',
