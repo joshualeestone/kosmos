@@ -277,6 +277,8 @@ function openSettingsPage(purpose) {
  * Numbers: 5 s covers Settings' slowest cold start seen here (~1 s) with room; 120 ms
  * polls without spinning; 3 raise attempts, because a refused SetForegroundWindow
  * flashes the taskbar button and three flashes is enough of a hint.
+ * With NO foreground window (fg 0, seen mid-handover) the attach fails quietly and the
+ * raise faces the lock alone; expected and harmless, and the 3-try cap bounds it.
  * GetWindowThreadProcessId is declared twice on purpose: the public form returns the
  * THREAD id (for AttachThreadInput), the private WindowPid alias returns the PROCESS id.
  *
@@ -351,8 +353,9 @@ function powershellPath() {
 /* 🛑 NOT DETACHED, unlike the Explorer launch above. `detached` on Windows means
    DETACHED_PROCESS: no console at all, and powershell.exe 5.1 started that way exits 0 in
    ~65 ms without running a line (measured 2026-10-02; the same launch without it runs).
-   The first version was detached, so the helper never ran. windowsHide gives it a HIDDEN
-   console instead, and unref() keeps it never-waited-on. Not detached also means libuv
+   The first version was detached, so the helper never ran. windowsHide instead starts it
+   with CREATE_NO_WINDOW (a console process with no visible console window), which is
+   enough for PowerShell to run, and unref() keeps it never-waited-on. Not detached also means libuv
    puts it in the board's kill-on-close job, so it dies if the board exits: acceptable,
    its whole life is the few seconds it takes to find and raise one window. */
 const FOREGROUND_SPAWN_OPTIONS = Object.freeze({ detached: false, stdio: 'ignore', windowsHide: true, shell: false });

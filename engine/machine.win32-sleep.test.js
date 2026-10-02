@@ -243,13 +243,13 @@ test('#3324 the foreground helper is launched hidden and NOT detached: a detache
   const liveExecution = require('./live-execution');
   const spawned = [];
   let unrefs = 0;
+  /* Arming the live gate inside a test is the exception, safe ONLY because the spawn seam
+     is set first: nothing real can launch. */
+  assert.equal(typeof explorer.setSpawnForTests, 'function', 'the spawn seam exists before the gate is armed');
   explorer.setSpawnForTests((exe, args, opts) => {
     spawned.push({ exe, args, opts });
     return { on() {}, unref() { unrefs += 1; } };
   });
-  /* Arming the live gate inside a test is the exception, safe ONLY because the spawn seam
-     above is set first: nothing real can launch. */
-  assert.equal(typeof explorer.setSpawnForTests, 'function');
   liveExecution.allowLiveExecution();
   try {
     assert.deepEqual(explorer.foregroundSettings(), { ok: true });
@@ -281,6 +281,16 @@ test('#3324 the foreground helper\'s C# compiles under Windows PowerShell, so a 
     ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(probe, 'utf16le').toString('base64')],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, windowsHide: true });
   assert.equal(out.trim(), '0', 'FrameOf compiled and found no window for pid 0');
+
+  /* The PowerShell loop after Add-Type runs under SilentlyContinue too: PARSE the whole
+     script (nothing runs) so a syntax slip there is red as well. */
+  const parse = "$errs=$null; [void][System.Management.Automation.Language.Parser]::ParseInput("
+    + "[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('"
+    + Buffer.from(script, 'utf16le').toString('base64') + "')),[ref]$null,[ref]$errs); $errs.Count";
+  const parsed = require('node:child_process').execFileSync(explorer.powershellPath(),
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(parse, 'utf16le').toString('base64')],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, windowsHide: true });
+  assert.equal(parsed.trim(), '0', 'the whole helper script parses with no errors');
 });
 
 test('the Kosmos folder row on Windows reports the real folder with backslashes, and from source says so', () => {
