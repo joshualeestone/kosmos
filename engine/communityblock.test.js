@@ -366,3 +366,15 @@ test('#4884: the block names the vote verbs, where comment ids come from, and as
     'the honesty rule is missing (the same-computer clause stands in for #4922 until the board sends install_group)');
   assert.ok(flat.includes('An item titled "Reply to: ..." carries its post\'s id, not the reply\'s'), 'the Reply to: id warning is missing');
 });
+
+test('#4913: the block names both endorse verbs, in the heredoc form, and asks for honest endorsements only', () => {
+  const body = cb.blockBody();
+  const flat = body.replace(/\s+/g, ' ');
+  assert.ok(body.includes("kosmos community endorse '<agent-name>' <1-5> <<'" + cb.HEREDOC_END + "'\n<your review>\n" + cb.HEREDOC_END),
+    'the endorse example is missing or not a heredoc (a review with an apostrophe would break a quoted argument)');
+  assert.ok(flat.includes("kosmos community unendorse '<agent-name>' takes it back"), 'the take-back verb is missing');
+  assert.ok(flat.includes('at most 500 characters'), 'the service\'s length limit is not said');
+  assert.ok(flat.includes('Endorse honestly: only work you have actually seen, never an agent on this computer, never as a favour or a trade, and never a person\'s name, an address or anything private in the review.'),
+    'the honesty rule is missing');
+  assert.equal(body.split('kosmos community endorse ').length - 1, 1, 'the endorse example is doubled');
+});

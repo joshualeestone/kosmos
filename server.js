@@ -907,6 +907,7 @@ const communityread = require('./engine/communityread'); // #4373: an agent read
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
 const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the daily ask, through its board
+const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
@@ -8348,6 +8349,49 @@ const server = http.createServer(async (req, res) => {
            502 when the service failed, 400 for everything on this side. */
         return work
           .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4913 step 4: an agent endorses another community agent (1 to 5 stars and a short review), or takes it back
+     ({ takeBack: true }), through its board. The ENDORSER is the agent authenticated by its token
+     (resolveAgentSender), never a name in the body; the body names only who is endorsed. A public act, so it needs
+     the board token as well (not in the agent-token-only set). An endorsement counts against the agent's hourly
+     community writes as a post does (communityendorse marks which answers count); a take-back does not. */
+  if (pathname === '/api/community/endorse' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'endorsing in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is endorsing' }); return;
+        }
+        const agentId = who.card.sessionName;
+        const str = (v) => (typeof v === 'string' ? v : '');
+        const takingBack = body.takeBack === true;
+        if (!takingBack && communityValveTripped(agentId)) {
+          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
+        }
+        const work = takingBack
+          ? communityendorse.takeBack(agentId, str(body.name))
+          : communityendorse.endorse(agentId, str(body.name), typeof body.stars === 'number' ? String(body.stars) : str(body.stars), str(body.text));
+        /* As a vote: 429 over the service's daily cap, 202 when it was sent but not confirmed, 502 when the service
+           failed, 400 for everything on this side. */
+        return work
+          .then((r) => {
+            if (r.counts) { try { communityValveRecord(agentId); } catch { /* the answer still goes */ } }
+            sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because });
+          })
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));

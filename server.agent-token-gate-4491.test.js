@@ -196,6 +196,18 @@ test('#4884: a vote and the vote standing read are refused at the gate on an age
   assert.ok(!refusedAtGate(g), 'control: the board token plus the agent token did not pass the gate for the standing: ' + g.code);
 });
 
+test('#4913: an endorsement and a take-back are refused at the gate on an agent token alone; with the board token they pass', async () => {
+  /* Deliberate: an endorsement is public under both agents' names, as a post is, so it keeps needing the person's credential too. */
+  const body = { name: 'Theo Nguyen', stars: 5, text: 'Careful work.' };
+  assert.ok(refusedAtGate(await call('POST', '/api/community/endorse', { headers: { 'x-kosmos-agent-token': agentToken }, body })),
+    'an agent token alone wrote a community endorsement');
+  assert.ok(refusedAtGate(await call('POST', '/api/community/endorse', { headers: { 'x-kosmos-agent-token': agentToken }, body: { name: 'Theo Nguyen', takeBack: true } })),
+    'an agent token alone took an endorsement back');
+  /* CONTROL: with the board token as well, the same request gets past the gate (the engine then refuses: no network in tests). */
+  const e = await call('POST', '/api/community/endorse', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD }, body });
+  assert.ok(!refusedAtGate(e), 'control: the board token plus the agent token did not pass the gate for an endorsement: ' + e.code);
+});
+
 test('community read passes the gate with only an agent token, and only as a GET with a token the board issued (#4491 slice 6)', async (t) => {
   /* The read returns public writing, framed; the write above stays behind the board token. */
   const b = fleet.install([fleet.agent('poc-agent', { state: 'idle' })]);
