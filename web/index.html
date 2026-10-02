@@ -34832,8 +34832,9 @@ function dmReplyStart(at) {
   if (input) input.focus();
 }
 
-/* The in-flight (or not-kept) message, in the person's own bubble. The pill is
-   the thread's delivery pill: dashed while it is on its way, red if it did not go.
+/* The in-flight (or not-kept) message, in the person's own bubble. While it is on its way
+   the time's slot says "Sending…" in plain text (#4944: same height as the kept row);
+   if it did not go, the thread's red delivery pill says so.
    #4944: the same bubble the kept row is (dmRow's own-message arm), with the reply header the kept row will
    carry, so the swap when the thread holds it happens in place rather than as a jump. `name` and `adjacent`
    are dmReplyHead's. */
