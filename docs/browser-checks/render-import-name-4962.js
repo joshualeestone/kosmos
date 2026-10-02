@@ -95,7 +95,8 @@ const PARSE = {
         const n1 = await nr.evaluate((el) => {
           const f = el.querySelector('.fr-importinput');
           const lab = f && el.querySelector('label[for="' + f.id + '"]');
-          const help = f && document.getElementById(f.getAttribute('aria-describedby'));
+          const ids = f ? String(f.getAttribute('aria-describedby') || '').split(/\s+/) : [];
+          const help = f && ids.includes(f.id + '-help') ? document.getElementById(f.id + '-help') : null;
           return { field: !!f, label: lab ? lab.textContent : null, help: help ? help.textContent : null };
         });
         chk(n1.field && n1.label === 'Name' && /What should we call it\?/.test(n1.help || ''), 'N1 the nameless row has a labelled Name field with its helper', JSON.stringify(n1));

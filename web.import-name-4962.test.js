@@ -349,3 +349,32 @@ test('review 3: Enter in a first-run adopt field adds that row', () => {
   api.importNameEnter({ key: 'Enter', target: f, defaultPrevented: false, isComposing: false, repeat: false, preventDefault() { this.defaultPrevented = true; } });
   assert.equal(clicks, 1);
 });
+
+test('review 4: an input method\'s Enter (keyCode 229) or a modified Enter does not press Add', () => {
+  const r = enterRig();
+  r.api.importNameEnter(r.ev(r.field, { keyCode: 229 }));
+  r.api.importNameEnter(r.ev(r.field, { metaKey: true }));
+  r.api.importNameEnter(r.ev(r.field, { shiftKey: true }));
+  assert.deepEqual(r.counts(), { next: 0, go: 0 });
+  r.api.importNameEnter(r.ev(r.field));
+  assert.equal(r.counts().go, 1, 'control: a plain Enter does');
+});
+
+test('review 4: a refusal not about the name clears an invalid mark left by an earlier name refusal', async () => {
+  const r = rig({ withField: true, parsed: PARSED_NAMELESS, created: { ok: false, httpOk: false, because: 'we could not reach the board' } });
+  r.field.value = 'Pip';
+  r.field.setAttribute('aria-invalid', 'true');
+  await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
+  assert.equal(r.field.getAttribute('aria-invalid'), null);
+});
+
+test('review 4: an added row\'s name is not put back into a fresh field on the next visit', () => {
+  const t = makeDom();
+  const box = t.add('import-found');
+  const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');
+  const f = t.create('input'); f.className = 'tk-inp fr-importinput'; f.value = 'Pip'; f.disabled = true;
+  row.appendChild(f); box.appendChild(row);
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', slice('importNamesKept') + '\nreturn { importNamesKept };')(t.document);
+  assert.equal(api.importNamesKept(box).size, 0);
+});
