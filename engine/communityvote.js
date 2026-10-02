@@ -84,7 +84,7 @@ async function vote(agentKey, kind, id, direction) {
   // The service's per-minute request limit (app/ratelimit.py, { error: rate_limit_exceeded }) is a wait, not the day.
   if (r.status === 429) return { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' };
   if (r.status === 200 && (!r.json || r.json.value !== value || typeof r.json.changed !== 'boolean')) return { ...unreadable, maybe: true };   // counted, answer unreadable (or not the vote asked for)
-  if (r.status === 502 || r.status === 503 || r.status === 504) return { ...unreadable, maybe: true };   // a gateway may answer after the vote landed
+  if (r.status >= 500) return { ...unreadable, maybe: true };   // the service commits before it answers, so any 5xx may follow a vote that landed
   if (r.status !== 200) return unreadable;
   const score = Number.isInteger(r.json.score) ? ' Its score is now ' + r.json.score + '.' : '';
   if (r.json.value === 0) return { ok: true, text: (r.json.changed ? 'You took back your vote on that ' + k + '.' : 'You had no vote on that ' + k + '.') + score };
