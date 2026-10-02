@@ -20,12 +20,15 @@ and cannot force a removal; the person (the board token) removes any agent exact
     line wins) is `created`, carries `createdByName` equal to the caller's token name exactly, a time and the time
     the creator asked (`askedAt`); and neither identity has ended since (`sendertoken.endedSince`): the target after
     its birth (strictly, since its own creation revokes its name just before the birth is written), the creator at or
-    after it asked. A key-only or twin token is refused.
+    after it asked. A key-only or twin token is refused, and so is a name a token already stood for when it was made
+    (`tookTokens`).
   - POST /api/team stamps `askedAt` when the request arrives and, on the agent path, reads the caller's exact token
     name; it passes both to the team.
 - `engine/sendertoken.js`: a history of ended identities, `ended-agents.jsonl` (append-only: name and time), written
   by `revoke` (`noteEnded`, before the unlink, so a failed revoke still records it) and read by `endedSince(names,
   since, { inclusive })` (slug match, loose on purpose since a match refuses; null when unreadable).
+- `engine/create.js` records `tookTokens` on a birth when a token stood for the name as create was asked
+  (`sendertoken.holdsTokens`), before create's own revoke clears it.
 - `engine/team.js` sets `createdByName` and `askedAt` on every member: the asking agent's token name and its request
   time when an agent (not the setup guide) asked on a named token, else null, so a member cannot set them.
   `engine/create.js` records them on the birth.
@@ -59,6 +62,13 @@ and cannot force a removal; the person (the board token) removes any agent exact
   (reviews 5 and 6), which survives removal and is carried to a new agent of the same name, so it did not tell
   incarnations apart; its tests deleted the profile by hand and so assumed what they tested. Rejected: a removal-only
   history (review 7's fix), which missed a name freed by deleting a stopped agent's leftovers.
+- A live remote agent holds no folder, job or pane, so create can take its name and its revoke clears that agent's
+  tokens (a pre-existing gap in create, review 11). This change would have turned that into a removal of the remote
+  agent's name; `tookTokens` refuses it. Rejected for this card: making create refuse such a name, a change to
+  create's own behaviour that belongs on its own card.
+- A remote token the person issues again under a name (POST /api/agent-token) mints without revoking, so it carries
+  that name's identity on: a remote creator re-issued its name keeps what it made. That is the person's act and is
+  taken as the same identity.
 - The creator is checked from when it asked (`askedAt`, stamped as the request arrives), not from the birth, which is
   written after the create returns: a creator removed while its request ran is caught (review 9).
 - Ownership does not come back on restore: the history is not erased by it. The person can remove a restored agent.
@@ -74,17 +84,20 @@ and cannot force a removal; the person (the board token) removes any agent exact
   its own team, which #1279 made possible; and a general permission grid now (no asked-for need beyond this boundary).
 - Not done: a `kosmos` verb for removal. The doctrine tells agents to use a command or ask the person; with no verb,
   the person still removes from the board. A verb is a follow-up if a PM agent needs it.
+- Not bounded: `ended-agents.jsonl` is append-only, written on creates and removals only (not restarts), and read
+  whole on each token-only removal. Low volume today; a follow-up if it grows.
 - Weakest premise: that every way an agent's identity ends goes through `sendertoken.revoke`. True for removal,
   deleting what is left, and create (the token module's own header requires it of any caller that recreates or
   deletes an agent). A person deleting an agent's files by hand outside Kosmos, then adopting a new agent of that
   name (adopt mints without revoking), is not seen.
 
 ## Validation
-- `server.agent-remove-4475.test.js` 28/28, `server.team-agent-token-1279.test.js` 22/22, `engine/remove.test.js` 93/93,
+- `server.agent-remove-4475.test.js` 29/29, `server.team-agent-token-1279.test.js` 23/23, `engine/remove.test.js` 93/93,
   `engine/delete-leftover.test.js` 15/15, `engine/team.newrole-4474.test.js` 22/22,
   `server.agent-token-gate-4491.test.js` 25/25, `server.agent-token-sender-570.test.js` 7/7.
 - Mutants, each failing only its own cases: revoke not writing the history (the delete-leftover and end-to-end tests),
   the creator checked from the birth instead of askedAt, the target check removed, the creator check removed, an
-  unreadable history read as none, the target's end counted at the birth's exact time, plus (re-run on this code at
+  unreadable history read as none, the target's end counted at the birth's exact time, the removal route ignoring
+  `tookTokens`, create not recording it, plus (re-run on this code at
   b54ebe022) the createdByName presence check, the key-only refusal, the board-name check, a slug comparison of the
   creator, and the team route recording the sessionName in place of the token name.
