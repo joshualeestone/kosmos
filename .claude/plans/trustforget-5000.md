@@ -44,3 +44,11 @@ receivedAt check (1); no gate (1); forget resets every name (1).
 - N clock stepped back: already the plan's weakest premise; fails toward untrusted.
 Sabotages after the fixes, each red: no realpath name (1), failed reset does not refuse (1), keepForgotten no-op (1),
 no reset in del (4).
+
+## Review 2 (blind): 0 blockers, 2 warnings, 1 convention, 1 nit
+- W a later refusal said "Nothing was changed." after the standing was reset -> the sentence now says only the standing was reset.
+- W (on main, worse here) plan()'s running check is exact-case (`sessionName === clean`) on a case-blind Mac disk:
+  del('miles') with Miles running moves the running agent's folder (main), and now also resets Miles's standing.
+  NOT fixed in this branch: filed as its own card (the folder move is the real harm and belongs in plan()).
+- C the case test passed vacuously on a case-sensitive disk -> skips with a reason there.
+- N grant then release of an old post was untested -> added; keepForgotten sabotage still red.

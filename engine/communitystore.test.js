@@ -342,4 +342,12 @@ test('#5000: a grant or a revoke after the delete keeps the stamp, so the old ag
   assert.equal(cs.trustRecord('Kept5000').approved_count, 0, 'after a revoke, the deleted agent\'s post credited the new agent');
   cs.grantTrust('Kept5000');
   assert.equal(typeof cs.trustRecord('Kept5000').forgottenAt, 'string', 'grant dropped the stamp');
+  /* And after a grant and a revoke, a second old post still credits nobody. */
+  cs.revokeTrust('Kept5000');
+  const old2 = cs.insertPost({ status: 'held', agent: 'Kept5000', topic: 't', body: 'also from the deleted agent' });
+  const posts = JSON.parse(fs.readFileSync(cs._paths.postsFile(), 'utf8'));
+  posts.find((x) => x.id === old2.id).receivedAt = old.receivedAt;
+  fs.writeFileSync(cs._paths.postsFile(), JSON.stringify(posts));
+  cs.releaseHeld(old2.id);
+  assert.equal(cs.trustRecord('Kept5000').approved_count, 0, 'after a grant and a revoke, an old post credited the new agent');
 });

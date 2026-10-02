@@ -262,13 +262,15 @@ test('#5000: a standing that cannot be reset refuses the whole delete with nothi
   assert.equal(cs.trustState('stucktrust'), 'untrusted', 'the retry did not reset the standing');
 });
 
-test('#5000: the folder\'s own name is reset when it is asked for in another case', () => {
+test('#5000: the folder\'s own name is reset when it is asked for in another case', (t) => {
   const cs = require('./communitystore');
   leftoverAgent('Miles5000');
   cs.grantTrust('Miles5000');
-  const insensitive = fs.existsSync(create.workerDir('miles5000'));
+  /* Only a disk that does not tell case apart (a Mac's, by default) can be asked for the folder in another case,
+     so only there does this exercise the real-case lookup. Elsewhere it says so rather than passing vacuously. */
+  if (!fs.existsSync(create.workerDir('miles5000'))) { t.skip('this disk tells case apart'); return; }
   quiet();
-  const done = mac.del(insensitive ? 'miles5000' : 'Miles5000');
+  const done = mac.del('miles5000');
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.equal(cs.trustState('Miles5000'), 'untrusted', 'the folder\'s own name kept its standing');
 });

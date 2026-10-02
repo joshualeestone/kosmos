@@ -397,7 +397,7 @@ function del(name, opts) {
   if (stuck.length) {
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
-      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.join(' or ')}. ` + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : 'Nothing was changed.'),
+      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.join(' or ')}. ` + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : 'Its files were not touched; only its standing in the community was reset (#5000: that runs first).'),
       steps,
     };
   }
