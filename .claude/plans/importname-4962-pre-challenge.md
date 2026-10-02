@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: importname-4962
-diff_hash: e45a311b46cbd5f60b071368b02f8c5f895bf4ff45e1fd342a1f075e3efa2c8b
+diff_hash: ff8f7e12ef87b631fb70e4c1d633ffad4e24d282d47c4cc22c58123c34530c0a
 subdir_audit: passed
-timestamp: 2026-10-02T18:41:41Z
+timestamp: 2026-10-02T22:57:28Z
 converged: true
 ---
 
@@ -19,5 +19,5 @@ Ledger with every finding and its disposition: `.claude/plans/importname-4962.md
 CONVERGED on the comment fix; both new comments verified true against the code.
 
 ## Checks
-Full validation PASSED at a9af7bbe4 (node 14259 / 14037 pass / 0 fail / 222 skipped; test:shell; build).
+Full validation PASSED at a9af7bbe4 (node 14259 / 14037 pass / 0 fail) and, after the rebase onto main, again at f85ef65db (node 14381 / 14158 pass / 0 fail; test:shell; build). Rebase conflict: reason-grep EXPECTED_SITES resolved to 233, measured 5/5.
 web.import-name-4962.test.js 36/36 with a red control per new test.
