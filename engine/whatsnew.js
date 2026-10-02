@@ -67,6 +67,12 @@ function problems(obj, version) {
  * it is for another version (last release's text can never appear), or it has any problem.
  */
 function read(version, file) {
+  const got = readFull(version, file);
+  return got && got.highlights;
+}
+
+/** read(), with the file's main "version" from the same parse (#4928): { key, highlights } or null. */
+function readFull(version, file) {
   const at = file || fileForTests || FILE;
   let raw;
   try { raw = fs.readFileSync(at, 'utf8'); } catch (e) {
@@ -82,7 +88,7 @@ function read(version, file) {
     if (!(bad.length === 1 && /^it is for /.test(bad[0]))) logOnce(at + ': ' + bad[0]);
     return null;
   }
-  return obj.highlights.map((x) => ({ icon: x.icon, title: x.title.trim(), line: x.line.trim() }));
+  return { key: obj.version, highlights: obj.highlights.map((x) => ({ icon: x.icon, title: x.title.trim(), line: x.line.trim() })) };
 }
 
 /**
@@ -91,8 +97,8 @@ function read(version, file) {
  * open the same words again on the next number (Windows on 0.7.13, then 0.7.16, from one file).
  */
 function key(version, file) {
-  if (!read(version, file)) return null;
-  try { return JSON.parse(fs.readFileSync(file || fileForTests || FILE, 'utf8')).version; } catch { return null; }
+  const got = readFull(version, file);
+  return got ? got.key : null;
 }
 
 /* Round 12: a highlights file that exists but cannot be shown leaves one line in the board's log (once
@@ -105,4 +111,4 @@ function logOnce(line) {
 }
 function setFileForTests(f) { fileForTests = f || null; lastLogged = null; }
 
-module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, problems, read, key, setFileForTests };
+module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, problems, read, readFull, key, setFileForTests };

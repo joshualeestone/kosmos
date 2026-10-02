@@ -38028,7 +38028,7 @@ function conShelfDoor(api, st) {
    Shown only when: the page on screen IS the board's version (never over an old page, where the
    update chip says Reload), a version has been seen before (a fresh install records silently: it
    was not updated, it was installed), and that version is not the one running now. The tiles are
-   web/whats-new.json's highlights, which the board serves only when the file is for this version;
+   web/whats-new.json's highlights, which the board serves only when the file is for this version (or names it in "also", #4928) and they were not dismissed already;
    without them no window opens and the version is recorded quietly (round 3). */
 const WN_ICONS = Object.freeze({
   swarm: '<circle cx="12" cy="8" r="3.5"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/>',

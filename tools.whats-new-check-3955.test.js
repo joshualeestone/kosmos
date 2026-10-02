@@ -107,7 +107,8 @@ test('#4928: the Windows build stops on highlights that are not for its version,
     fs.mkdirSync(path.join(dir, 'app', 'web'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'app', 'web', 'whats-new.json'), JSON.stringify({
       version: '0.7.16', also: ['0.7.13'], highlights: [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }] }));
-    const run = (ver, env = {}, repo = __dirname) => spawnSync('bash', ['-c', block], {
+    // Under the build script's own settings (set -euo pipefail), so a form that would abort there is caught.
+    const run = (ver, env = {}, repo = __dirname) => spawnSync('bash', ['-euo', 'pipefail', '-c', block], {
       encoding: 'utf8', env: Object.assign({}, process.env, { REPO: repo, STAGE: dir, _ver: ver }, env) });
     assert.equal(run('0.7.16').status, 0, 'the main version did not pass');
     assert.equal(run('0.7.13').status, 0, 'a version in "also" did not pass');

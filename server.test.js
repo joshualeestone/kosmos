@@ -14189,6 +14189,10 @@ test('#4928: a platform number in "also" shows the highlights once; the same wor
   assert.equal(r.status, 200);
   assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.9', 'which highlights were dismissed was not recorded');
   assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'the same words were offered again after they were dismissed');
+  // A dismissal on a version with no highlights keeps which words were last dismissed.
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.7', highlights: h }));
+  await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.9', 'a version with no highlights erased the record');
   // CONTROL: new words (another main version) are offered.
   fs2.writeFileSync(file, JSON.stringify({ version: '0.0.8', also: [current], highlights: h }));
   assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'new highlights were held back');

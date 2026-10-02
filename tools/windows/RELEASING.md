@@ -50,8 +50,8 @@ gates. `publish-r2.ps1` produces the same files with the same gates, directly in
    (`package.json`), as the Mac cut does, and stops otherwise. When this Windows number is the same
    release as the Mac's, add it to the file's `"also"` list (`{"version":"0.7.16","also":["0.7.13"],...}`)
    and COMMIT that on the release branch, beside the version bump, before building (an uncommitted edit
-   makes the tree dirty). Do not add it if an earlier Windows number already shows these highlights: the
-   board would not open the same words twice anyway, so there is nothing to gain. A hotfix with nothing
+   makes the tree dirty). Add it even when an earlier Windows number already shows these highlights: the
+   board does not open the same words twice, and the check stays on. A hotfix with nothing
    to announce: `KOSMOS_CUT_NO_WHATS_NEW=1 bash tools/build-kosmos-windows.sh`.
 
    ```
