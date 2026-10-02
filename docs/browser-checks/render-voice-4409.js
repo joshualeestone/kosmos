@@ -474,6 +474,25 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await eu.goto(PAGE);
     const euMic = await eu.evaluate(() => document.documentElement.classList.contains('has-voice'));
     await euCtx.close();
+    // P1e (round 23): two guards with no other check. iOS Brave is WebKit, so only navigator.brave tells it from Safari;
+    // and a page that is not secure gets no mic (every start would be refused and read as a refused microphone).
+    const iosVariant = async (init) => {
+      const c = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+      const pg = await c.newPage();
+      await pg.addInitScript(harness(false), [false]);
+      await pg.addInitScript(SR);
+      await pg.addInitScript(asWebKit);   // a faithful iPhone engine, as the main phone page
+      await pg.addInitScript(init);
+      await pg.goto(PAGE);
+      const mic = await pg.evaluate(() => document.documentElement.classList.contains('has-voice'));
+      await c.close();
+      return mic;
+    };
+    const iosBraveMic = await iosVariant(() => { Object.defineProperty(navigator, 'brave', { value: { isBrave: () => Promise.resolve(true) } }); });
+    const insecureMic = await iosVariant(() => { Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true }); });
+    const plainMic = await iosVariant(() => {});   // the control: the same iPhone, neither change, does get the mic
+    chk(plainMic && !iosBraveMic && !insecureMic, 'P1e iOS Brave and a page that is not secure get no mic; the same iPhone without them does', JSON.stringify({ plainMic, iosBraveMic, insecureMic }));
     // An iPad says Macintosh, with touch: still Safari's engine, still named Apple.
     const padCtx = await browser.newContext({ viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true,
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15' });

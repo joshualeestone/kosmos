@@ -239,4 +239,11 @@ press stops through voiceStop and marks the stop.
   the box before you send." (P13 extended; the line removed reddens only P13). LEFT NITs: VOICE_PHONE cached at first
   call (a rotation or a fold keeps it until reload; the comment says so for the trackpad case); empty finals in a list
   restart; the Mac app's own stop wait is not re-measured here; a stop before onstart is covered by the 5 s timer.
+- Round 23 (opus): FIXED W1: the browser-checks README row still said a browser with no bridge never gets a mic; now
+  says a computer's browser does not and a phone's does, with who hears said. FIXED W2 and W3: the navigator.brave and
+  isSecureContext guards had no check; P1e runs the same faithful iPhone three ways (plain, Brave, not secure), the
+  plain one the control that gets the mic; each guard removed reddens P1e on exactly its own arm. (My first P1e fixture
+  left out the WebKit stand-in, so even the control had no mic; the control caught it.) NIT taken: "this device's
+  Settings app" (an iPad is not a phone). LEFT NITs: touch-action is unchecked (cosmetic); listening comes only from
+  onstart (the who-hears wording stays true while it says Starting).
 
