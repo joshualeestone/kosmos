@@ -82,6 +82,10 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
 - (review 7) A 401 that a login cannot mend means the request did not land: the write-ahead mark is put back, so the
   picture is not counted as stuck and no retry is promised.
 
+- (review 10) If unlinking the old file fails after a format change (a .png replaced by a .jpg), both stay and the
+  lookup takes whichever the folder lists first, for the page and the sender alike. The save itself succeeded; a
+  failed unlink in our own folder is rare enough not to carry more code.
+
 ## Weakest premise
 That stat'ing each picture every sweep is cheap enough. An unchanged picture (same inode, size, mtime and ctime) is
 read and hashed once per board run, a changed one once, and anything over 60,000 bytes is never read (measured here:

@@ -5649,9 +5649,8 @@ const server = http.createServer(async (req, res) => {
     //    can reach).
     fs.stat(file, (statErr, stat) => {
       if (statErr || !stat.isFile() || stat.size === 0) {
-        // Size matters as much as existence here. store.saveAvatar writes
-        // non-atomically, so an interrupted save leaves a zero-byte file that
-        // is a perfectly good file and a perfectly useless picture.
+        // Size matters as much as existence here: a zero-byte file is a
+        // perfectly good file and a perfectly useless picture.
         sendJson(res, 404, { error: 'no picture for that agent' });
         return;
       }
@@ -5669,8 +5668,8 @@ const server = http.createServer(async (req, res) => {
         // board.
         if (res.destroyed || res.writableEnded) { stream.destroy(); return; }
         // Deliberately no content-length. It would have to come from the stat,
-        // while the bytes come from a separate read of the same file, and
-        // store.saveAvatar writes non-atomically -- so a stat that under-reports
+        // while the bytes come from a separate read of the same path, and a save
+        // can replace the file between the two -- so a stat that under-reports
         // yields a clean 200 truncated to the declared length, with the surplus
         // bytes landing on the wire afterwards and desyncing a keep-alive
         // connection. Chunked costs a few bytes and cannot do that.
