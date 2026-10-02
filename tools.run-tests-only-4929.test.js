@@ -73,6 +73,8 @@ test('probe', () => {
 `);
 const GLOBBY = path.join(fs.mkdtempSync(path.join(DIR, 'g[1]-')), 'a.test.js');   // a real file whose path node globs
 fs.writeFileSync(GLOBBY, `require('node:test')('globby', () => {});\n`);
+const EXTGLOB = path.join(fs.mkdtempSync(path.join(DIR, '@(x)-')), 'c.test.js');   // node: tests 0, exit 0 (measured)
+fs.writeFileSync(EXTGLOB, `require('node:test')('extglob', () => {});\n`);
 const RED = path.join(DIR, 'red.test.js');
 fs.writeFileSync(RED, `'use strict';\nrequire('node:test')('red', () => { throw new Error('red on purpose'); });\n`);
 
@@ -130,7 +132,7 @@ test('--only runs a file named twice once', () => {
   const r = run(['--only', PROBE, PROBE]);
   assert.equal(r.code, 0, r.out.slice(-1500));
   assert.match(r.out, /--only: 1 named file\(s\)/, 'the runner counted the file twice');
-  assert.match(r.out, /tests 1\b/, 'the file ran twice');
+  assert.match(r.out, /tests 1\b/, 'not exactly one test ran');
 });
 
 test('--only reads a relative name from the runner\'s tree, whatever the caller\'s folder, and says so', () => {
@@ -169,7 +171,8 @@ test('--only refuses, before anything runs: no files, an option, a non-test file
     // Not first, node --test would take --only as its own option and run the whole suite.
     [[PROBE, '--only'], {}, /--only must come first/],
     [['--only=' + PROBE], {}, /not --only=<file>/],
-    [['--only', GLOBBY], {}, /reads \[ \* \? \{ as a pattern/],
+    [['--only', GLOBBY], {}, /reads \[ \* \? \{ \( ! \S+ as a pattern/],
+    [['--only', EXTGLOB], {}, /as a pattern/],
   ]) {
     assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
     // A misplaced --only on a runner that does not refuse it would run the whole suite: read before running that arm.

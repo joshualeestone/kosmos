@@ -100,8 +100,9 @@ if [ "${1:-}" = --only ]; then
     # folder's physical path plus the name.
     # CDPATH= : an exported CDPATH would send a relative cd into ANOTHER tree and print its path into the result.
     _only_f="$(CDPATH= cd -- "$(dirname "$_only_f")" && pwd -P)/$(basename "$_only_f")"
-    # node --test reads each name as a glob, so a path with [ * ? { in it would match nothing and run nothing.
-    case "$_only_f" in *'['*|*'*'*|*'?'*|*'{'*) echo "run-tests: --only cannot take '$_only_f': node --test reads [ * ? { as a pattern, so it would run nothing" >&2; exit 2 ;; esac
+    # node --test reads each name as a glob: a path with [ * ? { ( ! or \ in it can match nothing (red, "Could not
+    # find") or, with an extglob such as @(x), run zero tests and exit 0 (green, measured). So it is refused.
+    case "$_only_f" in *'['*|*'*'*|*'?'*|*'{'*|*'('*|*'!'*|*'\'*) echo "run-tests: --only cannot take '$_only_f': node --test reads [ * ? { ( ! \\ as a pattern, so it could run nothing" >&2; exit 2 ;; esac
     _only_dup=0
     for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
     [ "$_only_dup" = 1 ] || KOSMOS_ONLY_FILES+=("$_only_f")   # a file named twice runs once
