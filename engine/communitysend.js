@@ -1409,28 +1409,6 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
 }
 
 /**
- * #4947: is this agent's NEXT post held past the service's daily post cap? The sweep set `retryAt` from the service's
- * 429 and waits it out; until it passes, a new post is stored and published here but goes to the service only then.
- * The route says so, so the agent is not told "Posted" as though it went straight away (it would otherwise post it
- * again, or think the cap was not reached). Read-only: unreadable state answers false (nothing is promised either way).
- */
-function postLater(agentKey, now = Date.now()) {
-  const keys = loadJson(keysFile());
-  const k = keys && agentKey && keys[agentKey];
-  return Boolean(k && k.retryAt && Date.parse(k.retryAt) > now);
-}
-/**
- * #4947: the route's question, whole: will this agent's new post be SENT, and only once the cap lifts? Only a post
- * that will be sent at all (willSend: Community on, an allowed address, a key not refused, readable state) can be
- * promised "once the cap lifts". Asked BEFORE the store write, as willSend must be (it may record the ON period's
- * start, which must not be later than the row). ⚠️ Known only once a sweep has met the cap (the service's 429 sets the
- * wait): the post that crosses the cap is still answered without it.
- */
-function postWaits(agentKey, now = Date.now()) {
-  return willSend(agentKey, now).sends && postLater(agentKey, now);
-}
-
-/**
  * #4373 part B review 7: record the ON period's start NOW if Community is on and no sweep has yet, so something made
  * public from a request (a release) in the minutes before the first sweep is inside the window and not silently
  * skipped. The same first-writer-wins record as willSend. Nothing happens while off or with an unreadable state.
@@ -1553,7 +1531,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, postLater, postWaits, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed,

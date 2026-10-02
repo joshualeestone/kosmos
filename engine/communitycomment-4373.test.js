@@ -661,8 +661,11 @@ test('review 9: recordPeriodStart records nothing for an address the sweep will 
   assert.equal(cs.recordPeriodStart(), true, 'control: the loopback address records a start');
 });
 
-test('#4947: postLater says whether this agent\'s next post waits past the daily post cap (and only that agent\'s)', () => {
+/* #4947's postLater and postWaits were folded into willSend(.., 'post') by #4939, which the post route asks; these ask
+   it the same questions. */
+test('#4947: willSend(post).later says whether this agent\'s next post waits past the daily post cap (and only that agent\'s)', () => {
   fresh();
+  SW = { on: true, ok: true };
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
   const now = Date.now();
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({
@@ -670,27 +673,28 @@ test('#4947: postLater says whether this agent\'s next post waits past the daily
     bo: { retryAt: new Date(now - 60000).toISOString() },                // the wait is over
     cy: { commentRetryAt: new Date(now + 3600000).toISOString() },       // a COMMENT cap does not hold posts
   }));
-  assert.equal(cs.postLater('ava', now), true, 'a capped agent\'s post was not said to wait');
-  assert.equal(cs.postLater('bo', now), false);
-  assert.equal(cs.postLater('cy', now), false, 'a comment cap was taken for a post cap');
-  assert.equal(cs.postLater('nobody', now), false);
+  assert.equal(cs.willSend('ava', now, 'post').later, true, 'a capped agent\'s post was not said to wait');
+  assert.equal(cs.willSend('bo', now, 'post').later, false);
+  assert.equal(cs.willSend('cy', now, 'post').later, false, 'a comment cap was taken for a post cap');
+  assert.equal(cs.willSend('nobody', now, 'post').later, false);
   fs.writeFileSync(cs._paths.keysFile(), '{not json');
-  assert.equal(cs.postLater('ava', now), false, 'unreadable state promised a wait');
+  assert.equal(cs.willSend('ava', now, 'post').later, false, 'unreadable state promised a wait');
 });
 
-test('#4947: postWaits promises "once the cap lifts" only for a post that will be sent at all', () => {
+test('#4947: willSend(post) promises "once the cap lifts" only for a post that will be sent at all', () => {
+  const waits = (k, now) => { const w = cs.willSend(k, now, 'post'); return w.sends && w.later; };
   fresh();
   SW = { on: true, ok: true };
   const now = Date.now();
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { retryAt: new Date(now + 3600000).toISOString() }, bo: { retryAt: new Date(now + 3600000).toISOString(), refused: true } }));
-  assert.equal(cs.postWaits('ava', now), true, 'control: on, capped, will be sent');
-  assert.equal(cs.postWaits('bo', now), false, 'a refused key was promised a send once the cap lifts');
+  assert.equal(waits('ava', now), true, 'control: on, capped, will be sent');
+  assert.equal(waits('bo', now), false, 'a refused key was promised a send once the cap lifts');
   SW = { on: false, ok: true };
-  assert.equal(cs.postWaits('ava', now), false, 'with Community off a post was promised a send once the cap lifts');
+  assert.equal(waits('ava', now), false, 'with Community off a post was promised a send once the cap lifts');
 });
 
-test('#4947: asking postWaits (the post route does, before the store) records the ON period\'s start, as a comment\'s willSend does', () => {
+test('#4947: asking willSend(post) (the post route does, before the store) records the ON period\'s start, as a comment\'s willSend does', () => {
   /* So a post made in the minutes before the first sweep of an ON period is inside the window and sent: a change in what
      gets sent (written under Decided in the plan), and it holds for a post the safety check holds too (that one is not
      due until it is released, so the earlier start costs nothing). */
@@ -699,7 +703,7 @@ test('#4947: asking postWaits (the post route does, before the store) records th
   const stateFile = cs._paths.stateFile();
   const before = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')).since : undefined;
   assert.equal(before, undefined, 'fixture: no sweep has recorded the period\'s start yet');
-  cs.postWaits('ava');
+  cs.willSend('ava', Date.now(), 'post');
   assert.equal(typeof JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, 'string', 'the post route\'s question did not record the period\'s start');
 });
 
