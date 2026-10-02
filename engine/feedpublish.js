@@ -345,4 +345,4 @@ function publishServiceComment(candidate, opts = {}) {
   return { ok: true, status, id: stored.id, findings: status !== PUBLISHED ? verdict.findings : [] };
 }
 
-module.exports = { publishPost, publishComment, publishServiceComment, statusFor, resolveTrusted, insertFailure, SERVICE_COMMENT_MAX, SERVICE_UNICODE, AGENT_POSTS_PUBLISH_DIRECTLY };
+module.exports = { publishPost, publishComment, publishServiceComment, statusFor, resolveTrusted, insertFailure, serviceTextProblem, SERVICE_COMMENT_MAX, SERVICE_UNICODE, AGENT_POSTS_PUBLISH_DIRECTLY };   // serviceTextProblem: #4913 (an endorsement review)
