@@ -11,7 +11,8 @@
  * Boots a sandboxed board with one agent. On chromium and webkit, light and dark, on the agent page
  * (AI Settings, Profile, Direct Message pills) and in Settings (AI Models, Your Profile pills):
  *   - click arm: focus moves into the pill's section, and the section draws no outline;
- *   - keyboard arm (focus the pill, Enter): focus moves into the section, and it draws the ring.
+ *   - keyboard arms (focus the pill, then Enter, and then Space): focus moves into the section, and
+ *     it draws the ring.
  * On chromium only, the Mac case: after a click, :focus and :focus-visible are FORCED on the
  * section through the DevTools protocol (what the Mac app's WebKit matches on its own), and it must
  * still draw no outline. That arm is the one that reds on the old rule (Playwright's WebKit focuses the clicked
@@ -20,7 +21,8 @@
  * Then the ring must not outlive the press: land on AI Settings from the keyboard, Tab inside, then
  * click the Model section's own heading (focus returns to the section): the kbd-landed class is gone,
  * no outline, and on chromium none with :focus-visible forced either. And a scripted .click() on a
- * pill after that pointer press lands without the ring.
+ * pill lands without the ring both after that pointer press and after typing in the message box (a
+ * key press that has ended is not a keyboard landing).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dsec-ring-4961.js
  */
@@ -114,11 +116,11 @@ const PAGES = [
               await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
             }
             const tag = `[${theme}] ${engineName} ${pg.name}`;
-            for (const how of ['click', 'keyboard']) {
+            for (const how of ['click', 'keyboard', 'space']) {
               for (const [go, sec] of pg.pills) {
                 const pill = page.locator(`${pg.nav} button[data-go="${go}"]`).first();
                 if (how === 'click') await pill.click();
-                else { await pill.focus(); await page.keyboard.press('Enter'); }
+                else { await pill.focus(); await page.keyboard.press(how === 'space' ? ' ' : 'Enter'); }
                 await page.waitForTimeout(150);
                 const f = await readFocus(page);
                 chk(f.sec === sec, `${tag}: ${how} ${go}: focus moved into the ${sec} section`, JSON.stringify(f));
@@ -130,7 +132,7 @@ const PAGES = [
                     forced += 1;
                   }
                 } else {
-                  chk(ring(f) && f.style === 'solid' && f.width === '2px', `${tag}: keyboard ${go}: the landing ring shows (2px solid)`, JSON.stringify(f));
+                  chk(ring(f) && f.style === 'solid' && f.width === '2px', `${tag}: ${how} ${go}: the landing ring shows (2px solid)`, JSON.stringify(f));
                 }
                 ran += 1;
               }
@@ -164,7 +166,16 @@ const PAGES = [
             await page.evaluate(() => document.querySelector('#d-nav button[data-go="profile"]').click());
             await page.waitForTimeout(150);
             const scripted = await readFocus(page);
-            chk(scripted.sec === 'profile' && !ring(scripted), `${tag}: a scripted .click() on a pill lands without the ring`, JSON.stringify(scripted));
+            chk(scripted.sec === 'profile' && !ring(scripted), `${tag}: a scripted .click() on a pill after a pointer press lands without the ring`, JSON.stringify(scripted));
+            await page.locator('#d-nav button[data-go="talk"]').click();
+            await page.waitForSelector('#d-say', { state: 'visible', timeout: 10000 });
+            await page.locator('#d-say').click();
+            await page.keyboard.type('hi');
+            await page.waitForTimeout(100);
+            await page.evaluate(() => document.querySelector('#d-nav button[data-go="model"]').click());
+            await page.waitForTimeout(150);
+            const typed = await readFocus(page);
+            chk(typed.sec === 'model' && !ring(typed), `${tag}: a scripted .click() on a pill after typing lands without the ring`, JSON.stringify(typed));
             outlived += 1;
           }
           chk(errs.length === 0, `[${theme}] ${engineName}: no page errors`, errs.join(' | '));
@@ -177,7 +188,7 @@ const PAGES = [
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 40 && forced === 10 && outlived === 4, 'precondition: every engine, theme, page and pill arm ran', `ran=${ran} forced=${forced} outlived=${outlived}`);
+  chk(ran === 60 && forced === 10 && outlived === 4, 'precondition: every engine, theme, page and pill arm ran', `ran=${ran} forced=${forced} outlived=${outlived}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });

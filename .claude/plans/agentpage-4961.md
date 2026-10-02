@@ -12,9 +12,10 @@ drew round the 16px-radius card (Josh's screenshot, 2026-10-01 22:17).
 
 ## Change
 - web/index.html CSS: `.dsec:focus { outline: none; }` and `.dsec.kbd-landed:focus { <the #350 ring> }`.
-- One input-modality flag, `DSEC_KEYBOARD`, declared above detailGo: a capture-phase `keydown` without
-  a modifier sets it; a capture-phase `pointerdown` clears it and removes `kbd-landed` from every
-  section. detailGo and settingsGo clear `kbd-landed` from their panel's sections and set it on the
+- One flag, `DSEC_KEYBOARD`, declared above detailGo, set while a key press is under way: a
+  capture-phase `keydown` without a modifier sets it, and the task after its `keyup` clears it (Enter
+  activates a button on keydown, Space on keyup); a capture-phase `pointerdown` clears it and removes
+  `kbd-landed` from every section. detailGo and settingsGo clear `kbd-landed` from their panel's sections and set it on the
   target only when DSEC_KEYBOARD is set, before focusing it. No handler or source pin changes. Every
   route into a section goes through those two functions (reasoned from the code); only the nav pills
   are measured.
@@ -24,15 +25,18 @@ drew round the 16px-radius card (Josh's screenshot, 2026-10-01 22:17).
   dark, agent page (3 pills) and Settings (2 pills): click arm: focus lands in the section, no outline;
   keyboard arm: focus lands, 2px solid ring. Chromium only: after a click, :focus and :focus-visible
   are forced on the section via CDP (the Mac app's WebKit behaviour), and it must draw no outline.
-  Then: keyboard-land on AI Settings, Tab inside, click the Model heading: no kbd-landed, no outline
-  (forced too on chromium); and a scripted .click() on a pill, after that pointer press, lands without
-  the ring. Run-count guard
-  ran=40, forced=10, outlived=4.
+  Enter and Space arms both expect the ring. Then: keyboard-land on AI Settings, Tab inside, click the
+  Model heading: no kbd-landed, no outline (forced too on chromium); and a scripted .click() on a pill
+  lands without the ring after that pointer press and after typing in the message box. Run-count
+  guard ran=60, forced=10, outlived=4.
 
 ## Evidence
 - On origin/main (check copied into a detached worktree): 10 FAIL, exactly the 10 forced arms; the
   keyboard ring arms pass there (the #350 ring).
-- With the change: 109 PASS lines, rc 0.
+- With the change: 153 PASS lines, rc 0.
+- Controls, each measured red in exactly its arms: pointerdown keeping the class (outlive arms); a
+  ring regardless of input (click, forced and scripted arms); no keyup clear (after-typing arms); a
+  synchronous keyup clear (Space arms).
 - node --test browser-checks-*.test.js web.*.test.js tools.browser-checks-*.test.js: 2344 pass, 0 fail.
   The rest of the suite is left to CI and the full validation at convergence.
 

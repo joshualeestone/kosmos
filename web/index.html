@@ -3425,7 +3425,9 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    inside. The ring that marks where they landed (#350) is drawn only when that move followed a
    key press (`kbd-landed`, set from DSEC_KEYBOARD), never after a pointer press. Keyed on
    :focus-visible it drew a black stroke round the 16px-radius card after a CLICK in the Mac app:
-   Safari does not focus a clicked button, so the focus moved next can match :focus-visible. */
+   Safari does not focus a clicked button, so the focus moved next can match :focus-visible.
+   Sections are tabindex=-1 landing spots that only those two functions focus (web.agent-nav.test.js
+   pins the agent page's tabindex). */
 .dsec:focus { outline: none; }
 .dsec.kbd-landed:focus { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
@@ -36757,13 +36759,17 @@ function detailSectionGroup(section) {
    drops its scrollTop, so "came back to where I was reading" has to be kept
    here; null means nobody has left Talk for this agent yet. */
 let TALK_SCROLL = null;
-/* #4961: which kind of input moved focus into a section, for the landing ring (.dsec.kbd-landed).
-   A key press without a modifier means keyboard; any pointer press means pointer and drops every
-   landing ring, so a click (on a pill, or back on the section itself) never shows one. */
+/* #4961: set while a key press is under way, for the landing ring (.dsec.kbd-landed): from a
+   keydown without a modifier until the task after its keyup (Enter activates a button on keydown,
+   Space on keyup, so both are covered). A section reached any other way, including a click or code
+   running later, gets no ring. A pointer press also drops every landing ring, so a click back on
+   the section itself never shows one. */
 let DSEC_KEYBOARD = false;
 document.addEventListener('keydown', (e) => {
   if (!e.metaKey && !e.ctrlKey && !e.altKey) DSEC_KEYBOARD = true;
 }, true);
+document.addEventListener('keyup', () => { setTimeout(() => { DSEC_KEYBOARD = false; }, 0); }, true);
+
 document.addEventListener('pointerdown', () => {
   DSEC_KEYBOARD = false;
   document.querySelectorAll('.dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
