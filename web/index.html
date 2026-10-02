@@ -10275,8 +10275,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
    step's) lose their hairline at rest (the look's cards have none; the grey bounds them on the white page): a chosen
    card keeps its ink outline and check mark (the choice is marked by shape, not colour), and a card under the pointer
-   keeps today's edge as its feedback. Every main button in the create flow, Single's and Team's alike (Josh, #4935:
-   Team matches Single), is the drawing's gold pill. Unchanged on purpose: the cards' size (#737, Josh), their order
+   keeps today's edge as its feedback (on touch a tapped card can keep :hover, and so its edge, until the next tap;
+   the chosen card's own outline still marks the choice). Every gold button in the create flow, the steps' main
+   buttons and the small inline ones (Preview the team, Bring it in), Single's and Team's alike (Josh, #4935: Team
+   matches Single), is the drawing's gold pill, as every button in the look is. Unchanged on purpose: the cards' size (#737, Josh), their order
    (Josh, 2026-08-22), the Recommended pill (#737: Josh asked for it back after the pack), and the role menu's own
    edged box (it holds fields, which keep their edge everywhere in the look). A resting card on white is about 1.09:1,
    under WCAG 1.4.11's 3:1, as the controls slice records for buttons: its label identifies it, and the chosen card's

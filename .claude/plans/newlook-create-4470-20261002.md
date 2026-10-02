@@ -50,3 +50,12 @@ Review R1 (opus) 0B 4W 0C 3N:
   the mouse parked before the resting read (NIT taken), the kind picker and Team/Create buttons read.
 - NIT taken: the comment records the role menu's own edged box (it holds fields) and the 1.09:1 resting boundary.
 Validation now: 255/255; round-0 control 252/255 (kind edge and Team's corners red).
+
+Review R2 (sonnet) 0B 2W 0C 2N:
+- WARNING (plan drift): nl-create-swarm is DROPPED on purpose: the Swarm card shows only on a board that can run
+  swarms, and the existing create-swarm shot already fails on one that cannot. The kind picker's Swarm card gets the
+  same rule as its siblings and is read through the first .nak-btn (the rule is one selector).
+- WARNING: the pill reaches the small inline gold buttons too (Preview the team, Bring it in): intended, since every
+  button in the look is a pill (the controls slice). The comment now says "every gold button"; the arm reads
+  #orgchart-preview.
+- NIT taken: a note that on touch a tapped card can keep :hover (and its edge) until the next tap.
