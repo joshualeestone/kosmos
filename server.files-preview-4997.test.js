@@ -311,6 +311,9 @@ test('#4997 #1732: with the kernel O_NOFOLLOW taken away (as on Windows), a link
   } finally { fs.openSync = real; filepreview._setNofollowForTest(); }
   assert.ok(swapped, 'the swap never happened, so this arm proved nothing');
   assert.equal(got.ok, false, 'the hidden file was served: ' + (got.bytes ? got.bytes.toString() : ''));
+  /* Refused BY THE IDENTITY CHECK (review): with the kernel flag still on, the open fails with ELOOP and answers
+     'could not be read', which would keep this arm green with the seam broken. */
+  assert.equal(got.because, 'that file changed while it was being read');
 });
 
 test('#4997 review 6: on Windows a name with a colon (an alternate data stream, photo.png:Zone.Identifier) is refused (CONTROL: the same file, a real name here, is served off Windows)', () => {
@@ -383,4 +386,5 @@ test('#4997 review 11: a hidden file renamed over a listed name between the reso
   try { got = filepreview.download(dir, 'pic.png', 'here', { maxDepth: 0 }); } finally { fs.openSync = real; }
   assert.ok(swapped, 'the swap never happened, so this arm proved nothing');
   assert.equal(got.ok, false, 'the hidden file was served: ' + (got.bytes ? got.bytes.toString() : ''));
+  assert.equal(got.because, 'that file changed while it was being read', 'refused, but not by the read\'s own check');
 });
