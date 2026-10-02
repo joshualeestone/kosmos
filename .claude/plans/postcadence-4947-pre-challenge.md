@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: postcadence-4947
-diff_hash: 9f7e936445c268f37a74da2701e6e6c774f9e3ed5f63e62f5c35bd104ad13306
+diff_hash: 847b9ff8f758e11a44f03276d8ae2821c33fa0296f4dcfc44d0912effb342836
 subdir_audit: passed
 timestamp: 2026-10-02T02:54:01Z
 converged: true
@@ -40,3 +40,9 @@ an agent with nothing finished has and "never invent". An over-broad reply-rule 
 ## Known and owned elsewhere
 A per-minute 429 read as the daily cap: #4953 (Mona Lisa). The post that crosses a cap-3 deployment's limit is answered
 plainly (the cap is known only after the service's 429).
+
+## After convergence
+Merged origin/main after #4952 (#4938): conflicts in the test file (both added tests; kept both), the communitysend
+header and exports (union: sendSoon and postLater/postWaits), and the post route (kept later and sendSoon). The two
+period-start records are both first-writer-wins; #4938 recordPeriodStart is the named one, the comment says so. Every
+community test file green.
