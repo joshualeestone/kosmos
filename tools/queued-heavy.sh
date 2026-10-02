@@ -13,8 +13,9 @@
 # the box for ever; the claim then lapses one claim length later and the END line still prints when it exits.
 # The guards come from origin/main's tools/lib/cut-guard.sh (with #4609), read from a checkout at origin/main.
 # Prints QUEUED-HEAVY lines for the start, the turn, and the end with the command's rc.
-# #4977: this file in the repo (tools/queued-heavy.sh) is the source; the copy every agent runs is
-# ~/.cache/claude-handoffs/queued-heavy.sh, installed from it. tools/test-queued-heavy-4977.sh pins it in CI.
+# #4977: this file in the repo (tools/queued-heavy.sh) is the reviewed source; tools/test-queued-heavy-4977.sh pins it
+# in CI. The copy agents run, ~/.cache/claude-handoffs/queued-heavy.sh, is installed separately, and nothing checks
+# that the two match.
 # TO CHANGE THE INSTALLED COPY: write the new version beside it and mv it over. Never edit it in place: waiters are
 # running it, and bash reads a script by byte offset, so an in-place edit kills them.
 set -u
