@@ -1583,6 +1583,24 @@ test('4922: an agent removed AFTER it was grouped is sent the clear (its group w
   } finally { fs.rmSync(removedFile, { force: true }); }
 });
 
+test('4922: the clear for a removed agent goes out with Community OFF too; nothing is sent to the others', async () => {
+  await on();
+  for (const n of ['ava', 'zoe']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const zoe = () => [...be.st.agents.values()].find((a) => a.name === 'ZOE');
+  assert.ok(zoe().installGroup, 'premise: zoe was grouped');
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);   // ava would be sent it, if sending were allowed
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    SW = { on: false, ok: true };   // Community off
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    const before = groupPatches().length;
+    await cs.sweep();
+    assert.equal(zoe().installGroup, null, 'a removed agent stayed grouped because Community was off');
+    assert.equal(groupPatches().length, before + 1, 'something besides the clear was sent while Community was off');
+  } finally { fs.rmSync(removedFile, { force: true }); SW = { on: true, ok: true }; }
+});
+
 test('4922: registration reads the removed list fail-closed (unreadable: no id)', async () => {
   await on();
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), '{not json');

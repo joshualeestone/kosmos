@@ -823,9 +823,11 @@ function namesInstallGroup(r) {
   return false;
 }
 async function sweepInstallGroup(keys, on) {
-  if (!on) return;
-  const group = installGroup();
-  if (!group) return;
+  /* Review 10: a removed agent's CLEAR goes out whatever the switch says, as the industry clear does: taking someone
+     off a public listing must not wait for Community to be on. Sending the id needs it on (that is taking part), and
+     with it off no id is made. */
+  const group = on ? installGroup() : null;
+  if (on && !group) return;
   const ep = endpointDir();
   if ((installGroupPassAt.get(ep) || 0) > Date.now() || (installGroupUnknownUntil.get(ep) || 0) > Date.now()) return;
   /* #4922 review 7: an agent the person REMOVED keeps its community key (remove is not delete), and grouping it would
@@ -844,10 +846,11 @@ async function sweepInstallGroup(keys, on) {
   for (let idx = 0; idx < order.length; idx++) {
     const agentKey = order[(start + idx) % order.length];
     const stopHere = () => installGroupFrom.set(ep, (start + idx + 1) % order.length);
-    if (!switchOn() || Date.now() > until) break;   // the rest wait for the next sweep
+    if (Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
     if (!k || !k.apiKey || k.refused) continue;
     const removedNow = removedSet.has(clean(agentKey));
+    if (!removedNow && (!on || !switchOn())) continue;   // only clears while Community is off
     // Review 9: a removed agent is never linked to the person's other agents. One that was sent the id before it was
     // removed is sent the clear (the service: "send null to clear one"), or its group would keep listing it.
     if (removedNow && !k.installGroupSent) continue;
