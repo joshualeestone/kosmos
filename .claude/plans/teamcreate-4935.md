@@ -84,6 +84,15 @@ statuses change, and Project/Model look locked while making.
 - A provider the menu has no list for (anything not Claude, OpenAI or a vendor that picks) sends no model, never a
   Claude key that create would refuse.
 
+## Review 8 changes
+- tcSyncModel paints nothing while the provider menus are filling (they hold the last team's values); the paint
+  after the fill syncs. Tested with a control.
+- A new team clears the model note too. The loading test is one helper, tcIsModelLoading (named so that a test
+  searching for "function tcModel" still finds tcModel).
+- Deferred, verified: "the spinner restarts on every 2 s repaint". The spinner is inserted inside tcPaint's
+  signature gate (the list is rebuilt only when a row changes), so a repaint with no change leaves it running.
+- Deferred: comment density. It matches this file's #NNNN comment style, which another review called consistent.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 

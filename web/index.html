@@ -48316,6 +48316,7 @@ async function openTeamCreate(key) {
   TC_MODEL_FOR = null;   // #4935: a new team starts on the default model, not the last team's pick
   TC_MODEL_GEN += 1;     // and a model list still loading for the last team cannot land in this one
   { const tm = document.getElementById('tc-model'); if (tm) { tm.innerHTML = ''; tm.dataset.loading = ''; tm.dataset.fixed = ''; tm.dataset.retry = ''; } }   // nor its pick or its flags
+  { const w = document.getElementById('tc-model-why'); if (w) { w.textContent = ''; w.hidden = true; } }   // nor its note
   const msg = document.getElementById('tc-msg');
   document.getElementById('tc-title').textContent = 'Loading the team…';
   document.getElementById('tc-purpose').textContent = '';
@@ -48479,6 +48480,8 @@ document.getElementById('tc-account').addEventListener('change', () => { TC_PROV
    cannot list them. Gemini, Grok, Antigravity and Muse pick their own: the row is hidden and the reason
    said, as on the single form. An empty value sends no model, so create uses its own default. Repainted
    only when the provider or account changed (tcSyncModel), so a person's pick survives the 2 s repaints. */
+/* True while a model list is loading: Create and Try again are held then (a team made then gets no model). */
+function tcIsModelLoading() { const m = document.getElementById('tc-model'); return Boolean(m && m.dataset.loading === '1'); }
 let TC_MODEL_FOR = null;   // the provider|account the model menu was last painted for
 let TC_MODEL_GEN = 0;      // a newer paint supersedes a list still being read
 function tcSyncModel() {
@@ -48487,6 +48490,7 @@ function tcSyncModel() {
   /* Only an open team step: the subscription and Muse answers that call this come from every screen (the agent
      page, Settings, first run), the same reason tcProviderSettle returns early. */
   if (!sel || !TC || !step || step.hidden) return;
+  if (TC_FILLING > 0) return;   // the provider menus still hold the last team's values; the paint after the fill syncs
   const pv = (document.getElementById('tc-provider') || {}).value || '';
   const ac = (document.getElementById('tc-account') || {}).value || '';
   /* A failed roles read stays on create's default (no model is sent) until the list is held: in practice after the
@@ -48683,7 +48687,7 @@ function tcPaint() {
   go.hidden = TC.started;
   go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
   go.disabled = Boolean(TC.busy);   // round 4: a resumed team still being started must not offer a dead button
-  if (!TC.started && (document.getElementById('tc-model') || { dataset: {} }).dataset.loading === '1') go.disabled = true;   // #4935: not while the model list loads
+  if (!TC.started && tcIsModelLoading()) go.disabled = true;   // #4935: not while the model list loads
   document.getElementById('tc-project').disabled = TC.started;
   // The "Let Kosmos know" choice: the sheet's one box, shown here too; fixed once the run has started.
   const tell = document.getElementById('tc-tell');
@@ -48697,7 +48701,7 @@ function tcPaint() {
   tcSyncModel();   // #4935: the model list follows the provider and account, and locks with them
   /* #4935: nor Try again while the model list loads: a failed lead reopens the menus, and a row retried then would
      be made, with every member after it, on no model. */
-  { const loading = (document.getElementById('tc-model') || { dataset: {} }).dataset.loading === '1';
+  { const loading = tcIsModelLoading();
     for (const b of list.querySelectorAll('.tc-retry')) b.disabled = loading; }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
@@ -48817,7 +48821,7 @@ document.getElementById('tc-hello').addEventListener('click', () => {
 
 document.getElementById('tc-go').addEventListener('click', async () => {
   if (!TC || TC.started || TC.busy) return;
-  if ((document.getElementById('tc-model') || { dataset: {} }).dataset.loading === '1') return;   // #4935: not on a model still loading
+  if (tcIsModelLoading()) return;   // #4935: not on a model still loading
   const gen = TC_GEN;
   const go = document.getElementById('tc-go');
   const msg = document.getElementById('tc-msg');
@@ -49050,7 +49054,7 @@ async function tcPortrait(name, image, shown, team, slot) {
 
 async function tcRetry(slot) {
   if (!TC) return;
-  if ((document.getElementById('tc-model') || { dataset: {} }).dataset.loading === '1') return;   // #4935: not on a model still loading
+  if (tcIsModelLoading()) return;   // #4935: not on a model still loading
   const m = TC.members.find((x) => x.slot === slot);
   if (!m || m.state !== 'failed') return;
   const gen = TC_GEN;

@@ -221,3 +221,17 @@ test('#4935 a provider the menu has no list for sends no model (never a Claude k
   assert.equal(w.sel.value, '');
   assert.ok(!/sonnet/.test(w.sel.innerHTML));
 });
+
+/* Review 8: while the provider menus are filling they hold the last team's values; no list is painted for them. */
+test('#4935 tcSyncModel paints nothing while the provider menus are filling', () => {
+  const painted = [];
+  const els = { 'tc-provider': { value: 'openai' }, 'tc-account': { value: '/old' }, 'tc-model': { value: '', dataset: {} }, 'cstep-teammake': { hidden: false } };
+  const ctx = { document: { getElementById: (id) => els[id] || null }, tcChoiceFixed: () => false, TC_FILLING: 1, TC: {}, CREATE_MODELS: [],
+    tcPaintModel: () => { painted.push(1); } };
+  vm.runInNewContext('let TC_MODEL_FOR = null;\n' + lift('tcSyncModel') + '\nthis.sync = tcSyncModel;', ctx);
+  ctx.sync();
+  assert.equal(painted.length, 0);
+  ctx.TC_FILLING = 0;   // CONTROL: once filled, it paints
+  ctx.sync();
+  assert.equal(painted.length, 1);
+});
