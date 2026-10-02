@@ -494,7 +494,7 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 ```
 
 **Check, on a staging install**
-(`curl -fsSL https://installkosmos.com/setup | KOSMOS_UPDATE_CHANNEL=staging sh`):
+(`curl -fsSL https://installkosmos.com/setup-staging | KOSMOS_UPDATE_CHANNEL=staging sh`):
 1. Settings, This computer, shows the "Phone notifications" section, with "Buzz my phone when
    an agent needs me" and a "Turn on" button. It is off by default.
 2. Pressing Turn on succeeds. It mints the Mac's notify credential through the new tunnel.
