@@ -15,12 +15,13 @@ CHECK=tools/kosmos-artifact-check.sh
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
 # ---- STATIC: the fix is in place (regression guard) -----------------------------------------
-grep -q 'git -C "\$SITE_CO" show origin/main:setup' "$CHECK" \
+# #5032: the installer's name is \$SETUP_NAME (setup, or setup-staging on a staging cut); the default is setup.
+grep -q 'git -C "\$SITE_CO" show "origin/main:\$SETUP_NAME"' "$CHECK" && grep -q 'SETUP_NAME="\${KOSMOS_VERIFY_SETUP:-setup}"' "$CHECK" \
   && ok "the /setup check derives the source sha from origin/main:setup (the deploy source)" \
   || bad "the /setup check does not read origin/main:setup -- it may have regressed to the local working tree (#2360)"
 # it must NOT hard-FAIL on a bare local-working-tree comparison as the PRIMARY path (that is the bug).
 # The local file may still appear on the guarded fallback, but only as UNPROVEN, never a primary bad.
-grep -q 'served /setup DIFFERS from origin/main:setup' "$CHECK" \
+grep -q 'served /\$SETUP_NAME DIFFERS from origin/main:\$SETUP_NAME' "$CHECK" \
   && ok "a served-vs-origin/main difference is the hard FAIL (a real served-vs-source mismatch)" \
   || bad "the hard FAIL no longer names origin/main:setup as the reference"
 # the empty-guard is load-bearing: `git show` of a missing path prints nothing, and shasum of empty
@@ -40,7 +41,7 @@ grep -q '\[ "\$LIVE_SHA" = "\$SRC_SHA" \] && ok' "$CHECK" \
 # silent-pass. POSITIVELY pin that the fallback match verdict IS `unp` (a negative absence-grep would
 # pass vacuously -- origin/main's pre-fix `ok` uses different wording, so it would miss both the old
 # bug and a future unp->ok flip). This positive pin reds against origin/main (no such `unp` line there).
-grep -q 'unp "served /setup matches the LOCAL' "$CHECK" \
+grep -q 'unp "served /\$SETUP_NAME matches the LOCAL' "$CHECK" \
   && ok "the degraded fallback reports UNPROVEN (not ok) on a local match -- it cannot green an unconfirmed served artifact" \
   || bad "the degraded fallback no longer reports UNPROVEN on a local match -- passing (ok) on a stale-local match is a silent-pass (#2360)"
 

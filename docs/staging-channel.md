@@ -69,12 +69,14 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    which arm failed -- a routed decision (ship the Claude fix + gating now and chase the codex
    issue separately, or hold for a ruling), never a hard auto-hold. So you cannot promote from a
    machine that cannot test either class.
-   **#5032: it also copies the staging installer onto `/setup`** (`setup-staging` and its `.sha256`
-   onto `setup` and `setup.sha256`), refusing BEFORE any write when that pair is uncommitted, differs
-   from its committed copy, or its sidecar does not name its bytes. A site whose last staging cut
-   predates #5032 has no `setup-staging`; then `/setup` is left alone (it already carries that
-   installer). **Commit `setup` and `setup.sha256` with `latest.json`**: `deploy-site.sh --promote`
-   refuses a committed `/setup` that is not the committed `setup-staging`.
+   **#5032: it also copies the staging installer onto `/setup`**, when the staging pointer NAMES one
+   (`setup_sha256`, written by the cut): `setup-staging` and its `.sha256` onto `setup` and
+   `setup.sha256`. Before any write it refuses when that pair is uncommitted, differs from its committed
+   copy, does not hash to the pointer's `setup_sha256`, or its sidecar does not name its bytes. A pointer
+   that names no installer (a cut before #5032, or a hand republish of a different build) leaves `/setup`
+   as it is, with a WARNING when a differing `setup-staging` is committed. **Commit `setup` and
+   `setup.sha256` with `latest.json`**: EVERY deploy (`deploy-site.sh --promote`, a rollback, a site copy)
+   refuses a committed `/setup` that does not hash to the committed `latest.json`'s `setup_sha256`.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**

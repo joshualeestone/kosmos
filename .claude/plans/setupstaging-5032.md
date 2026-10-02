@@ -33,16 +33,20 @@ combination no channel tests. setup.sh had 36 commits in September.
 - Site half (chaoskosmos-site branch setupstaging-5032): vercel.json headers for the new pair. Merges first.
 
 ## Tests
-- tools/test-setup-staging-5032.sh (new, in test:shell): channel selection evaluated; source checks of
-  step 5 / site paths / verify call; verify-served name gate run (with a control reaching the network
-  control); restore arms run with controls; promote copy + absent arm + four refusals run on a fixture
-  git site, each refusal asserting the prod pointer and /setup unchanged; deploy-site guard source check
-  and its name mapping evaluated under sh.
+- tools/test-setup-staging-5032.sh (new, in test:shell): channel selection evaluated; the release.sh
+  installer-sha block RUN on a fixture (right sha; a lying sidecar refuses); source checks of step 5 /
+  site paths / verify and audit calls; verify-served name gate run (with a control reaching the network
+  control); restore arms run with controls; promote copy + no-field arms + six refusals run on a fixture
+  git site, each refusal asserting the prod pointer and /setup unchanged; the unnamed-installer WARNING
+  with a control; publish-staging keeps the name for the same build only (control: another build); the
+  pointer writer's field (absent, present, refused when not a sha).
 - engine/update.win32-check.test.js: staging box -> /setup-staging, prod control -> /setup.
 - tools/test-staging-wire-2036.sh: the hand-off grep now expects /setup-staging.
-- tools/test-deploy-site-promote.sh cases 19-22 (RUN, not grepped): matching installer deploys and is
+- tools/test-deploy-site-promote.sh cases 19-25 (RUN, not grepped): matching installer deploys and is
   served; mismatched promote and mismatched site copy refuse with nothing served; a lying sidecar
-  refuses. Cases 1-18 (pointers with no field) are the not-checked control.
+  refuses; a committed /setup-staging pair deploys and passes its edge check, a mangled served one is
+  refused; a pointer naming an installer over a commit with no sidecar is refused.
+- tools/test-artifact-setup-source-2360.sh: its static pins follow the \$SETUP_NAME spelling (review 3). Cases 1-18 (pointers with no field) are the not-checked control.
 
 ## Rejected
 - Keep one /setup and flag setup.sh diffs at cut time: keeps the untested combination.
