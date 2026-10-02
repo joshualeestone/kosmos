@@ -70,6 +70,24 @@ SESSION="${1:?an agent name is required}"
 WORKDIR="${2:?a working directory is required}"
 CLAUDE="${3:?the path to claude is required}"
 TMUX_BIN="${4:?the path to tmux is required}"
+# 🔑 #2955: A JOB BAKED WITH KOSMOS'S OWN tmux FOLLOWS THE LAUNCHER'S PICK. The path above was written into this
+# agent's plist when it was created, and plists are never rewritten. The launcher now prefers a working system tmux
+# (install/kosmos, _kosmos_pick_tmux), so a board on Homebrew's tmux beside a supervisor on the bundled one would put
+# this agent on a server the board cannot read: two tmux versions cannot share one socket. The launcher records what it
+# picked in <kosmos home>/tmux/chosen; a job whose baked path is that home's bundled copy uses the record instead. Any
+# other baked path (a person's own choice, the fleet's Homebrew) is untouched, and so is a missing or unusable record.
+_kosmos_supervisor_tmux() {
+  case "$TMUX_BIN" in
+    */tmux/bin/tmux) ;;
+    *) return 0 ;;
+  esac
+  local _home="${TMUX_BIN%/tmux/bin/tmux}" _chosen=""
+  [ -f "$_home/tmux/chosen" ] || return 0
+  IFS= read -r _chosen < "$_home/tmux/chosen" || [ -n "$_chosen" ] || return 0
+  [ -n "$_chosen" ] && [ -f "$_chosen" ] && [ -x "$_chosen" ] && TMUX_BIN="$_chosen"
+  return 0
+}
+_kosmos_supervisor_tmux
 LOG="${5:-}"
 # The model this agent runs on, optional and NEW as of the create-agent
 # branch (2026-08-16). Empty means claude's own default. Existing plists
@@ -332,7 +350,8 @@ twin_session_may_live() {
   if [ -n "${KOSMOS_WORLD:-}" ]; then _tw="+$KOSMOS_WORLD"; fi
   _tt="$_tb$_tw"; [ "$SESSION" = "$_tt" ] && _tt="$_tb-discord$_tw"
   _tl="$("$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null)" || { unset _tb _tw _tt _tl; return 0; }
-  printf '%s\n' "$_tl" | awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }'; _twrc=$?
+  # awk's own exit IS the answer here (found or not); a here-string, not a pipe, so the #632 hook reads it as that.
+  awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }' <<<"$_tl"; _twrc=$?
   unset _tb _tw _tt _tl
   return $_twrc
 }

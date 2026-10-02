@@ -48,7 +48,7 @@ function picker() {
 }
 
 /** Run the picker with a PATH and a fake bundled tmux, and report its choice. */
-function pick({ path: PATH, sysExit, preset, picked }) {
+function pick({ path: PATH, sysExit, sysSays, preset, picked, also }) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'tmuxpick-'));
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, 'tmux', 'bin'), { recursive: true });
@@ -59,8 +59,15 @@ function pick({ path: PATH, sysExit, preset, picked }) {
   fs.mkdirSync(bin, { recursive: true });
   if (sysExit !== null) {
     const sys = nodePath.join(bin, 'tmux');
-    fs.writeFileSync(sys, `#!/bin/sh\nexit ${sysExit}\n`); fs.chmodSync(sys, 0o755);
+    const say = sysSays ? `echo ${JSON.stringify(sysSays)} >&2\n` : '';
+    fs.writeFileSync(sys, `#!/bin/sh\n${say}exit ${sysExit}\n`); fs.chmodSync(sys, 0o755);
   }
+  /* A second known place (KOSMOS_TMUX_KNOWN), tried after the PATH one: [{ exit, says }]. */
+  const known = (also || []).map((a, i) => {
+    const f = nodePath.join(sb, `known${i}-tmux`);
+    fs.writeFileSync(f, `#!/bin/sh\n${a.says ? `echo ${JSON.stringify(a.says)} >&2\n` : ''}exit ${a.exit}\n`); fs.chmodSync(f, 0o755);
+    return f;
+  });
   const script = `KOSMOS_HOME=${JSON.stringify(home)}\n${picker()}\nprintf '%s' "$AGENT_WORKFORCE_TMUX_BIN"\n`;
   const out = execFileSync('/bin/sh', ['-c', script], {
     encoding: 'utf8',
@@ -68,12 +75,12 @@ function pick({ path: PATH, sysExit, preset, picked }) {
       PATH: PATH === undefined ? `${bin}:/usr/bin:/bin` : PATH,
       /* This Mac has a real tmux at a known location that can list a real
          server; a sandbox pretending to be a clean machine must hide it. */
-      KOSMOS_TMUX_KNOWN: '',
+      KOSMOS_TMUX_KNOWN: known.join(' '),
       ...(preset ? { AGENT_WORKFORCE_TMUX_BIN: preset } : {}),
       ...(picked ? { KOSMOS_TMUX_BIN_PICKED: '1' } : {}),
     },
   });
-  return { chose: out, bundled, sb };
+  return { chose: out, bundled, sb, known };
 }
 
 test('a tmux that can reach a running server is the one we look through', () => {
@@ -186,3 +193,31 @@ test('#728: an unmarked explicit choice is still honoured (the harness, or a per
   assert.equal(r.chose, '/somewhere/else/tmux');
   fs.rmSync(r.sb, { recursive: true, force: true });
 });
+
+/* #2955 (Agent1s, 2026-10-01 13:42): the board started 3 s before the fleet's Homebrew tmux 3.6a took the socket. With no
+   server yet, the old rule kept the bundled 3.5a, which then could read no agent at all. A tmux that says in its own
+   words that there is no server is a working tmux, and the person's own tmux is the one that will start their server. */
+test('#2955: a system tmux that answers "no server running" is chosen over the bundle', () => {
+  const r = pick({ sysExit: 1, sysSays: 'no server running on /private/tmp/tmux-501/default' });
+  assert.match(r.chose, /\/bin\/tmux$/);
+  assert.notEqual(r.chose, r.bundled, 'with no server yet, the bundle was kept and a later, newer server would blind it');
+  fs.rmSync(r.sb, { recursive: true, force: true });
+});
+test('#2955: tmux 3.6\'s other serverless answer (no socket file) counts the same', () => {
+  const r = pick({ sysExit: 1, sysSays: 'error connecting to /private/tmp/tmux-501/default (No such file or directory)' });
+  assert.notEqual(r.chose, r.bundled);
+  fs.rmSync(r.sb, { recursive: true, force: true });
+});
+test('#2955: any other refusal still establishes nothing (a version wall, a permission refusal)', () => {
+  for (const says of ['server exited unexpectedly', 'error connecting to /private/tmp/tmux-501/default (Permission denied)', 'protocol version mismatch (client 8, server 7)']) {
+    const r = pick({ sysExit: 1, sysSays: says });
+    assert.equal(r.chose, r.bundled, 'a refusal that is not "no server" was taken as a working tmux: ' + says);
+    fs.rmSync(r.sb, { recursive: true, force: true });
+  }
+});
+test('#2955: a later candidate that can LIST a server still beats an earlier serverless one', () => {
+  const r = pick({ sysExit: 1, sysSays: 'no server running on /x', also: [{ exit: 0 }] });
+  assert.equal(r.chose, r.known[0], 'a tmux that can see a running server lost to one that merely has none');
+  fs.rmSync(r.sb, { recursive: true, force: true });
+});
+

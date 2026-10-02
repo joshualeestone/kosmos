@@ -5936,3 +5936,21 @@ test('#1704 a world id ending in -discord does not mangle the roster name', () =
     if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
   }
 });
+
+test('#2955: the version wall says its cause and its remedy; other failures keep their own words', () => {
+  /* Agent1s, 2026-10-01: the board's detail was the bare "server exited unexpectedly" while a newer tmux owned the
+     socket, and it took a person to find out what that meant. Reaching lookProblemFor with those words means a socket
+     is on disk (tmuxSaidNoServer took the serverless case), so it is the wall. */
+  const status = require('./status');
+  const wall = status.lookProblemFor({ ran: true, status: 1, err: 'server exited unexpectedly' }, '/k/tmux/bin/tmux');
+  assert.match(wall, /different version of tmux/);
+  assert.match(wall, /\/k\/tmux\/bin\/tmux/, 'the detail no longer names which tmux could not read it');
+  assert.match(wall, /Restarting Kosmos/);
+  assert.match(status.lookProblemFor({ ran: true, status: 1, err: 'protocol version mismatch (client 8, server 7)' }, 'x'), /different version of tmux/);
+  // Controls: a permission refusal and a silent exit are NOT the wall, and say what they said.
+  const perm = status.lookProblemFor({ ran: true, status: 1, err: 'error connecting to /tmp/tmux-501/default (Permission denied)' }, 'x');
+  assert.ok(!/different version/.test(perm) && /Permission denied/.test(perm), perm);
+  assert.equal(status.lookProblemFor({ ran: true, status: 3, err: '' }, 'x'), 'tmux exited 3 without saying why');
+  assert.equal(status.lookProblemFor({ ran: false }, 'x'), 'we could not run tmux at all on this computer');
+});
+

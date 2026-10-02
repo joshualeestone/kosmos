@@ -489,10 +489,22 @@ function tmuxPanes() {
      what came back"), it exists so that a cause reaches the screen instead of
      a terminal, and a cause with the actor removed is not a cause. The four
      sites marked here are all that channel. (Mona Lisa, 2026-08-22.) */
-  LAST_LOOK_PROBLEM = got.ran
-    ? (oneLine(got.err, 300) || `tmux exited ${got.status} without saying why`)
-    : 'we could not run tmux at all on this computer';
+  LAST_LOOK_PROBLEM = lookProblemFor(got, tmuxBin());
   return null;
+}
+/* The detail line for a look that failed. PURE, for the tests. 🔑 #2955: THE VERSION WALL GETS A CAUSE AND A REMEDY.
+   Reaching here with "server exited unexpectedly" (or tmux's "protocol version mismatch") means a socket IS on disk
+   (tmuxSaidNoServer took the serverless case), so a live server is there that this tmux cannot read: a different
+   version owns it. Measured on Agent1s, 2026-10-01 13:42: the fleet's Homebrew 3.6a took the socket 3 s after the board
+   started on the bundled 3.5a, and the detail said only "server exited unexpectedly". The launcher's pick (install/kosmos,
+   #2955) now prefers a working system tmux, so a restart is the remedy that works, and the detail says so. */
+function lookProblemFor(got, bin) {
+  if (!got || !got.ran) return 'we could not run tmux at all on this computer';
+  const err = oneLine(got.err, 300);
+  if (/server exited unexpectedly|protocol version mismatch/i.test(err)) {
+    return `a different version of tmux is running the terminal sessions on this computer, and the tmux Kosmos is using (${bin || 'tmux'}) cannot read them (it said: ${err}). Restarting Kosmos lets it pick the tmux that can.`;
+  }
+  return err || `tmux exited ${got.status} without saying why`;
 }
 
 /**
@@ -8303,7 +8315,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
