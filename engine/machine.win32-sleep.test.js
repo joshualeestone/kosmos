@@ -208,6 +208,14 @@ test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUN
     assert.match(script, /SetForegroundWindow/, 'the helper actually raises the window');
     assert.match(script, /AttachThreadInput/, 'it lifts the foreground lock the documented way');
     assert.match(script, /SystemSettings/, 'it targets the Settings window');
+    /* SystemSettings owns no top-level window on Windows 11 (its MainWindowHandle is 0): the
+       window is ApplicationFrameHost's frame around it, so the search must look there. */
+    assert.match(script, /ApplicationFrameWindow/, 'it looks for the frame that hosts Settings');
+    assert.match(script, /EnumChildWindows/, 'it matches the frame by its Settings-owned child');
+    /* A detached powershell.exe has no console and exits 0 without running the script, so
+       the helper must be launched hidden, never detached. */
+    assert.equal(explorer.FOREGROUND_SPAWN_OPTIONS.detached, false, 'a detached PowerShell never runs the helper');
+    assert.equal(explorer.FOREGROUND_SPAWN_OPTIONS.windowsHide, true, 'the helper must not flash a console');
 
     /* When the page itself does not open, the window is not raised: nothing is there to raise. */
     calls.length = 0;

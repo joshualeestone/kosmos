@@ -242,7 +242,7 @@ function openSettingsPage(purpose) {
  * same button uses `/usr/bin/open`, which foregrounds System Settings for free, so this
  * is the Windows half of that parity (#3324, Josh's laptop, first-run sleep step).
  *
- * 🔑 BEST EFFORT, DETACHED, NEVER WAITED ON, and its result does not change whether the
+ * 🔑 BEST EFFORT, NEVER WAITED ON, and its result does not change whether the
  * page opened. The page is already up; a helper that cannot raise it leaves the window
  * behind, which is exactly the pre-fix state, so a failure here is silent by design.
  *
@@ -250,6 +250,13 @@ function openSettingsPage(purpose) {
  * background one: attach this thread's input queue to the current foreground thread's
  * (AttachThreadInput), which lifts the lock for the call, then SetForegroundWindow. It
  * polls briefly because the Settings window appears a moment after the launch returns.
+ *
+ * 🔑 THE WINDOW IS NOT SystemSettings'. Settings is a packaged app: its top-level window
+ * is an `ApplicationFrameWindow` owned by ApplicationFrameHost, and SystemSettings only
+ * owns a CoreWindow CHILD inside it, so SystemSettings' MainWindowHandle is 0 (measured on
+ * Windows 11 24H2, 2026-10-02; the first version looked there, found nothing, and the
+ * window stayed behind). FrameOf finds the visible frame whose child belongs to a
+ * SystemSettings pid. The title is not matched: it is localized.
  *
  * NOTHING CALLER-CONTROLLED reaches the shell: the script is a fixed constant, and it is
  * passed as -EncodedCommand (base64 UTF-16LE) so it survives argv as ONE space-free token
@@ -265,12 +272,36 @@ const FOREGROUND_SETTINGS_SCRIPT = [
   '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);',
   '[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();',
   '[DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();',
+  'public delegate bool EnumProc(IntPtr h, IntPtr l);',
+  '[DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);',
+  '[DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr p, EnumProc cb, IntPtr l);',
+  '[DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);',
+  '[DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);',
+  '[DllImport("user32.dll", EntryPoint="GetWindowThreadProcessId")] static extern uint WindowPid(IntPtr h, out uint pid);',
+  'public static IntPtr FrameOf(uint pid) {',
+  '  IntPtr found = IntPtr.Zero;',
+  '  EnumWindows(delegate(IntPtr f, IntPtr l) {',
+  '    var c = new System.Text.StringBuilder(64); GetClassName(f, c, 64);',
+  '    if (!IsWindowVisible(f) || c.ToString() != "ApplicationFrameWindow") return true;',
+  '    EnumChildWindows(f, delegate(IntPtr k, IntPtr m) {',
+  '      uint p; WindowPid(k, out p);',
+  '      if (p == pid) { found = f; return false; }',
+  '      return true;',
+  '    }, IntPtr.Zero);',
+  '    return found == IntPtr.Zero;',
+  '  }, IntPtr.Zero);',
+  '  return found;',
+  '}',
   '\'@',
   '$deadline=(Get-Date).AddSeconds(5)',
   'do{',
-  '  $w=Get-Process -Name SystemSettings -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1',
-  '  if($w){',
-  '    $h=$w.MainWindowHandle',
+  '  $h=[IntPtr]::Zero',
+  '  foreach($p in Get-Process -Name SystemSettings -ErrorAction SilentlyContinue){',
+  '    $h=[KWin.Native]::FrameOf([uint32]$p.Id)',
+  '    if($h -eq [IntPtr]::Zero -and $p.MainWindowHandle -ne 0){ $h=$p.MainWindowHandle }',
+  '    if($h -ne [IntPtr]::Zero){ break }',
+  '  }',
+  '  if($h -ne [IntPtr]::Zero){',
   '    $fg=[KWin.Native]::GetForegroundWindow()',
   '    $ft=[KWin.Native]::GetWindowThreadProcessId($fg,[IntPtr]::Zero)',
   '    $me=[KWin.Native]::GetCurrentThreadId()',
@@ -289,6 +320,14 @@ function powershellPath() {
   return path.win32.join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
 
+/* 🛑 NOT DETACHED, unlike the Explorer launch above. `detached` on Windows means
+   DETACHED_PROCESS: no console at all, and powershell.exe 5.1 started that way exits 0 in
+   ~65 ms without running a line (measured 2026-10-02; the same launch without it runs).
+   The first version was detached, so the helper never ran. windowsHide gives it a HIDDEN
+   console instead, and unref() alone is what keeps it never-waited-on: a Windows child is
+   not killed when its parent exits. */
+const FOREGROUND_SPAWN_OPTIONS = Object.freeze({ detached: false, stdio: 'ignore', windowsHide: true, shell: false });
+
 /** Raise the Settings window; see FOREGROUND_SETTINGS_SCRIPT. Best effort. */
 function foregroundSettings() {
   const exe = powershellPath();
@@ -300,9 +339,7 @@ function foregroundSettings() {
     return { ok: false, because: EXPLORER_DID_NOT_OPEN };
   }
   try {
-    /* Same detached, never-waited-on shape as the Explorer launch above, but windowsHide
-       is true: this helper is not a window the person asked to see. */
-    const child = spawn(exe, args, { detached: true, stdio: 'ignore', windowsHide: true, shell: false });
+    const child = spawn(exe, args, FOREGROUND_SPAWN_OPTIONS);
     child.on('error', (err) => {
       process.stderr.write('[win32explorer] ' + exe + ' foreground helper failed to start: '
         + String((err && err.message) || err) + '\n');
@@ -328,6 +365,7 @@ module.exports = {
   openSettingsPage,
   foregroundSettings,
   FOREGROUND_SETTINGS_SCRIPT,
+  FOREGROUND_SPAWN_OPTIONS,
   setRunner,
   setStatForTests,
 };
