@@ -172,3 +172,48 @@ test('#4896 r3: a case variant and a symlinked-parent spelling are the same fold
   const viaLink = path.join(link, 'CaseProj');
   assert.match(String(discover.connect(viaLink, { name: 'lu3' }).because || ''), /already connected as Lu/, 'a spelling through a symlinked parent connected as a second agent');
 });
+
+/* ---- review 4 ---- */
+test('#4896 r4: restore names a REMOVED holder that may still be running, and says to stop it (not "remove" it)', () => {
+  const dir = folder('You are **Mo**, a lead.\n');
+  assert.equal(discover.connect(dir, { name: 'mo1' }).ok, true);
+  withRemoved([{ name: 'mo1', removedAt: new Date().toISOString(), stopped: true }], () => {
+    assert.equal(discover.connect(dir, { name: 'mo2' }).ok, true, 'fixture: the stopped removal did not free the folder');
+  });
+  withRemoved([
+    { name: 'mo1', removedAt: new Date().toISOString(), stopped: true },
+    { name: 'mo2', removedAt: new Date().toISOString(), stopped: false, leftRunningByChoice: true },
+  ], () => {
+    const back = remove.restore('mo1');
+    assert.equal(back.outcome, remove.OUTCOME.REFUSED, JSON.stringify(back));
+    assert.match(back.because, /was removed but may still be running there, and one folder holds one agent\. Stop Mo first/);
+    assert.doesNotMatch(back.because, /Remove Mo first/, 'it told the person to remove an agent that is already removed');
+  });
+});
+
+test('#4896 r4: restore refuses when its own profile cannot be read (store.readProfile would have answered {})', () => {
+  const dir = folder('You are **Ned**, a clerk.\n');
+  assert.equal(discover.connect(dir, { name: 'ned1' }).ok, true);
+  const own = path.join(store.PROFILES, store.profileFileName('ned1'));
+  const kept = fs.readFileSync(own, 'utf8');
+  fs.writeFileSync(own, '{bad');
+  try {
+    withRemoved([{ name: 'ned1', removedAt: new Date().toISOString(), stopped: true }], () => {
+      const back = remove.restore('ned1');
+      assert.equal(back.outcome, remove.OUTCOME.REFUSED, JSON.stringify(back));
+      assert.match(back.because, /could not check which agents use/);
+    });
+  } finally { fs.writeFileSync(own, kept); }
+});
+
+test('#4896 r4: a recorded folder that does not exist yet is matched through a symlinked parent', () => {
+  const real = fs.realpathSync(path.join(SB, 'theirs'));
+  const link = path.join(SB, 'link-r4');
+  fs.symlinkSync(real, link);
+  const viaLink = path.join(link, 'NotYet');
+  assert.equal(discover.connect(folder(null), { name: 'ox1' }).ok, true);   // fixture: profiles exist
+  store.writeProfile('ox1', { dir: viaLink });                               // a folder recorded, then not there
+  const taken = discover.folderTakenBy(path.join(real, 'NotYet'), 'ox2', { store });
+  assert.equal(taken.ok, true);
+  assert.equal(taken.other !== null, true, 'a missing leaf under a symlinked parent read as a different folder');
+});

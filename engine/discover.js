@@ -262,8 +262,7 @@ function alreadyIn(dir, roster) {
      because a basename that is not a usable name (review 3) can still be a folder another, typed, name records. An
      unreadable profile list leaves it offered (connect itself refuses that case with its reason). */
   try {
-    const taken = dir ? folderTakenBy(String(dir), name || null, { store }) : null;
-    if (taken && taken.ok && taken.other) return true;
+    if (dir && heldFolders({ store }).has(canonDir(String(dir)))) return true;
   } catch { /* no record is not a reason to hide it */ }
   if (!name || !create.nameUsable(name)) return false;
   try { if (create.hasJob(name)) return true; } catch { /* ask the other one */ }
@@ -1601,44 +1600,83 @@ function scan(opts) {
  * { ok: false } when the profiles could not be read: that refuses, like the roster check above it, because adding
  * blind is the failure and the refusal is not.
  */
-function folderTakenBy(dir, name, { store }) {
-  /* Review 3: EVERY profile file, read directly. register.known() filters names through NAME_RE, and the folder-only
-     path writes names that fail it (a one-letter typed name), so those claims were invisible. */
+/* Every profile that records a folder: { key, canon, other, removed } per holder, where `removed` says the holder
+   is on the removed list but may still be running there (stopped:false, or left running by choice). A removal that
+   actually STOPPED frees its folder and is left out (restoring it is refused while another name holds the folder:
+   remove.restore). Review 3: EVERY *.json in the profiles folder, read directly, since register.known() filters by
+   NAME_RE and the folder-only path writes names that fail it. { ok: false } when the folder cannot be listed. */
+function folderHolders({ store }) {
   let files;
   try { files = fs.readdirSync(store.PROFILES); } catch (err) {
-    if (err && err.code === 'ENOENT') return { ok: true, other: null };   // nothing has ever been recorded
-    return { ok: false, other: null };
+    if (err && err.code === 'ENOENT') return { ok: true, holders: [] };   // nothing has ever been recorded
+    return { ok: false, holders: [] };
   }
-  /* Review 3: the name compared as its FILE KEY (safeKey lowercases and strips spaces), or "Casey Jones" refuses its
-     own folder on a retry. */
   const keyOf = (n) => { try { return store.profileFileName(n); } catch { return null; } };
-  const self = name ? keyOf(name) : null;
-  /* Review 2, narrowed by review 3: a removed agent frees its folder only when it actually STOPPED. hidesCard is the
-     wrong test: it is also true for a card cleared while its session was deliberately left running
-     (leftRunningByChoice), and that agent is still in the folder. stopped:false alone ("may be running") keeps the
-     claim too. Restoring a stopped one is refused while another name holds the folder (remove.restore). */
-  let stopped = new Set();
+  const stopped = new Set();
+  const stillThere = new Set();
   try {
-    stopped = new Set(require('./remove').removedAgents().filter((r) => r && r.stopped !== false && !r.leftRunningByChoice)
-      .map((r) => keyOf(r.name)).filter(Boolean));
-  } catch { stopped = new Set(); }
-  const want = canonDir(dir);
+    for (const r of require('./remove').removedAgents()) {
+      if (!r) continue;
+      const k = keyOf(r.name);
+      if (!k) continue;
+      /* Review 3: hidesCard is the wrong test here; it is also true for a card cleared while its session was left
+         running, and that agent is still in the folder. */
+      if (r.stopped !== false && !r.leftRunningByChoice) stopped.add(k); else stillThere.add(k);
+    }
+  } catch { /* an unreadable removed list frees nothing */ }
+  const holders = [];
   for (const f of files) {
-    if (!f.endsWith('.json') || f === self || stopped.has(f)) continue;
+    if (!f.endsWith('.json') || stopped.has(f)) continue;
     let p = null;
     try { p = JSON.parse(fs.readFileSync(path.join(store.PROFILES, f), 'utf8')); } catch { p = null; }
-    if (p && typeof p.dir === 'string' && p.dir && canonDir(p.dir) === want) {
-      return { ok: true, other: (typeof p.displayName === 'string' && p.displayName.trim()) || f.slice(0, -'.json'.length) };
-    }
+    if (!p || typeof p.dir !== 'string' || !p.dir) continue;
+    holders.push({ key: f, canon: canonDir(p.dir), removed: stillThere.has(f),
+      other: (typeof p.displayName === 'string' && p.displayName.trim()) || f.slice(0, -'.json'.length) });
   }
-  return { ok: true, other: null };
+  return { ok: true, holders };
 }
+
+/* #4896: the OTHER name that already records this folder, read fresh (connect and restore act on it).
+   { ok: true, other: null } free; { ok: true, other, removed } held; { ok: false } the profiles could not be read,
+   which refuses like the roster check above it, because adding blind is the failure and the refusal is not.
+   Review 3: the name compared as its FILE key, or "Casey Jones" refuses its own folder on a retry. */
+function folderTakenBy(dir, name, { store }) {
+  const got = folderHolders({ store });
+  if (!got.ok) return { ok: false, other: null };
+  let self = null;
+  try { self = name ? store.profileFileName(name) : null; } catch { self = null; }
+  const want = canonDir(dir);
+  const h = got.holders.find((x) => x.key !== self && x.canon === want);
+  return h ? { ok: true, other: h.other, removed: h.removed } : { ok: true, other: null };
+}
+
+/* Review 4: the found list asks per candidate folder, and reading every profile per candidate measured 8.5 ms a call
+   (2.5 s for 300 x 300). The set of held folders is reused for two seconds: long enough for one scan, short enough
+   that a list drawn after a connect sees it. Connect and restore never use this; they read fresh. */
+let HELD_MEMO = { at: 0, set: null };
+function heldFolders({ store }) {
+  const now = Date.now();
+  if (HELD_MEMO.set && now - HELD_MEMO.at < 2000) return HELD_MEMO.set;
+  const got = folderHolders({ store });
+  const set = got.ok ? new Set(got.holders.map((x) => x.canon)) : new Set();
+  HELD_MEMO = { at: now, set };
+  return set;
+}
+
 /* Review 3: one spelling per folder. path.resolve alone missed a case variant (APFS is case-insensitive) and a
-   symlinked parent (/tmp is /private/tmp); realpath.native answers the canonical spelling. A folder that is gone
-   falls back to its resolved path. */
+   symlinked parent (/tmp is /private/tmp); realpath.native answers the canonical spelling. Review 4: a folder that
+   does not exist (yet, or any more) resolves its nearest EXISTING ancestor and keeps the rest as written. */
 function canonDir(d) {
   const r = path.resolve(String(d));
-  try { return fs.realpathSync.native(r); } catch { return r; }
+  const rest = [];
+  let cur = r;
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(cur), ...rest.reverse()); } catch { /* go up one */ }
+    const up = path.dirname(cur);
+    if (up === cur) return r;
+    rest.push(path.basename(cur));
+    cur = up;
+  }
 }
 const FOLDER_UNREADABLE = 'we could not check which agents this computer already has, so we did not add it';
 const folderTakenSentence = (other) => 'that folder is already connected as ' + other + ', and one folder holds one agent';
@@ -1669,6 +1707,7 @@ function registerOnly(given, name, { create, store }) {
      which is the whole reason this path exists. */
   try { store.writeProfile(name, { dir: given, displayName: name }); }
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
+  HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
   return { ok: true, name, dir: given, displayName: name, registered: true, started: false };
 }
 
@@ -1866,6 +1905,7 @@ function connect(dir, opts) {
      already claude. */
   try { store.writeProfile(name, { dir: given, displayName, ...(runner ? { provider: create.runnerProvider(runner) } : {}) }); }
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
+  HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
 
   /* The runner rides along, or an adopted Codex agent starts Claude in its own
      folder. `installJob` also does that runner's first-run setup. */
@@ -1977,6 +2017,7 @@ function connect(dir, opts) {
       });
     }
     catch { /* the job is the thing that matters and it was not written */ }
+    HELD_MEMO = { at: 0, set: null };   // #4896: the folder record was rolled back, so the found list reads fresh
     return { ok: false, because: job.because || 'we could not set it up to run' };
   }
 
@@ -2067,6 +2108,7 @@ function disconnect(name) {
      job disagree about where it lives. */
   try { store.writeProfile(key, { dir: null }); }
   catch { return { ok: false, because: 'we undid it, but could not forget where it lived' }; }
+  HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
 
   const partial = !stopped || !cleared;
   return {

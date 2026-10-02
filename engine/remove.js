@@ -1620,18 +1620,26 @@ function restoreInner(name, platform) {
 
   /* #4896 review 3: a stopped removal frees its folder, so another name may have been connected to it since.
      Restoring now would put two agents on one folder: one instructions file, the same name and role on both, and two
-     Claudes in one worker folder. Refused, naming who holds it. An unreadable profile list refuses too. */
+     Claudes in one worker folder. Refused, naming who holds it. Review 4: this agent's own profile is read with the
+     missing / unreadable split (store.readProfile answers {} for both): missing means nothing to check, unreadable
+     refuses, and so does an unreadable profile list. */
   {
     let dirNow = null;
-    try { dirNow = store.readProfile(clean).dir || null; } catch { dirNow = null; }
-    if (dirNow) {
-      const taken = require('./discover').folderTakenBy(dirNow, clean, { store });
-      if (!taken.ok) {
-        return { outcome: OUTCOME.REFUSED, because: `we could not check which agents use ${shown}'s folder, so we did not restore it. Try again in a moment.`, steps: [] };
-      }
-      if (taken.other) {
-        return { outcome: OUTCOME.REFUSED, because: `${shown}'s folder is now connected as ${taken.other}, and one folder holds one agent. Remove ${taken.other} first to restore ${shown}.`, steps: [] };
-      }
+    let ownUnreadable = false;
+    try {
+      const own = JSON.parse(fs.readFileSync(path.join(store.PROFILES, store.profileFileName(clean)), 'utf8'));
+      dirNow = own && typeof own.dir === 'string' && own.dir ? own.dir : null;
+    } catch (err) { if (!(err && err.code === 'ENOENT')) ownUnreadable = true; }
+    const taken = ownUnreadable ? { ok: false } : dirNow ? require('./discover').folderTakenBy(dirNow, clean, { store }) : { ok: true, other: null };
+    if (!taken.ok) {
+      return { outcome: OUTCOME.REFUSED, because: `we could not check which agents use ${shown}'s folder, so we did not restore it. Try again in a moment.`, steps: [] };
+    }
+    if (taken.other) {
+      /* Review 4: when the holder is itself on the removed list (it may still be running there), "remove it first"
+         would be a dead end: it is already removed. Say what is true instead. */
+      return { outcome: OUTCOME.REFUSED, because: taken.removed
+        ? `${shown}'s folder is also ${taken.other}'s, who was removed but may still be running there, and one folder holds one agent. Stop ${taken.other} first to restore ${shown}.`
+        : `${shown}'s folder is now connected as ${taken.other}, and one folder holds one agent. Remove ${taken.other} first to restore ${shown}.`, steps: [] };
     }
   }
 

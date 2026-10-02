@@ -98,3 +98,19 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
 - NIT taken: the two "same name again" controls now require ok:true, not merely "not this refusal".
 - Out of scope, stated (reasoned, not measured): profiles are per world, so a DIFFERENT world could connect the same
   folder. Worlds are separate boards; its own card if it is ever seen.
+
+## Review 4 (23:13 CDT): 0 BLOCKER, 3 SHOULD-FIX (measured), all taken
+- Restore told the person to "Remove <holder> first" when the holder was itself on the removed list (left running
+  or stopped:false): a dead end. folderHolders now carries removed, and restore says "<holder>, who was removed but
+  may still be running there ... Stop <holder> first".
+- Restore's "unreadable refuses" was false: store.readProfile answers {} for missing AND unreadable, so a corrupt own
+  profile or an unreadable profiles folder skipped the guard and restored. Its own profile is now read with the
+  ENOENT / unreadable split; unreadable refuses.
+- alreadyIn cost: measured by the reviewer at 8.5 ms a call (2.5 s for 300 candidates x 300 profiles). The held set is
+  now built once and reused for 2 s (heldFolders), cleared at every folder-record write in discover.js (connect,
+  registerOnly, the rollback, the undo). Connect and restore never use the memo; they read fresh. Re-measured: 300 x
+  300 in 38 ms. A removal (remove.js) does not clear it; a list drawn within 2 s of one can still hide that folder,
+  and connect then decides fresh.
+- NIT taken: canonDir resolves the nearest EXISTING ancestor, so a recorded folder that is missing still matches
+  through a symlinked parent.
+- Tests: 3 new arms, red on the previous commit; 109/109 with connect-agent, remove.test.js and member-roles.
