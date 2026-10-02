@@ -861,6 +861,23 @@ running_pid() {
 # #2956: the launchctl this file drives, overridable so a test can stub it.
 LAUNCHCTL="${KOSMOS_LAUNCHCTL:-/bin/launchctl}"
 
+# #4918: the systemctl this file drives on Linux, overridable so a test can stub it.
+SYSTEMCTL="${KOSMOS_SYSTEMCTL:-systemctl}"
+
+# #4918: the board's systemd user service unit name on Linux.
+_kosmos_board_systemd_unit() {
+  local _def _kh
+  _def="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/' 2>/dev/null || tr -s '/')"; _def="${_def%/}"
+  _kh="$(printf '%s' "$KOSMOS_HOME" | /usr/bin/tr -s '/' 2>/dev/null || tr -s '/')"; _kh="${_kh%/}"
+  if [ "$_kh" = "$_def" ]; then
+    printf 'kosmos-board.service'
+  else
+    local _h
+    _h="$(printf '%s' "$_kh" | (shasum -a 256 2>/dev/null || sha256sum 2>/dev/null) | cut -c1-8)"
+    printf 'kosmos-board.%s.service' "$_h"
+  fi
+}
+
 # #2956: the board's launchd label, mirroring install/setup.sh byte-for-byte -- a
 # default install is the literal `com.kosmos.board` (#883); a non-default
 # KOSMOS_HOME gets a hash suffix. Must match what setup.sh registered or the
@@ -900,6 +917,21 @@ _kosmos_board_label() {
 # domain is not a test's to touch) and never without launchctl (non-macOS).
 _kosmos_board_supervised() {
   [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || return 1
+  local _os="${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}"
+  if [ "$_os" = "Linux" ] && [ -z "${KOSMOS_LAUNCHCTL:-}" ]; then
+    local _sysctl="${KOSMOS_SYSTEMCTL:-${SYSTEMCTL:-systemctl}}"
+    command -v "$_sysctl" >/dev/null 2>&1 || return 1
+    local _unit="kosmos-board.service"
+    if type _kosmos_board_systemd_unit >/dev/null 2>&1; then
+      _unit="$(_kosmos_board_systemd_unit)"
+    fi
+    local _cat
+    _cat="$("$_sysctl" --user cat "$_unit" 2>/dev/null)" || return 1
+    grep -qE 'ExecStart=.*[[:space:]]board-run([[:space:]]|$)' <<EOF
+$_cat
+EOF
+    return $?
+  fi
   # `command -v` (not a bare `[ -x ]`, which a DIRECTORY passes -- the installer
   # runnable-guard convention) resolves both an absolute path (accepting only an
   # executable file) and a bare command name on PATH; empty => no launchctl here.
@@ -1211,29 +1243,34 @@ cmd_start() {
   fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
-  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  { [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
-  # #2956: under launchd supervision, let launchd OWN the board -- do NOT nohup a
-  # second node beside it (two would race the one port). The stop-marker was
-  # cleared at the top, so launchd's PathState KeepAlive would relaunch on its own;
-  # `kickstart -k` makes it prompt rather than waiting on launchd's own poll --
-  # closing the "does PathState relaunch promptly" gap. (This branch is only
-  # reached for a board that is NOT already running: the `running_pid` guard above
-  # dies first on an alive-but-wedged board, so recovering a wedged supervised
-  # board is `kosmos restart`, not a bare `kosmos start` -- the -k is for the
-  # not-running-but-loaded case and to clear any half-dead instance.)
-  # board-run (the job's ProgramArguments) execs node in the foreground and never
-  # re-enters cmd_start, so there is no recursion. Falls through to the nohup path
-  # below when the board is NOT supervised (a source checkout, a hand start with no
-  # login job, or the update transition window before the new plist is loaded).
+  # #2956 / #4918: under supervision (launchd on macOS, systemd on Linux), let the supervisor OWN the board --
+  # do NOT nohup a second node beside it (two would race the one port). The stop-marker was
+  # cleared at the top, so launchd's PathState / systemd's ConditionPathExists allows relaunch;
+  # kickstart / restart makes it prompt rather than waiting on poll intervals.
   if _kosmos_board_supervised; then
-    say "Bringing the board up (launchd supervised)."
-    _mark_board_started
-    local _sup_label _sup_uid
-    _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
-    "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
-    _await_board_up && return 0
-    die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
+    local _os="${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}"
+    if [ "$_os" = "Linux" ] && [ -z "${KOSMOS_LAUNCHCTL:-}" ]; then
+      say "Bringing the board up (systemd supervised)."
+      _mark_board_started
+      local _sup_unit="kosmos-board.service"
+      if type _kosmos_board_systemd_unit >/dev/null 2>&1; then
+        _sup_unit="$(_kosmos_board_systemd_unit)"
+      fi
+      local _sysctl="${KOSMOS_SYSTEMCTL:-${SYSTEMCTL:-systemctl}}"
+      "$_sysctl" --user restart "$_sup_unit" >/dev/null 2>&1 || true
+      _await_board_up && return 0
+      die "Kosmos did not come up under systemd. What it said is in $BOARD_LOG"
+    else
+      say "Bringing the board up (launchd supervised)."
+      _mark_board_started
+      local _sup_label _sup_uid
+      _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
+      "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
+      _await_board_up && return 0
+      die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
+    fi
   fi
   keychain_note   # kosmos#2600: only on this direct path; the supervised start above runs in the desktop session
   say "Bringing the board up."
@@ -1339,7 +1376,7 @@ cmd_board_run() {
   if port_has_listener; then exit 0; fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
-  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  { [ -f "${AGENT_WORKFORCE_TMUX_BIN:-}" ] && [ -x "${AGENT_WORKFORCE_TMUX_BIN:-}" ]; } || { [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ]; } || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
   # The supervisor OWNS this process: record the pidfile as THIS shell's pid, then
   # `exec` node IN PLACE so node keeps that exact pid. `kosmos stop`/`status`
@@ -1371,7 +1408,12 @@ cmd_stop() {
     # come back seconds after "Stopped." Only warns when actually supervised, so an
     # unsupervised install (where the write is still harmless) is not false-alarmed.
     if [ ! -f "$STOP_MARKER" ] && _kosmos_board_supervised; then
-      say "Warning: could not write $STOP_MARKER, so launchd may restart this board within seconds. Make sure $KOSMOS_HOME is writable, then run 'kosmos stop' again."
+      local _os="${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}"
+      if [ "$_os" = "Linux" ] && [ -z "${KOSMOS_LAUNCHCTL:-}" ]; then
+        say "Warning: could not write $STOP_MARKER, so systemd may restart this board within seconds. Make sure $KOSMOS_HOME is writable, then run 'kosmos stop' again."
+      else
+        say "Warning: could not write $STOP_MARKER, so launchd may restart this board within seconds. Make sure $KOSMOS_HOME is writable, then run 'kosmos stop' again."
+      fi
     fi
     # ⚠️ The pidfile is pid-scoped and the health check is port-scoped, and
     # they can disagree: with KOSMOS_PORT pointed elsewhere, status says
@@ -1385,6 +1427,15 @@ cmd_stop() {
       say "Stopping Kosmos."
     fi
     kill "$pid" 2>/dev/null || true
+    local _os="${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}"
+    if [ "$_os" = "Linux" ] && [ -z "${KOSMOS_LAUNCHCTL:-}" ] && _kosmos_board_supervised; then
+      local _sup_unit="kosmos-board.service"
+      if type _kosmos_board_systemd_unit >/dev/null 2>&1; then
+        _sup_unit="$(_kosmos_board_systemd_unit)"
+      fi
+      local _sysctl="${KOSMOS_SYSTEMCTL:-${SYSTEMCTL:-systemctl}}"
+      "$_sysctl" --user stop "$_sup_unit" >/dev/null 2>&1 || true
+    fi
     local i
     for i in $(seq 1 10); do
       kill -0 "$pid" 2>/dev/null || break

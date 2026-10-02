@@ -755,13 +755,22 @@ function nameUsable(raw) {
    launch key -- an import asks it of the Kosmos it is copying INTO, which is not
    always the one this process serves. Absent means this process's own world. */
 function jobPresence(name, platform, worldId) {
-  if ((platform || process.platform) === 'win32') {
+  const plat = platform || process.platform;
+  if (plat === 'win32') {
     /* require at CALL time, matching win32RegisterJob below: this module is
        required by half the engine and win32job pulls in the anchor. */
     let p;
     try { p = require('./win32job').presence(name, worldId); } catch { return 'unknown'; }
     if (!p.known) return 'unknown';
     return p.registered ? 'yes' : 'no';
+  }
+  if (plat === 'linux') {
+    try {
+      fs.statSync(require('./linuxjob').unitPath(name, worldId));
+      return 'yes';
+    } catch (e) {
+      return (e && e.code === 'ENOENT') ? 'no' : 'unknown';
+    }
   }
   try { fs.statSync(plistPath(name, worldId)); return 'yes'; } catch (e) {
     // Only ENOENT is evidence of absence; EACCES and a broken directory are not.
@@ -1155,8 +1164,24 @@ function readJob(name, worldId, platform) {
  * `win32launch.binFor` already treats as "resolve it again".
  */
 function readJobVerdict(name, worldId, platform) {
-  const win32 = (platform || process.platform) === 'win32';
-  if (!NAME_RE.test(String(name == null ? '' : name))) return { job: null, win32, absent: true };
+  const plat = platform || process.platform;
+  const win32 = plat === 'win32';
+  const linux = plat === 'linux';
+  if (!NAME_RE.test(String(name == null ? '' : name))) {
+    const res = { job: null, win32, absent: true };
+    if (linux) res.linux = true;
+    return res;
+  }
+  if (linux) {
+    const lj = require('./linuxjob');
+    const uPath = lj.unitPath(name, worldId);
+    let content;
+    try { content = fs.readFileSync(uPath, 'utf8'); }
+    catch (e) {
+      return { job: null, win32: false, linux: true, absent: Boolean(e && e.code === 'ENOENT'), because: (e && e.message) || 'could not read unit file' };
+    }
+    return { job: lj.readUnitJob(content), win32: false, linux: true };
+  }
   if (!win32) return { job: readPlistJob(name, worldId), win32 };
   let read;
   try { read = require('./win32job').cachedTaskSpec(name, worldId); }
@@ -1181,6 +1206,16 @@ function readJobVerdict(name, worldId, platform) {
    started by Kosmos" was the false claim this branch removes, so it says instead
    whether the task is missing or could not be read, and why. */
 function noJobRefusal(clean, spoken, verdict, macSentence) {
+  if (verdict && verdict.linux) {
+    let task = clean;
+    try { task = require('./linuxjob').unitName(clean); } catch { /* the bare name still identifies it */ }
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: verdict.absent
+        ? `${spoken} has no startup unit in systemd (${task}), so there is nothing to change and we have not changed it.`
+        : `we could not read ${spoken}'s startup unit in systemd (${verdict.because}), so we have not changed it.`,
+    };
+  }
   if (!verdict.win32) return { outcome: OUTCOME.REFUSED, because: macSentence };
   let task = clean;
   try { task = require('./win32job').taskName(clean); } catch { /* the bare name still identifies it */ }
@@ -1210,7 +1245,24 @@ function noJobRefusal(clean, spoken, verdict, macSentence) {
  */
 function rewriteAgentJob(clean, spoken, fields, platform) {
   const f = fields || {};
-  if ((platform || process.platform) === 'win32') {
+  const plat = platform || process.platform;
+  if (plat === 'linux') {
+    const lj = require('./linuxjob');
+    const runnerBin = f.runnerBin || f.claudeBin;
+    const tmuxBin = f.tmux || f.tmuxBin;
+    const unit = lj.unitFor(clean, runnerBin, tmuxBin, f.model, f.configDir, f.runner);
+    try {
+      lj.writeUnitFile(lj.unitPath(clean), unit);
+      lj.daemonReload();
+    } catch (e) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `could not rewrite systemd unit for ${spoken}: ${String((e && e.message) || e)}`,
+      };
+    }
+    return null;
+  }
+  if (plat === 'win32') {
     const win32job = require('./win32job');
     if (!win32job.commandsAreReal()) {
       liveExec.refuseOrWarn('engine/create.js', 'schtasks.exe', ['/Create', '/F', '/TN', win32job.taskName(clean)]);
@@ -3648,6 +3700,38 @@ function installJob(name, opts) {
   }
   const modelArg = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
   const configDir = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
+  if (jobPlatform === 'linux') {
+    const lj = require('./linuxjob');
+    try {
+      if (!DRY_RUN) {
+        lj.writeUnitFile(lj.unitPath(clean), lj.unitFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner));
+      }
+    } catch {
+      return { ok: false, because: 'we could not write the job file' };
+    }
+    if (runner === 'codex') {
+      try { trustCodexFolder(workerDir(clean), configDir, !configDir); } catch { /* not worth failing the adoption */ }
+      try { dismissCodexUpdateNotice(configDir, !configDir); } catch { /* same */ }
+    }
+    let started = false;
+    try {
+      lj.enableLinger();
+      const r = lj.start(clean);
+      started = Boolean(r && r.ok !== false);
+    } catch { started = false; }
+    return {
+      ok: true,
+      started,
+      model: modelArg,
+      guessed: {
+        model: modelArg ? null : 'we do not know which model it was set to run on, so it will start on the default',
+        account: (configDir || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
+      },
+      because: started
+        ? 'set up and started now, and it will start again at every login'
+        : 'set up to start at your next login, but could not be started just now',
+    };
+  }
   try {
     if (!DRY_RUN) {
       writePlistFile(plistPath(clean), plistFor(clean, runnerBin, tmuxBin, modelArg, configDir, runner), { mkdir: true });
@@ -4164,6 +4248,7 @@ function createAgentInner(opts) {
   const wantReportsTo = (opts && typeof opts.reportsTo === 'string' && opts.reportsTo.trim())
     ? opts.reportsTo.trim().slice(0, 80) : null;
   const { claudeBin, tmuxBin, codexBin, geminiBin, grokBin, antigravityBin, museBin } = binPaths(opts);
+  const jobPlatform = (opts && opts.platform) || process.platform;
 
   /**
    * Which provider this agent runs on (#245, #3296, #3391). 'anthropic' is the
@@ -4596,12 +4681,17 @@ function createAgentInner(opts) {
   // succeeding does not thereby claim every name is taken.
   let loaded = false;
   let printed = '';
-  try {
-    const r = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
-    printed = String((r && r.stdout) || '');
-    loaded = Boolean(r && r.ok !== false && printed.trim());
-  } catch {
-    loaded = false;
+  if (jobPlatform === 'linux') {
+    const lj = require('./linuxjob');
+    loaded = lj.loaded(name);
+  } else if (jobPlatform !== 'win32') {
+    try {
+      const r = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${serviceLabel(name)}`]);
+      printed = String((r && r.stdout) || '');
+      loaded = Boolean(r && r.ok !== false && printed.trim());
+    } catch {
+      loaded = false;
+    }
   }
   if (loaded) {
     const leftover = leftoverJob(printed, plistPath(name));
@@ -4838,7 +4928,6 @@ function createAgentInner(opts) {
    * Task) rather than through a tmux pane under launchd, so tmux's absence says
    * nothing about whether an agent can start.
    */
-  const jobPlatform = (opts && opts.platform) || process.platform;
   const required = jobPlatform === 'win32'
     ? [[runnerLabel, runnerBin], ['the agents folder', workerDir(name)]]
     : [[runnerLabel, runnerBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]];
@@ -4967,6 +5056,22 @@ function createAgentInner(opts) {
         try { require('./win32stop').endSession(win32Launched.sessionId); }
         catch { /* best effort: a rollback must finish even if the kill throws */ }
       }
+      try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
+      return;
+    }
+    if (jobPlatform === 'linux') {
+      const lj = require('./linuxjob');
+      if (unload) {
+        try { lj.stop(name); } catch { /* it may never have started */ }
+        try { lj.disable(name); } catch { /* it may never have been enabled */ }
+      }
+      try {
+        const u = lj.unitPath(name);
+        if (fs.existsSync(u)) {
+          fs.unlinkSync(u);
+          lj.daemonReload();
+        }
+      } catch { /* best effort */ }
       try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
       return;
     }
@@ -5415,6 +5520,11 @@ function createAgentInner(opts) {
   const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder)
     && (jobPlatform === 'win32' || step('set it up to keep running', () => {
       if (DRY_RUN) return true;
+      if (jobPlatform === 'linux') {
+        const lj = require('./linuxjob');
+        lj.writeUnitFile(lj.unitPath(name), lj.unitFor(name, runnerBin, tmuxBin, modelArg, configDir, runner));
+        return true;
+      }
       writePlistFile(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), { mkdir: true });
     }));
 
@@ -5645,6 +5755,13 @@ function createAgentInner(opts) {
       if (DRY_RUN) return true;
       win32Launched = win32StartViaJob(name, { runner, runnerBin, configDir, model: modelArg });
       return win32Launched.ok === true;
+    }
+    if (jobPlatform === 'linux') {
+      if (DRY_RUN) return true;
+      const lj = require('./linuxjob');
+      lj.enableLinger();
+      const r = lj.start(name);
+      return Boolean(r && r.ok !== false);
     }
     /* ⚠️ enable BEFORE bootstrap (#4254), as the repair path above does. `remove`
        sticks by writing a per-user `disable` override keyed on the LABEL, and that
@@ -5962,6 +6079,7 @@ module.exports = {
   defaultAgentGrokHome,
   setRunner,
   setDryRun,
+  rewriteAgentJob,
   OUTCOME,
   get DRY_RUN() { return DRY_RUN; },
 };
