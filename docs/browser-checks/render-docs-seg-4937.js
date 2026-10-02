@@ -9,9 +9,13 @@
  *   - with conversation files: the control shows, the folder segment is chosen and its list is on
  *     screen while the conversation's is not; a click on "From this conversation" swaps them; an arrow
  *     key moves and chooses; opening the screen again starts on the folder;
- *   - with none: the control does not show, and the folder's list does (nothing to switch to).
- * Control: the stub's conversation file reaches the page (its row is in the DOM), so "not on screen"
- * means hidden, not missing.
+ *   - with none: the control is in the page but hidden, and the folder's list shows (nothing to switch to);
+ *   - Home and End choose the first and last segment; a failed Open in Finder shows its sentence on the
+ *     folder's segment; a reopen while the first room read is out shows each conversation file once; a
+ *     reopen from the keyboard puts focus back on the chosen segment;
+ *   - at 320px wide the switch fits on one row with no sideways scroll.
+ * Controls: the stub's conversation file reaches the page (its row is in the DOM), so "not on screen"
+ * means hidden, not missing; with none, the room read was ANSWERED before the switch is judged.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-docs-seg-4937.js
  */
@@ -45,12 +49,12 @@ const shown = (page, sel) => page.evaluate((s) => {
           window.setInterval = () => 0; // refuse the app's tick
           const files = [{ name: 'plan.pdf', size: 2048, modified: '2026-10-01T10:00:00.000Z' }];
           const rows = wc ? [{ text: 'here it is', attachments: [{ id: 'a1', name: 'drop.png', size: 512, url: '/api/attachments/a1' }] }] : [{ text: 'no files' }];
-          window.ROOM_HITS = 0;
+          window.ROOM_HITS = 0; window.ROOM_DONE = 0;
           window.fetch = async (url, init) => {
             const u = String(url);
             if (u.includes('/reveal-folder')) return new Response(JSON.stringify({ error: 'we could not open that folder' }), { status: 500, headers: { 'content-type': 'application/json' } });
             if (u.includes('/documents')) return enc({ ok: true, total: 1, files, names: files.map((f) => f.name), stamp: 'x' });
-            if (u.includes('/room')) { window.ROOM_HITS += 1; if (window.HOLD_ROOM) await window.HOLD_ROOM; return enc({ rows }); }
+            if (u.includes('/room')) { window.ROOM_HITS += 1; if (window.HOLD_ROOM) await window.HOLD_ROOM; const r = enc({ rows }); setTimeout(() => { window.ROOM_DONE += 1; }, 0); return r; }
             if (u.includes('/api/status')) return enc({ agents: [], version: '0.2.0' });
             return enc({});
           };
@@ -83,6 +87,27 @@ const shown = (page, sel) => page.evaluate((s) => {
           const afterKey = await page.evaluate(() => ({ seg: document.getElementById('pj-docs-view').dataset.docseg, focus: document.activeElement && document.activeElement.dataset.docseg }));
           chk(afterKey.seg === 'folder' && afterKey.focus === 'folder' && await shown(page, '#docs-list .pj-doc') && !(await shown(page, '#docs-convo .pj-doc')),
             `${tag}: an arrow key moves, chooses (wrapping) and swaps the lists`, JSON.stringify(afterKey));
+          const segNow = () => page.evaluate(() => ({ seg: document.getElementById('pj-docs-view').dataset.docseg, focus: document.activeElement && document.activeElement.dataset.docseg }));
+          await page.keyboard.press('End');
+          const atEnd = await segNow();
+          await page.keyboard.press('Home');
+          const atHome = await segNow();
+          chk(atEnd.seg === 'convo' && atEnd.focus === 'convo' && atHome.seg === 'folder' && atHome.focus === 'folder', `${tag}: End and Home choose the last and first segment`, JSON.stringify({ atEnd, atHome }));
+          await page.focus('#docs-seg [data-docseg="folder"]');
+          /* The room read is held across frames, as a real board's is, so the browser really drops focus while
+             the switch is hidden (a stub answering in one frame never lets it). */
+          const back = await page.evaluate(async () => {
+            let release;
+            window.HOLD_ROOM = new Promise((r) => { release = r; });
+            const opened = openDocsView();
+            await new Promise((r) => setTimeout(r, 120));
+            const during = document.activeElement === document.body;
+            release(); window.HOLD_ROOM = null;
+            await opened;
+            await new Promise((r) => setTimeout(r, 150));
+            return { during, after: document.activeElement && document.activeElement.dataset.docseg };
+          });
+          chk(back.during && back.after === 'folder', `${tag}: a reopen from the keyboard puts focus back on the chosen segment`, JSON.stringify(back));
           await page.click('#docs-seg [data-docseg="convo"]');
           await page.click('#docs-finder');
           await page.waitForTimeout(150);
@@ -107,8 +132,11 @@ const shown = (page, sel) => page.evaluate((s) => {
           await open();
           chk(await page.evaluate(() => document.getElementById('pj-docs-view').dataset.docseg) === 'folder', `${tag}: opening the screen again starts on the folder`);
         } else {
-          chk(await page.evaluate(() => window.ROOM_HITS) >= 1, `${tag}: control: the conversation was read`);
-          chk(!segShown, `${tag}: no switch (nothing to switch to)`);
+          await page.waitForFunction(() => window.ROOM_DONE >= 1);
+          await page.waitForTimeout(100);
+          chk(await page.evaluate(() => window.ROOM_DONE) >= 1, `${tag}: control: the conversation's read was answered`);
+          const segState = await page.evaluate(() => { const s = document.getElementById('docs-seg'); return s ? (s.hidden ? 'hidden' : 'shown') : 'absent'; });
+          chk(segState === 'hidden' && !(await shown(page, '#docs-seg')), `${tag}: the switch is in the page but hidden (nothing to switch to)`, segState);
           chk(await shown(page, '#docs-list .pj-doc'), `${tag}: the folder's list shows`);
         }
         chk(errs.length === 0, `${tag}: no page errors`, errs.join(' | '));

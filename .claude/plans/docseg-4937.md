@@ -36,6 +36,8 @@ the project folder" and delete or default to "In the project folder.""
 - Each open counts itself; neither read from an earlier open (the conversation's or the folder's) paints.
   A reopen while the room read was out appended its rows twice (check arm: 2 rows without the guard, 1 with,
   both engines, measured). Each open also hides the last project's pager until its own folder lists.
+- A reopen from the keyboard puts focus back on the chosen segment once the switch shows again (hiding it
+  drops focus to the page; check arm holds the read across frames, red without the restore, measured).
 - A conversation read that fails leaves the switch hidden and says nothing, as main's conversation list did
   (the folder half stands alone). Not in the card; a sentence for it would be new copy on a failure nobody
   has reported.
@@ -50,7 +52,7 @@ Second: that opening on the folder is right even when the folder is empty and th
 screen says "Nothing here yet" beside a switch that holds files). The card says default to the folder.
 
 ## Evidence
-- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 33 PASS;
+- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 37 PASS;
   red on main.
 - node --test browser-checks-*, web.*, tools.browser-checks-*: 2351/2351.
 - Surface gate: render-consolidated-nav-4345, render-subback-4586, render-subview-cleanup-3502 pass on
