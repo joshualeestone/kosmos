@@ -1500,7 +1500,7 @@ test('#4941: read --post counts only the reader\'s own comments on it that are s
   const going = mk('quill', 'first of mine');
   mk('quill', 'on another post', OTHER);
   mk('other', 'not quill\'s');
-  assert.match(await line(), /You have 1 comment on this post that is on its way to the community, so it is not shown above\. Once Kosmos has sent one, it is in this post's thread, with the id to reply to/);
+  assert.match(await line(), /You have 1 comment on this post that is on its way to the community, so it is not shown above\. Once Kosmos has sent one, it is in this post's thread with the id to reply to/);
   assert.doesNotMatch(await line(), /first of mine/, 'the reader\'s own words were echoed');
   assert.equal(await line('Quill'), '', 'a name that only keys alike saw quill\'s');
   assert.doesNotMatch((await cr.read({ post: ID })).text, /on its way/, 'no reader, no line');
@@ -1525,9 +1525,15 @@ test('#4941: read --post counts only the reader\'s own comments on it that are s
   const held = mk('quill', 'Write to me at someone@example.com about it.');
   assert.notEqual(held.status, 'published', 'fixture: the safety check did not stop it');
   assert.match(await line(), /You have 1 comment on this post held for your person to look at\.$/);
-  // A long thread: the sent comment may be past the comments shown.
-  serve({ ['/posts/' + ID]: () => ({ status: 200, json: post() }), ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [], next_cursor: 'x' } }) });
-  assert.match(await line(), /perhaps past the comments shown here/);
+  // Always hedged (review 2): replies are previewed two at a time, so even a short thread may not show it.
+  assert.match(await line(), /though perhaps past the comments and replies shown here/);
+  // Past the daily comment cap, or with the agent's name held with no key: still on its way (review 2 NIT 3).
+  const soon = new Date(Date.now() + 3600 * 1000).toISOString();
+  writeJson(cs._paths.keysFile(), { quill: { apiKey: 'k', commentRetryAt: soon } });
+  assert.match(await line(), /1 comment on this post that is on its way/, 'a capped comment was not counted');
+  writeJson(cs._paths.keysFile(), { quill: { registering: { taken: true } } });
+  assert.match(await line(), /1 comment on this post that is on its way/, 'a comment waiting on a held name was not counted');
+  writeJson(cs._paths.keysFile(), {});
   fs.writeFileSync(cs._paths.commentsSentFile(), '{corrupt');
   assert.equal(await line(), '', 'unreadable records still counted');
   for (const f of [cs._paths.commentsSentFile(), cs._paths.keysFile(), cs._paths.stateFile()]) fs.rmSync(f, { force: true });

@@ -36,8 +36,9 @@ const MAX_ITEMS = 10;
 const TITLE_CAP = 120;
 const BODY_CAP = 1500;
 /* #4941: one post read on its own (`read --post`) is shown whole: the service's own limit for a post body (kosmos-community
-   app/schemas.py PostIn, the 4000 the sweep's read cap is sized for), so a post is cut only where scrubbing lengthened it
-   (a "===" run is spaced out, NFKC can expand a character). The feed keeps BODY_CAP. */
+   app/schemas.py PostIn, the 4000 the sweep's read cap is sized for), so a usual post is shown whole. The cap counts UTF-16
+   units after scrubbing, so a post heavy in emoji, or one scrubbing lengthened ("===" spaced out, NFKC expanding a
+   character), can still be cut. The feed keeps BODY_CAP. */
 const POST_BODY_CAP = 4000;
 const RESPONSE_CAP = communitysend.RESPONSE_CAP;   // review 1: the service's answer is read up to this many bytes, never whole (one cap, #4774)
 const CHANNEL_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -241,8 +242,10 @@ function channelSlug(spec) {
    promised a place in the thread; held ones (held or quarantined alike: which is never said) are promised nothing;
    sent, unconfirmed, refused, withheld, deleted and never-to-send ones are not counted. Null when there is nothing to
    say, or an item's records cannot be read. */
-const ON_THEIR_WAY = new Set(['queued', 'capped', 'name_unclaimed', 'paused', 'sending']);
-function ownWaitingOn(reader, postId, more) {
+/* Review 2: not 'sending' (its POST is out, so the service may already show it above: it would be counted twice), and not
+   'paused' (read() reads nothing while sending is off, so it cannot be reached here). */
+const ON_THEIR_WAY = new Set(['queued', 'capped', 'name_unclaimed']);
+function ownWaitingOn(reader, postId) {
   if (typeof reader !== 'string' || !reader) return null;
   try {
     const items = require('./communitystatus').itemsFor(reader);
@@ -255,8 +258,9 @@ function ownWaitingOn(reader, postId, more) {
     if (going) {
       lines.push((going === 1 ? 'You have 1 comment on this post that is on its way to the community, so it is not shown above.'
         : 'You have ' + going + ' comments on this post on their way to the community, so they are not shown above.')
-        + ' Once Kosmos has sent one, it is in this post\'s thread' + (more ? ' (perhaps past the comments shown here)' : '')
-        + ', with the id to reply to. See where each stands with: kosmos community status');
+        // Review 2: always hedged: a long thread pages its comments, and only the first replies under a comment are shown.
+        + ' Once Kosmos has sent one, it is in this post\'s thread with the id to reply to, though perhaps past the comments'
+        + ' and replies shown here. See where each stands with: kosmos community status');
     }
     if (held) lines.push((held === 1 ? 'You have 1 comment on this post' : 'You have ' + held + ' comments on this post')
       + ' held for your person to look at.');
@@ -292,7 +296,7 @@ async function read(opts = {}) {
       catch { thread = { unread: true }; }
     }
     const text = frame([it], null, thread);
-    const own = ownWaitingOn(opts.reader, id.toLowerCase(), Boolean(thread.more));
+    const own = ownWaitingOn(opts.reader, id.toLowerCase());
     return { ok: true, count: 1, text: own ? text + '\n\n' + own : text };
   }
   const ch = channelSlug(opts.channel);

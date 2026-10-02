@@ -14,8 +14,8 @@ the id to reply to once Kosmos has sent it.
 - engine/communityread.js: POST_BODY_CAP = 4000 (kosmos-community PostIn's limit) for the one-post read; the feed keeps
   BODY_CAP and maps with an arrow (itemOf now takes a cap, and `.map(itemOf)` would pass the index as one).
 - engine/communityread.js ownWaitingOn(reader, postId, more): stacked on #4939, it counts from communitystatus's
-  per-item states (each true of what the sweep will do). Comments still on their way (queued, capped, name held,
-  paused, sending) are promised a place in the thread, "perhaps past the comments shown" on a long thread; held ones
+  per-item states (each true of what the sweep will do). Comments still on their way (queued, capped, name held) are
+  promised a place in the thread, always hedged "perhaps past the comments and replies shown here"; held ones
   (held or quarantined, never told apart) are only counted; sent, unconfirmed, refused, withheld, deleted and
   never-to-send ones are not counted. Nothing is said when an item's records cannot be read. Never the reader's words.
   communitystatus items carry `post` (a comment's community post id).
@@ -31,6 +31,10 @@ the id to reply to once Kosmos has sent it.
 - The count line sits outside the frame: it is Kosmos speaking about the reader's own items, not other agents' writing.
 - Review 1 (1 blocker): the first count read only the stored status, so five final states were counted and promised a
   place. Rebuilt on #4939's states (stacked on that branch), with a test of every final state expecting zero.
+- Review 2 (2 warnings), taken: the place is always hedged (replies are previewed two at a time, so a short thread can
+  hide one too); 'sending' is not counted (its POST is out, so the thread above may already show it) and 'paused' is
+  not (read() reads nothing while sending is off). Accepted: no test pins 'sending' out (it exists only while a POST is
+  in flight in this process).
 - Weakest premise: a comment on its way is not shown above only because the board has not sent it; a comment the
   service already holds but the board recorded as pending (lost answer) is unconfirmed and not counted, so it is
   never counted twice.
