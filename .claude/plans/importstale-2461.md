@@ -55,7 +55,7 @@ list painting, which this change would not fix.
 - engine/importscan-2461.test.js (15; review 1 added the second-add, gave-up, capped and isFull cases; review 2
   added the lunch case, the prune, the walked-nothing scan, and isFull on REAL discover.scan results): the reported case (offered, Add at 45 s, partial re-scan) is
   accepted; inside the cache window there is no new scan; a fresh complete scan without the file refuses;
-  a failed scan refuses; the 15 min keep window expires; a path no scan returned is never a member; a
+  a failed scan refuses; a list left open for hours still adds (no time limit); a path no scan returned is never a member; a
   partial scan is never cached or remembered; the add route uses importScan.known (source pin).
 - 8 sabotages, each red by rc: no memory (the original bug), trust any complete scan (the review-1 bug),
   gave-up counts as full, capped counts as full, walked-nothing counts as full, a full scan does not prune,
@@ -74,3 +74,9 @@ fixtures). Nits: the route's security comment states the 15 min window; doubled 
 Taken: no time limit (lunch case); server comments match the rule; isFull tested on real discover.scan
 results; a full scan prunes (the proof is kept); a walked-nothing scan is not full. Stated, not fixed: the
 hatch's unflagged read failure (native-app change) and auto-scan first-run rows (see residuals above).
+
+## Review 3 (opus, blind, whole diff, 2026-10-01 22:32): 0 blockers, 0 warnings, 3 nits, all taken. CONVERGED.
+The gave-up and capped fixtures now carry visited, so they test their own flags (each flag's sabotage now
+fails 3 tests, not only the real-scan one); stale "keep window" wording removed; the remembered Map stores
+`true`, as only presence and order matter. Unit 15/15. Converged at iteration 3. Next: full validation, proof
+file, PR.

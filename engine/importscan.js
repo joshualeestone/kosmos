@@ -42,9 +42,9 @@ function isFull(result) {
 
 function createImportScan({ scan, now, cacheMs }) {
   let cache = { at: 0, result: null };   // the complete scan served to callers for cacheMs
-  const offered = new Map();             // file -> when a scan last offered it (membership only), oldest first
+  const offered = new Map();             // files a scan offered (membership only); only presence and insertion order matter
 
-  function remember(result, t) {
+  function remember(result) {
     if (!result || !Array.isArray(result.importable)) return;
     if (isFull(result)) {                // a full scan proves gone whatever it does not offer
       const has = new Set(result.importable.map((c) => c && c.file));
@@ -53,7 +53,7 @@ function createImportScan({ scan, now, cacheMs }) {
     for (const c of result.importable) {
       if (!c || typeof c.file !== 'string' || !c.file) continue;
       offered.delete(c.file);            // re-insert, so the Map stays oldest-first
-      offered.set(c.file, t);
+      offered.set(c.file, true);
     }
     while (offered.size > MAX_REMEMBERED) offered.delete(offered.keys().next().value);
   }
@@ -68,7 +68,7 @@ function createImportScan({ scan, now, cacheMs }) {
          front-end's retry re-runs the scan and picks up the hatch's answer. Every result's rows are
          remembered: the list paints partial rows too. */
       if (out && !out.scanning) cache = { at: t, result: out };
-      remember(out, t);
+      remember(out);
     } catch { out = null; }
     return out;
   }

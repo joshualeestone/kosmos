@@ -17,9 +17,9 @@ const PARTIAL = { scanning: true, importable: [{ file: HOME }] };   // the hatch
 const DL2 = '/Users/p/Downloads/second.md';
 const COMPLETE2 = { scanning: false, bounded: { visited: 40 }, importable: [{ file: DL }, { file: DL2 }, { file: HOME }] };
 // discover's give-up: the hatch's answer went stale, so the scan is "complete" with none of those folders' rows
-const GAVE_UP = { scanning: false, bounded: { tccUnavailable: true }, importable: [{ file: HOME }] };
+const GAVE_UP = { scanning: false, bounded: { tccUnavailable: true, visited: 40 }, importable: [{ file: HOME }] };
 // cut off at MAX_IMPORTABLE: a new plain-folder file pushed the Downloads ones past the cap
-const CAPPED = { scanning: false, bounded: { importable: true }, importable: [{ file: HOME }, { file: '/Users/p/agents/new.agent.md' }] };
+const CAPPED = { scanning: false, bounded: { importable: true, visited: 40 }, importable: [{ file: HOME }, { file: '/Users/p/agents/new.agent.md' }] };
 
 /* A scan that plays back a sequence, and a clock the test moves. */
 function rig(answers, opts) {
@@ -110,7 +110,7 @@ test('a partial scan is never cached, and offers only the rows it has', () => {
   assert.equal(s.known(DL), true, 'once a complete scan lands it is offered');
   assert.equal(s.warm(), COMPLETE);
   clock.t += 30000;
-  assert.equal(s.warm(), null, 'warm is the cache window only, never the keep window');
+  assert.equal(s.warm(), null, 'warm is the cache window only');
 });
 
 test('the add route checks membership through importScan.known, not the bare fresh scan', () => {
