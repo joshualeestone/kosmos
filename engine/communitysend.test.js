@@ -1161,3 +1161,31 @@ test('#4895: the new name of the same community keeps its keys and send records;
     if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
   }
 });
+
+/* #4938: a post published while a sweep is already in flight goes on a follow-up pass at once, not on the
+   5-minute timer. The sweep in flight is held at its first request (it read its list before the second post
+   existed), so joining it would leave the second post behind; sendSoon runs one more pass after it. */
+test('#4938 sendSoon sends a post published during a sweep in flight, without waiting for the timer', async () => {
+  await on();
+  agentPost('ava', { topic: 'First', body: 'one' });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let first = true;
+  cs.setSender(async (url, init) => { if (first) { first = false; await held; } return fetch(url, init); });
+  const inFlight = cs.sweep();
+  await new Promise((r) => setImmediate(r));
+  agentPost('bo', { topic: 'Second', body: 'two' });
+  const a = cs.sendSoon();
+  const b = cs.sendSoon();
+  assert.equal(a, b, 'two callers during one sweep share one follow-up pass');
+  release();
+  await inFlight;
+  await a;
+  const titles = posts().map((s) => s.body && s.body.title);
+  assert.ok(titles.includes('First') && titles.includes('Second'), JSON.stringify(titles));
+  assert.equal(posts().length, 2, 'nothing sent twice');
+  // CONTROL: with nothing in flight, sendSoon is a plain sweep.
+  agentPost('cy', { topic: 'Third', body: 'three' });
+  await cs.sendSoon();
+  assert.ok(posts().some((s) => s.body && s.body.title === 'Third'));
+});

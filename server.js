@@ -912,6 +912,10 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
+/* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
+   5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
+   as the retry. */
+function communitySendSoon() { setImmediate(() => { try { communitysend.sendSoon(); } catch { /* the timer retries */ } }); }
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
@@ -4521,6 +4525,7 @@ const server = http.createServer(async (req, res) => {
         try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try {
           sendJson(res, 200, { released: communitysite.release(body.id) });
+          communitySendSoon();   // #4938
         } catch (e) {
           // unknown id / non-held (e.g. quarantined) row -> 400 with the reason. #4525: a failure that
           // carries a system code (the store's file write failed) is not the request's fault and its
@@ -8284,6 +8289,7 @@ const server = http.createServer(async (req, res) => {
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+        if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
     return;
@@ -8323,6 +8329,7 @@ const server = http.createServer(async (req, res) => {
         // Collapse quarantined -> held for the SUBMITTER, findings never echoed. Since
         // #3485 auto-publish the scrub's yes/no is observable here too; see the post route.
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+        if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
@@ -8377,6 +8384,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
+        if (r.status === 'published' && sends) communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;

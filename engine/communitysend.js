@@ -908,6 +908,18 @@ function sweep(now = Date.now()) {
   return running;
 }
 
+/* #4938 (Josh's five-family test: a post stayed invisible for minutes): send NOW, for the moment an agent's post or
+   comment is published or a held one is released. Not sweep() alone: a sweep already in flight read its list
+   before this item existed, and joining it would leave the item for the 5-minute timer. So it waits for that
+   one and runs ONE more; any number of callers during the wait share that one. Same contract as sweep(): always
+   resolves, never throws, and the timer stays as the retry. */
+let followUp = null;
+function sendSoon() {
+  if (!running) return sweep();
+  if (!followUp) followUp = running.then(() => { followUp = null; return sweep(); }, () => { followUp = null; return sweep(); });
+  return followUp;
+}
+
 /* #4774: every load-modify-save of keys.json runs one at a time, the sweep's and agentCall's. Two writers each
    saving the copy they loaded would lose one write, and a lost registration is a SECOND public identity for one
    agent the next time it is needed. */
@@ -1266,7 +1278,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
