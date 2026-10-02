@@ -454,10 +454,10 @@ test('task message: a missing part or a non-number task is a usage error that se
   }
 });
 
-test('an unknown task subcommand lists all seven, as install/kosmos does', async () => {
+test('an unknown task subcommand lists all eight, as install/kosmos does', async () => {
   const r = await run(['task', 'reassign', 'p1']);
   assert.equal(r.code, 2);
-  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message | built | hold | unhold');
+  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | assign | close | message | built | hold | unhold');   // assign: #4914
 });
 
 test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the board token; a non-number is a usage error sent nowhere', async () => {

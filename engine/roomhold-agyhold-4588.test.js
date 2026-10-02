@@ -426,7 +426,7 @@ test('#4588 B review 6: flushReleased skips a STOPPED agy member holding posts (
 
 test('#4588 B clause: without an addressed id the #4624 line is byte-unchanged', () => {
   assert.equal(roomhold.clauseFor('p1', 'P one', ['m1']),
-    '[While you were working, 1 room post not addressed to you arrived in project P one (m1). Nothing is asked of you; read them with: kosmos room p1]');
+    '[Since you last heard from this room, 1 room post not addressed to you arrived in project P one (m1). Nothing is asked of you; read them with: kosmos room p1]');
   assert.equal(roomhold.plainId(roomhold.addressedId('m7')), 'm7');
   // The same id held again unmarked is kept once, with its mark.
   assert.equal(roomhold.hold('zed', 'p1', roomhold.addressedId('m7')), true);
@@ -456,4 +456,44 @@ test('#4797: both server log lines for a flush go through toldLine (no inline "t
   assert.ok(inline.test('write(`room-hold: ${who} told of ${d.n} held post(s)`)'), 'the check cannot see a template line');
   assert.ok(inline.test("write('room-hold: ' + who + ' told of ' + n)"), 'the check cannot see a concatenated line');
   assert.equal(inline.test(src), false, 'an inline "told of" log line is back in server.js');
+});
+
+test('#4624 follow-up review 1: the minute retry skips an agy member whose hook said idle while it holds only posts asking nothing; one naming it is told', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    assert.equal(selfreport.record('mara', { state: 'idle', because: 'turn ended', auto: true }).recorded, true);
+    assert.equal(roomhold.hold('mara', PROJECT, 'm900010'), true);
+    let tmux = arm();
+    const r = rosterOf(board, null);
+    assert.deepEqual(await roomhold.flushReleased(r, releasedDeps(r, Date.now())), [], 'an idle member was woken about posts that ask nothing of it');
+    assert.deepEqual(tmux.pastedSends(), []);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), ['m900010']);
+    // CONTROL: once a held post names her, the retry tells her (the #4588 purpose).
+    assert.equal(roomhold.hold('mara', PROJECT, roomhold.addressedId('m900011')), true);
+    tmux = arm();
+    const done = await roomhold.flushReleased(r, releasedDeps(r, Date.now()));
+    assert.deepEqual(done.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]]);
+  });
+});
+
+test('#4624 follow-up review 2: the production shape, a quota-paused agy member whose BRIDGE wrote its idle: an un-addressed post is held by the idle rule (no heldUntil), an addressed one by the quota (heldUntil), and after the reset only the addressed one is retried', async () => {
+  await withFleetAsync(room3(), async (board) => {
+    assert.equal(selfreport.record('mara', { state: 'idle', because: 'quota stop', auto: true }).recorded, true);
+    armSender('leo-discord');
+    arm();
+    const plain = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.equal(plain.outcomes.mara, roomhold.HELD);
+    assert.equal(!!(plain.heldUntil && plain.heldUntil.mara), false, 'the idle rule held it, so no quota time applies');
+    const asked = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara please' }, rosterOf(board, AHEAD()), MEMBERS);
+    assert.equal(asked.outcomes.mara, roomhold.HELD);
+    assert.ok(asked.heldUntil && typeof asked.heldUntil.mara === 'string', 'an addressed post lost its quota time');
+    poolReset();
+    const tmux = arm();
+    const r = rosterOf(board, null);
+    const done = await roomhold.flushReleased(r, releasedDeps(r, Date.now()));
+    assert.deepEqual(done.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]]);
+    const line = typedTo(tmux, 'mara')[0] || '';
+    // The retry ran because a held post names her, and the line asks for that answer only (review 3).
+    assert.match(line, new RegExp('names you and asks for your answer \\(' + asked.id + '(?![0-9])'), 'the addressed post was not told as asked: ' + line);
+    assert.doesNotMatch(line, new RegExp('asks for your answer \\([^)]*' + plain.id + '(?![0-9])'), 'the un-addressed post was told as asked');
+  });
 });

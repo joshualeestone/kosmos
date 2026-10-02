@@ -3884,7 +3884,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   --tsk-built: var(--pj-mention);
   --tsk-held: var(--k-ink-2);   /* #4771: on hold, set aside by the person */
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
-  --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
+  --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink);
+  --tsk-hover: color-mix(in srgb, var(--k-ink) 5%, transparent); }   /* #4880: a tint OVER the row's own ground, so a cream list stays warm */
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
 /* #3949 (Josh, 09-26 16:18: "lose the outer thin rounded box stroke that's on this page for no reason"): no frame on
    the tab view either (#3880 had dropped it only in the consolidated column). The tiles and rows keep their boxes. */
@@ -3999,6 +4000,14 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--k-rule); align-items: start; }
 .tsk-row:first-child { border-top: 0; }
 .tsk-row.sel { background: var(--tsk-wash); }
+/* #4880 (Josh 10/01): a row reads as clickable, as a project room's task cards do: a faint ink tint over the row's own
+   ground under a mouse, and while a keyboard-focused control is inside the row. Background only. A ticked row keeps its wash.
+   Where the main pointer cannot hover there is neither the hover tint nor the pointer, and the row opens nothing there. */
+@media (hover: hover) {
+  .tsk-row { cursor: pointer; }
+  .tsk-row:not(.sel):hover { background: var(--tsk-hover); }
+}
+.tsk-row:not(.sel):has(:focus-visible) { background: var(--tsk-hover); }
 .tsk-row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--gold-deep); }
 .tsk-row .tsk-hit { display: block; line-height: 0; }
 /* #4226 (Raiden's #718 phone sweep): on a touchscreen, every field in the Tasks view is 16px, because iOS zooms into a
@@ -8418,8 +8427,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    field above it, which is what Josh asked for when he called it unstyled. */
 
 /* 📌 `.roledesc` IS GONE FROM THIS SELECTOR TOO, later the same day: the line
-   under the role menu was removed outright, so the only place a caution is
-   painted now is the last step. The treatment is unchanged. */
+   under the role menu was removed outright. A role's caution came back under the
+   menu as .rolelimit (#pick-limit), the only place it is painted (on the swarm path
+   only a professional-advice disclaimer, #4871). The treatment is unchanged. */
 .rolelimit {
   /* The pack's values (#179): quieter ink, 14px lead; neither 14 nor the
      18 below is a scale step, said plainly rather than rounded to one. */
@@ -14239,7 +14249,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="s6-switch-row">
           <span class="s6-sw" id="fr-s6-community" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-community-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos community to help make Kosmos better.</span>
+          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos+ community to help make Kosmos better.</span>
         </div>
       </div>
 
@@ -17195,9 +17205,9 @@ window.kosmosMeasureScrollbarWidth();
     <section class="dbox">
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
-        <div><b>My agents take part in the Kosmos community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
-        <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos community" hidden><i></i></button>
+        <div><b>My agents take part in the Kosmos+ community</b>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
+        <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
            list, never free text (#4336: a typed business name is what the name scrub cannot catch). -->
@@ -30537,7 +30547,7 @@ function openCommunityDelete(r, li) {
   /* A comment on a community post is not shown on this board, so it does not "stay" here. */
   /* review 3: a pending comment is not out, so a removal stops it going rather than taking it down. */
   say.textContent = r.kind === 'comment' && r.state === 'pending' ? 'It will not be sent. It cannot be undone.'
-    : 'This comes down from community.installkosmos.com within a few minutes.'
+    : 'This comes down from community.kosmosplus.com within a few minutes.'
       + (r.kind === 'comment' ? '' : ' It stays on this board.') + ' It cannot be undone.';
   const keep = document.createElement('button');
   keep.className = 'btn community-mine-keep';
@@ -30611,7 +30621,7 @@ function openCommunityDelete(r, li) {
 /* engine/communitysend.js DEFAULT_ENDPOINT, the one the board sends to (web.community-held-4525.test.js pins the
    two equal). A board pointed elsewhere by AGENT_WORKFORCE_COMMUNITY_URL still links here: that variable is a
    test seam (browser-checks.sh sets it to a dead address), not a setting a person has. */
-const COMMUNITY_SITE = 'https://community.installkosmos.com';
+const COMMUNITY_SITE = 'https://community.kosmosplus.com';   // #4895
 function communityHeldReason(findings) {
   const said = {
     secret_token: 'what looks like a password or key', high_entropy: 'what looks like a password or key',
@@ -38019,7 +38029,7 @@ function conShelfDoor(api, st) {
    Shown only when: the page on screen IS the board's version (never over an old page, where the
    update chip says Reload), a version has been seen before (a fresh install records silently: it
    was not updated, it was installed), and that version is not the one running now. The tiles are
-   web/whats-new.json's highlights, which the board serves only when the file is for this version;
+   web/whats-new.json's highlights, which the board serves only when the file is for this version (or names it in "also", #4928) and they were not dismissed already;
    without them no window opens and the version is recorded quietly (round 3). */
 const WN_ICONS = Object.freeze({
   swarm: '<circle cx="12" cy="8" r="3.5"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/>',
@@ -48832,7 +48842,7 @@ async function tcWatchLoop(gen) {
       /* Review 27: every member gets a picture, as every single agent does: the catalogue's portrait
          when the team ships one, otherwise the generated mark for its name. */
       TC_UPLOADING += 1;
-      tcPortrait(m.made.name, m.made.image, m.made.shownAs).then((r) => { m.portrait = r; if (r === 'set') tick(); })
+      tcPortrait(m.made.name, m.made.image, m.made.shownAs, TC.key, m.slot).then((r) => { m.portrait = r; if (r === 'set') tick(); })
         .finally(() => { TC_UPLOADING -= 1; tcPaint(); });
       for (const pr of (m.made.projects || [])) {
         if (!pr || !pr.added) continue;
@@ -48850,19 +48860,22 @@ async function tcWatchLoop(gen) {
 
 /* A shipped portrait becomes the agent's avatar; with none, the generated mark for its name does (the
    one the single create uses). It never costs the agent: a failure only says so on the row. */
-async function tcPortrait(name, image, shown) {
+async function tcPortrait(name, image, shown, team, slot) {
   try {
     let blob = null;
-    if (image) {
-      // A path under this board only: the value comes from the downloaded catalogue, and a leading slash
-      // after the one added here would make it another host's address.
-      const rel = String(image).replace(/^web\//, '');
-      if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(rel) || rel.includes('..')) return 'failed';
-      const src = '/' + rel;
-      const img = await fetch(src);
-      if (!img.ok) return 'failed';
-      blob = await img.blob();
-    } else {
+    /* #4720: the catalogue names a portrait for this member: the board fetches the one file the signed
+       catalogue names and serves it from /api/catalogue/portrait (#4735), keyed by team and slot only, so
+       nothing here builds an address from the catalogue's text. No portrait to be had (none downloaded
+       yet, a mismatch, an older board): the generated mark below, so every member still gets a picture. */
+    if (image && team && slot) {
+      try {
+        const img = await fetch('/api/catalogue/portrait?team=' + encodeURIComponent(team) + '&slot=' + encodeURIComponent(slot), { cache: 'no-store' });
+        if (img.ok) blob = await img.blob();
+        // 404 is "no portrait yet" (the route's own answer); anything else is a fault worth a line (review 1).
+        else if (img.status !== 404) console.warn('[team] portrait for ' + slot + ' not read: status ' + img.status);
+      } catch (err) { blob = null; console.warn('[team] portrait for ' + slot + ' not read: ' + ((err && err.message) || err)); }
+    }
+    if (!blob) {
       const seed = String(shown || name || '').trim();
       if (!seed) return 'failed';
       const cv = document.createElement('canvas');
@@ -49103,9 +49116,15 @@ async function loadRoles(initialMode, opening) {
     msg.textContent = '';
     const sel = document.getElementById('rolesel');
     const chosen = sel.value, oldHtml = sel.innerHTML, oldSig = sel.dataset.menu;
+    /* #4871: paintPathOptions repaints the line under the menu from the NEW roles, where the kept choice is missing,
+       so it is put back with the old menu (a Legal pick keeps its "Not a lawyer"). */
+    const limit = document.getElementById('pick-limit'), oldLimit = limit.textContent, oldLimitHidden = limit.hidden;
     if (!ROLES_BUILT) { buildPicker(); ROLES_BUILT = true; } else paintPathOptions();
     updateRecPill();
-    if (chosen && ![...sel.options].some((o) => o.value === chosen)) { sel.innerHTML = oldHtml; sel.dataset.menu = oldSig; }
+    if (chosen && ![...sel.options].some((o) => o.value === chosen)) {
+      sel.innerHTML = oldHtml; sel.dataset.menu = oldSig;
+      limit.textContent = oldLimit; limit.hidden = oldLimitHidden;
+    }
     if (chosen) sel.value = chosen;
   };
   /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
@@ -49169,8 +49188,8 @@ function buildPicker() {
      ⚠️ HE NAMED THE COST HIMSELF -- "I get that we're not displaying anywhere
      else, that's fine" -- so this is a decision, not an oversight. What is NOT
      covered by it: a role's LIMIT on what it reaches, which is a disclosure
-     rather than a description. That moved to the last step in 0.2.92 and is
-     still shown before the agent exists. */
+     rather than a description. It is said under the menu on this screen (#pick-limit, paintPickLimit), the
+     ONLY place it is shown before the agent exists; on the swarm path only a professional-advice disclaimer (#4871). */
   updateRecPill();
   paintRoleMenu();
   document.getElementById('pick-list').hidden = false;
@@ -49221,6 +49240,7 @@ function paintPathOptions() {
   /* The org chart creates every row down the `own` path, so it is offered on the same condition as `own`. */
   document.getElementById('team-orgchart-opt').hidden = !OWN_ROLE;
   paintTeamOrgchartNote();
+  paintPickLimit();   // #4871: the line under the menu depends on the path, so any repaint of the path's options repaints it
 }
 /* #4556 review: when the roles could not be read the org chart cannot be offered, and the Team screen says so
    rather than showing only "Ready-made teams are coming soon." */
@@ -49332,7 +49352,16 @@ document.getElementById('roles-list').addEventListener('change', (e) => {
 function paintPickLimit() {
   const line = document.getElementById('pick-limit');
   const role = PICKED && PICKED !== 'own' ? roleByKey(PICKED) : null;
-  const say = role && role.caution && !document.getElementById('rolepick').hidden ? role.caution : '';
+  /* #4871 (Josh, 2026-10-01: "On the Create a Swarm page I don't want the extra descriptor underneath Picking a Role"):
+     on the swarm path the line under the menu goes, EXCEPT a professional-advice disclaimer (not a lawyer; not
+     financial, tax, medical or veterinary advice). Shipping Legal at all was conditional on that kind being visible
+     at the moment of choice (Josh, 2026-08-10, engine/roles.js), and his 10-01 words were said looking at an
+     operational line (Office Manager's "nothing goes out without the owner"). The single-agent path is unchanged. */
+  /* Errs toward KEEPING: a wrong keep shows one sentence too many, a wrong hide breaks the 08-10 condition. */
+  const ADVICE = /\b(advi[cs]\w*|lawyers?|attorneys?|counsel\w*|legal\w*|accountants?|cpas?|auditors?|tax(es)?|financial planners?|licensed|medic\w*|doctors?|physicians?|clinicians?|nurses?|pharmacists?|psycholog\w*|psychiatr\w*|therap\w*|dentists?|diagnos\w*|veterinar\w*)\b/i;
+  const swarmQuiet = CREATE_PATH === 'swarm'
+    && !(role && role.caution && ADVICE.test(role.caution));
+  const say = role && role.caution && !swarmQuiet && !document.getElementById('rolepick').hidden ? role.caution : '';
   line.textContent = say;
   line.hidden = !say;
 }
@@ -55629,6 +55658,19 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
+  /* #4880 (Josh 10/01): a click anywhere in a row outside its controls (its text included) opens the task, as its
+     title does. Only where the main pointer can hover, not left of the checkbox's right edge, and not when a drag
+     left text selected in this row. */
+  const row = el('.tsk-row[data-key]');
+  if (!row) return;
+  const ctl = el('button, a, input, label, select, summary, textarea, [role], [tabindex], [contenteditable]');
+  if (ctl && ctl !== row && row.contains(ctl)) return;
+  if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) return;
+  const hit = row.querySelector('.tsk-hit');
+  if (hit && e.clientX <= hit.getBoundingClientRect().right + 6) return;
+  const sel = window.getSelection ? window.getSelection() : null;
+  if (sel && !sel.isCollapsed && String(sel).trim() && sel.containsNode(row, true)) return;
+  tskOpenTask(row.dataset.key);
 });
 document.getElementById('panel-tasks').addEventListener('change', (e) => {
   const box = e.target.closest('input[type="checkbox"][data-key]');
@@ -56456,7 +56498,9 @@ function ntAimAt(p) {
   // the project, so its people are the choices.
   sel.innerHTML = '<option value="">Nobody yet</option>' + (p.agents || []).map((m) =>
     '<option value="' + esc(m.sessionName) + '">' + esc(m.name || m.sessionName)
-    + (m.role ? ' · ' + esc(m.role) : '') + '</option>').join('');
+    /* #4896: the role as the member rows say it (roleLine: a menu title in the menu's words), not as it is stored, so
+       one project does not offer "project manager" beside "Project Manager". */
+    + (m.role ? ' · ' + esc(roleLine({ role: m.role }, ROLE_TITLES)) : '') + '</option>').join('');
   if (keepWho) {
     sel.value = keepWho;
     /* The departed-member case, actually guarded: assigning a value with

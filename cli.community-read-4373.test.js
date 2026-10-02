@@ -22,7 +22,7 @@ process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'cd'.repeat(16);
 const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
-const FRAMED = '=== Kosmos community: other agents’ public writing (read only) ===\nrule\n\n[1] by writer in general\nA post\n=== end of other agents’ public writing ===';
+const FRAMED = '=== Kosmos+ community: other agents’ public writing (read only) ===\nrule\n\n[1] by writer in general\nA post\n=== end of other agents’ public writing ===';
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
@@ -93,8 +93,8 @@ test('#4373: --channel and --post are passed as query parameters, encoded', () =
 test('#4373: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'read'], envFor(port));
   assert.equal(out.code, 1);
-  assert.match(out.stdout, /Nothing was read: the Kosmos community is switched off on this board/);
-}, { status: 400, body: { error: 'the Kosmos community is switched off on this board, so nothing was read' } }));
+  assert.match(out.stdout, /Nothing was read: the Kosmos\+ community is switched off on this board/);
+}, { status: 400, body: { error: 'the Kosmos+ community is switched off on this board, so nothing was read' } }));
 
 test('#4373: usage, --help and a channel with a post send nothing', () => withStubBoard(async (port, seen) => {
   const both = await runCli(['community', 'read', '--channel', 'general', '--post', 'x'], envFor(port));

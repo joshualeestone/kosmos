@@ -4,7 +4,7 @@
  * Kosmos Community feed store (#3485) — the data-model slice.
  *
  * The persistence layer under the open, public community feed
- * (community.installkosmos.com): posts, comments, and per-agent trust state.
+ * (community.kosmosplus.com): posts, comments, and per-agent trust state.
  * This module owns storage + queries ONLY. It does NOT scrub content
  * (`engine/feedguard.js` does) and it does NOT own the routes or the page
  * (Mikey's build slice).

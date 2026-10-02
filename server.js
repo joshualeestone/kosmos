@@ -440,7 +440,7 @@ function tellEveryoneOn(t, roster) {
      always sent, and if it could not reach the agent at all (COULD_NOT) the assignment is
      taken back, so nobody is left on a task they were never told about.
    Returns the route's body fields plus `ok`/`status`/`because`; never throws for a refusal. */
-function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery } = {}) {
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -457,7 +457,9 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   if (!out.ok) return { ok: false, status: 400, because: out.because };
   const r = roster || safeRoster();
   let heard;
-  if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
+  if (noPage) {
+    heard = undefined;   // #4914: an agent that gave the part to itself is not paged about it
+  } else if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
     heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver);
   } else if (out.changed) {
@@ -909,7 +911,15 @@ const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
-const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.installkosmos.com, only while the #4288 switch is on
+const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
+/* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
+   5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
+   as the retry. */
+function communitySendSoon() {
+  setImmediate(() => {
+    try { if (communitysend.switchOn()) communitysend.sendSoon(); } catch { /* the timer retries */ }   // OFF: nothing goes, so no pass
+  });
+}
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
@@ -3916,7 +3926,10 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    /room/reopen and every other room verb do not match). */
 /* #4491 slice 5: `kosmos task add` (POST .../tasks) and `kosmos task close` join: both handlers name the caller from
    the token and refuse an agent that is not on the project. Reopen, due, parts and every other task verb stay out. */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
+/* #4914: `kosmos task assign` (POST .../task/<n>/assign) joins on the same terms: its handler names the caller
+   (processCaller), refuses an agent that is not on the project (notOnProjectRefusal), and moves the part through
+   givePart, so the parts valve and the paging allowance apply. The part route (.../part/<m>/who) stays out. */
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -4034,6 +4047,31 @@ function notOnProjectRefusal(who, id, verb, notDone) {
   const agentMadeAndEmpty = (x) => Array.isArray(x.agents) && x.agents.length === 0 && !!x.made && x.made.via === 'process';
   return stored.every((x) => agentMadeAndEmpty(x) || projectHasAgent(x, who.card.sessionName, who.byKey)) ? null
     : [403, 'that agent is not on this project, so it cannot ' + verb];
+}
+/* #4887, shared with #4914's `task assign`: the agent a CLI's `who` names on project `id`. For an agent caller
+   (`card`), `me` is that agent unless a member is named exactly what was typed; the page sends member names, so
+   `me` is a name there. With `nobody: true`, `nobody` (same exact-member rule) is no agent: `who` null. A name is
+   matched to a member exactly, else by store key when exactly one member has that key; otherwise it is returned as
+   typed, for the engine to refuse. A name given as only spaces is refused, never read as no owner.
+   Returns { who } or { refusal: [status, sentence] }. */
+function resolveWhoAsked(id, who, { viaScreen, card, nobody } = {}) {
+  if (typeof who === 'string' && who.length && !who.trim()) {
+    return { refusal: [400, "that is not an agent's name; name an agent on the project, or me"] };
+  }
+  if (typeof who !== 'string' || !who.trim()) return { who };
+  const typed = who.trim();
+  let members = [];
+  try { members = ((projects.readAll() || []).find((x) => x && x.id === id) || {}).agents || []; }
+  catch { members = []; }
+  if (!Array.isArray(members)) members = [];
+  if (members.includes(typed)) return { who: typed };
+  if (nobody && typed.toLowerCase() === 'nobody') return { who: null };
+  if (!viaScreen && typed.toLowerCase() === 'me') {
+    if (!card) return { refusal: [400, 'Kosmos could not tell which agent you are, so it cannot give the task to you; name the agent instead'] };
+    who = card.sessionName;
+  }
+  const found = members.filter((m) => sameAgentName(m, String(who).trim(), true));
+  return { who: found.length === 1 ? found[0] : who };
 }
 function agentTokenOk(req) {
   const t = req && req.headers && req.headers['x-kosmos-agent-token'];
@@ -4497,7 +4535,9 @@ const server = http.createServer(async (req, res) => {
           // message can name a file path: a 500 in plain words instead.
           if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+          return;
         }
+        communitySendSoon();   // #4938: after the answer, outside it
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -6525,8 +6565,7 @@ const server = http.createServer(async (req, res) => {
        file the signed catalogue names for this member, keeps it only when it is that exact image
        (engine/catalogue.js portrait()), and the page reads it from here, never from another
        address. Nothing in the request chooses what is downloaded: team and slot only pick among
-       the members the held catalogue lists. "No portrait" is a 404 with the reason; the page says
-       so on the member's row and the agent is made all the same. Like the other GETs that make
+       the members the held catalogue lists. "No portrait" is a 404 with the reason. Like the other GETs that make
        this computer fetch something, it refuses a request that came from another website. */
     const refusedRead = crossSiteRead(req);
     if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
@@ -8242,6 +8281,9 @@ const server = http.createServer(async (req, res) => {
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
+        /* #4938: open the send window BEFORE the post is stored, as the release route does. Sent at once now, a post
+           made before any sweep had found the switch ON would fall before the window the send then records. */
+        try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try { r = feedpublish.publishPost(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
@@ -8255,6 +8297,7 @@ const server = http.createServer(async (req, res) => {
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id });
+        if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
     return;
@@ -8348,6 +8391,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
+        if (r.status === 'published' && sends && !will.later) communitySendSoon();   // #4938 (past the daily cap it goes later, not now)
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
@@ -14935,7 +14979,8 @@ const server = http.createServer(async (req, res) => {
   // --- what changed under a running board (#541) ---------------------------
   /* The seen-version record: one tiny file, so dismissed stays dismissed
      across restarts and browsers. First sight of a machine records the
-     current version silently; the line only ever describes a CHANGE. */
+     current version silently; the line only ever describes a CHANGE. Since #4928 it also holds which
+     highlights were dismissed (highlightsFor), so the same words are not opened twice. */
   if (pathname === '/api/whats-new' && (req.method === 'GET' || req.method === 'HEAD')) {
     let seen = null;
     // ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
@@ -14948,12 +14993,22 @@ const server = http.createServer(async (req, res) => {
     // env var unset (every real install), it is exactly the condition a
     // sandboxed install gate sets -- and exactly why that gate caught this
     // file surviving an uninstall that swept the correct directory.
-    try { seen = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8')).version || null; } catch { seen = null; }
+    let seenFor = null;   // #4928: the highlights last dismissed, by the file's main version
+    try {
+      const rec = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8'));
+      seen = rec.version || null;
+      seenFor = typeof rec.highlightsFor === 'string' ? rec.highlightsFor : null;
+    } catch { seen = null; }
     /* #3955: the release's highlights for the "Kosmos has been updated" window, from web/whats-new.json,
        ONLY when that file is for the version running now (engine/whatsnew.read): last release's text
        can never appear, and a file the window could not draw is served as none (then no window opens). */
     let highlights = null;
-    try { highlights = require('./engine/whatsnew').read(version); } catch { highlights = null; }
+    /* #4928: and for a number in its "also" list; the same words under another number (Windows on 0.7.13, then
+       0.7.16) are not opened twice: dismissing records which words (highlightsFor, the file's main version). */
+    try {
+      const got = require('./engine/whatsnew').readFull(version);
+      highlights = got && !(seenFor && got.key === seenFor) ? got.highlights : null;
+    } catch { highlights = null; }
     sendJson(res, 200, { current: version, seen, highlights });
     return;
   }
@@ -14967,7 +15022,14 @@ const server = http.createServer(async (req, res) => {
         try {
           fs.mkdirSync(store.ROOT, { recursive: true });
           const tmp = path.join(store.ROOT, 'seen-version.json.tmp');
-          fs.writeFileSync(tmp, JSON.stringify({ version: v }) + '\n');
+          /* #4928: also which highlights this dismissed (the file's main version), kept from before when
+             this version has none, so the same words are not opened again under another number. */
+          let highlightsFor = null;
+          try { highlightsFor = require('./engine/whatsnew').key(v); } catch { highlightsFor = null; }
+          if (!highlightsFor) {
+            try { highlightsFor = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8')).highlightsFor || null; } catch { highlightsFor = null; }
+          }
+          fs.writeFileSync(tmp, JSON.stringify(highlightsFor ? { version: v, highlightsFor } : { version: v }) + '\n');
           fs.renameSync(tmp, path.join(store.ROOT, 'seen-version.json'));
           sendJson(res, 200, { seen: v });
         } catch { sendJson(res, 500, { error: 'we could not record that' }); }
@@ -17244,8 +17306,12 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 429, { error: refusal.because, retry_after_secs: refusal.retryAfterSecs }); return;
           }
         }
+        /* #4887: `kosmos task add --who <agent>`, resolved by the helper `task assign` shares (#4914). */
+        const asked = resolveWhoAsked(id, body.who, { viaScreen, card: paneCard });
+        if (asked.refusal) { sendJson(res, asked.refusal[0], { error: asked.refusal[1] }); return; }
+        const whoAsked = asked.who;
         try {
-          const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: body.who,
+          const made = tasks.create(id, { sentence: body.sentence, detail: body.detail, who: whoAsked,
             parent: body.parent,
             made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } }, roster);
           // The assignee's managed block now lists this task in the exact
@@ -17265,7 +17331,12 @@ const server = http.createServer(async (req, res) => {
           // Task CREATION has its own persisted refusal above (the runaway breaker,
           // which 429s the whole request); this only gates whether it also pages a pane.
           let heard;
-          if (viaScreen || heardBudgetAllows(made.who, roster)) {
+          /* #4887: an agent that gave the task to itself (`--who me`, or its own name) is not paged about it: the
+             line would land in its own screen, mid-turn, and spend its own hourly allowance. Nothing to tell. */
+          const toSelf = !viaScreen && !!paneCard && !!made.who && sameAgentName(made.who, paneCard.sessionName, who.byKey);
+          if (toSelf) {
+            heard = undefined;
+          } else if (viaScreen || heardBudgetAllows(made.who, roster)) {
             heard = await heardBy(id, made, made.who, made.sentence, roster, chat.deliverAsync);
             // Only a REAL delivery spends the allowance: a run of failed attempts
             // while an agent is unreachable must not use up its hour, or it would
@@ -17922,6 +17993,70 @@ const server = http.createServer(async (req, res) => {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
           { error: msg || 'we could not add that part' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4914: `kosmos task assign <project> <n> <who> [--part <m>]`. The board picks the part (the only one, or the one
+     named) and resolves `who` as `task add --who` does (resolveWhoAsked), so the CLIs need to know neither the parts
+     nor the caller. The move goes through givePart, as the part route's does. */
+  const taskAssign = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/assign$/);
+  if (taskAssign && req.method === 'POST') {
+    const id = decodeSegment(taskAssign[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw.toString('utf8') || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      if (typeof body.who !== 'string' || !body.who) { sendJson(res, 400, { error: 'say who the task goes to: an agent on the project, me, or nobody' }); return; }
+      const roster = safeRoster();
+      const viaScreen = isViaScreen(req, body);
+      const caller = processCaller(req, body, roster, viaScreen, 'the task was not moved');
+      const callerRefusal = caller.refusal || notOnProjectRefusal(caller, id, 'move its tasks', 'the task was not moved');
+      if (callerRefusal) { sendJson(res, callerRefusal[0], { error: callerRefusal[1] }); return; }
+      const asked = resolveWhoAsked(id, body.who, { viaScreen, card: caller.card, nobody: true });
+      if (asked.refusal) { sendJson(res, asked.refusal[0], { error: asked.refusal[1] }); return; }
+      let task;
+      try {
+        const p = (projects.readAll() || []).find((x) => x && x.id === id);
+        if (!p) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        task = tasks.byNumber(p, taskAssign[2]);
+      } catch { sendJson(res, 500, { error: 'we cannot read your projects right now' }); return; }
+      if (!task) { sendJson(res, 404, { error: 'there is no task ' + taskAssign[2] + ' on this project' }); return; }
+      const parts = tasks.partsOf(task);
+      let partId = body.part;
+      if (partId === undefined || partId === null || partId === '') {
+        if (parts.length !== 1) {
+          /* No double quote, backslash or control character in it (as taskMessageSummary): the Mac CLI reads `error`
+             with sed, and an escaped quote would cut the list short there. Ten parts at most, then a count. */
+          const plain = (v) => String(v == null ? '' : v).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+          const shown = parts.slice(0, 10).map((x) => x.id + ' ' + plain(x.sentence).slice(0, 60) + ' (' + (plain(x.who) || 'nobody') + ')');
+          const more = parts.length > 10 ? '; and ' + (parts.length - 10) + ' more' : '';
+          sendJson(res, 400, { error: 'task ' + task.number + ' has ' + parts.length + ' parts: ' + shown.join('; ') + more + '. Name one with --part <number>' }); return;
+        }
+        partId = parts[0].id;
+      }
+      const partOk = (typeof partId === 'number' && Number.isInteger(partId)) || (typeof partId === 'string' && /^[0-9]+$/.test(partId));
+      if (!partOk || !parts.some((x) => Number(x.id) === Number(partId))) {
+        sendJson(res, 400, { error: 'task ' + task.number + ' has no part ' + (partOk ? String(partId) : 'like that') }); return;
+      }
+      /* Work that is done is not given to anyone: the new owner would be told about finished work. A closed task
+         (`task close` sets the task's closedAt and leaves stored parts open) counts, as progressOf reads it. */
+      if (tasks.progressOf(task).closed || parts.find((x) => Number(x.id) === Number(partId)).closedAt) {
+        sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' }); return;
+      }
+      const toSelf = !viaScreen && !!caller.card && !!asked.who && sameAgentName(asked.who, caller.card.sessionName, caller.byKey);
+      try {
+        partId = Number(partId);
+        const g = await givePart(id, task.number, partId, asked.who, { screen: viaScreen, roster, asyncDelivery: true, noPage: toSelf });
+        if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
+        if (!g.ok) { sendJson(res, g.status || 400, { error: g.because }); return; }
+        /* `who` first: the Mac CLI reads the new owner from the start of this answer (the task inside has its own). */
+        sendJson(res, 200, { who: asked.who === undefined ? null : asked.who, part: Number(partId), task: g.task, told: g.told, heard: g.heard });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400, { error: msg || 'we could not move that task' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -19294,8 +19429,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       // One sweep soon after boot, so a switch turned on just before a restart does not
-      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a comment or release
-      // request recorded the period's start first: #4373 part B).
+      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a post, comment or
+      // release request recorded the period's start first: #4373 part B, #4938).
       const communityBoot = setTimeout(() => { try { communitysend.sweep(); } catch { /* best-effort */ } }, 15 * 1000);
       if (communityBoot && typeof communityBoot.unref === 'function') communityBoot.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.

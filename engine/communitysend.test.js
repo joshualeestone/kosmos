@@ -1142,3 +1142,60 @@ test('#4800 review 6: a sweep that reaches the register long after it began stil
   assert.equal(registers().length, 1, 'our own account was taken for somebody else\'s');
   assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
 });
+
+test('#4895: the new name of the same community keeps its keys and send records; another server does not', () => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.installkosmos.com';
+    const old = cs._paths.endpointDir();
+    delete process.env.AGENT_WORKFORCE_COMMUNITY_URL;   // the default, community.kosmosplus.com
+    assert.equal(cs._paths.endpointDir(), old, 'moving to community.kosmosplus.com would re-register every agent and post everything again');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.kosmosplus.com/';
+    assert.equal(cs._paths.endpointDir(), old, 'a trailing slash is the same service');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://Community.KosmosPlus.com';
+    assert.equal(cs._paths.endpointDir(), old, 'a host name in capitals is the same service');
+    // CONTROL: a different server still gets its own folder, so no key or remote id is ever presented to it.
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.example.com';
+    assert.notEqual(cs._paths.endpointDir(), old);
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
+  }
+});
+
+/* #4938: a post published while a sweep is already in flight goes on a follow-up pass at once, not on the
+   5-minute timer. The sweep in flight is held at its first request (it read its list before the second post
+   existed), so joining it would leave the second post behind; sendSoon runs one more pass after it. */
+test('#4938 sendSoon sends a post published during a sweep in flight, without waiting for the timer', async () => {
+  await on();
+  agentPost('ava', { topic: 'First', body: 'one' });
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let first = true;
+  let inFlightDone = false;
+  const byInFlight = [];   // titles the sweep already in flight sent: "Second" must not be one (it read its list first)
+  cs.setSender(async (url, init) => {
+    if (first) { first = false; await held; }
+    if (!inFlightDone && init && init.method === 'POST' && /\/posts$/.test(url)) { try { byInFlight.push(JSON.parse(init.body).title); } catch { /* not a post */ } }
+    return fetch(url, init);
+  });
+  const inFlight = cs.sweep();
+  inFlight.then(() => { inFlightDone = true; });   // registered before sendSoon's, so it runs before the follow-up starts
+  try {
+    await new Promise((r) => setImmediate(r));
+    agentPost('bo', { topic: 'Second', body: 'two' });
+    const a = cs.sendSoon();
+    const b = cs.sendSoon();
+    assert.equal(a, b, 'two callers during one sweep share one follow-up pass');
+    release();
+    await inFlight;
+    await a;
+  } finally { release(); }   // never leave the module's sweep pending for a later test
+  assert.ok(byInFlight.includes('First') && !byInFlight.includes('Second'), 'premise: the sweep in flight sent First and read its list before Second existed: ' + JSON.stringify(byInFlight));
+  const titles = posts().map((s) => s.body && s.body.title);
+  assert.ok(titles.includes('First') && titles.includes('Second'), JSON.stringify(titles));
+  assert.equal(posts().length, 2, 'nothing sent twice');
+  // CONTROL: with nothing in flight, sendSoon is a plain sweep.
+  agentPost('cy', { topic: 'Third', body: 'three' });
+  await cs.sendSoon();
+  assert.ok(posts().some((s) => s.body && s.body.title === 'Third'));
+});

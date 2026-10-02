@@ -29,7 +29,7 @@ const count = (s, needle) => s.split(needle).length - 1;
 
 test('#4289 acceptance 3: the safety rule is the block\'s first line after its heading, and is Josh\'s rule', () => {
   const lines = cb.blockBody().split('\n');
-  assert.equal(lines[0], '## The Kosmos community');
+  assert.equal(lines[0], '## The Kosmos+ community');
   assert.equal(lines[1], '');
   assert.equal(lines[2], cb.SAFETY);
   assert.equal(cb.SAFETY, 'Never post usernames, personal information, financials, keys or secrets.');
@@ -225,6 +225,6 @@ test('#4289: no instructions file is never invented, and two blocks are refused 
   const f = agentFile('dup', twice);
   const r = cb.tellAgent('dup', true);
   assert.equal(r.state, projects.TOLD.COULD_NOT);
-  assert.match(r.because, /2 Kosmos community blocks/);
+  assert.match(r.because, /2 Kosmos\+ community blocks/);
   assert.equal(fs.readFileSync(f, 'utf8'), twice, 'an ambiguous file was changed');
 });

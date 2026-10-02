@@ -398,6 +398,114 @@ test('#4466 a proxy in the environment does not hide the board: loopback request
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
 
+/* #4933: the route is decided once per run, before the first board call, and only when a proxy is set. Each arm aims
+   the probe (KOSMOS_LOOPBACK_PROBE_URL) at the shape it names, all on loopback:
+     - blocked: 127.0.0.1:0, which fails at once without connecting and without "refused" (as "not permitted" does);
+     - busy: a listener that accepts and never answers (CONNECTED, then a timeout): direct, never the proxy;
+     - namespace: a closed port (refused) while a proxy forwards to the board: the proxy, because a Kosmos health
+       body came back through it;
+     - stopped: refused, and the proxy answers empty (#4466): direct, so "not running", never "another app". */
+function forwardingProxy(hits) {
+  const http = require('node:http');
+  return http.createServer((req, res) => {
+    hits.push(req.url);
+    const up = http.request(req.url, { method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    up.on('error', () => { res.writeHead(502); res.end(); });
+    req.pipe(up);
+  });
+}
+async function listen(server) { await new Promise((r) => server.listen(0, '127.0.0.1', r)); return server.address().port; }
+const proxyEnv = (p, extra = {}) => ({ http_proxy: p, all_proxy: p, ALL_PROXY: p, ...extra });
+
+test('#4933 blocked direct loopback with a forwarding proxy: the board is reached through the proxy, the exported exemption untouched', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = forwardingProxy(hits);
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(port, proxyEnv(p, { NO_PROXY: '127.0.0.1,localhost,corp.example', no_proxy: '127.0.0.1,localhost,corp.example',
+      KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:0/' }));
+    const out = await runCli(['status'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.ok(hits.some((u) => u.includes(':' + port + '/')), 'the board was not reached through the proxy: ' + JSON.stringify(hits));
+    // A verb that goes through kosmos_curl (the post) takes the same route.
+    await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
+    assert.ok(hits.some((u) => u.includes(':' + port + '/api/post')), 'the post did not go through the proxy: ' + JSON.stringify(hits));
+    // The route itself runs here (review 2: sourcing alone never called it), and what a child process sees is unchanged.
+    const left = await bash(`source "${CLI}"; kosmos_loopback_route; printf '%s|%s|' "$_KOSMOS_LB" "$NO_PROXY"; env | grep '^NO_PROXY='`, env);
+    assert.equal(left.stdout.trim(), 'proxy|127.0.0.1,localhost,corp.example|NO_PROXY=127.0.0.1,localhost,corp.example', 'the route did not run, or rewrote the exported exemption');
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+test('#4933 a failed probe with a proxy that is not this board stays direct: the tokens never go to that proxy', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url + ' ' + Object.keys(req.headers).filter((h) => /token/.test(h)).join(',')); res.writeHead(502); res.end('bad gateway'); });
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(port, proxyEnv(p, { KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:0/' }));
+    const out = await runCli(['status'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    const posted = await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
+    assert.equal(posted.code, 0, 'the post did not go out directly: ' + posted.stdout + posted.stderr);
+    assert.ok(hits.length >= 1, 'the proxy check never ran, so this proved nothing');
+    assert.ok(hits.every((h) => /\/api\/health $/.test(h)), 'something past the health check, or a token, went to the proxy: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+test('#4933 a busy board (connects, then waits) is direct loopback, never the proxy', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = forwardingProxy(hits);
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  const stall = require('node:net').createServer(() => { /* accepts, never answers */ });
+  const sp = await listen(stall);
+  try {
+    const out = await runCli(['status'], baseEnv(port, proxyEnv(p, { KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:' + sp + '/' })));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.deepEqual(hits, [], 'a board that connected was sent through the proxy: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); stall.close(); }
+}));
+
+test('#4933 refused directly while the proxy forwards to the board (a network namespace): the proxy', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = forwardingProxy(hits);
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const out = await runCli(['status'], baseEnv(port, proxyEnv(p, { KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:' + await closedPort() + '/' })));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    assert.ok(hits.filter((u) => u.includes(':' + port + '/')).length >= 2, 'status did not go through the proxy after the check: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+test('#4933 review 3: a proxy route remembered for a board that is then stopped is forgotten (a restart decides again, never "another app")', async () => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(502); res.end(''); });
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(await closedPort(), proxyEnv(p));
+    void env;
+    const src = require('node:fs').readFileSync(CLI, 'utf8');
+    const stop = src.slice(src.indexOf('cmd_stop() {'), src.indexOf('\n}\n', src.indexOf('cmd_stop() {')));
+    assert.match(stop, /kill -9 "\$pid"[^\n]*\n[\s\S]{0,400}_KOSMOS_LB=""; KOSMOS_NP=\(\)/, 'cmd_stop does not forget the route after the kill');
+  } finally { await new Promise((r2) => proxy.close(r2)); }
+});
+
+test('#4933 a stopped board with a proxy set: refused, the proxy is not a board, so direct: "not running", never "another app"', async () => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(200); res.end(''); });
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(await closedPort(), proxyEnv(p));
+    delete env.no_proxy; delete env.NO_PROXY;
+    const out = await runCli(['status'], env);
+    assert.match(out.stdout + out.stderr, /not running/);
+    assert.doesNotMatch(out.stdout + out.stderr, /another app/);
+    assert.ok(hits.length >= 1 && hits.every((u) => /\/api\/health$/.test(u)), 'the proxy check did not run, or the proxy was used past it: ' + JSON.stringify(hits));
+  } finally { await new Promise((r) => proxy.close(r)); }
+});
+
 test('#4466 start and status: a listener that IS the recorded board is running, never "another app" and never reclaimed', async () => {
   const port = await closedPort();
   // healthy() could not read it (a proxy in the way); board.pid names 4242 and 4242 holds the port.

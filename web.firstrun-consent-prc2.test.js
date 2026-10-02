@@ -58,7 +58,7 @@ test('Screen 6 carries the signed-off eyebrow, headline and the feedback switch 
   assert.match(PAGE, /Help make Kosmos better/, 'the headline is missing or not the #11 copy');
   assert.match(PAGE, /Send daily diagnostic information, bug reports, and improvement recommendations\./, 'the feedback body copy is missing or not the #11 copy');
   assert.doesNotMatch(PAGE, /Let Kosmos know when you create an agent\./, 'the removed create-ping copy is still present');
-  assert.match(PAGE, /id="fr-s6-community-lbl">Let your agents join the Kosmos community to help make Kosmos better\.<\/span>/, 'the Community switch label is not Josh\'s line, verbatim');
+  assert.match(PAGE, /id="fr-s6-community-lbl">Let your agents join the Kosmos\+ community to help make Kosmos better\.<\/span>/, 'the Community switch label is not Josh\'s line, verbatim');
 });
 
 test('the frGo step-6 branch refreshes the feedback switch on show (so default-ON paints)', () => {

@@ -369,3 +369,35 @@ test('#4581 N10 review 5: only a runner known to report working is excused; a pa
     }
   } finally { board.restore(); }
 });
+
+test('#4896: renderShow says a menu title one way whatever its case, and leaves any other role to its own words', () => {
+  // Through overviewOf, as the board builds it, from the fixture's own described members (fixture-discipline: no
+  // row is built by hand); only their roles change. The acronym title is in the roleTitle test below.
+  const roles = ['project manager', 'Project Manager', 'data wrangler'];   // parsed, chosen off the menu, not a title
+  assert.equal(DESCRIBED.agents.length, roles.length, 'precondition: the fixture has three members');
+  const project = Object.assign({}, DESCRIBED, { agents: DESCRIBED.agents.map((a, i) => Object.assign({}, a, { role: roles[i] })) });
+  const view = v.overviewOf(project, ROSTER, opts({ goal: null, done: null, found: true }));
+  assert.deepEqual(view.members.map((m) => m.role), roles, 'the payload keeps the role as stored');
+  const text = v.renderShow({ project: view }).join('\n');
+  const line = (m) => text.split('\n').find((l) => l.startsWith('  ' + m.name + ','));
+  const [a, b, c] = view.members;
+  assert.match(line(a) || '', /, Project Manager {2}\|/, text);
+  assert.match(line(b) || '', /, Project Manager {2}\|/, text);
+  assert.match(line(c) || '', /, Data wrangler {2}\|/, 'a role that is not a menu title is not title-cased: ' + text);
+  // An older board sends no roleTitle: the stored role is printed, as before.
+  const old = v.renderShow({ project: Object.assign({}, view, { members: view.members.map((m) => Object.assign({}, m, { roleTitle: undefined })) }) }).join('\n');
+  assert.ok(old.split('\n').some((l) => l.startsWith('  ' + a.name + ', project manager  |')), old);
+});
+
+test('#4896: roleTitle is the board\'s roleLine rule (a lookup on the menu titles, else the first letter only)', () => {
+  const { roleTitle } = require('./roles');
+  assert.equal(roleTitle('PROJECT MANAGER'), 'Project Manager');
+  assert.equal(roleTitle('seo specialist'), 'SEO Specialist', 'the menu says SEO Specialist');
+  assert.equal(roleTitle('  project manager '), 'Project Manager');
+  assert.equal(roleTitle('SEO specialist lead'), 'SEO specialist lead', 'a role that is not a title keeps its own capitals');
+  assert.equal(roleTitle(''), '');
+  assert.equal(roleTitle(null), '');
+  assert.equal(roleTitle('own'), 'Own', 'the own role is not a menu role, so it is not looked up');
+  // Review 1: `setup` is labelled "Kosmos Guide" but is not on the menu, so it is not one of the board's titles.
+  assert.equal(roleTitle('kosmos guide'), 'Kosmos guide', 'a menu: false label must not be looked up');
+});

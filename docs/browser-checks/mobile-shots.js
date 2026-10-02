@@ -254,8 +254,10 @@ const SCREENS = [
     /* #4568: a device's match code is always two symbols, a dash, two symbols (kosmos-relay's match_code, e.g. K7-3M).
        This stub said '482 913', a sign-in code's shape, and its seven boxes ran past the card (every phone size in the
        #4561 shots; 24px at se, measured by the check below).
-       MSHOTS_COVER_CONTROL=spill puts that code back, so the fit check below can be seen to fail. */
-    const code = COVER_CONTROL === 'spill' ? '482 913' : 'K7-3M';
+       MSHOTS_COVER_CONTROL=spill plants a code that cannot fit, so the fit check below can be seen to fail. Since
+       #4637 the code is one large line that wraps at a space, so '482 913' (the old control) fits and stopped firing
+       (#4893); this one has no break point and is wider than the card at every phone size. */
+    const code = COVER_CONTROL === 'spill' ? 'K7M3K7M3K7M3K7M3K7M3' : 'K7-3M';
     const pending = { email: 'owner@example.com', snapshot: true, devices: [
       { device_id: 'd-sample-0001', name: 'iPhone', code, first_seen: Math.floor(Date.now() / 1000) - 40, denied_at: 0 }] };
     await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) }));
@@ -926,7 +928,7 @@ async function run() {
   if ((COVER_CONTROL === 'overlay' || COVER_CONTROL === 'spill') && !screens.some((s) => s.name === 'allow-card')) {
     throw new Error('MSHOTS_COVER_CONTROL=' + COVER_CONTROL + ' needs the allow-card screen');
   }
-  // The long code fits at the desktop size (its 1.6rem cap), so spill with no phone size would arm nothing and pass.
+  // The long code is about 450px wide (1.9rem mono), inside the desktop card, so spill with no phone size would arm nothing and pass.
   if (COVER_CONTROL === 'spill' && args.sizes.every((sz) => SIZES[sz].desktop)) {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
