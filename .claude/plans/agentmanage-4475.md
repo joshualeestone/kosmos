@@ -16,7 +16,10 @@ and cannot force a removal; the person (the board token) removes any agent exact
     doctrine words). A caller holding the board token (the person, the page, every non-token-only agent) is untouched.
   - `tokenOnlyMayRemove` allows only when the target's newest `created` birth (`agentBirthOf`, activeAgentsCreatedBy's
     rule) was made at an agent's own request (`createdByAgent`), carries the target's current profile id, names the
-    caller as creator (by slug), and the caller's token carries its agent's name (not an older key-only token).
+    caller as creator in the forms POST /api/team records it (its card's sessionName: the slug with a pane, the store
+    key without one), and the caller's token carries its agent's name (not an older key-only token).
+  - A token-only caller must name the target by its board name (the slug), else 400: the check matches by slug and
+    the engine acts on the name as sent, so the two must be the same string.
 - `engine/team.js` sets `createdByAgent` on every member it creates: true only when an agent asked on its own token
   and it is not the setup guide; false otherwise, so a member cannot set it. `engine/create.js` records it on the birth
   line when true.
@@ -37,6 +40,9 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - A birth counts only for the incarnation it made (profile id), so a name freed by deleting what was left (#514) and
   used again is not the old creator's. A birth with no id (a dry run, or before #170) does not count.
 - Agents made before this change have unmarked births, so their creators cannot remove them; the person can.
+- Residual, accepted: a paneless creator is recorded by its store key, which is lossy ("Ca.sey" and "casey" share
+  `casey`). While both hold tokens the caller reads as twins and is refused; if only one does, it matches the other's
+  record. Closing it needs the creator's exact name on the birth line, a change to what POST /api/team records.
 - Rejected: refusing every agent-token removal (today's behaviour): it keeps "PM, build me a team" from tidying up
   its own team, which #1279 made possible; and a general permission grid now (no asked-for need beyond this boundary).
 - Not done: a `kosmos` verb for removal. The doctrine tells agents to use a command or ask the person; with no verb,
@@ -45,7 +51,8 @@ and cannot force a removal; the person (the board token) removes any agent exact
   deleted (leftover deletion); an agent made by hand into a folder whose old profile file survived would keep the old id.
 
 ## Validation
-- `server.agent-remove-4475.test.js` 18/18. Mutants, each failing only its case: the creator check disabled (the 5
-  refusal cases), the createdByAgent check, the profile-id check, the key-only refusal.
+- `server.agent-remove-4475.test.js` 21/21. Mutants, each failing only its case: the creator check disabled (the 5
+  refusal cases), the createdByAgent check, the profile-id check, the key-only refusal, the board-name check, a
+  slug comparison of the creator in place of the recorded forms.
 - `engine/team.newrole-4474.test.js` 22/22.
 - `server.agent-token-gate-4491.test.js` 25/25; `server.agent-token-sender-570.test.js` 7/7.
