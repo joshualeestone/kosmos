@@ -19,18 +19,21 @@ Card: kosmos#4964 (Josh, Mortals 0.7.16). After "Switch & Restart to Gemini", th
 After a provider switch (or any restart), the agent's launchd job is loaded and stays loaded, and its card has a pane target.
 
 ## Change
-- engine/remove.js: `waitUnloaded(label)`, used in restartInner between stopNow and startNow (Mac ops only). It polls `launchctl print` every 100 ms until the job is gone, for at most 15 s, then bootstraps. If the job is still held when the wait runs out, it bootstraps anyway and the loaded check decides as before.
-- The budget is AGENT_WORKFORCE_UNLOAD_WAIT_MS (test seam). With an injected runner (scripted tests) it defaults to 0: no wait and no look, so their exact call lists stay as they are. The #4964 tests set it explicitly.
+- engine/remove.js: `waitUnloaded(label)`, used in restartInner between stopNow and startNow, and again before the #4006 second try (Mac ops only). It polls `launchctl print` every 100 ms (2 s timeout per print) until launchd says "no such service" (113, `Could not find service`, measured), for at most 25 s (above launchd's default ExitTimeOut of 20 s). Any other print failure is not read as gone.
+- Still held when the wait ends: it bootstraps anyway, but only a bootstrap that answered 0 counts as a new job. An "already loaded" (the dying job) or no bootstrap at all (a launch file that is gone) is not confirmed by print, so the second try runs and the restart ends PARTIAL, on the failed card, never RESTARTED with no job.
+- Burst allowance: at most 30 s of unload waiting per 60 s, because restart is synchronous inside routes and the class-1 sweep restarts several agents in one tick. Past it, a restart does not wait and (by the rule above) ends PARTIAL.
+- No wait on a board whose commands are not real (dry run, live execution not allowed: the browser-check boards), or under an injected runner unless the test sets AGENT_WORKFORCE_UNLOAD_WAIT_MS. AGENT_WORKFORCE_UNLOAD_BURST_MS is a test seam too.
 
 ## Decisions
-- Wait for the unload, not retry on code 5 or tighten `loaded()`. Waiting is the condition itself. A stricter `loaded()` (refusing "SIGTERMed") would only turn the false success into a PARTIAL, and the agent would still not come back.
+- Wait for the unload, not retry on code 5 or tighten `loaded()` alone. Waiting is the condition itself.
 - Rejected: kickstart. It keeps the old ProgramArguments, so a switched provider would never take effect (the existing comment).
-- Weakest premise / cost: restart is synchronous, so the board waits too, about 5 s per restart (measured 5.1 s live). A burst of class-1 auto-restarts waits once each. Accepted, because the alternative is an agent with no job. The bound is 15 s.
+- Weakest premise / cost: restart is synchronous, so the board waits too, about 5 s per restart (measured 5.1 s live), and up to 25 s for a job slow to stop. The burst allowance bounds a sweep at 30 s a minute; agents past it are left stopped on the failed card (before: stopped under a false RESTARTED).
 
 ## Validation
 - engine/remove.test.js #4964 runs against a launchd modelled on the measured timing:
   - with the wait, RESTARTED and the job loaded afterwards;
   - CONTROL without the wait, RESTARTED while the job is gone (the measured lie);
   - a job that never unloads is bounded and still bootstrapped.
-- Focused run: remove/restart/class1/create suites plus the file-scanning guards, 618 pass.
+- Review rounds 1 and 2: dry-run freeze, trusted already-loaded after a timed-out wait, burst freeze, print failure read as gone, gone launch file; each fix has a test that fails with the fix removed (measured).
+- Focused run: remove/restart/class1/create suites plus the file-scanning guards, 618 pass (before review 1; re-run before the PR).
 - LIVE on Agent1s: the branch's remove.restart against the real launchd for zz-test-4964 took 5115 ms, and the job was `state = running` for the 10 s after (the installed build left it unloaded twice).
