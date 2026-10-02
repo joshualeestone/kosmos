@@ -109,18 +109,6 @@ jobs:
       - name: install tmux (#3973)
         timeout-minutes: 10
         run: sudo apt-get install -y tmux
-      - name: 'MEASUREMENT (#5052): the UI font pinned, as the Linux PR job does'
-        run: |
-          mkdir -p "$HOME/.config/fontconfig"
-          cat > "$HOME/.config/fontconfig/fonts.conf" <<'XML'
-          <?xml version="1.0"?>
-          <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-          <fontconfig>
-            <alias binding="strong"><family>system-ui</family><prefer><family>Liberation Sans</family></prefer></alias>
-            <alias binding="strong"><family>sans-serif</family><prefer><family>Liberation Sans</family></prefer></alias>
-          </fontconfig>
-          XML
-          fc-cache -f >/dev/null
       - name: 'the FULL page layer, headless, every check (tools/browser-checks.sh, #2518)'
         id: checks
         timeout-minutes: 120
