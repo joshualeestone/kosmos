@@ -14,8 +14,8 @@ Every launcher of server.js outside the runners, on origin/main, that names neit
   origin/main; more files mention the lib). Run through tools/browser-checks.sh they inherit
   its exports; run on their own (`node docs/browser-checks/x.js`, the usual way to try one check, and /design-shots'
   mobile-shots.js) they phone home.
-  The lib reaches a board only through process.env. Measured 10-02: every such check either requires server.js
-  in-process or spreads process.env into the board it spawns; none builds a board env from nothing.
+  The lib reaches a board only through process.env. Grep 10-02 (per file, not per spawn call): every such check either requires server.js in-process or
+  contains a process.env spread; the three with no spread all boot in-process.
 - tools/fed-own-e2e.js builds each board's env from nothing (PATH, LANG, ...), so its three boards are unsealed.
 - NOT covered: 27 checks that do not require the lib and whose headers tell the reader to start the board by hand
   (`AGENT_WORKFORCE_DATA=/tmp/x PORT=... node server.js &`). A board started that way is a plain server.js, which
