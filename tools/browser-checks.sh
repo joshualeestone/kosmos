@@ -134,8 +134,10 @@ if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ] && [ -z "${KOSMOS_BC_FROZEN_RUNNER
   if ! kosmos_refuse_if_light_side_live "this page layer" 2>/dev/null; then
     # Review 4: first refuse beside another browser run, as before #4911, so a page layer that arrives while one is
     # already waiting out the side turn refuses at once. Asked only after the wait, the two met when it ended and
-    # either could lose (reproduced: the heavy holder's own lost).
-    kosmos_refuse_if_browser_run_live "this page layer" || exit 1
+    # either could lose (reproduced: the heavy holder's own lost). Review 5: but NOT for the side turn's own page
+    # layer (its process group, published beside the side claim): that one is what this waits out, and refusing on
+    # it turned the heavy holder red. The check after the wait excludes nothing.
+    KOSMOS_EXCLUDE_PGID="$(_kosmos_light_side_pgid)" kosmos_refuse_if_browser_run_live "this page layer" || exit 1
     _bc_side() { kosmos_refuse_if_light_side_live "this page layer"; }
     kosmos_wait_until_clear "this page layer" _bc_side || exit 1
   fi

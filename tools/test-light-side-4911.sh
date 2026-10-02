@@ -267,6 +267,37 @@ else
   { [ "$rc" -eq 1 ] && [ ! -e "$T/waited" ] && ! has "$out" GUARD-PASSED; } && pass "a page layer that meets another browser run refuses at once, even during a side turn" \
     || fail "a page layer waited out the side turn beside another browser run (rc=$rc, waited=$([ -e "$T/waited" ] && echo yes || echo no))"
   kill "$sp2" 2>/dev/null; wait "$sp2" 2>/dev/null; rm -f "$M/light-side-claim"
+  # Review 5: the browser run the page layer meets is the side turn's OWN (its process group is published beside the
+  # side claim): the page layer WAITS for the side turn and then runs, rather than refusing and turning the heavy
+  # holder red. CONTROL: the same run with no group published is someone else's, and refuses at once.
+  set -m; sleep 30 </dev/null >/dev/null 2>&1 & SPG=$!; set +m
+  printf '#!/bin/sh\n[ -e "%s/side-over" ] && exit 1\nprintf "%s bash tools/browser-checks.sh\\n"\n' "$T" "$SPG" > "$T/side-bc"; chmod +x "$T/side-bc"
+  # The seam is the side turn ending: its claim, and its own page layer (probe line and run marker), go with it.
+  printf '#!/bin/sh\ntouch "%s/waited" "%s/side-over"\nrm -f "%s/light-side-claim" "%s/browser.%s"\n' "$T" "$T" "$M" "$M" "$SPG" > "$T/side-ends-over"; chmod +x "$T/side-ends-over"
+  printf '#!/bin/sh\n[ -e "%s/side-over" ] && exit 1\nexit 1\n' "$T" > "$T/side-bc-none"; chmod +x "$T/side-bc-none"
+  for arm in published none marker; do
+    rm -f "$T/waited" "$T/side-over"
+    bash -c '. "$1"; kosmos_claim_light_side 5 && { [ "$2" != none ] && kosmos_publish_light_side_pgid "$3"; exec sleep 30; }' _ "$HERE/lib/cut-guard.sh" "$arm" "$SPG" </dev/null >/dev/null 2>&1 & sp2=$!
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$M/light-side-claim" ] && { [ "$arm" = none ] || [ -s "$M/light-side-claim.pgid" ]; } && break; sleep 0.2; done
+    bcp="$T/side-bc"
+    if [ "$arm" = marker ]; then   # the same run seen through its run MARKER only (the guard's other arm)
+      printf 'side-run-cookie\n%s\n' "$(ps -ww -o command= -p "$SPG")" > "$M/browser.$SPG"; bcp="$T/side-bc-none"
+    fi
+    out="$(KOSMOS_WAIT_SLEEP="$T/side-ends-over" KOSMOS_BC_PROBE="$bcp" bcguard)"; rc=$?
+    rm -f "$M/browser.$SPG"
+    if [ "$arm" = marker ]; then
+      { [ "$rc" -eq 0 ] && [ -e "$T/waited" ]; } && pass "the same, when the side's browser run is seen by its run marker" \
+        || fail "the holder's page layer refused on the side turn's own marked browser run (rc=$rc, $(printf '%s' "$out" | tail -1))"
+    elif [ "$arm" = published ]; then
+      { [ "$rc" -eq 0 ] && [ -e "$T/waited" ] && has "$out" GUARD-PASSED; } && pass "a page layer that meets the side turn's OWN browser run waits it out instead of refusing" \
+        || fail "the holder's page layer refused on the side turn's own browser run (rc=$rc, waited=$([ -e "$T/waited" ] && echo yes || echo no), $(printf '%s' "$out" | tail -1))"
+    else
+      { [ "$rc" -eq 1 ] && [ ! -e "$T/waited" ]; } && pass "CONTROL: the same browser run with no side group published refuses at once" \
+        || fail "CONTROL: an unattributed browser run did not refuse at once (rc=$rc)"
+    fi
+    kill "$sp2" 2>/dev/null; wait "$sp2" 2>/dev/null; rm -f "$M/light-side-claim" "$M/light-side-claim.pgid"
+  done
+  kill "$SPG" 2>/dev/null; wait "$SPG" 2>/dev/null
   kill "$sp" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$sp" 2>/dev/null || break; sleep 0.2; done
   rm -f "$M/light-side-claim"
   out="$(KOSMOS_NO_WAIT=1 KOSMOS_BC_PROBE="$T/live-bc" bcguard)"; rc=$?
@@ -282,9 +313,11 @@ fi
 # A, C, B. Comparing per pair, A named B ahead, B named C and C named A: a circle, so all three (and everyone behind)
 # waited on an idle box until the bound. Each is a live process using its OWN lib; exactly one must see nobody ahead.
 # Each stays the same process (no exec) until all three have read: a waiter whose command changes reads as stale.
-git -C "$HERE/.." show 'origin/main:tools/lib/cut-guard.sh' > "$T/old-lib.sh" 2>/dev/null
+# The older lib is pinned to #4911's base commit (4be38170c, the lib every unrebased worktree still runs), so the arm
+# stays armed after the merge. A clone without that commit (a shallow CI checkout) skips it, and says so.
+git -C "$HERE/.." show '4be38170c658fc25dd27d9fc8e26264f69507710:tools/lib/cut-guard.sh' > "$T/old-lib.sh" 2>/dev/null
 if ! grep -q '_kosmos_queue_rank' "$T/old-lib.sh" || grep -q '_kosmos_queue_rank_legacy' "$T/old-lib.sh"; then
-  echo "SKIP  the three-waiter arm: origin/main's lib is not the pre-#4911 one (merged?), so there is no older lib to pair with"
+  echo "SKIP  the three-waiter arm: this clone does not hold #4911's base commit, so there is no older lib to pair with"
 else
   M3="$T/m3"; mkdir -p "$M3"; rm -f "$T"/go3 "$T"/stop3 "$T"/ahead.*
   waiter() { # <name> <lib> <class> <queue time>

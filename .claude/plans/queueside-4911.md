@@ -78,6 +78,15 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   Script: signals ignored during cleanup (a second TERM abandoned it, leaving the command unclaimed); SIDE_MIN read
   as decimal (08/09); the queue's wait settings are not passed to the command; a queued-heavy.sh started inside a
   side turn refuses at once (it waited on its own parent until the cap). Dry harness: 12 checks, no orphans.
+- Round 5 (Sonnet, blind): no blocker. Fixed: a side turn running browser-checks.sh made a heavy holder's later page
+  layer refuse at once (round 4's pre-check): the side command's process group is now published beside the side
+  claim (light-side-claim.pgid, cookie-checked) and the PRE-wait check excludes that group in both of the browser
+  guard's arms (pgrep and run marker); the check after the wait excludes nothing. Tested through both arms, each
+  red without its exclusion. The new script no longer passes KOSMOS_SIDE_CAPABLE / KOSMOS_SIDE_AWARE to its command.
+  The three-waiter arm pins the older lib to #4911's base commit, so it stays armed after merge. Not taken: kill -9
+  of a side queued-heavy.sh leaves its command running until its capper's cap with no claim (a hard kill has no
+  handler; the main lane leaves a command running unclaimed the same way). release.sh exiting from the side wait
+  releases its machine claim through its EXIT trap (checked, release.sh:172).
 - ROLLOUT, in this order: merge; update the queue lib checkout (kosmos-bc-main-4610) to origin/main; mv the new
   queued-heavy.sh in. Side turns stay off by themselves until every waiter of the old script has gone.
 - Dry runs of queued-heavy.sh.4911-new (private marker dir, probe seams): side turn; heavy main refused beside a

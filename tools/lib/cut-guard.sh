@@ -183,6 +183,15 @@ kosmos_mark_run() {
 # no longer matches the one recorded at mark time (a recycled pid, #2215), or a
 # pre-#2215 marker with no recorded command. Read-only w.r.t. a run it CAN verify
 # is live (pid alive AND command matches).
+# #4911: true when KOSMOS_EXCLUDE_PGID names <pid>'s process group. Set only by browser-checks.sh's pre-wait check, so
+# the live side turn's OWN page layer (its command runs in its own group, published beside the side claim) does not make
+# a heavy holder's page layer refuse: that one waits for the side turn instead. Unset, nothing is excluded.
+_kosmos_in_excluded_pgid() {
+  local want="${KOSMOS_EXCLUDE_PGID:-}" pg
+  case "$want" in ''|*[!0-9]*) return 1 ;; esac
+  pg="$(ps -o pgid= -p "$1" 2>/dev/null | tr -d '[:space:]')"
+  [ -n "$pg" ] && [ "$pg" = "$want" ]
+}
 _kosmos_marker_other_live() {
   local type="${1:-}" dir uc self f pid cookie stored_cmd live_cmd
   [ -n "$type" ] || return 0
@@ -216,6 +225,7 @@ _kosmos_marker_other_live() {
     fi
     cookie="$(sed -n '1p' "$f" 2>/dev/null)"
     { [ -n "$self" ] && [ "$cookie" = "$self" ]; } && continue   # my own run
+    _kosmos_in_excluded_pgid "$pid" && continue                 # #4911: the live side turn's own run, when asked
     printf 'a marked %s run (pid %s)\n' "$type" "$pid"
     return 0
   done
@@ -347,6 +357,10 @@ kosmos_refuse_if_browser_run_live() {
   # its own directory (test-cut-parallel-region.sh does), or it writes a marker this check will see.
   if [ -n "$out" ]; then
     out="$(printf '%s\n' "$out" | _kosmos_drop_test_fixtures || true)"
+  fi
+  # #4911: the live side turn's own page layer, when the caller asks (see _kosmos_in_excluded_pgid).
+  if [ -n "$out" ] && [ -n "${KOSMOS_EXCLUDE_PGID:-}" ]; then
+    out="$(printf '%s\n' "$out" | while IFS= read -r l; do [ -n "$l" ] || continue; _kosmos_in_excluded_pgid "${l%% *}" || printf '%s\n' "$l"; done)"
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether another browser run is live (the probe exited $rc); refusing to guess for $what. KOSMOS_HARNESS_IGNORE_CUT=1 runs anyway." >&2
@@ -1125,6 +1139,24 @@ kosmos_claim_light_side() {
   return 0
 }
 
+# kosmos_publish_light_side_pgid <pgid>: the side command's process group, beside OUR side claim ("<cookie> <pgid>"), so
+# a heavy holder's page layer can tell the side turn's own browser run from anyone else's (review 5).
+kosmos_publish_light_side_pgid() {
+  local f tmp; f="$(_kosmos_light_side_file).pgid"; tmp="$f.$$.tmp"
+  case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "${KOSMOS_LIGHT_SIDE_COOKIE:-}" ] || return 1
+  printf '%s %s\n' "$KOSMOS_LIGHT_SIDE_COOKIE" "$1" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null
+}
+# _kosmos_light_side_pgid: the live side turn's published process group, or nothing (no live claim, or a sidecar left by
+# another claim).
+_kosmos_light_side_pgid() {
+  local active line
+  active="$(_kosmos_light_side_active)"; [ -n "$active" ] || return 0
+  line="$(cat "$(_kosmos_light_side_file).pgid" 2>/dev/null)" || return 0
+  [ "$(printf '%s' "$line" | awk '{print $1}')" = "$(printf '%s' "$active" | awk '{print $1}')" ] || return 0
+  printf '%s' "$line" | awk '{print $2}'
+}
+
 # kosmos_release_light_side: drop OUR side claim (cookie match); never a foreign one.
 kosmos_release_light_side() {
   local self="${KOSMOS_LIGHT_SIDE_COOKIE:-}" f line
@@ -1132,7 +1164,7 @@ kosmos_release_light_side() {
   f="$(_kosmos_light_side_file)"
   [ -f "$f" ] || return 0
   line="$(cat "$f" 2>/dev/null)" || return 0
-  [ "$(printf '%s' "$line" | awk '{print $1}')" = "$self" ] && rm -f "$f" 2>/dev/null
+  [ "$(printf '%s' "$line" | awk '{print $1}')" = "$self" ] && rm -f "$f" "$f.pgid" 2>/dev/null
   return 0
 }
 
