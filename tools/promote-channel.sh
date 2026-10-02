@@ -147,6 +147,37 @@ reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
 DISK_SHA="$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")"
 [ "$DISK_SHA" = "$SHA" ] || { echo "promote-channel: staging pointer sha ($SHA) != the served artifact sha ($DISK_SHA) - refusing (the pointer does not describe the bytes on disk)" >&2; exit 1; }
 
+# #5032: the installer moves with the pointer. A staging cut publishes /setup-staging and leaves /setup
+# (what prod installs and prod updates run) at the prior prod installer, and its pointer NAMES that
+# installer (setup_sha256). The promote copies the pair onto /setup below. Checked HERE, before any
+# write and BEFORE the board gates (they take minutes; this is the predictable refusal on a stale checkout), so a
+# refusal leaves prod untouched and costs seconds:
+#   - the staging pointer names no installer: a cut before #5032, or a pointer republished by hand
+#     (publish-staging-pointer.sh cannot know which installer a build was cut with). /setup is left
+#     as it is, and the promote says so.
+#   - it names one: setup-staging must be COMMITTED and UNMODIFIED (a working-tree copy that was never
+#     committed was never served), it must hash to the pointer's setup_sha256, and its sidecar must name
+#     the same bytes. Anything else refuses: the promote would otherwise pair the build with an
+#     installer it was not cut with.
+SETUP_STAGING=""
+PTR_SETUP="$(read_field setup_sha256)"
+if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
+  for _f in setup-staging setup-staging.sha256; do
+    git -C "$SITE" ls-files --error-unmatch "$_f" >/dev/null 2>&1 \
+      || { echo "promote-channel: the staging pointer names installer $PTR_SETUP but $SITE/$_f is not committed - refusing; nothing was written. (Refresh the site checkout, or remove a leftover from an aborted cut.)" >&2; exit 1; }
+    git -C "$SITE" diff --quiet HEAD -- "$_f" \
+      || { echo "promote-channel: $SITE/$_f differs from its committed copy, so the working tree is not what staging served - refusing; nothing was written." >&2; exit 1; }
+  done
+  _sg="$(shasum -a 256 < "$SITE/setup-staging" | awk '{print $1}')"
+  _sw="$(awk 'NR==1{print $1}' "$SITE/setup-staging.sha256")"
+  [ "$_sg" = "$PTR_SETUP" ] \
+    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. (A later staging cut replaced it, or the checkout is stale.)" >&2; exit 1; }
+  [ "$_sw" = "$_sg" ] \
+    || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
+  SETUP_STAGING="$_sg"
+fi
+
+
 if [ "$FAMILY" = mac ]; then
   # The pointer promote is about to copy to latest.json also advertises the manifest; do not
   # promote a prod pointer to a manifest that has gone missing since publish.
@@ -344,33 +375,10 @@ if [ "$FAMILY" = win ]; then
   echo "promote-channel: Josh's go recorded in $WIN_APPROVAL_LOG: $APPROVAL_LINE"
 fi
 
-# #5032: the installer moves with the pointer. A staging cut publishes /setup-staging and leaves /setup
-# (what prod installs and prod updates run) at the prior prod installer, and its pointer NAMES that
-# installer (setup_sha256). The promote copies the pair onto /setup below. Checked HERE, before any
-# write, so a refusal leaves prod untouched:
-#   - the staging pointer names no installer: a cut before #5032, or a pointer republished by hand
-#     (publish-staging-pointer.sh cannot know which installer a build was cut with). /setup is left
-#     as it is, and the promote says so.
-#   - it names one: setup-staging must be COMMITTED and UNMODIFIED (a working-tree copy that was never
-#     committed was never served), it must hash to the pointer's setup_sha256, and its sidecar must name
-#     the same bytes. Anything else refuses: the promote would otherwise pair the build with an
-#     installer it was not cut with.
-SETUP_STAGING=""
-PTR_SETUP="$(read_field setup_sha256)"
-if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
-  for _f in setup-staging setup-staging.sha256; do
-    git -C "$SITE" ls-files --error-unmatch "$_f" >/dev/null 2>&1 \
-      || { echo "promote-channel: the staging pointer names installer $PTR_SETUP but $SITE/$_f is not committed - refusing; nothing was written. (Refresh the site checkout, or remove a leftover from an aborted cut.)" >&2; exit 1; }
-    git -C "$SITE" diff --quiet HEAD -- "$_f" \
-      || { echo "promote-channel: $SITE/$_f differs from its committed copy, so the working tree is not what staging served - refusing; nothing was written." >&2; exit 1; }
-  done
-  _sg="$(shasum -a 256 < "$SITE/setup-staging" | awk '{print $1}')"
-  _sw="$(awk 'NR==1{print $1}' "$SITE/setup-staging.sha256")"
-  [ "$_sg" = "$PTR_SETUP" ] \
-    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. (A later staging cut replaced it, or the checkout is stale.)" >&2; exit 1; }
-  [ "$_sw" = "$_sg" ] \
-    || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
-  SETUP_STAGING="$_sg"
+# #5032: re-checked here, right before the first write: setup-staging must still be the bytes checked above (the
+# gates take minutes, and a site pull meanwhile could replace it).
+if [ -n "$SETUP_STAGING" ] && [ "$(shasum -a 256 < "$SITE/setup-staging" | awk '{print $1}')" != "$SETUP_STAGING" ]; then
+  echo "promote-channel: setup-staging changed while the gates ran - refusing; nothing was written." >&2; exit 1
 fi
 
 # Promote: copy the staging SNAPSHOT to prod. A pointer copy - the artifact bytes are already
@@ -446,7 +454,7 @@ echo "   refreshed the prod alias $ALIAS to $V"
 if [ -n "$SETUP_STAGING" ]; then
   for _f in setup setup.sha256; do
     _t="$(mktemp "$SITE/.$_f.XXXXXX")" || { echo "promote-channel: could not make a temp file for $_f (latest.json is promoted; /setup is NOT yet). Re-run promote-channel.sh (safe: it repeats the same copies), or finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE)." >&2; exit 1; }
-    cp "$SITE/setup-staging${_f#setup}" "$_t" && mv "$_t" "$SITE/$_f" \
+    cp "$SITE/setup-staging${_f#setup}" "$_t" && chmod 644 "$_t" && mv "$_t" "$SITE/$_f" \
       || { rm -f "$_t"; echo "promote-channel: could not write $_f (latest.json is promoted; /setup is NOT yet). Re-run promote-channel.sh (safe), or finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE)." >&2; exit 1; }
   done
   cmp -s "$SITE/setup-staging" "$SITE/setup" && cmp -s "$SITE/setup-staging.sha256" "$SITE/setup.sha256" \

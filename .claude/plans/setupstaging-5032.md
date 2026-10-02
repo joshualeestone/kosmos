@@ -32,8 +32,10 @@ combination no channel tests. setup.sh had 36 commits in September.
 - Docs: releasing.md, staging-channel.md (promote step, commit line, fresh install), phone-push-go-live.md.
 - Site half (chaoskosmos-site branch setupstaging-5032): vercel.json headers for the new pair. Merges first,
   and release.sh step 1f (before the bump) refuses a staging cut while the site's vercel.json lacks them.
-- release_site_restore keeps an untracked setup-staging pair origin/main already holds (a cut that died after
-  7b's push and before its deploy); it removes only one committed nowhere.
+- release_site_restore keeps an untracked setup-staging file origin/main already holds WITH THE SAME BYTES (a cut
+  that died after 7b's push and before its deploy); other bytes are removed (review 5).
+- promote-channel.sh's installer checks run BEFORE the board gates (review 5: the predictable refusal on a stale
+  checkout costs seconds, not a gate run), with a hash re-check right before the first write.
 
 ## Tests
 - tools/test-setup-staging-5032.sh (new, in test:shell): channel selection evaluated; the release.sh
@@ -63,6 +65,8 @@ That no installer change must reach prod boxes before their app update. The esca
 prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
 
 ## Residuals
+- A staging box whose release base points at a mirror with no /setup-staging now gets a 404 on update where
+  it used to fetch /setup (no such mirror exists today).
 - Rollback to a pointer from BEFORE #5032 (no setup_sha256): unchecked, so after the first #5032 promote it
   would serve the old build beside the newer /setup. Restore that pointer's installer by hand too (the setup
   pair committed with it); docs/staging-channel.md step 5 and the cut hand-off say so (review 4).
