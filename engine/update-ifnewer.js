@@ -50,6 +50,11 @@ function consentWord() {
 async function decide() {
   if (!update.installedRoot()) return { line: ['source'], code: 1 };
   if (/^file:/i.test(update.releaseBase())) update.setFetcher(fileFetcher);
+  /* checkNow() runs refresh(), which ends in the board's maybeAutoInstall(). Here that must never start
+     an install: the CLI runs the installer and waits for it. So the board's auto-install reads the
+     preference as off for this process, whatever the switch says; the consent this file reports is
+     read from autoupdate.read() directly (consentWord), not through that override. */
+  update.setAutoPref(() => ({ on: false, ok: true }));
   const look = await update.checkNow();
   if (!look.reached) return { line: ['unknown', 'the release host could not be reached'], code: 1 };
   if (!look.readable) return { line: ['unknown', 'the release host answered, but not with a version'], code: 1 };

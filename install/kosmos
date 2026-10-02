@@ -1466,17 +1466,30 @@ cmd_version() {
 #   consent off, or a file that cannot be read:       says it is there and installs nothing,
 #                                                     unless --install (the person chose it).
 # The last line on stdout is the answer, for the app:
-#   current <v> | newer <v> | updated <v> | failed <v> | board | unknown <why>
-# Exit 0 for the first four and board, 1 for failed and unknown, 2 for a wrong call.
+#   current <v> | newer <v> | updated <v> | failed <v> | board | unknown <why> | refused <why>
+# Exit 0 for the first four and board, 1 for failed and unknown, 2 for a wrong call, 3 for refused.
+# Refused: an agent asked, or this computer is not set to connect elsewhere (the mode file does not
+# read exactly "connect"). Such a computer runs its own board, which looks for itself; an install from
+# here would restart a board its person may have stopped, and an agent must not replace the Kosmos it
+# runs under.
 # The installer's own output goes to logs/install.log, as an update the board starts does.
 cmd_update() {
-  local _install=0 _node _said _rc=0 kind v consent setup base pointer channel started code
+  local _install=0 _node _said _rc=0 _mode kind v consent setup base pointer channel started code
   [ "${1:-}" = "--if-newer" ] || { say "Usage: kosmos update --if-newer [--install]   (install a newer Kosmos when updates are on; --install installs it even when they are off)"; exit 2; }
   case "${2:-}" in
     '') ;;
     --install) _install=1 ;;
     *) say "Usage: kosmos update --if-newer [--install]"; exit 2 ;;
   esac
+  if _invoked_by_agent; then
+    printf 'refused\tan agent may not update Kosmos; the person who runs this computer does\n'
+    exit 3
+  fi
+  _mode="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _mode=""
+  if [ "$_mode" != connect ]; then
+    printf 'refused\tthis computer is not set to connect to agents elsewhere; its own board keeps it updated\n'
+    exit 3
+  fi
   # A running board looks for itself, every fifteen minutes, and two installers must never race.
   if running_pid >/dev/null 2>&1; then
     printf 'board\n'

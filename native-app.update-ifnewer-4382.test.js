@@ -46,7 +46,11 @@ test('#4382: a connect computer looks after its launch-time stop, and after a sw
 test('#4382: switching back to run agents stops the looks; the board looks again', () => {
   const run = body('@objc func runAgentsHere(_ sender: Any?)');
   assert.ok(run.indexOf('computerMode = .run') !== -1 && run.indexOf('stopUpdateLooks()') > run.indexOf('computerMode = .run'), 'Run agents leaves the app\'s update timer running beside the board\'s');
-  assert.match(body('private func stopUpdateLooks()'), /updateTimer\?\.invalidate\(\); updateTimer = nil\n\s+showUpdateOffer\(nil\)/);
+  const stop = body('private func stopUpdateLooks()');
+  for (const [re, what] of [[/updateTimer\?\.invalidate\(\); updateTimer = nil\n/, 'the daily timer'], [/updateRetry\?\.cancel\(\); updateRetry = nil\n/, 'the hour retry'],
+    [/NSWorkspace\.shared\.notificationCenter\.removeObserver\(o\); updateWakeObserver = nil/, 'the wake look'], [/installedUpdate = nil\n\s+showUpdateOffer\(nil\)\n/, 'the offer']]) {
+    assert.match(stop, re, 'Run agents leaves ' + what + ' of the app\'s looks in place');
+  }
 });
 
 test('#4382: an update counts as a stop of ours, so Run agents cannot start a board in the middle of it', () => {
@@ -55,7 +59,7 @@ test('#4382: an update counts as a stop of ours, so Run agents cannot start a bo
   assert.match(look, /guard !updateLookInFlight else/, 'two looks can run two installers at once');
   const took = look.indexOf('stopsInFlight += 1');
   assert.ok(took !== -1 && took < look.indexOf('runKosmosUpdate('), 'the count is not taken, or is taken after the install starts');
-  assert.match(look, /DispatchQueue\.main\.async \{[\s\S]*self\.updateLookInFlight = false\n\s+self\.stopsInFlight -= 1\n\s+self\.updateLookDone\(answer, asked: install\)/,
+  assert.match(look, /DispatchQueue\.main\.async \{[\s\S]*self\.updateLookInFlight = false\n\s+self\.stopsInFlight -= 1\n\s+self\.lastUpdateLookAt = Date\(\)\n\s+self\.updateLookDone\(answer, asked: install\)/,
     'the count is not given back when the look ends');
   // And the refusal it relies on is still there.
   assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard stopsInFlight == 0 else \{/);
@@ -66,20 +70,40 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   assert.match(done, /guard computerMode == \.connect else \{ showUpdateOffer\(nil\); return \}/);
   assert.match(done, /case \.newer\(let v\):\n\s+showUpdateOffer\(v\)/);
   assert.match(done, /case \.failed\(let v\):\n\s+showUpdateOffer\(v, note:/);
-  assert.match(done, /case \.updated\(let v\):\n\s+showUpdateOffer\(nil\)\n\s+relaunchAfterUpdate\(to: v\)/);
-  assert.match(done, /case \.current, \.board, \.unknown:\n\s+showUpdateOffer\(nil\)/);
+  // Review 1: only the person's own Update restarts at once, and never under a dialog of ours. An install
+  // made because updates are on waits for Restart, so words typed on the page are never lost to it.
+  assert.match(done, /case \.updated\(let v\) where asked && !ownDialogOpen:\n(\s+\/\/.*\n)*\s+installedUpdate = nil\n\s+showUpdateOffer\(nil\)\n\s+relaunchAfterUpdate\(to: v\)\n/);
+  const unasked = done.slice(done.indexOf('case .updated(let v):\n'));
+  assert.ok(done.indexOf('case .updated(let v):\n') !== -1, 'no branch for an install nobody asked for');
+  assert.match(unasked, /^case \.updated\(let v\):\n(\s+\/\/.*\n)*\s+showInstalledOffer\(v\)\n\s+case /, 'an install nobody asked for does something other than offer the restart');
+  assert.equal((done.match(/relaunchAfterUpdate\(/g) || []).length, 1, 'a second path restarts the app from a look');
+  assert.match(done, /case \.current, \.board, \.unknown:\n(\s+\/\/.*\n)*\s+if let v = installedUpdate \{ showInstalledOffer\(v\) \} else \{ showUpdateOffer\(nil\) \}/,
+    'a later look hides the restart an installed update is waiting for');
+  // Review 3: a look that could not reach the host is tried again within the hour, not tomorrow.
+  assert.match(done, /if case \.unknown = answer \{ retryUpdateLookSoon\(\) \}/);
+  assert.match(SRC, /static let updateRetryAfterUnknown: TimeInterval = 60 \* 60\n/);
+  const retry = body('private func retryUpdateLookSoon()');
+  assert.match(retry, /guard updateRetry == nil else \{ return \}/, 'retries stack');
+  assert.match(retry, /asyncAfter\(deadline: \.now\(\) \+ Self\.updateRetryAfterUnknown, execute: work\)/);
+  const start = body('private func startUpdateLooks()');
+  assert.match(start, /NSWorkspace\.didWakeNotification/, 'a Mac that slept through its daily look waits another day');
+  assert.match(start, /Date\(\)\.timeIntervalSince\(last\) < Self\.updateLookInterval \{ return \}/, 'every wake looks, not only an overdue one');
+  const installed = body('private func showInstalledOffer(_ v: String)');
+  assert.match(installed, /installedUpdate = v\n\s+showUpdateOffer\(v, note: "Kosmos \\\(v\) is installed\. Restart Kosmos to start using it\.", installed: true\)/);
   const relaunch = body('private func relaunchAfterUpdate(to v: String)');
   assert.match(relaunch, /guard let target = Self\.freshAppURL\(theirs: v\) else \{/, 'the relaunch is not aimed at the copy that carries the new version');
   assert.match(relaunch, /relaunch\(mine: runningAppVersion\(\) \?\? "unknown", theirs: v, target: target, waited: 0, asked: true, askedBefore: true\)/);
 });
 
 test('#4382: the person\'s choice installs whatever the Updates switch says; the CLI is told so', () => {
-  assert.match(body('@objc func updateKosmosNow(_ sender: Any?)'), /guard computerMode == \.connect, offeredUpdate != nil else \{ return \}\n\s+lookForUpdate\(install: true\)/);
+  const now = body('@objc func updateKosmosNow(_ sender: Any?)');
+  assert.match(now, /guard computerMode == \.connect, !updateLookInFlight else \{ return \}/, 'a second press runs a second installer');
+  assert.match(now, /if let v = installedUpdate \{\n\s+relaunchAfterUpdate\(to: v\)\n\s+return\n\s+\}\n\s+guard offeredUpdate != nil else \{ return \}\n\s+lookForUpdate\(install: true\)/);
   assert.match(SRC, /process\.arguments = install \? \["update", "--if-newer", "--install"\] : \["update", "--if-newer"\]/);
 });
 
 test('#4382: the offer is native (menu item and a bar under the title bar), never in the page, never a notification (Liu Kang)', () => {
-  const show = body('private func showUpdateOffer(_ version: String?, note: String? = nil, menu: Bool = true)');
+  const show = body('private func showUpdateOffer(_ version: String?, note: String? = nil, menu: Bool = true, installed: Bool = false)');
   const bar = body('private func makeUpdateBar() -> NSTitlebarAccessoryViewController');
   for (const [name, b] of [['showUpdateOffer', show], ['makeUpdateBar', bar]]) {
     assert.doesNotMatch(b, /evaluateJavaScript|WKUserScript|webView/, name + ' reaches into the page, which on a connect computer is the other computer\'s');
@@ -87,7 +111,8 @@ test('#4382: the offer is native (menu item and a bar under the title bar), neve
   assert.match(bar, /window\.addTitlebarAccessoryViewController\(bar\)/);
   // The app only READS notification settings (#3996's badge) and never asks for permission or posts one.
   assert.doesNotMatch(SRC, /requestAuthorization\(options:|UNUserNotificationCenter\.current\(\)\.add\(|NSUserNotification/, 'the app asks for notification permission, which it never does');
-  for (const sig of ['private func lookForUpdate(install: Bool)', 'private func updateLookDone(_ answer: UpdateAnswer, asked: Bool)', 'private func relaunchAfterUpdate(to v: String)']) {
+  for (const sig of ['private func lookForUpdate(install: Bool)', 'private func updateLookDone(_ answer: UpdateAnswer, asked: Bool)', 'private func relaunchAfterUpdate(to v: String)',
+    'private func showInstalledOffer(_ v: String)', 'private func retryUpdateLookSoon()', 'private func startUpdateLooks()']) {
     assert.doesNotMatch(body(sig), /UNUserNotification|NSUserNotification|evaluateJavaScript/, sig + ' notifies or reaches into the page');
   }
   assert.match(SRC, /let updateItem = NSMenuItem\(title: "Update Kosmos",\n\s+action: #selector\(AppDelegate\.updateKosmosNow\(_:\)\),/);

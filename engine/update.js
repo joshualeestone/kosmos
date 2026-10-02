@@ -1189,7 +1189,8 @@ function beginInstall(opts) {
   child.unref();
 }
 
-/* Test hooks. Production code never calls these. */
+/* Test hooks. Production code never calls these, except engine/update-ifnewer.js (#4382), which
+   calls setFetcher (a file:// release base) and setAutoPref (so its look never starts an install). */
 function setBase(b) { baseOverride = b || null; }
 function setPlatform(p) { platformOverride = p || null; }
 function setWindowsBundleRoot(f) { windowsBundleRootFn = f; }

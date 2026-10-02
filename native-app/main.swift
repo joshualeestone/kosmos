@@ -433,7 +433,7 @@ func runKosmosUpdate(kosmosHome: String, port: Int?, install: Bool) -> UpdateAns
     process.arguments = install ? ["update", "--if-newer", "--install"] : ["update", "--if-newer"]
     var env = ProcessInfo.processInfo.environment
     env["KOSMOS_HOME"] = kosmosHome
-    if let port { env["KOSMOS_PORT"] = String(port) }   // as stopBoard: "is a board running" is judged on it
+    if let port { env["KOSMOS_PORT"] = String(port) }   // setup.sh reads KOSMOS_PORT
     process.environment = env
     // To files, as stopBoard explains: an undrained Pipe can deadlock the wait, and the installer's
     // output (it goes to logs/install.log, but a failure before that can still print) has no bound.
@@ -2335,8 +2335,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc func runAgentsHere(_ sender: Any?) {
         guard computerMode == .connect, let home = modeHome else { return }
         guard stopsInFlight == 0 else {
-            logLine("#4356: Run agents refused for now: a stop of ours is still running")
-            showStartupFailureAlert(detail: "Kosmos is still stopping the board on this computer. Try again in a moment.", title: "One moment")
+            logLine("#4356: Run agents refused for now: a stop or an update of ours is still running")
+            let detail = updateLookInFlight
+                ? "Kosmos is still updating on this computer. Try again when it has finished."
+                : "Kosmos is still stopping the board on this computer. Try again in a moment."
+            showStartupFailureAlert(detail: detail, title: "One moment")
             return
         }
         guard writeComputerMode(.run, kosmosHome: home) else {
@@ -2363,11 +2366,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // MARK: #4382: a connect computer keeps itself current, with no board
 
     /// The look, at launch (after stopBoardIfRunning's stop), when a computer switches to connect, and
-    /// once a day while it stays one. The Timer is held, and is paused while the Mac sleeps; a look
-    /// that is overdue at wake runs then.
+    /// once a day while it stays one. A look that could not reach the release host is tried again once,
+    /// an hour later, and a Mac that wakes when its last look is a day old looks then.
     static let updateLookInterval: TimeInterval = 24 * 60 * 60
+    static let updateRetryAfterUnknown: TimeInterval = 60 * 60
     private var updateTimer: Timer?
     private var updateLookInFlight = false
+    /// When the last look finished, whatever it found; the wake look keys on it.
+    private var lastUpdateLookAt: Date?
+    private var updateRetry: DispatchWorkItem?
+    private var updateWakeObserver: NSObjectProtocol?
+    /// A version the installer finished while nobody asked (updates are on). The new app waits for the
+    /// person's Restart, so words being typed on the page are never lost to a restart nobody chose.
+    private var installedUpdate: String?
     /// The version offered (updates are off, or an install failed), or nil when there is no offer.
     private var offeredUpdate: String?
     /// The slim native bar under the title bar. Native on purpose (Liu Kang, #4382): on a connect
@@ -2375,6 +2386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// no macOS notification (this app never asks for that permission).
     private var updateBar: NSTitlebarAccessoryViewController?
     private var updateBarLabel: NSTextField?
+    private var updateBarButton: NSButton?
     /// The version whose bar the person closed with Not Now; the menu item still offers it.
     private var updateBarDismissed: String?
 
@@ -2385,12 +2397,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 self?.lookForUpdate(install: false)
             }
         }
+        if updateWakeObserver == nil {
+            updateWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self, self.computerMode == .connect else { return }
+                if let last = self.lastUpdateLookAt, Date().timeIntervalSince(last) < Self.updateLookInterval { return }
+                logLine("#4382: woke with the last update look a day old or more; looking now")
+                self.lookForUpdate(install: false)
+            }
+        }
         lookForUpdate(install: false)
     }
 
     private func stopUpdateLooks() {
         updateTimer?.invalidate(); updateTimer = nil
+        updateRetry?.cancel(); updateRetry = nil
+        if let o = updateWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(o); updateWakeObserver = nil }
+        installedUpdate = nil
         showUpdateOffer(nil)
+    }
+
+    /// One more look an hour after one that could not reach the release host, not a day later.
+    private func retryUpdateLookSoon() {
+        guard updateRetry == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.updateRetry = nil
+            self?.lookForUpdate(install: false)
+        }
+        updateRetry = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.updateRetryAfterUnknown, execute: work)
     }
 
     /// One look, and the install when it is due. `install` is the person's choice from the offer.
@@ -2401,7 +2436,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Counted as a stop of ours: "Run agents on this computer" waits for an installer to finish
         // rather than starting a board in the middle of it.
         stopsInFlight += 1
-        if install { updateBarLabel?.stringValue = "Updating Kosmos…" }
+        if install {
+            updateBarLabel?.stringValue = "Updating Kosmos…"
+            updateBarButton?.isHidden = true   // pressed once is enough; it comes back with the answer
+        }
         let port = modePort   // read here, on the main thread, not from the queue below
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let answer = runKosmosUpdate(kosmosHome: home, port: port, install: install)
@@ -2409,6 +2447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 guard let self else { return }
                 self.updateLookInFlight = false
                 self.stopsInFlight -= 1
+                self.lastUpdateLookAt = Date()
                 self.updateLookDone(answer, asked: install)
             }
         }
@@ -2416,20 +2455,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     private func updateLookDone(_ answer: UpdateAnswer, asked: Bool) {
         guard computerMode == .connect else { showUpdateOffer(nil); return }
+        if case .unknown = answer { retryUpdateLookSoon() }
         switch answer {
         case .newer(let v):
             showUpdateOffer(v)
         case .failed(let v):
             showUpdateOffer(v, note: "Kosmos could not update to \(v). It will try again tomorrow, or you can try now.")
-        case .updated(let v):
+        case .updated(let v) where asked && !ownDialogOpen:
+            // The person pressed Update: the restart is what they asked for.
+            installedUpdate = nil
             showUpdateOffer(nil)
             relaunchAfterUpdate(to: v)
+        case .updated(let v):
+            // Installed because updates are on, or a dialog of ours is open: never restart unasked.
+            showInstalledOffer(v)
         case .unknown where asked:
             // The person pressed Update and the release host could not be reached: say so, keep the offer.
             showUpdateOffer(offeredUpdate, note: "Kosmos could not reach its update server. Check your internet connection and try again.")
         case .current, .board, .unknown:
-            showUpdateOffer(nil)
+            // A later look finds the installed version current; an installed update still waits for Restart.
+            if let v = installedUpdate { showInstalledOffer(v) } else { showUpdateOffer(nil) }
         }
+    }
+
+    /// The bar and the menu item, once a new version is installed and waits for a restart.
+    private func showInstalledOffer(_ v: String) {
+        installedUpdate = v
+        showUpdateOffer(v, note: "Kosmos \(v) is installed. Restart Kosmos to start using it.", installed: true)
     }
 
     /// Relaunch approved for #4382 (Liu Kang): the installer opens the app only when the board is
@@ -2445,12 +2497,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// The menu item "Update Kosmos to X" and the bar. nil hides both, unless a note is given.
-    private func showUpdateOffer(_ version: String?, note: String? = nil, menu: Bool = true) {
-        offeredUpdate = menu ? version : nil
+    /// `installed`: the version is already installed and the button restarts into it.
+    private func showUpdateOffer(_ version: String?, note: String? = nil, menu: Bool = true, installed: Bool = false) {
+        offeredUpdate = (menu && !installed) ? version : nil
+        if !installed { installedUpdate = nil }
+        let actionable: String? = installed ? version : offeredUpdate
         let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
         if let item = items.first(where: { $0.action == #selector(AppDelegate.updateKosmosNow(_:)) }) {
-            item.isHidden = offeredUpdate == nil
-            item.title = offeredUpdate.map { "Update Kosmos to \($0)" } ?? "Update Kosmos"
+            item.isHidden = actionable == nil
+            item.title = actionable.map { installed ? "Restart Kosmos to Use \($0)" : "Update Kosmos to \($0)" } ?? "Update Kosmos"
         }
         let text: String? = note ?? version.map { "Kosmos \($0) is available. Updates are off on this computer, so it was not installed." }
         guard let text, note != nil || version != updateBarDismissed else {
@@ -2459,10 +2514,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let bar = updateBar ?? makeUpdateBar()
         updateBarLabel?.stringValue = text
-        if let button = bar.view.subviews.compactMap({ $0 as? NSStackView }).first?.arrangedSubviews
-            .compactMap({ $0 as? NSButton }).first(where: { $0.action == #selector(AppDelegate.updateKosmosNow(_:)) }) {
-            button.isHidden = offeredUpdate == nil
-        }
+        updateBarButton?.title = installed ? "Restart" : "Update"
+        updateBarButton?.isHidden = actionable == nil
         bar.isHidden = false
     }
 
@@ -2494,18 +2547,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window.addTitlebarAccessoryViewController(bar)
         updateBar = bar
         updateBarLabel = label
+        updateBarButton = update
         return bar
     }
 
-    /// The menu item and the bar's Update button: install the offered version, whatever the Updates
-    /// switch says, because the person chose it.
+    /// The menu item and the bar's button: restart into an installed version, or install the offered
+    /// one whatever the Updates switch says, because the person chose it.
     @objc func updateKosmosNow(_ sender: Any?) {
-        guard computerMode == .connect, offeredUpdate != nil else { return }
+        guard computerMode == .connect, !updateLookInFlight else { return }
+        if let v = installedUpdate {
+            relaunchAfterUpdate(to: v)
+            return
+        }
+        guard offeredUpdate != nil else { return }
         lookForUpdate(install: true)
     }
 
     @objc func dismissUpdateBar(_ sender: Any?) {
-        updateBarDismissed = offeredUpdate
+        updateBarDismissed = installedUpdate ?? offeredUpdate
         updateBar?.isHidden = true
     }
 
