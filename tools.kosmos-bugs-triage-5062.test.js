@@ -379,3 +379,20 @@ test('#5062 review 11: env-var and compound secret labels, Basic auth, short and
   assert.equal(t.scrub('header -----BEGIN RSA PRIVATE KEY----- missing.\n\nmore detail here', []), 'header [secret-removed]\n\nmore detail here',
     'a header with no END took the rest of the post');
 });
+
+test('#5062 review 12: one hostile post cannot hang the read; camelCase and glued labels go; Basic and Bearer prose stays; PGP blocks go', () => {
+  // 19,200 characters took 28 s under the old nested-repeat label rule (cubic). The bound is loose on purpose: it is a
+  // shape check (seconds, not tens of seconds), not a speed claim, so a loaded machine does not red it.
+  const started = Date.now();
+  t.scrub('token_'.repeat(3200), []);
+  assert.ok(Date.now() - started < 5000, `a 19 KB label run took ${Date.now() - started} ms`);
+  const long = t.scrub('x '.repeat(30000), []);
+  assert.ok(long.length < 21000 && long.endsWith('[cut: the report was longer]'), 'a long field was not cut before the scrub');
+  const gone = ['{"accessToken": "abc123xyz"}', '{"clientSecret": "s3cr3tval"}', 'authToken=abcd1234efgh', 'PGPASSWORD=hunter22',
+    'MYTOKEN=abc123xyz', 'x-api-key: abcd1234', 'Authorization: Bearer ab/cd+ef.gh12',
+    '-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBF/x+abc/def\n-----END PGP PRIVATE KEY BLOCK-----'];
+  const out = gone.map((x) => t.scrub(x, [])).join('\n');
+  assert.doesNotMatch(out, /abc123|s3cr3t|abcd1234|hunter22|ab\/cd|lQOYBF/, out);
+  const keep = 'Basic plan button is missing; Bearer token missing in the header; bypass: enabled; status: running';
+  assert.equal(t.scrub(keep, []), keep, 'prose was taken for a secret');
+});
