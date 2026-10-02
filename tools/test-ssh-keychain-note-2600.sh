@@ -17,7 +17,7 @@ note() {  # [VAR=value...]
   env -i PATH=/usr/bin:/bin HOME="$T/home" KOSMOS_HOME="$T/kh" "$@" \
     bash -c '. "$1/install/kosmos" >/dev/null 2>&1; keychain_note; echo "rc=$?"' _ "$REPO"
 }
-SAID="cannot read this Mac's Keychain"
+SAID="cannot read this computer's Keychain"
 # A stand-in `security`: records its arguments, then answers with the code asked for (or hangs).
 stub() {  # <name> <exit code | hang>
   local f="$T/$1"
@@ -71,7 +71,7 @@ launch="$(printf '%s\n' "$body" | grep -n 'say "Bringing the board up."' | head 
 [ -n "$supfi" ] && [ -n "$call" ] && [ -n "$launch" ] && [ "$supfi" -lt "$call" ] && [ "$call" -lt "$launch" ] \
   && pass "cmd_start calls it after the supervised block CLOSES and before the direct launch" \
   || fail "placement in cmd_start (supervised block ends=$supfi call=$call launch=$launch)"
-grep -qE 'KOSMOS_NO_KEYCHAIN_NOTE=1 "\$KOSMOS_HOME/bin/kosmos" start --force \|\| die' "$REPO/install/setup.sh" \
+grep -qE 'KOSMOS_NO_KEYCHAIN_NOTE=1 [^|]*"\$KOSMOS_HOME/bin/kosmos" start --force \|\| die' "$REPO/install/setup.sh" \
   && pass "the installer's direct start passes KOSMOS_NO_KEYCHAIN_NOTE=1 and still dies on failure" \
   || fail "the installer's start does not pass the opt-out (or lost its || die)"
 grep -qE '^[[:space:]]*(start|restart)\).*keychain_note' "$K" && fail "the dispatch still calls it (would fire on a running board)" \
