@@ -8397,12 +8397,11 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
   justify-content: flex-end; gap: var(--space-3); }
 @media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
-/* Item 8: a menu that cannot be chosen says so by looking it, not only by refusing a click: while the team is made
-   (tcPaint disables them), and a model menu that is fixed (the vendor picks, nothing to list) or still loading. */
+/* Item 8: once the team is being made (.tc-making, set by tcPaint), every menu looks locked, not only refuses a
+   click. Before that, a model menu shown as one fixed sentence ("OpenAI picks its own model for now", or a list
+   still loading) reads at full strength, as on the single create: it is a statement, not a locked choice. */
 #cstep-teammake select:disabled { opacity: .55; cursor: default; }
-/* A model menu shown as one fixed sentence ("OpenAI picks its own model for now") reads at full strength, as on the
-   single create; it is a statement, not a locked choice. */
-#cstep-teammake #tc-model[data-fixed="1"]:disabled { opacity: 1; }
+#cstep-teammake:not(.tc-making) #tc-model[data-fixed="1"]:disabled { opacity: 1; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -48529,7 +48528,9 @@ function tcPaintModel(pv, ac) {
   };
   if (vendorPicksModel(pv)) {
     row.hidden = true;
-    show('<option value="" selected></option>', true, switchKeyedWord(pv) + ' picks its own model.', false);
+    show('<option value="" selected></option>', true, switchKeyedWord(pv) + ' picks its own model.'
+      + (pv === 'antigravity' && !FR_AGY_READY   // the single create's own hint, word for word
+        ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : ''), false);
     return;
   }
   row.hidden = false;
@@ -48576,7 +48577,7 @@ function tcPaintModel(pv, ac) {
       if (gen !== TC_MODEL_GEN) return;
       if (!CREATE_MODELS.length && body && Array.isArray(body.models)) CREATE_MODELS = body.models;
       if (CREATE_MODELS.length) claude();
-      else { show('<option value="" selected>Kosmos\'s default model</option>', true, '', false); sel.dataset.retry = '1'; }   // tried again once the list is held
+      else { show('<option value="" selected>Kosmos\'s default model</option>', true, 'Kosmos could not read its model list just now, so each agent starts on its default model. You can change it later.', false); sel.dataset.retry = '1'; }   // tried again once the list is held
       if (TC) tcPaint();   // Create is offered again
     });
 }
@@ -48703,6 +48704,7 @@ function tcPaint() {
   go.disabled = Boolean(TC.busy);   // round 4: a resumed team still being started must not offer a dead button
   if (!TC.started && tcIsModelLoading()) go.disabled = true;   // #4935: not while the model list loads
   document.getElementById('tc-project').disabled = TC.started;
+  document.getElementById('cstep-teammake').classList.toggle('tc-making', Boolean(TC.started));   // #4935: every menu looks locked
   // The "Let Kosmos know" choice: the sheet's one box, shown here too; fixed once the run has started.
   const tell = document.getElementById('tc-tell');
   const tellBox = document.getElementById('create-tell');

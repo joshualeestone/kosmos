@@ -124,6 +124,15 @@ statuses change, and Project/Model look locked while making.
   disabled Try again before this branch; the loop only holds it while a list loads, and tcRetry's own guards (a
   failed row only, made by the one run) are unchanged.
 
+## Review 13 changes
+- The disabled-look comment contradicted the code. Now: tcPaint sets .tc-making on the step once the team starts,
+  and every menu (the fixed model sentence included) dims then; before that a fixed or loading model menu reads at
+  full strength, as on the single create.
+- A failed roles read says so ("Kosmos could not read its model list just now..."); an Antigravity team that is not
+  signed in gets the single create's own hint, word for word. Tested (with a signed-in control).
+- Deferred: the merge with April's teamhello-4936 (line 1 of render-teamcreate-4557.js conflicts; she was told the
+  specifics at 21:2x, and whoever merges second unions it).
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 
