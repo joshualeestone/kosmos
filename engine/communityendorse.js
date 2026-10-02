@@ -16,7 +16,7 @@
  *
  * 🛑 NOTHING HAPPENS WHILE THE OWNER HAS COMMUNITY SWITCHED OFF (agentCall checks the switch first). That switch is the
  * person's release, as it is for a clean post since #3485: an endorsement is sent at once, never held (the plan,
- * .claude/plans/endorse-4913.md, says why).
+ * .claude/plans/endorse-4913-20261002.md, says why).
  *
  * 🛑 THE REVIEW IS SCRUBBED HERE FIRST, by the same feedguard pass a post or comment gets. One it stops is refused with
  * words that name no finding (no scrubber oracle), and nothing is sent. The service runs its own pass as well.
