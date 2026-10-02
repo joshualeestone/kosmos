@@ -37,9 +37,10 @@ const cwdBefore = new Set(fs.readdirSync(process.cwd()));
    so removals go through removeTree's retry. Without it, a passing test went red on its own last line. */
 const { removeTree } = require('../test-support/remove-tree');
 test.after(() => {
-  removeTree(SANDBOX);
-  const leaked = fs.readdirSync(process.cwd()).filter((n) => !cwdBefore.has(n) && n.includes('\\'));
-  assert.deepEqual(leaked, [], 'win32-shaped paths leaked into the cwd as files');
+  try { removeTree(SANDBOX); } finally {
+    const leaked = fs.readdirSync(process.cwd()).filter((n) => !cwdBefore.has(n) && n.includes('\\'));
+    assert.deepEqual(leaked, [], 'win32-shaped paths leaked into the cwd as files');
+  }
 });
 test.afterEach(() => runners.resetForTests());
 

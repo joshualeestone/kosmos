@@ -1,8 +1,8 @@
 'use strict';
 /**
  * removeTree(dir, opts): remove a test's temp folder, outlasting a Windows hold (kosmos#5010, #5074).
- * Moved here from tools.windows-kosmos-shims-570.test.js so every win32 test that removes a
- * folder holding an exe it just ran uses one retry with its own tests
+ * Moved here from tools.windows-kosmos-shims-570.test.js so the shims test and the grok and
+ * codex win32 runner tests share one retry with its own tests
  * (test-support.remove-tree.test.js), not rmSync's maxRetries, whose coverage of this
  * hold on win32 depends on the Node version (see .claude/plans/grokrm-5074.md).
  */
