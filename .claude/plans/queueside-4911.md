@@ -160,6 +160,22 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   #4909's control (queued 16:50, holding since 19:49). No jump: the still-waiting note printed only the FIRST refusing
   check, which while any run holds the box is always the claim, so position never showed. It now says "N queued ahead
   of this run" (tested). The real starvation on the board was a LIGHT waiter at 367 min, which this card's aging fixes.
+- Round 10 (Opus + Sonnet, blind). Opus BLOCKER, fixed: tools.heavy-gate-3805.test.js reads the REAL box status and
+  accepted only the two old wordings, so after rollout any suite that is itself a queued turn's holder would go red
+  ("held by an ordinary queued turn"), as would a free line followed by a live side turn's line. Its regex now takes
+  both (passes with a queued-run claim held in a private marker dir; the old regex FAILS on that same claim). Also
+  fixed: (1) a side turn swallowed the command's stdin (`printf .. | queued-heavy.sh --light x sh` ran nothing and
+  ended green): the command keeps this script's stdin unless it is a terminal; (2) kosmos_machine_claim_status (so
+  who-has-the-box and heavy-gate) could not see a side turn: it adds a "light run has a side turn" line, so the
+  answer is never the bare free line while one runs (tested both ways); (3) ; & | glued to a word (`yarn test; echo`,
+  `cd /x&&yarn test`, `yarn release; true`) are split out before the scan; (4) the fixture-drop arm's stand-in is a
+  plain sleep reported under a forged browser path, so no real side turn can see it (the round-9 control was a real
+  browser-path process outside the sandbox); (5) Chrome's crash reporter (chrome_crashpad_handler, double-forked to
+  pid 1) is dropped like WebKit's XPC helpers (real-matcher arm, red without it); (6) a cut through a queued turn
+  keeps a release's label (no flip with the renewer); (7) the capper is stopped with KILL: TERM into its
+  trap-reset subshell made bash 3.2 warn on 7 of 8 side turns, now 0 of 8; (8) labels shown whole. Dry run 45/45.
+  Not taken: an lsof that hangs inside the intruder check would hold the cap off (the side claim then lapses under
+  a live run); no hang has been seen, and a timeout wrapper on bash 3.2 is its own moving part.
 - KNOWN LIMIT, measured 19:35: an agent's long-lived Playwright browser (one had run 5 h 50 min) is a Playwright
   browser, so it holds side turns off while it runs. That is the safe direction; it means the side lane opens less
   often than the load figures alone suggest. The before/after measurement shows how much.

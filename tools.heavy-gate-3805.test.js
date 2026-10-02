@@ -272,13 +272,16 @@ test('live (opt-in, KOSMOS_HG_LIVE=1): a real release.sh outside any test ancest
 
 /* This one runs the real who-has-the-box.sh, which (like any consult) sweeps a dead or expired
    claim in the real run-markers folder: the one place the default suite touches live state. */
-test('the real reservation line is one of the two wordings the tool reads', () => {
+/* #4911: two more real answers. An ordinary queued turn's claim says "held by an ordinary queued turn" (it is not a
+   release), and a light run's side turn adds its own line after the status, so the free line alone with a side turn
+   live reads as HELD. Missing these turned this test red in any suite that is itself a queued turn's holder. */
+test('the real reservation line is one of the wordings the tool reads', () => {
   const env = { ...process.env, KOSMOS_HG_SNAPSHOT: path.join(os.tmpdir(), 'hg-empty-' + process.pid) };
   fs.writeFileSync(env.KOSMOS_HG_SNAPSHOT, '');
   delete env.KOSMOS_HG_CLAIM;
   const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
   fs.rmSync(env.KOSMOS_HG_SNAPSHOT, { force: true });
-  assert.match(r.stdout, /^reservation: (none \(no release holds|HELD \(the machine is reserved for a release)/m, r.stdout);
+  assert.match(r.stdout, /^reservation: (none \(no release holds|HELD \((the machine is reserved for a release|the machine is held by an ordinary queued turn|no release holds the machine right now\.\na light run has a side turn))/m, r.stdout);
 });
 
 test('--except-cwd rules out your own run, exact or below, and not a sibling that shares the prefix', (t) => {

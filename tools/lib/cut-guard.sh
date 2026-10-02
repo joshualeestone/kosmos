@@ -1045,7 +1045,7 @@ kosmos_refuse_if_machine_claimed() {
   host="$(printf '%s'  "$active" | awk '{print $4}')"
   label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
   local held="reserved for a release (${label:-a cut}"
-  case "$label" in "queued run"*) held="held by an ordinary queued turn (${label#queued run (not a cut)}" ;; esac
+  case "$label" in "queued run"*) held="held by an ordinary queued turn (${label}" ;; esac
   echo "the machine is ${held}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp"); $what would share the box and could corrupt both results (a gate that passes alone fails under a concurrent one). Wait for it to finish (kosmos_machine_claim_status, or tools/who-has-the-box.sh, says when), or KOSMOS_IGNORE_MACHINE_CLAIM=1 to run anyway." >&2
   return 1
 }
@@ -1078,10 +1078,18 @@ kosmos_holds_machine_claim() {
 # kosmos_machine_claim_status  -- the "who has the box?" answer, one line to
 # stdout. Prints the holder + until for an active claim, else the all-clear.
 kosmos_machine_claim_status() {
-  local active pid exp host label
+  local active pid exp host label side
   active="$(_kosmos_machine_claim_active)"
+  # #4911 (review 10): a light run's side turn is a tenant too. Said on its own line, so the status is never the bare
+  # free line while one runs (heavy-gate compares the whole answer with that line, and who-has-the-box prints it).
+  side=""
+  if command -v _kosmos_light_side_active >/dev/null 2>&1; then
+    side="$(_kosmos_light_side_active)"
+    [ -n "$side" ] && side="a light run has a side turn on the box ($(printf '%s' "$side" | awk '{$1=$2=$3=""; sub(/^ +/,""); print}'), pid $(printf '%s' "$side" | awk '{print $2}')) until $(_kosmos_epoch_hhmm "$(printf '%s' "$side" | awk '{print $3}')")."
+  fi
   if [ -z "$active" ]; then
     echo "no release holds the machine right now."
+    [ -n "$side" ] && echo "$side"
     return 0
   fi
   pid="$(printf '%s'   "$active" | awk '{print $2}')"
@@ -1089,9 +1097,10 @@ kosmos_machine_claim_status() {
   host="$(printf '%s'  "$active" | awk '{print $4}')"
   label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
   case "$label" in
-    "queued run"*) echo "the machine is held by an ordinary queued turn (${label#queued run (not a cut)}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")." ;;
+    "queued run"*) echo "the machine is held by an ordinary queued turn (${label}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")." ;;
     *) echo "the machine is reserved for a release (${label:-a cut}, pid $pid on ${host:-this Mac}) until $(_kosmos_epoch_hhmm "$exp")." ;;
   esac
+  [ -n "$side" ] && echo "$side"
   return 0
 }
 
@@ -1214,8 +1223,10 @@ _kosmos_playwright_browsers() {
   [ "$rc" -ge 2 ] && return "$rc"
   # Review 7: not WebKit's XPC helpers. launchd starts them (parent pid 1, their own process group), so they are
   # never the side command's descendants and a side WebKit check would yield to its OWN helpers on every poll. Its UI
-  # process (webkit-*/Playwright.app/...) is a descendant and stays in the list.
-  printf '%s\n' "$raw" | grep -E '^[0-9]+ +[^ ]*ms-playwright/(chromium|chromium_headless_shell|firefox|webkit)[^/ ]*/' | grep -v '\.xpc/' || true
+  # process (webkit-*/Playwright.app/...) is a descendant and stays in the list. Review 10: likewise Chrome's crash
+  # reporter (chrome_crashpad_handler), which double-forks to parent pid 1 (every Chrome-family handler on this box
+  # does); excluding it hides no browser run, whose own browser process is always listed.
+  printf '%s\n' "$raw" | grep -E '^[0-9]+ +[^ ]*ms-playwright/(chromium|chromium_headless_shell|firefox|webkit)[^/ ]*/' | grep -v -e '\.xpc/' -e 'chrome_crashpad_handler' || true
   return 0
 }
 
