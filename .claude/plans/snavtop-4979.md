@@ -49,12 +49,17 @@ while fixing #4961 (c).
 - The check, with the change: all pass (121 PASS lines, re-measured after the last arms). Either side
   of the fit: 6px taller (1200x523, 900x549) the nav is sticky and fits; 6px shorter (1200x511,
   900x537) it is static.
-- Controls, each measured red in exactly its arms: main (32, the Settings-tab placement and click
-  arms, no consolidated arm); an offset not scoped to body:not(.consolidated) (the 4 consolidated
-  arms); a fixed `top: 67px` (the 900px arms); no ResizeObserver (the 2 resize arms); the fixed 35rem
-  threshold instead of the measured fit (the 4 header +100px arms); no fit rule at all (the 8 short-
-  window and the 4 header +100px arms); the nav always static (the 6px-taller arms, and every arm
-  that needs it sticky).
+- Controls, all re-run against the final check (00:56 to 01:00 CDT), failures by arm family:
+  - main: 58 (32 Settings-tab placement and click, 8 short-window, 4 + 4 either side of the fit,
+    2 resize, 4 + 4 taller-header), no control red.
+  - offset not scoped to body:not(.consolidated): 4 (the consolidated-view arms).
+  - a fixed `top: 67px`: 16 (8 Settings-tab at 900px, 2 six-px-taller, 2 resize, 4 header +40px).
+  - no ResizeObserver: 20 (8 short-window, 4 six-px-shorter, 4 header +100px, 4 header +40px). With
+    no observer nothing recomputes once Settings first shows (the nav measures 0 while hidden), and a
+    header that grows without a window resize is never seen; a window resize alone still works.
+  - the fixed 35rem threshold (commit 6da59ec2e): 8 (4 six-px-taller, 4 header +100px).
+  - no fit rule: 16 (8 short-window, 4 six-px-shorter, 4 header +100px).
+  - the nav always static: 60 (48 Settings-tab, 4 six-px-taller, 4 resize, 4 header +40px).
 
 ## Weakest premise
 That the app header is the only thing drawn above Settings at the top. A new sticky bar between the

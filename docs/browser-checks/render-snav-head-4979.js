@@ -20,8 +20,11 @@
  *
  * Either side of where it stops fitting (header + nav + 32px: 517px at 1200 wide, 543px at 900, where
  * the header wraps): 6px taller (1200x523, 900x549) the nav stays sticky with every pill between the
- * header and the bottom; 6px shorter (1200x511, 900x537) it scrolls with the page. And a header that changes height after load: Mac at 1200x600, scrolled to the end,
- * then the window narrowed to 900px (the header wraps to two lines): every pill moves below it.
+ * header and the bottom; 6px shorter (1200x511, 900x537) it scrolls with the page.
+ *
+ * A window narrowed after load: Mac at 1200x600, scrolled to the end, then 900px wide (the header
+ * wraps to two lines): every pill moves below the taller header. (A window resize; the observer on
+ * the header is what the taller-header arms below exercise.)
  *
  * A taller header (a Kosmos+ bar or a notice, stood in for by a block added inside .apphead) at
  * 1200x600: grown by 100px the whole nav no longer fits, so it must scroll with the page or show every
