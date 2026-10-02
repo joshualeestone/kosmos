@@ -543,18 +543,25 @@ const TMUX_REPICK_WAIT_MS = 60000;
     so the path comes from where this file is (in a checkout it names nothing, and is skipped). */
 let TMUX_OWN_SEAM = null;
 function ownTmux() { return TMUX_OWN_SEAM || path.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'); }
-/** The tmux this board reads this computer's server through, when that is proven: the board is on its launcher's pick
-    or a switch from it, and its last look LISTED this server through it (before any look, or when the look found no
-    server, nothing is proven and the answer is null). For callers that would otherwise run an agent's baked tmux
-    (Open in Terminal): a newer tmux reads an older server and not the other way round (measured 2026-10-01: Homebrew
-    3.6a lists a 3.5a server; 3.5a against 3.6a says "server exited unexpectedly"), so a baked path can be the one that
-    cannot. Null with an explicit choice (a test's stub) or a failed look: the baked path stays. */
 let TMUX_READ_BY = null;   // the tmux whose last look LISTED panes (not merely "no server"): set in tmuxPanes
 /** The tmux to ATTACH an interactive client with (Open in Terminal). ⚠️ Attach needs the SAME version as the server:
     measured 2026-10-01 on private sockets, 3.6a cannot attach to a 3.5a server and 3.5a cannot attach to 3.6a, though
     3.6a drives 3.5a in every other way. So: ask the server its version through a tmux that can read it (the board's
     proven reader, else the agent's baked one), then the first candidate whose own -V says that version; the baked path
     first, so nothing changes when it already matches. Anything unproven answers the baked path, as before. */
+/* Each binary's version, cached by path and modification time: an attach runs on a board request, and asking up to
+   seven binaries for -V each time (2 s each if one hangs) is what Open in Terminal would otherwise cost. A tmux upgraded
+   in place has a new mtime, so its new version is asked. */
+const TMUX_VERSION_CACHE = new Map();
+function tmuxVersionOf(c) {
+  let key;
+  try { const st = fs.statSync(c); if (!st.isFile()) return null; key = c + '\0' + st.mtimeMs; } catch { return null; }
+  if (TMUX_VERSION_CACHE.has(key)) return TMUX_VERSION_CACHE.get(key);
+  const v = shDetail(c, ['-V'], 2000);
+  const said = v.ran && v.status === 0 ? String(v.out).trim().replace(/^tmux\s+/, '') : null;
+  TMUX_VERSION_CACHE.set(key, said);
+  return said;
+}
 function attachTmux(baked) {
   const via = readerTmux() || baked;
   if (!via) return baked || null;
@@ -565,12 +572,16 @@ function attachTmux(baked) {
   for (const c of [baked, via, tmuxBin(), ownTmux(), launcherPick(), '/opt/homebrew/bin/tmux', '/usr/local/bin/tmux']) {
     if (!c || seen.has(c)) continue;
     seen.add(c);
-    try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
-    const v = shDetail(c, ['-V'], 2000);
-    if (v.ran && v.status === 0 && String(v.out).trim().replace(/^tmux\s+/, '') === want) return c;
+    if (tmuxVersionOf(c) === want) return c;
   }
   return baked || null;
 }
+/** The tmux this board reads this computer's server through, when that is proven: the board is on its launcher's pick
+    or a switch from it, and its last look LISTED this server through it (before any look, or when the look found no
+    server, nothing is proven and the answer is null). For callers that would otherwise run an agent's baked tmux
+    (Open in Terminal): a newer tmux reads an older server and not the other way round (measured 2026-10-01: Homebrew
+    3.6a lists a 3.5a server; 3.5a against 3.6a says "server exited unexpectedly"), so a baked path can be the one that
+    cannot. Null with an explicit choice (a test's stub) or a failed look: the baked path stays. */
 function readerTmux() {
   return launcherPick() && LAST_LOOK_PROBLEM === null && TMUX_READ_BY && TMUX_READ_BY === tmuxBin() ? TMUX_READ_BY : null;
 }

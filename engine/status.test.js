@@ -6268,4 +6268,25 @@ test('#2955: attachTmux picks a tmux whose version matches the server (attach ne
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
+test('#2955: Open in Terminal asks each tmux its version once (cached by path and mtime), not on every attach', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const log = nodePath.join(m.sb, 'asked');
+    const fake = (name, version) => { const f = nodePath.join(m.sb, name); fs.writeFileSync(f, `#!/bin/sh\ncase "$1" in -V) echo x >> ${JSON.stringify(log)}; echo "tmux ${version}";; list-sessions) echo "3.5a";; esac\nexit 0\n`); fs.chmodSync(f, 0o755); return f; };
+    const reader = fake('reader-v', '3.6a');
+    const own = fake('own-v', '3.5a');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, reader, []);
+      status.setOwnTmux(own);
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null);
+      assert.equal(status.attachTmux(reader), own);
+      const first = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).length;
+      assert.equal(status.attachTmux(reader), own);
+      const second = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).length;
+      assert.equal(second, first, 'a second attach asked the binaries their versions again');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
 

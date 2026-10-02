@@ -76,7 +76,10 @@ again each time the owner changes (one log line and one PATH entry each time); o
 damped. One rare way to run an agent twice: a socket file unlinked under a running server
 (a /tmp cleaner) and a newer server started at the same path; a supervisor that restarts then switches to the new
 server, cannot see the agent still running on the orphaned one, and starts a second copy. Before this change that
-supervisor failed at the wall every 30 s instead.
+supervisor failed at the wall every 30 s instead. A tmux missing for a moment (setup.sh replaces the tmux folder during an in-app update) reads as
+gone, and a board or supervisor that looks in that window switches to a tmux that can list the server for the rest of its
+life; benign (a newer tmux drives an older server, measured) and the board restarts after an update. Open in Terminal
+asks the server's version (2 s) and each binary's version once per install (cached by path and mtime).
 
 ## Tests
 engine/status.test.js: the switch (env and PATH), an explicit choice never replaced, nothing that cannot list taken,
@@ -228,4 +231,10 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   Terminal hands attachTmux its baked path). FIXED W: the comments say "reads" is list and drive, not attach. FIXED
   CONVENTION: Terminal's comment no longer claims the supervisor moved to the reader. NITs taken: the gone-tmux log
   lines say what happened (nothing could list; the baked tmux is gone).
+- Round 18 (sonnet): FIXED W: Open in Terminal could block a board request for up to ~16 s (seven -V probes at 2 s);
+  each binary's version is now cached by path and modification time (test: a second attach asks no -V). DOCUMENTED W:
+  a tmux missing for a moment during an update reads as gone and can switch a board or supervisor for its life (benign,
+  in the weakest premise). NIT taken: readerTmux's comment is back above readerTmux. LEFT NITs: ownTmux in a checkout
+  names a sibling of the repo (skipped when absent); the supervisor's PATH order differs from its plist's after a
+  switch (decided, round 6); a wall at the end of a run is not retried (the next launch retires the token).
 
