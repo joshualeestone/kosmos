@@ -138,3 +138,10 @@ browser check (bc-4962, queued; its first run is its first proof), the full vali
 - Not taken: copy rows synced at add start (one list is hidden in practice); focus when the pressed row is redrawn
   away on a non-name refusal or a keyboard success; border-class assertions in a real engine (aria-invalid is
   asserted); the review-10 control is a source regex; plan heading wording.
+
+## Review 12 (sonnet, blind, 2026-10-02 11:48): 0 blockers, 3 warnings, 4 nits
+- FIXED: a stale attempt that succeeded late still painted its row "Added" before the token guard. The guard now runs
+  before any success paint (unit test review 12, red without it).
+- FIXED (wording): viaKey (detail 0) also covers voice control and screen-reader activation; the comment says so and
+  that it is deliberate (they act as keys here).
+- DEFERRED again: adopt-row Enter scope (PR body). Nits not taken (regex-over-source tests, a corner-case guard).
