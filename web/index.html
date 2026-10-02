@@ -1234,10 +1234,11 @@ html { scroll-padding-top: 132px; }
 .apphead header { position: relative; }
 .apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 0; z-index: 4;
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
-  max-width: min(460px, calc(100vw - 32px)); pointer-events: none; }
+  max-width: min(460px, 100%); pointer-events: none; }
 .apphead .topnotes > div > * { pointer-events: auto; }
-/* The consolidated header is position: static, so the stack stacks with the page, where the sticky project rail
-   (z-index 4) comes later and would paint over it. Above the rail, below the header menus (40). */
+/* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
+   page, where the sticky project rail (z-index 4) comes later and would paint over it. Above the rail, below the
+   header menus (40). */
 html[data-layout="consolidated"] body.consolidated > .apphead .topnotes { z-index: 30; }
 .utoast .ux { flex: 0 0 auto; width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 7px; cursor: pointer;
   background: none; color: var(--label-2); font-size: 1.125rem; line-height: 1; }
@@ -2017,7 +2018,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #uabort-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -21012,13 +21013,14 @@ function paintLoginAdvisories(advs) {
     return '<div class="utoast login-adv ' + sev + '" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
-      + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="Close">&times;</button>'
+      + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
     paintLoginAdvisories(advs);
-    const next = slot.querySelector('.ux');   // keyboard focus stays on the notices while any is left
+    // Keyboard focus stays on the notices while any is left, then goes to the K mark, the first control in the header.
+    const next = slot.querySelector('.ux') || document.querySelector('.apphead .klink');
     if (next) next.focus();
   }));
 }

@@ -29,6 +29,21 @@ cleared it. The new login DID reach the keychain (Settings showed Oct 31 after r
   phone menu (z 5) still covers it; pointer-events only on the notices. Reverses the 2026-08-17 in-flow decision at
   Josh's request. On phones the login notice keeps its account/names line (it costs no header room now).
 
+- **Only the login notice gets an X.** The update chip carries its own Install/Reload actions, the update-abort and
+  offline notices report a live state that clears itself; an X on a state that is still true would hide the truth.
+  Floating means each covers its own small box (max 460px, clicks only on the notice) until it clears.
+- **The X returns the notice when the days count drops** (key includes daysLeft): Josh's card text asks for exactly
+  that ("hidden until the state changes: fewer days left ..."). A rename of an agent does not bring it back (the key
+  uses system names); acceptable.
+- **The email rides on /api/status.** Same readers as GET /api/accounts, which already lists every account's email
+  for Settings, behind the same board-token gate; no new audience.
+
+## Sign-in path, traced (review round 2)
+Settings > AI Models > a Claude account's "Sign in again" (web `[data-reauth]` -> openAcctReauth -> POST
+/api/connect/start {accountDir, reauth: true}) -> server.js -> connect.start({configDir, reauth}) -> the driver ->
+finishConnected -> writeState({phase: CONNECTED}) -> loginexpiry.loginChanged(). connect.test.js's end-to-end driver
+test asserts the bump on that path.
+
 ## Weakest premise
 That `writeState({phase: CONNECTED})` is the only completion point for a Claude sign-in that changes the credential.
 The early-exit at connect.js ~1743 (already connected) also bumps, which is harmless (one extra read).
