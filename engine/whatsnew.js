@@ -10,7 +10,8 @@
  *
  * #4928: a platform cut on another number from the same work (Windows on 0.7.13 while the Mac is on
  * 0.7.16) is named in an optional "also": ["0.7.13"], so the same highlights show on both. Without it
- * the file is for one number only, and the other platform's people saw no window at all.
+ * the file is for one number only, and the other platform's people saw no window at all. A malformed
+ * "also" fails the whole file (no window on either number), as any other problem does: fail closed.
  *
  * One definition of "a file the window can show", used twice: by the board (read, below, which
  * serves nothing it cannot draw) and by the cut (tools/whats-new-check.js, which refuses a cut
@@ -84,6 +85,16 @@ function read(version, file) {
   return obj.highlights.map((x) => ({ icon: x.icon, title: x.title.trim(), line: x.line.trim() }));
 }
 
+/**
+ * #4928: which highlights `version` would show, as the file's main "version", or null. Two numbers in one
+ * file's "also" show the SAME words, so the board records this key when a window is dismissed and does not
+ * open the same words again on the next number (Windows on 0.7.13, then 0.7.16, from one file).
+ */
+function key(version, file) {
+  if (!read(version, file)) return null;
+  try { return JSON.parse(fs.readFileSync(file || fileForTests || FILE, 'utf8')).version; } catch { return null; }
+}
+
 /* Round 12: a highlights file that exists but cannot be shown leaves one line in the board's log (once
    per problem, not per page load), so a window that did not appear can be traced. */
 let lastLogged = null;
@@ -94,4 +105,4 @@ function logOnce(line) {
 }
 function setFileForTests(f) { fileForTests = f || null; lastLogged = null; }
 
-module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, problems, read, setFileForTests };
+module.exports = { FILE, ICONS, MAX_HIGHLIGHTS, MAX_TITLE, MAX_LINE, VERSION_RE, problems, read, key, setFileForTests };

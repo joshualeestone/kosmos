@@ -208,12 +208,17 @@ echo "==> baked version $_ver into the page"
 # updated" window at all. Same opt-out as the Mac cut: KOSMOS_CUT_NO_WHATS_NEW=1 for a hotfix with
 # nothing to announce.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
-  echo "==> KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced for $_ver"
+  echo "==> KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced for $_ver; with no highlights for $_ver there is no \"Kosmos has been updated\" window"
 else
   command -v node >/dev/null 2>&1 || {
     echo "node is needed to check the What's new highlights for $_ver (#4928); install it, or set KOSMOS_CUT_NO_WHATS_NEW=1" >&2; exit 1; }
-  node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json" || {
-    echo "the Windows build stops: web/whats-new.json is not for $_ver. Add \"$_ver\" to its \"also\" list when this is the same release as the Mac's, or set KOSMOS_CUT_NO_WHATS_NEW=1 (#4928)" >&2; exit 1; }
+  _wn=0
+  node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json" || _wn=$?
+  case "$_wn" in
+    0) ;;
+    3) echo "the Windows build stops: web/whats-new.json is not for $_ver. When this is the same release as the Mac's, add \"$_ver\" to its \"also\" list and COMMIT it on the release branch (unless an earlier Windows number already shows these highlights), or set KOSMOS_CUT_NO_WHATS_NEW=1 (#4928)" >&2; exit 1 ;;
+    *) echo "the Windows build stops: the highlights check could not run (exit $_wn), so whether $_ver shows a window is not known (#4928)" >&2; exit 1 ;;
+  esac
 fi
 
 # ---- the runtime -----------------------------------------------------------

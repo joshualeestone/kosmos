@@ -90,10 +90,37 @@ test('#3955 round 13: a check that cannot run is not "not ready": a broken engin
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('#4928: the Windows build runs the same highlights check for its own version, with the same opt-out', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'tools', 'build-kosmos-windows.sh'), 'utf8');
-  const at = src.indexOf('node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json"');
-  assert.ok(at > 0, 'the Windows build does not check the highlights for the version it bakes');
-  assert.ok(src.indexOf('baked version $_ver into the page') < at, 'the check runs before the version is known');
-  assert.match(src.slice(0, at), /KOSMOS_CUT_NO_WHATS_NEW:-\}" = "1"/, 'the hotfix opt-out is not honoured');
+/* #4928: the Windows build's highlights check, RUN (its block cut from the build script and given a staged file),
+   so the cases that matter are behaviour, not text: a version the file is for passes, one it is not for stops the
+   build with the "also" fix, a check that cannot run stops with its own words, and the opt-out never runs it. */
+test('#4928: the Windows build stops on highlights that are not for its version, and the opt-out skips the check', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { spawnSync } = require('node:child_process');
+  const src = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-windows.sh'), 'utf8');
+  const from = src.indexOf('# #4928: the What');
+  assert.ok(from > 0, 'the block is not in the build script');
+  const block = src.slice(from, src.indexOf('\nfi\n', from) + 4);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wn-winbuild-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'app', 'web'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'app', 'web', 'whats-new.json'), JSON.stringify({
+      version: '0.7.16', also: ['0.7.13'], highlights: [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }] }));
+    const run = (ver, env = {}, repo = __dirname) => spawnSync('bash', ['-c', block], {
+      encoding: 'utf8', env: Object.assign({}, process.env, { REPO: repo, STAGE: dir, _ver: ver }, env) });
+    assert.equal(run('0.7.16').status, 0, 'the main version did not pass');
+    assert.equal(run('0.7.13').status, 0, 'a version in "also" did not pass');
+    const no = run('0.7.17');
+    assert.equal(no.status, 1, 'a version the file is not for did not stop the build');
+    assert.match(no.stderr, /add "0\.7\.17" to its "also" list and COMMIT it/);
+    const off = run('0.7.17', { KOSMOS_CUT_NO_WHATS_NEW: '1' });
+    assert.equal(off.status, 0, 'the opt-out did not skip the check');
+    assert.match(off.stdout, /not enforced for 0\.7\.17/);
+    // A check that cannot run (its script missing) is said as such, not as "add it to also".
+    const broken = run('0.7.16', {}, dir);
+    assert.equal(broken.status, 1);
+    assert.match(broken.stderr, /could not run/);
+    assert.doesNotMatch(broken.stderr, /"also" list/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
