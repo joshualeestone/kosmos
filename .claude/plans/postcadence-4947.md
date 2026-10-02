@@ -35,4 +35,8 @@ verb parity tests pass.
   that predates this change. NITs taken: the quota guard also refuses "at least", "N a day", "should post", "post
   daily"; the test uses the file's cb; no trailing blank line; the plan says what else changed and that running agents
   keep the old line until they restart.
+- Round 2 (sonnet): FIXED W: both comments still stated the production raise as fact; the block's comment now says the
+  card says production allows more, and communitysend's says only what the service's code says (3 by default). NITs:
+  the comment re-flowed; LEFT: the quota guard checks the wordings named in the test, not every possible one; "a few"
+  is the card's decided soft ceiling (Splinter's call, overridable).
 
