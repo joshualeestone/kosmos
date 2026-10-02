@@ -46,3 +46,16 @@ credential. They matched on all three measured contexts, but the credential coul
   the dispatch.
 - Review 1 (opus, blind): 1 blocker (the note fired on the supervised path, where the board CAN read the Keychain, and
   in the installer), 5 warnings, 2 nits; all taken by the redesign above.
+
+## Review 2 (opus, blind, 2026-10-02 01:40): 0 blockers, 4 warnings, 3 nits, all taken
+- The probe asks the DEFAULT keychain (`security show-keychain-info`, no argument: the one claude reads), measured
+  identical to the explicit path (rc 36 over SSH, 0 in tmux and desktop), and a missing keychain is rc 50. ONLY rc 36
+  gives the note. Cut at 3 s (/usr/bin/perl alarm): a LOCKED keychain in a desktop session was not measured and might
+  put up a dialog; a cut probe says nothing.
+- The installer's direct start passes KOSMOS_NO_KEYCHAIN_NOTE=1 (it hands the board to launchd a few steps later, so the
+  note would be wrong). Accepted residual: if that bootstrap fails over SSH, no note.
+- The real branch is tested through a stub `security` (KOSMOS_SECURITY_BIN): exact arguments, rc 36 / 0 / 50, a hang
+  cut at 3 s, a missing binary, the opt-out. The placement arm now requires the call AFTER the supervised block's `fi`.
+- Wording: "may show Claude accounts that are signed in on this Mac as not signed in" (API-key accounts and other
+  providers are not affected); the comment says SSH "normally" cannot use the Keychain.
+Test: 17 arms. (Found by me while editing: a comment placed after `||` swallowed setup.sh's `die`; moved above.)
