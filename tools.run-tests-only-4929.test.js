@@ -266,6 +266,6 @@ test('the runner\'s text keeps --only out of the whole suite\'s parts (coverage 
   // An empty --only list must stop before the node line too: bash 5 expands it to nothing and node runs every file.
   assert.match(src, /if \[ "\$\{#KOSMOS_ONLY_FILES\[@\]\}" -eq 0 \]; then\n.*\n    exit 2\n  fi\n  KOSMOS_TEST_FILES=/, 'the second stop for an empty --only list is gone');
   assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n  :[^\n]*\nelif \[ "\$NODE_STATUS" -eq 0 \]/, 'the shell part is no longer skipped for --only');
-  assert.equal((src.match(/if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_ONLY" != 1 \]; then\n  \( \. "\$\(dirname "\$0"\)\/lib\/browser-check(-surface)?-gate\.sh"/g) || []).length, 2,
+  assert.equal((src.match(/if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_ONLY" != 1 \]; then\n  \( \. "\$REPO\/tools\/lib\/browser-check(-surface)?-gate\.sh"/g) || []).length, 2,
     'a browser-check gate is no longer skipped for --only');
 });

@@ -541,7 +541,7 @@ fi
 # empty or unreadable and the gate passes.
 # (#4929: not for --only, which runs named files and says nothing about the branch.)
 if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_ONLY" != 1 ]; then
-  ( . "$(dirname "$0")/lib/browser-check-gate.sh" && kosmos_browser_check_gate )
+  ( . "$REPO/tools/lib/browser-check-gate.sh" && kosmos_browser_check_gate )
   NODE_STATUS=$?
 fi
 # #2518: the SURFACE-SPECIFIC companion -- refuses a web/index.html change that touches
@@ -549,7 +549,7 @@ fi
 # updating that check, catching the specific staleness the coarse gate above lets through.
 # Same subshell isolation + fail-soft contract.
 if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_ONLY" != 1 ]; then
-  ( . "$(dirname "$0")/lib/browser-check-surface-gate.sh" && kosmos_browser_check_surface_gate )
+  ( . "$REPO/tools/lib/browser-check-surface-gate.sh" && kosmos_browser_check_surface_gate )
   NODE_STATUS=$?
 fi
 
