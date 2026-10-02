@@ -665,3 +665,11 @@ test('#4951 review 16 (Opus): fallback: an agent seen working at its line loses 
   await rn.sweepOnce(o);                 // a first sighting again: nothing typed yet
   assert.equal(typed.length, 0, 'an agent that worked between passes was typed into on its first idle pass');
 });
+
+test('#4951 review 17 (Sonnet): with comments counted, the line names only the posts that have them (not posts with only more waiting)', () => {
+  const t = rn.nudgeText([{ title: 'A', ids: ['a1'] }, { title: 'B', ids: [], more: ['b1'] }, { title: 'C', ids: [], more: ['c1'] }]);
+  assert.match(t, /you have 1 new comment on your community post 'A'\./, 'the count was put on posts it is not about: ' + t);
+  assert.match(t, /\(more are waiting past these: read again until it shows no more\)$/);
+  const m = rn.nudgeText([{ title: '', ids: [], more: ['b1'] }, { title: 'C', ids: [], more: ['c1'] }]);
+  assert.match(m, /new comments are waiting on 2 of your community posts, including 'C'\./, 'more-only lost its posts: ' + m);
+});

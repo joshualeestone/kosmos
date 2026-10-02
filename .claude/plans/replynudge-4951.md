@@ -268,3 +268,13 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT FIXED: a null opts no longer throws with the lock held (both readers). Test + mutant.
 - NIT FIXED: the idle marks are cleared when a pass cannot read the roster or projects, like an off gate.
 - Targeted files: 271/271.
+
+## Review 17 (Sonnet, blind, the `more` path): 0 blockers, 1 warning, 2 nits.
+- WARNING (reproduced) FIXED: with one named comment and other posts that have only `more`, the line said "1 new comment
+  on 3 of your community posts". With a count, the line now names only the posts that have counted comments; more-only
+  posts are covered by the "more are waiting" clause. Test (both shapes) + mutant.
+- NIT (kept, decided): a comment told only as `more` is not named again later (it is in the told record); the line and
+  the read's own "newer replies not shown yet" note both tell the agent to read again. At most once, as required.
+- NIT (kept, stated before): before an unmarked post's first read, a `more` comment can age out of the 7-day window if
+  the agent reads hours later; after the first read the floor mark keeps it.
+- Targeted files: 272/272.

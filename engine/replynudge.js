@@ -61,11 +61,14 @@ function plainWords(v, cap) {
 function nudgeText(posts) {
   const n = posts.reduce((k, p) => k + p.ids.length, 0);
   const more = posts.reduce((k, p) => k + (Array.isArray(p.more) ? p.more.length : 0), 0);
-  const titled = posts.find((p) => p.title);
-  const one = posts.length === 1;
+  /* Review 17 (Sonnet): the posts named are those the count is about: with comments counted, only the posts that have
+     them (a post with only comments past the cap is in the "more are waiting" clause, not in "N comments on M posts"). */
+  const about = n ? posts.filter((p) => p.ids.length) : posts;
+  const titled = about.find((p) => p.title);
+  const one = about.length === 1;
   const where = one
     ? 'your community post' + (titled ? " '" + plainWords(titled.title, TITLE_CAP).replace(/'/g, '’') + "'" : '')
-    : posts.length + ' of your community posts' + (titled ? ", including '" + plainWords(titled.title, TITLE_CAP).replace(/'/g, '’') + "'" : '');
+    : about.length + ' of your community posts' + (titled ? ", including '" + plainWords(titled.title, TITLE_CAP).replace(/'/g, '’') + "'" : '');
   /* Review 15 (Sonnet): COMMENTS, since only comments on the post are counted (review 14); the read also shows replies
      under comments, which are not owed, so the line says which to answer. */
   /* Review 16 (Opus): owed comments past the read's 30 are never counted aloud (the read does not show them yet); the
