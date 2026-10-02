@@ -3094,6 +3094,11 @@ function agyNameOk(bin, platform) { return runners.isAgyName(runners.agyRealName
    AGENT_WORKFORCE_ANTIGRAVITY_WINDOWS=0 or an antigravity-windows.off file). */
 function win32AgyOn() { return require('./win32agy').switchOn(); }
 
+/* #2955: the tmux this board's launcher picked, while the board is still on it or on a tmux status.js switched to
+   itself; null otherwise (an explicit value set later wins). A failure to load status.js is said, not swallowed. */
+function launcherTmuxSafe() {
+  try { return require('./status').launcherTmux(); } catch (e) { console.error('[create] #2955: could not read the launcher\'s tmux pick: ' + (e && e.message)); return null; }
+}
 /**
  * Where the two things an agent needs actually live on this computer.
  *
@@ -3116,9 +3121,6 @@ function win32AgyOn() { return require('./win32agy').switchOn(); }
  * creation refuses, on the screen whose entire job is telling them it will
  * work. One definition, or the two drift.
  */
-function launcherTmuxSafe() {
-  try { return require('./status').launcherTmux(); } catch { return null; }
-}
 function binPaths(opts) {
   return {
     // Claude's resolution moved to engine/runners.js (#979, same

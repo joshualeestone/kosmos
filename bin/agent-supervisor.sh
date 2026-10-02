@@ -82,7 +82,11 @@ _kosmos_supervisor_tmux() {
   local _said _cand _own
   _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
   case "$_said" in
-    *"server exited unexpectedly"*|*"protocol version mismatch"*) ;;
+    *"protocol version mismatch"*) ;;
+    # The bundled 3.5a says these same words with NO server at all (it spawns one that exits at once). Only with a
+    # socket on disk are they the wall, the rule engine/status.js tmuxSaidNoServer follows, so a clean Mac searches
+    # for nothing at every agent start.
+    *"server exited unexpectedly"*) [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ] || return 0 ;;
     *) return 0 ;;
   esac
   # Kosmos's own tmux is always a candidate (this script lives in <kosmos home>/bin), so a job baked with another tmux

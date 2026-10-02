@@ -6085,18 +6085,26 @@ test('#2955: a search that found nothing waits before it runs again, and the det
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: a new agent bakes the launcher\'s pick, not a tmux the board switched to; an explicit path stays', () => {
+test('#2955: a new agent bakes the launcher\'s pick, not a tmux the board switched to; a later explicit value wins', () => {
   const status = require('./status');
   const create = require('./create');
+  const m = wallMachine();
   try {
-    withEnv({ AGENT_WORKFORCE_TMUX_BIN: '/opt/homebrew/bin/tmux', KOSMOS_HOME: undefined }, () => {
-      status.setLauncherTmux('/k/tmux/bin/tmux');
-      assert.equal(create.binPaths().tmuxBin, '/k/tmux/bin/tmux', 'the switched tmux would be baked into a new agent\'s job');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [m.reader]);
+      assert.equal(create.binPaths().tmuxBin, m.old, 'control: on the launcher\'s pick, it is baked');
+      assert.equal(status.tmuxRepick(), true);
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.reader);
+      assert.equal(create.binPaths().tmuxBin, m.old, 'the switched tmux would be baked into a new agent\'s job');
       assert.equal(create.binPaths({ tmuxBin: '/somewhere/tmux' }).tmuxBin, '/somewhere/tmux');
       assert.match(create.plistFor('ann', '/bin/claude', '/opt/homebrew/bin/tmux'), /<string>\/opt\/homebrew\/bin\/tmux<\/string>/,
         'an existing agent\'s baked path was rewritten by a plist rewrite');
-      status.setLauncherTmux(null);
-      assert.equal(create.binPaths().tmuxBin, '/opt/homebrew/bin/tmux', 'with no launcher pick, the explicit value is what is baked');
+      // A harness that loaded this module first and then set its own stub: a choice, whatever was read at load.
+      process.env.AGENT_WORKFORCE_TMUX_BIN = '/stub/tmux';
+      assert.equal(status.launcherTmux(), null, 'a value set after load was taken as the launcher\'s pick');
+      assert.equal(create.binPaths().tmuxBin, '/stub/tmux');
+      assert.equal(status.tmuxRepick(), false, 'a later explicit value was searched past');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, '/stub/tmux');
     });
-  } finally { status.setLauncherTmux(undefined); }
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });

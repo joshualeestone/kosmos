@@ -39,11 +39,14 @@ function sandbox() {
   };
 }
 /** TMUX_BIN and PATH after the reader, from a baked tmux and a list of known places. */
-function run(baked, known, own) {
+function run(baked, known, own, noSocket) {
   const script = `say() { :; }\nSESSION=a\nTMUX_BIN=${JSON.stringify(baked)}\n${fn()}\n_kosmos_supervisor_tmux\nprintf '%s\\n%s' "$TMUX_BIN" "$PATH"`;
   // Hermetic: an empty directory first and /bin (no tmux on any runner), so `command -v tmux` finds nothing real.
   const empty = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'supreader-path-'));
-  const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8', env: { PATH: `${empty}:/bin`, KOSMOS_TMUX_KNOWN: known.join(' '), KOSMOS_TMUX_OWN: own || nodePath.join(empty, 'no-own-tmux') } });
+  // A socket on disk, as on Agent1s: 3.5a's wall words mean the wall only with one (with none they are its serverless voice).
+  const sock = nodePath.join(empty, 'sock');
+  if (!noSocket) { fs.mkdirSync(nodePath.join(sock, 'tmux-' + process.getuid()), { recursive: true }); fs.writeFileSync(nodePath.join(sock, 'tmux-' + process.getuid(), 'default'), ''); }
+  const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8', env: { PATH: `${empty}:/bin:/usr/bin`, TMUX_TMPDIR: sock, KOSMOS_TMUX_KNOWN: known.join(' '), KOSMOS_TMUX_OWN: own || nodePath.join(empty, 'no-own-tmux') } });
   fs.rmSync(empty, { recursive: true, force: true });
   const [bin, p] = out.split('\n');
   return { bin, path: p };
@@ -69,6 +72,12 @@ test('#2955: a working tmux, no server, or any other refusal keeps the baked pat
 test('#2955: Kosmos\'s own tmux is always a candidate, so a job baked with another follows the server back to it', () => {
   const t = sandbox();
   assert.equal(run(t.wall, [], t.lists).bin, t.lists, 'a server Kosmos\'s own tmux can read was left unread');
+  fs.rmSync(t.sb, { recursive: true, force: true });
+});
+test('#2955: with no socket on disk, 3.5a\'s serverless words start no search (a clean Mac at every agent start)', () => {
+  const t = sandbox();
+  assert.equal(run(t.wall, [t.lists], null, true).bin, t.wall, 'a clean Mac searched for and switched to another tmux');
+  assert.equal(run(t.mismatch, [t.lists], null, true).bin, t.lists, 'the explicit protocol-mismatch wording needs no socket check');
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
 

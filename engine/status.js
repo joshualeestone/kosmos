@@ -516,12 +516,20 @@ function isVersionWall(got) {
 const LAUNCHER_TMUX = process.env.KOSMOS_TMUX_BIN_PICKED === '1' && process.env.AGENT_WORKFORCE_TMUX_BIN
   && process.env.KOSMOS_TMUX_BIN_PICKED_AS === process.env.AGENT_WORKFORCE_TMUX_BIN ? process.env.AGENT_WORKFORCE_TMUX_BIN : null;
 let TMUX_LAUNCHER_SEAM;   // undefined: the real one
+let TMUX_SWITCHED_TO = null;   // the last value tmuxRepick itself wrote
 let TMUX_CANDIDATES_SEAM = null;
 let TMUX_REPICK_MISSED_AT = 0;
 let TMUX_LAST_SEARCH = 'none';   // 'none' | 'not-allowed' | 'waiting' | 'found-nothing': for the detail line
 const TMUX_REPICK_WAIT_MS = 60000;
-/** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher). */
-function launcherTmux() { return TMUX_LAUNCHER_SEAM !== undefined ? TMUX_LAUNCHER_SEAM : LAUNCHER_TMUX; }
+/** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher), AND only
+    while the live value is still that pick or one this module switched to itself: an explicit value set later in
+    the process (a harness that loaded this module first) is a choice, whatever the environment said at load. */
+function launcherTmux() {
+  const pick = TMUX_LAUNCHER_SEAM !== undefined ? TMUX_LAUNCHER_SEAM : LAUNCHER_TMUX;
+  if (!pick) return null;
+  const live = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  return live === pick || (TMUX_SWITCHED_TO && live === TMUX_SWITCHED_TO) ? pick : null;
+}
 function tmuxRepick() {
   if (!launcherTmux()) { TMUX_LAST_SEARCH = 'not-allowed'; return false; }
   if (TMUX_REPICK_MISSED_AT && Date.now() - TMUX_REPICK_MISSED_AT < TMUX_REPICK_WAIT_MS) { TMUX_LAST_SEARCH = 'waiting'; return false; }
@@ -530,13 +538,14 @@ function tmuxRepick() {
     ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
     : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
   const own = process.env.KOSMOS_HOME ? [path.join(process.env.KOSMOS_HOME, 'tmux', 'bin', 'tmux')] : [];
-  const cands = (TMUX_CANDIDATES_SEAM || known).concat(own, launcherTmux());
+  const cands = (TMUX_CANDIDATES_SEAM || known).concat(own, launcherTmux());   // launcherTmux() is non-null here
   for (const c of cands) {
     if (!c || c === current) continue;
     try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
     const tried = shDetail(c, ['list-sessions']);
     if (tried.ran && tried.status === 0) {
       process.env.AGENT_WORKFORCE_TMUX_BIN = c;
+      TMUX_SWITCHED_TO = c;
       TMUX_REPICK_MISSED_AT = 0;
       TMUX_LAST_SEARCH = 'none';
       // First on PATH, once: a board that switches back and forth must not grow PATH without end.
@@ -8375,7 +8384,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, launcherTmux, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; }, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, launcherTmux, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,

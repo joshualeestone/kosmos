@@ -52,14 +52,18 @@ That the board and the supervisors converge: both ask the live server the same q
 but only the board re-asks while it runs; a supervisor asks once per start. A supervisor that started a bundled server
 before any newer one existed keeps it, and then the newer tmux (a person's, the fleet's) is the one that cannot read
 (Kosmos sees its agents; the person's own tmux client does not). Not measured on a real reboot of a Mac with
-Kosmos-created agents and a newer Homebrew tmux.
+Kosmos-created agents and a newer Homebrew tmux. And it can switch more than once: each time the server's owner changes
+(a Kosmos-started server after a Homebrew one, then back), the board follows, one log line and one PATH entry each
+time; only a search that found nothing is damped. Following the owner is the point, so this is accepted; a fleet that
+mixes owners on one socket would show it as repeated switch lines in the board log.
 
 ## Tests
 engine/status.test.js: the switch (env and PATH), an explicit choice never replaced, nothing that cannot list taken,
 the look succeeding in the same call, the wall's detail and its controls. supervisor.tmux-reader-2955.test.js: the
 switch at the wall (both wordings) with PATH; a working tmux, no server, a permission refusal and an unlisting
 candidate all keep the baked path; the reader is called before the first look. Every guard mutated, each reds its
-test. 115 test files that read the supervisor or the status engine pass.
+test. Round 3's run of the 208 test files that read the launcher, the supervisor, the status engine or create.js
+found one red (engine.reachable.test.js: the two new test seams, now excused by name); it is rerun before the PR.
 ## Review rounds
 - Round 1 (opus): my first design (a launch-time preference for the system tmux, recorded in a file for supervisors)
   REPLACED by the runtime rule above; see "Rejected in review round 1".
@@ -82,4 +86,13 @@ test. 115 test files that read the supervisor or the status engine pass.
   NITs taken: a no-socket arm (a clean Mac's serverless words start no search; removing that arm reds it); the detail
   says what the search did; the supervisor's PATH comment says what PATH reaches; the supervisor test is hermetic.
   LEFT NIT: the supervisor's probes have no timeout (its existing has-session loop has none either).
+- Round 4 (sonnet): FIXED W: the launcher pick was judged once at module load, so a harness that loaded status.js
+  first and then set its own stub could have it replaced (and create.binPaths would bake the real tmux); launcherTmux
+  now answers only while the live value is that pick or one tmuxRepick wrote itself (test: a stub set after load is a
+  choice; removing either half reds it). FIXED W: the supervisor took 3.5a's serverless "server exited unexpectedly"
+  as the wall and searched at every agent start on a clean Mac; it now needs the socket on disk, as status.js does
+  (test with a no-socket control; the explicit mismatch wording needs none). NOTED W (premise, now written): the board
+  follows each change of owner, so it can switch more than once. NITs taken: create.js's helper sits above binPaths's
+  doc comment, not between it and binPaths, and says a load failure instead of swallowing it; the plan's test count
+  says what was actually run. LEFT NIT: $0 without a slash in a manual run (the derived path is skipped, harmless).
 
