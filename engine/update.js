@@ -542,7 +542,8 @@ function installedRoot() {
        && fs.existsSync(path.join(home, 'app', 'server.js'))) ? home : null;
 }
 
-/** The installer URL, derived from the release base (its sibling /setup).
+/** The installer URL, derived from the release base (its sibling /setup, or /setup-staging for a box
+    installing from the staging pointer, #5032).
     ⚠️ Assumes the base ends in /dist, which both the default and the
     installer's own KOSMOS_RELEASE_BASE convention do; an override without
     that suffix yields <base>/setup, so a nonstandard staging base must
