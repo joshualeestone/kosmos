@@ -33,7 +33,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - `engine/team.js` sets `createdByName` and `askedAt` on every member: the asking agent's token name and its request
   time when an agent (not the setup guide) asked on a named token, else null, so a member cannot set them.
   `engine/create.js` records them on the birth.
-- Tests: `server.agent-remove-4475.test.js` (32); `engine/remove.test.js` (a real removal ends the identity in the
+- Tests: `server.agent-remove-4475.test.js` (33); `engine/remove.test.js` (a real removal ends the identity in the
   history and a restore does not erase it); `engine/delete-leftover.test.js` (deleting a stopped, never-removed
   agent's leftovers ends it too); `server.team-agent-token-1279.test.js` (the agent path records the exact token name
   and askedAt for a creator whose sessionName differs; the board-token path records none; END TO END: an agent makes
@@ -53,7 +53,12 @@ and cannot force a removal; the person (the board token) removes any agent exact
   (`launch-secrets/`, beside the data root and in the app folder), where a token waits until its pane starts
   (review 15). Its own token comes in its environment from the supervisor. NOT closed: another agent's token in its
   process environment (readable with `ps -E` by the same Mac user, unless Claude Code's sandbox blocks it, not
-  measured), and typing into another agent's tmux pane; both need a per-agent OS user to close. The tests
+  measured), and typing into another agent's tmux pane; both need a per-agent OS user to close.
+- Accepted cost of that deny (review 17): the Mac CLI's outbox keep (a `kosmos msg`/`reply`/`post` made while another
+  Kosmos is the one open, answered 421) resolves the sender by reading `sendertokens/` (engine/outbox.js
+  resolveKeepSender), so for a token-only agent that send is refused with a sentence instead of kept. Narrow: the
+  token-only pilot (Echo today) in a multi-world moment. Fixing it means the outbox keeping something the board can
+  resolve later without the agent reading the store; a follow-up, noted on #4475. The tests
   assert the config written; Seatbelt enforcing a folder deny was measured by hand for board.token's file only. An agent that can still read the board
   token is indistinguishable from the person, so for it this stays advisory (step 1's doctrine). It widens as
   token-only becomes the default.
@@ -116,7 +121,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
   name (adopt mints without revoking), is not seen.
 
 ## Validation
-- `engine/boardkeychain-4491.test.js` 20/20 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 32/32, `server.team-agent-token-1279.test.js` 25/25, `engine/remove.test.js` 93/93,
+- `engine/boardkeychain-4491.test.js` 20/20 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 33/33, `server.team-agent-token-1279.test.js` 25/25, `engine/remove.test.js` 93/93,
   `engine/delete-leftover.test.js` 15/15, `engine/team.newrole-4474.test.js` 22/22,
   `server.agent-token-gate-4491.test.js` 25/25, `server.agent-token-sender-570.test.js` 7/7.
 - Mutants, each failing only its own cases: revoke not writing the history (the delete-leftover and end-to-end tests),
@@ -124,6 +129,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
   unreadable history read as none, the target's end counted at the birth's exact time, the removal route ignoring
   `tookTokens`, create not recording it, the shared-key check removed, a malformed history time skipped, a malformed
   birth time accepted, the birth's `slug` ignored, the `slug === target` check removed, `tookTokens` checking only the
-  typed name's key, the launch hand-off deny removed, an empty name set read as nothing ended, plus (re-run on this code at
+  typed name's key, the launch hand-off deny removed, an empty name set read as nothing ended, an unreadable token
+  file read as no other name, plus (re-run on this code at
   b54ebe022) the createdByName presence check, the key-only refusal, the board-name check, a slug comparison of the
   creator, and the team route recording the sessionName in place of the token name.
