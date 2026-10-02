@@ -46,5 +46,4 @@ That the file:// page lays out the header as the served board does. The switcher
   (a top-only compare stayed green when the one-screen padding was changed: padding 40px reds klinkX and youX).
 - Review 6, a known limit, measured: past the switcher's 220px cap (forced to 581px with a long name, at 960, 1100
   and 1440) the two views still agree to the pixel (tabs x 675.1 in both), but the tabs leave the centre because the
-  left 1fr track cannot shrink below the left cluster. The 220px cap is what keeps them centred; the long-name arm
-  reds if the cap is lifted (the "moved with the Kosmos name's width" lines). A larger system text size is not measured.
+  left 1fr track cannot shrink below the left cluster. A larger system text size is not measured.
