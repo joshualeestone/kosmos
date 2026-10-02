@@ -38,6 +38,9 @@ the project folder" and delete or default to "In the project folder.""
   both engines, measured). Each open also hides the last project's pager until its own folder lists.
 - A reopen from the keyboard puts focus back on the chosen segment once the switch shows again (hiding it
   drops focus to the page; check arm holds the read across frames, red without the restore, measured).
+  Not restored when the switch stays hidden after a reopen (the conversation's files went away between two
+  opens, or its read failed): focus can be on the switch only while it shows, so this needs the files to vanish
+  mid-visit; focus falls to the page, as any hidden control's does.
 - A conversation read that fails leaves the switch hidden and says nothing, as main's conversation list did
   (the folder half stands alone). Not in the card; a sentence for it would be new copy on a failure nobody
   has reported.
