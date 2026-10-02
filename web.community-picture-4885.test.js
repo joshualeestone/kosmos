@@ -146,7 +146,21 @@ test('#4885 pictureStill: a still PNG or WebP is kept; an animated one, a JPEG, 
 });
 
 test('#4885: Settings re-reads the picture counts each time its Automation section opens, not only at page load', () => {
-  assert.match(HTML, /if \(section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING\) refreshIndustry\(\);/);
+  assert.match(HTML, /if \(section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING\) refreshIndustry\(false, true\);/);
+});
+
+test('#4885: a quiet re-read that fails leaves the screen as it was; a page-load read that fails says so', async () => {
+  for (const [quiet, failWith, painted] of [[true, 'status', 0], [true, 'throw', 0], [false, 'status', 1], [false, 'throw', 1], [true, 'ok', 1]]) {
+    const calls = [];
+    const fetch = async () => {
+      if (failWith === 'throw') throw new Error('offline');
+      return failWith === 'status' ? { ok: false } : { ok: true, json: async () => ({ ok: true }) };
+    };
+    // eslint-disable-next-line no-new-func
+    const run = new Function('fetch', 'industryPaint', 'let INDUSTRY_EPOCH = 0; async ' + lift('refreshIndustry') + 'return refreshIndustry;')(fetch, (r) => calls.push(r));
+    await run(false, quiet);
+    assert.equal(calls.length, painted, 'quiet=' + quiet + ' ' + failWith);
+  }
 });
 
 test('#4885: the agent page says when a chosen picture could not be fitted for the community', () => {

@@ -100,6 +100,11 @@ picture Kosmos can no longer take down is said in Settings.
   the Settings count covers them. Their pictures come from the person's file picker or the catalogue, almost always
   photos fitPicture can fit.
 
+- (review 10) The re-read when Automation opens is quiet: a failed read leaves the screen as it was instead of
+  showing "could not be read" over a blip; a failed read at page load still says so. Tested on the lifted function.
+- (review 10) The community reads a rotation only from a JPEG (app/avatars.py _jpeg) and drops a PNG's eXIf unread, so
+  no eXIf shape makes it refuse a kept PNG; pictureTurned only decides whether to redraw one upright.
+
 ## Weakest premise
 That 512 px is enough for every place Kosmos shows a picture. Agent pictures render at most a few hundred CSS pixels
 wide; a person who wants a sharper picture can choose a still PNG under 60,000 bytes, which is kept as is.

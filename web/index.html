@@ -30318,15 +30318,17 @@ function industryPaint(r, keepMsg) {
     : (list.length ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
       : 'We could not read which business your profiles show just now. Try again in a moment.');
 }
-async function refreshIndustry(keepMsg) {
+/* #4885: `quiet` (a re-read when Settings' Automation section opens) leaves what is on screen alone when the read
+   fails, rather than turning a readable setting into "could not be read" over a momentary blip. */
+async function refreshIndustry(keepMsg, quiet) {
   const mine = ++INDUSTRY_EPOCH;
   try {
     const res = await fetch('/api/community-industry');
-    if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true); return; }
+    if (!res.ok) { if (mine === INDUSTRY_EPOCH && !quiet) industryPaint(null, keepMsg === true); return; }
     const r = await res.json();
     if (mine === INDUSTRY_EPOCH) industryPaint(r, keepMsg === true);
   } catch {
-    if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true);
+    if (mine === INDUSTRY_EPOCH && !quiet) industryPaint(null, keepMsg === true);
   }
 }
 /* A change while a save is out is not dropped: arrow keys on a closed select fire `change` at every step, and the
@@ -37010,7 +37012,7 @@ function settingsGo(section, opts) {
   if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
   /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
      repaints the industry row too, so an earlier save message there is cleared. */
-  if (section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING) refreshIndustry();
+  if (section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING) refreshIndustry(false, true);
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
