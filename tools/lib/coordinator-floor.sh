@@ -1,4 +1,5 @@
 #!/bin/bash
+# Bash only (substring expansion, here-docs into a read loop): sourced by release.sh (#!/bin/bash).
 # Does the coordinator serving traffic carry every relay change the connector a cut bundles needs? (#5037)
 #
 # WHY. Some relay changes put the connector and the coordinator in an order: the coordinator must be
@@ -18,7 +19,13 @@
 # FAILS CLOSED. A /v1/meta that cannot be read, has no build, or names a commit the relay checkout does
 # not have, is refused, not waved on. So is a floor line naming a commit the checkout does not have.
 #
-# OVERRIDE. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway, says what it skips, and returns 0.
+# OVERRIDE. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway past a coordinator KNOWN to be behind, says what
+# it skips, and returns 0. It deliberately does NOT cover an UNKNOWN coordinator (meta unreadable, no build,
+# dirty, a build the checkout lacks): for a coordinator-first change, "we could not look" must not ship.
+# A connector off the floor's line that is older (a stale-tunnel override, an odd checkout) is also asked
+# about and can be refused while the coordinator is below the floor: a false refusal, intended, because the
+# alternative is guessing what an unrelated commit carries.
+# The /v1/meta parse expects compact JSON ("build":"<hex>"), which is what the coordinator's serde writes.
 #
 # Usage: source (after connector-provenance.sh), then
 #   coordinator_floor_check <connector-bin> <relay-checkout> <floor-file>
@@ -74,7 +81,7 @@ EOF_NEEDED
     echo "coordinator_floor: the connector (built from ${built:0:12}) needs the coordinator to carry these, and the coordinator serving traffic ($url, build $build) does not:"
     printf '%s' "$behind"
     echo "Deploy the coordinator at or above them first and check $url/v1/meta, then cut. Never roll it back below them afterwards."
-    echo "To ship anyway, rerun with KOSMOS_ALLOW_COORDINATOR_BEHIND=1."
+    echo "To ship anyway, rerun with KOSMOS_ALLOW_COORDINATOR_BEHIND=1 (it covers a coordinator known to be behind, never an unknown one)."
   } >&2
   return 1
 }

@@ -17,7 +17,9 @@ the connector match relay main.
 
 ## Tests (tools/test-coordinator-floor-5037.sh, in test:shell)
 Throwaway relay history OLD < FLOOR < NEWER, a stand-in connector with sidecars, /v1/meta from file://.
-Below-floor connector passes without asking (control: meta absent); floor-carrying connector with an older
+Below-floor connector passes without asking (control: meta absent); a connector from a pre-squash branch
+(off the floor's line) is asked about and refused beside an older coordinator (control: passes beside an
+at-floor one); a dirty build refuses as dirty; a branch-deployed build refuses naming that case; floor-carrying connector with an older
 coordinator refuses (the #4869 shape) and names the change; at-floor (short id) and above (full id) pass;
 a connector built exactly at the floor is checked; no meta / no build / unknown build / unknown floor
 commit refuse; the override works and only for exactly 1; the committed floor holds full shas incl.
@@ -38,5 +40,10 @@ build), it does not pass.
   run release.sh and does not ask the coordinator. Step 1d has the same gap.
 - A coordinator deployed from a branch before the squash merge reports a sha the relay checkout lacks; the
   gate refuses (safe) and says to redeploy from relay main.
-- Checks the coordinator at cut time only. A coordinator rolled back after the cut is #4869 step 2's
+- Checks the coordinator at cut time only. A coordinator rolled back below the floor AFTER a cut, or a connector
+  reaching users by a later promote of an earlier staging cut, is not caught here; #4869 step 2 (never roll
+  back below 534f36980, rename the rollback binary) is the rule for that. A deploy-side refusal would belong
+  in kosmos-relay's deploy-coordinator.sh.
+- The override covers a coordinator known to be behind, never an unknown one (stated in the lib and in the
+  refusal text). A coordinator rolled back after the cut is #4869 step 2's
   rule, not this gate's.

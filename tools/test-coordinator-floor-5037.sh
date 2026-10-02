@@ -70,7 +70,9 @@ KOSMOS_ALLOW_COORDINATOR_BEHIND=yes KOSMOS_COORDINATOR_URL="file://$T/coord" coo
 
 # 6. the committed floor file and the release.sh wiring
 REAL_FLOOR="$(grep -v '^#' tools/coordinator-floor | awk 'NF{print $1}')"
-[ -n "$REAL_FLOOR" ] && printf '%s\n' "$REAL_FLOOR" | grep -qvE '^[0-9a-f]{40}$' && bad "tools/coordinator-floor has a line that is not a full sha" || ok "tools/coordinator-floor holds full shas only"
+if [ -z "$REAL_FLOOR" ]; then bad "tools/coordinator-floor holds no commit"
+elif printf '%s\n' "$REAL_FLOOR" | grep -qvE '^[0-9a-f]{40}$'; then bad "tools/coordinator-floor has a line that is not a full sha"
+else ok "tools/coordinator-floor holds full shas only"; fi
 printf '%s\n' "$REAL_FLOOR" | grep -qx "534f36980f2f364b178193eb54958329d3daf6d5" && ok "tools/coordinator-floor carries #4869 (534f36980)" || bad "tools/coordinator-floor lacks #4869"
 grep -qF '"${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1' tools/release.sh && grep -qF '. "$REPO/tools/lib/coordinator-floor.sh"' tools/release.sh \
   && ok "release.sh sources the check and runs it (step 1d2)" || bad "release.sh does not run coordinator_floor_check"
