@@ -519,6 +519,7 @@ fi
 chk "board answers" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
 chk "command works through the symlink" "\"$SB/bin/kosmos\" status | grep -q running"
 chk "app bundle created" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+chk "#2864: a first install records app_path=rename (nothing there to update)" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename ]"
 # The PATH wiring lands in the SANDBOX profile (the sandbox bin dir is not
 # on this shell's PATH, so the wiring arm must fire), exactly once, and a
 # pre-existing line survives.
@@ -768,14 +769,132 @@ touch "$SB/home/app/engine/stale-marker.js"
 # compares against, so the run continues and the red says what it saw.
 wait_for_file "$SB/home/board.pid" 30 || echo "note: $SB/home/board.pid absent after 30s before the update (the board from the install is not running or has not written its pid)"
 PID1="$(cat "$SB/home/board.pid" 2>/dev/null || echo none)"
+# 🔑 #2864: the Kosmos.app FOLDER's inode is what a kept Dock icon follows. Read it
+# (and its Contents') before the update, to assert the update swaps only Contents.
+APP_INO1="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
+CONTENTS_INO1="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app/Contents" 2>/dev/null || echo none)"
 RC=0; cat "$SETUP" | sh > "$SB/update.log" 2>&1 || RC=$?
 chk "update exits 0" "rc_ok $RC"
 chk "stale file gone (swap, not merge)" "[ ! -e \"$SB/home/app/engine/stale-marker.js\" ]"
 chk "board restarted (new pid)" "[ \"$PID1\" != \"$(cat "$SB/home/board.pid")\" ]"
 chk "board serves after update" "curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
-# The idempotency check lives HERE, after a SECOND install against the
-# same profile: after one install a count of 1 is guaranteed even with
-# the marker guard deleted, so a first-pass count check cannot fail.
+
+echo "== #2864: an update keeps the Kosmos.app folder, so a kept Dock icon stays valid =="
+chk "the premise: there was an app folder before the update" "[ \"$APP_INO1\" != none ]"
+chk "an update keeps the SAME Kosmos.app folder (inode $APP_INO1)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO1\" ]"
+chk "an update does replace Contents (the swap happened, not a no-op)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO1\" ]"
+chk "the install log records swap_errno=0 for that run" "grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | grep -q ' swap_errno=0 '"
+chk "and swap_dir names the folder the swap acted on (physical path)" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* swap_dir=//')\" = \"\$(cd \"$SB/apps\" && pwd -P)\" ]"
+chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = swap ]"
+chk "the swapped app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
+chk "no stage or aside folder is left behind by the swap" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+# CONTROL, the property the fix exists for: with the swap switched off, the old
+# whole-bundle rename runs and the folder IS a new one. If this ever passes with the
+# same inode, the check above proves nothing.
+APP_INO2="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
+RC=0; cat "$SETUP" | KOSMOS_CONTENTS_SWAP=off sh > "$SB/update-noswap.log" 2>&1 || RC=$?
+chk "CONTROL: an update with the swap off exits 0" "rc_ok $RC"
+chk "CONTROL: with the swap off the Kosmos.app folder is a NEW one (what made kept Dock icons stale)" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO2\" ]"
+chk "the install log records app_path=rename-swap-skipped for that run (an update the swap was not tried on)" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename-swap-skipped ]"
+chk "CONTROL: and that app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+# How many app-bundle lines a log holds (0 when there is none). Each install writes
+# exactly one, so a run that adds one proves the "tail -1" checks after it read that run.
+ab_lines() { grep -c 'app-bundle:' "$1" 2>/dev/null || true; }
+# A swap that FAILS falls back to the whole-bundle rename: never a half-empty folder.
+printf '#!/bin/sh\nexit 1\n' > "$SB/perl-fails"; chmod +x "$SB/perl-fails"
+APP_INO3="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
+AB_N="$(ab_lines "$SB/home/logs/install.log")"
+RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-fails" sh > "$SB/update-swapfail.log" 2>&1 || RC=$?
+chk "that run wrote its own app-bundle line (so the log checks below read this run, not the last)" "[ \"\$(ab_lines \"$SB/home/logs/install.log\")\" = $((AB_N + 1)) ]"
+chk "a failed swap still installs (exits 0)" "rc_ok $RC"
+chk "after a failed swap the app is complete and runnable, not a husk" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
+chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename-swap-refused ]"
+chk "and it got there by the whole-bundle fallback (a new folder), so the failure was really taken" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO3\" ]"
+chk "the failed-swap run leaves no stage or aside folder behind" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+# A swap call that claims success but moved nothing is caught by the inode proof, and
+# the fallback installs a complete app (the stage was never touched).
+printf '#!/bin/sh\nprintf 0\nexit 0\n' > "$SB/perl-lies"; chmod +x "$SB/perl-lies"
+APP_INO4="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
+AB_N="$(ab_lines "$SB/home/logs/install.log")"
+RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-lies" sh > "$SB/update-swaplies.log" 2>&1 || RC=$?
+chk "that run wrote its own app-bundle line (so the log checks below read this run, not the last)" "[ \"\$(ab_lines \"$SB/home/logs/install.log\")\" = $((AB_N + 1)) ]"
+chk "a swap that did nothing is not believed: install still exits 0" "rc_ok $RC"
+chk "and the app is complete and runnable" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
+chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename-swap-refused ]"
+chk "the log keeps the call's own claim (swap_errno=0) beside rename-swap-refused" "grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | grep -q ' swap_errno=0 '"
+chk "and the fallback ran (a new folder): the zero exit was not taken as a swap" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" != \"$APP_INO4\" ]"
+chk "the did-nothing-swap run leaves no stage or aside folder behind" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+# The stub below repeats the installer's syscall; pin the two to the same call, or a
+# change to the installer's flags would leave this case testing a stale shape.
+chk "the stub's swap call is the installer's own (488, AT_FDCWD, flags 18)" "grep -qF 'syscall(488, -2, \$ARGV[0], -2, \$ARGV[1], 18)' \"$SETUP\""
+# The dangerous case: the swap HAPPENED but reported failure. Falling through to the
+# whole-bundle rename here would install $stage, by then the OLD Contents. The stub
+# really swaps (flags 18, as the installer passes) and then exits 1.
+printf '#!/bin/sh\n/usr/bin/perl -e "syscall(488, -2, \\$ARGV[0], -2, \\$ARGV[1], 18)" "$3" "$4"\nexit 1\n' > "$SB/perl-swaps-then-fails"; chmod +x "$SB/perl-swaps-then-fails"
+APP_INO5="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app" 2>/dev/null || echo none)"
+CONTENTS_INO5="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app/Contents" 2>/dev/null || echo none)"
+AB_N="$(ab_lines "$SB/home/logs/install.log")"
+RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-swaps-then-fails" sh > "$SB/update-swapfailslie.log" 2>&1 || RC=$?
+chk "that run wrote its own app-bundle line (so the log checks below read this run, not the last)" "[ \"\$(ab_lines \"$SB/home/logs/install.log\")\" = $((AB_N + 1)) ]"
+chk "a swap that happened but said it failed: install exits 0" "rc_ok $RC"
+chk "and it is believed by where the folder is: the SAME Kosmos.app folder" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app\")\" = \"$APP_INO5\" ]"
+chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = swap ]"
+chk "with the NEW Contents in it, not the old one put back by the rename" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO5\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+chk "the swapped-then-failed run leaves no stage or aside folder behind (the old Contents came back in the stage and was deleted)" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+chk "the stub itself carries the installer's call (so the pin covers both copies)" "grep -qF 'syscall(488, -2, \\\$ARGV[0], -2, \\\$ARGV[1], 18)' \"$SB/perl-swaps-then-fails\""
+# The staged folder in NEITHER place (something moved it; the stub stands in): the stage
+# is built again and installed by the whole-bundle rename, so the app is REFRESHED (new
+# Contents), not kept stale and reported as made, and not failed into ~/Applications.
+printf '#!/bin/sh\nmv "$3" "$3.moved"\nexit 1\n' > "$SB/perl-moves-it"; chmod +x "$SB/perl-moves-it"
+CONTENTS_INO6="$(/usr/bin/stat -f %i "$SB/apps/Kosmos.app/Contents" 2>/dev/null || echo none)"
+AB_N="$(ab_lines "$SB/home/logs/install.log")"
+RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-moves-it" sh > "$SB/update-neither.log" 2>&1 || RC=$?
+chk "that run wrote its own app-bundle line (so the log checks below read this run, not the last)" "[ \"\$(ab_lines \"$SB/home/logs/install.log\")\" = $((AB_N + 1)) ]"
+chk "a staged folder found in neither place: install exits 0" "rc_ok $RC"
+chk "and the app is refreshed: NEW Contents, complete and runnable" "[ \"\$(/usr/bin/stat -f %i \"$SB/apps/Kosmos.app/Contents\")\" != \"$CONTENTS_INO6\" ] && [ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && [ -f \"$SB/apps/Kosmos.app/Contents/Info.plist\" ]"
+chk "the install log records app_path=rename-swap-refused for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename-swap-refused ]"
+chk "and its stage is cleaned up, not left behind" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+# The symlink refusal (RENAME_NOFOLLOW_ANY): the installer's own call, through a path
+# with a planted link, must fail and leave the link's target untouched. CONTROL: the same
+# call on a link-free path does swap. Physical paths, as the installer passes them.
+NF="$(cd "$SB" && pwd -P)/nofollow"
+mkdir -p "$NF/stage/Contents" "$NF/victim.app/Contents" "$NF/ok.app/Contents"
+echo victim > "$NF/victim.app/Contents/v"; echo staged > "$NF/stage/Contents/v"; echo ok > "$NF/ok.app/Contents/v"
+ln -s "$NF/victim.app" "$NF/link.app"
+SWAPCALL='syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18)'
+chk "the planted-link test uses the installer's own call" "grep -qF \"\$SWAPCALL\" \"$SETUP\""
+NF_ERRNO="$(/usr/bin/perl -e "my \$r = $SWAPCALL; print((\$r == 0) ? 0 : (\$! + 0))" "$NF/stage/Contents" "$NF/link.app/Contents" 2>/dev/null)" || NF_ERRNO=none
+chk "the swap refuses a path through a planted link with ELOOP (62), not some other error" "[ \"$NF_ERRNO\" = 62 ]"
+chk "and the link's target keeps its own Contents" "[ \"\$(cat \"$NF/victim.app/Contents/v\")\" = victim ] && [ \"\$(cat \"$NF/stage/Contents/v\")\" = staged ]"
+RC=0; /usr/bin/perl -e "exit($SWAPCALL == 0 ? 0 : 1)" "$NF/stage/Contents" "$NF/ok.app/Contents" 2>/dev/null || RC=$?
+chk "CONTROL: the same call on a link-free path swaps" "[ \"$RC\" = 0 ] && [ \"\$(cat \"$NF/ok.app/Contents/v\")\" = staged ]"
+# What the swap hands back is deleted only while it proves ours: a stub that really swaps
+# and then makes the returned Contents someone else's (a foreign kosmos-install.json, as
+# if the folder had been replaced between the proof and the swap) must see it kept and
+# named, not deleted. The harness removes it afterwards so the residue checks below hold.
+printf '#!/bin/sh\n/usr/bin/perl -e "syscall(488, -2, \\$ARGV[0], -2, \\$ARGV[1], 18)" "$3" "$4"\nprintf %%s %s > "$3/Resources/kosmos-install.json"\nexit 0\n' "'{\"kosmosHome\":\"/somebody/else\"}'" > "$SB/perl-swaps-foreign"; chmod +x "$SB/perl-swaps-foreign"
+AB_N="$(ab_lines "$SB/home/logs/install.log")"
+RC=0; cat "$SETUP" | KOSMOS_SWAP_PERL="$SB/perl-swaps-foreign" sh > "$SB/update-foreign.log" 2>&1 || RC=$?
+chk "that run wrote its own app-bundle line (so the log checks below read this run, not the last)" "[ \"\$(ab_lines \"$SB/home/logs/install.log\")\" = $((AB_N + 1)) ]"
+chk "a swap that hands back someone else's Contents: install exits 0" "rc_ok $RC"
+chk "the install log records app_path=swap for that run" "[ \"\$(grep 'app-bundle:' \"$SB/home/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = swap ]"
+chk "what came back is kept, not deleted" "[ -n \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.stage\\.')\" ]"
+chk "and it is named" "grep -q 'could not be proven to be this install' \"$SB/update-foreign.log\""
+chk "the app itself is complete and ours" "[ -x \"$SB/apps/Kosmos.app/Contents/MacOS/Kosmos\" ] && grep -qF '\"kosmosHome\":\"$SB/home\"' \"$SB/apps/Kosmos.app/Contents/Resources/kosmos-install.json\""
+# Remove only the one folder the installer named, so a stray stage from any other run
+# still fails the "none left" check below.
+FOREIGN_LEFT="$(sed -n 's/.*so it was left as //p' "$SB/update-foreign.log" | tail -1)"
+chk "the kept folder is named by its path, beside the app" "case \"$FOREIGN_LEFT\" in \"$SB/apps/.Kosmos.app.stage.\"*) true ;; *) false ;; esac"
+[ -n "$FOREIGN_LEFT" ] && rm -rf "$FOREIGN_LEFT" 2>/dev/null || true
+# CONTROL for the residue checks: the same pipeline must SEE a residue name when one
+# is there, or "none left" could pass on any folder.
+mkdir -p "$SB/residue-control/.Kosmos.app.stage.0"
+chk "CONTROL: the residue pipeline finds a planted .Kosmos.app.stage.0" "[ -n \"\$(ls -A \"$SB/residue-control\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+chk "no stage or aside folder left after the fallbacks" "[ -z \"\$(ls -A \"$SB/apps\" | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ]"
+# The idempotency check lives HERE, after several installs against the
+# same profile (the update plus the #2864 swap runs above): after one install a
+# count of 1 is guaranteed even with the marker guard deleted, so a first-pass
+# count check cannot fail.
 chk "PATH wiring still written exactly once after a rerun" "[ \"\$(grep -cxF '# kosmos: PATH for the kosmos command (removed by --uninstall)' \"$SB/zprofile\")\" = 1 ]"
 
 echo "== a computer that connects elsewhere keeps its board stopped through an update (#4356) =="
@@ -1273,17 +1392,26 @@ else
   # bundle inside it cannot be moved aside (user-immutable, the flag a
   # leftover can carry; rename fails EPERM on an immutable source, and
   # chflags binds even root, unlike the chmod shapes). The ownership line
-  # matches, so the divert does not fire; make_app must fail on the swap,
-  # clean its stage AND its aside, leave the old bundle whole, and the
-  # retry must land the icon in the home folder.
+  # matches, so the divert does not fire. Both the Contents swap (#2864: an
+  # immutable folder refuses changes to its entries) and the whole-bundle
+  # rename are refused; make_app must clean its stage AND its aside, leave the
+  # old bundle whole, and the retry must land the icon in the home folder.
   SYS_WEDGE="$SB/syswedge"
   seed_kosmos_bundle "$SYS_WEDGE" "$SB/home7"
   chflags uchg "$SYS_WEDGE/Kosmos.app"
   SBH5="$SB/wedge-home"
   mkdir -p "$SBH5"
   export KOSMOS_HOME="$SB/home7" KOSMOS_BIN_DIR="$SB/bin7"
+  AB_N="$(ab_lines "$SB/home7/logs/install.log")"
   RC=0; cat "$SETUP" | HOME="$SBH5" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_WEDGE" sh > "$SB/wedge.log" 2>&1 || RC=$?
   chk "wedge install exits 0" "rc_ok $RC"
+  # The log line after a refused system-folder swap and a home-folder retry: the
+  # retry's own path (rename, nothing was there) plus the SYSTEM folder's swap
+  # errno and folder, kept across the retry so a report can say why the swap failed.
+  chk "the wedge run wrote its own app-bundle line" "[ \"\$(ab_lines \"$SB/home7/logs/install.log\")\" = $((AB_N + 1)) ]"
+  chk "the wedge log line records the retry's app_path=rename" "[ \"\$(grep 'app-bundle:' \"$SB/home7/logs/install.log\" | tail -1 | sed 's/.* app_path=\\([^ ]*\\).*/\\1/')\" = rename ]"
+  chk "and the system folder's refused swap errno (a non-zero number, kept across the retry)" "grep 'app-bundle:' \"$SB/home7/logs/install.log\" | tail -1 | grep -Eq ' swap_errno=[1-9][0-9]* '"
+  chk "and swap_dir names the system folder the swap was tried in" "[ \"\$(grep 'app-bundle:' \"$SB/home7/logs/install.log\" | tail -1 | sed 's/.* swap_dir=//')\" = \"\$(cd \"$SYS_WEDGE\" && pwd -P)\" ]"
   chk "retry landed the icon in the home folder" "[ -x \"$SBH5/Applications/Kosmos.app/Contents/MacOS/Kosmos\" ]"
   chk "retry sentence names the home folder" "grep -q 'you will find it in the Applications folder inside your home folder' \"$SB/wedge.log\""
   chk "the unmovable bundle was never gutted" "[ -f \"$SYS_WEDGE/Kosmos.app/Contents/MacOS/Kosmos\" ]"
@@ -1292,43 +1420,48 @@ else
   chflags nouchg "$SYS_WEDGE/Kosmos.app"
   KOSMOS_HOME="$SB/home7" "$SB/bin7/kosmos" stop > /dev/null 2>&1 || true
 
-  echo "== a deep-locked old bundle can no longer wedge the slot =="
-  # The reproduced husk: rm -rf on a bundle with one unwritable nested
-  # directory deletes the launcher, then dies, leaving a husk no later
-  # ownership check can prove and no uninstall will touch. The rename-
-  # aside swap must leave the VISIBLE slot holding a complete bundle at
-  # every moment; the locked residue may survive only under the hidden
-  # aside name.
-  SYS_DEEP="$SB/sysdeep"
-  seed_kosmos_bundle "$SYS_DEEP" "$SB/home19"
-  mkdir -p "$SYS_DEEP/Kosmos.app/Contents/Resources/sub"
-  touch "$SYS_DEEP/Kosmos.app/Contents/Resources/sub/keep"
-  chmod 555 "$SYS_DEEP/Kosmos.app/Contents/Resources/sub"
-  SBH17="$SB/deep-home"
-  mkdir -p "$SBH17"
-  export KOSMOS_HOME="$SB/home19" KOSMOS_BIN_DIR="$SB/bin19"
-  RC=0; cat "$SETUP" | HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh > "$SB/deep.log" 2>&1 || RC=$?
-  chk "deep-locked reinstall exits 0" "rc_ok $RC"
-  chk "the visible slot holds a complete bundle" "[ -x \"$SYS_DEEP/Kosmos.app/Contents/MacOS/Kosmos\" ]"
-  # #677: the anchor moved off the (now compiled) launcher and onto its
-  # per-install config file -- bundle_is_ours checks the same new anchor,
-  # see install/setup.sh.
-  chk "the new bundle is provably ours" "grep -qF '\"kosmosHome\":\"$SB/home19\"' \"$SYS_DEEP/Kosmos.app/Contents/Resources/kosmos-install.json\""
-  chk "the locked aside is named at install time" "grep -q 'could not remove the leftover hidden folder' \"$SB/deep.log\""
-  KOSMOS_HOME="$SB/home19" "$SB/bin19/kosmos" stop > /dev/null 2>&1 || true
-  # ⚠️ The lock STAYS for the uninstall. The first version of this pass
-  # unlocked before uninstalling, which undid the exact condition under
-  # test and let a silent best-effort sweep read as a kept promise. The
-  # served header says the sweep names what it cannot remove; hold it to
-  # that.
-  RC=0; HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh -s -- --uninstall < "$SETUP" > "$SB/deep-un.log" 2>&1 || RC=$?
-  chk "deep-world uninstall exits 0" "rc_ok $RC"
-  chk "deep-world slot fully cleared" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ]"
-  # The aside here is OUR OWN, gutted unprovable by its best-effort
-  # cleanup dying on the locked dir; either it is gone, or the transcript
-  # names it (as unremovable, or as unprovable, whichever was observed).
-  chk "surviving locked residue is gone or named" "[ -z \"\$(ls -A \"$SYS_DEEP\" 2>/dev/null | grep -F '.Kosmos.app.old')\" ] || grep -Eq 'could not remove the leftover hidden folder|could not be proven to belong to this install' \"$SB/deep-un.log\""
-  chmod -R u+w "$SYS_DEEP" 2>/dev/null || true
+  for DEEP_MODE in on off; do
+    echo "== a deep-locked old bundle can no longer wedge the slot (swap $DEEP_MODE) =="
+    # The reproduced husk: rm -rf on a bundle with one unwritable nested
+    # directory deletes the launcher, then dies, leaving a husk no later
+    # ownership check can prove and no uninstall will touch. Both ways an
+    # update can put the icon in place must leave the VISIBLE slot holding a
+    # complete bundle at every moment, so this runs twice (#2864): with the
+    # Contents swap on (the locked old Contents ends up in the hidden STAGE
+    # folder) and off (the rename-aside, where it ends up in the hidden ASIDE).
+    SYS_DEEP="$SB/sysdeep-$DEEP_MODE"
+    seed_kosmos_bundle "$SYS_DEEP" "$SB/home19$DEEP_MODE"
+    mkdir -p "$SYS_DEEP/Kosmos.app/Contents/Resources/sub"
+    touch "$SYS_DEEP/Kosmos.app/Contents/Resources/sub/keep"
+    chmod 555 "$SYS_DEEP/Kosmos.app/Contents/Resources/sub"
+    SBH17="$SB/deep-home-$DEEP_MODE"
+    mkdir -p "$SBH17"
+    export KOSMOS_HOME="$SB/home19$DEEP_MODE" KOSMOS_BIN_DIR="$SB/bin19$DEEP_MODE"
+    RC=0; cat "$SETUP" | HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" KOSMOS_CONTENTS_SWAP="$DEEP_MODE" sh > "$SB/deep-$DEEP_MODE.log" 2>&1 || RC=$?
+    chk "deep-locked reinstall exits 0" "rc_ok $RC"
+    chk "the visible slot holds a complete bundle" "[ -x \"$SYS_DEEP/Kosmos.app/Contents/MacOS/Kosmos\" ]"
+    # #677: the anchor moved off the (now compiled) launcher and onto its
+    # per-install config file -- bundle_is_ours checks the same new anchor,
+    # see install/setup.sh.
+    chk "the new bundle is provably ours" "grep -qF '\"kosmosHome\":\"$SB/home19$DEEP_MODE\"' \"$SYS_DEEP/Kosmos.app/Contents/Resources/kosmos-install.json\""
+    DEEP_WANT=rename-swap-skipped; [ "$DEEP_MODE" = on ] && DEEP_WANT=swap
+    chk "the install log records the path it took (app_path=$DEEP_WANT)" "grep -q 'app-bundle: .* app_path='$DEEP_WANT' ' \"$SB/home19$DEEP_MODE/logs/install.log\""
+    chk "the locked residue is named at install time" "grep -q 'could not remove the leftover hidden folder' \"$SB/deep-$DEEP_MODE.log\""
+    KOSMOS_HOME="$SB/home19$DEEP_MODE" "$SB/bin19$DEEP_MODE/kosmos" stop > /dev/null 2>&1 || true
+    # ⚠️ The lock STAYS for the uninstall. The first version of this pass
+    # unlocked before uninstalling, which undid the exact condition under
+    # test and let a silent best-effort sweep read as a kept promise. The
+    # served header says the sweep names what it cannot remove; hold it to
+    # that.
+    RC=0; HOME="$SBH17" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_DEEP" sh -s -- --uninstall < "$SETUP" > "$SB/deep-un-$DEEP_MODE.log" 2>&1 || RC=$?
+    chk "deep-world uninstall exits 0" "rc_ok $RC"
+    chk "deep-world slot fully cleared" "[ ! -e \"$SYS_DEEP/Kosmos.app\" ]"
+    # The stage (swap on) or aside (swap off) here is OUR OWN, gutted unprovable by
+    # its best-effort cleanup dying on the locked dir; either it is gone, or the
+    # transcript names it (as unremovable, or as unprovable, whichever was observed).
+    chk "surviving locked residue (stage or aside) is gone or named" "[ -z \"\$(ls -A \"$SYS_DEEP\" 2>/dev/null | grep -E '^\\.Kosmos\\.app\\.(stage|old)\\.')\" ] || grep -Eq 'could not remove the leftover hidden folder|could not be proven to belong to this install' \"$SB/deep-un-$DEEP_MODE.log\""
+    chmod -R u+w "$SYS_DEEP" 2>/dev/null || true
+  done
 
   echo "== a survivor is NAMED (positive control for the could-not-remove note) =="
   # Without this pass the survivor-note branches could be deleted whole and

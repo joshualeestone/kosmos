@@ -38,11 +38,17 @@
 # /Applications it only ever replaces a Kosmos icon it can prove it created
 # itself (by the icon's own contents); its write check creates and removes
 # one empty hidden folder there; and the icon is assembled in a hidden
-# .Kosmos.app.stage.<pid> folder beside its spot and renamed into place,
-# with the replaced icon renamed aside as .Kosmos.app.old.<pid> until the
-# swap completes (an interrupted run can leave either hidden folder
-# behind; --uninstall sweeps both when it can prove they are this
-# install's own, and names anything it leaves). macOS may show its own one-time
+# .Kosmos.app.stage.<pid> folder beside its spot (.Kosmos.app.stage.<pid>.r if it
+# has to be built again). On an update of an icon it
+# created, its Contents is exchanged with the existing one in a single step
+# (#2864), so the Kosmos.app folder a Dock icon points at stays the same, and
+# the stage folder, now holding the OLD Contents, is deleted while it still proves
+# this install's own (and is left and named if it does not). A fresh install, or an
+# icon the swap cannot be used on, is renamed into place instead, with the replaced
+# icon renamed aside as
+# .Kosmos.app.old.<pid> until that rename completes (an interrupted run can leave
+# either hidden folder behind; --uninstall sweeps both when it can prove they
+# are this install's own, and names anything it leaves). macOS may show its own one-time
 # "Terminal wants to manage apps" dialog for the icon step. It never
 # touches any other app. A fresh
 # install that confirms its own board is running finishes by launching the
@@ -3033,7 +3039,9 @@ esac
 # attributes at all and macOS reports it as a proper application bundle. We still
 # ship one terminal line. That line just leaves an icon behind.
 # ⚠️ STAGED, LIKE EVERY OTHER SWAP IN THIS FILE. The bundle is built complete
-# in a hidden sibling and renamed into place, because a build that dies
+# in a hidden sibling and put in place (on an update of our own icon by
+# exchanging its Contents in one step, #2864; otherwise renamed into place),
+# because a build that dies
 # between mkdir and the launcher write used to leave a launcher-less husk at
 # the real path -- which every later run's ownership check read as foreign
 # (divert forever) and which --uninstall refused to touch for the same
@@ -3091,6 +3099,97 @@ make_app() {
   # partially gut a tree, so the visible Kosmos.app is only ever complete
   # (old) or complete (new). The aside copy is deleted best-effort and its
   # name is swept by --uninstall.
+  # 🔑 #2864: AN UPDATE SWAPS Contents, SO THE Kosmos.app FOLDER ITSELF STAYS
+  # THE SAME ONE. A Dock icon the person kept is a bookmark to that folder, and
+  # renaming a new folder into place (below) made every kept icon stale: the Dock
+  # then drew the running app as a second icon, and "Keep in Dock" on it added a
+  # duplicate (measured on #2864: two kept Kosmos entries pointing at bundles
+  # created 09-11 and 09-12). renameatx_np exchanges the two Contents folders in
+  # ONE step, so the visible app is only ever complete old or complete new, the
+  # same guarantee as the rename below. It runs only on an existing real folder we
+  # can prove is ours; otherwise the whole-bundle rename below runs as before.
+  # Called through /usr/bin/perl because a shell has no swap: 488 is
+  # SYS_renameatx_np, -2 AT_FDCWD, 18 is RENAME_SWAP (2) | RENAME_NOFOLLOW_ANY (16),
+  # so a symlink planted anywhere in either path makes the call fail rather than
+  # swap someone else's Contents (measured: ELOOP, the other folder untouched).
+  # That flag refuses EVERY link in the path, including a system one such as /var
+  # -> /private/var, so the call is given the folder's physical path (pwd -P) and
+  # the app and stage names under it; $app itself was already checked not a link.
+  # /usr/bin/stat by path, as elsewhere in this file: a GNU stat first on PATH
+  # reads -f differently and would quietly skip the swap.
+  # Test-only by contract, like KOSMOS_SYS_APP_DIR: KOSMOS_SWAP_PERL points the
+  # harness at a stub; make_app_register also counts it as a harness, so a stub run
+  # stays out of the real LaunchServices database. The other sandbox gates do not
+  # know it: the harness always sets KOSMOS_APP_DIR as well. KOSMOS_CONTENTS_SWAP=off
+  # is also the switch that restores the old whole-bundle rename on a machine where
+  # the swap misbehaves.
+  local _perl="${KOSMOS_SWAP_PERL:-/usr/bin/perl}" _swap_tried=no _had_app=no _swap_errno=""
+  # APP_PATH is per call: it describes the folder this call acted on. The swap's errno
+  # is NOT reset here: it is set only when a swap is attempted, with APP_SWAP_DIR naming
+  # the folder, so the home-folder retry neither erases why the system folder's swap was
+  # refused nor pins that errno on the folder the retry used.
+  APP_PATH=none
+  { [ -e "$app" ] || [ -L "$app" ]; } && _had_app=yes
+  if [ "$(uname -s)" = Darwin ] && [ "${KOSMOS_CONTENTS_SWAP:-on}" != off ] \
+     && [ -d "$app" ] && [ ! -L "$app" ] && [ -d "$app/Contents" ] && [ ! -L "$app/Contents" ] \
+     && [ -f "$_perl" ] && [ -x "$_perl" ] && bundle_is_ours "$app"; then
+    local _staged_ino _phys
+    _staged_ino="$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" || _staged_ino=""
+    _phys="$(cd "$appdir" 2>/dev/null && pwd -P)" || _phys=""
+    # Ownership proved again right before the swap, as the rename below re-proves it:
+    # the occupant of a shared folder can change between the gate above and now. It is
+    # proved on the physical path the swap is given, so the two name the same folder.
+    if [ -n "$_staged_ino" ] && [ -n "$_phys" ] && bundle_is_ours "$_phys/$(basename "$app")"; then
+      _swap_tried=yes
+      # Prints 0, or the errno of a refusal (1 EPERM, e.g. App Management; 45 ENOTSUP,
+      # a volume without swap; 22 EINVAL, a kernel without the flag; 62 ELOOP, a link),
+      # which the app-bundle log line carries as swap_errno.
+      _swap_errno="$(/usr/bin/env -u PERL5OPT -u PERL5LIB -u PERLLIB "$_perl" -e 'my $r = syscall(488, -2, $ARGV[0], -2, $ARGV[1], 18); print(($r == 0) ? 0 : ($! + 0)); exit($r == 0 ? 0 : 1)' \
+        "$_phys/$(basename "$stage")/Contents" "$_phys/$(basename "$app")/Contents" 2>/dev/null)" || true
+      # Digits only, since the value goes into a space-separated log line (swap_dir, a
+      # path, is written last in that line for the same reason).
+      case "$_swap_errno" in ''|*[!0-9]*) _swap_errno=none ;; esac
+      APP_SWAP_ERRNO="$_swap_errno"
+      APP_SWAP_DIR="$_phys"
+      # WHERE THE STAGED FOLDER IS decides, never the exit code alone: a swap that
+      # happened but reported failure must not fall through to the rename below,
+      # which would then install $stage, by now the OLD Contents.
+      if [ "$(/usr/bin/stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
+        make_app_swap_taken "$app" "$stage"
+        return 0
+      fi
+      if [ "$(/usr/bin/stat -f %i "$stage/Contents" 2>/dev/null)" != "$_staged_ino" ]; then
+        # The staged folder is in neither place: something else moved it, or a stat
+        # after the swap failed. Look once more: if the app now holds the staged
+        # Contents after all, the swap was taken.
+        if [ "$(/usr/bin/stat -f %i "$app/Contents" 2>/dev/null)" = "$_staged_ino" ]; then
+          make_app_swap_taken "$app" "$stage"
+          return 0
+        fi
+        # Otherwise build again, in a FRESH folder (a stage that cannot be fully
+        # removed must not block it), and let the whole-bundle rename below install
+        # that: the app is refreshed, not left stale and reported as made, and in the
+        # same folder rather than failing on to ~/Applications. The old stage is this
+        # run's own and is removed, best-effort, when it holds no Contents or Contents
+        # that still prove ours; Contents that do not (a swap that did take, into a folder
+        # replaced before it) is left and named, as make_app_swap_taken does. Its name is
+        # swept like any stage. Only if this rebuild fails does the step fail.
+        if [ -e "$stage/Contents" ] && ! bundle_is_ours "$stage"; then
+          info "note: the hidden stage folder could not be proven to be this install's, so it was left as $stage"
+        else
+          rm -rf "$stage" 2>/dev/null || true
+        fi
+        stage="$stage.r"
+        rm -rf "$stage" 2>/dev/null || true
+        /bin/mkdir "$stage" 2>/dev/null || return 1
+        if ! build_app_bundle "$stage"; then
+          rm -rf "$stage" 2>/dev/null || true
+          return 1
+        fi
+      fi
+      # The staged Contents is still in $stage: nothing moved, so the rename is safe.
+    fi
+  fi
   local aside
   aside="$(dirname "$app")/.Kosmos.app.old.$$"
   rm -rf "$aside" 2>/dev/null || true
@@ -3124,7 +3223,42 @@ make_app() {
   fi
   rm -rf "$aside" 2>/dev/null \
     || info "note: could not remove the leftover hidden folder $aside; drag it to the Trash to finish."
+  # rename: nothing was there to update; rename-swap-skipped: an update the swap was
+  # not attempted on (switched off, not macOS, no perl, the icon or its Contents not a
+  # plain folder, or a stat or the physical-path proof coming back empty; an icon that
+  # is not provably ours never gets here, the rename refuses it first);
+  # rename-swap-refused: the swap was attempted and did not take, or its staged folder
+  # was found in neither place and was rebuilt as .Kosmos.app.stage.<pid>.r. swap_errno
+  # is what the call reported: a 0 means it claimed success though nothing moved (or,
+  # in the neither-place case, may have moved); none means it printed nothing.
+  if [ "$_swap_tried" = yes ]; then APP_PATH=rename-swap-refused
+  elif [ "$_had_app" = yes ]; then APP_PATH=rename-swap-skipped
+  else APP_PATH=rename; fi
+  make_app_register "$app"
+  return 0
+}
 
+# #2864: the swap was taken, so $stage now holds the Contents that WAS in the app.
+# It is deleted only while it still proves ours: if the folder in the app's place was
+# replaced between the ownership proof and the swap (someone with write access to the
+# folder), what came back is not ours to delete, so it is left and named instead. If
+# the delete is interrupted, the next run's opening sweep takes it while it still
+# proves ours; a delete that got far enough to make it unprovable leaves it for
+# --uninstall to name.
+make_app_swap_taken() {
+  local app="$1" stage="$2"
+  if bundle_is_ours "$stage"; then
+    rm -rf "$stage" 2>/dev/null \
+      || info "note: could not remove the leftover hidden folder $stage; drag it to the Trash to finish."
+  else
+    info "note: the folder that was in the Kosmos icon's place could not be proven to be this install's, so it was left as $stage"
+  fi
+  APP_PATH=swap
+  make_app_register "$app"
+}
+
+make_app_register() {
+  local app="$1"
   # ⚠️ TELL macOS THE APP EXISTS. A freshly created bundle is not in the
   # LaunchServices database, and until it is, it can show a generic icon or
   # behave oddly when opened. Measured: straight after creation, lsregister knew
@@ -3138,7 +3272,7 @@ make_app() {
   # id. Measured after harness runs: dozens of dead mktemp paths
   # registered against com.chaoskosmos.kosmos. Any override set means a
   # harness, and a harness must leave that database alone.
-  if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}" ]; then
+  if [ -z "${KOSMOS_APP_DIR:-}${KOSMOS_SYS_APP_DIR:-}${KOSMOS_HOME_APP_DIR:-}${KOSMOS_SWAP_PERL:-}" ]; then
     local lsreg=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
     # ⚠️ TOUCH BEFORE REGISTERING. MEASURED (Josh's clean-machine install,
     # 2026-08-17): app present, Get Info previews the icon, the Dock draws
@@ -3298,6 +3432,13 @@ if [ "$APP_SKIP_ICON" != "yes" ] && [ -z "${KOSMOS_APP_DIR:-}" ] && [ "$APP_DIR"
   info "if your Mac asks whether Terminal can manage apps, that is this step; Allow puts the icon in Applications"
 fi
 APP_MADE=no
+# #2864: which way make_app put the icon in place (swap | rename | rename-swap-skipped |
+# rename-swap-refused; none when make_app did not run or did not complete, read it
+# with made=), and the last attempted swap's errno and folder,
+# recorded in the app-bundle log line so a report of duplicate Dock icons can be read.
+APP_PATH=none
+APP_SWAP_ERRNO=none
+APP_SWAP_DIR=none
 if [ "$APP_SKIP_ICON" = "yes" ]; then
   : # said below, where the not-made sentences live
 elif ! mkdir -p "$APP_DIR" 2>/dev/null; then
@@ -3536,9 +3677,17 @@ fi
 # (e.g. the logs dir gone) is itself suppressed -- a bare `printf >> "$LOG"
 # 2>/dev/null` does NOT catch the shell's own redirect-open error. `|| true`
 # keeps errexit from aborting the install over a diagnostic line.
-{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s\n' \
+# Two different uses of the word "swap" share this line: sys_stale=swap (older) means
+# the system folder's whole-bundle rename failed; app_path=swap (#2864) means the
+# Contents exchange was taken. Renaming the older value would break log history.
+# app_path describes the LAST make_app call (the home-folder retry, when one ran);
+# swap_errno and swap_dir describe the last swap ATTEMPTED, which can be the system
+# folder's refused one. So app_path=rename beside swap_dir=/Applications means the
+# system folder refused the swap and the icon went to ~/Applications, not that a
+# rename happened in /Applications.
+{ printf '[%s] app-bundle: made=%s skip_icon=%s skip_reason=%s fresh_install=%s sys_stale=%s sys_failed=%s home_foreign=%s app_path=%s swap_errno=%s swap_dir=%s\n' \
   "$$" "$APP_MADE" "$APP_SKIP_ICON" "${APP_SKIP_REASON:-none}" "$FRESH_INSTALL" \
-  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" \
+  "${APP_SYS_STALE:-no}" "${APP_SYS_FAILED:-no}" "${APP_HOME_FOREIGN:-no}" "${APP_PATH:-none}" "${APP_SWAP_ERRNO:-none}" "${APP_SWAP_DIR:-none}" \
   >> "$LOG"; } 2>/dev/null || true
 # (2) On an UPDATE that did not rewrite the bundle, route the operator to the
 # reliable open path rather than a relaunch. This never ASSERTS the app is stale
