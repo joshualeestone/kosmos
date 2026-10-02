@@ -159,3 +159,9 @@ defaultPrevented check" overstates its role for these two fields (the early retu
 Full validation PASSED: node 14259 tests, 14037 pass, 0 fail, 222 skipped; test:shell done; build ok; subdir audit
 rc 0. The "shell-shard 1/1: FAILED (exit 3)" lines in that log are fixture output from the shard runner's own test
 ("stops at the first failure, with its exit status"), not the real shell run.
+
+## Rebase and re-validation (2026-10-02 13:50 to 17:54)
+Rebased onto main: browser-checks-reason-grep.test.js EXPECTED_SITES conflicted (main's #4930 site and this branch's
+render-import-name-4962 site both took 231 to 232), resolved to 233 and MEASURED: that file 5/5 and
+web.import-name-4962.test.js 36/36 after the rebase. Full validation PASSED again at f85ef65db: node 14381 tests,
+14158 pass, 0 fail; test:shell; build.
