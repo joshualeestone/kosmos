@@ -49,10 +49,10 @@ function rig(over) {
 
 test('#4951 the line names the count, the post and the command; plural, singular and several posts', () => {
   assert.equal(rn.nudgeText([{ title: 'Shipping notes', ids: ['a', 'b'] }]),
-    "Kosmos here: you have 2 new replies on your community post 'Shipping notes'. Answer each once: kosmos community read --replies");
-  assert.match(rn.nudgeText([{ title: '', ids: ['a'] }]), /you have 1 new reply on your community post\. Answer each once/);
+    "Kosmos here: you have 2 new comments on your community post 'Shipping notes'. Answer each once (a line marked under comment is not owed): kosmos community read --replies");
+  assert.match(rn.nudgeText([{ title: '', ids: ['a'] }]), /you have 1 new comment on your community post\. Answer each once/);
   assert.match(rn.nudgeText([{ title: 'One', ids: ['a'] }, { title: 'Two', ids: ['b', 'c'] }]),
-    /you have 3 new replies on 2 of your community posts, including 'One'\./);
+    /you have 3 new comments on 2 of your community posts, including 'One'\./);
   assert.ok(!/[\u0000-\u001f"]/.test(rn.nudgeText([{ title: 'a "quoted"\nline', ids: ['x'] }])), 'a title put a quote or a control character in the typed line');
 });
 
@@ -60,14 +60,14 @@ test('#4951 once per reply: a second pass with the same replies types nothing; a
   const { o, store, typed } = rig();
   await rn.sweepOnce(o);
   assert.equal(typed.length, 1);
-  assert.match(typed[0].text, /2 new replies on your community post 'Shipping notes'/);
+  assert.match(typed[0].text, /2 new comments on your community post 'Shipping notes'/);
   assert.deepEqual(store.get('kim').sort(), ['r1', 'r2']);
   await rn.sweepOnce(o);
   assert.equal(typed.length, 1, 'the same replies were nudged twice');
   o.fresh = fresh([{ remoteId: P1, title: 'Shipping notes', ids: ['r1', 'r2', 'r3'] }]);
   await rn.sweepOnce(o);
   assert.equal(typed.length, 2);
-  assert.match(typed[1].text, /you have 1 new reply on/, 'the new reply was not told on its own');
+  assert.match(typed[1].text, /you have 1 new comment on/, 'the new reply was not told on its own');
 });
 
 test('#4951 a delivery that reached nothing is tried again, and given up on after MAX_TRIES for the same batch', async () => {
@@ -242,7 +242,7 @@ test('#4951 review 12 (Opus): a line that reached nothing is rolled back (told l
   ok = true;
   o.book = new Map();               // a board restart: nothing in memory
   await rn.sweepOnce(o);            // b told alone
-  assert.match(typed[typed.length - 1].text, /you have 1 new reply/, 'a was told again: ' + typed[typed.length - 1].text);
+  assert.match(typed[typed.length - 1].text, /you have 1 new comment/, 'a was told again: ' + typed[typed.length - 1].text);
   const told = typed.length;
   o.book = new Map();
   await rn.sweepOnce(o);            // another restart: nothing to tell
@@ -599,4 +599,33 @@ test('#4951 review 14 (Opus): a refusing service is said once per change; the lo
   for (let i = 0; i < rn.MAX_TRIES; i += 1) await rn.sweepOnce(b.o);
   assert.equal(said2[0], 'could-not (try 1 of ' + rn.MAX_TRIES + ')');
   assert.match(said2[1], /^gave-up \(tried 3 times; again in 60 min\)$/);
+});
+
+test('#4951 review 15 (Sonnet): judged by WHEN it went idle (its report), so a turn taken and finished between two passes waits', async () => {
+  let t0 = Date.now();
+  let idleAt = t0 - 60000;   // went idle a minute ago
+  const { o, typed } = rig({ clock: () => t0, idleSince: () => idleAt });
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 0, 'an agent idle for a minute was told');
+  t0 += rn.IDLE_FIRST_MS;
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'an agent idle for an interval was not told');
+  // No report: the fallback is "seen idle at the pass before".
+  const seen = new Map();
+  const b = rig({ idleSeen: seen, idleSince: () => null });
+  await rn.sweepOnce(b.o);
+  assert.equal(b.typed.length, 0, 'fallback: told on the first sighting');
+  await rn.sweepOnce(b.o);
+  assert.equal(b.typed.length, 1, 'fallback: not told on the second');
+});
+
+test('#4951 review 15 (Sonnet): idle marks are refreshed for the whole roster even when a pass ends early, and cleared while a gate is off', async () => {
+  const seen = new Map([['ann', Date.now() - 1e6]]);
+  const { o } = rig({ idleSeen: seen, roster: [card('kim'), card('ann', { state: 'working' })],
+    fresh: async () => ({ ok: false, busy: true, stop: true, because: 'limiting' }) });   // the pass stops at kim
+  await rn.sweepOnce(o);
+  assert.equal(seen.has('ann'), false, 'a working agent kept its idle mark because the pass ended before reaching it');
+  seen.set('kim', 1);
+  await rn.tick({ allowed: () => true, env: {}, prompterOn: () => false, switchOn: () => true, idleSeen: seen });
+  assert.equal(seen.size, 0, 'idle marks survived a gate being off');
 });

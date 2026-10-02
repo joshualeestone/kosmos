@@ -235,3 +235,19 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
   service is said once per change ('service-stop').
 - NIT (kept): the line counts replies not yet told, not all waiting (it can say 1 while the read shows 4).
 - Mutants: 10/10 killed after the fixture fix. Targeted files: 263/263.
+
+## Review 15 (Sonnet, blind): 0 blockers, 2 warnings, 3 nits.
+- WARNING FIXED: "idle at the pass before" sampled twice and missed a turn taken and finished between them; its marks
+  also went stale when a pass ended early (cap, service stop) or a gate was off. Now judged by WHEN the agent went idle,
+  from its own idle report (o.idleSince, selfreport in server.js): idle at least IDLE_FIRST_MS (one interval). A runner
+  with no report falls back to the sampled marks, which are now refreshed for the whole roster at the top of every pass
+  and cleared while a gate is off. Tests + 4 mutants killed.
+- WARNING FIXED: readingNow covered only the lock holder, not an agent whose own read was WAITING (up to 10 or 20 s).
+  readReplies now counts the session as reading from the moment it is asked (readingSessions). And a count no longer
+  starts ahead of an own read that is already waiting. Tests + 2 mutants killed (a test that left its lock held on a
+  failed assertion hung the file under a mutant; it now releases in finally, and the mutant fails cleanly).
+- NIT FIXED: the line says COMMENTS (only comments on the post are counted) and that a line marked under comment is not
+  owed; no quote marks in the typed line (an existing guard).
+- NIT (stated in the code): FIRST_LOOK_EDGE_MS covers count-to-line delay only; a read hours later can show fewer than
+  were told (told-but-not-shown, never repeated or lost).
+- Targeted files: 266/266.

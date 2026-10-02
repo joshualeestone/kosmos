@@ -41,7 +41,8 @@ const HOUR_MS = 60 * 60 * 1000;
 const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_TRIES = 3;
 const GIVE_UP_FOR_MS = 60 * 60 * 1000;
-const COUNT_MAX_AGE_MS = 15 * 60 * 1000;   // review 14: = communityread.FIRST_LOOK_EDGE_MS (pinned by a test)   // review 13: a batch given up on rests this long, then is tried again
+const COUNT_MAX_AGE_MS = 15 * 60 * 1000;
+const IDLE_FIRST_MS = 10 * 60 * 1000;   // review 15: idle at least this long (one interval) before a line   // review 14: = communityread.FIRST_LOOK_EDGE_MS (pinned by a test)   // review 13: a batch given up on rests this long, then is tried again
 const BUSY_WAIT_MS = 5 * 1000;   // review 6: a busy count waits this long for the read holding the lock, then asks again
 const BUSY_RETRIES = 4;          // so about 20 s, past an agent's own read (two 8 s rounds at most)
 const BETWEEN_AGENTS_MS = 1500;   // review 12: = communityread's FRESH_PACE_MS (pinned by a test)
@@ -64,8 +65,10 @@ function nudgeText(posts) {
   const where = one
     ? 'your community post' + (titled ? " '" + plainWords(titled.title, TITLE_CAP).replace(/'/g, '’') + "'" : '')
     : posts.length + ' of your community posts' + (titled ? ", including '" + plainWords(titled.title, TITLE_CAP).replace(/'/g, '’') + "'" : '');
-  return 'Kosmos here: you have ' + n + ' new ' + (n === 1 ? 'reply' : 'replies') + ' on ' + where
-    + '. Answer each once: kosmos community read --replies';
+  /* Review 15 (Sonnet): COMMENTS, since only comments on the post are counted (review 14); the read also shows replies
+     under comments, which are not owed, so the line says which to answer. */
+  return 'Kosmos here: you have ' + n + ' new ' + (n === 1 ? 'comment' : 'comments') + ' on ' + where
+    + '. Answer each once (a line marked under comment is not owed): kosmos community read --replies';   // no quote marks in a typed line
 }
 
 /* An agent the person has stood down: it is in projects, and every one is paused or switched off for it. */
@@ -154,6 +157,12 @@ async function sweepOnce(o) {
        that ends early (a refusing service, the hour cap) does not starve the same later agents every time, and an agent
        whose posts end the count goes to the back. Without o.rotation, roster order. */
     const rot = o.rotation && typeof o.rotation === 'object' ? o.rotation : null;
+    /* Review 15 (Sonnet): the idle marks are brought up to date for the WHOLE roster first, so a pass that ends early (the
+       cap, a refusing service) cannot leave a mark on an agent that has since worked. */
+    if (o.idleSeen instanceof Map) {
+      const idleNow = new Set(o.roster.filter((c) => c && c.sessionName && nudgeable(c)).map((c) => c.sessionName));
+      for (const k of [...o.idleSeen.keys()]) if (!idleNow.has(k)) o.idleSeen.delete(k);
+    }
     let order = o.roster;
     if (rot && rot.after) {
       const at = o.roster.findIndex((c) => c && c.sessionName === rot.after);
@@ -162,11 +171,15 @@ async function sweepOnce(o) {
     for (const card of order) {
       const session = card && card.sessionName;
       const idleSeen = o.idleSeen instanceof Map ? o.idleSeen : null;
-      if (!session || !nudgeable(card)) { if (idleSeen && session) idleSeen.delete(session); continue; }   // nothing is read for an agent that would not be nudged
-      /* Review 14 (Opus): an agent seen idle for the FIRST time this pass may have just finished a person's turn: a line
-         now would send it off to the community while the person waits. It is counted from the next pass on, if it is
-         still idle then (agentnudge's own posture: one interval after the turn). Without o.idleSeen, no wait. */
-      if (idleSeen && !idleSeen.has(session)) { idleSeen.set(session, clock()); continue; }
+      if (!session || !nudgeable(card)) continue;   // nothing is read for an agent that would not be nudged
+      /* Review 14 (Opus): an agent that only just went idle may have just finished a person's turn: a line now would send
+         it off to the community while the person waits. Review 15 (Sonnet): judged by WHEN it went idle, from its own
+         idle report (o.idleSince), which also sees a turn taken and finished between two passes. A runner with no
+         report falls back to "seen idle at the pass before" (o.idleSeen, kept fresh at the top of every pass). */
+      let since = null;
+      if (typeof o.idleSince === 'function') { try { since = o.idleSince(session); } catch { since = null; } }
+      if (Number.isFinite(since)) { if (clock() - since < IDLE_FIRST_MS) continue; }
+      else if (idleSeen && !idleSeen.has(session)) { idleSeen.set(session, clock()); continue; }
       if (stoodDown(session, o.projects)) continue;
       /* Review 4 (Opus): an agent held on its machine's shared Google quota is not read and takes no cap slot: delivery
          would hold it (no try counted), so it would fill a slot every pass until the reset and starve later agents. */
@@ -341,15 +354,17 @@ async function tick(o) {
   try {
     let allowed = false;
     try { allowed = o.allowed() === true; } catch { allowed = false; }
-    if (!require('./agentnudge').nudgeEnabled(allowed, o.env)) return null;
+    // Review 15: while a gate is off nothing is watched, so the idle marks are not trusted after it (cleared).
+    const off = () => { if (o.idleSeen instanceof Map) o.idleSeen.clear(); return null; };
+    if (!require('./agentnudge').nudgeEnabled(allowed, o.env)) return off();
     /* Review 1 (Opus): the Prompter's own on/off, as agentnudge's nudge reads it: a person who turned the Prompter off
        gets nothing typed into their agents by this either. */
     let prompterOn = false;
     try { prompterOn = o.prompterOn() === true; } catch { prompterOn = false; }
-    if (!prompterOn) return null;
+    if (!prompterOn) return off();
     let on = false;
     try { on = o.switchOn() === true; } catch { on = false; }
-    if (!on) return null;
+    if (!on) return off();
     let roster = null;
     try { roster = o.roster(); } catch { roster = null; }
     if (!Array.isArray(roster)) return null;
@@ -368,4 +383,4 @@ async function tick(o) {
   } catch { return null; }
 }
 
-module.exports = { COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
+module.exports = { IDLE_FIRST_MS, COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };

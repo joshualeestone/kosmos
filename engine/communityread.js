@@ -372,9 +372,16 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
 const FRESH_WAIT_MS = 20 * 1000;
 const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (two 8 s rounds at most), see readReplies
 let replyReadWaiting = 0;
-let replyReadSession = null;   // review 12: whose own read holds the lock   // reads waiting for the lock: the count steps aside between posts while there is one
+let replyReadSession = null;   // review 12: whose own read holds the lock
+const readingSessions = new Map();   // review 15: session -> own reads asked and not finished (waiting or running)   // reads waiting for the lock: the count steps aside between posts while there is one
 
 async function readReplies(sessionName, opts = {}) {
+  try { return await readRepliesLocked(sessionName, opts); } finally {
+    const n = (readingSessions.get(sessionName) || 0) - 1;
+    if (n > 0) readingSessions.set(sessionName, n); else readingSessions.delete(sessionName);
+  }
+}
+async function readRepliesLocked(sessionName, opts) {
   if (!communitysend.switchOn()) {
     return { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
   }
@@ -386,6 +393,7 @@ async function readReplies(sessionName, opts = {}) {
      read's own two rounds stays inside the CLI's 30 s. One after another costs the service no more than refuse-and-retry. */
   const readWaitUntil = Math.min(waitUntil, t0 + (Number.isFinite(opts.readWaitMs) ? opts.readWaitMs : READ_WAIT_MS));
   replyReadWaiting += 1;
+  readingSessions.set(sessionName, (readingSessions.get(sessionName) || 0) + 1);   // review 15: reading from entry, waiting included
   try {
     while ((replyReadRunning === 'fresh' && Date.now() < waitUntil) || (replyReadRunning === 'read' && Date.now() < readWaitUntil)) await new Promise((res) => setTimeout(res, 100));
   } finally { replyReadWaiting -= 1; }
@@ -394,8 +402,9 @@ async function readReplies(sessionName, opts = {}) {
   replyReadSession = sessionName;
   try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; replyReadSession = null; }
 }
-/* #4951 review 12 (Opus): this agent's own read is running now (its marks are not written until it ends). */
-function readingNow(sessionName) { return replyReadRunning === 'read' && replyReadSession === sessionName; }
+/* #4951 review 12 (Opus): this agent's own read is running now (its marks are not written until it ends). Review 15
+   (Sonnet): or WAITING for the lock (up to READ_WAIT_MS / FRESH_WAIT_MS), from the moment the read was asked. */
+function readingNow(sessionName) { return (replyReadRunning === 'read' && replyReadSession === sessionName) || (readingSessions.get(sessionName) || 0) > 0; }
 
 /* ===== #4951: which replies on this agent's own posts it has not read yet, for the board's reply nudge. =====
    The same posts, marks, own-name rule, (time, id) order, round 2 (review 7) and cap (review 9) as read --replies, so
@@ -412,11 +421,15 @@ const NO_ANSWER_STOP = 2;   // review 8 (Opus): this many unanswered requests in
    as gone: down that long, it is down for the agent's read too, and it must not hold the agent's nudges forever. */
 const FRESH_DOWN_PASSES = 3;
 const FIRST_LOOK_EDGE_MS = 15 * 60 * 1000;   // review 12: longer than a pass's count-to-line delay
+// Review 15 (Sonnet), stated: it covers the count-to-line delay only. An agent that reads hours later can be shown fewer
+// than it was told (the read's own window has passed them); told-but-not-shown, never repeated or lost.
 const postDown = new Map();   // session + '\n' + remoteId -> passes in a row it could not be read
 async function freshReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) return { ok: false, because: 'the Kosmos+ community is switched off on this board' };
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };
+  // Review 15 (Sonnet): an agent's own read already waiting goes first (the count would hold it for a whole request).
+  if (replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
   replyReadRunning = 'fresh';
   /* Review 1 (Opus): PACED, one request at a time with FRESH_PACE_MS between them, so a pass over the fleet stays far
      under the service's 200 a minute per address (about 2 a second here, leaving room for the agents' own reads). */

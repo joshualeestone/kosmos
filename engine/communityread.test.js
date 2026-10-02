@@ -1354,3 +1354,32 @@ test('#4951 review 14 (Opus): items at the window\'s edge keep their places in t
   // Its OWN line, '(comment <id>)': a reply's line names its parent ('under comment <id>') and would match a bare id.
   for (const x of named) assert.ok(r.text.includes('(comment ' + x + ')'), 'named ' + x + ' but the read does not show it (the cap fell elsewhere)');
 });
+
+test('#4951 review 15 (Sonnet): readingNow is true while an agent\'s own read WAITS for the lock; a count does not start ahead of a waiting read', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Other4951', remoteId: RP(8), sentAt: '2026-09-30T10:00:00Z' },
+    c: { state: 'sent', agent: 'Kim4951', remoteId: RP(9), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });   // each has a post, so each read really holds
+  let release;
+  cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
+  const holder = cr.readReplies('Other4951', { now: NOW });
+  await new Promise((res) => setImmediate(res));
+  assert.equal(cr.readingNow('Other4951'), true, 'fixture: the holder\'s read does not hold the lock');
+  let waiter = null;
+  try {
+    waiter = cr.readReplies('Nia4951', { now: NOW });
+    await new Promise((res) => setTimeout(res, 50));
+    assert.equal(cr.readingNow('Nia4951'), true, 'a waiting own read did not count as reading');
+    release(); await holder;
+    cr.setFetcher(async () => ({ status: 200, json: { comments: [] } }));   // a count that wrongly ran would finish, not hang
+    const c = await cr.freshReplies('Kim4951', { now: NOW, paceMs: 0 });   // the waiter has not taken the lock yet (polls every 100 ms)
+    assert.equal(c.busy, true, 'a count started ahead of an own read that was already waiting');
+    await waiter;
+    assert.equal(cr.readingNow('Nia4951'), false, 'still reading after the read ended');
+  } finally {
+    // Never leave the board's read held (a failed assertion above would hang every later test).
+    cr.setFetcher(async () => ({ status: 200, json: { comments: [] } }));
+    try { release(); } catch { /* released */ }
+    await holder; if (waiter) await waiter;
+  }
+});
