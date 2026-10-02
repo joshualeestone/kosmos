@@ -4146,6 +4146,12 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
     assert.equal(r.state, STATE.RATE_LIMITED, label + ': a capped Claude Code still reads as ' + r.state);
     assert.match(r.evidence, /^You've hit your weekly limit · resets Oct 5 at 12am/,
       label + ': the vendor line (and its reset time) is not the evidence: ' + JSON.stringify(r.evidence));
+    /* 🔑 THE LINK THAT WAS BROKEN, end to end in the engine: the Guide's card as the board builds it is what
+       #3660's guideFailure reads to switch the bubble to the hosted backup. A browser check would stub this
+       state and pass on main too; this is the arm that reds there. */
+    const failing = require('./setup-assistant').guideFailure({ ...r, runner: 'claude' });
+    assert.deepEqual(failing, { problem: STATE.RATE_LIMITED, runner: 'claude' },
+      label + ': the Guide would stay silent: guideFailure gave ' + JSON.stringify(failing));
   }
 
   /* 🔑 THE CONTROLS. The 2026-08-26 promo says "If you hit your limit" about a
