@@ -6114,9 +6114,14 @@ test('#2955: with no seam, the board finds Kosmos\'s own tmux two directories ab
      launcher does not export KOSMOS_HOME, so nothing else could name it. */
   const status = require('./status');
   assert.equal(status.ownTmux(), nodePath.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'));
+  /* The lines that lay the files down, not any mention of the paths: the bundle builder puts the engine in app/engine,
+     install_kosmos moves app/ into <home>, and fetch_tmux lays the tmux bundle at <home>/tmux (bin/tmux inside). */
   const setup = fs.readFileSync(nodePath.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
-  assert.match(setup, /\$KOSMOS_HOME\/app\/engine\//, 'the app is no longer installed at <home>/app/engine');
-  assert.match(setup, /\$KOSMOS_HOME\/tmux\/bin\/tmux/, 'the bundle is no longer installed at <home>/tmux/bin/tmux');
+  const build = fs.readFileSync(nodePath.join(__dirname, '..', 'tools', 'build-kosmos-bundle.sh'), 'utf8');
+  assert.match(build, /cp "\$f" "\$STAGE\/app\/engine\/"/, 'the bundle no longer puts the engine at app/engine');
+  assert.match(setup, /^install_kosmos "\$KOSMOS_HOME" \|\|/m, 'the app is no longer installed into <home>');
+  assert.match(setup, /for part in bin app runtime; do\s+rm -rf "\$dest\/\$part"[^\n]*\n\s+mv "\$stage\/\$part" "\$dest\/\$part"/, 'app/ is no longer moved to <home>/app');
+  assert.match(setup, /^fetch_tmux "\$KOSMOS_HOME\/tmux" \|\|/m, 'the tmux bundle is no longer laid at <home>/tmux');
 });
 test('#2955: one probe per real tmux, however many paths name it (the bundle is a symlink to Homebrew\'s on Agent1s)', () => {
   const status = require('./status');

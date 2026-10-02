@@ -79,7 +79,7 @@ TMUX_BIN="${4:?the path to tmux is required}"
 # With no server, or any other answer, nothing has been established and the baked path stays, which keeps Kosmos's
 # own agents on the tmux Kosmos ships (a `brew upgrade` cannot pull it out from under them).
 _kosmos_supervisor_tmux() {
-  local _said _cand _own _ownd _gone=""
+  local _said _cand _own _ownd _gone="" _tried=" "
   if [ -f "$TMUX_BIN" ] && [ -x "$TMUX_BIN" ]; then
     _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
   else
@@ -101,21 +101,23 @@ _kosmos_supervisor_tmux() {
   _own="${KOSMOS_TMUX_OWN-}"
   if [ -z "$_own" ]; then
     local _ptr _engdir=""
-    _ptr="${0%/*}/engine-path"
+    _ptr="$(dirname "$0")/engine-path"   # the same spelling resolve_token_engine uses
     if [ -f "$_ptr" ]; then IFS= read -r _engdir < "$_ptr" || true; fi
-    if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="${0%/*}/../tmux/bin/tmux"; fi
+    if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="$(dirname "$0")/../tmux/bin/tmux"; fi
     # Normalized, so the equality below recognises it as the baked path and PATH never gets a ../.. entry.
     _ownd="$(cd "${_own%/*}" 2>/dev/null && pwd)" || _ownd=""
     if [ -n "$_ownd" ]; then _own="$_ownd/tmux"; else _own=""; fi
   fi
   for _cand in "$(command -v tmux 2>/dev/null || true)" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own"; do
     [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
+    case "$_tried" in *" $_cand "*) continue ;; esac   # once per path (command -v usually repeats a known place)
+    _tried="$_tried$_cand "
     if "$_cand" list-sessions >/dev/null 2>&1; then
       say "$SESSION: this computer's tmux server belongs to a different version than $TMUX_BIN; using $_cand, which can read it (#2955)"
       TMUX_BIN="$_cand"
-      # This supervisor's own later tmux calls, and the -e PATH it builds for some runners' panes (a pane on an existing
-      # server otherwise takes that server's environment). It moves the whole directory ahead, Homebrew's node and the
-      # rest included, as install/kosmos does at launch when a system tmux wins.
+      # This supervisor's own later bare tmux and node lookups (and a pane's PATH only when the server's own PATH cannot
+      # be read: the -e PATH below is built from the server's). It moves the whole directory ahead, Homebrew's node and
+      # the rest included, as install/kosmos does at launch when a system tmux wins.
       PATH="${_cand%/*}:$PATH"; export PATH
       return 0
     fi

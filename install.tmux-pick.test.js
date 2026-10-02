@@ -49,7 +49,7 @@ function picker() {
 }
 
 /** Run the picker with a PATH and a fake bundled tmux, and report its choice. */
-function pick({ path: PATH, sysExit, preset, picked }) {
+function pick({ path: PATH, sysExit, preset, picked, staleAs }) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'tmuxpick-'));
   const home = nodePath.join(sb, 'home');
   fs.mkdirSync(nodePath.join(home, 'tmux', 'bin'), { recursive: true });
@@ -72,6 +72,7 @@ function pick({ path: PATH, sysExit, preset, picked }) {
       KOSMOS_TMUX_KNOWN: '',
       ...(preset ? { AGENT_WORKFORCE_TMUX_BIN: preset } : {}),
       ...(picked ? { KOSMOS_TMUX_BIN_PICKED: '1' } : {}),
+      ...(staleAs ? { KOSMOS_TMUX_BIN_PICKED_AS: staleAs } : {}),
     },
   });
   const [chose, pickedAs] = out.split('\n');
@@ -195,7 +196,8 @@ test('#2955: the launcher records which value it picked; an explicit choice reco
   const picked = pick({ sysExit: 0 });
   assert.equal(picked.pickedAs, picked.chose, 'the launcher\'s pick was not recorded beside its marker');
   fs.rmSync(picked.sb, { recursive: true, force: true });
-  const explicit = pick({ sysExit: 0, preset: '/somewhere/else/tmux' });
+  // A stale record from an earlier launcher in the chain is cleared, so it cannot vouch for an explicit choice.
+  const explicit = pick({ sysExit: 0, preset: '/somewhere/else/tmux', staleAs: '/somewhere/else/tmux' });
   assert.equal(explicit.pickedAs, 'unset', 'an explicit choice was recorded as the launcher\'s pick');
   fs.rmSync(explicit.sb, { recursive: true, force: true });
 });

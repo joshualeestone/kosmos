@@ -121,4 +121,11 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   it). The alternative, a bare-tmux-only shim, would let a bare `tmux` and AGENT_WORKFORCE_TMUX_BIN disagree, which is
   the defect this card is about; the launcher already does the same at launch, and both comments say so. LEFT NIT:
   TMUX_LAST_SEARCH is meaningful only right after a failed look (every reader of it is).
+- Round 7 (opus): FIXED W: the supervisor's PATH comment said the prepend reaches panes' -e PATH; that is built from the
+  server's own PATH and the prepend reaches it only when that read fails; the comment says so. FIXED W: the installed-
+  layout test matched the formula against itself and the two paths anywhere in setup.sh; it now anchors on the lines
+  that lay the files down (the bundle's cp into app/engine, install_kosmos "$KOSMOS_HOME", the bin/app/runtime move,
+  fetch_tmux "$KOSMOS_HOME/tmux"); moving the engine in the bundle builder reds it. NITs taken: the explicit-choice
+  arm passes a stale recorded value, so removing the launcher's unset reds it; the supervisor's candidates are tried
+  once per path; its pointer uses dirname "$0" as resolve_token_engine does; two detail wordings corrected.
 

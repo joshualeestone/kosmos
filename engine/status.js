@@ -581,8 +581,8 @@ function lookProblemFor(got, bin, searched) {
   if (/server exited unexpectedly|protocol version mismatch/i.test(err)) {
     // No remedy is promised: say only what the search (tmuxRepick) actually did.
     const after = searched === 'found-nothing' ? ', and Kosmos found no other tmux here that can'
-      : searched === 'waiting' ? ', and Kosmos found no other tmux that can a moment ago; it looks again within a minute'
-        : searched === 'not-allowed' ? '; this tmux was not picked by the Kosmos launcher that started this board, so Kosmos does not swap it for another'
+      : searched === 'waiting' ? ', and Kosmos found no other tmux that could read them a moment ago; it looks again within a minute'
+        : searched === 'not-allowed' ? '; this tmux was not picked by the Kosmos launcher, so Kosmos does not swap it for another'
           : '';
     return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${bin || 'tmux'}) cannot read them (it said: ${err})${after}.`;
   }
