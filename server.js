@@ -6892,7 +6892,7 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const r = teamseed.specs({ team: key, names: body.names, project: body.project, checkTaken: body.check === true,
-          provider: body.provider, account: body.account });   // #4719: one choice for the whole team
+          provider: body.provider, account: body.account, model: body.model });   // #4719/#4935: one choice for the whole team
         if (!r.ok) {
           const code = r.unavailable ? 503 : (r.notFound ? 404 : 400);   // flags, never the English (round 1)
           sendJson(res, code, { error: r.because });
