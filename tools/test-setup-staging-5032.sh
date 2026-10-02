@@ -58,9 +58,11 @@ site_with(){ # <vercel.json text> -> a checkout whose origin/main holds it
   printf '%s\n' "$1" > "$d/vercel.json"; git -C "$d" add vercel.json; git -C "$d" commit -qm v
   git -C "$d" remote add origin "$o"; git -C "$d" push -q origin HEAD:main; printf '%s' "$d"
 }
-WITH="$(site_with '{"headers":[{"source": "/setup-staging","headers":[]}]}')"; WITHOUT="$(site_with '{"headers":[]}')"
+WITH="$(site_with '{"headers":[{"source": "/setup-staging","headers":[]},{"source": "/setup-staging.sha256","headers":[]}]}')"; WITHOUT="$(site_with '{"headers":[]}')"
 ( CUT_CHANNEL=staging; SITE="$WITH"; eval "$F1F" ) >/dev/null 2>&1 && pass "release 1f: passes when the site's origin/main has the /setup-staging rule" || bad "release 1f refused a site that has the rule"
 ( CUT_CHANNEL=staging; SITE="$WITHOUT"; eval "$F1F" ) >/dev/null 2>&1 && bad "release 1f passed a site without the rule" || pass "release 1f: refuses when the site's origin/main lacks it"
+HALF="$(site_with '{"headers":[{"source": "/setup-staging","headers":[]}]}')"
+( CUT_CHANNEL=staging; SITE="$HALF"; eval "$F1F" ) >/dev/null 2>&1 && bad "release 1f passed a site with no .sha256 rule" || pass "release 1f: refuses when only the script's rule is there (not the sidecar's)"
 # The local working tree is NOT what counts: a rule only in the checkout (uncommitted) still refuses.
 printf '{"headers":[{"source": "/setup-staging"}]}\n' > "$WITHOUT/vercel.json"
 ( CUT_CHANNEL=staging; SITE="$WITHOUT"; eval "$F1F" ) >/dev/null 2>&1 && bad "release 1f trusted the local working tree" || pass "release 1f: reads origin/main, not the local checkout"
