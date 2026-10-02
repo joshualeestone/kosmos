@@ -183,6 +183,20 @@ async function connectPending(page) {
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
+  /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
+     given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
+  { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    const adv = [{ agents: ['amara-singh', 'ben-okafor', 'cleo-park'], names: ['Amara', 'Ben', 'Cleo'], provider: 'Claude',
+      email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
+    await page.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await at(page, '');
+    await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
+  } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
