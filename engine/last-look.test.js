@@ -75,7 +75,12 @@ test('a tmux that answers is not a problem, and clears an older one', () => {
   delete tmuxEnv.TMUX;   // a test run from inside tmux must not attach to the caller's server
   const TMUX_BIN = process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux';
   try {
-    execFileSync(TMUX_BIN, ['new-session', '-d', '-s', 'look5073', 'sleep 600'], { env: tmuxEnv });
+    try {
+      execFileSync(TMUX_BIN, ['new-session', '-d', '-s', 'look5073', 'sleep 600'], { env: tmuxEnv });
+    } catch (e) {
+      if (e && e.code === 'ENOENT') assert.fail('this test needs tmux installed (' + TMUX_BIN + ' was not found); it reads a tmux server of its own');
+      throw e;
+    }
     const got = ask({
       ...own,
       TMUX: '',
