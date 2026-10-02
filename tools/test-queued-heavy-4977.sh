@@ -164,10 +164,14 @@ ok "#4977: a SIGKILLed wrapper's temp files are removed by its capper" '[ -z "$(
 for p in $(pgrep -f "^sleep $((U+7))$"); do kill -KILL $p; done
 
 
+# The default lib checkout is a path nothing in the repo creates: a checkout without cut-guard.sh stops the wrapper with
+# exit 3 and the variable to set, before anything runs.
+o=$(QUEUED_HEAVY_LIB=$S/cwd /bin/bash $QH "nolib" touch $S/nolib-ran 2>&1); rc=$?
+ok "#4977: a lib checkout without cut-guard.sh exits 3, names QUEUED_HEAVY_LIB, runs nothing" '[ "$rc" = 3 ] && [[ "$o" == *"could not load cut-guard.sh"*QUEUED_HEAVY_LIB* ]] && [ ! -e $S/nolib-ran ]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
-EXPECTED=76   # 74 arms seeded from #4911's dry harness, the shim control, and the killed wrapper's temp files
+EXPECTED=77   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, the missing lib
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
