@@ -29,6 +29,9 @@ stops at 30 a day per install.
   card rather than guessed here.
 
 ## Weakest premise
+- The 35-day horizon: a no-year reset written more than 35 days ahead would read as last year and retire at once (a capped pane reading
+  healthy). From the 2.1.287 binary the limit types are five_hour, seven_day variants and monthly overage (31 days at most), so no known
+  shape does this. Changes my mind: any limit type with a longer window.
 The time-only shape is probably the common one for 5-hour limits, and this does not read it. Changes my mind: a captured time-only line.
 
 ## Validation
@@ -60,4 +63,13 @@ The time-only shape is probably the common one for 5-hour limits, and this does 
   case built); dropping the footer row too is equivalent; authErrorLineCount reads the raw text (auth only, correct).
   Measured 11:22, each red by name: drop only row i -> "a minute AFTER"; no stop at the next limit row -> TWO; snapshot() not retiring ->
   the snapshot arm. 241/241.
-- Round 3: PENDING.
+- Round 3 (opus, blind): 1 BLOCKER, taken. The menu guard matched one option label, but Claude Code 2.1.287 labels option 1 "Stop" (usage-
+  based billing) or "Wait for limit to reset" (spend-limit menu) too, all under the title "What do you want to do?", used only by the limit,
+  spend-limit and trial-ended menus. I confirmed the strings in the binary myself. Both other labels read needs_you past the reset, guideFailure
+  null, the person's text into a held menu: a regression vs main (capped). Now keyed on the title. NITs taken: a minute's grace (the printed
+  reset drops seconds); the removal stops at a next limit row of ANY wording except the vendor's own /usage-credits upsell; ASKED_FIRST pins the
+  first-column-0 gate; the 35-day horizon named above. Reviewer's property check: every 30-minute instant Jan 2026 to Jul 2027 in 11 zones,
+  rendered with Claude Code's own formatter and parsed back, none early, none null.
+  Measured 11:45, each red by name: menu keyed on one label -> "Stop"; no grace -> "retired before the minute of grace"; stop only at "hit your"
+  -> TWO_REACHED; upsell treated as another limit -> "two minutes AFTER"; any footer within six -> ASKED_FIRST. 241/241.
+- Round 4: PENDING.

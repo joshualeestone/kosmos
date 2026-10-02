@@ -2509,6 +2509,7 @@ function limitMarkersFor(tail) {
 const LIMIT_RESET = /\bresets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})(?:, (\d{4}))?(?: at|,) (\d{1,2})(?::(\d{2}))? ?(am|pm) \(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)*)\)/i;
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const RESET_HORIZON_MS = 35 * 24 * 3600 * 1000;
+const RESET_GRACE_MS = 60 * 1000;
 function zoneOffsetMs(zone, ms) {
   const at = Math.floor(ms / 1000) * 1000;
   const p = {};
@@ -2554,22 +2555,28 @@ function limitResetAt(line, nowMs) {
    bubble is on the backup, #3660), so without this its card read capped forever. Removed: a vendor limit row (the
    #5029 gate: its first column-0 row within six is a turn footer) and Claude Code's own indented rows under it, up
    to that footer. Kept, so the pane stays capped: a row whose reset this cannot read or has not passed, and any row
-   with the limit menu ("Stop and wait for limit to reset", observed 2026-10-01) still on screen after it, because
-   that menu holds the session until a key is pressed and a message sent to it would queue unread. */
+   with a limit menu still on screen after it, because that menu holds the session until a key is pressed and a
+   message sent to it would land in the menu. Keyed on the menu's TITLE, "What do you want to do?" (observed
+   2026-10-01), not an option: Claude Code 2.1.287 labels option 1 "Stop and wait for limit to reset" (observed),
+   "Stop" (usage-based billing) or "Wait for limit to reset" (the spend-limit menu), all under that one title, which
+   it uses only for the limit, spend-limit and trial-ended menus (review round 3). The reset gets a minute's grace:
+   the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
 function retireResetLimits(text, nowMs) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  const lastMenu = rows.reduce((at, row, i) => (/Stop and wait for limit to reset/.test(row) ? i : at), -1);
+  const lastMenu = rows.reduce((at, row, i) => (/What do you want to do\?/.test(row) ? i : at), -1);
   const drop = new Set();
   rows.forEach((row, i) => {
     if (!HIT_YOUR_LIMIT.test(row) || lastMenu > i) return;
     const footer = vendorFooterAt(rows, i);
     if (footer < 0) return;
     const resetAt = limitResetAt(row, now);
-    if (resetAt === null || now < resetAt) return;
-    /* Up to the footer, or to the NEXT limit row if one shares this footer (review round 2): an expired row must
-       never take a live one with it. That row is judged on its own when the loop reaches it. */
-    for (let k = i; k < footer && (k === i || !HIT_YOUR_LIMIT.test(rows[k])); k++) drop.add(k);
+    if (resetAt === null || now < resetAt + RESET_GRACE_MS) return;
+    /* Up to the footer, or to the NEXT limit row of any wording if one shares this footer (review rounds 2 and 3): an
+       expired row must never take a live one with it. The vendor's own /usage-credits upsell row is part of this
+       block, not another limit, so it goes with it. A "hit your" row is judged on its own when the loop reaches it. */
+    const anotherLimit = (row) => !/\/usage-credits\b/.test(row) && RATE_LIMIT_MARKERS.some((re) => re.test(row));
+    for (let k = i; k < footer && (k === i || !anotherLimit(rows[k])); k++) drop.add(k);
   });
   return drop.size ? rows.filter((_, k) => !drop.has(k)).join('\n') : text;
 }
