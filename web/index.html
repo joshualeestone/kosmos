@@ -1223,7 +1223,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 .utoast.login-adv.notice .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
-/* #5018: the notices float over the page, centred under the navigation, instead of growing the header (Josh). The
+/* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
    header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
    Centred, not under the K mark: the left column holds the page's primary actions (New agent, the agents rail), and
    a notice there covered New agent (render-update-toast). */
@@ -20982,6 +20982,9 @@ function paintLoginAdvisories(advs) {
   /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
      bring a closed notice back. */
   const advKey = (a) => [a.severity || '', a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
+  /* A dismissal lives only while its notice does: a reply without that exact notice (the login was renewed, the count
+     moved, the agents changed) forgets it, so a later expiry of the same account is never born hidden. */
+  if (Array.isArray(advs)) loginAdvPrune(advs.filter((a) => a && Array.isArray(a.agents)).map(advKey));
   const hidden = loginAdvDismissed();
   const list = Array.isArray(advs)
     ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
@@ -21035,6 +21038,14 @@ function paintLoginAdvisories(advs) {
 function loginAdvDismissed() {
   try { const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]'); if (Array.isArray(v)) return v.concat(loginAdvHiddenMem); } catch { /* refused */ }
   return loginAdvHiddenMem.slice();
+}
+function loginAdvPrune(liveKeys) {
+  const keep = (k) => liveKeys.includes(k);
+  loginAdvHiddenMem = loginAdvHiddenMem.filter(keep);
+  try {
+    const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
+    if (Array.isArray(v) && v.some((k) => !keep(k))) localStorage.setItem(LOGIN_ADV_HIDE_KEY, JSON.stringify(v.filter(keep)));
+  } catch { /* refused: nothing stored to prune */ }
 }
 function loginAdvDismiss(key) {
   if (!key) return;

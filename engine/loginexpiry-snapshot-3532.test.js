@@ -142,4 +142,5 @@ test('#5018: the email comes from the config file the agent reads: unset reads ~
   assert.equal(by('roo').email, 'default@example.com');
   assert.equal(by('pixel').email, 'explicit@example.com', 'an explicit ~/.claude read the default record');
   assert.equal(by('cleo').email, null, 'no record: no email, never a guess');
+  assert.deepEqual(by('cleo').names, ['cleo'], 'no identity in the sandbox: the system name, never blank');
 });

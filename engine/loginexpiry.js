@@ -172,7 +172,8 @@ function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, war
  * compute() and stores the result. 🛑 On a compute() THROW it returns the last-good value WITHOUT
  * advancing `at`, so a transient failure is retried on the very next call instead of being pinned
  * for the whole TTL. Injectable (pass a fake now/compute) so the cache behaviour is tested without
- * standing up a board; it also reads this module's login generation (below). */
+ * standing up a board; it also reads this module's login generation (below), and a cache with no `gen` (or an
+ * older one) is stale. */
 function cachedAdvisories({ cache, now = Date.now(), ttlMs, compute } = {}) {
   if (cache && cache.at && (now - cache.at) < ttlMs && cache.gen === loginGen) return cache.value;
   const gen = loginGen;

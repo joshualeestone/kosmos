@@ -216,11 +216,17 @@ const CASES = [
     for (let i = 0; i < 60 && served < before + 2; i++) await pg.waitForTimeout(250);
     chk(served >= before + 2, '5018: the reloaded page read the advisory (so the next line is not a vacuous absence)', 'served ' + (served - before));
     chk(!(await pg.$('#login-adv-slot .login-adv')), '5018: still hidden after a reload, nothing changed');
-    // A change (fewer days left) brings it back.
+    // A change (fewer days left) brings it back, and the old dismissal is forgotten (it no longer matches a notice).
     adv = [{ ...adv[0], daysLeft: 4 }];
     await pg.reload({ waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
     chk(await shown(), '5018: a change (5 days to 4) shows the notice again');
+    // The 5-day dismissal was forgotten when it stopped matching: the same 5-day state coming back (a renewed login
+    // that later nears expiry again) shows. Without the prune, the old key would hide it.
+    adv = [{ ...adv[0], daysLeft: 5 }];
+    await pg.reload({ waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    chk(await shown(), '5018: a dismissal that stopped matching is forgotten (the same state later shows again)');
     chk(errs.length === 0, '5018: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
