@@ -158,27 +158,33 @@ const BUTTONS = 'button, input[type=button], input[type=submit]';
    polls it may never fire. Measured 2026-10-02 on this board (Agent1s, load 4.3, webkit and chromium x3): 100 fields
    from DOMContentLoaded; buttons 431-432 at DOMContentLoaded, 432-434 at load, 434 at networkidle and once settled, so
    2-3 buttons arrive after load. networkidle happened to catch them in all six runs; nothing guaranteed it.
-   So: load, the page script up (`card` defined), then the field and button counts unchanged for SETTLE_MS. A page that
-   never settles within SETTLE_MAX_MS is a FAILURE, never a measurement taken anyway. */
+   So: load, then the board's FIRST /api/status poll ANSWERED (what paints the late controls; review round 1: a counts
+   window alone could close before a slow poll answered, which networkidle never allowed; and `card` being defined says
+   nothing, it is a hoisted declaration), then the field and button counts unchanged for SETTLE_MS. A poll that never
+   answers, or a page that never settles, within SETTLE_MAX_MS is a FAILURE, never a measurement taken anyway. */
 const SETTLE_MS = 1500;
 const SETTLE_MAX_MS = 20000;
-/* #4734: floors on WHAT WAS MEASURED, so a page that drew far less than this board does (a script that died, a
-   fixture that did not load) cannot pass over a short list. About half of what this check MEASURED on 2026-10-02
+/* #4734: floors on WHAT WAS MEASURED, so the WRONG PAGE (a 404, a stub, a wrong base URL) cannot pass over a short list.
+   NOT a guard on a dead page script: about 100 fields and 430 buttons are static HTML, so a page whose script died
+   still clears both floors (review round 1); that case is the page errors and the answered poll. About half of what
+   this check MEASURED on 2026-10-02
    (96 fields in both engines; 388 visible buttons in webkit, 372 in chromium; the page holds 100 and 434, some
    excluded or not visible): a control legitimately removed does not trip it; a page that rendered only its shell
    does. */
 const FIELD_FLOOR = 50;
 const BUTTON_FLOOR = 200;
-async function settle(page, { needCard = true } = {}) {
+async function settle(page, polled) {
   const t0 = Date.now();
+  if (polled) {
+    try { await polled; } catch { throw new Error(`the board's first /api/status poll did not answer in ${SETTLE_MAX_MS} ms`); }
+  }
   let last = null; let since = Date.now();
   for (;;) {
-    const s = await page.evaluate(([f, b]) => ({ f: document.querySelectorAll(f).length, b: document.querySelectorAll(b).length,
-      ready: typeof card === 'function' }), [FIELDS, BUTTONS]);
-    const key = `${s.f}/${s.b}/${s.ready}`;
+    const s = await page.evaluate(([f, b]) => ({ f: document.querySelectorAll(f).length, b: document.querySelectorAll(b).length }), [FIELDS, BUTTONS]);
+    const key = `${s.f}/${s.b}`;
     if (key !== last) { last = key; since = Date.now(); }
-    if ((s.ready || !needCard) && Date.now() - since >= SETTLE_MS) return { fields: s.f, buttons: s.b, ms: Date.now() - t0 };
-    if (Date.now() - t0 > SETTLE_MAX_MS) throw new Error(`the page did not settle in ${SETTLE_MAX_MS} ms (last ${key}, fields/buttons/script)`);
+    if (Date.now() - since >= SETTLE_MS) return { fields: s.f, buttons: s.b, ms: Date.now() - t0 };
+    if (Date.now() - t0 > SETTLE_MAX_MS) throw new Error(`the page did not settle in ${SETTLE_MAX_MS} ms (last ${key}, fields/buttons)`);
     await page.waitForTimeout(100);
   }
 }
@@ -195,7 +201,7 @@ async function settleSelfCheck(engine) {
     const atIdle = await page.evaluate((f) => document.querySelectorAll(f).length, FIELDS);
     const page2 = await browser.newPage();
     await page2.goto(LATE, { waitUntil: 'load' });
-    const settled = await settle(page2, { needCard: false });
+    const settled = await settle(page2, null);   // a data: page polls nothing
     return { atIdle, settled: settled.fields };
   } finally { await browser.close(); }
 }
@@ -206,11 +212,14 @@ async function measure(engine, scheme) {
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+  /* Registered BEFORE goto, so a poll that answers during load is not missed. */
+  const polled = page.waitForResponse((res) => new URL(res.url()).pathname === '/api/status', { timeout: SETTLE_MAX_MS });
+  polled.catch(() => {});   // awaited (and reported) inside settle; this only stops an early rejection going unhandled
   await page.goto(BASE, { waitUntil: 'load' });
   let out;
   let settled = null;
   try {
-  settled = await settle(page);   // #4734: throws (reported as a FAIL by the catch at the bottom) rather than measuring an unsettled page
+  settled = await settle(page, polled);   // #4734: throws (reported as a FAIL by the catch at the bottom) rather than measuring an unsettled page
   out = await page.evaluate((sel) => {
     /* The wizard covers the board, so it stays hidden -- and is EXCLUDED from
        the unhide sweep below, which previously put it straight back. A line
@@ -458,9 +467,9 @@ async function measure(engine, scheme) {
   return { ...out, errs, settled };
 }
 
+let failures = 0;   // module scope (#4734): the bottom catch reports the true count, not "1"
 (async () => {
   selfCheck();
-  let failures = 0;
   const fail = (msg) => { failures += 1; console.log('  FAIL  ' + msg); };
 
   for (const engine of ENGINES) {
@@ -723,6 +732,7 @@ async function measure(engine, scheme) {
   /* #4734: a page that never settles (or any other throw) is a reported FAILURE with its own FAILED: line, not an
      unhandled rejection that dies without one. */
   console.log('  FAIL  ' + (e && e.message ? e.message : String(e)));
-  console.log('\nFAILED: 1');
+  failures += 1;
+  console.log(`\nFAILED: ${failures}`);
   process.exit(1);
 });
