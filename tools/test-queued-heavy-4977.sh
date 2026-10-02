@@ -168,10 +168,14 @@ for p in $(pgrep -f "^sleep $((U+7))$"); do kill -KILL $p; done
 # exit 3 and the variable to set, before anything runs.
 o=$(QUEUED_HEAVY_LIB=$S/cwd /bin/bash $QH "nolib" touch $S/nolib-ran 2>&1); rc=$?
 ok "#4977: a lib checkout without cut-guard.sh exits 3, names QUEUED_HEAVY_LIB, runs nothing" '[ "$rc" = 3 ] && [[ "$o" == *"could not load cut-guard.sh"*QUEUED_HEAVY_LIB* ]] && [ ! -e $S/nolib-ran ]'
+# And a checkout whose cut-guard.sh lacks a function the wrapper calls (an old lib) stops the same way, not by waiting.
+mkdir -p $S/oldlib/tools/lib && { cat $ROOT/tools/lib/cut-guard.sh; echo 'unset -f kosmos_release_machine'; } > $S/oldlib/tools/lib/cut-guard.sh
+o=$(QUEUED_HEAVY_LIB=$S/oldlib /bin/bash $QH "oldlib" touch $S/oldlib-ran 2>&1); rc=$?
+ok "#4977: a lib missing kosmos_release_machine exits 3 and names it, runs nothing" '[ "$rc" = 3 ] && [[ "$o" == *"has no kosmos_release_machine"* ]] && [ ! -e $S/oldlib-ran ]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
-EXPECTED=77   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, the missing lib
+EXPECTED=78   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, two lib arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
