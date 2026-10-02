@@ -2746,8 +2746,8 @@ test('#4624: removing an agent forgets the room posts held for it', () => {
    SIGTERMed, print still answers) while its supervisor shuts down, and only then is gone. A bootstrap in that gap
    answers 5 ("already loaded") and changes nothing. Modelled here on the clock, so the restart meets it as it did:
    Josh's "Switch & Restart to Gemini" agents ran on unsupervised, with no job, unreachable from the page. */
-function dyingLaunchd(dieMs) {
-  const m = { state: 'loaded', goneAt: 0, bootstraps: 0 };
+function dyingLaunchd(dieMs, opts = {}) {
+  const m = { state: 'loaded', goneAt: 0, bootstraps: 0, prints: 0 };
   const tick = () => { if (m.state === 'dying' && Date.now() >= m.goneAt) m.state = 'gone'; };
   m.runner = (file, args) => {
     const cmd = args && args[0];
@@ -2755,21 +2755,27 @@ function dyingLaunchd(dieMs) {
     if (cmd === 'has-session') return { ok: false, code: 1 };
     if (file !== '/bin/launchctl') return { ok: true, stdout: '' };
     if (cmd === 'bootout') { if (m.state === 'loaded') { m.state = 'dying'; m.goneAt = Date.now() + dieMs; } return { ok: true, stdout: '' }; }
-    if (cmd === 'print') return m.state === 'gone' ? { ok: false, code: 113 } : { ok: true, stdout: m.state === 'dying' ? 'state = SIGTERMed' : 'state = running' };
+    if (cmd === 'print') {
+      m.prints += 1;
+      if (m.state === 'gone') return { ok: false, code: 113, stderr: 'Could not find service' };
+      // opts.flaky: print itself fails (a timeout) while the job is dying, which says nothing about the job
+      if (m.state === 'dying' && opts.flaky) return { ok: false, code: null, stderr: '' };
+      return { ok: true, stdout: m.state === 'dying' ? 'state = SIGTERMed' : 'state = running' };
+    }
     if (cmd === 'bootstrap') { m.bootstraps += 1; if (m.state !== 'gone') return { ok: false, code: 5, stderr: 'Bootstrap failed: 5: Input/output error' }; m.state = 'loaded'; return { ok: true, stdout: '' }; }
     return { ok: true, stdout: '' };
   };
   m.settle = () => { const until = m.goneAt + 50; while (Date.now() < until) { /* let the old job finish going */ } tick(); };
   return m;
 }
-function withUnloadWait(ms, fn) {
-  const was = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
-  const wasRetry = process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS;
+function withUnloadWait(ms, fn, burstMs) {
+  const keys = ['AGENT_WORKFORCE_UNLOAD_WAIT_MS', 'AGENT_WORKFORCE_RELAUNCH_RETRY_MS', 'AGENT_WORKFORCE_UNLOAD_BURST_MS'];
+  const was = keys.map((k) => process.env[k]);
   process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = String(ms);
   process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '0';   // the #4006 second try, at once: it is not what is tested
+  if (burstMs !== undefined) process.env.AGENT_WORKFORCE_UNLOAD_BURST_MS = String(burstMs);
   try { return fn(); } finally {
-    if (was === undefined) delete process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS; else process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = was;
-    if (wasRetry === undefined) delete process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS; else process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = wasRetry;
+    keys.forEach((k, i) => { if (was[i] === undefined) delete process.env[k]; else process.env[k] = was[i]; });
   }
 }
 
@@ -2808,7 +2814,7 @@ test('#4964 CONTROL: without the wait, the same launchd leaves the agent with no
   }
 });
 
-test('#4964: a job that never finishes unloading within the wait is bootstrapped anyway, and the loaded check still decides', () => {
+test('#4964: a job still held when the wait runs out is bootstrapped anyway, and its "already loaded" is not taken as a restart', () => {
   const name = madeAgent('unloadstuck');
   boardShows(name, name);
   const m = dyingLaunchd(60 * 60 * 1000);   // never gone within the test
@@ -2818,9 +2824,72 @@ test('#4964: a job that never finishes unloading within the wait is bootstrapped
     const out = withUnloadWait(200, () => mac.restart(name, 'provider'));
     assert.ok(Date.now() - t0 < 5000, 'the wait was not bounded');
     assert.ok(m.bootstraps >= 1, 'it never tried to start the agent');
-    assert.ok(out.outcome === remove.OUTCOME.RESTARTED || out.outcome === remove.OUTCOME.PARTIAL, out.outcome);
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'a restart whose only answer was the dying job said it restarted');
+    assert.equal(m.bootstraps, 2, 'the #4006 second try did not run');
   } finally {
     remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a print that fails for another reason (a timeout) is not read as the job being gone', () => {
+  const name = madeAgent('unloadflaky');
+  boardShows(name, name);
+  const m = dyingLaunchd(300, { flaky: true });
+  remove.setRunner(m.runner);
+  try {
+    const out = withUnloadWait(3000, () => mac.restart(name, 'provider'));
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+    m.settle();
+    assert.equal(m.state, 'loaded', 'a failed print ended the wait and the bootstrap met the dying job');
+    assert.equal(m.bootstraps, 1, 'the bootstrap was not sent once, after the old job had gone');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#4964: a burst of restarts waits at most the burst allowance; the rest end PARTIAL, never a RESTARTED with no job', () => {
+  const a = madeAgent('unloadbursta');
+  const b = madeAgent('unloadburstb');
+  boardShows(a, a);
+  const ma = dyingLaunchd(60 * 60 * 1000);
+  const mb = dyingLaunchd(60 * 60 * 1000);
+  try {
+    remove.resetUnloadWaitsForTests();   // earlier tests' waits must not have spent this test's allowance
+    remove.setRunner(ma.runner);
+    const tA = Date.now();
+    const outA = withUnloadWait(400, () => mac.restart(a, 'provider'), 500);
+    assert.ok(Date.now() - tA >= 450, `precondition: the first restart did not wait (${Date.now() - tA} ms)`);
+    assert.equal(outA.outcome, remove.OUTCOME.PARTIAL, outA.because);
+    boardShows(b, b);
+    remove.setRunner(mb.runner);
+    const t0 = Date.now();
+    const outB = withUnloadWait(400, () => mac.restart(b, 'provider'), 500);
+    assert.ok(Date.now() - t0 < 250, `the second restart waited ${Date.now() - t0} ms past the spent allowance`);
+    assert.equal(outB.outcome, remove.OUTCOME.PARTIAL, 'past the allowance, the dying job read as a restart');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(a);
+    disruption.clear(b);
+  }
+});
+
+test('#4964: a board whose commands are not real (dry run, no runner) does not wait for an unload', () => {
+  const name = madeAgent('unloaddry');
+  boardShows(name, name);
+  remove.setRunner(null);   // dry run: every print answers "loaded"
+  const was = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+  delete process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+  try {
+    const t0 = Date.now();
+    mac.restart(name, 'provider');
+    assert.ok(Date.now() - t0 < 3000, `a dry-run restart froze the board for ${Date.now() - t0} ms`);
+  } finally {
+    if (was !== undefined) process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = was;
     status.setPaneSource(null);
     disruption.clear(name);
   }
