@@ -211,10 +211,11 @@ enum ComputerMode: String {
 
 /* 🚦 KOSMOS_FIRSTRUN_CHOICE: the release switch for the whole of #4356 (Liu Kang m2647). OFF, first
    run is exactly today's: the app never asks, never reads a choice, never connects, so nothing
-   below this line changes a Mac. ON, the full three-button screen Josh approved. It stays off until
-   a connect Mac can update itself (#4382), whose PR turns it on; a test pins it off on main
-   (native-app.computer-mode-4356.test.js). */
-let kosmosFirstRunChoice = false
+   below this line changes a Mac. ON, the full three-button screen Josh approved. It was held off
+   until a connect Mac could update itself; #4382 (startUpdateLooks: `kosmos update --if-newer` at
+   launch and daily, with no board) is what turns it on. Windows keeps its own switch
+   (KosmosLauncher.cs FirstRunChoice) off until a connect Windows computer can update (#4381). */
+let kosmosFirstRunChoice = true
 
 func computerModePath(kosmosHome: String) -> String { kosmosHome + "/mode" }
 
@@ -381,6 +382,75 @@ func holdBoardStopped(kosmosHome: String) {
     } else {
         logLine("#4356: could not write \(marker)")
     }
+}
+
+// MARK: - #4382: a connect computer updates without a board
+
+/// What `kosmos update --if-newer` said, from the last line it printed (install/kosmos cmd_update).
+enum UpdateAnswer: Equatable {
+    case current            // nothing newer
+    case newer(String)      // newer, and updates are off here: offered, not installed
+    case updated(String)    // installed
+    case failed(String)     // the installer ran and failed
+    case board              // a board runs here, and it updates itself
+    case unknown            // the release host could not be reached or read, or the CLI said nothing usable
+}
+
+/// PURE, so --kosmos-app-update-selftest can drive it. Only the LAST non-empty line counts, and
+/// only a version of the board's own shape (a.b.c): anything else is unknown, never current, so a
+/// garbled answer can neither hide an update nor offer one.
+func updateAnswer(fromOutput text: String) -> UpdateAnswer {
+    guard let last = text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).last(where: { !$0.allSatisfy({ $0 == " " || $0 == "\t" }) })
+    else { return .unknown }
+    let words = last.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+    func version(_ v: String) -> Bool {
+        let p = v.split(separator: ".", omittingEmptySubsequences: false)
+        return p.count == 3 && p.allSatisfy { !$0.isEmpty && $0.allSatisfy { ("0"..."9").contains($0) } }
+    }
+    switch (words.first, words.count) {
+    case ("board", 1): return .board
+    case ("current", 2) where version(words[1]): return .current
+    case ("newer", 2) where version(words[1]): return .newer(words[1])
+    case ("updated", 2) where version(words[1]): return .updated(words[1])
+    case ("failed", 2) where version(words[1]): return .failed(words[1])
+    default: return .unknown
+    }
+}
+
+/// #4382: `bin/kosmos update --if-newer`, off the main thread. On a connect computer the board is
+/// stopped, so nothing else looks for updates; this runs the board's own look and, when updates are
+/// on or the person chose Update, the board's own installer, which leaves a connect computer's board
+/// stopped (install/setup.sh _kosmos_mode_keeps_board_off). It waits for the installer, which can
+/// take minutes: the caller counts it in stopsInFlight, so Run agents cannot start a board under it.
+func runKosmosUpdate(kosmosHome: String, port: Int?, install: Bool) -> UpdateAnswer {
+    let kosmosBin = kosmosHome + "/bin/kosmos"
+    guard FileManager.default.isExecutableFile(atPath: kosmosBin) else {
+        logLine("#4382: cannot look for an update: \(kosmosBin) is missing")
+        return .unknown
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: kosmosBin)
+    process.arguments = install ? ["update", "--if-newer", "--install"] : ["update", "--if-newer"]
+    var env = ProcessInfo.processInfo.environment
+    env["KOSMOS_HOME"] = kosmosHome
+    if let port { env["KOSMOS_PORT"] = String(port) }   // as stopBoard: "is a board running" is judged on it
+    process.environment = env
+    // To files, as stopBoard explains: an undrained Pipe can deadlock the wait, and the installer's
+    // output (it goes to logs/install.log, but a failure before that can still print) has no bound.
+    let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-update-\(UUID().uuidString).out")
+    FileManager.default.createFile(atPath: outURL.path, contents: nil)
+    defer { try? FileManager.default.removeItem(at: outURL) }
+    process.standardOutput = (try? FileHandle(forWritingTo: outURL)) ?? FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    do { try process.run() } catch {
+        logLine("#4382: could not run \(kosmosBin) update: \(error.localizedDescription)")
+        return .unknown
+    }
+    process.waitUntilExit()
+    let said = (try? String(contentsOf: outURL, encoding: .utf8)) ?? ""
+    let answer = updateAnswer(fromOutput: said)
+    logLine("#4382: kosmos update --if-newer\(install ? " --install" : "") exited \(process.terminationStatus): \(answer)")
+    return answer
 }
 
 // MARK: - Starting the board (delegates entirely to `bin/kosmos start`)
@@ -2180,6 +2250,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             DispatchQueue.main.async {
                 self?.stopsInFlight -= 1
                 if outcome == .failed { self?.showBoardStillRunning() }
+                // #4382: after the stop, so the look never meets a board of ours mid-stop.
+                self?.startUpdateLooks()
             }
         }
     }
@@ -2251,6 +2323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 guard self.computerMode == .connect else { return }
                 self.loadConnect()
                 if outcome == .failed { self.showBoardStillRunning() }
+                self.startUpdateLooks()   // #4382: from now on this app, not a board, keeps this Mac current
             }
         }
     }
@@ -2272,6 +2345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         computerMode = .run
         logLine("#4356: switching this computer to run agents")
+        stopUpdateLooks()   // #4382: the board looks for updates again, every fifteen minutes
         updateRunAgentsItem()
         loadBoard()
         startA11yTrustChecks()
@@ -2284,6 +2358,155 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Settings… (Cmd-,) opens the page's own Settings, which on a connect computer is the OTHER
         // computer's; hidden there, as the plan says this computer's settings are not on that page.
         items.first(where: { $0.action == #selector(AppDelegate.openSettings(_:)) })?.isHidden = computerMode == .connect
+    }
+
+    // MARK: #4382: a connect computer keeps itself current, with no board
+
+    /// The look, at launch (after stopBoardIfRunning's stop), when a computer switches to connect, and
+    /// once a day while it stays one. The Timer is held, and is paused while the Mac sleeps; a look
+    /// that is overdue at wake runs then.
+    static let updateLookInterval: TimeInterval = 24 * 60 * 60
+    private var updateTimer: Timer?
+    private var updateLookInFlight = false
+    /// The version offered (updates are off, or an install failed), or nil when there is no offer.
+    private var offeredUpdate: String?
+    /// The slim native bar under the title bar. Native on purpose (Liu Kang, #4382): on a connect
+    /// computer the page belongs to the other computer, so nothing is injected into it, and there is
+    /// no macOS notification (this app never asks for that permission).
+    private var updateBar: NSTitlebarAccessoryViewController?
+    private var updateBarLabel: NSTextField?
+    /// The version whose bar the person closed with Not Now; the menu item still offers it.
+    private var updateBarDismissed: String?
+
+    private func startUpdateLooks() {
+        guard computerMode == .connect else { return }
+        if updateTimer == nil {
+            updateTimer = Timer.scheduledTimer(withTimeInterval: Self.updateLookInterval, repeats: true) { [weak self] _ in
+                self?.lookForUpdate(install: false)
+            }
+        }
+        lookForUpdate(install: false)
+    }
+
+    private func stopUpdateLooks() {
+        updateTimer?.invalidate(); updateTimer = nil
+        showUpdateOffer(nil)
+    }
+
+    /// One look, and the install when it is due. `install` is the person's choice from the offer.
+    private func lookForUpdate(install: Bool) {
+        guard computerMode == .connect, let home = modeHome else { return }
+        guard !updateLookInFlight else { logLine("#4382: an update look is already running"); return }
+        updateLookInFlight = true
+        // Counted as a stop of ours: "Run agents on this computer" waits for an installer to finish
+        // rather than starting a board in the middle of it.
+        stopsInFlight += 1
+        if install { updateBarLabel?.stringValue = "Updating Kosmos…" }
+        let port = modePort   // read here, on the main thread, not from the queue below
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let answer = runKosmosUpdate(kosmosHome: home, port: port, install: install)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.updateLookInFlight = false
+                self.stopsInFlight -= 1
+                self.updateLookDone(answer, asked: install)
+            }
+        }
+    }
+
+    private func updateLookDone(_ answer: UpdateAnswer, asked: Bool) {
+        guard computerMode == .connect else { showUpdateOffer(nil); return }
+        switch answer {
+        case .newer(let v):
+            showUpdateOffer(v)
+        case .failed(let v):
+            showUpdateOffer(v, note: "Kosmos could not update to \(v). It will try again tomorrow, or you can try now.")
+        case .updated(let v):
+            showUpdateOffer(nil)
+            relaunchAfterUpdate(to: v)
+        case .unknown where asked:
+            // The person pressed Update and the release host could not be reached: say so, keep the offer.
+            showUpdateOffer(offeredUpdate, note: "Kosmos could not reach its update server. Check your internet connection and try again.")
+        case .current, .board, .unknown:
+            showUpdateOffer(nil)
+        }
+    }
+
+    /// Relaunch approved for #4382 (Liu Kang): the installer opens the app only when the board is
+    /// its own (setup.sh), so without this a connect Mac would keep running the old app. The same
+    /// relaunch the stale-app check uses (#2094/#4347), aimed at the copy that now carries `v`.
+    private func relaunchAfterUpdate(to v: String) {
+        guard let target = Self.freshAppURL(theirs: v) else {
+            logLine("#4382: updated to \(v), but no Kosmos.app on disk carries it; not relaunching")
+            showUpdateOffer(nil, note: "Kosmos \(v) is installed. Quit Kosmos and open it again to start using it.", menu: false)
+            return
+        }
+        relaunch(mine: runningAppVersion() ?? "unknown", theirs: v, target: target, waited: 0, asked: true, askedBefore: true)
+    }
+
+    /// The menu item "Update Kosmos to X" and the bar. nil hides both, unless a note is given.
+    private func showUpdateOffer(_ version: String?, note: String? = nil, menu: Bool = true) {
+        offeredUpdate = menu ? version : nil
+        let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
+        if let item = items.first(where: { $0.action == #selector(AppDelegate.updateKosmosNow(_:)) }) {
+            item.isHidden = offeredUpdate == nil
+            item.title = offeredUpdate.map { "Update Kosmos to \($0)" } ?? "Update Kosmos"
+        }
+        let text: String? = note ?? version.map { "Kosmos \($0) is available. Updates are off on this computer, so it was not installed." }
+        guard let text, note != nil || version != updateBarDismissed else {
+            updateBar?.isHidden = true
+            return
+        }
+        let bar = updateBar ?? makeUpdateBar()
+        updateBarLabel?.stringValue = text
+        if let button = bar.view.subviews.compactMap({ $0 as? NSStackView }).first?.arrangedSubviews
+            .compactMap({ $0 as? NSButton }).first(where: { $0.action == #selector(AppDelegate.updateKosmosNow(_:)) }) {
+            button.isHidden = offeredUpdate == nil
+        }
+        bar.isHidden = false
+    }
+
+    private func makeUpdateBar() -> NSTitlebarAccessoryViewController {
+        let label = NSTextField(labelWithString: "")
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let update = NSButton(title: "Update", target: self, action: #selector(AppDelegate.updateKosmosNow(_:)))
+        update.bezelStyle = .rounded
+        update.keyEquivalent = ""
+        let later = NSButton(title: "Not Now", target: self, action: #selector(AppDelegate.dismissUpdateBar(_:)))
+        later.bezelStyle = .rounded
+        let row = NSStackView(views: [label, update, later])
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 32))
+        host.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            row.topAnchor.constraint(equalTo: host.topAnchor),
+            row.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+        let bar = NSTitlebarAccessoryViewController()
+        bar.layoutAttribute = .bottom
+        bar.view = host
+        window.addTitlebarAccessoryViewController(bar)
+        updateBar = bar
+        updateBarLabel = label
+        return bar
+    }
+
+    /// The menu item and the bar's Update button: install the offered version, whatever the Updates
+    /// switch says, because the person chose it.
+    @objc func updateKosmosNow(_ sender: Any?) {
+        guard computerMode == .connect, offeredUpdate != nil else { return }
+        lookForUpdate(install: true)
+    }
+
+    @objc func dismissUpdateBar(_ sender: Any?) {
+        updateBarDismissed = offeredUpdate
+        updateBar?.isHidden = true
     }
 
     /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. Nothing
@@ -4046,6 +4269,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         runAgentsItem.target = settingsTarget
         runAgentsItem.isHidden = true
         appMenu.addItem(runAgentsItem)
+        /* #4382: on a connect computer with updates off, the offer of a newer version ("Update Kosmos
+           to X", showUpdateOffer sets the title). Hidden otherwise; a board shows its own offer. */
+        let updateItem = NSMenuItem(title: "Update Kosmos",
+                                    action: #selector(AppDelegate.updateKosmosNow(_:)),
+                                    keyEquivalent: "")
+        updateItem.target = settingsTarget
+        updateItem.isHidden = true
+        appMenu.addItem(updateItem)
         appMenu.addItem(NSMenuItem.separator())
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu(title: "Services")
@@ -5150,6 +5381,38 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     }
     if bad > 0 { print("\nmode-check: \(bad) row(s) wrong"); exit(1) }
     print("\nmode-check: all good (\(ran) rows)")
+    exit(0)
+}
+
+// #4382: what `kosmos update --if-newer` said, read the way a connect computer's app reads it. Pure;
+// tools/build-kosmos-bundle.sh runs it at every bundle build.
+if CommandLine.arguments.contains("--kosmos-app-update-selftest") {
+    var bad = 0
+    var ran = 0
+    func row(_ text: String, _ want: UpdateAnswer, _ why: String) {
+        ran += 1
+        let got = updateAnswer(fromOutput: text)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "\(got)".padding(toLength: 18, withPad: " ", startingAt: 0) + why)
+    }
+    row("current 0.7.18\n", .current, "nothing newer")
+    row("newer 0.7.19\n", .newer("0.7.19"), "newer, updates off: offered")
+    row("updated 0.7.19\n", .updated("0.7.19"), "installed: relaunch")
+    row("failed 0.7.19\n", .failed("0.7.19"), "the installer failed")
+    row("board\n", .board, "a board runs here and looks for itself")
+    row("unknown\tthe release host could not be reached\n", .unknown, "the host could not be reached")
+    row("", .unknown, "NO OUTPUT IS UNKNOWN, never current")
+    row("Kosmos is starting\nnewer 0.7.19\n\n", .newer("0.7.19"), "only the last non-empty line is the answer")
+    row("newer 0.7.19\nsomething else\n", .unknown, "a last line that is not an answer is unknown, even after one")
+    row("newer 0.7.19-wedge\n", .unknown, "a version not of the board's shape is never offered")
+    row("newer\n", .unknown, "newer with no version")
+    row("updated 0.7\n", .unknown, "two parts is not a version")
+    row("current 0.7.18 extra\n", .unknown, "an extra word is not an answer")
+    row("Newer 0.7.19\n", .unknown, "case matters, as the CLI prints it")
+    let expected = 14
+    if ran != expected { print("\nupdate-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
+    if bad > 0 { print("\nupdate-check: \(bad) row(s) wrong"); exit(1) }
+    print("\nupdate-check: all good (\(ran) rows)")
     exit(0)
 }
 

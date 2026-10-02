@@ -1508,6 +1508,70 @@ cmd_version() {
   fi
 }
 
+# ---- kosmos update --if-newer [--install] ------------------------------------------------
+# #4382: a Mac set to connect to agents on another computer (#4356) runs no board, and the board is
+# what looks for updates, so without this it would stay on the version it was installed with. The
+# Mac app runs this at launch and once a day on such a computer. It is the board's own look
+# (engine/update-ifnewer.js runs engine/update.js and engine/autoupdate.js, so the channel, the
+# pointer, newer() and the consent are the board's rules, not a copy), and the board's own install:
+# the same `curl <setup> | sh` beginInstall runs, with the same three variables, writing
+# install.started and install.status the same way, so a board started later reads how it went.
+#   consent on (the Updates switch; no file is on):   installs.
+#   consent off, or a file that cannot be read:       says it is there and installs nothing,
+#                                                     unless --install (the person chose it).
+# The last line on stdout is the answer, for the app:
+#   current <v> | newer <v> | updated <v> | failed <v> | board | unknown <why>
+# Exit 0 for the first four and board, 1 for failed and unknown, 2 for a wrong call.
+# The installer's own output goes to logs/install.log, as an update the board starts does.
+cmd_update() {
+  local _install=0 _node _said _rc=0 kind v consent setup base pointer channel started code
+  [ "${1:-}" = "--if-newer" ] || { say "Usage: kosmos update --if-newer [--install]   (install a newer Kosmos when updates are on; --install installs it even when they are off)"; exit 2; }
+  case "${2:-}" in
+    '') ;;
+    --install) _install=1 ;;
+    *) say "Usage: kosmos update --if-newer [--install]"; exit 2 ;;
+  esac
+  # A running board looks for itself, every fifteen minutes, and two installers must never race.
+  if running_pid >/dev/null 2>&1; then
+    printf 'board\n'
+    exit 0
+  fi
+  _node="$(kosmos_engine_node)" || { printf 'unknown\tKosmos could not find its own runtime\n'; exit 1; }
+  _said="$("$_node" "$(kosmos_engine_module update-ifnewer).js" 2>/dev/null)" || _rc=$?
+  IFS="$(printf '\t')" read -r kind v consent setup base pointer channel <<EOF
+$_said
+EOF
+  case "$kind" in
+    current) printf 'current %s\n' "$v"; exit 0 ;;
+    newer) ;;
+    source) printf 'unknown\tthis is not an installed copy of Kosmos\n'; exit 1 ;;
+    unknown) printf 'unknown\t%s\n' "$v"; exit 1 ;;
+    *) printf 'unknown\tthe update check gave no answer (exit %s)\n' "$_rc"; exit 1 ;;
+  esac
+  if [ "$consent" != on ] && [ "$_install" != 1 ]; then
+    printf 'newer %s\n' "$v"
+    exit 0
+  fi
+  mkdir -p "$LOG_DIR"
+  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '%s\n' "$started" > "$LOG_DIR/install.started" 2>/dev/null || true
+  # The URL is a value, never part of the command text, as in beginInstall. pipefail is on, so a
+  # download that fails is a failure here even when sh, given nothing, exits 0.
+  if curl -fsSL "$setup" 2>>"$LOG_DIR/install.log" \
+     | KOSMOS_RELEASE_BASE="$base" KOSMOS_UPDATE_CHANNEL="$pointer" KOSMOS_SOURCE_CHANNEL="$channel" sh >>"$LOG_DIR/install.log" 2>&1; then
+    code=0
+  else
+    code=$?
+  fi
+  printf '%s %s\n' "$code" "$started" > "$LOG_DIR/install.status" 2>/dev/null || true
+  rm -f "$LOG_DIR/install.started"
+  # The installer may have replaced this file while it ran; exit here, in this function, so bash
+  # reads nothing more of it.
+  if [ "$code" = 0 ]; then printf 'updated %s\n' "$v"; exit 0; fi
+  printf 'failed %s\n' "$v"
+  exit 1
+}
+
 # ---- kosmos msg [--stdin] <agent> <text…> ---------------------------------------------
 # An agent messages a colleague. The SENDER IS NOT AN ARGUMENT: the server
 # derives it from the tmux pane this command runs inside ($TMUX_PANE), so an
@@ -3307,6 +3371,7 @@ kosmos_command_list() {
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
   printf '  kosmos agents        list the agent sessions running on this computer\n'
   printf '  kosmos version       say which version of Kosmos this is\n'
+  printf '  kosmos update        install a newer Kosmos when one is published (the app runs this on a computer that runs no board)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
   printf '  kosmos reply         answer the person in your conversation with them\n'
@@ -3351,7 +3416,7 @@ done
 [ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect)
+    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect|update)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -4202,6 +4267,7 @@ case "${1:-}" in
   agents)  cmd_agents ;;
   adopt)   shift; cmd_adopt "$@" ;;
   version) cmd_version ;;
+  update)  shift; cmd_update "$@" ;;   # #4382: the Mac app's update look on a computer with no board
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;

@@ -55,13 +55,16 @@ test('#4381: the instrument is reading the launcher', () => {
   assert.ok(SOURCE.length > 100000, 'KosmosLauncher.cs read back only ' + SOURCE.length + ' bytes');
 });
 
-test('#4381: THE RELEASE SWITCH IS OFF ON MAIN, as the Mac\'s kosmosFirstRunChoice is, until #4382 lets a connect computer update', () => {
+test('#4381: THE RELEASE SWITCH IS OFF ON MAIN until a connect Windows computer can update (the Mac\'s is on with #4382)', () => {
   assert.match(SOURCE, /internal static readonly bool FirstRunChoice = false;/, 'the first-run choice reached a Windows computer before #4382');
   const launch = method('internal static ComputerMode LaunchComputerMode()');
   assert.match(launch, /if \(!FirstRunChoice\) return ComputerMode\.Run;\s*return ReadComputerMode\(computerModeFile\(\)\);/,
     'with the switch off the mode file must not even be read, and every computer runs agents as before');
+  /* #4382 turned the Mac's switch on with the Mac's update look. Windows stays off: its updater refuses to run
+     without the board a connect computer has stopped (Homer, #4382 09-29), so a connect Windows computer would
+     never update. This pin moves when #4381's update half lands, not before. */
   const mac = fs.readFileSync(path.join(REPO, 'native-app', 'main.swift'), 'utf8');
-  assert.match(mac, /let kosmosFirstRunChoice = false/, 'the Mac\'s switch moved; the two must be turned on together by #4382');
+  assert.match(mac, /let kosmosFirstRunChoice = true/, 'the Mac\'s switch moved; it is on with #4382 and Windows follows it with #4381');
   /* Every place the launcher and the window learn the mode goes through LaunchComputerMode, so the switch covers all of them. */
   const reads = [...SOURCE.matchAll(/ReadComputerMode\(/g)].length;
   assert.equal(reads, 2, 'ReadComputerMode is called somewhere the switch does not cover (its declaration and LaunchComputerMode only)');

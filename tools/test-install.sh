@@ -1022,6 +1022,40 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
     chk "the run names its target version" "grep -q \"installs Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
     chk "the versioned artifact name was fetched" "grep -q \"kosmos-$BUNDLE_V-arm64.tar.gz\" \"$SB/pinned.log\""
     chk "the read-back states what is on disk" "grep -q \"on disk now: Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
+
+    echo "== a connect computer updates with no board (#4382) =="
+    # The Mac app runs `kosmos update --if-newer` on a computer that connects to agents elsewhere, whose
+    # board is stopped on purpose. The real installer, from this release host, over an install made to
+    # look older (its package.json says 0.0.1, so the pointer's $BUNDLE_V is newer). setupUrl() is the
+    # base's sibling /setup, so the installer is published there.
+    cp "$SETUP" "$SB/setup"
+    printf 'connect\n' > "$SB/home/mode"
+    "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
+    chk "CONTROL: the connect computer's board is down before the look" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+    _pkg="$SB/home/app/package.json"
+    _older() { sed 's/"version":[[:space:]]*"[^"]*"/"version": "0.0.1"/' "$_pkg" > "$_pkg.t" && mv "$_pkg.t" "$_pkg"; }
+    _older
+    chk "CONTROL: the install now reads as older" "grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
+    # Updates off: offered, nothing installed, the board stays down.
+    mkdir -p "$SB/data/Kosmos"
+    mkdir -p "$SB/data/Kosmos"
+    printf '{"on":false}\n' > "$SB/data/Kosmos/autoupdate.json"
+    RC=0; UPD="$("$SB/home/bin/kosmos" update --if-newer 2>"$SB/update-off.err")" || RC=$?
+    chk "updates off: the look exits 0" "rc_ok $RC"
+    chk "updates off: it offers $BUNDLE_V and installs nothing" "[ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"newer $BUNDLE_V\" ] && grep -q '\"version\": \"0.0.1\"' \"$_pkg\""
+    chk "updates off: the board stays stopped" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/"
+    # Updates on (no file, as on a connect computer whose Settings live on the other computer): installs.
+    rm -f "$SB/data/Kosmos/autoupdate.json"
+    RC=0; UPD="$("$SB/home/bin/kosmos" update --if-newer 2>"$SB/update-on.err")" || RC=$?
+    chk "updates on: the look installs, exit 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"updated $BUNDLE_V\" ]"
+    chk "updates on: $BUNDLE_V is what is on disk now" "grep -q \"\\\"version\\\": *\\\"$BUNDLE_V\\\"\" \"$_pkg\""
+    chk "updates on: the installer ran on the connect path" "grep -q 'connects to agents on another computer, so Kosmos is not started here' \"$SB/home/logs/install.log\""
+    chk "updates on: the board stays stopped after the update" "! curl -s -m 2 -o /dev/null http://127.0.0.1:$PORT/ && [ -e \"$SB/home/board.stopped\" ]"
+    chk "updates on: the attempt is recorded for a board started later (code 0, no in-flight marker)" "grep -q '^0 ' \"$SB/home/logs/install.status\" && [ ! -e \"$SB/home/logs/install.started\" ]"
+    # Nothing newer now: the same look says so and runs nothing.
+    RC=0; UPD="$("$SB/home/bin/kosmos" update --if-newer 2>/dev/null)" || RC=$?
+    chk "up to date: the look says current and exits 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"current $BUNDLE_V\" ]"
+    rm -f "$SB/home/mode" "$SB/setup"
     "$SB/bin/kosmos" stop > /dev/null 2>&1 || true
     sh -s -- --uninstall < "$SETUP" > /dev/null 2>&1 || true
     # (b) THE WEDGE ITSELF: the pointer moves ahead while the only bytes
