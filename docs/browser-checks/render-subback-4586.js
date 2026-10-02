@@ -189,17 +189,22 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
         say(`#5053 long name at ${width}: the chevron stays beside the title, on its first line`, g.display !== 'none' && g.gap >= 0 && g.gap <= 24 && g.overlapY > 10 && Math.abs(t.chevTop - t.titleTop) < 24, JSON.stringify({ g, t }));
         say(`#5053 long name at ${width}: the title stays on screen`, t.right <= t.inner, JSON.stringify(t));
         /* #5072: when the crumb wraps, its ' · ' must go to the next line WITH Open project, never dangle at the end of
-           the line above. The dot is found as a character, wherever it sits, so the assert reads the same on the old
-           markup (where it fails) and the new. */
+           the line above. The dot is found as a character, wherever it sits, so one assert reads both the old markup
+           (expected to fail) and the new. The arm only counts when the name ends on All tasks' line and Open project
+           wraps alone: that is the one shape where the old markup strands the dot. */
         const cr = await tv.page.evaluate(() => {
           const box = document.getElementById('tsk-crumb'), first = box.querySelector('[data-proj=""]').getBoundingClientRect(), open = box.querySelector('[data-open-project]').getBoundingClientRect();
           const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT); let n, dot = null;
           while ((n = w.nextNode())) { const i = n.data.indexOf('\u00b7'); if (i >= 0) { const rg = document.createRange(); rg.setStart(n, i); rg.setEnd(n, i + 1); dot = rg.getBoundingClientRect(); break; } }
           const mid = (r) => (r.top + r.bottom) / 2;
-          return { wrapped: open.top >= first.bottom - 1, dotFound: !!dot, dotWithOpen: dot ? Math.abs(mid(dot) - mid(open)) < 8 : false,
-            dot: dot ? [Math.round(dot.left), Math.round(mid(dot))] : null, open: [Math.round(open.left), Math.round(mid(open))], first: [Math.round(first.left), Math.round(mid(first))] };
+          // The name's last letter: the text right after All tasks, less any trailing spaces and dot.
+          const nameNode = box.querySelector('[data-proj=""]').nextSibling, s = nameNode && nameNode.nodeType === 3 ? nameNode.data : '';
+          const end = s.replace(/[\s\u00b7]+$/, '').length;
+          let last = null; if (end > 0) { const rg = document.createRange(); rg.setStart(nameNode, end - 1); rg.setEnd(nameNode, end); last = rg.getBoundingClientRect(); }
+          return { wrapped: open.top >= first.bottom - 1 && !!last && Math.abs(mid(last) - mid(first)) < 8, dotFound: !!dot, dotWithOpen: dot ? Math.abs(mid(dot) - mid(open)) < 8 : false,
+            dot: dot ? [Math.round(dot.left), Math.round(mid(dot))] : null, last: last ? [Math.round(last.left), Math.round(mid(last))] : null, open: [Math.round(open.left), Math.round(mid(open))], first: [Math.round(first.left), Math.round(mid(first))] };
         });
-        say(`#5072 long name at ${width}: the crumb wraps (the arm tests something)`, cr.wrapped, JSON.stringify(cr));
+        say(`#5072 long name at ${width}: the name ends on All tasks' line and Open project wraps alone (the arm tests something)`, cr.wrapped, JSON.stringify(cr));
         say(`#5072 long name at ${width}: the crumb's dot is on Open project's line, not dangling above it`, cr.dotFound && cr.dotWithOpen, JSON.stringify(cr));
         const nb = await tv.page.evaluate(() => {
           const n = document.getElementById('tsk-new').getBoundingClientRect(), tr = document.getElementById('tsk-title').getBoundingClientRect();
