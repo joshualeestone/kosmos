@@ -608,6 +608,24 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.evaluate(() => window.__recLast.onerror({ error: 'aborted' }));
     const abEnd = await phone.evaluate(() => ({ btn: !!VOICE.btn, bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
     chk(!abEnd.btn && !abEnd.bar, 'P8b a phone-side abort with no end after it leaves the mic off and the bar gone', JSON.stringify(abEnd));
+    // P8c (slice 3 round 14): Android ends a long silence with no-speech even after words landed. With words heard it
+    // says nothing (the words are in the box); the control, no-speech with no words, still says "Nothing was heard."
+    const quiet = {};
+    for (const words of [true, false]) {
+      await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; document.getElementById('d-say').value = ''; });
+      await phone.tap('#d-mic');
+      await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+      quiet[words ? 'after' : 'none'] = await phone.evaluate(async (w) => {
+        if (w) window.__recLast.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: 'call the client' }], { isFinal: false })] });
+        window.__recLast.onerror({ error: 'no-speech' }); window.__recLast.onend();
+        await new Promise((r) => setTimeout(r, 30));
+        return document.getElementById('d-say-msg').textContent;
+      }, words);
+      await phone.waitForFunction(() => !VOICE.btn);
+    }
+    chk(!/Nothing was heard/.test(quiet.after) && /Nothing was heard/.test(quiet.none),
+      'P8c a no-speech after words says nothing; with no words it still says Nothing was heard', JSON.stringify(quiet));
+    await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; document.getElementById('d-say').value = ''; });
     // P10: the bar follows the visible area while it is up (the keyboard, a scroll), and stops following after.
     await phone.tap('#d-mic');
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
@@ -697,6 +715,22 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.waitForFunction(() => !VOICE.btn);
     inDlg.ended = await phone.evaluate(() => { const t = document.getElementById('nt-voice-msg').textContent; document.getElementById('nt-modal').hidden = true; return t; });
     const dmLine = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    // P11b (slice 3 round 14): when the dialog's line already holds the page's own message, it is kept, and a hidden
+    // status inside the dialog says who hears the audio instead; it empties when listening ends.
+    const kept = await phone.evaluate(async () => {
+      const m = document.getElementById('nt-modal'); m.hidden = false;
+      document.getElementById('nt-voice-msg').textContent = 'Could not create the task.';
+      document.querySelector('.fieldmic[data-voice-for="nt-detail"]').click();
+      await new Promise((r) => setTimeout(r, 30));
+      const h = m.querySelector('.voice-who-dlg');
+      const r = { line: document.getElementById('nt-voice-msg').textContent, hidden: h ? h.textContent : null, inDialog: !!(h && h.closest('[aria-modal="true"]')) };
+      document.querySelector('.fieldmic[data-voice-for="nt-detail"]').click();
+      return r;
+    });
+    await phone.waitForFunction(() => !VOICE.btn);
+    kept.after = await phone.evaluate(() => { const h = document.querySelector('#nt-modal .voice-who-dlg'); const t = h ? h.textContent : null; document.getElementById('nt-voice-msg').textContent = ''; document.getElementById('nt-modal').hidden = true; return t; });
+    chk(kept.line === 'Could not create the task.' && /Apple hears this audio/.test(kept.hidden || '') && kept.inDialog && kept.after === '',
+      'P11b a dialog line holding the page\'s message is kept; a hidden status inside the dialog says who hears, then empties', JSON.stringify(kept));
     chk(/^Starting.*Apple hears this audio/.test(dlg) && /^Listening.*Apple hears this audio/.test(inDlg.line) && /Apple hears this audio/.test(inDlg.who) && inDlg.ended === '' && !/hears this audio/.test(dmLine),
       'P11 a mic in a modal dialog says who hears the audio inside the dialog too, from the tap until it ends; a composer mic leaves its line alone', JSON.stringify({ inDlg, dmLine, dlg }));
     // P12: no bar to say who hears the audio, no audio: the tap starts nothing.

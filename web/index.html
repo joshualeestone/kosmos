@@ -60155,7 +60155,8 @@ function repaintReactions(box, list) {
 
 /* ===== #4409: voice. Talk to an agent (the mic in each composer) and hear an agent (read aloud). =====
    Josh, 2026-09-28 15:02: "it would be so great to be able to get an agent to speak and to be able to speak
-   to them through Kosmos". Built-in engines only, no paid service, no audio kept.
+   to them through Kosmos". Built-in engines only, no paid service. On the Mac app the audio stays on the Mac and none is
+   kept; on a phone (slice 3) the browser's speech service (Apple's or Google's) hears it, and the bar says so.
 
    TALKING: the Mac app's on-device recognizer (native-app/main.swift VoiceBridge), reached through the
    `kosmosVoice` bridge. The mic is drawn only where a bridge exists: the Mac app's, or (slice 3) on a phone the
@@ -60434,13 +60435,33 @@ function voiceWhoPlace() {
   try { bar.style.top = 'calc(' + Math.round((window.visualViewport && window.visualViewport.offsetTop) || 0) + 'px + 12px + env(safe-area-inset-top, 0px))'; } catch { /* the default */ }
 }
 let VOICE_WHO_FOLLOW = false;
+/* The hidden status a dialog mic speaks through when its visible line is taken (voiceWho). Made empty and filled a moment
+   later: a live region born with its text is not announced. With no dialog, every one is emptied. */
+function voiceWhoHidden(dlg, line) {
+  if (!dlg) { document.querySelectorAll('.voice-who-dlg').forEach((h) => { h.textContent = ''; }); return; }
+  let h = dlg.querySelector('.voice-who-dlg');
+  const fresh = !h;
+  if (fresh) {
+    h = document.createElement('p');
+    h.className = 'voice-who-dlg';
+    h.setAttribute('role', 'status');
+    h.setAttribute('aria-live', 'polite');
+    h.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';
+    dlg.appendChild(h);
+  }
+  h.dataset.want = line;
+  if (fresh) setTimeout(() => { h.textContent = h.dataset.want || ''; }, 0); else h.textContent = line;
+}
 function voiceWho(line, forBtn) {
   const bar = document.getElementById('voice-who');   // made at load on a phone, empty, so a screen reader hears each line
   if (!bar) return;
   /* In a modal dialog a screen reader cannot reach the bar, so a dialog mic's own line says it too: only a line that is
-     empty or one the bar put there, never over another message. */
-  const btn = forBtn || VOICE.btn, el = btn && btn.closest && btn.closest('[aria-modal="true"]') && voiceMsgEl(btn);
-  if (el && (!el.textContent || el.textContent === VOICE.dlgSaid)) { el.textContent = line || ''; VOICE.dlgSaid = line || ''; }
+     empty or one the bar put there, never over another message. When the line holds the page's own message (a failed
+     Create or Save), a hidden status inside the dialog says it instead, so a screen reader is still told who hears. */
+  const btn = forBtn || VOICE.btn, dlg = btn && btn.closest && btn.closest('[aria-modal="true"]'), el = dlg && voiceMsgEl(btn);
+  if (el && (!el.textContent || el.textContent === VOICE.dlgSaid)) { el.textContent = line || ''; VOICE.dlgSaid = line || ''; voiceWhoHidden(null, ''); }
+  else if (el) voiceWhoHidden(dlg, line || '');
+  if (!line) voiceWhoHidden(null, '');
   const vv = window.visualViewport;
   if (line && !VOICE_WHO_FOLLOW && vv) { vv.addEventListener('scroll', voiceWhoPlace); vv.addEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = true; }
   if (!line && VOICE_WHO_FOLLOW && vv) { vv.removeEventListener('scroll', voiceWhoPlace); vv.removeEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = false; }
@@ -60469,7 +60490,7 @@ function voiceToggle(btn) {
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
   VOICE.seq += 1;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false, stopping: false });
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false, stopping: false, heard: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
   voicePaint(btn, 'asking');
   if (h.phone) voiceWho('Starting the microphone. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.');   // before a word can be sent
@@ -60506,6 +60527,7 @@ function voiceOnEvent(ev) {
     return;
   }
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
+    if (String(ev.text || '').trim()) VOICE.heard = true;
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
        conversation that is gone, so they go nowhere and the mic stops. What is already in the box stays. */
@@ -60522,6 +60544,9 @@ function voiceOnEvent(ev) {
     return;
   }
   if (ev.kind === 'error') {
+    // #4409 slice 3: Android's recognizer ends a long silence with no-speech even after words landed; that is not
+    // "Nothing was heard", and the words are in the box, so it says nothing.
+    if (ev.reason === 'nothing-heard' && VOICE.heard) return;
     const b = voiceBridge();
     voiceSay(btn, (b && b.phone && VOICE_SAYS_PHONE[ev.reason]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer);
     return;

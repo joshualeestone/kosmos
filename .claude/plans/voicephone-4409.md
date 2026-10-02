@@ -175,9 +175,16 @@ press stops through voiceStop and marks the stop.
   no mic; removing the gate reds it; Chromium calls any touch screen coarse, so the check answers the pointer query as
   a trackpad iPad does). Checked, not changed: Splinter's card comment is stamped 22:16:37Z, 17:16 CDT,
   the same minute as Josh's question. LEFT NIT: pinch zoom (scale, offsetLeft).
-- Round 14 (sonnet), OPEN, paused 19:49 for #2955 (Splinter: it goes ahead of this slice): W1 a dialog mic whose line
+- Round 14 (sonnet), RESOLVED 23:10 (paused 19:49 for #2955): W1 a dialog mic whose line
   already holds the page's own message (a failed Create or Save) says nothing about who hears the audio to a screen
   reader, which cannot reach the bar past aria-modal. W2 the voice section header still says "no audio kept", wider than
   the phone path. W3 Android's no-speech after a stretch of silence says "Nothing was heard." with words already in the
   box. NITs: the 300 s cap ends without saying why; the two 17:16 stamps (checked in round 13: both are 17:16 CDT).
+  Round 14 dispositions: FIXED W1: when a dialog mic's line holds the page's own message, it is kept and a hidden status
+  inside the dialog (voiceWhoHidden, made empty then filled so it is announced) says who hears the audio, emptied when
+  listening ends (check P11b). FIXED W2: the voice header says the Mac keeps the audio on the Mac and a phone's speech
+  service hears it. FIXED W3: a no-speech after words were heard says nothing (VOICE.heard, set on a non-empty partial
+  or final, cleared at start); with no words it still says "Nothing was heard." (check P8c, both arms). Each fix removed
+  reddens only its own check. LEFT NITs: the 300 s cap ends without saying why (an end with the words kept, as at any
+  stop); the 17:16 stamps (checked in round 13).
 
