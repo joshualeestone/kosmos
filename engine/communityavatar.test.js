@@ -354,3 +354,39 @@ test('a picture caught half written (an empty file) waits a sweep: no take-down,
   assert.equal(puts().length, 2);
   assert.ok(held().raw.equals(png(2)));
 });
+
+test('a pictures folder that cannot be read takes nothing down, and is said once', async (t) => {
+  const lines = [];
+  const real = console.error;
+  console.error = (m) => { lines.push(String(m)); };
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  const dir = path.dirname(store.avatarPath('ava'));
+  fs.chmodSync(dir, 0o000);
+  t.after(() => { try { fs.chmodSync(dir, 0o755); } catch { /* best effort */ } console.error = real; });
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(deletes().length, 0, 'a folder that could not be read took the picture down');
+  assert.equal(lines.filter((l) => /picture for ava: could not be read/.test(l)).length, 1);
+  fs.chmodSync(dir, 0o755);
+  await cs.sweep();
+  assert.equal(deletes().length, 0);
+  assert.ok(held().raw.equals(png(1)));
+});
+
+test('in one sweep a removal goes out before a new picture (removals are a take-down; new pictures go last)', async () => {
+  await on();
+  await registered('ava');
+  await registered('bo');
+  store.saveAvatar('bo', 'image/png', png(1));
+  await cs.sweep();
+  // ava comes first in the keys, so a single pass in key order would send ava's PUT before bo's DELETE.
+  store.saveAvatar('ava', 'image/png', png(2));
+  store.removeAvatar('bo');
+  const before = avatarCalls().length;
+  await cs.sweep();
+  const order = avatarCalls().slice(before).map((c) => c.method);
+  assert.deepEqual(order, ['DELETE', 'PUT']);
+});

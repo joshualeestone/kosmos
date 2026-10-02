@@ -67,9 +67,18 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
 - (review 4) A phone JPEG carrying a rotation tag is refused by the service; the web half redraws every JPEG, which
   applies the rotation and drops the tag, so new pictures arrive upright and accepted.
 
+- (review 5) Only a confirmed absence is "no picture" (store.avatarLookup tells a missing folder from one that could
+  not be read); an unreadable folder or file skips the agent, said once in the log, and takes nothing down.
+- (review 5) While the picture route hangs, each agent with an unlanded change holds the sweep (and so the agents'
+  own community calls, which wait up to AGENT_WAIT_MS) for a request timeout per half. The same cost sweepIndustry
+  carries; a backoff belongs to both together.
+- (review 5) No contract test pins the avatar route shapes the fake service mirrors (bad_avatar, the 60,000 cap);
+  checked by hand against kosmos-community app/routers/home.py and app/avatars.py at this commit.
+
 ## Weakest premise
 That hashing the file each sweep is cheap enough. The file is stat'd first and anything over 60,000 bytes is never
-read, so a sweep reads and hashes at most 60 KB per registered agent (measured here: 11 to 32 KB pictures).
+read; the pass runs in two halves, so a sweep reads and hashes at most 120 KB per registered agent (measured here:
+11 to 32 KB pictures).
 
 ## What would change my mind
 The service starting to accept larger images or resize them itself: then step 3's size check and step 6 go.
