@@ -279,6 +279,27 @@ test('an agent made under a name a token already stood for (a live remote agent\
   assert.match(r.text, NOT_YOURS);
 });
 
+test('removing a name whose key also holds another name\'s token is refused (revoke takes the whole key)', async () => {
+  born('zedkip', 'pm-agent');
+  assert.ok(reachedEngine(await remove('zedkip', asAgent())), 'CONTROL: no token under the key, and it did not pass');
+  sendertoken.mint('zedkip');   // the target's own token, its exact name
+  assert.ok(reachedEngine(await remove('zedkip', asAgent())), 'CONTROL: only its own exact-name token, and it did not pass');
+  sendertoken.mint('Zed.Kip');  // a remote agent issued under another spelling with the same key
+  const r = await remove('zedkip', asAgent());
+  assert.equal(r.code, 403, 'removing zedkip would have ended Zed.Kip too: ' + r.text.slice(0, 160));
+  assert.match(r.text, NOT_YOURS);
+});
+
+test('a history line whose time is not in toISOString form is read as an end (it cannot be ordered)', async () => {
+  fs.mkdirSync(path.dirname(sendertoken.endedLogFile()), { recursive: true });
+  fs.appendFileSync(sendertoken.endedLogFile(), JSON.stringify({ name: 'odd-time-kid', at: 'yesterday' }) + '\n');
+  born('Odd Time Kid', 'pm-agent');
+  const r = await remove('odd-time-kid', asAgent());
+  assert.equal(r.code, 403, 'a line it could not order was read as no end: ' + r.text.slice(0, 160));
+  born('Odd Birth Kid', 'pm-agent', { at: '2026-10-02 18:00' });
+  assert.equal((await remove('odd-birth-kid', asAgent())).code, 403, 'a birth time it could not order was accepted');
+});
+
 test('a token-only agent may not force a removal, even of its own creation', async () => {
   born('Helper Force', 'pm-agent');
   const r = await remove('helper-force', asAgent(), '?force=1');

@@ -2593,8 +2593,8 @@ function activeAgentsCreatedBy(creator) {
 
 /* #4475: the newest birth that made the agent `name` (its slug): outcome `created` or `partial`, by the rule
    activeAgentsCreatedBy counts with (the newest line wins), or null when the birth log has none. A `partial` counts
-   here, unlike the cap's count: a later partial creation of the name is a different agent from the one an older
-   `created` line made. */
+   here, unlike the cap's count, so a newer partial line is the one returned, and tokenOnlyMayRemove refuses any
+   birth that is not `created`. */
 function agentBirthOf(name) {
   let want; try { want = create.slugFor(name); } catch { return null; }
   if (!want) return null;
@@ -2618,6 +2618,8 @@ function agentBirthOf(name) {
    - the caller's token carries its name, and it is `createdByName` exactly;
    - no token stood for the name when it was made (`tookTokens`): a live remote agent holds no folder, job or pane,
      so create can take its name, and this keeps the asking agent from then removing that remote agent's name;
+   - no token of another name stands under the target's key now (sendertoken.keyHoldsOthers): removal revokes the
+     whole key, so it would also end that other agent (a remote "Dr.Kip" issued beside a made "drkip");
    - neither identity has ended since (sendertoken.endedSince: the history `revoke` writes, which every path that
      ends an agent goes through: removing it, deleting what is left of it, and creating an agent of that name). The
      target from after its birth (its own creation revokes its name before the birth is written); the creator
@@ -2629,6 +2631,7 @@ function tokenOnlyMayRemove(caller, target) {
   const birth = agentBirthOf(target);
   if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return false;
   if (birth.createdByName !== caller.name || birth.tookTokens === true) return false;
+  if (sendertoken.keyHoldsOthers(target)) return false;
   if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return false;
   let creatorKey; try { creatorKey = store.safeKey(caller.name); } catch { creatorKey = null; }
   const targetGone = sendertoken.endedSince([target], birth.at);

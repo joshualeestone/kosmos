@@ -103,6 +103,14 @@ function fileFor(sessionName) {
 function holdsTokens(sessionName) {
   try { return fs.existsSync(fileFor(sessionName)); } catch { return true; }
 }
+/* #4475: does this name's key hold a token that is not named exactly `sessionName` (another spelling with the same
+   key, "Dr.Kip" beside "drkip", or a token with no name)? revoke takes the whole key, so removing `sessionName`
+   would end that one too. A file that cannot be read reads as yes. */
+function keyHoldsOthers(sessionName) {
+  let held;
+  try { if (!fs.existsSync(fileFor(sessionName))) return false; held = readTokens(sessionName); } catch { return true; }
+  return held.some((t) => typeof t.name !== 'string' || t.name !== String(sessionName));
+}
 
 /**
  * Read the stored tokens, tolerating #1000's single-token shape.
@@ -262,7 +270,9 @@ function noteEnded(sessionName) {
 /* Did an agent whose name matches any of `names` (by slug, both sides) end AFTER `sinceIso` (or at it, when
    `inclusive`)? true, false, or null when the history cannot be read (a missing file is none). Loose on purpose: a
    caller uses true to REFUSE, so matching more names only refuses more. Lines that do not parse are skipped. */
+const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 function endedSince(names, sinceIso, opts = {}) {
+  if (typeof sinceIso !== 'string' || !ISO_MS.test(sinceIso)) return null;   // a time we cannot order against refuses
   const create = require('./create');   // lazy: create.js requires this file
   const slug = (n) => { try { return create.slugFor(n); } catch { return null; } };
   const want = new Set((names || []).map(slug).filter(Boolean));
@@ -272,8 +282,10 @@ function endedSince(names, sinceIso, opts = {}) {
   for (const line of raw.split('\n')) {
     if (!line) continue;
     let r; try { r = JSON.parse(line); } catch { continue; }
-    if (!r || typeof r.name !== 'string' || typeof r.at !== 'string') continue;
+    if (!r || typeof r.name !== 'string') continue;
     if (!want.has(slug(r.name))) continue;
+    // Times compare as strings only in toISOString's one fixed form; a line in any other form is read as an end.
+    if (typeof r.at !== 'string' || !ISO_MS.test(r.at)) return true;
     if (r.at > since || (opts.inclusive === true && r.at === since)) return true;
   }
   return false;
@@ -605,4 +617,4 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, retire, endedSince, endedLogFile, holdsTokens, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE };
+  mint, revoke, retire, endedSince, endedLogFile, holdsTokens, keyHoldsOthers, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE };
