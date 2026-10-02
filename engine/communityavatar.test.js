@@ -465,6 +465,13 @@ test('saving a picture never leaves a moment with no picture, and a stray file i
   assert.equal(path.basename(store.avatarLookup('ava').file), 'ava.jpg');
   store.removeAvatar('ava');
   assert.equal(store.avatarLookup('ava').file, null, 'a stray file was read as the picture');
+  // A picture saved elsewhere with another spelling of an image extension is still the picture.
+  for (const name of ['ava.JPG', 'ava.jpeg']) {
+    fs.writeFileSync(path.join(dir, name), JPEG);
+    assert.equal(path.basename(store.avatarLookup('ava').file), name);
+    assert.equal(path.basename(store.avatarPath('ava')), name, 'the page and the sender disagree');
+    fs.unlinkSync(path.join(dir, name));
+  }
 });
 
 test('a picture that vanishes between the lookup and the read is looked at again, not taken down', async () => {

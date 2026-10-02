@@ -287,12 +287,12 @@ const ALLOWED_IMAGES = {
   'image/gif': '.gif',
 };
 
-/* #4885: the one rule for which file in an avatars folder is `key`'s picture: `<key>.<ext>` with an image extension
-   saveAvatar writes. A stray `<key>.png.bak` or `<key>.txt` is not a picture. Shared by avatarPathIn and avatarLookup
-   so the page and the community sender never disagree about which file it is. */
-const AVATAR_EXTS = new Set(Object.values(ALLOWED_IMAGES));
+/* #4885: the one rule for which file in an avatars folder is `key`'s picture: `<key>.<ext>` with an image extension,
+   any case, `.jpeg` too (a folder imported from elsewhere may use it). A stray `<key>.png.bak` or `<key>.txt` is not a
+   picture. Shared by avatarPathIn and avatarLookup so the page and the community sender never disagree about it. */
+const AVATAR_EXTS = new Set([...Object.values(ALLOWED_IMAGES), '.jpeg']);
 function avatarFileIn(names, key) {
-  return names.find((f) => f.startsWith(key + '.') && AVATAR_EXTS.has(f.slice(key.length))) || null;
+  return names.find((f) => f.startsWith(key + '.') && AVATAR_EXTS.has(f.slice(key.length).toLowerCase())) || null;
 }
 /* The avatar file for `name` inside `dir`, or null. The ONE lookup (one file per
    agent, `<safeKey>.<ext>`), so importing an agent from another Kosmos's avatars
