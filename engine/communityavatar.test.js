@@ -249,7 +249,7 @@ test('a refused replacement takes the earlier picture down, once, and retries th
   await cs.sweep();
   assert.equal(puts().length, 2, 'the refused picture was sent again');
   assert.equal(held(), null, 'the replaced picture is still showing');
-  assert.equal(deletes().filter((d) => d.method === 'DELETE').length, 2, 'one take-down unanswered, one landed, then nothing');
+  assert.equal(deletes().length, 2, 'one take-down unanswered, one landed, then nothing');
 });
 
 test('a GIF replacing a picture already sent takes the old one down', async () => {
@@ -312,6 +312,21 @@ test('logs: a picture not sent, and a retry, are each said once per value; a shu
   await cs.sweep(); await cs.sweep(); await cs.sweep();
   assert.equal(lines.filter((l) => /picture for ava: the service refused this agent's key/.test(l)).length, 1);
   assert.ok(held(), 'control: the picture really is still up, so the log line is the only record');
+  assert.equal(cs.pictureUnreachable(), 1, 'the page cannot say a picture is stuck up');
+  // A picture set again, then removed again: the second unreachable removal is on record too.
+  store.saveAvatar('ava', 'image/png', png(4));
+  await cs.sweep();
+  store.removeAvatar('ava');
+  await cs.sweep();
+  assert.equal(lines.filter((l) => /picture for ava: the service refused this agent's key/.test(l)).length, 2);
+});
+
+test('pictureUnreachable: 0 while every picture can be taken down', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  assert.equal(cs.pictureUnreachable(), 0);
 });
 
 test('an agent with no community account is never sent anything', async () => {
