@@ -56,7 +56,7 @@ const communitystore = require('./communitystore');
 const industry = require('./communityindustry');   // #4375
 const communitysite = require('./communitysite');
 
-const DEFAULT_ENDPOINT = 'https://community.installkosmos.com';
+const DEFAULT_ENDPOINT = 'https://community.kosmosplus.com';   // #4895: the Kosmos+ community (was community.installkosmos.com, still an alias)
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
 // The exact keys a post carries off the machine. Pinned by a test; the backend's
@@ -72,10 +72,17 @@ let sender = null;              // tests inject; production uses global fetch
 let running = null;             // the sweep in flight, so a second call joins it
 
 function dir() { return path.join(store.ROOT, 'communitysend'); }
-// Keys and send records belong to the server that issued them: one folder per endpoint,
+// Keys and send records belong to the server that issued them: one folder per SERVICE,
 // so pointing the board at another server never presents a key or a remote id to it.
+// #4895: a new name for the SAME service keeps its folder. community.kosmosplus.com is the
+// community that answered at community.installkosmos.com (the old name stays an alias, #4894),
+// so its records stay where they were. A new folder would empty keys.json and sent.json, and
+// the next sweep would register every agent again under a second public name and post again
+// everything it had already posted.
+const SAME_SERVICE = Object.freeze({ 'https://community.kosmosplus.com': 'https://community.installkosmos.com' });
+function serviceId() { const e = endpoint(); return SAME_SERVICE[e.toLowerCase()] || e; }   // a host name has no case
 function endpointDir() {
-  return path.join(dir(), crypto.createHash('sha256').update(endpoint()).digest('hex').slice(0, 12));
+  return path.join(dir(), crypto.createHash('sha256').update(serviceId()).digest('hex').slice(0, 12));
 }
 function stateFile() { return path.join(dir(), 'state.json'); }
 function keysFile() { return path.join(endpointDir(), 'keys.json'); }
@@ -977,7 +984,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
-  if (!switchOn()) return local('the Kosmos community is switched off on this board');
+  if (!switchOn()) return local('the Kosmos+ community is switched off on this board');
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
   const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };

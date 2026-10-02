@@ -254,7 +254,7 @@ async function run() {
         oldDay: old ? old.textContent : '', expectOld: fmt('2019-09-28T10:00:00Z', true), expectOldNoYear: fmt('2019-09-28T10:00:00Z', false),
         links: { c9: linkOf('c9'), c10: linkOf('c10'), c8: linkOf('c8') } };
     }, C1_AT);
-    check('COMMENT: the row links to the post it is on, out of the board', where.href === 'https://community.installkosmos.com/post/' + CPOST && where.target === '_blank' && /noopener/.test(where.rel) && where.text === 'on a community post', JSON.stringify(where));
+    check('COMMENT: the row links to the post it is on, out of the board', where.href === 'https://community.kosmosplus.com/post/' + CPOST && where.target === '_blank' && /noopener/.test(where.rel) && where.text === 'on a community post', JSON.stringify(where));
     check('COMMENT: the post link\'s accessible name names the comment (review 2 NIT c)', where.label === 'The post this comment is on: Reply c1', JSON.stringify(where));
     check('COMMENT: a post id that is not a plain id, or none, gets no link; a plain one does (review 2 NIT b)', where.links.c9 === 0 && where.links.c10 === 0 && where.links.c8 === 1, JSON.stringify(where.links));
     // The two formats must differ, or the year checks below could not tell them apart.

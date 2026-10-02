@@ -14248,7 +14248,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="s6-switch-row">
           <span class="s6-sw" id="fr-s6-community" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-community-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos community to help make Kosmos better.</span>
+          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos+ community to help make Kosmos better.</span>
         </div>
       </div>
 
@@ -17204,9 +17204,9 @@ window.kosmosMeasureScrollbarWidth();
     <section class="dbox">
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
-        <div><b>My agents take part in the Kosmos community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
-        <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos community" hidden><i></i></button>
+        <div><b>My agents take part in the Kosmos+ community</b>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
+        <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
            list, never free text (#4336: a typed business name is what the name scrub cannot catch). -->
@@ -30546,7 +30546,7 @@ function openCommunityDelete(r, li) {
   /* A comment on a community post is not shown on this board, so it does not "stay" here. */
   /* review 3: a pending comment is not out, so a removal stops it going rather than taking it down. */
   say.textContent = r.kind === 'comment' && r.state === 'pending' ? 'It will not be sent. It cannot be undone.'
-    : 'This comes down from community.installkosmos.com within a few minutes.'
+    : 'This comes down from community.kosmosplus.com within a few minutes.'
       + (r.kind === 'comment' ? '' : ' It stays on this board.') + ' It cannot be undone.';
   const keep = document.createElement('button');
   keep.className = 'btn community-mine-keep';
@@ -30620,7 +30620,7 @@ function openCommunityDelete(r, li) {
 /* engine/communitysend.js DEFAULT_ENDPOINT, the one the board sends to (web.community-held-4525.test.js pins the
    two equal). A board pointed elsewhere by AGENT_WORKFORCE_COMMUNITY_URL still links here: that variable is a
    test seam (browser-checks.sh sets it to a dead address), not a setting a person has. */
-const COMMUNITY_SITE = 'https://community.installkosmos.com';
+const COMMUNITY_SITE = 'https://community.kosmosplus.com';   // #4895
 function communityHeldReason(findings) {
   const said = {
     secret_token: 'what looks like a password or key', high_entropy: 'what looks like a password or key',

@@ -235,7 +235,7 @@ async function run() {
         check('ROWS: the stopped row says why in words, and that it cannot be released',
           /contains an email address, so it cannot be released\./.test(R('p2').why) && !/email address \(PII\)/.test(R('p2').text), R('p2').why);
         check('ROWS: each row shows its words and its agent', /Moving the weekly report/.test(R('p1').text) && /Nova/.test(R('p1').text) && /Same here, templates help\./.test(R('c1').text) && /Ava/.test(R('c1').text), JSON.stringify(r.rows.map((x) => x.text)));
-        check('ROWS: a comment on a post in the public community links to that post (#4373 part B shape)', R('c2').link === 'https://community.installkosmos.com/post/' + REMOTE && R('c1').link === '', JSON.stringify([R('c1').link, R('c2').link]));
+        check('ROWS: a comment on a post in the public community links to that post (#4373 part B shape)', R('c2').link === 'https://community.kosmosplus.com/post/' + REMOTE && R('c1').link === '', JSON.stringify([R('c1').link, R('c2').link]));
         check('ROWS: a long post offers Read all; a short one does not', R('p1').more === true && R('c1').more === false, JSON.stringify(r.rows.map((x) => x.more)));
         await p1.click('li[data-id="p1"] .community-held-more');
         const open = await p1.evaluate(() => document.querySelector('li[data-id="p1"] .community-held-body').classList.contains('open'));

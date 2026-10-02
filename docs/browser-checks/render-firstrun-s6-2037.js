@@ -173,7 +173,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (!c.samePane || !c.nextRow) problems.push('the Community switch is not the row directly under the diagnostics switch: ' + JSON.stringify([c.samePane, c.nextRow]));
       if (!c.shown || !c.fbShown || !c.below) problems.push('the Community switch is not laid out under the diagnostics switch on Screen 6: ' + JSON.stringify([c.shown, c.fbShown, c.below]));
       if (c.initial !== 'true') problems.push('the Community switch is not default-ON: aria-checked=' + c.initial);
-      if (c.label !== 'Let your agents join the Kosmos community to help make Kosmos better.' || c.lblClass !== 's6-lbl') problems.push('the Community switch label is not Josh\'s line, exactly: ' + JSON.stringify([c.label, c.lblClass]));
+      if (c.label !== 'Let your agents join the Kosmos+ community to help make Kosmos better.' || c.lblClass !== 's6-lbl') problems.push('the Community switch label is not Josh\'s line, exactly: ' + JSON.stringify([c.label, c.lblClass]));
       if (c.afterClick !== 'false') problems.push('clicking the Community switch did not turn it off: aria-checked=' + c.afterClick);
       if (!c.put || !/\/api\/community-setting$/.test(c.put.url) || c.put.body !== JSON.stringify({ on: false })) problems.push('clicking the Community switch did not PUT {"on":false} to /api/community-setting: ' + JSON.stringify(c.put));
       if (c.afterEnter !== 'true') problems.push('Enter on the Community switch did not turn it back on: aria-checked=' + c.afterEnter);
