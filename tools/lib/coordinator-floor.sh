@@ -27,7 +27,7 @@
 # A connector off the floor's line that is older (a stale-tunnel override, an odd checkout) is also asked
 # about and can be refused while the coordinator is below the floor: a false refusal, intended, because the
 # alternative is guessing what an unrelated commit carries.
-# The /v1/meta parse expects compact JSON ("build":"<hex>"), which is what the coordinator's serde writes.
+# /v1/meta is parsed as JSON; its top-level "build" must be 7 to 40 hex, optionally "-dirty", or "unknown".
 #
 # Usage: source (after connector-provenance.sh), then
 #   coordinator_floor_check <connector-bin> <relay-checkout> <floor-file>
@@ -41,6 +41,7 @@ coordinator_floor_check() {
   local relay="${2:?coordinator_floor_check needs the kosmos-relay checkout}"
   local floor="${3:?coordinator_floor_check needs the floor file}"
   local url="${KOSMOS_COORDINATOR_URL:-https://login.kosmosplus.com}"
+  url="${url%/}"
   local built line sha why meta build build_full needed="" behind=""
   [ -r "$floor" ] || { echo "coordinator_floor: cannot read $floor; refused." >&2; return 1; }
   _connector_provenance_check "$bin" || return 1
@@ -60,11 +61,17 @@ coordinator_floor_check() {
     needed="${needed}${sha} ${why}"$'\n'
   done < "$floor"
   [ -n "$needed" ] || return 0   # the connector carries no floor change: nothing to ask the coordinator
-  meta="$(curl -fsS -m 15 "$url/v1/meta" 2>/dev/null)" \
+  # Two retries: one network blip must not refuse a cut the override cannot rescue.
+  meta="$(curl -fsS -m 15 --retry 2 --retry-delay 2 "$url/v1/meta" 2>/dev/null)" \
     || { echo "coordinator_floor: could not read $url/v1/meta, so whether the coordinator carries what this connector needs is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand (the override does not cover this)." >&2; return 1; }
-  build="$(printf '%s' "$meta" | sed -n 's/.*"build":[[:space:]]*"\([0-9a-f]\{7,40\}\(-dirty\)\{0,1\}\)".*/\1/p')"
-  if [ -z "$build" ]; then
-    case "$meta" in *'"build":"unknown"'*) echo "coordinator_floor: the coordinator reports an UNSTAMPED build (\"unknown\"), so what it carries is unknown; redeploy it with deploy/deploy-coordinator.sh, which stamps it. Refused." >&2 ;;
+  # Parsed as JSON (node, which release.sh already needs), the top-level "build" only; then held to its shapes.
+  build="$(printf '%s' "$meta" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(typeof j.build==="string"?j.build:"")}catch{}' 2>/dev/null)"
+  case "$build" in
+    unknown) ;;
+    *) printf '%s' "$build" | grep -qE '^[0-9a-f]{7,40}(-dirty)?$' || build="" ;;
+  esac
+  if [ -z "$build" ] || [ "$build" = unknown ]; then
+    case "$build" in unknown) echo "coordinator_floor: the coordinator reports an UNSTAMPED build (\"unknown\"), so what it carries is unknown; redeploy it with deploy/deploy-coordinator.sh, which stamps it. Refused." >&2 ;;
       *) echo "coordinator_floor: $url/v1/meta names no build; refused." >&2 ;; esac
     return 1
   fi

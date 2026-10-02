@@ -40,12 +40,11 @@ build), it does not pass.
 - The ambiguous-short-id refusal is untested (a fixture needs two objects sharing a 7-hex prefix); it only words a refusal.
 - Mac cut only: the Windows lane (build-kosmos-windows.sh stages kosmos-tunnel.exe with a .commit) does not
   run release.sh and does not ask the coordinator. Step 1d has the same gap.
-- A coordinator deployed from a branch before the squash merge reports a sha the relay checkout lacks; the
-  gate refuses (safe) and says to redeploy from relay main.
 - Checks the coordinator at cut time only. A coordinator rolled back below the floor AFTER a cut, or a connector
   reaching users by a later promote of an earlier staging cut, is not caught here; #4869 step 2 (never roll
   back below 534f36980, rename the rollback binary) is the rule for that. A deploy-side refusal would belong
   in kosmos-relay's deploy-coordinator.sh.
 - The override covers a coordinator known to be behind, never an unknown one (stated in the lib and in the
-  refusal text). A coordinator rolled back after the cut is #4869 step 2's
-  rule, not this gate's.
+  refusal text).
+- /v1/meta is read with two retries and parsed as JSON (review 6): a blip or a field reordering cannot refuse or
+  mis-read a correct cut.
