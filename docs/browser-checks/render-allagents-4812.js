@@ -80,7 +80,9 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
   let agent1sMode = 'ok';
   const chk = (ok, label, extra) => chkAll(ok, ENGINE + ' ' + label, extra);
   const fresh = async (opts) => {
-    const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 } }, opts || {}));
+    /* serviceWorkers: 'block', as six sibling checks: after a reload WebKit's page service worker fetched the other
+       computers past ctx.route, so they read as unreachable and no request was seen (S2, S4 in WebKit). */
+    const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' }, opts || {}));
     await ctx.route('https://laptop.kosmosplus.com/**', async (route) => {
       const u = new URL(route.request().url());
       if (u.pathname === '/api/remote/computers') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(COMPUTERS) });
@@ -183,6 +185,24 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       await ctx.close();
     }
 
+    // ---- S5 the desktop List view: the section comes with the list too (10-02; it used to be grid-only).
+    {
+      const { ctx, page } = await fresh();
+      await page.goto(HOME + '/?tab=agents', { waitUntil: 'networkidle' });
+      await settle(page);
+      await until(page, () => document.querySelectorAll('#oa-groups .oa-card').length >= 2);
+      await page.evaluate(() => layoutApply('agents', 'list'));
+      const listed = await until(page, () => {
+        const w = document.getElementById('oa-wrap'); const a = document.getElementById('alist');
+        return !a.hidden && !w.hidden && w.previousElementSibling === a && document.querySelectorAll('#oa-groups .oa-card').length >= 2;
+      });
+      chk(listed, 'S5 in the List view the section shows, right under the list');
+      await page.evaluate(() => layoutApply('agents', 'org'));
+      const gone = await until(page, () => document.getElementById('oa-wrap').hidden);
+      chk(gone, 'S5 CONTROL in the org chart the section is not shown');
+      await ctx.close();
+    }
+
     // ---- S4 the consolidated layout: the section travels with the grid.
     {
       const { ctx, page } = await fresh();
@@ -246,9 +266,11 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       const over = await page.evaluate(() => {
         const wrap = document.getElementById('oa-wrap');
         const r = wrap.getBoundingClientRect();
-        return { right: Math.round(r.right), vw: document.documentElement.clientWidth, sw: document.documentElement.scrollWidth };
+        return { right: Math.round(r.right), vw: document.documentElement.clientWidth, sw: document.documentElement.scrollWidth, under: (wrap.previousElementSibling || {}).id || null };
       });
       chk(landed && over.right <= over.vw && over.sw <= over.vw, 'S3 at 320px the section fits without a sideways scroll', JSON.stringify(over));
+      /* A phone through Kosmos+ has no grid view (#4823): the section must come with the list, or it never shows there. */
+      chk(landed && over.under === 'alist', 'S3 on a phone the section shows under the agents list', JSON.stringify(over));
       if (process.env.OA_SHOTS) await page.locator('#oa-wrap').screenshot({ path: path.join(process.env.OA_SHOTS, 'allagents-320-dark-' + ENGINE + '.png') });
       await ctx.close();
     }

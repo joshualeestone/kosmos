@@ -65,6 +65,7 @@ const SRC = [
   slice('oaCard'),
   slice('oaGroup'),
   slice('oaGridShown'),
+  slice('oaHost'),
   slice('oaGroupKey'),
 ].join('\n');
 
@@ -79,7 +80,7 @@ function load(fetchImpl) {
     const AGENT_SORT = 'name';
     function sortAgents(list, mode, projects) { calls.sort.push([mode, projects]); return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))); }
     ${SRC}
-    return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaGroupKey, oaStale, OA_SEEN };
+    return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaHost, oaGroupKey, oaStale, OA_SEEN };
   `)(t.document, fetchImpl || (async () => { throw new Error('no fetch in this test'); }), calls, LIST);
   return { api, calls, d: t };
 }
@@ -233,6 +234,18 @@ test('the section reads and shows only while the grid is on screen, a hidden hol
   panel.hidden = false; grid.hidden = true;
   assert.equal(api.oaGridShown(grid), false);
   assert.equal(api.oaGridShown(null), false);
+});
+
+test('the section goes under the grid, else the list (a phone has no grid view), else nowhere', () => {
+  const { api, d } = load();
+  const grid = d.add('grid');
+  const alist = d.add('alist');
+  alist.hidden = true;
+  assert.equal(api.oaHost(), grid, 'control: the grid view');
+  grid.hidden = true; alist.hidden = false;
+  assert.equal(api.oaHost(), alist, 'the list view (a phone through Kosmos+ has only this one)');
+  alist.hidden = true;
+  assert.equal(api.oaHost(), null, 'the org chart or another tab: nowhere, and nothing is read');
 });
 
 test('group key: unchanged rounds give the same key, so focus is not taken off a card', () => {
