@@ -30,4 +30,13 @@ test then checks. Measured below.
   gap: CONFLICT (the weakest premise). Control, the old shape (both bump EXPECTED_SITES with a trail note): CONFLICT.
 
 ## Review
-- Round 1: PENDING.
+- Round 1 (opus, blind): 0 BLOCKER, 2 SHOULD-FIX, 4 NIT, all taken (18:30). SF1 (measured): a duplicate key passed green
+  (JS keeps the last; Object.keys shows one), exactly what a "keep both" merge of the same line leaves; the sort test now
+  also counts keys in the SOURCE. SF2 (measured): the sort failure printed two truncated 182-name arrays; it now names the
+  first pair out of order and says code-unit order (as LC_ALL=C sort; a glibc locale sort reorders 26 lines, simulated).
+  NITs: "every line" wording -> "every line with a nonzero number in that slot"; two checks' comments named the removed
+  constants (now "its SITE_COUNTS line"); a stale "which is not 29"; the header now says one line can count in both scans.
+  Also: a check with no line prints the line to add. Measured 18:30, each red by its own message: duplicate, swap, missing
+  line (prints `'emoji-picker-2254.js': [1, 0],`); control green. 6/6. Confirmed by the reviewer: moving a site between two
+  checks with the total unchanged is red now and was green under the old total.
+- Round 2: PENDING.
