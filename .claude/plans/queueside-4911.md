@@ -106,6 +106,14 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   command that only mentions the path is not); (5) the three-waiter arm requires all three answers. Not taken: (6) a
   side command stopped on a tty read holds the side lane to its cap (bounded; stdin is /dev/null, so only a command
   that opens /dev/tty itself).
+- Round 6 (Sonnet, blind): no blocker. Fixed in queued-heavy.sh.4911-new: a light command through run-tests.sh or
+  `yarn test` now always takes an ordinary turn (run-tests.sh refuses inside a side turn, so the same one-file run
+  passed or exited 2 by queue state alone); a yielded or capped side run exits 75 (EX_TEMPFAIL, try again later),
+  not 143, so a caller can tell it from a red. Its (2) was the cut/harness yield landed the same round. Not taken:
+  (4) an unrelated agent's Playwright browser makes a side run yield (the light run's bargain; exit 75 now says
+  "requeue"); (5) the three-waiter arm skips in a clone without #4911's base commit (CI clones full history);
+  (6) a wrapper script that calls browser-checks.sh or run-tests.sh indirectly is not caught by the argument match,
+  so against a holder on a pre-#4911 branch it can still meet that holder's page layer at its start.
 - KNOWN LIMIT, measured 19:35: an agent's long-lived Playwright browser (one had run 5 h 50 min) is a Playwright
   browser, so it holds side turns off while it runs. That is the safe direction; it means the side lane opens less
   often than the load figures alone suggest. The before/after measurement shows how much.
