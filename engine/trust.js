@@ -148,6 +148,11 @@ const ONBOARDING_KEY = 'hasCompletedOnboarding';
    failure trustFolder's comments warn about, so the resolution is spelled out here rather
    than reused from CONFIG (which resolves .claude.json and would put it in the wrong place). */
 const BYPASS_KEY = 'skipDangerousModePermissionPrompt';
+/* #5039 (Josh 2026-10-02 11:14): when Opus 5.5's safeguards flag a message, Claude Code stops on a modal asking to
+   switch to Opus 4.8, and an agent nobody is watching sits there unread. This key is what Claude Code writes when the
+   person picks "Switch automatically", so an agent Kosmos runs keeps working on 4.8 instead of waiting. Written in the
+   same settings.json as BYPASS_KEY, only when absent: an explicit value (false) is the person's choice and is kept. */
+const SWITCH_KEY = 'switchModelsOnFlag';
 const SETTINGS = (dir) => {
   if (dir) return path.join(String(dir), 'settings.json');
   if (process.env.CLAUDE_CONFIG_DIR) return path.join(process.env.CLAUDE_CONFIG_DIR, 'settings.json');
@@ -810,12 +815,15 @@ function preacceptBypassInner(configDir, agentDefaultAccount) {
   }
 
   const had = (BYPASS_KEY in data);
-  if (had && data[BYPASS_KEY] === true) return { ok: true, already: true, target };
-  const displaced = had ? data[BYPASS_KEY] : undefined;
+  const needBypass = !(had && data[BYPASS_KEY] === true);
+  const needSwitch = !(SWITCH_KEY in data);   // #5039: absent only; a person's explicit value stays
+  if (!needBypass && !needSwitch) return { ok: true, already: true, target };
+  const displaced = had && needBypass ? data[BYPASS_KEY] : undefined;
 
   // Merge into the object rather than replace it: settings.json carries the person's other
   // preferences (defaultMode, hooks, ...); a fresh one-key object would delete them.
-  data[BYPASS_KEY] = true;
+  if (needBypass) data[BYPASS_KEY] = true;
+  if (needSwitch) data[SWITCH_KEY] = true;
 
   // Read-modify-write on a file Claude Code also writes: the same milliseconds-wide race
   // trustFolder documents (a concurrent whole-file save can drop this). The rename is atomic,
@@ -994,4 +1002,4 @@ function folderTrusted(dir, opts) {
   return entry[KEY] === true;
 }
 
-module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
+module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
