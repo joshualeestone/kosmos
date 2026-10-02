@@ -8350,7 +8350,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   font: var(--text-callout) var(--font-ui); color: var(--label); cursor: pointer; }
 /* #4557: the prebuilt team step. One row per agent: its seat, its name (editable until it is made),
    where it stands, and Try again when it failed. The same card as the org chart preview. */
-.tc-h { margin: 0 0 4px; font: 600 var(--text-title-3) var(--font-ui); color: var(--label); }   /* #4935: the token was misspelled (title3), so its fallback size showed */
+.tc-h { margin: 0 0 4px; font: var(--text-title3, 600 1.1rem/1.3 var(--font-ui)); color: var(--label); }
 .tc-list { margin: var(--space-2) 0; padding: 12px 12px 12px 2.2em; list-style: decimal;
   background: var(--field-fill); border: 0.5px solid var(--border-strong);
   border-radius: var(--radius-control); display: flex; flex-direction: column; gap: 8px; }
@@ -8376,19 +8376,21 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    the input fields are touching the labels"). The team steps take the single create's own numbers, the
    #cstep-name rules above, rather than a second set: a field is 20px from the one above with no rule line,
    a label sits 6px over its control, the menus are 18rem, the Model block steps the same way, and the
-   footer is its one row. The member box keeps its own top margin as the gap below the purpose line. */
+   footer is its one row. The member box sits 16px under the purpose line, the fields' own spacing below it. */
 #cstep-teammake .field { border-top: 0; padding-top: 0; margin-top: var(--space-7); }
 #cstep-teammake .flabel[for="tc-project"] { margin-top: 0; }
 #team-seeded-pick .flabel, #cstep-teammake .flabel { margin-bottom: var(--space-3); }
 #cstep-teammake #tc-project, #cstep-teammake #tc-provider, #cstep-teammake #tc-account,
 #cstep-teammake #tc-model { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
 #cstep-teammake .mstep:has(> #tc-account-row[hidden]) { padding-left: 0; }
-#tc-model-why { margin: 8px 0 0; }
 #cstep-teammake .mstep:has(> #tc-account-row[hidden])::before { content: none; }
+#tc-model-why { margin: 8px 0 0; }
 #cstep-teammake .tc-list { margin: var(--space-6) 0 0; }
 #cstep-teammake #tc-note { margin-top: var(--space-7); }
 #cstep-teammake .sfoot { justify-content: space-between; align-items: center; gap: var(--space-6); margin-top: var(--space-7); }
 .tc-btns { display: flex; gap: var(--space-4); flex: 0 0 auto; }
+/* A phone has no room for the box and two buttons on one line: the buttons go under the box. */
+@media (max-width: 560px) { #cstep-teammake .sfoot { flex-wrap: wrap; } }
 /* "On the team selection can we make the dropdown about half as wide?": the single create's 18rem, which is
    about half this column, in place of .nak-team-opt's full width. */
 #cstep-team #team-seeded { width: 18rem; max-width: 100%; }
@@ -48846,6 +48848,10 @@ function tcPaint() {
   tcApplyLateAccounts();
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed() || TC_FILLING > 0; }
   tcSyncModel();   // #4935: the model list follows the provider and account, and locks with them
+  /* #4935: nor Try again while the model list loads: a failed lead reopens the menus, and a row retried then would
+     be made, with every member after it, on no model. */
+  { const loading = (document.getElementById('tc-model') || { dataset: {} }).dataset.loading === '1';
+    for (const b of list.querySelectorAll('.tc-retry')) b.disabled = loading; }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
@@ -49196,6 +49202,7 @@ async function tcPortrait(name, image, shown, team, slot) {
 
 async function tcRetry(slot) {
   if (!TC) return;
+  if ((document.getElementById('tc-model') || { dataset: {} }).dataset.loading === '1') return;   // #4935: not on a model still loading
   const m = TC.members.find((x) => x.slot === slot);
   if (!m || m.state !== 'failed') return;
   const gen = TC_GEN;

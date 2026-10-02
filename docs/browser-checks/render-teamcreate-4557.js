@@ -841,6 +841,12 @@ function chk(ok, label, extra) {
           const fit = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, vw: innerWidth,
             inputs: [...document.querySelectorAll('#tc-list .tc-name')].every((i) => i.getBoundingClientRect().width >= 120) }));
           chk(fit.sw <= fit.vw && fit.inputs, `${E} 390 wide: no sideways scroll and every name box is usable`, JSON.stringify(fit));
+          // #4935: the one-row footer wraps on a phone, so the box's words keep their width beside two buttons.
+          const foot = await page.evaluate(() => {
+            const f = document.querySelector('#cstep-teammake .sfoot'), say = document.getElementById('tc-tell-say');
+            return { over: f.scrollWidth - f.clientWidth, say: say.getBoundingClientRect().width, right: Math.round(f.getBoundingClientRect().right), vw: innerWidth };
+          });
+          chk(foot.over <= 0 && foot.say >= 200 && foot.right <= foot.vw, `${E} #4935 390 wide: the footer fits and the box's words are not squeezed`, JSON.stringify(foot));
           chk(errs.length === 0, `${E} no page errors (390)`, errs.join(' | '));
           await page.close();
         }

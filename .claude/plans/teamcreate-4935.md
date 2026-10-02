@@ -36,8 +36,8 @@ statuses change, and Project/Model look locked while making.
 - openTeamCreate resets TC_MODEL_FOR, so a new team opens on the default model, not the last team's pick.
 - Step-1 spacing rules are scoped to #team-seeded-pick, so the org-chart block (#4559) is untouched.
 - The click lock and the fill lock disable #tc-model with provider and account.
-- .tc-h: the misspelled token meant the title showed at the 1.1rem fallback (~17.6px); the real token is
-  15px/20px, the same title size as the other panels. Visible change, deliberate.
+- .tc-h left as it was (review 3): `.panel h2` already sets the title at --text-title-3 with higher
+  specificity, so the misspelled token in .tc-h never showed; editing it would change nothing on screen.
 
 ## Review 2 changes
 - While a model list loads (OpenAI account models, or the roles not read yet) the menu says so and Create is
@@ -48,6 +48,14 @@ statuses change, and Project/Model look locked while making.
   new team must start from an empty menu to land on the default.
 - tcPaintModel's branches are unit-tested against a fake document (Claude, vendor picks, OpenAI listable with
   escaping, OpenAI not listable, roles not yet read).
+
+## Review 3 changes
+- Try again is held while the model list loads (tcRetry returns; tcPaint disables .tc-retry), the same reason
+  Create is: a failed lead reopens the menus and a retry then would make the team on no model.
+- The footer wraps under 560px, checked at 390 (no overflow, the box's words keep >= 200px).
+- Deferred: the single create's why-note under a Claude model (paintModelWhy) is not shown on the team step.
+  It explains the model in a sentence; the team label already says each agent can change it later, and adding
+  it means a second caller of paintModelWhy with its own ids. Would change my mind: Josh asking for it.
 
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
