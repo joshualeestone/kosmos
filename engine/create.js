@@ -2901,11 +2901,6 @@ function boardPort() {
 }
 
 function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
-  /* #2955: the board may have switched tmux at runtime (status.tmuxRepick) to read a newer server it met. A NEW agent
-     still bakes Kosmos's own tmux, the launcher's pick: its supervisor makes the same switch at start if the wall is
-     still there, and if that newer tmux is ever removed or upgraded the baked path is still Kosmos's. Only a value
-     that came from the switch is mapped back; an explicit path passed in stays as it is. */
-  if (process.env.KOSMOS_TMUX_BIN_ORIGINAL && tmuxBin === process.env.AGENT_WORKFORCE_TMUX_BIN) tmuxBin = process.env.KOSMOS_TMUX_BIN_ORIGINAL;
   /* #1704: the Kosmos this agent belongs to is the board's own world. The launchd
      label and the tmux session name are BOTH keyed by it (launchidentity.launchKey),
      so a named world's agent is `com.kosmos.agent.<name>+<world>` with a tmux session
@@ -3121,6 +3116,9 @@ function win32AgyOn() { return require('./win32agy').switchOn(); }
  * creation refuses, on the screen whose entire job is telling them it will
  * work. One definition, or the two drift.
  */
+function launcherTmuxSafe() {
+  try { return require('./status').launcherTmux(); } catch { return null; }
+}
 function binPaths(opts) {
   return {
     // Claude's resolution moved to engine/runners.js (#979, same
@@ -3130,7 +3128,12 @@ function binPaths(opts) {
     // disagree about where Claude lives.
     claudeBin: (opts && opts.claudeBin)
       || runners.resolveBin('claude').bin,
+    /* #2955: the launcher's pick, not a tmux the board switched to at runtime (status.tmuxRepick): a NEW agent bakes
+       what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
+       removed or upgraded Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
+       straight to plistFor and is not touched by this. */
     tmuxBin: (opts && opts.tmuxBin)
+      || launcherTmuxSafe()
       || process.env.AGENT_WORKFORCE_TMUX_BIN
       || '/opt/homebrew/bin/tmux',
     // The OpenAI runner (#245, resolution moved to engine/runners.js for

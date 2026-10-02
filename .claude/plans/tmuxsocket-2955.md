@@ -19,19 +19,22 @@ it twice. Rejected for those reasons; reopen if the adopt screen is ever dropped
    socket on disk, or "protocol version mismatch"), it asks the known tmux binaries (/opt/homebrew/bin/tmux,
    /usr/local/bin/tmux) and switches the whole process to the first that can LIST the server: AGENT_WORKFORCE_TMUX_BIN
    (every engine module reads it at call time) and PATH (for bare `tmux` calls). Then the look is retried, in the same
-   call: no restart. Only over the launcher's own pick (KOSMOS_TMUX_BIN_PICKED=1): an explicit choice (a harness stub,
-   a sandbox's inert tmux, a person's) is never replaced. The launcher's pick is kept (KOSMOS_TMUX_BIN_ORIGINAL) and
-   stays a candidate, so the board follows the server back to Kosmos's own tmux. A search that found nothing waits a
-   minute before it runs again. PATH gets the directory first once, never twice.
-1b. engine/create.js plistFor: after a switch a NEW agent still bakes Kosmos's own tmux (the launcher's pick), not the
-   switched one; its supervisor switches at start if the wall is still there, and a removed or upgraded Homebrew tmux
-   cannot strand it.
+   call: no restart. Only over this board's launcher pick, read once when the module loads: the marker
+   (KOSMOS_TMUX_BIN_PICKED=1) AND the value the launcher recorded beside it (KOSMOS_TMUX_BIN_PICKED_AS, new in
+   install/kosmos) must agree with AGENT_WORKFORCE_TMUX_BIN, so an explicit choice (a harness stub, a sandbox's inert
+   tmux, a person's, or a harness in an agent's pane over an inherited marker) is never replaced. Kosmos's own tmux
+   (<KOSMOS_HOME>/tmux/bin/tmux) and the launcher's pick are always candidates, so the board follows a server back.
+   A search that found nothing waits a minute before it runs again. PATH gets the directory first once, never twice.
+1b. engine/create.js binPaths: a NEW agent bakes the launcher's pick, not a tmux the board switched to; its supervisor
+   switches at start if the wall is still there, and a removed or upgraded Homebrew tmux cannot strand it. An existing
+   agent's plist rewrite passes its own baked path to plistFor and is not touched.
 2. bin/agent-supervisor.sh `_kosmos_supervisor_tmux`: the same rule, at each start of an agent's job, before its first
-   look: if the baked tmux meets the wall, the first tmux on PATH or in the known places that can LIST the server wins,
-   and goes first on PATH so a bare tmux in the pane agrees. Plists are never rewritten, so this is where an old
+   look: if the baked tmux meets the wall, the first tmux on PATH, in the known places, or Kosmos's own (beside this
+   script) that can LIST the server wins, and goes first on the supervisor's PATH (its own later calls, and the -e PATH
+   it builds for some runners' panes). Plists are never rewritten, so this is where an old
    agent's choice can be made.
-3. engine/status.js `lookProblemFor`: when no reader is found, the detail line says a different version may be running
-   the sessions and Kosmos found no tmux that can read them (the card's option 2), instead of the bare tmux text.
+3. engine/status.js `lookProblemFor`: at the wall the detail line says a different version may be running the sessions,
+   and says what the search did: found nothing, waiting a minute to look again, or not allowed (an explicit choice).
 4. bin/agent-supervisor.sh twin_session_may_live: `printf | awk; $?` became `awk <<<"$_tl"; $?`, the same status (awk's
    exit is the answer: found or not), because the #632 pre-commit hook refuses any staged shell file with `$?` after a
    pipe and this line is on main. Equivalence measured both ways (found 0, missing 1).
@@ -69,4 +72,14 @@ test. 115 test files that read the supervisor or the status engine pass.
   per start; its candidate set (PATH plus the two known places) is a superset of the board's. NITs taken: the "every
   module reads it at call time" comment names the two that cache (on private sockets); PATH no longer grows on
   repeated switches. LEFT NIT: one console line per switch, unthrottled (a switch is rare by construction).
+- Round 3 (opus): FIXED W: Kosmos's own tmux was a candidate only after a switch in this process, so a board (or a
+  supervisor) that started on Homebrew's could not follow a later Kosmos-started server; it is now always a candidate on
+  both sides (tests on both). FIXED W: the plist mapping keyed on equality and silently re-baked an existing agent's
+  Homebrew path on a rewrite; removed: new agents take the launcher's pick in binPaths, rewrites pass through (test).
+  FIXED W: KOSMOS_TMUX_BIN_ORIGINAL rode the update chain; gone: the launcher's pick is read once at module load from
+  the marker and its recorded value. FIXED W: a harness in an agent's pane inherits the marker from the server's
+  environment; the recorded value must equal the current one, so its stub is never replaced (test in a fresh process).
+  NITs taken: a no-socket arm (a clean Mac's serverless words start no search; removing that arm reds it); the detail
+  says what the search did; the supervisor's PATH comment says what PATH reaches; the supervisor test is hermetic.
+  LEFT NIT: the supervisor's probes have no timeout (its existing has-session loop has none either).
 

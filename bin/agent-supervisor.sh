@@ -79,18 +79,23 @@ TMUX_BIN="${4:?the path to tmux is required}"
 # With no server, or any other answer, nothing has been established and the baked path stays, which keeps Kosmos's
 # own agents on the tmux Kosmos ships (a `brew upgrade` cannot pull it out from under them).
 _kosmos_supervisor_tmux() {
-  local _said _cand
+  local _said _cand _own
   _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
   case "$_said" in
     *"server exited unexpectedly"*|*"protocol version mismatch"*) ;;
     *) return 0 ;;
   esac
-  for _cand in "$(command -v tmux 2>/dev/null || true)" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux}; do
+  # Kosmos's own tmux is always a candidate (this script lives in <kosmos home>/bin), so a job baked with another tmux
+  # follows a server back to it. KOSMOS_TMUX_OWN is a harness seam only.
+  _own="${KOSMOS_TMUX_OWN-${0%/*}/../tmux/bin/tmux}"
+  for _cand in "$(command -v tmux 2>/dev/null || true)" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own"; do
     [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
     if "$_cand" list-sessions >/dev/null 2>&1; then
       say "$SESSION: this computer's tmux server belongs to a different version than $TMUX_BIN; using $_cand, which can read it (#2955)"
       TMUX_BIN="$_cand"
-      PATH="$(dirname "$_cand"):$PATH"; export PATH   # so a bare tmux in the agent's pane reads the same server
+      # This supervisor's own later tmux calls, and the -e PATH it builds for some runners' panes. A pane on an existing
+      # server otherwise takes that server's environment, not this one.
+      PATH="${_cand%/*}:$PATH"; export PATH
       return 0
     fi
   done

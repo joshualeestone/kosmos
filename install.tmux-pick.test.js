@@ -41,10 +41,11 @@ function picker() {
   /* Include the explicit-choice read above the function and the marker export
      below the call: the #728 chain fix lives in those two, not in the function. */
   const above = LAUNCHER.lastIndexOf('_KOSMOS_TMUX_EXPLICIT=""', at);
-  const markerEnd = LAUNCHER.indexOf('export KOSMOS_TMUX_BIN_PICKED\nfi\n', end);
+  const tail = 'unset KOSMOS_TMUX_BIN_PICKED_AS\nfi\n';   // #2955: through the record of WHICH value was picked
+  const markerEnd = LAUNCHER.indexOf(tail, end);
   assert.notEqual(above, -1, 'the explicit-choice read moved; re-point this test');
   assert.notEqual(markerEnd, -1, 'the picked marker export moved; re-point this test');
-  return LAUNCHER.slice(above, markerEnd + 'export KOSMOS_TMUX_BIN_PICKED\nfi\n'.length);
+  return LAUNCHER.slice(above, markerEnd + tail.length);
 }
 
 /** Run the picker with a PATH and a fake bundled tmux, and report its choice. */
@@ -61,7 +62,7 @@ function pick({ path: PATH, sysExit, preset, picked }) {
     const sys = nodePath.join(bin, 'tmux');
     fs.writeFileSync(sys, `#!/bin/sh\nexit ${sysExit}\n`); fs.chmodSync(sys, 0o755);
   }
-  const script = `KOSMOS_HOME=${JSON.stringify(home)}\n${picker()}\nprintf '%s' "$AGENT_WORKFORCE_TMUX_BIN"\n`;
+  const script = `KOSMOS_HOME=${JSON.stringify(home)}\n${picker()}\nprintf '%s' "$AGENT_WORKFORCE_TMUX_BIN"\nprintf '\\n%s' "\${KOSMOS_TMUX_BIN_PICKED_AS-unset}"\n`;
   const out = execFileSync('/bin/sh', ['-c', script], {
     encoding: 'utf8',
     env: {
@@ -73,7 +74,8 @@ function pick({ path: PATH, sysExit, preset, picked }) {
       ...(picked ? { KOSMOS_TMUX_BIN_PICKED: '1' } : {}),
     },
   });
-  return { chose: out, bundled, sb };
+  const [chose, pickedAs] = out.split('\n');
+  return { chose, pickedAs, bundled, sb };
 }
 
 test('a tmux that can reach a running server is the one we look through', () => {
@@ -186,3 +188,15 @@ test('#728: an unmarked explicit choice is still honoured (the harness, or a per
   assert.equal(r.chose, '/somewhere/else/tmux');
   fs.rmSync(r.sb, { recursive: true, force: true });
 });
+
+/* #2955: the board switches tmux at runtime only over its launcher's own pick, and tells that pick from a value set
+   later over an inherited marker by comparing it with the value the launcher recorded beside the marker. */
+test('#2955: the launcher records which value it picked; an explicit choice records none', () => {
+  const picked = pick({ sysExit: 0 });
+  assert.equal(picked.pickedAs, picked.chose, 'the launcher\'s pick was not recorded beside its marker');
+  fs.rmSync(picked.sb, { recursive: true, force: true });
+  const explicit = pick({ sysExit: 0, preset: '/somewhere/else/tmux' });
+  assert.equal(explicit.pickedAs, 'unset', 'an explicit choice was recorded as the launcher\'s pick');
+  fs.rmSync(explicit.sb, { recursive: true, force: true });
+});
+

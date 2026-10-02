@@ -39,9 +39,12 @@ function sandbox() {
   };
 }
 /** TMUX_BIN and PATH after the reader, from a baked tmux and a list of known places. */
-function run(baked, known) {
+function run(baked, known, own) {
   const script = `say() { :; }\nSESSION=a\nTMUX_BIN=${JSON.stringify(baked)}\n${fn()}\n_kosmos_supervisor_tmux\nprintf '%s\\n%s' "$TMUX_BIN" "$PATH"`;
-  const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', KOSMOS_TMUX_KNOWN: known.join(' ') } });
+  // Hermetic: an empty directory first and /bin (no tmux on any runner), so `command -v tmux` finds nothing real.
+  const empty = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'supreader-path-'));
+  const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8', env: { PATH: `${empty}:/bin`, KOSMOS_TMUX_KNOWN: known.join(' '), KOSMOS_TMUX_OWN: own || nodePath.join(empty, 'no-own-tmux') } });
+  fs.rmSync(empty, { recursive: true, force: true });
   const [bin, p] = out.split('\n');
   return { bin, path: p };
 }
@@ -63,3 +66,9 @@ test('#2955: a working tmux, no server, or any other refusal keeps the baked pat
   assert.equal(run(t.wall, [t.mismatch, nodePath.join(t.sb, 'missing')]).bin, t.wall, 'a tmux that cannot list was taken');
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
+test('#2955: Kosmos\'s own tmux is always a candidate, so a job baked with another follows the server back to it', () => {
+  const t = sandbox();
+  assert.equal(run(t.wall, [], t.lists).bin, t.lists, 'a server Kosmos\'s own tmux can read was left unread');
+  fs.rmSync(t.sb, { recursive: true, force: true });
+});
+

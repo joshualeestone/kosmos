@@ -490,7 +490,7 @@ function tmuxPanes() {
      what came back"), it exists so that a cause reaches the screen instead of
      a terminal, and a cause with the actor removed is not a cause. The four
      sites marked here are all that channel. (Mona Lisa, 2026-08-22.) */
-  LAST_LOOK_PROBLEM = lookProblemFor(got, tmuxBin());
+  LAST_LOOK_PROBLEM = lookProblemFor(got, tmuxBin(), TMUX_LAST_SEARCH);
   return null;
 }
 /* tmux's two answers for "a live server my version cannot read": 3.5a's (also its serverless voice, which
@@ -505,32 +505,40 @@ function isVersionWall(got) {
    for the whole process (the engine's readers and writers read AGENT_WORKFORCE_TMUX_BIN at call time, and a bare
    `tmux` follows PATH; tmuxsignin and musesignin cache it, harmlessly, on their own private sockets). The agents'
    supervisors make the same choice the same way (bin/agent-supervisor.sh, _kosmos_supervisor_tmux).
-   🔄 IT CAN GO BACK. The launcher's own pick is kept as KOSMOS_TMUX_BIN_ORIGINAL at the first switch and stays a
-   candidate, so when the newer server goes and Kosmos's own tmux starts the next one, the board follows it back.
+   ⚠️ ONLY OVER THIS BOARD'S LAUNCHER PICK, read once when this module loads: the marker AND the value it marked must
+   both be there and agree. An explicit AGENT_WORKFORCE_TMUX_BIN is a choice (the harness's stubs, a sandbox's inert
+   tmux, a person's); a harness inside an agent's pane inherits the marker from the server's environment but sets its
+   own value, so the two disagree and nothing is replaced.
+   🔄 KOSMOS'S OWN tmux IS ALWAYS A CANDIDATE (<KOSMOS_HOME>/tmux/bin/tmux), so the board follows a server back to it
+   whichever tmux it started on.
    ⏳ A SEARCH THAT FOUND NOTHING WAITS A MINUTE before it runs again: each candidate is a process, and a lasting wall
-   would otherwise spawn them on every look.
-   ⚠️ ONLY OVER THE LAUNCHER'S OWN PICK (KOSMOS_TMUX_BIN_PICKED=1). An explicit AGENT_WORKFORCE_TMUX_BIN is a choice:
-   the harness's stubs, a sandbox's inert tmux, a person's. Replacing one would put a test on the live fleet.
-   KOSMOS_TMUX_KNOWN is a harness seam only, as in install/kosmos. Returns true when it switched. */
+   would otherwise spawn them on every look. KOSMOS_TMUX_KNOWN is a harness seam only, as in install/kosmos. */
+const LAUNCHER_TMUX = process.env.KOSMOS_TMUX_BIN_PICKED === '1' && process.env.AGENT_WORKFORCE_TMUX_BIN
+  && process.env.KOSMOS_TMUX_BIN_PICKED_AS === process.env.AGENT_WORKFORCE_TMUX_BIN ? process.env.AGENT_WORKFORCE_TMUX_BIN : null;
+let TMUX_LAUNCHER_SEAM;   // undefined: the real one
 let TMUX_CANDIDATES_SEAM = null;
 let TMUX_REPICK_MISSED_AT = 0;
+let TMUX_LAST_SEARCH = 'none';   // 'none' | 'not-allowed' | 'waiting' | 'found-nothing': for the detail line
 const TMUX_REPICK_WAIT_MS = 60000;
+/** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher). */
+function launcherTmux() { return TMUX_LAUNCHER_SEAM !== undefined ? TMUX_LAUNCHER_SEAM : LAUNCHER_TMUX; }
 function tmuxRepick() {
-  if (process.env.KOSMOS_TMUX_BIN_PICKED !== '1') return false;
-  if (TMUX_REPICK_MISSED_AT && Date.now() - TMUX_REPICK_MISSED_AT < TMUX_REPICK_WAIT_MS) return false;
+  if (!launcherTmux()) { TMUX_LAST_SEARCH = 'not-allowed'; return false; }
+  if (TMUX_REPICK_MISSED_AT && Date.now() - TMUX_REPICK_MISSED_AT < TMUX_REPICK_WAIT_MS) { TMUX_LAST_SEARCH = 'waiting'; return false; }
   const current = tmuxBin();
   const known = process.env.KOSMOS_TMUX_KNOWN !== undefined
     ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
     : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
-  const cands = (TMUX_CANDIDATES_SEAM || known).concat(process.env.KOSMOS_TMUX_BIN_ORIGINAL || []);
+  const own = process.env.KOSMOS_HOME ? [path.join(process.env.KOSMOS_HOME, 'tmux', 'bin', 'tmux')] : [];
+  const cands = (TMUX_CANDIDATES_SEAM || known).concat(own, launcherTmux());
   for (const c of cands) {
     if (!c || c === current) continue;
     try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
     const tried = shDetail(c, ['list-sessions']);
     if (tried.ran && tried.status === 0) {
-      if (!process.env.KOSMOS_TMUX_BIN_ORIGINAL) process.env.KOSMOS_TMUX_BIN_ORIGINAL = current;
       process.env.AGENT_WORKFORCE_TMUX_BIN = c;
       TMUX_REPICK_MISSED_AT = 0;
+      TMUX_LAST_SEARCH = 'none';
       // First on PATH, once: a board that switches back and forth must not grow PATH without end.
       const dirs = String(process.env.PATH || '').split(path.delimiter).filter((d) => d && d !== path.dirname(c));
       process.env.PATH = [path.dirname(c)].concat(dirs).join(path.delimiter);
@@ -539,17 +547,22 @@ function tmuxRepick() {
     }
   }
   TMUX_REPICK_MISSED_AT = Date.now();
+  TMUX_LAST_SEARCH = 'found-nothing';
   return false;
 }
 /* The detail line for a look that failed. PURE, for the tests. #2955: the version wall gets a cause, said as likely
    rather than certain: tmuxSaidNoServer stats only the default socket path and reads an unreadable one as "could not
    check", so these words usually, not always, mean a different version owns a live server. */
-function lookProblemFor(got, bin) {
+function lookProblemFor(got, bin, searched) {
   if (!got || !got.ran) return 'we could not run tmux at all on this computer';
   const err = oneLine(got.err, 300);
   if (/server exited unexpectedly|protocol version mismatch/i.test(err)) {
-    // Reached only after tmuxRepick found nothing (or was not allowed to look), so no remedy is promised.
-    return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${bin || 'tmux'}) cannot read them (it said: ${err}), and Kosmos found no other tmux here that can.`;
+    // No remedy is promised: say only what the search (tmuxRepick) actually did.
+    const after = searched === 'found-nothing' ? ', and Kosmos found no other tmux here that can'
+      : searched === 'waiting' ? ', and Kosmos found no other tmux that can a moment ago; it looks again within a minute'
+        : searched === 'not-allowed' ? '; this tmux was chosen explicitly, so Kosmos does not swap it for another'
+          : '';
+    return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${bin || 'tmux'}) cannot read them (it said: ${err})${after}.`;
   }
   return err || `tmux exited ${got.status} without saying why`;
 }
@@ -8362,7 +8375,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; }, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, launcherTmux, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
