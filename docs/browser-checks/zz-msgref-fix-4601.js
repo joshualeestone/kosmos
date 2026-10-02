@@ -286,7 +286,9 @@ async function paintRoom(page) {
         // element, from now; then wait until nothing has scrolled for 400ms before the click.
         await page.evaluate(() => { window.__sc = []; const t0 = performance.now(); window.__t0 = t0;
           document.addEventListener('scroll', (e) => window.__sc.push([Math.round(performance.now() - t0), e.target === document ? 'document' : (e.target.id || e.target.className || e.target.tagName), Math.round(scrollY), 'active=' + (document.activeElement && (document.activeElement.id || document.activeElement.tagName))]), true);
-          document.addEventListener('focusin', (e) => window.__sc.push([Math.round(performance.now() - t0), 'FOCUSIN', e.target.id || e.target.tagName, Math.round(scrollY)]), true); });
+          document.addEventListener('focusin', (e) => window.__sc.push([Math.round(performance.now() - t0), 'FOCUSIN', e.target.id || e.target.tagName, Math.round(scrollY)]), true);
+          window.addEventListener('resize', () => window.__sc.push([Math.round(performance.now() - t0), 'RESIZE', innerWidth + 'x' + innerHeight, document.documentElement.clientWidth]));
+          document.addEventListener('focusout', (e) => window.__sc.push([Math.round(performance.now() - t0), 'FOCUSOUT', e.target.id || e.target.tagName, (e.relatedTarget && (e.relatedTarget.id || e.relatedTarget.tagName)) || 'none']), true); });
         // THE FIX under test (#4601): first-run's boot focuses its heading on a timer, even with #firstrun hidden by the
         // fixture, and that focus scrolls the document, which closes the menu. Wait for that focus (2s at most; on a
         // runner where it never comes, nothing is lost), then take it away, before the right-click.
@@ -314,6 +316,8 @@ async function paintRoom(page) {
         console.log('PROBE-4601 events ' + JSON.stringify(await page.evaluate(() => window.__ev)));
         console.log('PROBE-4601 menu   ' + JSON.stringify(await page.evaluate(() => window.__poll.filter((x, i, a) => i === 0 || x[1] !== a[i - 1][1]))));
         console.log('PROBE-4601 after  ' + JSON.stringify(await page.evaluate(() => window.__sc.slice(-6))));
+        await page.waitForTimeout(3000);
+        console.log('PROBE-4601 later  ' + JSON.stringify(await page.evaluate(() => ({ sc: window.__sc.slice(-8), menu: (document.getElementById('msg-menu') || {}).hidden, cw: document.documentElement.clientWidth, iw: innerWidth }))));
         const r12a = await page.evaluate(() => ({ open: !!document.getElementById('msg-menu') && !document.getElementById('msg-menu').hidden,
           sel: String(getSelection()) }));
         chk(r12a.open && r12a.sel === '', '[webkit] R12 a real right-click on a word opens the menu (and leaves no stray word selected)', JSON.stringify(r12a));
