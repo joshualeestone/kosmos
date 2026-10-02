@@ -19,13 +19,15 @@ body (PNG, JPEG or WebP, at most 60,000 bytes; metadata stripped server-side; 42
    and not sent again until the picture changes; while it is wanted the target is "no picture", so the one the
    person replaced is taken down rather than left showing (review 1).
 3. A picture is sent only if store.imageTypeOf(bytes) is png, jpeg or webp AND it is at most 60,000 bytes. Anything
-   else (a GIF, a big photo) is not sent; if one was sent before, the old one is REMOVED, so the community never
-   shows a picture the person has since replaced. Logged once per value.
+   else (a GIF, a big photo) is not sent; if one was sent before, the old one is REMOVED. Logged once per value.
+   (While the community is switched off a replacement PNG waits for the switch, so the old picture stays up until
+   then; a replacement that cannot be sent takes the old one down at once, because that is a removal.)
 4. A removal (no picture, or one we cannot send) goes out whatever the switch says; a new picture only while ON.
 ## Merge order (review 1): the web half FIRST, this PR second, both before the next cut
 Once this ships, every registered agent's picture, including ones set long ago, goes out on the next sweep. The one
-line that tells the person so lives in the web half. So this PR is held (pushed, reviewed, not merged) until the
-web half is on main, and both reach people in the same release.
+line that tells the person so lives in the web half. So this PR is opened as a DRAFT (review 3: a note is not a
+hold on a fleet that merges green PRs; gh refuses to merge a draft) and marked ready only once the web half is on
+main, so both reach people in the same release.
 Metadata: the raw file is sent as stored. The service rebuilds every picture from an allow-list and keeps no
 metadata (kosmos-community app/avatars.py: each format is walked chunk by chunk and only an allow-list of picture chunks is kept), so GPS or camera data in a photo is dropped there,
 not here. If the service ever stops doing that, this side must strip it before sending.
@@ -51,7 +53,12 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
   sweep when the file changed under the read. In the instant between the unlink and the write there is no file, so
   one needless DELETE can go out; the next sweep sends the new picture. Kept: a flicker that heals itself, against
   making saveAvatar atomic in a module this PR does not otherwise touch.
-- The picture pass runs after comments, so a failing picture route never delays comment posting.
+- The picture pass runs in two halves (review 3): removals beside the other take-downs, before comments; new
+  pictures after comments, so a failing picture route never delays comment posting and no take-down waits.
+- pictureUnreachable() counts agents whose picture is stuck up because the service refused their key, as
+  industryUnreachable does; the web half shows it beside the industry line.
+- The "file changed while read" guard has no test: forcing a write between two stats needs an fs stub in a module
+  that reads fs directly. It can only ever skip a sweep, never send.
 
 ## Weakest premise
 That hashing the file each sweep is cheap enough. The file is stat'd first and anything over 60,000 bytes is never

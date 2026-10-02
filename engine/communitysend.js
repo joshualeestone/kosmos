@@ -1146,7 +1146,9 @@ function serviceRefusedAvatar(r) {
   return r.status === 422 && Boolean(d) && typeof d === 'object' && d.error === 'bad_avatar';
 }
 
-async function sweepAvatars(keys, on) {
+/* `removals` true: only take pictures down (run before comments, like every other take-down); false: only send new
+   pictures (run last, so a failing picture route never holds back comments). */
+async function sweepAvatars(keys, on, { removals }) {
   for (const agentKey of Object.keys(keys)) {
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
@@ -1157,6 +1159,7 @@ async function sweepAvatars(keys, on) {
       // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
       // so it is on record (as sweepIndustry does for a clear).
       const shown = (Object.prototype.hasOwnProperty.call(k, 'avatarSent') && k.avatarSent !== null) || k.avatarUnsure;
+      if (want !== null && k.avatarRemoveUnreachable) { delete k.avatarRemoveUnreachable; saveJson(keysFile(), keys); }
       if (want === null && shown && !k.avatarRemoveUnreachable) {
         k.avatarRemoveUnreachable = true;
         saveJson(keysFile(), keys);
@@ -1165,6 +1168,8 @@ async function sweepAvatars(keys, on) {
       continue;
     }
     if (!w.why && k.avatarSkipLogged) { delete k.avatarSkipLogged; saveJson(keysFile(), keys); }
+    // A picture set again: the next removal that cannot reach a shut-out agent is logged again.
+    if (want !== null && k.avatarRemoveUnreachable) { delete k.avatarRemoveUnreachable; saveJson(keysFile(), keys); }
     if (w.why && k.avatarSkipLogged !== w.why) {
       k.avatarSkipLogged = w.why;
       saveJson(keysFile(), keys);
@@ -1179,6 +1184,7 @@ async function sweepAvatars(keys, on) {
     }
     const target = want !== null && k.avatarRefused === want ? null : want;
     if (!k.avatarUnsure && sent === target) continue;
+    if ((target === null) !== removals) continue;          // this call's half: removals, or new pictures
     if (target !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
     const wasUnsure = k.avatarUnsure === true;
     if (!wasUnsure) { k.avatarUnsure = true; saveJson(keysFile(), keys); }
@@ -1271,6 +1277,8 @@ async function sweepOnce(now) {
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepIndustry(keys, on); }
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  try { await sweepAvatars(keys, on, { removals: true }); }   // #4885: taking a picture down is a take-down
+  catch (e) { log(`picture removals: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   // #4373 part B: comments go after the owner's deletes, the take-down reads and the industry pass, so a slow comment
   // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
@@ -1280,9 +1288,9 @@ async function sweepOnce(now) {
   // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // #4885: pictures last. A failing picture route costs a timeout per agent, so it must not hold back comments
+  // #4885: new pictures last. A failing picture route costs a timeout per agent, so it must not hold back comments
   // or the install group.
-  try { await sweepAvatars(keys, on); }
+  try { await sweepAvatars(keys, on, { removals: false }); }
   catch (e) { log(`pictures: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
@@ -2012,6 +2020,14 @@ function industryUnreachable() {
   return Object.values(keys).filter((k) => k && k.refused && ((typeof k.industrySent === 'string' && k.industrySent) || k.industryUnsure)).length;
 }
 
+/* #4885: how many agents' community pictures this board cannot take down (the service refused their keys), for the
+   page to say so, as industryUnreachable does. null when the sweep cannot run at all. */
+function pictureUnreachable() {
+  const keys = loadJson(keysFile());
+  if (!keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !endpointAllowed()) return null;
+  return Object.values(keys).filter((k) => k && k.refused && ((typeof k.avatarSent === 'string' && k.avatarSent) || k.avatarUnsure)).length;
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
@@ -2021,7 +2037,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed,
