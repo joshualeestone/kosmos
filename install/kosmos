@@ -347,7 +347,6 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
   # its time (the start loops count on it). At least half a second, so a slow first answer still
   # leaves the page a real chance rather than a timeout that reads as busy.
   _left_s="$(/usr/bin/awk -v m="$1" -v t="${_took:-0}" 'BEGIN { r = m - t; if (r < 0.5) r = 0.5; printf "%.2f", r }')"
-  kosmos_loopback_route   # #4933
   _body="$(/usr/bin/curl -fsS ${KOSMOS_NP[@]+"${KOSMOS_NP[@]}"} -m "$_left_s" "$URL/" 2>/dev/null)" && _rc=0 || _rc=$?
   case "$_rc" in
     0) case "$_body" in
