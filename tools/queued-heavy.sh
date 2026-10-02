@@ -11,7 +11,7 @@
 #      a neighbour silently (Ice Cream Kitty's #4665 turn overlapped Baron's #4658 at 08:58).
 # The renewals stop after QUEUED_HEAVY_MAX_RENEWALS (default 12, so about 2 hours), so a hung command cannot hold
 # the box for ever; the claim then lapses one claim length later and the END line still prints when it exits.
-# The guards come from origin/main's tools/lib/cut-guard.sh (with #4609), read from a checkout at origin/main.
+# The guards come from tools/lib/cut-guard.sh (with #4609) in the checkout named by QUEUED_HEAVY_LIB (default below).
 # Prints QUEUED-HEAVY lines for the start, the turn, and the end with the command's rc.
 # #4977: this file in the repo (tools/queued-heavy.sh) is the reviewed source; tools/test-queued-heavy-4977.sh pins it
 # in CI. The copy agents run, ~/.cache/claude-handoffs/queued-heavy.sh, is installed separately, and nothing checks
@@ -40,8 +40,9 @@ if [ -e "${1:-}" ] && [ ! -x "${1:-}" ]; then
   exit 126
 fi
 [ "$#" -gt 0 ] || { echo "usage: queued-heavy.sh \"<what>\" <command> [args...]" >&2; exit 2; }
-# #4977: the guards come from ONE checkout at origin/main shared by every waiter on the Mac (never the worktree this is
-# run from: each branch's own lib would put several lib generations in one queue, the cause of #4977's item 1).
+# #4977: the guards come from ONE checkout shared by every waiter on the Mac, never the worktree this is run from: each
+# branch's own lib would put several lib generations in one queue (the cause of #4977's item 1). That checkout is meant
+# to sit at origin/main; nothing here updates it or checks that it does.
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || { echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
 command -v kosmos_wait_until_clear >/dev/null || { echo "QUEUED-HEAVY: cut-guard.sh has no kosmos_wait_until_clear" >&2; exit 3; }

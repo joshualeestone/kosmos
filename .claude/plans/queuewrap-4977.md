@@ -29,6 +29,7 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 - 6: NO NEW ISSUES (one nit taken: wait for the f arm's wrapper). Converged before the rebase.
 - After the rebase (new loop, iteration 1): the temp-file cleanup arm could pass if the files were never made (the fixture arm now requires them in this test's TMPDIR); the header said the live copy is installed from this file (it is not; reworded); this plan's base and validation lines were stale.
 - Iteration 2: the test now runs from an empty dir, so the relative real scripts its cases name (`bash tools/test-install.sh`) cannot run if a refusal lapsed. Left as found: `_qh_take`'s stale-lock takeover can let two waiters in when the lock's holder died holding it (both read the dead pid; the second's `rm -rf` removes the first's new lock). It is #4911's lock, already in the live copy; this branch pins the wrapper rather than redesigning it. Logged on #4977 as a follow-up.
+- Iteration 3: the wrapper's comments said the guards are read from a checkout at origin/main; they are read from whatever checkout QUEUED_HEAVY_LIB names, and nothing updates it (reworded).
 
 ## Decisions
 - The repo copy keeps reading the guards from ONE main checkout, not the worktree it runs from: every worktree reading its own branch's lib is how several lib generations end up in one queue (item 1's cause).
