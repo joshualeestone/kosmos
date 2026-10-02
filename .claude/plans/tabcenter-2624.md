@@ -47,3 +47,9 @@ That the file:// page lays out the header as the served board does. The switcher
 - Review 6, a known limit, measured: past the switcher's 220px cap (forced to 581px with a long name, at 960, 1100
   and 1440) the two views still agree to the pixel (tabs x 675.1 in both), but the tabs leave the centre because the
   left 1fr track cannot shrink below the left cluster. A larger system text size is not measured.
+- Review 7: web.layout-picker.test.js pinned `display: flex` on this rule and went red; it now pins that the rule
+  states no display (so it keeps .apphead header's grid) and that the grid rule exists. Re-adding the flex rule reds
+  it. Every test file that reads web/index.html (357 files) was run on the branch and on origin/main: the same 108
+  fail on both outside the runner's environment, none only on the branch. Deferred, with reasons: with a large system
+  text size, 56rem passes 960px and the one-screen header now takes the narrow `auto 1fr` override between them,
+  the same layout the tab view has there, which is this card's point.
