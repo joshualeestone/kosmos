@@ -48263,6 +48263,7 @@ async function openTeamCreate(key) {
       msg.textContent = 'You just made this ' + ((TC.team && TC.team.label) || 'team') + '. To make another, choose Go to your team first.';
     }
     if (TC.key !== key) {
+      TC.askedKey = key;   // review 23: opened for them once this one finishes, if they are still here
       msg.hidden = false; msg.dataset.kind = 'resume';
       // Review 5: a team already made and being said hello to is not "still making".
       // Review 17: and one waiting on its pictures before it leaves is "finishing".
@@ -48614,7 +48615,8 @@ function tcPaint() {
     const noPic = noPicN === 1 ? ' A picture was not set: see its row.' : (noPicN ? ' ' + noPicN + ' pictures were not set: see their rows.' : '');
     // Review 17: while it waits for pictures before leaving, say so: the move to the agents view is not a surprise.
     const going = TC.leaving ? ' Setting their pictures, then taking you to them…' : '';
-    if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look + noPic + going;
+    const stillPic = (!TC.leaving && TC.stayed && TC.members.some((m) => m.portraitBusy)) ? ' A picture is still being set.' : '';   // review 23
+    if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look + noPic + going + stillPic;
     else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
       : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at ' + (notN === 1 ? 'its row.' : 'their rows.')) + look;
     else {
@@ -48752,8 +48754,12 @@ async function tcSayHello() {
 }
 /* Review 7: every hello placed, but a picture may still be going up. Leaving drops the team, and with it the row that
    would say "(picture not set)", so wait for the pictures (bounded), and if one failed stay so its row can say so. */
+const tcRowNote = (m) => m.portrait === 'failed' || (m.warn || []).length || m.renamedFrom;   // something a row says
 async function tcLeaveWhenSettled(gen) {
   if (!TC || TC.leaving) return;
+  // Review 23: a row with a note keeps the step whatever the pictures do, so it stays at once rather than waiting and
+  // promising a move it will not make.
+  if (TC.members.some(tcRowNote)) { TC.stayed = true; tcPaint(); return; }
   TC.leaving = true;
   if (TC.members.some((m) => m.portraitBusy)) tcPaint();   // review 17: the note says it is setting pictures first
   for (let i = 0; i < 75 && TC && gen === TC_GEN && TC.members.some((m) => m.portraitBusy); i++) await new Promise((r) => setTimeout(r, 200));
@@ -48762,7 +48768,10 @@ async function tcLeaveWhenSettled(gen) {
   // Review 10: once the step has stayed, Go to your team stays on offer even if the picture lands later.
   // Review 17: a row with something to say (a step create reported as not done, a rename its teammates do not know)
   // keeps the step too: leaving would drop it, and nothing on the agents view repeats it.
-  if (TC.members.some((m) => m.portrait === 'failed' || m.portraitBusy || (m.warn || []).length || m.renamedFrom)) { TC.stayed = true; tcPaint(); return; }
+  if (TC.members.some((m) => tcRowNote(m) || m.portraitBusy)) { TC.stayed = true; tcPaint(); return; }
+  // Review 23: a different team was asked for while this one finished: open THAT, which is what the person asked for,
+  // rather than carrying them to the agents view.
+  if (TC.askedKey && TC.askedKey !== TC.key && tcStepShown()) { const k = TC.askedKey; TC_GEN += 1; TC = null; openTeamCreate(k); return; }
   tcGoToTeam(true);
 }
 function tcHelloRetry(slot) {
@@ -48847,7 +48856,7 @@ function tcGoToTeam(auto) {
       const at = document.activeElement;
       // Review 19: the tabs layout's board is #grid (its cards are redrawn inside it; it stays).
       const host = [document.getElementById('panel-cons-agents'), document.getElementById('grid')].find((e) => e && e.offsetParent);
-      if (host && (!at || at === document.body || document.getElementById('panel-create').contains(at))) { host.tabIndex = -1; host.focus({ preventScroll: true }); }
+      if (host && !moved && (!at || at === document.body || document.getElementById('panel-create').contains(at))) { host.tabIndex = -1; host.focus({ preventScroll: true }); }
     }
     live.textContent = notSaid === 0 ? 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. ' : 'team. ') + where
       : (names.length === 1 ? 'Your agent' : (notSaid === 1 ? '1 of them' : notSaid + ' of them')) + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;

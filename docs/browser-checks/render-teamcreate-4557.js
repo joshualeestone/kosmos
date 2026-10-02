@@ -128,6 +128,7 @@ function chk(ok, label, extra) {
           const checkHold = { p: null };   // the names pre-check held until the arm releases it (review 27)
           const stateOf = {};   // #4936 review 9: name -> the board state a member shows (default idle)
           const pictureFail = new Set();   // #4936 review 7: names whose picture upload is refused
+          const pictureHold = {};   // #4936 review 23: name -> a promise its picture upload's answer waits for
           const pictures = [];             // every picture PUT: { name, type }. The members here are not real agents, so it is answered here.
           const portraitAsks = [];         // #4720: every /api/catalogue/portrait read, as "team/slot"
           const staticAsks = [];           // #4720: any read of a catalogue image path under the board (must stay empty)
@@ -150,6 +151,7 @@ function chk(ok, label, extra) {
             // `URL` in this file is the board's address (a string), so the agent's name is cut from the path by hand.
             const pname = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
             pictures.push({ name: pname, type: r.request().headers()['content-type'] || '' });
+            if (pictureHold[pname]) await pictureHold[pname];
             if (pictureFail.has(pname)) return r.fulfill({ status: 500, json: { error: 'no' } });
             return r.fulfill({ status: 200, json: { ok: true } });
           });
@@ -224,7 +226,7 @@ function chk(ok, label, extra) {
           await clearFirstRun(page);
           // #4936: off unless an arm is about it (the others settle on rows reading Running); fast retries, a long mark.
           await page.evaluate(() => { TC_AUTO_HELLO = false; TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold, helloUnsure, helloStatus, helloHang, pictureFail, stateOf };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold, helloUnsure, helloStatus, helloHang, pictureFail, stateOf, pictureHold };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -528,6 +530,32 @@ function chk(ok, label, extra) {
           await page.context().close();
         }
 
+        /* --- #4936 review 23: every hello placed while a picture is still going up: the step says it is setting the
+           pictures and does not leave until it lands, then leaves on its own -------------------------------------- */
+        {
+          const { page, errs, hellos, pictureHold } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          let releasePic; pictureHold.pia = new Promise((res) => { releasePic = res; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Pia');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Rex');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Sol');
+          await page.click('#tc-go');
+          await settle(page, () => /Setting their pictures, then taking you to them/.test((document.getElementById('tc-note') || {}).textContent || ''));
+          await page.waitForTimeout(800);   // room for a wrong leave while the picture is held
+          const held = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden, note: document.getElementById('tc-note').textContent }));
+          chk(hellos.length === 3 && held.team && held.panel && /Setting their pictures, then taking you to them…/.test(held.note),
+            `${E} #4936 with a picture still going up, the step says so and does not leave yet`, JSON.stringify({ held, hellos: hellos.map((h) => h.who) }));
+          releasePic();
+          await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
+          chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 once the picture lands, the step leaves for the agents view on its own`);
+          chk(errs.length === 0, `${E} no page errors (#4936 held-picture arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
         /* --- #4936 review 7: every hello placed but a picture failed: the step stays so its row can say so ----------- */
         {
           const { page, errs, hellos, pictureFail } = await newPage(1280);
@@ -600,9 +628,12 @@ function chk(ok, label, extra) {
           chk(still[2].state === 'Waiting for it to start…' && hellos.filter((h) => h.who === 'zed').length === 0,
             `${E} #4936 it is still waited for after more than three gaps, and still not typed into`, JSON.stringify([still[2], hellos.map((h) => h.who)]));
           delete stateOf.zed;   // it comes up
-          await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
-          chk(hellos.filter((h) => h.who === 'zed').length === 1 && await page.evaluate(() => TC === null),
-            `${E} #4936 once it is up it is said hello to once, and with every hello placed the step leaves on its own`, JSON.stringify(hellos.map((h) => h.who)));
+          // Review 23: the person asked for Household meanwhile, so once every hello is placed THAT team opens, not the
+          // agents view.
+          await settle(page, () => typeof TC !== 'undefined' && TC && TC.key === 'household');
+          const after = await page.evaluate(() => ({ key: TC && TC.key, step: !document.getElementById('cstep-teammake').hidden, marked: document.querySelectorAll('.just-made').length }));
+          chk(hellos.filter((h) => h.who === 'zed').length === 1 && after.key === 'household' && after.step && after.marked === 0,
+            `${E} #4936 once it is up it is said hello to once, and the team asked for meanwhile opens (not the agents view)`, JSON.stringify({ after, hellos: hellos.map((h) => h.who) }));
           chk(errs.length === 0, `${E} no page errors (#4936 waiting arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
