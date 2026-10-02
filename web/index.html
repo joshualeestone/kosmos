@@ -8372,7 +8372,8 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-teammake .flabel[for="tc-project"] { margin-top: var(--space-6); }
 .tc-leads { white-space: nowrap; }
 @media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
-/* #4936 review 10: the hello states are longer ("Said hello (picture not set)"); on a phone they may wrap. */
+/* #4936 review 10/21: the hello states are longer ("Said hello (picture not set)"); on a phone the seat column gives
+   them the room (the state's auto column keeps its one-line width) and the seat wraps. */
 @media (max-width: 560px) { .tc-state { white-space: normal; text-align: right; } .tc-leads { white-space: normal; } }
 .tc-why.plain { color: var(--label-2); }   /* #4936: advice that is not a failure (an unconfirmed hello) */
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
@@ -20884,8 +20885,9 @@ function updateNothingToLose() {
     /* #4557: a team being made (its names being checked, its members being created, the board being
        watched for them, a picture going up). A reload here would leave half a team and no way to go on.
        Only while something is in flight: a finished or a stopped team holds nothing. */
-    typeof TC !== 'undefined' && !!TC && !!(TC.busy || TC.running || TC.watching),
-    typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING > 0,   // counted apart: Say Hello lets the team go while its pictures are still going up
+    // #4936 review 21: and while Kosmos says hello to its members or waits on their pictures before leaving.
+    typeof TC !== 'undefined' && !!TC && !!(TC.busy || TC.running || TC.watching || TC.greeting || TC.leaving),
+    typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING > 0,   // counted apart: Go to your team lets the team go while its pictures are still going up
     typeof ATTACH_UPLOADING !== 'undefined' && ATTACH_UPLOADING > 0];   // round 9: a file still going up
   if (busy.some(Boolean)) return false;
   const drafted = (m) => !!m && Object.values(m).some((v) => (typeof v === 'string' ? v : (v && v.text) || '').trim());
@@ -48439,7 +48441,9 @@ function tcLive() {
   // Review 5: an UNCONFIRMED hello does not: it has no retry, so it would hold the team live for good and the same
   // team picked again would resume a finished team instead of making a new one.
   // Review 10: and while it waits for pictures before leaving: Back then keeps it, not drops it mid-upload.
-  return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting || TC.leaving
+  // Review 21: and once it has stayed for a row's note (a failed picture, a step not done, a rename), so Back and the
+  // same team picked again keep that row instead of starting a fresh team over it.
+  return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting || TC.leaving || TC.stayed
     || (TC.helloStarted && TC.members.some((m) => m.hello !== 'started' && m.hello !== 'unsure'))));
 }
 
@@ -48796,8 +48800,8 @@ function tcGoToTeam(auto) {
   // Review 19: once the person clicks or presses a key, focus is theirs: the mark loop stops putting it back.
   let moved = false;   // review 20: and the first scroll and focus wait on it too (a late card must not take focus)
   const theirs = () => { focused = false; moved = true; };
-  document.addEventListener('pointerdown', theirs, { once: true, capture: true });
-  document.addEventListener('keydown', theirs, { once: true, capture: true });
+  // Review 21: a wheel scroll counts too; all three are removed when the mark window ends.
+  for (const ev of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(ev, theirs, { once: true, capture: true, passive: true });
   const sel = names.map((n) => '.acard[data-agent="' + CSS.escape(n) + '"], .lrow[data-agent="' + CSS.escape(n) + '"]').join(', ');
   const mark = () => {
     const live = Date.now() < until;
@@ -48819,7 +48823,8 @@ function tcGoToTeam(auto) {
       if (again && (!at || at === document.body)) { again.tabIndex = -1; again.focus({ preventScroll: true }); first = again; }
       else if (again) focused = false;
     }
-    if (live) setTimeout(mark, 150);   // review 16: the board redraws its cards each poll; put the mark back quickly
+    if (live) setTimeout(mark, 150);
+    else for (const ev of ['pointerdown', 'keydown', 'wheel']) document.removeEventListener(ev, theirs, { capture: true });   // review 16: the board redraws its cards each poll; put the mark back quickly
   };
   mark();
   // The step's live region went with the step: say it where a screen reader hears it.
