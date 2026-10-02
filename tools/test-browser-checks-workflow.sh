@@ -161,7 +161,27 @@ if command -v ruby >/dev/null 2>&1; then
     abort "the selection step must come BEFORE the checks step" unless gi && si < gi
     abort "the selection step does not export KOSMOS_BC_PR_SELECTED" unless gs[si]["run"].to_s.include?("KOSMOS_BC_PR_SELECTED=") && gs[si]["run"].to_s.include?("GITHUB_ENV")
     abort "the selection step must diff against the PR base sha" unless (gs[si]["env"] || {})["BASE_SHA"].to_s.gsub(/\s+/, "") == "${{github.event.pull_request.base.sha}}"
-    abort "the checks step does not add KOSMOS_BC_PR_SELECTED to the allowlist" unless gs[gi]["run"].to_s.include?("KOSMOS_BC_PR_SELECTED") && gs[gi]["run"].to_s =~ /KOSMOS_BC_CI_ALLOWLIST="\$KOSMOS_BC_CI_ALLOWLIST\$extra"/
+    # #4601: ROUTED, never dropped. The route step (after selection, before the checks) splits the allowlist PLUS
+    # the selection into a Linux set (run here) and a macOS set (a job output for the macOS job).
+    ri = gs.index { |st| st["id"] == "route" } or abort "the allowlist job has no route step (#4601)"
+    rr = gs[ri]["run"].to_s
+    abort "the route step must come after the selection and before the checks (#4601)" unless si < ri && ri < gi
+    abort "the route step does not route BOTH the allowlist and the selection (#4601)" unless rr.include?("$KOSMOS_BC_CI_ALLOWLIST ${KOSMOS_BC_PR_SELECTED:-}")
+    abort "the route step does not read tools/bc-macos-only.txt (#4601)" unless rr.include?("tools/bc-macos-only.txt")
+    abort "the route step does not publish the macOS set as mac_set (#4601)" unless rr.include?("mac_set=") && rr.include?("GITHUB_OUTPUT") && (g["outputs"] || {})["mac_set"].to_s.include?("steps.route.outputs.mac_set")
+    abort "the checks step does not run the routed Linux set (#4601)" unless gs[gi]["run"].to_s =~ /KOSMOS_BC_CI_ALLOWLIST="\$KOSMOS_BC_LINUX_SET"/
+    abort "the allowlist must be job-level env, so the route step reads the list the checks were chosen from (#4601)" unless (g["env"] || {}).key?("KOSMOS_BC_CI_ALLOWLIST")
+    fi = gs.index { |st| st["run"].to_s.include?("fc-match system-ui") && st["run"].to_s.include?("LiberationSans") }
+    abort "the Linux job does not pin system-ui to Liberation Sans, with a check that it took, before the checks (#4601)" unless fi && fi < gi
+    m = (YAML.load_file(ARGV[0])["jobs"] || {})["browser-checks-macos"] or abort "no browser-checks-macos job (#4601: routed checks would never run)"
+    abort "the macOS job is not on macos-latest" unless m["runs-on"] == "macos-latest"
+    abort "the macOS job must need the Linux job and run only when it routed something, even if the Linux job is red" unless m["needs"].to_s == "browser-checks" && m["if"].to_s.gsub(/\s+/, "") == "always()&&needs.browser-checks.outputs.mac_set!=" + 39.chr * 2
+    ms = m["steps"] || []
+    mi = ms.index { |st| st["run"].to_s =~ /KOSMOS_BC_CI_ALLOWLIST="\$MAC_SET" KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/ }
+    abort "the macOS job does not run the routed set with the strict pin" unless mi && ms[mi]["env"].to_s.include?("needs.browser-checks.outputs.mac_set")
+    mt = ms.index { |st| st["run"].to_s =~ /\bbrew install tmux\b/ }
+    mp = ms.index { |st| st["run"].to_s.include?("tools/provision-pw.sh") }
+    abort "the macOS job must provision Playwright and install tmux before its checks" unless mt && mp && mt < mi && mp < mi
     abort "the allowlist job must install tmux BEFORE the checks step (render-talk, #3973/#4119)" unless gti && gti < gi
     f = YAML.load_file(ARGV[1])
     on = f["on"] || f[true] || {}
@@ -543,5 +563,20 @@ for wf in "$WF" "$WF_FULL"; do
   [ -z "$cut_short" ] || fail "an unquoted step name in $(basename "$wf") contains ' #' and is cut short by YAML: $cut_short"
 done
 pass "no step name is cut short by an unquoted ' #'"
+
+# #4601: the macOS routing list. Every entry is a real check and carries its measured cause (a name with no
+# cause is how a list like this turns into a place to hide reds); and it is not empty by accident.
+ROUTE="$REPO/tools/bc-macos-only.txt"
+[ -f "$ROUTE" ] || fail "tools/bc-macos-only.txt is missing (#4601: the route step reads it)"
+routed=0
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in ''|'#'*) continue ;; esac
+  name="${line%%$(printf '\t')*}"; cause="${line#*$(printf '\t')}"
+  [ "$name" != "$line" ] && [ -n "$cause" ] || fail "bc-macos-only.txt: '$line' has no <TAB><cause> (#4601: a check is routed only with its measured cause)"
+  [ -f "$REPO/docs/browser-checks/$name.js" ] || fail "bc-macos-only.txt names '$name', which is not a check in docs/browser-checks/"
+  routed=$((routed + 1))
+done < "$ROUTE"
+[ "$routed" -gt 0 ] || fail "bc-macos-only.txt routes nothing; if that is now true, say so here rather than leaving an empty list"
+pass "every check routed to macOS is a real check with its cause written beside it ($routed routed)"
 
 printf 'all browser-checks-workflow invariants hold\n'

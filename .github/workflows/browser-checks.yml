@@ -155,9 +155,12 @@ jobs:
     # (Baron's measurement on #4601: 1,018 of 3,412 on 2026-09-30), and the hosted macOS pool is
     # the one that queues for about an hour while Linux and Windows jobs start at once.
     # What it runs: the DOM-state allowlist, plus the checks this diff selects, which CAN be
-    # timing or paint checks (#4119). The full set was run once on ubuntu-latest before this
-    # moved (#4601, the measurement is on the card), and checks red there for the runner, not
-    # the PR, are in tools/bc-pr-select.js KNOWN_RED.
+    # timing or paint checks (#4119), EXCEPT the checks in tools/bc-macos-only.txt: those are
+    # ROUTED to the browser-checks-macos job below, never dropped. The full set was run on
+    # ubuntu-latest before this moved (#4601): under Ubuntu's default font 12 checks were red
+    # (run 37036328772); rerun with the UI font pinned (step below), six of those passed (run
+    # 37045524112). The other six are in that file, each with its measured cause. None was added
+    # to KNOWN_RED.
     # What this costs, a fourth way a green here differs from a 3b green: it is Linux Chromium
     # and Linux WebKit (a different port from Safari's), Linux fonts, and bash 5. A difference
     # only macOS shows now surfaces at the cut's 3b or in the nightly full set, which stay on
@@ -165,6 +168,76 @@ jobs:
     # live?" pgrep arm is written against macOS pgrep output and is not verified on Linux; its
     # marker arm works either way, and a runner runs one job at a time.)
     runs-on: ubuntu-latest
+    # #4601: the checks routed to macOS (tools/bc-macos-only.txt) that this run named, for the macOS job below.
+    outputs:
+      mac_set: ${{ steps.route.outputs.mac_set }}
+    # #4601: the allowlist is job-level so the route step (before the checks) reads the same list.
+    env:
+      # The #2085 gate class: install-flow permission/gate DOM-state checks +
+      # the settings/telemetry DOM-state checks (present/hidden/clickable/
+      # labeled), plus click-first-run (the full linear install clickthrough),
+      # headless-robust again per #2445-followup (it now clicks whichever control
+      # is forward -- #fr-next, else the S5 "Skip" #fr-alt on a not-signed-in
+      # runner). Keep this to assertion TYPE (DOM-state that is ALSO
+      # headless-robust), never timing/animation/paint, never a check that leans
+      # on a screenshot or a completing animation.
+      KOSMOS_BC_CI_ALLOWLIST: >-
+        click-first-run
+        render-gated-next
+        render-connect-skip
+        render-switch-states
+        named-controls
+        render-optout-403-2020
+        render-settings-403-2047
+        render-board-signin-403-2023
+        render-engmode-gate-2131
+        render-home-discovery-removed-3048
+        render-createnav-2190
+        render-connlost-reconnect-3410
+        render-account-problem-3723
+        render-create-prefs-3081
+        render-claude-connect-choice-2433
+        render-picker-provider-2097
+        render-openai-only-2096
+        render-inline-field-errors-2606
+        render-disconnect-stop-2570
+        render-plus-gate-1615
+        render-remove-force-2651
+        render-firstrun-connect-fires
+        render-url-state
+        render-trust-restart-0644
+        render-codex-hooks-4607
+        render-restore-dircheck-2615
+        render-account-name-2095
+        render-observed-consumers-1959
+        render-talk-search
+        render-account-badge-1921
+        render-import-add-inplace-2419
+        render-open-terminal-0644
+        render-firstrun-scan-on-grant-1652
+        render-worldrename-1704
+        render-firstrun-import-1652
+        render-reactions-2255
+        render-room-reply-3745
+        render-msgref-4631
+        render-world-import-2563
+        render-worldsw-abandon-2628
+        render-worldswitch-2238
+        render-worlds-switcher-1704
+        render-account-dup-reauth-2584
+        render-autohello-2686
+        render-firstrun-model-continue-2134
+        render-model-spinners-2365
+        render-tophead-consolidated-2282
+        render-emoji-mute-2357
+        render-workindicator-2146
+        render-build-marker-2066
+        render-richtext-2067
+        render-login-expiry-3532
+        render-win32-board-copy
+        render-fed-plus-gate
+        render-waiting-badge-4025
+        render-muse-signin-3939
     # provision-pw (npm i + chromium+webkit builds) is ~2-4 min; the CI ALLOWLIST
     # subset (the headless-robust DOM-state checks named in the run step -- the list
     # grows batch by batch under #835, so this comment states no fixed count; most
@@ -213,6 +286,25 @@ jobs:
       - name: 'install tmux (#3973, #4119)'
         timeout-minutes: 10
         run: sudo apt-get install -y tmux   # the package index is fresh from install-deps above
+      # #4601: the page's --font-ui is -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial.
+      # Linux has no Apple font and system-ui comes before Arial, so Chromium drew Ubuntu's wider default and
+      # six checks wrapped text a Mac does not (measured, #4601 run 37036328772). With system-ui and
+      # sans-serif aliased to Liberation Sans (Arial's metrics, from fonts-liberation) all six passed (run
+      # 37045524112). The step prints what fontconfig resolves, so a drifted image is visible.
+      - name: 'pin the UI font to Arial metrics (#4601, Linux)'
+        run: |
+          mkdir -p "$HOME/.config/fontconfig"
+          cat > "$HOME/.config/fontconfig/fonts.conf" <<'XML'
+          <?xml version="1.0"?>
+          <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+          <fontconfig>
+            <alias binding="strong"><family>system-ui</family><prefer><family>Liberation Sans</family></prefer></alias>
+            <alias binding="strong"><family>sans-serif</family><prefer><family>Liberation Sans</family></prefer></alias>
+          </fontconfig>
+          XML
+          fc-cache -f >/dev/null
+          for f in system-ui sans-serif; do echo "$f -> $(fc-match "$f")"; done
+          fc-match system-ui | grep -q 'LiberationSans' || { echo "::error::system-ui does not resolve to Liberation Sans"; exit 1; }
       # #4119: WHICH CHECKS THIS DIFF TOUCHES, beyond the fixed allowlist below. On 2026-09-26 two
       # page PRs passed this job and broke a check outside the allowlist, found only at the 0.7.01
       # cut (about 3 hours of release): #3985 broke render-talk, #4095 broke render-fields.
@@ -266,83 +358,61 @@ jobs:
       # signed-in build box and timed out on the runner (a false-green machine). The
       # fix (this PR) makes advanceToAnchor click whichever control is actually
       # forward, so it is now headless-ROBUST and rejoins the DOM-state subset.
+      # #4601: split the full set (the job's allowlist plus this diff's selection) by platform.
+      - name: 'route each check to Linux or macOS (tools/bc-macos-only.txt, #4601)'
+        id: route
+        run: |
+          set -eu
+          macos="$(grep -v '^#' tools/bc-macos-only.txt | cut -f1 | tr '\n' ' ')"
+          full=""
+          for n in $KOSMOS_BC_CI_ALLOWLIST ${KOSMOS_BC_PR_SELECTED:-}; do
+            case " $full " in *" $n "*) ;; *) full="$full $n" ;; esac
+          done
+          linux=""; mac=""
+          for n in $full; do
+            case " $macos " in *" $n "*) mac="$mac $n" ;; *) linux="$linux $n" ;; esac
+          done
+          echo "KOSMOS_BC_LINUX_SET=${linux# }" >> "$GITHUB_ENV"
+          echo "KOSMOS_BC_MAC_SET=${mac# }" >> "$GITHUB_ENV"
+          echo "mac_set=${mac# }" >> "$GITHUB_OUTPUT"
+          echo "Linux: $(echo $linux | wc -w | tr -d ' ') checks; macOS: ${mac:- none}"
       - name: 'the page layer, headless DOM-state subset (tools/browser-checks.sh, #39/#2445)'
-        env:
-          # The #2085 gate class: install-flow permission/gate DOM-state checks +
-          # the settings/telemetry DOM-state checks (present/hidden/clickable/
-          # labeled), plus click-first-run (the full linear install clickthrough),
-          # headless-robust again per #2445-followup (it now clicks whichever control
-          # is forward -- #fr-next, else the S5 "Skip" #fr-alt on a not-signed-in
-          # runner). Keep this to assertion TYPE (DOM-state that is ALSO
-          # headless-robust), never timing/animation/paint, never a check that leans
-          # on a screenshot or a completing animation.
-          KOSMOS_BC_CI_ALLOWLIST: >-
-            click-first-run
-            render-gated-next
-            render-connect-skip
-            render-switch-states
-            named-controls
-            render-optout-403-2020
-            render-settings-403-2047
-            render-board-signin-403-2023
-            render-engmode-gate-2131
-            render-home-discovery-removed-3048
-            render-createnav-2190
-            render-connlost-reconnect-3410
-            render-account-problem-3723
-            render-create-prefs-3081
-            render-claude-connect-choice-2433
-            render-picker-provider-2097
-            render-openai-only-2096
-            render-inline-field-errors-2606
-            render-disconnect-stop-2570
-            render-plus-gate-1615
-            render-remove-force-2651
-            render-firstrun-connect-fires
-            render-url-state
-            render-trust-restart-0644
-            render-codex-hooks-4607
-            render-restore-dircheck-2615
-            render-account-name-2095
-            render-observed-consumers-1959
-            render-talk-search
-            render-account-badge-1921
-            render-import-add-inplace-2419
-            render-open-terminal-0644
-            render-firstrun-scan-on-grant-1652
-            render-worldrename-1704
-            render-firstrun-import-1652
-            render-reactions-2255
-            render-room-reply-3745
-            render-msgref-4631
-            render-world-import-2563
-            render-worldsw-abandon-2628
-            render-worldswitch-2238
-            render-worlds-switcher-1704
-            render-account-dup-reauth-2584
-            render-autohello-2686
-            render-firstrun-model-continue-2134
-            render-model-spinners-2365
-            render-tophead-consolidated-2282
-            render-emoji-mute-2357
-            render-workindicator-2146
-            render-build-marker-2066
-            render-richtext-2067
-            render-login-expiry-3532
-            render-win32-board-copy
-            render-fed-plus-gate
-            render-waiting-badge-4025
-            render-muse-signin-3939
         # #4119: the fixed allowlist PLUS the checks the selection step named, deduplicated. The
         # driver's never-ran guard covers both: a named check that did not run reds the job.
+        # #4601: ROUTED, never dropped. A name in tools/bc-macos-only.txt runs in the macOS job below
+        # (route step, written before any check runs, so a red here cannot lose the macOS set); the rest run here.
         run: |
-          extra=""
-          for n in ${KOSMOS_BC_PR_SELECTED:-}; do
-            case " $KOSMOS_BC_CI_ALLOWLIST $extra " in *" $n "*) ;; *) extra="$extra $n" ;; esac
-          done
-          echo "running the allowlist plus$( [ -n "$extra" ] && echo "$extra" || echo ' nothing else' )"
-          KOSMOS_BC_CI_ALLOWLIST="$KOSMOS_BC_CI_ALLOWLIST$extra" KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
+          echo "running on Linux: ${KOSMOS_BC_LINUX_SET}"
+          echo "routed to the macOS job: ${KOSMOS_BC_MAC_SET:-nothing}"
+          KOSMOS_BC_CI_ALLOWLIST="$KOSMOS_BC_LINUX_SET" KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
           if [ "${KOSMOS_BC_PR_SELECT_FAILED:-0}" = 1 ]; then
             echo "::error::the checks this diff touches were NOT selected (tools/bc-pr-select.js failed above); only the allowlist ran"
             exit 1
           fi
+
+  # #4601: the checks routed to macOS (tools/bc-macos-only.txt) that the Linux job named for this PR, run where their
+  # result means something. Skipped when there are none (about 3 page PRs in 4, measured on #4601), so most page PRs
+  # wait for no macOS runner at all. always(): a red Linux job must not cost these their run.
+  browser-checks-macos:
+    needs: browser-checks
+    if: always() && needs.browser-checks.outputs.mac_set != ''
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: provision the pinned Playwright runtime (#1594)
+        run: bash tools/provision-pw.sh
+      - name: 'install tmux (#3973, #4119)'
+        timeout-minutes: 10
+        run: brew install tmux
+      - name: 'the checks routed to macOS (tools/bc-macos-only.txt, #4601)'
+        env:
+          MAC_SET: ${{ needs.browser-checks.outputs.mac_set }}
+        run: |
+          echo "running on macOS: $MAC_SET"
+          KOSMOS_BC_CI_ALLOWLIST="$MAC_SET" KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
