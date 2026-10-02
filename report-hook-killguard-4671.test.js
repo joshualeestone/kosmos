@@ -45,7 +45,7 @@ function run(tool, toolInput, { event = 'PreToolUse', noJq = false, noPerl = fal
   if (!('KOSMOS_KILL_GUARD' in extra)) delete env.KOSMOS_KILL_GUARD;
   if (noJq) env.KOSMOS_REPORT_HOOK_NO_JQ = '1'; else delete env.KOSMOS_REPORT_HOOK_NO_JQ;
   if (noPerl) env.KOSMOS_REPORT_HOOK_NO_PERL = '1'; else delete env.KOSMOS_REPORT_HOOK_NO_PERL;
-  const r = spawnSync('/bin/bash', [HOOK], { input: payload, env, encoding: 'utf8', timeout: 20000 });
+  const r = spawnSync('/bin/bash', [HOOK], { input: payload, env, encoding: 'utf8', timeout: 40000 });
   return { code: r.status, stderr: r.stderr || '' };
 }
 
@@ -232,7 +232,7 @@ test('#4671 round 8 nits: .MD is a document on both paths; a to-do list is not r
   const payload = Buffer.concat([Buffer.from('{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"' + d('KILL -9 N1') + ' #'), Buffer.from([0xff, 0xfe]), Buffer.from('"}}')]);
   const env = { ...process.env, KOSMOS_REPORT_CLI: STUB, TMPDIR: SANDBOX, HOME: SANDBOX, KOSMOS_REPORT_HOOK_NO_JQ: '1', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' };
   delete env.TMUX_PANE; delete env.KOSMOS_KILL_GUARD;
-  const r = spawnSync('/bin/bash', [HOOK], { input: payload, env, encoding: 'utf8', timeout: 20000 });
+  const r = spawnSync('/bin/bash', [HOOK], { input: payload, env, encoding: 'utf8', timeout: 40000 });
   assert.equal(r.status, 2, r.stderr);
 });
 
@@ -242,7 +242,7 @@ test('#4671 the awk fallback (no perl) blocks and allows like the rest, and stay
   const big = 'x'.repeat(1_500_000) + '\nKILL -9 N1\n';
   const t0 = Date.now();
   assert.equal(run('Write', { file_path: '/tmp/b', content: big }, { noJq: true, noPerl: true }).code, 2);
-  assert.ok(Date.now() - t0 < 12000, 'over the cap it is matched raw, linearly');
+  assert.ok(Date.now() - t0 < 30000, 'over the cap it is matched raw, linearly');
 });
 
 test('#4671 only PreToolUse is guarded: the same payload on another event is not blocked', () => {

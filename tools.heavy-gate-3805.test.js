@@ -221,8 +221,18 @@ test('a * in a command line is not expanded against the tool\'s folder (control:
   assert.equal(bare.code, 1, bare.out);
 });
 
+function hasZsh() {
+  try {
+    const r = spawnSync('zsh', ['-c', 'exit 0']);
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 test('sourced in bash or zsh it refuses with 2 and leaves the caller\'s shell alive (control: run, it answers)', () => {
-  for (const sh of ['bash', 'zsh']) {
+  const shells = hasZsh() ? ['bash', 'zsh'] : ['bash'];
+  for (const sh of shells) {
     const r = spawnSync(sh, ['-c', `. '${TOOL}'; echo "rc=$? still-alive"`], {
       encoding: 'utf8',
       env: { ...process.env, KOSMOS_HG_SNAPSHOT: '/dev/null', KOSMOS_HG_CLAIM: FREE },
@@ -234,7 +244,7 @@ test('sourced in bash or zsh it refuses with 2 and leaves the caller\'s shell al
   assert.equal(run([]).code, 0);
 });
 
-test('run by zsh it re-runs under bash, so a real run still counts (control: the same under bash)', () => {
+test('run by zsh it re-runs under bash, so a real run still counts (control: the same under bash)', { skip: !hasZsh() && 'zsh is not installed on this host' }, () => {
   const z = run([realRun()], { shell: 'zsh' });
   assert.equal(z.code, 1, z.out);
   assert.match(z.out, /COUNTS 101/);
