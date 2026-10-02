@@ -12,6 +12,8 @@
  * ⚠️ NOTHING HERE TOUCHES THE MACHINE. powercfg text is injected (`opts.powercfg`) or
  * the runner is; Explorer is the win32explorer runner seam; the Kosmos folder is
  * `opts.bundleRoot`; the board task is `opts.boardTask`.
+ * ONE EXCEPTION, Windows only (#3324): the compile test runs powershell.exe to compile
+ * the foreground helper's C# and calls FrameOf(0). It reads windows and raises none.
  *
  *   node --test engine/machine.win32-sleep.test.js
  */
@@ -208,6 +210,23 @@ test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUN
     assert.match(script, /SetForegroundWindow/, 'the helper actually raises the window');
     assert.match(script, /AttachThreadInput/, 'it lifts the foreground lock the documented way');
     assert.match(script, /SystemSettings/, 'it targets the Settings window');
+    /* SystemSettings owns no top-level window on Windows 11 (its MainWindowHandle is 0): the
+       window is ApplicationFrameHost's frame around it, so the search must look there. */
+    assert.match(script, /ApplicationFrameWindow/, 'it looks for the frame that hosts Settings');
+    assert.match(script, /EnumChildWindows/, 'it matches the frame by its Settings-owned child');
+    /* On a cold launch SystemSettings owns a temporary window of the same class, and its
+       MainWindowHandle points at it; forcing that forward left no window focused. */
+    assert.doesNotMatch(script, /MainWindowHandle/, 'no fallback to the temporary cold-launch window');
+    /* Change detectors, not behaviour (there is no Windows UI harness; the live checks are in
+       the plan): they go red if the self-owned skip or the stand-down disappears. */
+    assert.match(script, /\bfp\s*==\s*pid\b/, 'a frame Settings owns itself is skipped');
+    assert.match(script, /\$fg\s+-eq\s+\$h\b/, 'it stands down when Settings is already in front');
+    assert.doesNotMatch(script, /\$fp\s+-eq\s+\[KWin\.Native\]::PidOf\(\$h\)/,
+      'it does not stand down for the shared app host (Settings would stay behind Calculator)');
+    /* Restoring an already-open window un-maximizes it; only a minimized one is restored. */
+    const restoreLines = script.split('\n').filter((l) => /ShowWindowAsync\(\s*\$h/.test(l));
+    assert.equal(restoreLines.length, 1, 'one restore call');
+    assert.match(restoreLines[0], /IsIconic/, 'only a minimized Settings is restored');
 
     /* When the page itself does not open, the window is not raised: nothing is there to raise. */
     calls.length = 0;
@@ -218,6 +237,50 @@ test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUN
     machine.setPlatform(null);
     explorer.setRunner(null);
   }
+});
+
+test('#3324 the foreground helper is launched hidden and NOT detached: a detached powershell.exe exits without running it', () => {
+  const liveExecution = require('./live-execution');
+  const spawned = [];
+  let unrefs = 0;
+  explorer.setSpawnForTests((exe, args, opts) => {
+    spawned.push({ exe, args, opts });
+    return { on() {}, unref() { unrefs += 1; } };
+  });
+  /* Arming the live gate inside a test is the exception, safe ONLY because the spawn seam
+     above is set first: nothing real can launch. */
+  assert.equal(typeof explorer.setSpawnForTests, 'function');
+  liveExecution.allowLiveExecution();
+  try {
+    assert.deepEqual(explorer.foregroundSettings(), { ok: true });
+    assert.equal(spawned.length, 1);
+    assert.match(spawned[0].exe, /\\powershell\.exe$/i);
+    assert.equal(spawned[0].opts.detached, false, 'a detached PowerShell never runs the helper');
+    assert.equal(spawned[0].opts.windowsHide, true, 'the helper must not flash a console');
+    assert.deepEqual(spawned[0].opts, { detached: false, stdio: 'ignore', windowsHide: true, shell: false },
+      'no stdio held by the board, and no shell between it and PowerShell');
+    assert.equal(spawned[0].opts, explorer.FOREGROUND_SPAWN_OPTIONS, 'the launch uses the one documented options object');
+    assert.equal(unrefs, 1, 'the board never waits on the helper');
+  } finally {
+    liveExecution.resetForTests();
+    explorer.setSpawnForTests(null);
+  }
+});
+
+test('#3324 the foreground helper\'s C# compiles under Windows PowerShell, so a typo cannot fail silently', { skip: process.platform !== 'win32' && 'needs powershell.exe' }, () => {
+  /* The helper runs with SilentlyContinue, so an Add-Type that does not compile would
+     leave every later call failing silently: the bug this card fixed, all over again.
+     Compile ONLY the Add-Type block, with errors on, and call FrameOf(0) (no window has
+     pid 0), so nothing is raised. */
+  const script = explorer.FOREGROUND_SETTINGS_SCRIPT;
+  const end = script.indexOf('\n\'@\n');
+  assert.ok(end > 0, 'the script has an Add-Type here-string');
+  const addType = script.slice(script.indexOf('Add-Type'), end + 3);
+  const probe = "$ErrorActionPreference='Stop'\n" + addType + '\n[KWin.Native]::FrameOf(0)';
+  const out = require('node:child_process').execFileSync(explorer.powershellPath(),
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(probe, 'utf16le').toString('base64')],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, windowsHide: true });
+  assert.equal(out.trim(), '0', 'FrameOf compiled and found no window for pid 0');
 });
 
 test('the Kosmos folder row on Windows reports the real folder with backslashes, and from source says so', () => {
