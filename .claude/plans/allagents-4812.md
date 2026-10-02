@@ -65,3 +65,11 @@ validated address (computerAddressOk) and an encoded sessionName, never from the
    route.fulfill injects the CORS pair. Fix the comment (only the relay's own tests cover the shape).
 NITs: /api/remote/computers polled every 60 s even when "This computer only" or no siblings; "Open" link shown for an
 offline computer while its first read is pending (updating ignored); a catch comment overstates freshness.
+
+### Review 1 taken (2026-10-01, 2592b3ab1)
+All six warnings fixed: oa-wrap relocates with the grid (and oaGridShown checks hidden holders, so nothing is read
+while unseen); oaAgentsOf projects to {sessionName, name, state} strings; oaPaint skips the rebuild when oaPaintKey is
+unchanged (focus kept); the not-connected note uses this page's own last good read, never the coordinator lastSeen;
+the unit test asserts the request's exact options (no headers, no body); the browser check's CORS comment is
+corrected and its preflight row relabelled as not a guard. New browser arm S4 (consolidated). Nits NOT taken:
+the 60 s computers poll while "This computer only" is on, and the Open link during a first pending read.
