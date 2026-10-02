@@ -258,11 +258,10 @@ function alreadyIn(dir, roster) {
   const create = require('./create');
   const store = require('./store');
   const name = path.basename(String(dir || ''));
-  /* #4896: recorded under ANY name is in, so the list does not offer a folder connect would refuse. Asked first,
-     because a basename that is not a usable name (review 3) can still be a folder another, typed, name records. An
-     unreadable profile list leaves it offered (connect itself refuses that case with its reason). */
-  /* A created agent's own home (<workers>/<name>) is NOT hidden here by that rule alone: a leftover worker folder
-     is offered under its own name as before, and connect refuses any OTHER name for it (createdHomeOf). */
+  /* #4896: a folder recorded under ANY name is in. Asked first, since a basename that is not a usable name can still
+     be a folder a typed name records; an unreadable profile list leaves it offered (connect refuses with its reason).
+     A created agent's home is not hidden by that alone: it is offered under its own name, and connect refuses any
+     other name for it (createdHomeOf). */
   try {
     if (dir && heldFolders({ store }).has(canonDir(String(dir)))) return true;
   } catch { /* no record is not a reason to hide it */ }
@@ -272,7 +271,6 @@ function alreadyIn(dir, roster) {
     const p = store.readProfile(name);
     if (p && p.dir && p.dir === dir) return true;
   } catch { /* no record is not a reason to hide it */ }
-
   if (runningUnderName(name, roster)) return true;
   return false;
 }
@@ -1625,10 +1623,11 @@ function registerOnly(given, name, { create, store }) {
    name and role on the board and on a project, and starting both is two Claudes in one worker folder (the #362 harm).
    The per-name checks never saw it: `hasJob`, the running pane and the profile's own folder are all asked of the NEW
    name, and the new name has none of them. The helpers below sit AFTER registerOnly so its doc comment stays on it. */
-/* Every profile that records a folder: { key, canon, other, removed } per holder, where `removed` says the holder
+/* Every profile that RECORDS a folder: { key, canon, other, removed } per holder, where `removed` says the holder
    is on the removed list but may still be running there (stopped:false, or left running by choice). A removal that
-   actually STOPPED frees its folder and is left out (restoring it is refused while another name holds the folder:
-   remove.restore). Review 3: EVERY *.json in the profiles folder, read directly, since register.known() filters by
+   actually STOPPED frees its recorded folder and is left out (restoring it is refused while another name holds the
+   folder: remove.restore). Review 8: this is about RECORDED folders only. A created agent's default home
+   (<workers>/<name>) is createdHomeOf's, and it stays held after a removal, named "(an agent you removed)". Review 3: EVERY *.json in the profiles folder, read directly, since register.known() filters by
    NAME_RE and the folder-only path writes names that fail it. { ok: false } when the folder cannot be listed. */
 function folderHolders({ store }) {
   let files;
@@ -1719,7 +1718,8 @@ function createdHomeOf(canon, { store }) {
   /* Review 7: a removed created agent keeps its home (removal keeps its profile), so the sentence says it was removed
      rather than naming an agent the person cannot see on the board. */
   let removed = false;
-  try { removed = require('./remove').removedAgents().some((r) => r && profileKey(r.name, { store }) === key); } catch { removed = false; }
+  // Review 8: no key matches nothing (two unkeyable names are not the same agent).
+  try { removed = !!key && require('./remove').removedAgents().some((r) => r && profileKey(r.name, { store }) === key); } catch { removed = false; }
   return { name: base, removed };
 }
 

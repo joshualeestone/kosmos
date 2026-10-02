@@ -312,3 +312,21 @@ test('#4896 r7: a REMOVED created agent\'s home names it as removed', () => {
     assert.match(b.because, /that folder is gil7’s own folder in Kosmos \(an agent you removed\), and one folder holds one agent/);
   });
 });
+
+/* ---- review 8 ---- */
+test('#4896 r8: an unkeyable created agent is not called removed because a DIFFERENT unkeyable name was', () => {
+  const odd = 'èè';
+  const home = path.join(process.env.AGENT_WORKFORCE_WORKERS, odd);
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'You are **Ea**, a painter.\n');
+  const plist = create.plistPath(odd);
+  fs.mkdirSync(path.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, '<plist/>');
+  try {
+    withRemoved([{ name: 'ùù', removedAt: new Date().toISOString(), stopped: true }], () => {
+      const out = discover.connect(home, { name: 'dot8' });
+      assert.equal(out.ok, false, JSON.stringify(out));
+      assert.doesNotMatch(out.because, /an agent you removed/, 'two unkeyable names were read as one removed agent');
+    });
+  } finally { fs.rmSync(plist, { force: true }); }
+});

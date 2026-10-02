@@ -158,3 +158,10 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
   it and is named "(an agent you removed)", the safer side (restore never meets a conflict). A rewrite would discard
   22 tested arms for no visible change. Weakest premise: that no created agent resolves outside <workers>/<name>
   without a recorded dir; workerDir's code says it cannot. What would change my mind: a second fallback in workerDir.
+
+## Review 8 (23:25 CDT): 0 BLOCKER, 2 SHOULD-FIX (small), 2 NITs, taken
+- A null key matched a null key: an unkeyable created agent read as "removed" because a different unkeyable name
+  was. removed now needs a key. Test red on the previous commit.
+- folderHolders' comment said a stopped removal frees "its folder"; it frees its RECORDED folder, while a created
+  agent's default home stays held (createdHomeOf). Comment corrected.
+- NITs: alreadyIn's two stacked comments merged, the stray blank line removed. The HELD_MEMO note still holds.
