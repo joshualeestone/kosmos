@@ -502,22 +502,33 @@ const SCREENS = [
     });
     await at(page, '?tab=settings&sec=automation');
     await page.waitForSelector('#community-held-list li[data-id="c-rex-1"]', { state: 'visible', timeout: 8000 });
-    /* The heading at the top, unless that leaves the deleted agent's row cut off (a phone): then that row at the bottom. */
-    await page.evaluate(() => {
+    /* The heading at the top, unless that leaves the deleted agent's row cut off (a phone): then that row in the middle.
+       Checked again after a pause and redone (up to 3 s), since the list repaints on its own poll. */
+    const place = () => page.evaluate(() => {
       document.getElementById('community-held-head').scrollIntoView({ block: 'start' });
       const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
-      if (li.getBoundingClientRect().bottom > innerHeight) li.scrollIntoView({ block: 'end' });
+      if (li && li.getBoundingClientRect().bottom > innerHeight) li.scrollIntoView({ block: 'center' });
+    });
+    const whole = () => page.evaluate(() => {
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      const r = li ? li.getBoundingClientRect() : null;
+      return !!(r && r.top >= 0 && r.bottom <= innerHeight);
     });
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(300);
+    for (const until = Date.now() + 3000; ;) {
+      await place();
+      await page.waitForTimeout(400);
+      if (await whole() || Date.now() > until) break;
+    }
   }, verify: async (page) => {
     const got = await page.evaluate(() => {
       const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
       const r = li ? li.getBoundingClientRect() : null;
-      return { text: li ? li.innerText : '', inView: !!(r && r.top >= 0 && r.bottom <= innerHeight) };
+      return { text: li ? li.innerText : '', inView: !!(r && r.top >= 0 && r.bottom <= innerHeight),
+        at: r ? [Math.round(r.top), Math.round(r.bottom), innerHeight, Math.round(scrollY)] : null };
     });
     if (!got.text.includes('Its agent was deleted, so releasing it never sends it to the public community.')) throw new Error('the deleted agent\'s held row does not say it is never sent: ' + JSON.stringify(got.text));
-    if (!got.inView) throw new Error('the deleted agent\'s held row is not wholly on screen');
+    if (!got.inView) throw new Error('the deleted agent\'s held row is not wholly on screen (top, bottom, viewport, scrollY): ' + JSON.stringify(got.at));
   } },
   { name: 'community-mine-deleted', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const base = { deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, agentNameUnclaimed: false, deleteRetrying: false };
