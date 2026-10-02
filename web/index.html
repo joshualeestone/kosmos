@@ -48480,7 +48480,8 @@ document.getElementById('tc-account').addEventListener('change', () => { TC_PROV
    offers for that provider. Claude: the engine's list (CREATE_MODELS, from /api/roles), its default chosen.
    OpenAI: that account's models with "Let OpenAI choose" first, or that sentence alone when the account
    cannot list them. Gemini, Grok, Antigravity and Muse pick their own: the row is hidden and the reason
-   said, as on the single form. An empty value sends no model, so create uses its own default. Repainted
+   said, as on the single form. On Claude the default is chosen and sent like any pick; an empty value (OpenAI's
+   own choice, a vendor that picks, a list that could not be read) sends no model, so create uses its default. Repainted
    only when the provider or account changed (tcSyncModel), so a person's pick survives the 2 s repaints. */
 /* True while a model list is loading: Create and Try again are held then (a team made then gets no model). */
 function tcIsModelLoading() { const m = document.getElementById('tc-model'); return Boolean(m && m.dataset.loading === '1'); }
@@ -48543,7 +48544,7 @@ function tcPaintModel(pv, ac) {
       fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
       // Slow is not signed out: the timeout answers as "did not return", which the note words as "could not reach".
       new Promise((res) => { waited = setTimeout(() => res({ ok: false, because: 'did not return' }), TC_MODEL_WAIT_MS); }),
-    ]).catch(() => null).finally(() => clearTimeout(waited))
+    ]).catch(() => ({ ok: false, because: 'did not return' })).finally(() => clearTimeout(waited))   // a failed request is not signed out either
       .then((out) => {
         if (gen !== TC_MODEL_GEN) return;
         if (out && out.ok && Array.isArray(out.models) && out.models.length) {

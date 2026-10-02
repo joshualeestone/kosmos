@@ -156,6 +156,15 @@ test('#4935 OpenAI: loading holds Create, then the account\'s models (escaped) a
   assert.equal(w.paints(), 1, 'Create is offered again once the list lands');
 });
 
+test('#4935 a failed OpenAI models request is worded as could not reach, not as signed out', async () => {
+  const w = paintWorld();
+  w.ctx.fetch = () => Promise.reject(new Error('offline'));
+  w.ctx.paint('openai', '/acct/o');
+  await tick(); await tick(); await tick();
+  assert.equal(w.why.textContent, 'reach');
+  assert.equal(w.sel.dataset.loading, '');
+});
+
 test('#4935 OpenAI account that cannot list models: one fixed line, no value', async () => {
   const w = paintWorld({ openai: { ok: false } });
   w.ctx.paint('openai', '/acct/o');
