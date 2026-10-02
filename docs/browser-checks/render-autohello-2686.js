@@ -241,13 +241,14 @@ function initStub() {
   const s5b = await page.evaluate(async () => {
     window.__posted = [];
     window.__readyAfterCalls = 1; window.__statusSinceRestart = 0;   // gap then ready
-    window.__threadResp = { recorded: false, delivery: { state: 'could_not', held: true, heldUntil: '2026-10-02T06:00:00.000Z', because: 'held: quota out' } };
+    window.__threadResp = { recorded: false, delivery: { state: 'could_not', held: true, heldUntil: new Date(Date.now() + 40 * 60e3).toISOString(), because: 'held: quota out' } };
     window.__line = '';
     await autoHelloAfterRestart('april', (t) => { window.__line = t; }, 'H-said', 'H-manual');
     window.__threadResp = { recorded: true, delivery: { state: 'placed' } };  // restore
     return { line: window.__line };
   });
-  check('held on the quota (#4959): never claims "said hello"', s5b.line === 'H-manual', JSON.stringify(s5b.line));
+  check('held on the quota (#4959): never claims "said hello"', !/H-said/.test(s5b.line || ''), JSON.stringify(s5b.line));
+  check('held on the quota (#4959): the manual line, then why, promising nothing', /^H-manual This computer's shared Google quota is out until .+, so Kosmos sent nothing\.$/.test(s5b.line || ''), JSON.stringify(s5b.line));
 
   // ---- Arm 6: the thread POST THROWS (network drop) -> manual, note resolves ----
   // Guards the catch block: a bad supersession check there would return without

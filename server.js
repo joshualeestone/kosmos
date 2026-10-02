@@ -14883,6 +14883,9 @@ const server = http.createServer(async (req, res) => {
         const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
         const delivery = await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
           envelope, (attachments.wireNote(files.recs) || '') + reactionNote);
+        /* #4959: answered 200 with the held verdict, like every delivery this route answers (the verdict, not the status,
+           says what happened). The handoff pickup route answers its held verdict 409, as it answers every COULD_NOT;
+           a client reads delivery.held on either. */
         /* #4959: a held automatic message typed nothing, so it is not filed in the thread either (a 'hello' bubble
            for a hello the agent never got would be the false record). The verdict goes back as it is, held and
            heldUntil included, and the caller treats anything but placed as not said. */

@@ -29,9 +29,29 @@ test('#4959: the wake hello is posted to the thread route as automatic', async (
   assert.equal(said, 'SAID', 'CONTROL: a placed hello still reads as said');
 });
 
-test('#4959: a hello held on the shared quota reads as not said (the manual line)', async () => {
+/* Review 2: a held wake says why, after the site's own line, and promises nothing. */
+function liftWithHeld(fetchImpl, seq) {
+  const src = page.lift(SCRIPT, 'wakeHeldLine') + '\n' + page.lift(SCRIPT, 'quotaResetWords') + '\n' + page.lift(SCRIPT, 'sendWakeHello');
+  // eslint-disable-next-line no-new-func
+  return new Function('fetch', 'RESTART_HELLO_SEQ', src + '\nreturn sendWakeHello;')(fetchImpl, seq);
+}
+test('#4959: a hello held on the shared quota is not said, and the manual line says the quota is out until the reset', async () => {
   let said = null;
-  const held = answer({ state: 'could_not', held: true, heldUntil: '2026-10-02T06:00:00.000Z' });
-  await liftSendWakeHello(held, { bob: 2 })('bob', 2, (t) => { said = t; }, 'SAID', 'MANUAL');
-  assert.equal(said, 'MANUAL');
+  const until = new Date(Date.now() + 40 * 60e3).toISOString();
+  await liftWithHeld(answer({ state: 'could_not', held: true, heldUntil: until }), { bob: 2 })('bob', 2, (t) => { said = t; }, 'SAID', 'MANUAL');
+  assert.match(said, /^MANUAL This computer's shared Google quota is out until .+, so Kosmos sent nothing\.$/);
+  assert.doesNotMatch(said, /will|later|when it is back/i, 'the held line promised a send nothing makes');
+});
+test('#4959: a held answer with no usable time still says the quota is out; an unheld could_not stays the bare manual line', async () => {
+  let said = null;
+  await liftWithHeld(answer({ state: 'could_not', held: true, heldUntil: 'garbage' }), { bob: 3 })('bob', 3, (t) => { said = t; }, 'SAID', 'MANUAL');
+  assert.equal(said, "MANUAL This computer's shared Google quota is out, so Kosmos sent nothing.");
+  await liftWithHeld(answer({ state: 'could_not', because: 'busy' }), { bob: 4 })('bob', 4, (t) => { said = t; }, 'SAID', 'MANUAL');
+  assert.equal(said, 'MANUAL', 'CONTROL: a refusal that is not a quota hold must not mention the quota');
+});
+test('#4959: deliverPickup passes a held 409 verdict through, and still returns null for any other refusal', async () => {
+  const lift = (res) => new Function('fetch', page.lift(SCRIPT, 'deliverPickup') + '\nreturn deliverPickup;')(async () => res); // eslint-disable-line no-new-func
+  const held = { state: 'could_not', held: true, heldUntil: '2026-10-02T06:00:00.000Z' };
+  assert.deepEqual(await lift({ ok: false, json: async () => ({ delivery: held }) })('bob'), held);
+  assert.equal(await lift({ ok: false, json: async () => ({ delivery: { state: 'could_not', because: 'busy' } }) })('bob'), null);
 });

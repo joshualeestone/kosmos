@@ -52,3 +52,13 @@ quota-held retry (#4588), its own card.
   the note is not marked told, so nothing is lost.
 - NIT agreed: browser arm 5b is a read-side pin (passes on main too); arm 1's automatic === true is the send-side
   proof. Already stated in Validation.
+
+## Review 2 (23:08 CDT): 0 BLOCKER, 1 SHOULD-FIX, 2 NITs
+- SHOULD-FIX taken: a held wake told the person nothing, though the verdict carries heldUntil. New wakeHeldLine: the
+  site's own manual line, then "This computer's shared Google quota is out until <#4588's quotaResetWords>, so Kosmos
+  sent nothing." It states the fact and promises nothing (nothing re-sends the wake). No usable time: "...is out, so
+  Kosmos sent nothing." deliverPickup now passes a HELD 409 verdict through, so the handoff restart says it too.
+  Tests: 3 new page arms (red on the previous commit) incl. a CONTROL that a non-quota refusal stays the bare line;
+  browser arm 5b now asserts the sentence. Page script compile-checked.
+- NIT taken: the server test installs its stubs inside the try.
+- NIT taken: a route comment says the thread route answers a hold 200 and the pickup 409; read delivery.held.

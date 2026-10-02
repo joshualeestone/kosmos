@@ -53,10 +53,11 @@ const PLACED = () => ({ state: chat.DELIVERY.PLACED, at: new Date().toISOString(
 async function post(body, auto, suffix = '/thread') {
   const calls = [];
   const realA = chat.deliverAutomaticAsync; const realP = chat.deliverAsync;
-  chat.deliverAutomaticAsync = async (...a) => { calls.push(['automatic', a[1]]); return auto; };
-  chat.deliverAsync = async (...a) => { calls.push(['plain', a[1]]); return PLACED(); };
   const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
   try {
+    // Installed inside the try (review 2), so the finally always puts the real ones back.
+    chat.deliverAutomaticAsync = async (...a) => { calls.push(['automatic', a[1]]); return auto; };
+    chat.deliverAsync = async (...a) => { calls.push(['plain', a[1]]); return PLACED(); };
     const res = await fetch(`${base}/api/agent/${NAME}${suffix}`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
