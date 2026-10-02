@@ -185,7 +185,9 @@ function markedLine(text) {
 /* #4960: what the terms screen says (agy 1.2.12/1.2.14, MEASURED): the data-use box starts focused and TICKED
    ("  > [x] Yes, I agree ..."), Enter toggles it, Down moves to the buttons ("  >  Previous       [Done]"), Right
    selects Done ("    [Previous]    >  Done "): the selected button loses its brackets and its ">" sits MID-LINE.
-   agy 1.2.11 drew each item on its own line ("> [Done]"). Both are read here.
+   agy 1.2.11 drew each item on its own line ("> [Done]"). Both are read here; on 1.2.11's layout only a "no" is
+   driven (Down to Done with the box left unticked): a "yes" there needs an Up to the box, which is not sent, so it
+   ends stuck with the window offered (round 2: a safe limit, for a version no longer shipped).
    Returns { dataUse: true|false|null, focus: 'box'|'previous'|'done'|null, sameRow, termsUrl, privacyUrl }. */
 function safeLink(u) {
   try {
@@ -366,8 +368,9 @@ function step() {
   if (!changed && name && S.state === 'stuck') return;   // shown to the person; nothing more is pressed on it
   /* A recognised screen that stays the same this long is stuck too (a changed default, a cursor
      that is not where Kosmos expects): the code screen is exempt, it waits for the person. */
-  /* #4960: and the terms before the person has answered them: that screen waits for the person too. */
-  if (!changed && name && name !== 'code' && !(name === 'terms' && !S.agreed) && now() - S.screenSince > SAME_SCREEN_MS) {
+  /* #4960: and the terms while the person is being asked them (state 'terms'): that screen waits for the person too.
+     Not a terms frame that never draws the box (round 2): that is a screen Kosmos cannot read, and is shown. */
+  if (!changed && name && name !== 'code' && !(name === 'terms' && !S.agreed && S.state === 'terms') && now() - S.screenSince > SAME_SCREEN_MS) {
     stuckUnknown(text);
     return;
   }
@@ -394,9 +397,13 @@ function step() {
     const tm = termsOf(text);
     if (!S.agreed) {
       /* Only once the box itself is drawn (round 1): a half-drawn first frame would give the panel "unticked" while
-         Antigravity has it ticked, and the panel sets its box once. Until then it is still setting up. */
+         Antigravity has it ticked, and the panel sets its box once. Until then it is still setting up, and a box that
+         never comes goes stuck by the same-screen rule above (round 2). */
       if (tm.dataUse === null) { if (S.state !== 'terms') { S.state = 'setup'; S.because = null; } return; }
-      S.terms = tm;
+      /* A redraw that has not drawn the link lines yet keeps the links already read (round 2): the panel must not lose
+         the link the person may be on. */
+      const was = S.terms || {};
+      S.terms = { ...tm, termsUrl: tm.termsUrl || was.termsUrl || null, privacyUrl: tm.privacyUrl || was.privacyUrl || null };
       if (S.state !== 'terms') { S.state = 'terms'; S.because = null; }
       return;
     }

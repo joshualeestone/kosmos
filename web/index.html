@@ -29086,6 +29086,7 @@ function agySubDriver(pre, onReady) { return {
   codeError: '',   // #3998: why the last pasted code was refused, until the person types again
   windowOpen: false,   // #3998 round 26: the sign-in's window is open and the person is driving it
   termsFor: '',    // #4960: the sign-in whose terms the box was last set for (set once, then it is the person's)
+  answeredFor: '', // #4960 round 2: the sign-in whose terms the person answered (a late poll does not ask again)
   sendingTerms: false,   // #4960: an answer to the terms is on its way
   /* Round 28: the person pressed Stop this sign-in. That stops it even with its window open (only the
      passive ways out, closing the dialog or switching provider, leave an open window running). */
@@ -29155,12 +29156,19 @@ function agySubDriver(pre, onReady) { return {
            same as the first and must bring the cursor back too (round 7). */
         const refusalMark = String(st.refusals || 0) + '|' + (st.because || '');
         if (focusedFor === null || refusalMark !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = refusalMark; }
+      } else if (state === 'terms' && this.answeredFor === this.signinId) {
+        this.rows(false, false);   // answered: a poll that left before the answer landed does not ask again (round 2)
       } else if (state === 'terms') {
         /* #4960: Antigravity's terms, asked here. The box starts as Antigravity has it, once per sign-in; after that it
            is the person's (a poll never overwrites what they ticked). */
         this.rows(false, false, '', true);
         const tm = (st && st.terms) || {};
-        const link = (a, href) => { if (!a) return; if (href) a.setAttribute('href', href); else if (a.removeAttribute) a.removeAttribute('href'); };
+        /* A link Kosmos would not open is plain words, and its "(opens in your browser)" goes with it (round 2). */
+        const link = (a, href) => {
+          if (!a) return;
+          if (href) a.setAttribute('href', href); else if (a.removeAttribute) a.removeAttribute('href');
+          const vh = a.querySelector ? a.querySelector('.vh') : null; if (vh) vh.hidden = !href;
+        };
         link(this.el('terms-tos'), tm.termsUrl); link(this.el('terms-privacy'), tm.privacyUrl);
         if (this.termsFor !== this.signinId) {
           this.termsFor = this.signinId;
@@ -29225,10 +29233,12 @@ function agySubDriver(pre, onReady) { return {
   async agreeTerms() {
     if (this.sendingTerms) return;
     const box = this.el('terms-share');
+    const mine = this.gen; const id = this.signinId;
     this.sendingTerms = true;
-    const r = await this.post('/api/antigravity/signin/agree', { id: this.signinId, dataUse: !!(box && box.checked) });
+    const r = await this.post('/api/antigravity/signin/agree', { id, dataUse: !!(box && box.checked) });
     this.sendingTerms = false;
-    if (r && r.ok) { this.rows(false, false); this.say("Finishing Antigravity's setup…", '', false); return; }
+    if (mine !== this.gen || id !== this.signinId) return;   // the step was left, or another sign-in began (round 2)
+    if (r && r.ok) { this.answeredFor = id; this.rows(false, false); this.say("Finishing Antigravity's setup…", '', false); return; }
     this.say(frCap((r && r.error) || 'Kosmos could not pass your answer on just now') + '.', '', false);
   },
   async showWindow() {

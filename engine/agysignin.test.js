@@ -1220,6 +1220,21 @@ test('#4960 round 1: a half-drawn first terms frame is not handed to the panel (
     st.screen = TERMS2(); s.tickForTests();
     assert.equal(s.status().state, 'terms');
     assert.equal(s.status().terms.dataUse, true, 'CONTROL: the full frame gives the box as Antigravity has it');
+    // A redraw with the box but not yet the link lines keeps the links read before (round 2).
+    st.screen = TERMS2().split('      Links:')[0]; s.tickForTests();
+    assert.equal(s.status().terms.termsUrl, 'https://antigravity.google/terms', 'a half-drawn redraw took the link away from the panel');
+  } finally { s.resetForTests(); }
+});
+
+test('#4960 round 2: a terms screen that never draws the box goes stuck (with the window offered), not a half-hour wait', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Terms of Service & Data Use\n  > [?] Yes, I consent to something new\n    [Previous]      [Done]\n');
+  try {
+    s.start();
+    for (let i = 0; i < 25; i++) { st.t += 1000; s.tickForTests(); }
+    assert.equal(s.status().state, 'stuck', 'a terms screen Kosmos cannot read waited without a way out');
+    assert.ok(s.status().seen && s.status().seen.length, 'it did not say what it saw');
+    assert.deepEqual(st.sent, [], 'a key went to a terms screen Kosmos could not read');
   } finally { s.resetForTests(); }
 });
 

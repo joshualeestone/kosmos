@@ -609,6 +609,10 @@ test('#4960: the terms are asked in Kosmos\'s panel: the links, the box as Antig
     await f.el('fr-gemini-sub-terms-go').listeners.click();   // the button, as the person presses it
     assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/agree'), ['/api/antigravity/signin/agree', JSON.stringify({ id: 'a1b2c3d4e5f60718', dataUse: false })],
       'the answer did not carry the person\'s choice, or the sign-in it is for');
+    // round 2: the board still answers 'terms' to polls that left before the answer landed: the row stays hidden.
+    const after = f.posts.length;
+    await f.settle(() => f.posts.length > after + 3);
+    assert.equal(f.el('fr-gemini-sub-terms-row').hidden, true, 'a late poll asked the terms again after the person answered');
     assert.doesNotMatch(PAGE, /Kosmos leaves Google's optional data sharing off/, 'the panel still says Kosmos leaves data sharing off (Antigravity ticks it; the person decides)');
   } finally { f.FR_AGY_SUB.leave(); }
 });
