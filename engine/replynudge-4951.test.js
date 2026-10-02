@@ -262,6 +262,10 @@ test('#4951 review 3 (Opus): only a missing told record is "told nothing"; an un
   fs.mkdirSync(path.dirname(rn.nudgedFile(root, 'torn')), { recursive: true });
   fs.writeFileSync(rn.nudgedFile(root, 'torn'), '{not json');
   assert.equal(rn.readNudged(root, 'torn'), null, 'a torn record read as told nothing');
+  fs.writeFileSync(rn.nudgedFile(root, 'locked'), JSON.stringify({ ids: ['a'] }));
+  fs.chmodSync(rn.nudgedFile(root, 'locked'), 0o000);   // EACCES: a read ERROR, not a missing file
+  try { assert.equal(rn.readNudged(root, 'locked'), null, 'an unreadable record (EACCES) read as told nothing'); }
+  finally { fs.chmodSync(rn.nudgedFile(root, 'locked'), 0o600); }
   const typed = [];
   const { o } = rig({ readNudged: () => null, deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
   await rn.sweepOnce(o);
