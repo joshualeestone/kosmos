@@ -100,6 +100,9 @@ const CODES = [
   ['cert-renewal', /^certificate renewal is due/i],
   // This Mac's own certificate or key (session.rs local TLS setup): unreadable or unparseable
   // tls.crt / tls.key, a plausible failure after an update.
+  // kosmos#4737: an allowed computer still fetching its FIRST certificate (session.rs, when there is none on disk;
+  // includes the tunnel's spacing between asks). Before local-cert-unreadable: that one is a broken certificate.
+  ['cert-first-fetch', /^this computer has no certificate yet/i],
   ['local-cert-unreadable', /^(opening certificate|parsing certificate|opening private key|parsing private key|no private key found|building local TLS config)/i],
   // The tunnel's dial of the RELAY (session.rs dial_relay): kept apart from the coordinator,
   // which is the whole question when a Mac never gets a ticket.
@@ -129,9 +132,11 @@ function classify(text) {
   return 'other';
 }
 /* The enrolment files enrolled() needs, by their FIXED names: which are missing is the reason a
-   board with its switch on and a key in hand still believes it is not enrolled. The same list as
-   remote.js ENROL_FILES, which enrolled() reads; remote.test.js asserts the two are equal. Not required from remote.js here, so this module stays loadable without it. */
-const ENROL_FILES = ['mac_id', 'address', 'tls.crt', 'tls.key'];
+   board with its switch on and a key in hand still believes it is not enrolled. The same rule as
+   remote.js enrolled(): both ask engine/enrolment.js (pure, so this module stays loadable without
+   remote.js), where a computer waiting to be allowed is not missing its certificate (kosmos#4737).
+   remote.test.js asserts the two ENROL_FILES are equal. */
+const { ENROL_FILES, missingFor, enrolledBy } = require('./enrolment');
 
 /* heal: what the supervisor did since the last report that WENT OUT. build() proposes a
    baseline; commitHeal() adopts it once a report is sent, so a refused or failed send does
@@ -154,7 +159,7 @@ function build(deps) {
     const exists = (f) => { try { return fs.existsSync(path.join(dir, f)); } catch { return false; } };
     const dirThere = (() => { try { return fs.statSync(dir).isDirectory(); } catch { return false; } })();
     const sup = typeof remote.supervisorState === 'function' ? remote.supervisorState() : 'none';
-    const tunnel = tunnelState(st.state, on, sup, ENROL_FILES.every(exists));
+    const tunnel = tunnelState(st.state, on, sup, enrolledBy(exists));
     // While the tunnel dials again it says only "connecting to the relay" (it clears its reason at
     // each retry), so a stuck tunnel is named by the last failure its process wrote.
     let because = st.because;
@@ -198,7 +203,7 @@ function errorCode(because, on, exists, keyHeld) {
   // Only a board holding its key (remote.holdsKey(): mac_id and mac_key, the sender's own test)
   // is named not-enrolled. One that is not falls back to classify(), which loses the missing-files
   // detail but never leaks text.
-  const missing = ENROL_FILES.filter((f) => !exists(f));
+  const missing = missingFor(exists);
   if (on && missing.length && keyHeld) return 'not-enrolled; missing: ' + missing.join(', ');
   return classify(because);
 }

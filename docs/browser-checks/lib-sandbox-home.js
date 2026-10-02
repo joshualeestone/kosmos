@@ -39,11 +39,29 @@ function freshHome() {
   return d;
 }
 
+/* kosmos#4909: a home the RUNNER made for the whole run (tools/browser-checks.sh marks it KOSMOS_BC_RUN_HOME) is shared
+   by every check in the run, so one check's leftovers (an OpenAI-only account, a CLAUDE.md, a codex sign-in) decided
+   another's result: it aborted the 0.7.16 cut on a correct page. A check gets its own fresh home instead. A home a
+   caller set for THIS check (not the run's) is kept, as before. */
+const same = (a, b) => typeof a === 'string' && typeof b === 'string' && a !== '' && b !== '' && path.resolve(a) === path.resolve(b);
 const cur = process.env.AGENT_WORKFORCE_HOME;
-if (!cur || path.resolve(cur) === path.resolve(os.homedir())) process.env.AGENT_WORKFORCE_HOME = freshHome();
-/* The Claude config in a folder THIS file made, never inside a home it was given: under the
-   runner that home is shared by every check, and trust.js writes onboarding keys into this
-   file, so a shared one would carry one check's writes into the next. */
+if (!cur || same(cur, os.homedir()) || same(cur, process.env.KOSMOS_BC_RUN_HOME)) {
+  const home = freshHome();
+  /* The #4909 control's seed (tools/browser-checks.sh KOSMOS_BC_SEED_HOME) reaches this check's own home, only when
+     it was handed the run's (the runner refuses a missing seed or the real home before any check runs). */
+  const seed = process.env.KOSMOS_BC_SEED_HOME;
+  /* Links copied as they are (review 3: the default rewrites a relative link to point into the seed, which a board
+     could then write through, shared). A copy that fails is said as a SEED failure with its own exit code, never as
+     this check failing, which in a control run would read as "this check reads state it never set". */
+  if (seed && same(cur, process.env.KOSMOS_BC_RUN_HOME)) {
+    try { fs.cpSync(seed, home, { recursive: true, verbatimSymlinks: true }); }
+    catch (e) { console.error('lib-sandbox-home: kosmos#4909 seed copy failed (' + ((e && e.message) || e) + '); this is the seed, not the check'); process.exit(97); }
+  }
+  process.env.AGENT_WORKFORCE_HOME = home;
+}
+/* The Claude config in a folder THIS file made, never inside a home it was given: a home a caller
+   set may be shared (it was, under the runner, until #4909), and trust.js writes onboarding keys
+   into this file, so a shared one would carry one check's writes into the next. */
 if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(freshHome(), '.claude.json');
 /* #3801: the global skills folder is read from AGENT_WORKFORCE_SKILLS_DIR || the REAL
    ~/.claude/skills (os.homedir(), not the home above), and the board can add to it and
@@ -51,7 +69,7 @@ if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAU
    fresh, empty folder of its own unless the caller named one other than the real one. */
 const realSkills = path.join(os.homedir(), '.claude', 'skills');
 const skills = process.env.AGENT_WORKFORCE_SKILLS_DIR;
-if (!skills || path.resolve(skills) === path.resolve(realSkills)) process.env.AGENT_WORKFORCE_SKILLS_DIR = freshHome();
+if (!skills || same(skills, realSkills) || same(skills, process.env.KOSMOS_BC_RUN_SKILLS)) process.env.AGENT_WORKFORCE_SKILLS_DIR = freshHome();   // #4909: the run's, too
 /* The same trap for projects: engine/projects.js reads AGENT_WORKFORCE_PROJECTS || the REAL
    ~/Kosmos/Projects, and creating a project makes its folder there (makeFolder). Checks
    set it by hand; this covers the one that forgets. */
@@ -73,13 +91,19 @@ for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 
 const FIXTURE_CLAUDE = { oauthAccount: { emailAddress: 'fixture@example.invalid',
   organizationName: 'Kosmos browser checks', organizationType: 'claude_max' } };
 function plantSubscribedClaude() {
-  /* Its OWN home, never the one it was given: under tools/browser-checks.sh that home is
-     shared by every later check and board in the run, and a planted account there would
-     change what they see depending on run order. A SECONDARY account (~/.claude-fixture),
+  /* Its OWN home, never the one it was given: a home a caller set may be shared with other
+     checks (the runner's was, until #4909), and a planted account there would change what
+     they see depending on run order. A SECONDARY account (~/.claude-fixture),
      not the default: the default's subscription verdict is read from
      AGENT_WORKFORCE_CLAUDE_CONFIG, which a fixture points at its own empty file, while a
      secondary is judged by its own .claude.json. */
   const own = freshHome();
+  /* kosmos#4909 review 5: in a seeded control run this home starts with the seed too, as every fresh home does. */
+  const seed = process.env.KOSMOS_BC_SEED_HOME;
+  if (seed) {
+    try { fs.cpSync(seed, own, { recursive: true, verbatimSymlinks: true }); }
+    catch (e) { console.error('lib-sandbox-home: kosmos#4909 seed copy failed (' + ((e && e.message) || e) + '); this is the seed, not the check'); process.exit(97); }
+  }
   process.env.AGENT_WORKFORCE_HOME = own;
   const dir = path.join(own, '.claude-fixture');
   fs.mkdirSync(dir, { recursive: true });

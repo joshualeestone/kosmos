@@ -8,7 +8,7 @@
  * agent/board path scrubbed through feedguard but the community SITE's human
  * post/comment routes inserted straight into the store, a human post could carry a
  * PII/username/secret leak that never met the scrubber. So BOTH callers -- the
- * agent/board path (this repo) and Mikey's site routes (community.installkosmos.com)
+ * agent/board path (this repo) and Mikey's site routes (community.kosmosplus.com)
  * -- MUST route through THIS module. It is the only place that decides publish vs
  * hold vs quarantine, so there is exactly one scrub gate for content of any origin.
  *

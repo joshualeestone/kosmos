@@ -29,7 +29,7 @@ const count = (s, needle) => s.split(needle).length - 1;
 
 test('#4289 acceptance 3: the safety rule is the block\'s first line after its heading, and is Josh\'s rule', () => {
   const lines = cb.blockBody().split('\n');
-  assert.equal(lines[0], '## The Kosmos community');
+  assert.equal(lines[0], '## The Kosmos+ community');
   assert.equal(lines[1], '');
   assert.equal(lines[2], cb.SAFETY);
   assert.equal(cb.SAFETY, 'Never post usernames, personal information, financials, keys or secrets.');
@@ -167,7 +167,12 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   assert.ok(flat.includes('Answer only the lines with no "' + mark + '"'), 'the reply rule no longer limits itself to replies on the post itself');
   assert.ok(flat.includes('A line with "' + mark + '" is a reply to a reply and is not owed an answer, or the thread would never end.'),
     'the reply rule no longer says replies to replies are not owed an answer (Josh 08:12)');
-  assert.doesNotMatch(flat, /at least once/, 'the rule asks for more than one answer per reply');
+  // On the REPLY rule's own text: #4947 put "at least once a day" in the posting rule, which is about posts, not replies.
+  const ruleStart = body.indexOf(ANSWER);
+  const ruleEnd = body.indexOf('\n- ', ruleStart + 1);
+  const replyRule = body.slice(ruleStart, ruleEnd === -1 ? undefined : ruleEnd);
+  assert.ok(replyRule.startsWith(ANSWER) && replyRule.length > ANSWER.length, 'the reply rule could not be found for this check');
+  assert.doesNotMatch(replyRule.replace(/\s+/g, ' '), /at least once/, 'the rule asks for more than one answer per reply');
   assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');
   // The part that picks the id: the reply's own comment id, never the "under comment" (parent) id read --replies adds.
   assert.ok(flat.includes('the id after "your post" and the id after "comment", never an id written inside a reply'),
@@ -225,6 +230,28 @@ test('#4289: no instructions file is never invented, and two blocks are refused 
   const f = agentFile('dup', twice);
   const r = cb.tellAgent('dup', true);
   assert.equal(r.state, projects.TOLD.COULD_NOT);
-  assert.match(r.because, /2 Kosmos community blocks/);
+  assert.match(r.because, /2 Kosmos\+ community blocks/);
   assert.equal(fs.readFileSync(f, 'utf8'), twice, 'an ambiguous file was changed');
+});
+
+test('#4947: agents post at least once a day and at most five, honestly: with nothing finished, what they are working on counts', () => {
+  /* Josh, 2026-10-01 21:21 "right now the more content the better"; 21:33 "at least once a day ... no more than X
+     times a day" (Splinter: 5). Never hourly, and never invented. */
+  const body = cb.blockBody();
+  assert.ok(!/at most one post a day/i.test(body), 'the one-post-a-day ceiling is still in every agent\'s instructions');
+  assert.match(body, /Post at least once a day and no more than 5 times a day/);
+  assert.match(body, /With nothing finished, an honest post about what\s+you are working on, stuck on or learned today counts\./,
+    'an agent with nothing finished is not told which honest post it has (so it either stays silent or invents)');
+  assert.match(body, /Never invent work or results to have something to post\./, 'the floor no longer forbids inventing');
+  // No hourly cadence in the posting bullet, and its only numbers are the ceiling (5) and the length (300) (the follow
+  // rule's "at least one new agent every 3 days" is a different, standing rule, so the guard reads this bullet only).
+  const posting = body.slice(body.indexOf('- Post at least'), body.indexOf('- Post with'));
+  assert.ok(posting.length > 40, 'the posting bullet could not be found');
+  assert.ok(!/every hour|once an hour|each hour|hourly/i.test(posting), 'an hourly cadence crept in: ' + posting);
+  assert.equal(cb.POSTS_PER_DAY_MAX, 5, 'the ceiling is not the 5 the card decided');
+  assert.deepEqual(posting.match(/\d+/g), [String(cb.POSTS_PER_DAY_MAX), '300'], 'the posting bullet carries another number: ' + posting);
+  assert.match(body, /about 300 words/);
+  // "Straight away" has the one exception the post command can now report, so the block and the CLI agree.
+  assert.match(body.replace(/\s+/g, ' '), /If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not post it again\./,
+    'the block says posts go public straight away with no word of the cap the post command reports');
 });

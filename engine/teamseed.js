@@ -250,6 +250,11 @@ function specs(req, cat, deps) {
   const provider = (req && typeof req.provider === 'string') ? req.provider.trim().toLowerCase() : '';
   if (provider && !/^[a-z0-9-]{1,32}$/.test(provider)) return { ok: false, because: 'that provider is not one Kosmos knows' };
   const account = (req && typeof req.account === 'string') ? req.account.trim() : '';
+  /* #4935 (Josh: "default all of them to a single model"): one model for the whole team, sent only when
+     chosen, the way provider and account are. Refused when it is not text, like the provider; create
+     checks it is one this provider offers, as it does for a single agent. */
+  if (req && req.model != null && typeof req.model !== 'string') return { ok: false, because: 'that model is not one Kosmos knows' };
+  const model = (req && typeof req.model === 'string') ? req.model.trim() : '';
   const out = ordered(team).map((m) => ({
     slot: m.slot,
     title: m.title,
@@ -266,6 +271,7 @@ function specs(req, cat, deps) {
       ...(project ? { projects: [project] } : {}),
       ...(provider && provider !== 'anthropic' ? { provider } : {}),
       ...(account ? { account } : {}),
+      ...(model ? { model } : {}),
     },
     avatar: { image: (m.avatar && typeof m.avatar.image === 'string' && m.avatar.image) ? m.avatar.image : null },
   }));

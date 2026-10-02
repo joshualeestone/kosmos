@@ -201,6 +201,13 @@ const BLOCK = [
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
   '',
+  '### Who a room post wakes',
+  '',
+  '**A room post that names nobody may not wake a colleague who is idle:** they',
+  'hear about it when something next reaches them. When you need an answer from',
+  'someone, @-name them in the post, or answer their own post with',
+  '`kosmos post --in-reply-to <id> <project>`.',
+  '',
   '### Answering the person who messaged you',
   '',
   '**When your operator messages you, answer with `kosmos reply "..."`.** It is',
@@ -224,6 +231,12 @@ const BLOCK = [
   'writes to you, you are answering them, even though your four reports go',
   'somewhere else. Greeting your manager in a reply to somebody else reads as',
   'not having looked at who was speaking.',
+  '',
+  '### Your name is already on your message',
+  '',
+  '**Kosmos shows your name above every message you post in a room and every',
+  'reply you send the person, so never start a message with your own name**',
+  '("Dario: ..." or "**Dario:** ..."). Begin with what you have to say.',
   '',
   '### Send readable messages, not a wall of text',
   '',
@@ -816,7 +829,21 @@ function block() {
  *     never reads piped input).
  *     WEAKEST PREMISE, NAMED: that agents use the heredoc form rather than a quoted argument. The families said
  *     the missing flag is what pushed them to the workaround; whether they switch is seen only after release.
- *  21. kosmos#4890 (Josh's five-family diagnostic, items H9 and N7): "Send readable messages" said a
+ *  21. kosmos#4624 follow-up (0.7.15 diagnostic, H7): a colleague's room post that names nobody is no longer typed
+ *     into a member whose turn-end hook says it is idle (engine/roomhold.js), so an agent asking the room a question
+ *     without @-naming anyone may wake nobody. A NEW section, `### Who a room post wakes`, says so and says to @-name
+ *     or answer with --in-reply-to. NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason: the agents
+ *     already posting in rooms are the ones who need it. "May not": a member that never reported, or wrote its own
+ *     idle, is still typed.
+ *     WEAKEST PREMISE, NAMED: that agents who need an answer will name someone once told. Seen only in rooms after
+ *     release.
+ *  22. kosmos#4873 (Josh, 2026-10-01 07:31): Claude, OpenAI and Gemini agents start room messages with their own
+ *     name ("Dario: ...") under a header that already says Dario. A NEW section, `### Your name is already on your
+ *     message`, says never to. NEW HEADING for the version 5/6/7/8 delivery reason (missingFrom matches by heading,
+ *     so existing agents are re-offered it). The board also hides a leading self-name when it renders a message
+ *     (web/index.html), so a message written before this lands, or one that slips through, reads cleanly.
+ *     WEAKEST PREMISE, NAMED: one instruction against a habit; the render half is what makes the room clean.
+ *  23. kosmos#4890 (Josh's five-family diagnostic, items H9 and N7): "Send readable messages" said a
  *     `[label](address)` link drops the address. Since #4627 it shows "label (address)", so the sentence now says
  *     that, under "What a room shows you". SAME HEADING, and this version is the first whose same-heading changes
  *     reach EXISTING agents: an agent is now born with the rules inside the managed span (doctrine.atBirth), and an
@@ -827,7 +854,7 @@ function block() {
  *     once), none was in a span. A person who edited theirs, or whose file has Windows line endings, is offered
  *     only missing headings, as before.
  */
-const DOCTRINE_VERSION = 21;
+const DOCTRINE_VERSION = 23;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

@@ -263,6 +263,19 @@ if (args[0] === 'devices') {
   ] })); process.exit(0); }
   if (verb === 'list') { console.log(JSON.stringify({ devices: [{ device_id: 'dev-1', name: 'iPhone', allowed_at: 1756000000, last_seen: 0, code: 'K7-3M' }] })); process.exit(0); }
   if (verb === 'pending') { console.log(JSON.stringify({ devices: [] })); process.exit(0); }
+  // #4824: a connector from before kosmos#4803 (clap's own words and exit code, measured on that build).
+  if (verb === 'remove' && mode.includes('flag-words-exit1') && args.includes('--coordinator')) {
+    process.stderr.write("error: unexpected argument '--coordinator' found\\n");
+    process.exit(1);
+  }
+  if (verb === 'remove' && mode.includes('old-remove') && args.includes('--coordinator')) {
+    process.stderr.write((mode.includes('ansi') ? "\\u001b[1m\\u001b[31merror:\\u001b[0m unexpected argument '\\u001b[33m--coordinator\\u001b[0m' found\\n" : "error: unexpected argument '--coordinator' found\\n") + "\\nUsage: kosmos-tunnel devices remove --state-dir <STATE_DIR> --device-id <DEVICE_ID>\\n\\nFor more information, try '--help'.\\n");
+    process.exit(2);
+  }
+  if (verb === 'remove' && args.includes('--coordinator')) {
+    console.log(JSON.stringify({ removed: true, device_id: flag('--device-id'), local_cutoff: !mode.includes('remove-no-cutoff'), signed_out: !mode.includes('remove-not-told') }));
+    process.exit(0);
+  }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
@@ -684,7 +697,8 @@ test('#4277: a restart timer firing into an unwanted board counts nothing, and a
 });
 
 test('#4277: the report names the same enrolment files enrolled() checks', () => {
-  assert.deepEqual(require('./remote-report').ENROL_FILES, remote.ENROL_FILES,
+  // kosmos#4737: the SAME array, from engine/enrolment.js, so neither module can drift into its own list.
+  assert.strictEqual(require('./remote-report').ENROL_FILES, remote.ENROL_FILES,
     'the not-enrolled report would name files enrolled() does not check');
 });
 
@@ -1080,16 +1094,77 @@ test('deny remembers the No, so a re-ask from the same id carries when this Mac 
   assert.ok(remote.pendingDevices().devices[0].denied_at > 1700000000, 'the re-ask does not know it was said no to');
 });
 
-test('remove has no coordinator (the Mac list is the authority) and the binary’s refusal surfaces as its last sentence', async () => {
+test('#4824: remove tells the coordinator, so the device stops at the sign-in site too; the binary’s refusal surfaces as its last sentence', async () => {
   enrol();
   const ok = await remote.deviceRemove('dev-1');
   assert.equal(ok.ok, true, ok.because);
-  const call = recorded().find((a) => a[0] === 'devices' && a[1] === 'remove');
-  assert.ok(call && !call.includes('--coordinator'), 'remove asked the coordinator, which is not where the list lives');
+  assert.equal(ok.data.signed_out, true);
+  assert.equal(ok.data.local_cutoff, true);
+  const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
+  assert.equal(calls.length, 1, 'a connector that knows the flag was asked twice');
+  assert.ok(calls[0].includes('--coordinator'), 'remove did not tell the coordinator');
+  assert.equal(calls[0][calls[0].indexOf('--coordinator') + 1], remote.COORDINATOR());
   process.env.FAKE_TUNNEL_MODE = 'devices-fail';
   const no = await remote.deviceDeny('dev-1');
   assert.equal(no.ok, false);
   assert.match(no.because, /no such pending device/);
+});
+
+test('#4824: a connector from before kosmos#4803 refuses the flag; remove is asked again without it and still removes', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'old-remove';
+  const r = await remote.deviceRemove('dev-1');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.removed, true);
+  assert.equal(r.data.signed_out, undefined, 'an old connector cannot have told the sign-in site');
+  const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove');
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0].includes('--coordinator') && !calls[1].includes('--coordinator'));
+  // Coloured (CLICOLOR_FORCE): clap's escape codes do not hide its refusal.
+  process.env.FAKE_TUNNEL_MODE = 'old-remove,ansi';
+  const nA = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  const coloured = await remote.deviceRemove('dev-1');
+  assert.equal(coloured.ok, true, coloured.because);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, nA + 2, 'a coloured refusal was not retried');
+  // CONTROL: the same words with another exit code are not clap's refusal; not retried.
+  process.env.FAKE_TUNNEL_MODE = 'flag-words-exit1';
+  const n0 = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  assert.equal((await remote.deviceRemove('dev-1')).ok, false);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, n0 + 1, 'a non-clap refusal quoting the flag was retried');
+  // CONTROL: any other refusal is not retried; it surfaces as before.
+  process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+  const before = recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length;
+  const no = await remote.deviceRemove('dev-1');
+  assert.equal(no.ok, false);
+  assert.match(no.because, /no such pending device/);
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'remove').length, before + 1, 'a refusal that is not the flag was retried');
+});
+
+test('#4824: a Remove whose connector is killed on the timeout is not reported as a failed Remove', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'hung-devices';
+  process.env.FAKE_DEVICE_HANG_MS = '2000';
+  process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '400';
+  try {
+    const r = await remote.deviceRemove('dev-1');
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.data.timed_out, true);
+    // CONTROL: a refusal that is not a timeout still fails.
+    process.env.FAKE_TUNNEL_MODE = 'devices-fail';
+    assert.equal((await remote.deviceRemove('dev-1')).ok, false);
+  } finally {
+    delete process.env.FAKE_DEVICE_HANG_MS;
+    delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+  }
+});
+
+test('#4824: what the connector could not do reaches the page in its answer', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'remove-not-told,remove-no-cutoff';
+  const r = await remote.deviceRemove('dev-1');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.data.signed_out, false);
+  assert.equal(r.data.local_cutoff, false);
 });
 
 test('list joins the sidecar for the screen, and unenrolled is an empty list without a spawn', async () => {
@@ -2276,6 +2351,69 @@ test('#3827: a set-up Mac missing only its address file is not treated as half r
   await remote.signinVerify('her@example.com', '111111');
   await remote.signinRegister('hers');
   assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a Mac with its certificate was retired as half registered');
+  await remote.forget();
+});
+
+/* kosmos#4737: a computer registered while it waits for the older computer's Allow holds its identity and the
+   tunnel's `held` mark, and no certificate yet. It is set up, and a sign-in on it never retires it. The
+   control is the same folder without the mark: a register cut off before its certificate, which IS retired. */
+async function heldShaped(withMark, withoutAddress = false) {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  for (const f of ['tls.crt', 'tls.key']) fs.rmSync(nodePath.join(dir, f), { force: true });
+  if (withMark) fs.writeFileSync(nodePath.join(dir, 'held'), 'hers\n');
+  if (withoutAddress) fs.rmSync(nodePath.join(dir, 'address'), { force: true });
+  assert.ok(fs.existsSync(nodePath.join(dir, 'mac_id')), 'fixture: the identity is there');
+  return dir;
+}
+
+test('#4737: a computer waiting to be allowed is set up and a sign-in on it does not retire it', async () => {
+  await heldShaped(true);
+  assert.equal(remote.enrolled(), true, 'a waiting computer (identity + held, no certificate) read as not set up: its tunnel never starts');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  // A DIFFERENT name: the same name takes the #1010 "already set up" path and never reaches clearHalfIdentity() (review 1).
+  await remote.signinRegister('hers-too');
+  assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a computer waiting to be allowed was retired as half registered');
+  await remote.forget();
+});
+
+/* kosmos#4737 review 2: the one shape halfRegistered()'s own held clause decides. With its address the folder is enrolled()
+   and the clause is never read; without it, the mark alone keeps the folder from being retired (as #3827 keeps a missing
+   address beside a certificate). The control is the same folder without the mark, which IS retired. */
+test('#4737: a waiting computer missing only its address file is not retired', async () => {
+  await heldShaped(true, true);
+  assert.equal(remote.enrolled(), false, 'fixture: without its address the folder is not enrolled, so the clause is what decides');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers-too');
+  assert.ok(!recorded().some((c) => c[0] === 'retire'), 'a waiting computer missing its address file was retired');
+  await remote.forget();
+});
+
+test('#4737 control: the same folder, no address and no mark, is retired', async () => {
+  await heldShaped(false, true);
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers-too');
+  assert.ok(recorded().some((c) => c[0] === 'retire'), 'control: a key and id with no certificate, address or mark was not retired');
+  await remote.forget();
+});
+
+test('#4737 control: the same folder without the held mark is half registered and is retired', async () => {
+  await heldShaped(false);
+  assert.equal(remote.enrolled(), false, 'fixture: no certificate and no mark is not set up');
+  fs.rmSync(RECORD, { force: true });
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  await remote.signinRegister('hers-too');
+  assert.ok(recorded().some((c) => c[0] === 'retire'), 'a register cut off before its certificate was not retired: the control cannot tell the two apart');
   await remote.forget();
 });
 

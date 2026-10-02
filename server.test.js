@@ -11525,6 +11525,38 @@ test('the Allow seam (#567): pending is honest-empty off the switch, and the ver
   assert.deepEqual(list.allowed, [], 'an unenrolled Mac lists devices');
 });
 
+test('#4824: the Remove route hands the page every field of the connector answer, unchanged', async () => {
+  /* The page's wording (removedWords) is decided by these fields alone, so a route that dropped or renamed one
+     would put every Remove into the wrong sentence. The engine is stubbed at the one function the route calls. */
+  const remoteEngine = require('./engine/remote');
+  const orig = remoteEngine.deviceRemove;
+  const answers = [
+    { removed: true, device_id: 'dev-1', local_cutoff: true, signed_out: true },
+    { removed: true, device_id: 'dev-1', local_cutoff: false, signed_out: false },
+    { removed: true, device_id: 'dev-1' },
+    { timed_out: true },
+  ];
+  try {
+    for (const data of answers) {
+      remoteEngine.deviceRemove = async () => ({ ok: true, because: null, data });
+      const r = await req('/api/remote/devices/remove', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: 'dev-1' }),
+      });
+      assert.equal(r.status, 200, r.body);
+      assert.deepEqual(JSON.parse(r.body), { ok: true, ...data }, 'the route changed the answer');
+    }
+    // CONTROL: a refusal is still a 400 with the engine's sentence.
+    remoteEngine.deviceRemove = async () => ({ ok: false, because: 'no such device here' });
+    const no = await req('/api/remote/devices/remove', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ device_id: 'dev-1' }),
+    });
+    assert.equal(no.status, 400);
+    assert.equal(JSON.parse(no.body).error, 'no such device here');
+  } finally {
+    remoteEngine.deviceRemove = orig;
+  }
+});
+
 test('the leftover routes (#514): a name with nothing left is refused in words, and a bad name never reaches the engine', async () => {
   /* GET is a question every agent page asks; "not a leftover" is an answer,
      so it is 200 with ok:false, never a status the console logs as an error
@@ -14131,6 +14163,39 @@ test('#3955: /api/whats-new serves the release highlights only when web/whats-ne
   assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'last release\'s text was served');
   fs2.writeFileSync(file, JSON.stringify({ version: current, highlights: [{ icon: 'rocket', title: 'x', line: 'y' }] }));
   assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'a file the window cannot draw was served');
+});
+
+test('#4928: a platform number in "also" shows the highlights once; the same words are not opened again under another number', async (t) => {
+  const whatsnew = require('./engine/whatsnew');
+  const os2 = require('node:os');
+  const fs2 = require('node:fs');
+  const store2 = require('./engine/store');
+  const dir = fs2.mkdtempSync(nodePath.join(os2.tmpdir(), 'wn-also-'));
+  const file = nodePath.join(dir, 'whats-new.json');
+  const seenFile = nodePath.join(store2.ROOT, 'seen-version.json');
+  let before = null;
+  try { before = fs2.readFileSync(seenFile, 'utf8'); } catch { before = null; }
+  whatsnew.setFileForTests(file);
+  t.after(() => {
+    whatsnew.setFileForTests(null);
+    fs2.rmSync(dir, { recursive: true, force: true });
+    if (before === null) fs2.rmSync(seenFile, { force: true }); else fs2.writeFileSync(seenFile, before);
+  });
+  const current = JSON.parse((await req('/api/whats-new')).body).current;
+  const h = [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }];
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.9', also: [current], highlights: h }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'a version in "also" was shown nothing');
+  const r = await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.9', 'which highlights were dismissed was not recorded');
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'the same words were offered again after they were dismissed');
+  // A dismissal on a version with no highlights keeps which words were last dismissed.
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.7', highlights: h }));
+  await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.9', 'a version with no highlights erased the record');
+  // CONTROL: new words (another main version) are offered.
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.8', also: [current], highlights: h }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'new highlights were held back');
 });
 
 /* ------------------------------------------------------------------------- *

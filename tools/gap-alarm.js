@@ -239,17 +239,18 @@ function post(text, want = { pane: true, card: true }) {
       });
       went.pane = true;
     } catch (err) {
-      // Exit 8 is claude-msg's known false negative (#1909): the recipient was busy and the message
-      // usually did land. Counted as told FOR THE PANE ONLY (the card keeps its own clock), and said
-      // on the card as uncertain, never as "did not go", so a busy pane is not re-messaged every hour.
-      // Exit 7 is the same class: delivered but the pane did not repaint, so it could not confirm.
-      if (err && (err.status === 8 || err.status === 7)) {
+      // Exit 7 is claude-msg's "the message is in the composer, unsubmitted": counted as told FOR THE PANE ONLY
+      // (the card keeps its own clock), since sending again would paste it twice, and said on the card as uncertain.
+      // Exit 8 is NOT told (#4898): claude-msg's own table now gives it real losses ("may not have landed", part of
+      // the message, or a prompt was open), so it is a failure, retried after RETRY_S like any other.
+      if (err && err.status === 7) {
         went.pane = true;
         unsure.pane = true;
-        paneUnsure = 'claude-msg exit ' + err.status + ', which usually means the pane was busy and the message landed (#1909)';
+        paneUnsure = 'claude-msg exit 7: the message is in the pane\'s composer, not yet submitted (look at the composer, then one Enter sends it)';
         process.stderr.write('gap-alarm: the pane message to ' + to + ' may not have gone: ' + paneUnsure + '\n');
       } else {
-        paneFailed = String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
+        paneFailed = (err && err.status === 8 ? 'claude-msg exit 8, it may not have landed: ' : '')
+          + String((err && err.stderr && String(err.stderr).trim()) || (err && err.message) || err).split('\n')[0];
         process.stderr.write('gap-alarm: the pane message to ' + to + ' did not go: ' + paneFailed + '\n');
       }
     }

@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg
+// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg tc-model tc-model-row tc-model-why tc-model-field tc-model-lab cstep-team team-seeded
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -30,6 +30,10 @@
  *    with no account menu for one account, and every member is made on it in one press; the choice is
  *    fixed once it starts; an account list slower than the step's 5 s wait still sets the default when
  *    it lands; the menus lock at the click and open again if the click is refused;
+ *  - #4935: both team steps take the single create's spacing and 18rem menus (the ready-made team menu
+ *    about half the column), one MODEL from the single create's list is sent for every member, the row
+ *    being made shows the Kosmos spinner, the names do not move as statuses change, and the Project and
+ *    Model menus look locked while the team is made;
  *  - 390 wide with no sideways scroll, chromium and webkit, no page errors.
  *
  * POST /api/agents is INTERCEPTED with a scripted outcome per name, so nothing here makes a real agent or
@@ -66,8 +70,10 @@ const TEAM = {
   key: 'marketing', kind: 'business', rank: 1, label: 'Marketing Team', blurb: 'One line',
   purpose: 'Plans and runs your marketing.', caution: 'The lead briefs the rest of the team and checks their work on its own.', project: { name: 'Marketing', goal: 'Grow the business' },
   members: [
-    { slot: 'content', role: 'copy', title: 'Content Writer', name: 'Leo', reportsTo: 'lead', avatar: { image: null } },
-    { slot: 'lead', role: 'marketing', title: 'Chief Marketing Officer', name: 'Maya', reportsTo: null, avatar: { image: null } },
+    /* #4720: as the published catalogue now is, two members name a portrait. The board serves the lead's
+       (/api/catalogue/portrait answers it); the writer's cannot be had (404), so it gets the generated mark. */
+    { slot: 'content', role: 'copy', title: 'Content Writer', name: 'Leo', reportsTo: 'lead', avatar: { image: 'avatars/marketing-content.webp' } },
+    { slot: 'lead', role: 'marketing', title: 'Chief Marketing Officer', name: 'Maya', reportsTo: null, avatar: { image: 'avatars/marketing-lead.webp' } },
     { slot: 'social', role: 'social', title: 'Social Media Manager', name: 'Ana', reportsTo: 'lead', avatar: { image: null } },
   ],
 };
@@ -122,6 +128,22 @@ function chk(ok, label, extra) {
           const specsMangle = { slot: null, reads: 0 };   // a slot whose spec comes back under another name than was sent
           const checkHold = { p: null };   // the names pre-check held until the arm releases it (review 27)
           const pictures = [];             // every picture PUT: { name, type }. The members here are not real agents, so it is answered here.
+          const portraitAsks = [];         // #4720: every /api/catalogue/portrait read, as "team/slot"
+          const staticAsks = [];           // #4720: any read of a catalogue image path under the board (must stay empty)
+          await page.route('**/api/catalogue/portrait*', async (r) => {
+            const q = new globalThis.URL(r.request().url()).searchParams;
+            portraitAsks.push(q.get('team') + '/' + q.get('slot'));
+            if (q.get('team') === 'marketing' && q.get('slot') === 'lead') {
+              // A minimal WebP container: what the board serves only after checking it (engine/catalogue.js).
+              const body = Buffer.concat([Buffer.from('RIFF'), Buffer.from([16, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(8)]);
+              return r.fulfill({ status: 200, contentType: 'image/webp', body });
+            }
+            /* Both ways a read can come to nothing: the route's own 404 in chromium, a read that never answers
+               (the catch branch) in webkit. Either way the member gets the generated mark (review 1). */
+            if (engineName === 'webkit') return r.abort('failed');
+            return r.fulfill({ status: 404, json: { error: 'the Content Writer of the Marketing Team has no portrait yet' } });
+          });
+          await page.route('**/avatars/**', (r) => { staticAsks.push(r.request().url()); return r.fulfill({ status: 404, body: 'no' }); });
           await page.route('**/api/agent/*/avatar', async (r) => {
             if (r.request().method() !== 'PUT') return r.continue();
             // `URL` in this file is the board's address (a string), so the agent's name is cut from the path by hand.
@@ -177,7 +199,7 @@ function chk(ok, label, extra) {
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -243,7 +265,7 @@ function chk(ok, label, extra) {
 
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
-          const { page, errs, posted, script, checkHold, pictures } = await newPage(1280);
+          const { page, errs, posted, script, checkHold, pictures, portraitAsks, staticAsks } = await newPage(1280);
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const view = await page.evaluate(() => ({
@@ -313,8 +335,15 @@ function chk(ok, label, extra) {
           chk(end.shown && end.hello === 'Say Hello to Maya Okafor' && /Say “hello” to each of them to activate it on Kosmos, starting with Maya Okafor\.$/.test(end.note) && !end.wide,
             `${E} a ready team invites a hello and offers one button, to the lead by its name`, JSON.stringify(end));
           await settle(page, () => typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0);
-          chk(pictures.map((x) => x.name).sort().join() === 'ana,leo-two,maya-okafor' && pictures.every((x) => /^image\/png/.test(x.type)),
-            `${E} every member made got a picture (the generated mark), once each`, JSON.stringify(pictures));
+          const pic = Object.fromEntries(pictures.map((x) => [x.name, x.type]));
+          chk(pictures.map((x) => x.name).sort().join() === 'ana,leo-two,maya-okafor',
+            `${E} every member made got a picture, once each`, JSON.stringify(pictures));
+          chk(/^image\/webp/.test(pic['maya-okafor'] || ''), `${E} #4720: the lead got the catalogue's portrait, read from /api/catalogue/portrait`, JSON.stringify(pic));
+          chk(/^image\/png/.test(pic['leo-two'] || '') && /^image\/png/.test(pic.ana || ''),
+            `${E} #4720: a portrait that cannot be had, and a member with none, get the generated mark`, JSON.stringify(pic));
+          chk(portraitAsks.includes('marketing/lead') && portraitAsks.includes('marketing/content') && !portraitAsks.includes('marketing/social'),
+            `${E} #4720: the portrait is asked by team and slot, only for members the catalogue gives one`, JSON.stringify(portraitAsks));
+          chk(staticAsks.length === 0, `${E} #4720: the page never reads a catalogue image path under the board`, JSON.stringify(staticAsks));
           chk(r2.every((r) => !/not set/.test(r.state)), `${E} and no row says its picture was not set`, JSON.stringify(r2.map((r) => r.state)));
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
           const went = await page.evaluate(() => {
@@ -366,9 +395,18 @@ function chk(ok, label, extra) {
         /* --- a lead that fails holds the others until it is made -------------------------------- */
         {
           const { page, errs, posted, script } = await newPage(1280);
+          /* #4719: this arm's accounts are its own (a Claude and an OpenAI account), so the menu starts on
+             Claude and the change to OpenAI below is a change. Under the runner the board's home is shared by
+             every check, and an OpenAI-only list left there by another made the default OpenAI (0.7.16 cut). */
+          const CL = { provider: 'anthropic', dir: '/acct/claude', email: 'me@example.com', isDefault: true, state: 'connected' };
+          const OA = { provider: 'openai', dir: '/acct/openai', email: 'me@example.com', isDefault: true, state: 'connected' };
+          await page.route('**/api/accounts*', (r) => r.fulfill({ status: 200, json: { accounts: [CL, OA] } }));
+          await page.evaluate(() => { CREATE_ACCOUNTS = []; CREATE_ACCOUNTS_KNOWN = false; });   // read again, from the route
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
+          const start = await page.evaluate(() => ({ p: document.getElementById('tc-provider').value, a: document.getElementById('tc-account').value }));
+          chk(start.p === 'anthropic', `${E} #4719 with a Claude account, the team step starts on Claude`, JSON.stringify(start));
           script.Maya = 'the account this agent would use is not signed in';
           await page.click('#tc-go');
           await settle(page, () => /Not made/.test((document.querySelector('#tc-list li[data-slot="lead"] .tc-state') || {}).textContent || ''));
@@ -719,6 +757,82 @@ function chk(ok, label, extra) {
           await page.close();
         }
 
+        /* --- #4935 (Josh, 0.7.16 test): the team steps look like Create an Agent, the whole team takes one
+           MODEL, the row being made spins, the names do not move as the statuses change, and the menus look
+           locked while the team is being made. ---------------------------------------------------------- */
+        {
+          const { page, errs, posted, holdCreate } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await settle(page, () => document.getElementById('tc-model').options.length > 1 && !document.getElementById('tc-model').disabled);
+          // Step 1's ready-made team menu, measured with that step shown in the same sheet (it is the step before this one).
+          const one = await page.evaluate(() => {
+            const team = document.getElementById('cstep-team'), make = document.getElementById('cstep-teammake');
+            team.hidden = false; make.hidden = true;
+            const sel = document.getElementById('team-seeded'), lab = document.querySelector('label[for="team-seeded"]');
+            const out = { w: sel.getBoundingClientRect().width, col: team.getBoundingClientRect().width,
+              gap: sel.getBoundingClientRect().top - lab.getBoundingClientRect().bottom };
+            team.hidden = true; make.hidden = false;
+            return out;
+          });
+          chk(one.w > 0 && one.w <= one.col * 0.6 && one.gap >= 5, `${E} #4935 the ready-made team menu is about half the column, off its label`, JSON.stringify(one));
+          const look = await page.evaluate(() => {
+            const box = (q) => document.querySelector(q).getBoundingClientRect();
+            const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+            return {
+              rem,
+              project: box('#tc-project').width, provider: box('#tc-provider').width, model: box('#tc-model').width,
+              labelGap: box('#tc-project').top - box('label[for="tc-project"]').bottom,
+              modelLabelGap: box('#tc-provider').top - box('#tc-model-lab').bottom,
+              fieldGap: box('#tc-model-lab').top - box('#tc-project').bottom,
+              rungGap: box('#tc-model').top - box('#tc-provider').bottom,
+              foot: getComputedStyle(document.querySelector('#cstep-teammake .sfoot')).display,
+            };
+          });
+          chk([look.project, look.provider, look.model].every((w) => Math.abs(w - 18 * look.rem) < 1),
+            `${E} #4935 Project, provider and model are the single create's 18rem`, JSON.stringify(look));
+          chk(look.labelGap >= 5 && look.modelLabelGap >= 5 && look.fieldGap >= 18 && look.rungGap >= 10 && look.foot === 'flex',
+            `${E} #4935 no label touches its menu and no field touches the next (the single create's spacing)`, JSON.stringify(look));
+          // The model menu is the single create's Claude list, on its default; a different pick is made for every member.
+          const models = await page.evaluate(() => ({ offered: [...document.getElementById('tc-model').options].map((o) => o.value),
+            value: document.getElementById('tc-model').value, list: CREATE_MODELS.map((m) => m.key), def: (CREATE_MODELS.find((m) => m.default) || {}).key }));
+          chk(models.list.length > 1 && JSON.stringify(models.offered) === JSON.stringify(models.list) && models.value === models.def,
+            `${E} #4935 the team's Model menu offers the single create's models, on its default`, JSON.stringify(models));
+          const want = models.list.find((k) => k !== models.def);
+          await page.selectOption('#tc-model', want);
+          await page.selectOption('#tc-project', 'none');
+          const releaseLeo = holdCreate('Leo');   // Leo stays "Making…" until measured
+          const xs = () => page.evaluate(() => [...document.querySelectorAll('#tc-list .tc-name')].map((i) => Math.round(i.getBoundingClientRect().left)));
+          const before = await xs();
+          await page.click('#tc-go');
+          await settle(page, () => /Making/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
+          const during = await page.evaluate(() => {
+            const st = document.querySelector('#tc-list li[data-slot="content"] .tc-state');
+            const locked = ['tc-project', 'tc-provider', 'tc-model'].map((id) => { const e = document.getElementById(id); return { id, disabled: e.disabled, opacity: +getComputedStyle(e).opacity }; });
+            return { text: st.textContent, spin: !!st.querySelector('.spin.spin-sweep[aria-hidden="true"]'),
+              others: [...document.querySelectorAll('#tc-list .tc-state:not(.creating) .spin')].length, locked };
+          });
+          const mid = await xs();
+          chk(during.text === 'Making…' && during.spin && during.others === 0,
+            `${E} #4935 the row being made shows the Kosmos spinner beside "Making…", and only that row`, JSON.stringify(during));
+          chk(during.locked.every((l) => l.disabled && l.opacity < 1), `${E} #4935 Project and Model look locked while the team is made`, JSON.stringify(during.locked));
+          releaseLeo();
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((x) => x.textContent === 'Running'));
+          const after = await xs();
+          chk(JSON.stringify(before) === JSON.stringify(mid) && JSON.stringify(mid) === JSON.stringify(after),
+            `${E} #4935 the names stay put as each row's status changes`, JSON.stringify({ before, mid, after }));
+          chk(posted.length === 3 && posted.every((b) => b.model === want), `${E} #4935 every member is made on the one model chosen`, JSON.stringify(posted.map((b) => [b.name, b.model])));
+          // Review 1: the next team starts on the default, not on this team's pick (same provider and account).
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => !document.getElementById('tc-go').hidden && !document.getElementById('tc-model').disabled
+            && document.getElementById('tc-model').options.length > 1);
+          const next = await page.evaluate(() => document.getElementById('tc-model').value);
+          chk(next === models.def, `${E} #4935 the next team opens on the default model, not the last team's pick`, JSON.stringify({ next, def: models.def, last: want }));
+          chk(errs.length === 0, `${E} no page errors (#4935 arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.close();
+        }
+
         /* --- phone width ------------------------------------------------------------------------ */
         {
           const { page, errs } = await newPage(390);
@@ -727,6 +841,12 @@ function chk(ok, label, extra) {
           const fit = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, vw: innerWidth,
             inputs: [...document.querySelectorAll('#tc-list .tc-name')].every((i) => i.getBoundingClientRect().width >= 120) }));
           chk(fit.sw <= fit.vw && fit.inputs, `${E} 390 wide: no sideways scroll and every name box is usable`, JSON.stringify(fit));
+          // #4935: the one-row footer wraps on a phone, so the box's words keep their width beside two buttons.
+          const foot = await page.evaluate(() => {
+            const f = document.querySelector('#cstep-teammake .sfoot'), say = document.getElementById('tc-tell-say');
+            return { over: f.scrollWidth - f.clientWidth, say: say.getBoundingClientRect().width, right: Math.round(f.getBoundingClientRect().right), vw: innerWidth };
+          });
+          chk(foot.over <= 0 && foot.say >= 200 && foot.right <= foot.vw, `${E} #4935 390 wide: the footer fits and the box's words are not squeezed`, JSON.stringify(foot));
           chk(errs.length === 0, `${E} no page errors (390)`, errs.join(' | '));
           await page.close();
         }

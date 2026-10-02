@@ -64,6 +64,15 @@
 # Exit status: 0 iff every selected check passed (after at most one retry).
 #
 set -uo pipefail
+# kosmos#4909: the run's own folders are marked below only when THIS run makes them, so an inherited marker can never
+# match a caller's home (review 3). And a seed path is made absolute here, before the cd to the repo and before any
+# re-exec, so a relative one means where the operator typed it, at both copy sites.
+unset KOSMOS_BC_RUN_HOME KOSMOS_BC_RUN_SKILLS
+if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ -d "$KOSMOS_BC_SEED_HOME" ]; then
+  # Review 4: a folder that exists but cannot be entered must refuse, never become an empty (unseeded) value.
+  _seed_abs="$(CDPATH= cd -- "$KOSMOS_BC_SEED_HOME" && pwd -P)" || { echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME cannot be entered; refusing a run that would only look seeded" >&2; exit 1; }
+  KOSMOS_BC_SEED_HOME="$_seed_abs"; export KOSMOS_BC_SEED_HOME
+fi
 # #3633: no board this script boots may download the agents' browser into the real
 # runners folder (engine/agentbrowser.js); the #1573 pair below does not set
 # AGENT_WORKFORCE_DRY_RUN, so this covers every boot site.
@@ -249,23 +258,43 @@ fi
 # tools/run-tests.sh that counted them as 200 live gates (#708). Every sandbox
 # now lives under one per-run directory, and cleanup removes that directory.
 # Servers were never affected: boot_board appends to SERVER_PIDS directly.
+# kosmos#4909's control: KOSMOS_BC_SEED_HOME names a prepared home (an OpenAI-only account, say) copied into each home
+# board_home gives a board and each fresh home lib-sandbox-home.js gives a self-booting check, so a whole run can be
+# compared with a clean one: any check whose result differs reads state it never set. (Boards that name their own
+# home, sb1/sb4/sb8 and the walk pair, are not seeded.) Loud and strict, and checked BEFORE the run folder exists, so a
+# refusal leaves nothing behind (review 2): refused when it is not a folder, when it is the real home, and when the
+# caller set their own home (then nothing would be seeded). release.sh clears it, so a cut is never a seeded run.
+if [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then
+  if [ ! -d "$KOSMOS_BC_SEED_HOME" ]; then echo "browser-checks: KOSMOS_BC_SEED_HOME=$KOSMOS_BC_SEED_HOME is not a folder; refusing a run that would only look seeded" >&2; exit 1; fi
+  if [ "$KOSMOS_BC_SEED_HOME" -ef "$HOME" ]; then echo "browser-checks: KOSMOS_BC_SEED_HOME is the real home; refusing to copy it" >&2; exit 1; fi
+  if [ -n "${AGENT_WORKFORCE_HOME:-}" ] && [ "${AGENT_WORKFORCE_HOME%/}" != "${HOME%/}" ]; then
+    echo "browser-checks: KOSMOS_BC_SEED_HOME needs the run's own home, but AGENT_WORKFORCE_HOME is set; nothing would be seeded, so refusing" >&2; exit 1
+  fi
+  echo "browser-checks: SEEDED RUN from $KOSMOS_BC_SEED_HOME (kosmos#4909 control): each board's own home and each self-booting check's fresh home start with it (a board or check that names its own home is not seeded)"
+fi
 RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bc.XXXXXX")"
 SERVER_PIDS=()
 # #3675: no fixture board in this run may read the host Mac's real accounts. The
-# account modules look under AGENT_WORKFORCE_HOME || the real home, so every board
-# this script starts, and every check it runs, inherits a sandbox home inside
-# RUN_DIR (removed by cleanup). A caller that already pointed it somewhere other
-# than the real home keeps theirs. The checks also require
-# docs/browser-checks/lib-sandbox-home.js, which covers a check run on its own.
+# account modules look under AGENT_WORKFORCE_HOME || the real home, so this run makes a
+# sandbox home inside RUN_DIR (removed by cleanup). Since #4909 nothing shares it: each
+# board this script boots gets its own (board_home) and each check that boots its own
+# board gets a fresh one (docs/browser-checks/lib-sandbox-home.js). A caller that
+# already pointed it somewhere other than the real home keeps theirs.
 if [ -z "${AGENT_WORKFORCE_HOME:-}" ] || [ "${AGENT_WORKFORCE_HOME%/}" = "${HOME%/}" ]; then
   export AGENT_WORKFORCE_HOME="$RUN_DIR/home"
   mkdir -p "$AGENT_WORKFORCE_HOME"
+  # kosmos#4909: this home is the RUN's, shared by every board this script boots. Marked, so
+  # lib-sandbox-home.js gives each check that boots its own board a fresh home instead of this one:
+  # a check that left an account here (an OpenAI-only one aborted the 0.7.16 cut) changed what every
+  # later check saw. A home the caller set (not marked) is kept as before.
+  export KOSMOS_BC_RUN_HOME="$AGENT_WORKFORCE_HOME"
 fi
 # #3801: the global skills folder is AGENT_WORKFORCE_SKILLS_DIR || the REAL ~/.claude/skills
 # (not the home above), and a board can add to it and delete from it. Its own empty one.
 if [ -z "${AGENT_WORKFORCE_SKILLS_DIR:-}" ] || [ "${AGENT_WORKFORCE_SKILLS_DIR%/}" = "${HOME%/}/.claude/skills" ]; then
   export AGENT_WORKFORCE_SKILLS_DIR="$RUN_DIR/skills"
   mkdir -p "$AGENT_WORKFORCE_SKILLS_DIR"
+  export KOSMOS_BC_RUN_SKILLS="$AGENT_WORKFORCE_SKILLS_DIR"   # kosmos#4909: the same, for the skills folder
 fi
 # The OpenAI default resolves AGENT_WORKFORCE_CODEX_HOME || CODEX_HOME before the home seam
 # (codexupdate.js), and the Gemini/Grok/Claude session readers read GEMINI_CLI_HOME, GROK_HOME
@@ -273,10 +302,9 @@ fi
 # REMOVAL, as tools/run-tests.sh does (#2858): naming a codex home instead would put every
 # board into the #1488 "operator named a codex home" mode, which is not the ordinary product.
 unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME GEMINI_CLI_HOME GROK_HOME CLAUDE_CONFIG_DIR
-# No check plants an ACCOUNT in this shared home: one that needs an account gets its own, in
-# its own board (sb8 below) or through lib-sandbox-home.js plantSubscribedClaude(), so no
-# check's premise depends on which other check ran first. (Boards may still write their own
-# state under it, as they would under a real home.)
+# Since #4909 no board or self-booting check shares a home: each board has its own (board_home)
+# and each such check a fresh one, so no check's premise depends on which other check ran first.
+# Checks run in position against ONE board still share that board's home, as they share its data.
 # #1818: a run that dies AFTER the checks begin but BEFORE the summary (a kill, an
 # OOM, or -- pre-fix -- a mid-run edit) otherwise leaves no FAILED line and no
 # run-log entry, so a reader grepping for FAIL reads the dead run as green (the
@@ -589,6 +617,7 @@ write_fleet_rich() {
 boot_board_rich() {
   local sb="$1" port="$2"
   write_fleet_rich "$sb"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -640,9 +669,38 @@ write_fleet_org() {
     fs.writeFileSync(sb + "/panes.txt", lines.join("\n") + "\n");
   '
 }
+# kosmos#4909: a board this script boots gets its OWN home and skills folder (under its sandbox) when it would
+# otherwise inherit the RUN's (KOSMOS_BC_RUN_HOME / KOSMOS_BC_RUN_SKILLS), so what one board's checks leave
+# there (an account, a CLAUDE.md, a skill) never reaches another board's. A home the caller set for this board
+# (AGENT_WORKFORCE_HOME="$sbN/home" boot_board ...) is kept.
+board_home() {
+  local sb="$1"
+  if [ -n "${KOSMOS_BC_RUN_HOME:-}" ] && [ "${AGENT_WORKFORCE_HOME:-}" = "$KOSMOS_BC_RUN_HOME" ]; then
+    mkdir -p "$sb/home"
+    # The control's seed reaches the board's own home (review 1: in the run home alone nothing read it), once: a board
+    # booted again on the same sandbox keeps what its first life wrote (review 2).
+    if [ -n "${KOSMOS_BC_SEED_HOME:-}" ] && [ ! -e "$sb/.seeded" ]; then
+      # Inside $(...), so an exit would end only the subshell and hand the board an EMPTY home (the real one):
+      # the failure is recorded instead and fails the run at its summary, and the board keeps its own folder.
+      # Its stderr goes to the board's own log (the redirect on the boot line applies first), which cleanup removes, so
+      # the sandbox is recorded in the marker for the summary to print (review 3). A sentinel, not emptiness, says
+      # "seeded once", so a board that empties its own home is not seeded again.
+      if cp -R "$KOSMOS_BC_SEED_HOME/." "$sb/home/" 2>/dev/null; then : > "$sb/.seeded"
+      else printf '%s\n' "$sb/home" >> "$RUN_DIR/seed-failed"; fi
+    fi
+    printf '%s' "$sb/home"
+  else printf '%s' "${AGENT_WORKFORCE_HOME:-}"; fi
+}
+board_skills() {
+  local sb="$1"
+  if [ -n "${KOSMOS_BC_RUN_SKILLS:-}" ] && [ "${AGENT_WORKFORCE_SKILLS_DIR:-}" = "$KOSMOS_BC_RUN_SKILLS" ]; then
+    mkdir -p "$sb/skills"; printf '%s' "$sb/skills"
+  else printf '%s' "${AGENT_WORKFORCE_SKILLS_DIR:-}"; fi
+}
 boot_board_org() {
   local sb="$1" port="$2"
   write_fleet_org "$sb" "${3:-}"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -656,6 +714,7 @@ boot_board_org() {
 boot_board() {
   local sb="$1" port="$2"
   write_fleet "$sb"
+  AGENT_WORKFORCE_HOME="$(board_home "$sb")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb")" \
   AGENT_WORKFORCE_DATA="$sb/data" AGENT_WORKFORCE_WORKERS="$sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$sb/launch" AGENT_WORKFORCE_PROJECTS="$sb/projects" \
     AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb/panes.txt" \
@@ -774,6 +833,15 @@ run_one() {
     log "COULD NOT RUN  $label (exit $rc: a program it needs is missing or not executable; this is not an assertion failing)"
     FAILED+=("$label")
     REASONS+=("$label:"$'\n'"           exit $rc: could not run, a program it needs is missing or not executable. Read the line above the exit, not the assertions.")
+    rm -f "$cap"
+    return 1
+  fi
+  # kosmos#4909: 97 is lib-sandbox-home.js saying the control's SEED could not be copied into this check's home. Not
+  # the check: no retry, and named as the seed, so a control run never reads it as "this check reads unset state".
+  if [ "$rc" -eq 97 ] && [ -n "${KOSMOS_BC_SEED_HOME:-}" ]; then   # review 5: only in a seeded run
+    log "SEED NOT COPIED  $label (exit 97: the kosmos#4909 control's seed could not be copied into its home; not the check)"
+    FAILED+=("kosmos-4909-seed-copy:$label")
+    REASONS+=("kosmos-4909-seed-copy:$label:"$'\n'"           exit 97: the seed could not be copied into this check's own home; the check itself did not run.")
     rm -f "$cap"
     return 1
   fi
@@ -970,8 +1038,8 @@ done
 # with exit 2 AND its own message; a clean exit means that check did not fire.
 # (kosmos#4820 removed the third, cmnotice: the Community notice and its COVERED check are gone.)
 #   overlay:  a layer is planted over allow-card's Allow button (the allow-card hit-test).
-#   spill:    allow-card's request carries a seven-box code, which runs past its card (the code fit check, #4568).
-#             At se only on purpose: the smallest phone, where it is measured to spill (24px).
+#   spill:    allow-card's request carries a code with no break point, wider than its card (the code fit check,
+#             #4568; #4893: the old seven-box code fits the one-line code of #4637). At se only: the smallest phone.
 # The run labels keep the mobile-shots-cover- prefix for both: browser-checks-pr-select-4119.test.js
 # pins that built label.
 for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cover-control' spill:allow-card:'the code does not fit its card'; do
@@ -1110,6 +1178,7 @@ AGENT_WORKFORCE_OPENAI_WALK_KEY="sk-proj-walkwalkwalkwalkwalkWALK" PORT="$P_OAI"
   }).listen(Number(process.env.PORT), "127.0.0.1");
 ' > "$sb4/openai-stub.log" 2>&1 &
 SERVER_PIDS+=("$!")
+AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb4")" \
 AGENT_WORKFORCE_HOME="$sb4/home" AGENT_WORKFORCE_CODEX_BIN="$sb4/fake-codex" \
   AGENT_WORKFORCE_CLAUDE_BIN="$sb4/fake-claude" \
   AGENT_WORKFORCE_GEMINI_BIN="$KEYED_GEMINI" AGENT_WORKFORCE_GROK_BIN="$KEYED_GROK" \
@@ -1146,8 +1215,10 @@ exit 2
 FAKE
 chmod +x "$sb6/fake-vercel"; rm -f "$sb6/vmark"
 write_fleet "$sb5"; write_fleet "$sb6"
+AGENT_WORKFORCE_HOME="$(board_home "$sb5")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb5")" \
 AGENT_WORKFORCE_GH_BIN=/nonexistent/gh AGENT_WORKFORCE_VERCEL_BIN=/nonexistent/vercel AGENT_WORKFORCE_GITHUB_DEVICE_URL="http://127.0.0.1:$P9/device" AGENT_WORKFORCE_GITHUB_TOKEN_URL="http://127.0.0.1:$P9/token" AGENT_WORKFORCE_GITHUB_VERIFY_URL="http://127.0.0.1:$P9/user" AGENT_WORKFORCE_DATA="$sb5/data" AGENT_WORKFORCE_WORKERS="$sb5/workers" AGENT_WORKFORCE_LAUNCH="$sb5/launch" AGENT_WORKFORCE_PROJECTS="$sb5/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb5/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_CLAUDE_CONFIG="$sb5/config/.claude.json" PORT="$P5" node ./server.js > "$sb5/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
+AGENT_WORKFORCE_HOME="$(board_home "$sb6")" AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb6")" \
 FAKE_GH_MARK="$sb6/mark" AGENT_WORKFORCE_GH_BIN="$sb6/fake-gh" FAKE_VERCEL_MARK="$sb6/vmark" AGENT_WORKFORCE_VERCEL_BIN="$sb6/fake-vercel" AGENT_WORKFORCE_CLOUDFLARE_VERIFY_URL="http://127.0.0.1:$P7/verify" AGENT_WORKFORCE_DATA="$sb6/data" AGENT_WORKFORCE_WORKERS="$sb6/workers" AGENT_WORKFORCE_LAUNCH="$sb6/launch" AGENT_WORKFORCE_PROJECTS="$sb6/projects" AGENT_WORKFORCE_TMUX_BIN="$FAKE_TMUX" AGENT_WORKFORCE_FAKE_PANES="$sb6/panes.txt" AGENT_WORKFORCE_RELEASE_BASE="http://127.0.0.1:9/dist" AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_CLAUDE_CONFIG="$sb6/config/.claude.json" PORT="$P6" node ./server.js > "$sb6/server.log" 2>&1 &
 SERVER_PIDS+=("$!")
 if wait_up "$P5" "$sb5/server.log" && wait_up "$P6" "$sb6/server.log"; then
@@ -1194,6 +1265,7 @@ printf '%s\n' '{"oauthAccount":{"emailAddress":"fixture@example.invalid","organi
   > "$sb8/home/.claude.json"
 printf '#!/bin/sh\n[ "$1" = --version ] && { echo "2.1.282 (Claude Code)"; exit 0; }\nexit 1\n' > "$sb8/fake-claude"
 chmod +x "$sb8/fake-claude"
+AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$sb8")" \
 AGENT_WORKFORCE_HOME="$sb8/home" AGENT_WORKFORCE_CLAUDE_BIN="$sb8/fake-claude" \
   AGENT_WORKFORCE_DATA="$sb8/data" AGENT_WORKFORCE_WORKERS="$sb8/workers" \
   AGENT_WORKFORCE_LAUNCH="$sb8/launch" AGENT_WORKFORCE_PROJECTS="$sb8/projects" \
@@ -1806,6 +1878,7 @@ for _pair in "$sb_ok:$P14" "$sb_bad:$P15"; do
   # answers list-panes from a file that is not there, which is an empty board by
   # accident rather than by intent.
   : > "$_sb/panes.txt"
+  AGENT_WORKFORCE_SKILLS_DIR="$(board_skills "$_sb")" \
   AGENT_WORKFORCE_DATA="$_sb/data" AGENT_WORKFORCE_WORKERS="$_sb/workers" \
     AGENT_WORKFORCE_LAUNCH="$_sb/launch" AGENT_WORKFORCE_PROJECTS="$_sb/projects" \
     AGENT_WORKFORCE_CONFIG_ROOT="$_sb/config" AGENT_WORKFORCE_HOME="$_sb/home" \
@@ -1844,6 +1917,12 @@ bc_quarantine_verdict
 # #1079: recorded BEFORE the exit paths below, so a FAILED run lands in the log
 # too. A log that only captures successful runs cannot answer a question about
 # when things go wrong.
+# kosmos#4909: a seeded run whose seed did not reach every board's home is not the run it claims to be. Before the
+# log line (review 3), so the durable log counts it too; the homes it missed are named.
+if [ -e "$RUN_DIR/seed-failed" ]; then
+  FAILED+=("kosmos-4909-seed-copy")
+  REASONS+=("kosmos-4909-seed-copy:"$'\n'"           the seed could not be copied into: $(tr '\n' ' ' < "$RUN_DIR/seed-failed")")
+fi
 browser_run_log_append \
   "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
   "${#RAN[@]}" "${#RETRIED[@]}" "${#FAILED[@]}" "$RICH_BOOTED" ${RETRIED[@]+"${RETRIED[@]}"}

@@ -4,7 +4,7 @@
  * KOSMOS_COMMUNITY_CONTRACT_URL names one (as communitysend.contract.test.js is), so the suite never reaches a
  * network by default. READ-ONLY: it registers nothing and writes nothing.
  *
- *   KOSMOS_COMMUNITY_CONTRACT_URL=https://community.installkosmos.com node --test engine/communityindustry.contract.test.js
+ *   KOSMOS_COMMUNITY_CONTRACT_URL=https://community.kosmosplus.com node --test engine/communityindustry.contract.test.js
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

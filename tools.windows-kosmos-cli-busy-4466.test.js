@@ -10,6 +10,8 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const cli = require('./tools/windows/kosmos-cli');
 
 function harness(throws) {
@@ -79,6 +81,26 @@ test('#4580 Windows: a post whose reply is cut is asked once more too', async ()
   assert.equal(await cli.main(['post', 'proj', 'draft is in the folder'], h.io), 0, h.err());
   assert.match(h.out(), /it was not posted twice/);
   assert.equal(h.calls(), 2);
+});
+
+test('#4934 Windows: a post whose reply is cut and whose retry the loop guard refuses never says "nothing was sent"', async () => {
+  const h = sequence([reset(), '{"delivery":{"state":"could_not","code":"room_held","because":"held","id":null}}']);
+  assert.equal(await cli.main(['post', 'proj', 'draft is in the folder'], h.io), 1, h.err());
+  assert.equal(h.calls(), 2, 'CONTROL: the retry was asked');
+  assert.doesNotMatch(h.err(), /Nothing was sent to anyone/);
+  assert.match(h.err(), /Not posted this time: .*Your first try may have reached the room before that: check kosmos room proj before posting it again\./);
+
+  // --stdin case (#4934 review 2)
+  const h2 = sequence([reset(), '{"delivery":{"state":"could_not","code":"room_held","because":"held","id":null}}']);
+  h2.io.readStdin = async () => ({ text: 'piped draft in the folder', ended: true });
+  assert.equal(await cli.main(['post', '--stdin', 'proj'], h2.io), 1, h2.err());
+  assert.equal(h2.calls(), 2, 'CONTROL: the retry was asked for piped post too');
+  assert.doesNotMatch(h2.err(), /The piped message was not sent;/);
+  assert.doesNotMatch(h2.err(), /Nothing was sent to anyone/);
+  const m = h2.err().match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
+  assert.ok(m, h2.err());
+  assert.equal(fs.readFileSync(m[1], 'utf8'), 'piped draft in the folder');
+  fs.rmSync(path.dirname(m[1]), { recursive: true, force: true });
 });
 
 test('#4580 Windows CONTROL: a refused connection is not retried (nothing arrived), and a post timeout is not retried', async () => {

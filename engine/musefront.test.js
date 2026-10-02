@@ -806,3 +806,58 @@ test('#4612 review round 2: every real DM envelope form is recognised, straight 
     assert.equal(finals[finals.length - 1] && finals[finals.length - 1].text, 'answer', 'not recognised as a DM: ' + env);
   }
 });
+
+test('#4603 N12: the model a turn names is kept beside the session id; a turn without one, or an unsafe one, changes nothing', async () => {
+  const ws = mkTemp('muse-model-');
+  const h = harness([{ ok: true, text: 'a', model: 'muse-spark-1' }, { ok: true, text: 'b' }, { ok: true, text: 'c', model: 'bad model; rm' }, { ok: true, text: 'd', model: 'muse-spark-2' }], { workspace: ws });
+  const kept = () => { try { return fs.readFileSync(front.modelFile(ws), 'utf8').trim(); } catch { return null; } };
+  assert.equal(kept(), null, 'CONTROL: nothing kept before a turn');
+  h.f.feed('one\r'); await h.f.drained();
+  assert.equal(kept(), 'muse-spark-1');
+  assert.equal(path.dirname(front.modelFile(ws)), path.dirname(front.sessionFile(ws)), 'kept beside the session id');
+  h.f.feed('two\r'); await h.f.drained();
+  assert.equal(kept(), 'muse-spark-1', 'a turn that named no model erased the last one');
+  h.f.feed('three\r'); await h.f.drained();
+  assert.equal(kept(), 'muse-spark-1', 'an unsafe model string was kept');
+  h.f.feed('four\r'); await h.f.drained();
+  assert.equal(kept(), 'muse-spark-2', 'a changed model was not kept');
+  assert.equal((fs.statSync(front.modelFile(ws)).mode & 0o777).toString(8), '600');
+});
+
+test('#4603 N12 review 1: a link or fifo at the model file is not followed or replaced; forgetModel clears a kept model at start', () => {
+  const ws = mkTemp('muse-model-guard-');
+  fs.mkdirSync(path.dirname(front.modelFile(ws)), { recursive: true });
+  const target = path.join(ws, 'elsewhere.txt');
+  fs.writeFileSync(target, 'untouched\n');
+  fs.symlinkSync(target, front.modelFile(ws));
+  assert.equal(front.keepModel(ws, 'muse-spark-1'), false, 'a link was written through');
+  assert.equal(fs.readFileSync(target, 'utf8'), 'untouched\n');
+  fs.unlinkSync(front.modelFile(ws));
+  // CONTROL: a regular file is kept, then forgotten at a start.
+  assert.equal(front.keepModel(ws, 'muse-spark-1'), true);
+  assert.equal(front.forgetModel(ws), true);
+  assert.equal(fs.existsSync(front.modelFile(ws)), false, 'the last life\'s model survived a start');
+});
+
+test('#4603 N12 review 3: startup forgets the last life\'s model (main\'s real step); a linked .kosmos is refused; a planted link is cleared', () => {
+  const ws = mkTemp('muse-model-start-');
+  assert.equal(front.keepModel(ws, 'muse-spark-1'), true);
+  const s = front.startup(ws);
+  assert.ok(front.UUID_RE.test(s.id), 'startup did not give a session id');
+  assert.equal(fs.existsSync(front.modelFile(ws)), false, 'startup kept the last life\'s model');
+  // A planted link at the model file is cleared at start; its target is untouched.
+  const target = path.join(ws, 'target.txt');
+  fs.writeFileSync(target, 'keep\n');
+  fs.symlinkSync(target, front.modelFile(ws));
+  front.startup(ws);
+  assert.equal(fs.existsSync(front.modelFile(ws)), false);
+  assert.equal(fs.readFileSync(target, 'utf8'), 'keep\n');
+  // A .kosmos that is a link is never written through.
+  const ws2 = mkTemp('muse-model-linkdir-');
+  const outside = mkTemp('muse-model-outside-');
+  fs.symlinkSync(outside, path.join(ws2, '.kosmos'));
+  assert.equal(front.keepModel(ws2, 'muse-spark-1'), false);
+  assert.deepEqual(fs.readdirSync(outside), [], 'a model was written through a linked .kosmos');
+  // A relative workspace is refused outright.
+  assert.equal(front.keepModel('', 'muse-spark-1'), false);
+});
