@@ -5873,6 +5873,24 @@ function geminiLastCompletionAt(agentName) {
  * the Gemini ring landed before the Gemini launcher.
  * ------------------------------------------------------------------------- */
 
+/* #4603 N12: a Muse (Meta) agent's model, as its front kept it from the last turn that named one (engine/musefront.js
+   keepModel, `.kosmos/muse-model` in its folder). { found, model }; never throws. Read through readWorkerFile (review
+   1): the agent can write that file, so a fifo, a link or a huge file must not hang or flood the board's tick. */
+function readMuseSession(agentName) {
+  const create = require('./create');
+  let dir;
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'muse') return { found: false };
+  try {
+    const got = readWorkerFile(require('./musefront').modelFile(dir), dir);
+    if (!got || !got.ok) return { found: false };
+    const model = got.buf.toString('utf8').trim();
+    return /^[A-Za-z0-9._:/-]{1,120}$/.test(model) ? { found: true, model } : { found: false };
+  } catch { return { found: false }; }
+}
+
 /* Resolve a Grok agent's launch folder to its session and read it, ONCE.
    Mirrors readGeminiSession: workerDir + readJob, gate on runner 'grok', read the
    agent's OWN account home (job.configDir), FAIL CLOSED to the default-account home
@@ -7856,6 +7874,7 @@ function snapshot() {
     // #4039: the agy conversation, read once per tick (the ring and the model both use it).
     const agySess = (isNamedOurs(pane) && isAgyPane) ? readAgySession(pane.name) : null;
     const grokSess = (isNamedOurs(pane) && isGrokPane) ? readGrokSession(pane.name) : null;
+    const museSess = (isNamedOurs(pane) && isMusePane) ? readMuseSession(pane.name) : null;   // #4603 N12
     try {
       /* #3296: EXCLUDE a gemini pane from the ANTHROPIC observation arm. Without
          `!isGeminiPane`, a gemini agent scraping WORKING would record a false
@@ -7964,7 +7983,8 @@ function snapshot() {
     const tied = isNamedOurs(pane);
     // #3568: not for an agy pane: readModel is the Claude transcript lookup, same as the context ring.
     // #4039: an agy pane's model comes from its own conversation (agysession, gen_metadata 1.19).
-    // #3939: nor a Muse pane, which has no Claude transcript; Muse picks its own model and says it per turn only.
+    // #3939: nor a Muse pane, which has no Claude transcript; Muse picks its own model and says it per turn only, so its
+    // front keeps the last one named (#4603 N12, readMuseSession).
     /* #4416 (Josh 15:18: "it'd be the same as the Claude Sonnet ones just saying Claude"): every runner's ACTUAL
        model, read from the record its own CLI keeps, never asked of the agent: Gemini's session names the model per
        message, Grok's names current_model_id, Codex's rollout names it on each turn_context. A runner whose record
@@ -7972,7 +7992,7 @@ function snapshot() {
     const sessModel = (x) => (x && x.found && typeof x.model === 'string' && x.model) || null;   // found, as the agy line always required
     const { model } = !tied ? { model: null }
       : isAgyPane ? { model: sessModel(agySess) }
-      : isMusePane ? { model: null }
+      : isMusePane ? { model: sessModel(museSess) }   // #4603 N12: the model its last turn named
       : isGeminiPane ? { model: sessModel(geminiSess) }
       : isGrokPane ? { model: sessModel(grokSess) }
       : isCodexPane ? { model: sessModel(codexSess) }

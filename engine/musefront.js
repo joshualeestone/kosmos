@@ -39,6 +39,62 @@ const HELLO = 'Meta Muse, run by Kosmos. Messages typed here go to Muse one turn
 /** Where this agent's Muse session id is kept, inside its own folder. */
 function sessionFile(workspace) { return path.join(workspace, '.kosmos', 'muse-session'); }
 
+/* #4603 N12 (0.7.15 diagnostic, a Meta agent): whoami and the board could not name a Muse agent's model, because Muse
+   says it only inside each turn (muserun: run.model.configured). The front keeps the latest one here, beside the
+   session id, and engine/status.js readMuseSession reads it as every other runner's own record is read. */
+function modelFile(workspace) { return path.join(workspace, '.kosmos', 'muse-model'); }
+
+/** Keep the model a turn named, when it changed. Never throws: a model that cannot be kept is only not shown. */
+function keepModel(workspace, model) {
+  if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return false;   // review 3: never a relative path
+  if (typeof model !== 'string' || !/^[A-Za-z0-9._:/-]{1,120}$/.test(model)) return false;
+  const file = modelFile(workspace);
+  // A `.kosmos` that is a link is not written through (review 2), nor a link or fifo at the file (review 1).
+  try { if (fs.lstatSync(path.dirname(file)).isSymbolicLink()) return false; } catch { /* made below */ }
+  let st = null;
+  try { st = fs.lstatSync(file); } catch { st = null; }
+  if (st && !st.isFile()) return false;
+  if (st) {
+    // The same bounded, non-blocking read the board uses (review 2), so a swap in the window cannot hang this front.
+    const got = require('./workerfile').readWorkerFile(file, workspace);
+    if (got && got.ok && got.buf.toString('utf8').trim() === model) return true;
+  }
+  // Review 3: a random name opened exclusively ('wx'), so nothing planted at a predictable name is followed.
+  const tmp = file + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
+  let wrote = false;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(tmp, model + '\n', { mode: 0o600, flag: 'wx' });
+    wrote = true;
+    fs.renameSync(tmp, file);
+    return true;
+  } catch {
+    // Only our own temp is removed (review 4), never a file that was already at that name.
+    if (wrote) { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } }
+    return false;
+  }
+}
+
+/* At the front's start the last life's model is forgotten (review 1): a Muse agent moved to another provider and back,
+   or signed in again, must not show an old model until its first turn names the current one. */
+function forgetModel(workspace) {
+  if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return false;
+  // Review 4: the same guard as keepModel; a `.kosmos` that is a link is not reached through.
+  try { if (fs.lstatSync(path.dirname(modelFile(workspace))).isSymbolicLink()) return false; } catch { return false; }
+  // Review 3: any entry but a folder goes (a planted link or fifo too: unlinking touches the entry, never its target),
+  // so nothing left there can hide the model for good.
+  try { const st = fs.lstatSync(modelFile(workspace)); if (!st.isDirectory()) fs.unlinkSync(modelFile(workspace)); return true; }
+  catch { return false; }
+}
+
+/* The front's start-up, outside main() so a test reaches the real step (review 3): the session id kept or made, and the
+   last life's model forgotten. */
+function startup(workspace, o) {
+  const got = loadSession(workspace, o);
+  forgetModel(workspace);   // #4603 N12: no model is claimed until a turn of this life names one
+  return got;
+}
+
 /**
  * This agent's session id: the one kept in its folder, or a new one written there. { id, note } where
  * note says, in words, when a new one had to be made over an unreadable one. Never throws: if the id
@@ -253,6 +309,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         }
         catch { r = { ok: false, text: '', because: 'Kosmos could not run Muse Code just now' }; }
         finally { clearInterval(beat); stopTurn = null; stopNoteRunning = false; }
+        if (r && r.model) keepModel(workspace, r.model);   // #4603 N12
         const text = r && typeof r.text === 'string' ? printable(r.text).trim() : '';
         if (text) write(text + '\n');
         if (!r || !r.ok) write('(' + printable((r && r.because) || 'Muse Code did not finish the turn') + ')\n');
@@ -439,7 +496,7 @@ function main(argv = process.argv) {
      only, as server.js does (engine/live-execution.js). Without it every turn was refused as "live
      execution is off". Never at module load: tests require this file and must stay fail-closed. */
   require('./live-execution').allowLiveExecution();
-  const { id, note } = loadSession(workspace);
+  const { id, note } = startup(workspace);
   write(HELLO + '\n');
   if (note) write(note + '\n');
   const report = makeReporter();
@@ -461,4 +518,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, sessionFile, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { createFront, loadSession, startup, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
