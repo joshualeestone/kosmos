@@ -48315,6 +48315,8 @@ async function openTeamCreate(key) {
   const gen = ++TC_GEN;
   TC = null;
   TC_MODEL_FOR = null;   // #4935: a new team starts on the default model, not the last team's pick
+  TC_MODEL_GEN += 1;     // and a model list still loading for the last team cannot land in this one
+  { const tm = document.getElementById('tc-model'); if (tm) tm.innerHTML = ''; }   // nor its pick be kept by the repaint
   const msg = document.getElementById('tc-msg');
   document.getElementById('tc-title').textContent = 'Loading the team…';
   document.getElementById('tc-purpose').textContent = '';
@@ -48497,9 +48499,11 @@ function tcPaintModel(pv, ac) {
   const sel = document.getElementById('tc-model');
   const why = document.getElementById('tc-model-why');
   const prev = sel.value;
-  const show = (html, fixed, note, keep) => {
+  /* `loading` holds Create down (tcPaint): pressed then, the team would be made on no model, the default, silently. */
+  const show = (html, fixed, note, keep, loading) => {
     sel.innerHTML = html;
     sel.dataset.fixed = fixed ? '1' : '';
+    sel.dataset.loading = loading ? '1' : '';
     if (keep && prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;   // a round trip keeps a pick
     sel.disabled = fixed || tcChoiceFixed() || TC_FILLING > 0;
     if (why) { why.textContent = note || ''; why.hidden = !note; }
@@ -48513,7 +48517,7 @@ function tcPaintModel(pv, ac) {
   if (pv === 'openai') {
     const openaiOwn = '<option value="" selected>OpenAI picks its own model for now</option>';
     if (!ac) { show(openaiOwn, true, openaiNoModelsNote(null), false); return; }
-    show('<option value="">Loading this account\'s models…</option>', true, '', false);
+    show('<option value="">Loading this account\'s models…</option>', true, '', false, true);
     fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null)).catch(() => null)
       .then((out) => {
@@ -48522,6 +48526,7 @@ function tcPaintModel(pv, ac) {
           show('<option value="" selected>Let OpenAI choose (recommended)</option>'
             + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join(''), false, '', true);
         } else show(openaiOwn, true, openaiNoModelsNote(out && out.because), false);
+        if (TC) tcPaint();   // Create is offered again
       });
     return;
   }
@@ -48531,7 +48536,7 @@ function tcPaintModel(pv, ac) {
   /* The team step can open before the create form has read the roles: the plain read the agent page uses, never
      ?catalogue=1 (only the role picker downloads the catalogue, #4632). Until it comes, nothing is chosen, so a
      team made meanwhile gets create's default. */
-  show('<option value="" selected>Loading the models…</option>', true, '', false);
+  show('<option value="" selected>Loading the models…</option>', true, '', false, true);
   fetch('/api/roles', { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null)).catch(() => null)
     .then((body) => {
@@ -48539,6 +48544,7 @@ function tcPaintModel(pv, ac) {
       if (!CREATE_MODELS.length && body && Array.isArray(body.models)) CREATE_MODELS = body.models;
       if (CREATE_MODELS.length) claude();
       else show('<option value="" selected>Kosmos\'s default model</option>', true, '', false);
+      if (TC) tcPaint();   // Create is offered again
     });
 }
 
@@ -48662,6 +48668,7 @@ function tcPaint() {
   go.hidden = TC.started;
   go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
   go.disabled = Boolean(TC.busy);   // round 4: a resumed team still being started must not offer a dead button
+  if (!TC.started && (document.getElementById('tc-model') || { dataset: {} }).dataset.loading === '1') go.disabled = true;   // #4935: not while the model list loads
   document.getElementById('tc-project').disabled = TC.started;
   // The "Let Kosmos know" choice: the sheet's one box, shown here too; fixed once the run has started.
   const tell = document.getElementById('tc-tell');

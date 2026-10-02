@@ -39,6 +39,16 @@ statuses change, and Project/Model look locked while making.
 - .tc-h: the misspelled token meant the title showed at the 1.1rem fallback (~17.6px); the real token is
   15px/20px, the same title size as the other panels. Visible change, deliberate.
 
+## Review 2 changes
+- While a model list loads (OpenAI account models, or the roles not read yet) the menu says so and Create is
+  held (dataset.loading, read in tcPaint), so a team is never made on a silent default; tcPaint runs again when
+  the list lands.
+- openTeamCreate bumps TC_MODEL_GEN and empties #tc-model as well as resetting TC_MODEL_FOR: the browser check
+  showed the repaint kept the last team's pick (it keeps a pick across a provider round trip, by design), so a
+  new team must start from an empty menu to land on the default.
+- tcPaintModel's branches are unit-tested against a fake document (Claude, vendor picks, OpenAI listable with
+  escaping, OpenAI not listable, roles not yet read).
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 

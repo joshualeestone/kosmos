@@ -87,3 +87,86 @@ test('#4935 tcSyncModel does nothing without an open team step', () => {
     assert.equal(painted.length, 0, JSON.stringify({ tc, hidden }));
   }
 });
+
+/* Review 2: tcPaintModel's branches, each against a fake document. The OpenAI list comes from the account's own
+   models (escaped), the vendors that pick their own model hide the row and send nothing, and while a list is loading
+   the menu says so and holds Create down (dataset.loading), so a team is never made on a silent default. */
+function paintWorld({ models = [], openai = null, rolesBody = null } = {}) {
+  const sel = { value: '', disabled: false, dataset: {}, _html: '', options: [],
+    set innerHTML(h) { this._html = h; this.options = [...h.matchAll(/<option value="([^"]*)"( selected)?/g)].map((m) => ({ value: m[1], sel: !!m[2] }));
+      const pick = this.options.find((o) => o.sel) || this.options[0]; this.value = pick ? pick.value : ''; },
+    get innerHTML() { return this._html; } };
+  const row = { hidden: false };
+  const why = { textContent: '', hidden: true };
+  const els = { 'tc-model': sel, 'tc-model-row': row, 'tc-model-why': why };
+  const fetched = [];
+  let paints = 0;
+  const ctx = {
+    document: { getElementById: (id) => els[id] || null },
+    CREATE_MODELS: models, TC: {}, TC_FILLING: 0, tcChoiceFixed: () => false, tcPaint: () => { paints += 1; },
+    esc: (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
+    vendorPicksModel: (p) => ['google', 'xai', 'antigravity', 'meta'].includes(p),
+    switchKeyedWord: (p) => ({ google: 'Gemini', xai: 'Grok' })[p] || p,
+    openaiNoModelsNote: () => 'OpenAI picks its own model.',
+    fetch: (url) => { fetched.push(url); const body = /openai/.test(url) ? openai : rolesBody;
+      return Promise.resolve({ ok: !!body, json: () => Promise.resolve(body) }); },
+  };
+  vm.runInNewContext('let TC_MODEL_GEN = 0;\n' + lift('tcPaintModel') + '\nthis.paint = tcPaintModel;', ctx);
+  return { ctx, sel, row, why, fetched, paints: () => paints };
+}
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test('#4935 Claude: the engine\'s list on its default, ready to press', () => {
+  const w = paintWorld({ models: [{ key: 'opus', label: 'Opus' }, { key: 'sonnet', label: 'Sonnet', default: true }] });
+  w.ctx.paint('anthropic', '');
+  assert.deepEqual(w.sel.options.map((o) => o.value), ['opus', 'sonnet']);
+  assert.equal(w.sel.value, 'sonnet');
+  assert.equal(w.sel.dataset.loading, '');
+  assert.equal(w.row.hidden, false);
+});
+
+test('#4935 a vendor that picks its own model: row hidden, no value, the reason said', () => {
+  const w = paintWorld();
+  w.ctx.paint('google', '');
+  assert.equal(w.row.hidden, true);
+  assert.equal(w.sel.value, '');
+  assert.equal(w.why.hidden, false);
+  assert.match(w.why.textContent, /Gemini picks its own model/);
+  assert.equal(w.fetched.length, 0, 'nothing is read for a vendor that picks');
+});
+
+test('#4935 OpenAI: loading holds Create, then the account\'s models (escaped) after "Let OpenAI choose"', async () => {
+  const w = paintWorld({ openai: { ok: true, models: [{ key: 'gpt-5', label: 'GPT-5' }, { key: 'x"><b', label: '<i>odd</i>' }] } });
+  w.ctx.paint('openai', '/acct/o');
+  assert.equal(w.sel.dataset.loading, '1', 'loading must hold Create down');
+  assert.equal(w.sel.disabled, true);
+  await tick(); await tick(); await tick();
+  assert.equal(w.sel.dataset.loading, '');
+  assert.equal(w.sel.options.length, 3, w.sel.innerHTML);
+  assert.equal(w.sel.options[1].value, 'gpt-5');
+  assert.equal(w.sel.options[0].value, '', 'Let OpenAI choose is first and sends no model');
+  assert.ok(!/<i>|"><b/.test(w.sel.innerHTML), 'a model name reached the menu unescaped');
+  assert.ok(w.fetched[0].includes('dir=%2Facct%2Fo'), w.fetched[0]);
+  assert.equal(w.paints(), 1, 'Create is offered again once the list lands');
+});
+
+test('#4935 OpenAI account that cannot list models: one fixed line, no value', async () => {
+  const w = paintWorld({ openai: { ok: false } });
+  w.ctx.paint('openai', '/acct/o');
+  await tick(); await tick(); await tick();
+  assert.equal(w.sel.value, '');
+  assert.equal(w.sel.dataset.fixed, '1');
+  assert.equal(w.sel.dataset.loading, '');
+  assert.match(w.sel.innerHTML, /OpenAI picks its own model for now/);
+});
+
+test('#4935 roles not read yet: loading holds Create, then the plain /api/roles list (never the catalogue)', async () => {
+  const w = paintWorld({ rolesBody: { models: [{ key: 'sonnet', label: 'Sonnet', default: true }] } });
+  w.ctx.paint('anthropic', '');
+  assert.equal(w.sel.dataset.loading, '1');
+  await tick(); await tick(); await tick();
+  assert.equal(w.fetched[0], '/api/roles', 'the catalogue read (?catalogue=1) is the role picker\'s alone');
+  assert.equal(w.sel.value, 'sonnet');
+  assert.equal(w.sel.dataset.loading, '');
+  assert.equal(w.paints(), 1);
+});
