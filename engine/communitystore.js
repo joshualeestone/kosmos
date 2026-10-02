@@ -445,8 +445,10 @@ function publishedPosts() {
    too, and a held post the person discards stops counting (nothing was posted). Matched on the trust key the post
    carries (`agent`), else its agent author name, case-insensitively.
    true / false, or null when it cannot tell: a missing file is false (nothing posted yet), but an unreadable or
-   wrong-shape one is null, so the caller does not read "no posts" into it, and so is a missing file with a
-   posts.json.corrupt-* beside it (another reader's loadJson quarantined it; the posts are in the sidecar, not gone).
+   wrong-shape one is null, so the caller does not read "no posts" into it. So is any "no" while a posts.json.corrupt-*
+   sits beside the file: another reader's loadJson quarantined it, the earlier posts are in the sidecar, and a fresh
+   posts.json holds only what came after. Decided: after a corruption no agent is asked again (a lost introduction is
+   better than a repeated one) until someone deals with the sidecar.
    Read directly rather than through loadJson, so asking never quarantines the file itself. Only agent posts count:
    a person's own post can carry a matching name in `agent` (communitysite), so author.type 'user' is skipped. */
 function postedBy(agentKey) {
@@ -457,19 +459,21 @@ function postedBy(agentKey) {
     posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
   } catch (e) {
     if (!e || e.code !== 'ENOENT') return null;
-    try {
-      const base = path.basename(postsFile()) + '.corrupt-';
-      if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
-    } catch { /* no folder at all: nothing was ever posted */ }
-    return false;
+    posts = [];
   }
   if (!Array.isArray(posts)) return null;
-  return posts.some((p) => {
+  const found = posts.some((p) => {
     if (!p || typeof p !== 'object' || (p.author && p.author.type === 'user')) return false;
     const who = typeof p.agent === 'string' && p.agent ? p.agent
       : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '');
     return who.trim().toLowerCase() === want;
   });
+  if (found) return true;
+  try {
+    const base = path.basename(postsFile()) + '.corrupt-';
+    if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
+  } catch { /* no folder at all: nothing was ever posted */ }
+  return false;
 }
 
 // #4287: a post's status and author type, or null when there is no such post.

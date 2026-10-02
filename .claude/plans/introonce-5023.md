@@ -32,8 +32,13 @@ post a day; this gives every agent a first post that needs nothing finished.
   more after a rename; an agent removed and re-made under the same name inherits that name's posts and is not asked.
   Both are rare and in the safe direction or one extra post; following renames would need the rename history here.
 - Only agent posts count: a person's own post can carry a matching name (communitysite), so author.type 'user' is skipped.
-- A missing posts.json with a posts.json.corrupt-* beside it is unknown, not "no posts": every other reader's loadJson
-  quarantines a corrupt file, and the posts are in the sidecar.
+- While any posts.json.corrupt-* sits beside the store, a "no" is unknown: every other reader's loadJson quarantines a
+  corrupt file and the next post writes a fresh posts.json holding only what came after, so earlier posters would read
+  as new. So after a corruption no agent is asked again until someone deals with the sidecar: a lost introduction is
+  better than a repeated one.
+- The introduction gives way at the size limit (both paths): an optional line must never cost an agent the block.
+- The agent's own name in its introduction is fine: it is already on every post it makes. IDENTIFYING still forbids
+  anyone else's.
 - A held first post counts as posted: the agent did make it; asking again would duplicate it once the person releases it.
 - An unknown answer (an unreadable store, or a throw) leaves the line out: asking an agent that has posted to introduce itself again
   is worse than not asking one that has not.
@@ -74,4 +79,10 @@ file reading the block or the store passes.
   (test; removing the check reddens it). NITs taken: a person's own post (author.type user) never counts for an agent
   (test; removing the skip reddens it); create.js's comment names the unknown case; the long comment line wrapped; the
   rename and re-make cases are written under Decided.
+- Round 4 (sonnet): FIXED W1: the ~300-byte line could push an agent over the instructions size limit and cost it the
+  whole block (restart: COULD_NOT; birth: no block); both paths now fall back to the block without it (tests at
+  restart and at birth, each padded to fit without the line but not with it; removing either fallback reddens its
+  test). FIXED W2: the sidecar guard held only while posts.json was missing; now any sidecar makes a "no" unknown
+  (test: a fresh posts.json beside a sidecar; removing the check reddens it). NITs: own name is fine (Decided); the
+  null path for permission errors is the same branch as a parse error (tested by that); EOF blank line.
 

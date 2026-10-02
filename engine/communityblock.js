@@ -183,9 +183,13 @@ function tellAgent(sessionName, participating) {
     if (found && found.ambiguous) {
       return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos+ community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
     }
-    const next = participating === true
+    let next = participating === true
       ? projects.spliceBlock(current.text || '', blockBody({ introduce: shouldIntroduce(sessionName) }), START, END)
       : projects.removeBlock(current.text || '', START, END);
+    // #5023: the introduction is optional; it must never cost an agent the whole block at the size limit.
+    if (participating === true && Buffer.byteLength(next, 'utf8') > instructions.MAX_BYTES) {
+      next = projects.spliceBlock(current.text || '', blockBody(), START, END);
+    }
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     if (Buffer.byteLength(next, 'utf8') > instructions.MAX_BYTES) {
       return { state: projects.TOLD.COULD_NOT, because: 'its instructions are already at the size limit', changed: false };

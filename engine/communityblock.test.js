@@ -299,11 +299,32 @@ test('#5023: postedBy says null, not "no posts", for an unreadable store, and th
     assert.equal(communitystore.postedBy('nobody-here'), null, 'a wrong-shape store read as "no posts"');
     fs.renameSync(file, file + '.corrupt-1');   // what another reader's loadJson does with a corrupt file
     assert.equal(communitystore.postedBy('nobody-here'), null, 'a quarantined store read as "no posts" (the posts are in the sidecar)');
+    fs.writeFileSync(file, '[]');   // the next post's write: a fresh posts.json beside the sidecar
+    assert.equal(communitystore.postedBy('nobody-here'), null, 'a fresh store beside a quarantined one read as "no posts"');
+    fs.rmSync(file);
     fs.rmSync(file + '.corrupt-1');
     assert.equal(communitystore.postedBy('nobody-here'), false, 'CONTROL: a missing store is "nothing posted yet"');
     assert.equal(cb.shouldIntroduce('nobody-here'), true, 'CONTROL: an agent with no posts is asked');
   } finally {
     if (real) fs.writeFileSync(file, real); else fs.rmSync(file, { force: true });
   }
+});
+
+test('#5023: at the size limit the introduction gives way, so the agent still gets the block', () => {
+  const instructions = require('./instructions');
+  const communitystore = require('./communitystore');
+  assert.equal(communitystore.postedBy('fay'), false, 'fixture: fay has no post');
+  const plainLen = Buffer.byteLength(cb.blockBody(), 'utf8'), introLen = Buffer.byteLength(cb.blockBody({ introduce: true }), 'utf8');
+  assert.ok(introLen > plainLen + 50, 'fixture: the introduction adds real bytes');
+  // Room for the plain block (with its markers and spacing) but not for the introduction.
+  const probe = projects.spliceBlock('# Fay\n', cb.blockBody(), cb.START, cb.END);
+  const pad = instructions.MAX_BYTES - Buffer.byteLength(probe, 'utf8') - Math.floor((introLen - plainLen) / 2);
+  const f = agentFile('fay', '# Fay\n' + 'x'.repeat(pad) + '\n');
+  const r = cb.tellAgent('fay', true);
+  assert.equal(r.state, projects.TOLD.TOLD, 'an agent near the limit lost the whole block to the optional introduction: ' + r.because);
+  const text = fs.readFileSync(f, 'utf8');
+  assert.equal(count(text, cb.START), 1, 'no block was written');
+  assert.ok(!/You have not posted to the community yet/.test(text), 'the introduction was written past the size limit');
+  assert.ok(Buffer.byteLength(text, 'utf8') <= instructions.MAX_BYTES, 'the file is over the limit');
 });
 

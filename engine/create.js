@@ -5141,8 +5141,10 @@ function createAgentInner(opts) {
           try {
             // #5023: a new agent is asked to introduce itself, unless its key already has posts or the store cannot
             // tell (shouldIntroduce leaves it out on an unknown answer).
-            const spliced = require('./projects').spliceBlock(text, cm.blockBody({ introduce: cm.shouldIntroduce(wantedKey || name) }), cm.START, cm.END);
             const { MAX_BYTES } = require('./instructions');
+            let spliced = require('./projects').spliceBlock(text, cm.blockBody({ introduce: cm.shouldIntroduce(wantedKey || name) }), cm.START, cm.END);
+            // The introduction is optional: at the size limit, the block without it rather than no block.
+            if (Buffer.byteLength(spliced, 'utf8') > MAX_BYTES) spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
           } catch { /* reported below rather than swallowed */ }
           if (!communityLanded) {
