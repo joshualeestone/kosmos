@@ -71,3 +71,16 @@ NITs taken: update wording in the Run agents refusal; the bar's button hidden wh
 second press ignored; duplicate mkdir in tools/test-install.sh. Not taken: the wiring tests are source
 reads (the repo's accepted pattern for AppKit wiring no selftest reaches).
 Each new guard was perturbed: removing it fails exactly one test.
+
+### Iteration 2 (sonnet, blind): 1 warning, 2 conventions, nits. All taken.
+1. WARNING: nothing bounded a stalled install, so the app's wait (and Run agents) could hang all session.
+   Fixed: the CLI's curl of the installer is bounded (connect 30s; under 1 KB/s for 60s ends it). Not
+   bounded: the installer's own downloads, and no Swift watchdog (killing the CLI mid-install would orphan
+   the installer it piped to).
+2. CONVENTION: the "retried once" retry retried itself hourly, and a refusal retried too. Fixed: the retry
+   is marked and not retried; the CLI's `refused<TAB><why>` is its own answer (`.refused`, two selftest rows,
+   16 in all) and is never retried.
+3. CONVENTION: "It will try again tomorrow" was false with updates off. Now "Press Update to try again."
+NITs taken: a comment that no tab field may be empty (IFS read collapses them); an answer the app cannot
+read is logged with what the CLI said. Not changed: a press during a dialog of ours offers Restart rather
+than restarting under it (intended).

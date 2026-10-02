@@ -394,6 +394,7 @@ enum UpdateAnswer: Equatable {
     case failed(String)     // the installer ran and failed
     case board              // a board runs here, and it updates itself
     case unknown            // the release host could not be reached or read, or the CLI said nothing usable
+    case refused            // the CLI will not update here (not a connect computer, or an agent): no retry
 }
 
 /// PURE, so --kosmos-app-update-selftest can drive it. Only the LAST non-empty line counts, and
@@ -402,6 +403,8 @@ enum UpdateAnswer: Equatable {
 func updateAnswer(fromOutput text: String) -> UpdateAnswer {
     guard let last = text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).last(where: { !$0.allSatisfy({ $0 == " " || $0 == "\t" }) })
     else { return .unknown }
+    // `refused<TAB><why>`: the reason is for people and the log, so only the word and the tab are read.
+    if last.hasPrefix("refused\t"), last.count > "refused\t".count { return .refused }
     let words = last.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
     func version(_ v: String) -> Bool {
         let p = v.split(separator: ".", omittingEmptySubsequences: false)
@@ -450,6 +453,11 @@ func runKosmosUpdate(kosmosHome: String, port: Int?, install: Bool) -> UpdateAns
     let said = (try? String(contentsOf: outURL, encoding: .utf8)) ?? ""
     let answer = updateAnswer(fromOutput: said)
     logLine("#4382: kosmos update --if-newer\(install ? " --install" : "") exited \(process.terminationStatus): \(answer)")
+    if answer == .unknown || answer == .refused {
+        // What it said, so an answer this app could not read (a version of another shape, say) can be found.
+        let lastLine = said.split(whereSeparator: { $0 == "\n" }).last.map(String.init) ?? ""
+        logLine("#4382: it said: \(String(lastLine.prefix(200)))")
+    }
     return answer
 }
 
@@ -2367,13 +2375,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// The look, at launch (after stopBoardIfRunning's stop), when a computer switches to connect, and
     /// once a day while it stays one. A look that could not reach the release host is tried again once,
-    /// an hour later, and a Mac that wakes when its last look is a day old looks then.
+    /// an hour later (the retry itself is not retried), and a Mac that wakes when its last look is a day
+    /// old looks then.
     static let updateLookInterval: TimeInterval = 24 * 60 * 60
     static let updateRetryAfterUnknown: TimeInterval = 60 * 60
     private var updateTimer: Timer?
     private var updateLookInFlight = false
     /// When the last look finished, whatever it found; the wake look keys on it.
     private var lastUpdateLookAt: Date?
+    /// The look in flight is the hour retry, which is not retried again: offline, the next look is the
+    /// daily one (or a wake), not one an hour for as long as the app runs.
+    private var updateLookIsRetry = false
     private var updateRetry: DispatchWorkItem?
     private var updateWakeObserver: NSObjectProtocol?
     /// A version the installer finished while nobody asked (updates are on). The new app waits for the
@@ -2422,17 +2434,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard updateRetry == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             self?.updateRetry = nil
-            self?.lookForUpdate(install: false)
+            self?.lookForUpdate(install: false, retry: true)
         }
         updateRetry = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.updateRetryAfterUnknown, execute: work)
     }
 
     /// One look, and the install when it is due. `install` is the person's choice from the offer.
-    private func lookForUpdate(install: Bool) {
+    private func lookForUpdate(install: Bool, retry: Bool = false) {
         guard computerMode == .connect, let home = modeHome else { return }
         guard !updateLookInFlight else { logLine("#4382: an update look is already running"); return }
         updateLookInFlight = true
+        updateLookIsRetry = retry
         // Counted as a stop of ours: "Run agents on this computer" waits for an installer to finish
         // rather than starting a board in the middle of it.
         stopsInFlight += 1
@@ -2455,12 +2468,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     private func updateLookDone(_ answer: UpdateAnswer, asked: Bool) {
         guard computerMode == .connect else { showUpdateOffer(nil); return }
-        if case .unknown = answer { retryUpdateLookSoon() }
+        if case .unknown = answer, !updateLookIsRetry { retryUpdateLookSoon() }
         switch answer {
         case .newer(let v):
             showUpdateOffer(v)
         case .failed(let v):
-            showUpdateOffer(v, note: "Kosmos could not update to \(v). It will try again tomorrow, or you can try now.")
+            showUpdateOffer(v, note: "Kosmos could not update to \(v). Press Update to try again.")
         case .updated(let v) where asked && !ownDialogOpen:
             // The person pressed Update: the restart is what they asked for.
             installedUpdate = nil
@@ -2472,7 +2485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .unknown where asked:
             // The person pressed Update and the release host could not be reached: say so, keep the offer.
             showUpdateOffer(offeredUpdate, note: "Kosmos could not reach its update server. Check your internet connection and try again.")
-        case .current, .board, .unknown:
+        case .current, .board, .unknown, .refused:
             // A later look finds the installed version current; an installed update still waits for Restart.
             if let v = installedUpdate { showInstalledOffer(v) } else { showUpdateOffer(nil) }
         }
@@ -5468,7 +5481,9 @@ if CommandLine.arguments.contains("--kosmos-app-update-selftest") {
     row("updated 0.7\n", .unknown, "two parts is not a version")
     row("current 0.7.18 extra\n", .unknown, "an extra word is not an answer")
     row("Newer 0.7.19\n", .unknown, "case matters, as the CLI prints it")
-    let expected = 14
+    row("refused\tthis computer is not set to connect to agents elsewhere\n", .refused, "refused: nothing to retry")
+    row("refused\n", .unknown, "refused with no reason is not the CLI's answer")
+    let expected = 16
     if ran != expected { print("\nupdate-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
     if bad > 0 { print("\nupdate-check: \(bad) row(s) wrong"); exit(1) }
     print("\nupdate-check: all good (\(ran) rows)")
