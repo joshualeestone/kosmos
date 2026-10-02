@@ -158,10 +158,12 @@ const BUTTONS = 'button, input[type=button], input[type=submit]';
    polls it may never fire. Measured 2026-10-02 on this board (Agent1s, load 4.3, webkit and chromium x3): 100 fields
    from DOMContentLoaded; buttons 431-432 at DOMContentLoaded, 432-434 at load, 434 at networkidle and once settled, so
    2-3 buttons arrive after load. networkidle happened to catch them in all six runs; nothing guaranteed it.
-   So: load, then the board's FIRST /api/status poll ANSWERED (what paints the late controls; review round 1: a counts
+   So: load, then the board's FIRST /api/status poll ANSWERED (probably what paints the late controls: the timing was
+   measured, the cause was not; review round 1: a counts
    window alone could close before a slow poll answered, which networkidle never allowed; and `card` being defined says
    nothing, it is a hoisted declaration), then the field and button counts unchanged for SETTLE_MS. A poll that never
-   answers, or a page that never settles, within SETTLE_MAX_MS is a FAILURE, never a measurement taken anyway. */
+   answers within SETTLE_MAX_MS of being registered, or counts that never settle within SETTLE_MAX_MS after it (so up to
+   about twice that in all), is a FAILURE, never a measurement taken anyway. */
 const SETTLE_MS = 1500;
 const SETTLE_MAX_MS = 20000;
 /* #4734: floors on WHAT WAS MEASURED, so the WRONG PAGE (a 404, a stub, a wrong base URL) cannot pass over a short list.
