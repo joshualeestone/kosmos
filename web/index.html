@@ -27655,15 +27655,16 @@ function oaAgentHref(address, sessionName) {
 async function oaReadOne(c) {
   const ac = typeof AbortController === 'function' ? new AbortController() : null;
   const cut = ac ? setTimeout(() => ac.abort(), OA_READ_LIMIT_MS) : null;
-  let state = 'out', agents = null;
+  let state = 'out', agents = null, answered = false;
   try {
     const opts = { cache: 'no-store', credentials: 'include', mode: 'cors' };
     if (ac) opts.signal = ac.signal;
     const res = await fetch('https://' + c.address + '/api/status', opts);
+    answered = true;   // headers came through the credentialed CORS check: whatever fails after this is not a refusal
     let body = null;
     /* Only a body that is not JSON (a gate's sign-in page) counts as no status. A body cut off by this page's own
-       time limit or a dropped connection is no answer at all: thrown on, so it reads as unreachable and the last good
-       list is kept, not as "not let in", which would erase it and ask the person to sign in for nothing. */
+       time limit or a dropped connection is no answer at all: thrown on, and the catch below reads it as not connected
+       (the last good list kept, greyed), not as "not let in", which would erase it and ask for a sign-in for nothing. */
     try { body = await res.json(); } catch (e) {
       if ((ac && ac.signal.aborted) || !(e instanceof SyntaxError)) throw e;
       body = null;
@@ -27673,7 +27674,8 @@ async function oaReadOne(c) {
   } catch {
     /* No answer the page may read. A computer the board's last probe (up to a minute old) said is up most likely
        answered and did not let this page read it (an older connector without the sibling answer does exactly that). */
-    state = (ac && ac.signal.aborted) ? 'out'   // this page's own time limit: slow, not a refusal
+    /* This page's own time limit, or a body lost after the headers came through: slow or cut off, not a refusal. */
+    state = (answered || (ac && ac.signal.aborted)) ? 'out'
       : (c.online === true ? 'blocked' : 'out');
   } finally { if (cut) clearTimeout(cut); }
   /* Not kept if a refresh took this computer off the account's list while the read ran: one added back later must
@@ -27772,7 +27774,7 @@ function oaPaint() {
   const others = OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
   const shown = oaGridShown(grid);
   /* Back on screen after reads were paused: read now rather than at the next tick (stale lists show greyed meanwhile). */
-  if (shown && !OA_WAS_SHOWN && !OA_BUSY && OA_TIMER && location.protocol === 'https:' && typeof setTimeout === 'function') setTimeout(oaRound, 0);   // only once oaStart ran (it waits out first run)
+  if (shown && !OA_WAS_SHOWN && !OA_BUSY && OA_TIMER && location.protocol === 'https:' && typeof setTimeout === 'function') setTimeout(oaRound, 0);   // only once oaStart ran
   OA_WAS_SHOWN = shown;
   wrap.hidden = !shown || others.length === 0;
   if (wrap.hidden) return;
@@ -27856,7 +27858,9 @@ async function oaRound(again) {
   OA_BUSY = true;
   try {
     oaPaint();   // a list that went stale meanwhile shows greyed while the reads run
-    const need = !OA_COMPUTERS || Date.now() - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS;
+    /* Once a minute at most, even while no list is known (signed out, a 5xx, a cut): the route probes every computer.
+       OA_COMPUTERS_AT starts at 0, so the first round still asks. */
+    const need = Date.now() - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS;
     const refresh = need ? oaRefreshComputers() : null;
     /* The round waits only for its reads. The computers refresh runs on its own (it can take 24 s), so it neither
        holds OA_BUSY nor makes later ticks drop, and no list ages past OA_STALE_MS behind it. Only the first round,

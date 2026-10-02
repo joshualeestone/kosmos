@@ -512,11 +512,12 @@ test('read: a runaway list from another computer is cut to the first OA_MAX_AGEN
   assert.equal(r.agents.length, 500);
 });
 
-test('read: a body cut off mid-read is unreachable (list kept), only a non-JSON body is the gate', async () => {
-  const cut = load(async () => ({ status: 200, json: async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; } }));
+test('read: a body cut off mid-read on an ONLINE computer is not connected (list kept), only a non-JSON body is the gate', async () => {
+  const cut = load(async () => ({ status: 200, json: async () => { throw new TypeError('network error'); } }));
   cut.api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a' }], at: 5 });
+  assert.equal(LIST.computers[1].online, true, 'control: the board says it is online');
   const r = await cut.api.oaReadOne(LIST.computers[1]);
-  assert.notEqual(r.state, 'notin', 'never a sign-in prompt for a cut-off read');
+  assert.equal(r.state, 'out', 'the headers came through: neither a sign-in prompt nor a refusal');
   assert.deepEqual(r.agents, [{ sessionName: 'a' }], 'the last good list is kept');
   const gate = load(async () => ({ status: 200, json: async () => JSON.parse('<html>sign in</html>') }));
   assert.equal((await gate.api.oaReadOne(LIST.computers[1])).state, 'notin', 'control: a gate page that is not JSON');
@@ -527,4 +528,12 @@ test('note: a greyed list from a refusing computer says when this page last read
   const now = 10 * 3600 * 1000;
   assert.equal(api.oaNote(LIST.computers[1], { state: 'blocked', agents: [{}], at: now - 3 * 3600 * 1000 }, now),
     'agent1s is online but did not let this page read its agents. Showing what this page last read. This page last read it 3 hours ago.');
+});
+
+test('round: with no list known, the computers route is still asked at most once a minute', { timeout: 2000 }, async () => {
+  const { api, asked } = loadRound(async () => ({ ok: true, json: async () => ({ signedIn: false }) }));
+  await api.oaRound();
+  assert.equal(api.computers, null, 'control: signed out, no list');
+  await api.oaRound(); await api.oaRound();
+  assert.equal(asked.filter((u) => u === '/api/remote/computers').length, 1, 'not on every 15 s tick');
 });
