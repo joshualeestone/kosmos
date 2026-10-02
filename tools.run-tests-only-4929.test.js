@@ -57,8 +57,11 @@ test('probe', () => {
   const e = process.env;
   console.log('ENV ' + JSON.stringify({
     created: e.AGENT_WORKFORCE_CREATED_URL || null,
+    feedback: e.AGENT_WORKFORCE_FEEDBACK_URL || null,
     community: e.AGENT_WORKFORCE_COMMUNITY_URL || null,
+    catalogue: e.KOSMOS_CATALOGUE_BASE || null,
     gh: e.AGENT_WORKFORCE_GH_BIN || null,
+    vercel: e.AGENT_WORKFORCE_VERCEL_BIN || null,
     legacy: e.KOSMOS_NO_LEGACY_MIGRATION || null,
     codexHome: e.CODEX_HOME || null,
     tokenOnly: e.KOSMOS_AGENT_TOKEN_ONLY || null,
@@ -70,12 +73,22 @@ test('probe', () => {
 const RED = path.join(DIR, 'red.test.js');
 fs.writeFileSync(RED, `'use strict';\nrequire('node:test')('red', () => { throw new Error('red on purpose'); });\n`);
 
+/* A timeout must not leave the inner suite running with no owner: spawnSync's timeout signals only the process it
+   started, and the runner's node --test child would carry on. So the runner starts in its own process group under a
+   small perl parent, and a SIGTERM to that parent takes the whole group down. */
+const GROUP = 'my $pid; $SIG{TERM} = sub { $SIG{TERM} = "IGNORE"; kill "TERM", -$$; exit 143 }; setpgrp(0, 0); ' +
+  '$pid = fork; die "fork: $!" unless defined $pid; if (!$pid) { exec @ARGV or exit 127 } ' +
+  'waitpid($pid, 0); exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)';
+function runRunner(args, env, timeout) {
+  return spawnSync('perl', ['-e', GROUP, 'bash', RUNNER, ...args], { env, encoding: 'utf8', timeout });
+}
+
 function run(args, extraEnv = {}) {
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
   // Not about the machine claim or the install harness (cut-guard's own tests are): a run on a busy box must still run.
   const env = cleanEnv({ CODEX_HOME: '/tmp/should-be-unset', KOSMOS_AGENT_TOKEN_ONLY: '1',
     KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', ...extraEnv });
-  const r = spawnSync('bash', [RUNNER, ...args], { env, encoding: 'utf8', timeout: 120000 });
+  const r = runRunner(args, env, 120000);
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
 }
 
@@ -97,6 +110,9 @@ test('--only runs the named file with the suite\'s environment and guards', () =
   assert.equal(e.created, 'http://127.0.0.1:9/api/created', 'the install beacon is not pointed at a dead port');
   assert.equal(e.community, 'http://127.0.0.1:9/');
   assert.match(String(e.gh), /test-support\/fake-cli-signed-out\.sh$/);
+  assert.match(String(e.feedback), /^http:\/\/127\.0\.0\.1:9\//, 'the feedback URL is not pointed at a dead port');
+  assert.match(String(e.catalogue), /^http:\/\/127\.0\.0\.1:9\b/, 'the catalogue base is not pointed at a dead port');
+  assert.match(String(e.vercel), /test-support\/fake-cli-signed-out\.sh$/);
   assert.equal(e.legacy, '1');
   assert.equal(e.codexHome, null, 'an inherited CODEX_HOME reached the test');
   assert.equal(e.tokenOnly, null, 'an inherited KOSMOS_AGENT_TOKEN_ONLY reached the test');
@@ -123,7 +139,7 @@ test('--only refuses, before anything runs: no files, an option, a non-test file
   ]) {
     assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
     const e = cleanEnv(env);
-    const r = spawnSync('bash', [RUNNER, ...args], { env: e, encoding: 'utf8', timeout: 60000 });
+    const r = runRunner(args, e, 60000);
     const out = (r.stdout || '') + (r.stderr || '');
     assert.equal(r.status, 2, JSON.stringify(args) + ': ' + out.slice(-400));
     assert.match(out, why, JSON.stringify(args));
@@ -171,7 +187,9 @@ test('--only asks the install harness once: a live one refuses it; the override 
 
 test('the runner\'s text keeps --only out of the whole suite\'s parts (coverage count, shell part, both gates)', () => {
   const src = fs.readFileSync(RUNNER, 'utf8');
-  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n  KOSMOS_TEST_FILES=\("\$\{KOSMOS_ONLY_FILES\[@\]\}"\)/, 'the coverage count is no longer skipped for --only');
+  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n(?:  .*\n){0,8}  KOSMOS_TEST_FILES=\("\$\{KOSMOS_ONLY_FILES\[@\]\}"\)/, 'the coverage count is no longer skipped for --only');
+  // An empty --only list must stop before the node line too: bash 5 expands it to nothing and node runs every file.
+  assert.match(src, /if \[ "\$\{#KOSMOS_ONLY_FILES\[@\]\}" -eq 0 \]; then\n.*\n    exit 2\n  fi\n  KOSMOS_TEST_FILES=/, 'the second stop for an empty --only list is gone');
   assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n  :   # #4929: --only runs named node files; the shell part is the whole suite's\nelif \[ "\$NODE_STATUS" -eq 0 \]/, 'the shell part is no longer skipped for --only');
   assert.equal((src.match(/if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_ONLY" != 1 \]; then\n  \( \. "\$\(dirname "\$0"\)\/lib\/browser-check(-surface)?-gate\.sh"/g) || []).length, 2,
     'a browser-check gate is no longer skipped for --only');

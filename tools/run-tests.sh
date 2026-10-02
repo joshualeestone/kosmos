@@ -81,6 +81,10 @@ if [ "${1:-}" = --only ]; then
   set --
   KOSMOS_ONLY=1
   echo "run-tests: --only: ${#KOSMOS_ONLY_FILES[@]} named file(s), not the whole suite (#4929)" >&2
+  # Relative names are read from THIS runner's repo root, not the caller's folder: print what will run.
+  for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do
+    case "$_only_f" in /*) echo "run-tests: --only:   $_only_f" >&2 ;; *) echo "run-tests: --only:   $REPO/$_only_f" >&2 ;; esac
+  done
 fi
 # Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
 if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
@@ -262,7 +266,7 @@ KOSMOS_QUEUE_CLASS=heavy
 # case after four bounds plus one per waiter ahead at entry (#4574; tools/lib/cut-guard.sh,
 # kosmos_wait_until_clear). A run that skips the suite check (the override or a run inside a test,
 # below) does not queue, and waits 20 minutes from its start. KOSMOS_NO_WAIT=1
-# refuses at once; this runner's arguments (other than a leading --only) all go to node --test, so it has no --no-wait flag.
+# refuses at once; this runner's arguments all go to node --test (with a leading --only, none do), so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
 _rt_suite_check=1
@@ -377,6 +381,12 @@ fi
 # guard and the test agree on what counts. If a real test dir beyond root/engine/ is ever
 # added, update the glob here (the point of this guard is that you cannot forget to).
 if [ "$KOSMOS_ONLY" = 1 ]; then
+  # #4929: a second stop for an empty list. With no files, bash 5 expands an empty array cleanly and a bare node --test
+  # discovers and runs EVERY *.test.js, so the refusal at the top must not be the only thing standing in the way.
+  if [ "${#KOSMOS_ONLY_FILES[@]}" -eq 0 ]; then
+    echo "run-tests: --only with no files would run the whole suite; refusing" >&2
+    exit 2
+  fi
   KOSMOS_TEST_FILES=("${KOSMOS_ONLY_FILES[@]}")   # #4929: the named files; the whole-suite count below does not apply
 else
 shopt -s nullglob
