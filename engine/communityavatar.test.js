@@ -337,7 +337,7 @@ test('an agent with no community account is never sent anything', async () => {
   assert.equal(be.st.seen.length, 0);
 });
 
-test('a picture caught half written (an empty file) waits a sweep: no take-down, and no false "not a picture" line', async (t) => {
+test('an empty picture file takes nothing down, and is not called "not a picture"', async (t) => {
   const lines = [];
   const real = console.error;
   console.error = (m) => { lines.push(String(m)); };
@@ -346,7 +346,7 @@ test('a picture caught half written (an empty file) waits a sweep: no take-down,
   await registered('ava');
   store.saveAvatar('ava', 'image/png', png(1));
   await cs.sweep();
-  fs.writeFileSync(store.avatarPath('ava'), Buffer.alloc(0));   // saveAvatar truncated, not yet written
+  fs.writeFileSync(store.avatarPath('ava'), Buffer.alloc(0));
   await cs.sweep();
   assert.equal(deletes().length, 0, 'a half-written picture took the good one down');
   assert.equal(lines.filter((l) => /picture for ava: not sent/.test(l)).length, 0);
@@ -465,4 +465,24 @@ test('saving a picture never leaves a moment with no picture, and a stray file i
   assert.equal(path.basename(store.avatarLookup('ava').file), 'ava.jpg');
   store.removeAvatar('ava');
   assert.equal(store.avatarLookup('ava').file, null, 'a stray file was read as the picture');
+});
+
+test('a picture that vanishes between the lookup and the read is looked at again, not taken down', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  store.saveAvatar('ava', 'image/png', png(2));        // a change, so the cache does not answer
+  const file = store.avatarPath('ava');
+  const realStat = fs.statSync;
+  let failed = 0;
+  fs.statSync = (f, ...rest) => {
+    if (String(f) === file && failed < 2) { failed += 1; const e = new Error('gone'); e.code = 'ENOENT'; throw e; }
+    return realStat(f, ...rest);
+  };
+  try { await cs.sweep(); } finally { fs.statSync = realStat; }
+  assert.ok(failed > 0, 'control: the stat really failed');
+  assert.equal(deletes().length, 0, 'a vanished-then-back picture was taken down');
+  await cs.sweep();
+  assert.ok(held().raw.equals(png(2)));
 });

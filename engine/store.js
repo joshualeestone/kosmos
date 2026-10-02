@@ -287,9 +287,6 @@ const ALLOWED_IMAGES = {
   'image/gif': '.gif',
 };
 
-/* The avatar file for `name` inside `dir`, or null. The ONE lookup (one file per
-   agent, `<safeKey>.<ext>`), so importing an agent from another Kosmos's avatars
-   folder finds it the way this store does (#1704 PR4). */
 /* #4885: the one rule for which file in an avatars folder is `key`'s picture: `<key>.<ext>` with an image extension
    saveAvatar writes. A stray `<key>.png.bak` or `<key>.txt` is not a picture. Shared by avatarPathIn and avatarLookup
    so the page and the community sender never disagree about which file it is. */
@@ -297,6 +294,9 @@ const AVATAR_EXTS = new Set(Object.values(ALLOWED_IMAGES));
 function avatarFileIn(names, key) {
   return names.find((f) => f.startsWith(key + '.') && AVATAR_EXTS.has(f.slice(key.length))) || null;
 }
+/* The avatar file for `name` inside `dir`, or null. The ONE lookup (one file per
+   agent, `<safeKey>.<ext>`), so importing an agent from another Kosmos's avatars
+   folder finds it the way this store does (#1704 PR4). */
 function avatarPathIn(dir, name) {
   const key = safeKey(name);
   try {
@@ -428,7 +428,8 @@ function saveAvatar(name, contentType, buffer) {
   }
   // Replace rather than accumulate: one avatar per agent, and an old .png
   // left beside a new .jpg would win or lose by directory order.
-  if (existing && existing !== dest) fs.unlinkSync(existing);
+  // The new picture is already in place, so a failure here is not a failed save.
+  if (existing && existing !== dest) { try { fs.unlinkSync(existing); } catch { /* left beside it; the lookup takes one */ } }
   return dest;
 }
 
