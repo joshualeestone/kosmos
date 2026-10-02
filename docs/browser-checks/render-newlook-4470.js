@@ -232,7 +232,13 @@ const CTRL_LOOK = `(() => {
     return { found: !!box && !!quiet, plainBg: P.backgroundColor, plainEdge: P.borderTopColor, plainRadius: P.borderTopLeftRadius, plainShadow: P.boxShadow,
       mainBg: M.backgroundColor, mainRadius: M.borderTopLeftRadius, dangerEdge: D.borderTopColor, dangerRadius: D.borderTopLeftRadius,
       quietBg: Q && Q.backgroundColor, quietEdge: Q && Q.borderTopColor, quietRadius: Q && Q.borderTopLeftRadius,
-      outsideDangerEdge: getComputedStyle(danger).borderTopColor };
+      outsideDangerEdge: getComputedStyle(danger).borderTopColor, plainFocus: (() => {
+        /* Round 2: with the edge gone the focus ring is the pill's only cue beyond its label; focused as a keyboard
+           would focus it, read, and let go. */
+        const sec = plain.closest('.dsec'), secHidden = sec ? sec.hidden : false; if (sec) sec.hidden = false;
+        const was = document.activeElement; plain.focus({ focusVisible: true });
+        const o = document.activeElement === plain ? getComputedStyle(plain).outlineStyle : 'not focused';
+        plain.blur(); if (was && was.focus) was.focus(); if (sec) sec.hidden = secHidden; return o; })() };
   } finally { made.remove(); pd.hidden = h1; ps.hidden = h2; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
@@ -529,7 +535,8 @@ const AGENTS_LOOK = `(() => {
       const ctlOn = await page.evaluate(CTRL_LOOK);
       chk(ctlOn.found && ctlOn.plainBg === PAGE_OF[theme] && ctlOn.plainEdge === CLEAR && ctlOn.plainRadius === '999px'
         && ctlOn.plainShadow !== 'none' && ctlOn.mainRadius === '999px' && ctlOn.mainBg !== PAGE_OF[theme] && ctlOn.mainBg !== CLEAR
-        && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === PAGE_OF[theme] && ctlOn.quietEdge === CLEAR && ctlOn.quietRadius === '999px',
+        && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === PAGE_OF[theme] && ctlOn.quietEdge === CLEAR && ctlOn.quietRadius === '999px'
+        && ctlOn.plainFocus !== 'none' && ctlOn.plainFocus !== 'not focused' && ctlOn.outsideDangerEdge !== CLEAR,
         `${tag} On, the controls: plain and quiet buttons are raised pills in the page's ground with no edge, the main one a pill that keeps its fill, a danger one a pill that keeps its edge`, JSON.stringify(ctlOn));
       const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
       chk(setOn.found && setOn.dotBg !== OLD_DOT && setOn.dotBg !== CLEAR && setOn.dotBg !== 'absent' && setOn.plusNavBg !== GREY_OF[theme] && setOn.plusOnEdge !== CLEAR,
