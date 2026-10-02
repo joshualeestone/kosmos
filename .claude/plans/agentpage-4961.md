@@ -20,8 +20,16 @@ focus after a click (Safari does not focus the clicked button), so a 2px ink rin
 - On main: 12 FAIL (every keyboard arm, both engines, solid 2px). Click arms pass on main: Playwright's
   WebKit focuses the clicked button, so it does not reproduce the Mac click case (stated in the check).
 - With the change: all 57 PASS lines, rc 0.
-- node --test browser-checks-*.test.js web.*.test.js: 2319 pass, 0 fail (reason-grep unchanged: the
-  check uses the ternary chk and bare-object catch shapes, which the scan does not count).
+- node --test browser-checks-*.test.js web.*.test.js tools.browser-checks-*.test.js: 2344 pass, 0 fail
+  (reason-grep unchanged: the check uses the ternary chk and bare-object catch shapes, which the scan
+  does not count). The check is in gated.txt (#1387 wiring). The rest of the suite (other tools.*,
+  engine, cli) is left to CI and the full validation at convergence.
+
+## Accepted cost
+#350 gave keyboard users a ring on the section a pill moves focus into. This drops it on purpose:
+the pressed pill shows as current, the revealed section is what they see, and a ring round a whole
+card is the stroke Josh asked to remove. Keeping it for keyboard-only activation was considered and
+rejected as more machinery than the case earns; it is a one-rule revert if wanted.
 
 ## Weakest premise
 That Josh's stroke is this rule. It is the only outline on .dsec and matches the 16px-radius ring in
