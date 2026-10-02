@@ -48247,7 +48247,7 @@ async function openTeamCreate(key) {
   /* Round 5: another team waits only while something is actually IN FLIGHT. A team that is unfinished but
      idle (a member refused every time, or never seen running) is replaced by the new one, or it would
      trap the page with a false "still making" until a reload. The same team always resumes. */
-  const inFlight = Boolean(TC && (TC.running || TC.watching || TC.busy));
+  const inFlight = Boolean(TC && (TC.running || TC.watching || TC.busy || TC.greeting));
   if (tcLive() && (TC.key === key || inFlight)) {
     const msg = document.getElementById('tc-msg');
     msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;
@@ -48424,7 +48424,8 @@ function tcFinished() {
   return Boolean(TC && TC.started && TC.members.every((m) => m.state === 'made' && m.seen === 'running'));
 }
 function tcLive() {
-  return Boolean(TC && (TC.busy || TC.started) && !tcFinished());
+  // #4936: a team still being greeted is live too, so Back or opening it again resumes it rather than dropping it.
+  return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting));
 }
 
 function tcFillProjects() {
@@ -48491,7 +48492,7 @@ function tcPaint() {
     st.textContent = ({ ready: '', waiting: 'Waiting', held: 'Waiting for the lead', creating: 'Making…',
       made: made + (m.portrait === 'failed' ? ' (picture not set)' : ''), failed: 'Not made' })[m.state] || '';
     // #4936: once it is running, Kosmos says hello to it; the row says where that is.
-    if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', started: 'Started', failed: 'Could not say hello' })[m.hello] || st.textContent;
+    if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', started: 'Started', failed: 'Could not say hello', unsure: 'Hello not confirmed' })[m.hello] || st.textContent;
     row.append(seat, input, st);
     if (m.renamedFrom) {
       const note = document.createElement('p'); note.className = 'tc-why';
@@ -48506,6 +48507,11 @@ function tcPaint() {
       const p = document.createElement('p'); p.className = 'tc-why';
       p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
       row.append(p);
+    }
+    if (m.state === 'made' && m.hello === 'unsure') {   // #4936: it may have reached it, so no retry (it could say hello twice)
+      const why = document.createElement('p'); why.className = 'tc-why';
+      why.textContent = 'Kosmos sent hello but could not confirm it arrived. Look at its page before saying it again.';
+      row.append(why);
     }
     if (m.state === 'made' && m.hello === 'failed') {   // #4936: a member that did not start is said, with a retry
       const why = document.createElement('p'); why.className = 'tc-why';
@@ -48569,18 +48575,15 @@ function tcPaint() {
       + (TC.team && TC.team.caution ? ' ' + TC.team.caution : '');
   } else if (runningN === n) {
     const warned = TC.members.filter((m) => (m.warn || []).length).length;
-    /* Review 27: the single create ends on the invitation to say hello and one button straight to the
-       agent (Josh, 2026-08-22: "Unless I go say hello to them, they don't start"; and no sending people
-       off to find the agent). A team ended on a sentence and Back. Same invitation, same place to go:
-       the lead, who the others report to. It says "each", because nothing here shows that greeting the
-       lead wakes the rest. */
+    /* Josh, 2026-08-22: "Unless I go say hello to them, they don't start". */
     /* #4936 (Josh, 0.7.16: "Is there a way to say hello to all of them at once automatically"): Kosmos says the
        hello itself, lead first, the same message the agent's page sends. The note follows where that is. */
     const sentN = TC.members.filter((m) => m.hello === 'started').length;
-    const notN = TC.members.filter((m) => m.hello === 'failed').length;
+    const notN = TC.members.filter((m) => m.hello === 'failed' || m.hello === 'unsure').length;
     const look = warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '';
     if (sentN === n) note = (n === 1 ? 'Your agent is started.' : 'Your team is started.') + look;
-    else if (notN && sentN + notN === n) note = 'Your team is running. ' + (notN === 1 ? '1 of them has' : notN + ' of them have') + ' not started: try again on its row, or say hello to it on its page.' + look;
+    else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
+      : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at its row.') + look;
     else note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : 'each of them') + ' so ' + (n === 1 ? 'it starts' : 'they start') + '…' + look;
   } else {
     note = madeN + ' of ' + n + ' made' + (runningN ? ', ' + runningN + ' running' : '') + (failedN ? ', ' + failedN + ' not made' : '') + '.';
@@ -48592,151 +48595,111 @@ function tcPaint() {
      retry, and this button goes to the team. */
   const hello = document.getElementById('tc-hello');
   const finished = tcFinished();
-  const settled = finished && TC.members.every((m) => m.hello === 'started' || m.hello === 'failed');
-  hello.hidden = !(settled && TC.members.some((m) => m.hello === 'failed'));
+  const settled = finished && TC.members.every((m) => m.hello && m.hello !== 'sending');
+  hello.hidden = !(settled && TC.members.some((m) => m.hello !== 'started'));
   hello.textContent = n === 1 ? 'Go to your agent' : 'Go to your team';
-  if (finished && !TC.helloStarted) tcSayHello();
+  if (finished && TC_AUTO_HELLO && !TC.helloStarted) tcSayHello();
 }
 
-/* #4936: say hello to every member, the lead first, then the rest together. The same message the agent's page sends
-   (sendWakeHello, #2686), and "started" only when the board says it was PLACED in the agent's session. A member just
-   seen running may still be starting up, so a hello that is not placed is tried twice more, a few seconds apart. */
+/* #4936: say hello to every member, the lead first, then the rest together: the same request the agent's page sends
+   (POST .../thread {text: "hello"}). The answer's delivery state decides the row (engine/chat.js DELIVERY):
+   placed = started; could_not (or a refusal) = not sent, tried twice more a few seconds apart (a member just seen
+   running may still be starting up), then Try again; anything else (unconfirmed, no answer) may have reached it, so it
+   is not sent again and the row says to look. */
 const TC_HELLO_TRIES = 3;
+let TC_AUTO_HELLO = true;     // a browser check whose arm is not about #4936 turns it off
 let TC_HELLO_GAP_MS = 3000;   // a browser check can shorten it
+async function tcHelloSend(name) {
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'hello' }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) return 'failed';
+    const state = out && out.delivery && out.delivery.state;
+    return state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure');
+  } catch { return 'unsure'; }   // the request may have reached the board
+}
 async function tcHelloOne(m, gen) {
   if (!m || !m.made || !m.made.name) return;
   m.hello = 'sending'; tcPaint();
-  const name = m.made.name;
-  let placed = false;
-  for (let i = 0; i < TC_HELLO_TRIES && !placed; i++) {
+  let got = 'failed';
+  for (let i = 0; i < TC_HELLO_TRIES && got === 'failed'; i++) {
     if (i) await new Promise((r) => setTimeout(r, TC_HELLO_GAP_MS));
     if (gen !== TC_GEN) return;
-    const mine = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
-    await sendWakeHello(name, mine, (said) => { placed = said === 'placed'; }, 'placed', 'not');
+    got = await tcHelloSend(m.made.name);
   }
   if (gen !== TC_GEN || !TC) return;
-  m.hello = placed ? 'started' : 'failed';
+  m.hello = got;
   tcPaint();
 }
 async function tcSayHello() {
   if (!TC || TC.helloStarted) return;
-  TC.helloStarted = true;
+  TC.helloStarted = true; TC.greeting = true;
   const gen = TC_GEN;
   const lead = tcLead();
   await tcHelloOne(lead, gen);
   if (gen !== TC_GEN || !TC) return;
   await Promise.all(TC.members.filter((m) => m !== lead).map((m) => tcHelloOne(m, gen)));
   if (gen !== TC_GEN || !TC) return;
-  if (TC.members.every((m) => m.hello === 'started')) tcGoToTeam();
+  TC.greeting = false;
+  if (TC.members.every((m) => m.hello === 'started')) tcGoToTeam(true);
+  else tcPaint();
 }
 function tcHelloRetry(slot) {
   const m = TC && TC.members.find((x) => x.slot === slot);
   if (!m || m.hello !== 'failed') return;
   const gen = TC_GEN;
+  TC.greeting = true;
   tcHelloOne(m, gen).then(() => {
-    if (gen === TC_GEN && TC && TC.members.every((x) => x.hello === 'started')) tcGoToTeam();
+    if (gen !== TC_GEN || !TC) return;
+    TC.greeting = TC.members.some((x) => x.hello === 'sending');
+    if (TC.members.every((x) => x.hello === 'started')) tcGoToTeam(true);
   });
 }
 /* #4936 (Josh: "It should take me to my agent view wherever I was and show me. I should be able to go see the new
-   agents easily."): back to the agents, where the create step's own Back goes, with the new members scrolled to and
-   marked for a few seconds. */
+   agents easily."): to the agents, where the create step's own Back goes, with the new members' board cards scrolled
+   to and marked for a few seconds. `auto`: only if the person is still on this step; a team finished while they were
+   elsewhere (Back keeps it running) is marked where it is, and the screen does not move under them. */
 let TC_JUST_MADE_MS = 10000;
-function tcGoToTeam() {
+function tcStepShown() {
+  const panel = document.getElementById('panel-create');
+  const step = document.getElementById('cstep-teammake');
+  return Boolean(panel && !panel.hidden && step && !step.hidden);
+}
+function tcGoToTeam(auto) {
   if (!TC) return;
   const names = TC.members.filter((m) => m.made && m.made.name).map((m) => m.made.name);
+  const leaving = !auto || tcStepShown();
   TC_GEN += 1; TC = null;   // the team is finished: nothing is left to resume
+  if (!leaving) return;
   WATCH += 1;
   if (layoutConsolidated()) { showTab('projects'); openConsolidatedAgents(); } else showTab('agents');
   const until = Date.now() + TC_JUST_MADE_MS;
-  let scrolled = false;
+  let first = null;
+  const sel = names.map((n) => '.acard[data-agent="' + CSS.escape(n) + '"], .lrow[data-agent="' + CSS.escape(n) + '"]').join(', ');
   const mark = () => {
     const live = Date.now() < until;
-    for (const n of names) {
-      for (const el of document.querySelectorAll('[data-agent="' + CSS.escape(n) + '"]')) {
-        el.classList.toggle('just-made', live);
-        if (live && !scrolled && el.offsetParent) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); scrolled = true; }
+    for (const el of (sel ? document.querySelectorAll(sel) : [])) {
+      el.classList.toggle('just-made', live);
+      if (live && !first && el.offsetParent) {
+        first = el;
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        el.tabIndex = -1; el.focus({ preventScroll: true });   // focus leaves the hidden step for the first new member
       }
     }
     if (live) setTimeout(mark, 500);
   };
   mark();
+  // The step's live region went with the step: say it where a screen reader hears it.
+  let live = document.getElementById('tc-done-live');
+  if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
+  live.textContent = '';
+  setTimeout(() => { live.textContent = (names.length === 1 ? 'Your agent is started.' : 'Your team is started.') + ' The new ' + (names.length === 1 ? 'agent is' : 'agents are') + ' marked on your board.'; }, 100);
 }
-/* The lead as the list marks it ("leads the team"), and the name it was made under. */
-function tcLead() {
-  return (TC && (TC.members.find((m) => m.slot === TC.leadSlot) || TC.members[0])) || null;
-}
-function tcLeadShown() {
-  const lead = tcLead();
-  return (lead && lead.made && (lead.made.shownAs || lead.made.name)) || '';
-}
-
-/* What to say for a caught error: a fetch that never reached the board throws the browser's own words
-   ("Failed to fetch", "Load failed"), which are not ours to show. */
-function tcSay(err, fallback) {
-  // Only the fetch failures (Chrome, Safari, Firefox wordings): any other TypeError is a page bug and stays visible.
-  if (err instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(String(err.message))) return 'Kosmos could not be reached. Try again in a moment.';
-  // Round 30: every refusal on this step reads as a sentence (Mona's review), the server's own words included.
-  return pjSentence((err && err.message) ? String(err.message) : fallback);
-}
-
-function tcNames() {
-  const names = {};
-  for (const m of TC.members) names[m.slot] = (m.made && m.made.shownAs) || m.name.trim();
-  return names;
-}
-
-/* #4719: the provider and account for every member, and the ONE rule for when that choice is fixed:
-   while a click or a run is in progress, or once any member exists or may exist (a create whose answer
-   was lost). Its teammates must run on the same account, and a run must not change under itself. While
-   it is not fixed (before the first press, after a press refused before anything was made, after a run
-   whose lead was refused) the menus are open and the next run reads them. */
-function tcMemberExists() {
-  return Boolean(TC && Array.isArray(TC.members) && TC.members.some((m) => m && (m.made || m.maybeMade || m.state === 'made')));
-}
-function tcChoiceFixed() {
-  return Boolean(TC && (TC.busy || TC.running || tcMemberExists()));
-}
-/* The remembered choice (TC.model) is used only once a member exists: it is what that member was made on.
-   Before that the menus are the truth, and they are locked for the length of a click or a run, so
-   reading them again inside one run gives the same answer. Nothing else has to keep TC.model fresh
-   (review round 8: a settle or a late account list that changed a menu left a stale one behind). */
-function tcModel() {
-  if (TC && TC.model && tcMemberExists()) return TC.model;
-  const p = document.getElementById('tc-provider');
-  const a = document.getElementById('tc-account');
-  const provider = p ? String(p.value || '') : '';
-  const account = a ? String(a.value || '') : '';
-  const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
-  if (TC) TC.model = m;   // what the members made from here on are made on
-  return m;
-}
-async function tcSpecs(project, check) {
-  const res = await fetch('/api/teams/seeded/' + encodeURIComponent(TC.key) + '/specs', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ names: tcNames(), project: project || null, ...tcModel(), ...(check ? { check: true } : {}) }),
-  });
-  const body = await res.json().catch(() => null);
-  if (!res.ok || !body || !Array.isArray(body.specs)) throw new Error((body && body.error) || 'Kosmos could not prepare the team');
-  return body.specs;
-}
-
-/* Back steps away. A live team (started, or being started) is KEPT and resumed when the person comes back
-   (round 3: resetting it here left an empty project behind, or dropped rows and the watcher). */
-/* Back is the Team path's pick screen (#4556), where this step was opened from. */
-document.getElementById('tc-back').addEventListener('click', () => {
-  if (tcLive()) { chooseCreatePath('team'); return; }
-  TC_GEN += 1; TC = null; chooseCreatePath('team');
-});
-
-document.getElementById('tc-tell').addEventListener('change', (e) => {
-  const tellBox = document.getElementById('create-tell');
-  if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
-});
-
-/* Straight to the lead, the way the single create's Say Hello goes straight to its agent (openDetail). */
 document.getElementById('tc-hello').addEventListener('click', () => {
   if (!tcFinished()) return;
-  tcGoToTeam();   // #4936: to the team on the agents view, not into one agent's page
+  tcGoToTeam(false);   // #4936 "Go to your team": the team on the agents view, not into one agent's page
 });
 
 document.getElementById('tc-go').addEventListener('click', async () => {

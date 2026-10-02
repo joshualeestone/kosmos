@@ -17,6 +17,9 @@
  *    again on the lead releases them;
  *  - two seats with one name, or a name already taken on this computer (an agent's folder exists), are
  *    refused BEFORE anything is made, project included;
+ *  - #4936: once every member runs, Kosmos says hello to each (lead first); placed rows read Started, a not-placed
+ *    one is retried then offers Try again and the step stays with Go to your team; all placed, it goes to the
+ *    agents view with the new members' cards marked. TC_AUTO_HELLO is off in arms that are not about it.
  *  - round 1: Try again during a run is made by the one run (nobody posted twice), focus stays on the
  *    person's row through repaints, progress is a polite live region, a member reads "Made, starting"
  *    until the board sees it running (then Running), "ready" only when all are, and a member renamed on
@@ -205,7 +208,8 @@ function chk(ok, label, extra) {
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
-          await page.evaluate(() => { TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });   // #4936: fast retries, a long mark
+          // #4936: off unless an arm is about it (the others settle on rows reading Running); fast retries, a long mark.
+          await page.evaluate(() => { TC_AUTO_HELLO = false; TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });
           return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
@@ -273,6 +277,7 @@ function chk(ok, label, extra) {
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
           const { page, errs, posted, script, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });   // #4936 is this arm's subject
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const view = await page.evaluate(() => ({
@@ -339,9 +344,9 @@ function chk(ok, label, extra) {
             `${E} #4936 a hello that is not placed is tried three times; a placed one once`, JSON.stringify(hellos.map((h) => h.who)));
           chk(r2.map((r) => r.state).join() === 'Started,Started,Could not say hello' && r2[2].retry,
             `${E} #4936 each row says whether its member started; the one that did not has Try again`, JSON.stringify(r2.map((r) => [r.state, r.retry])));
-          const stay = await page.evaluate(() => ({ note: document.getElementById('tc-note').textContent, step: !document.getElementById('cstep-teammake').hidden,
+          const stay = await page.evaluate(() => ({ note: document.getElementById('tc-note').textContent, step: TC !== null && !document.getElementById('panel-create').hidden,
             go: (document.getElementById('tc-hello') || { textContent: null }).textContent, shown: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
-          chk(stay.step && /1 of them has not started: try again on its row, or say hello to it on its page\./.test(stay.note) && stay.shown && stay.go === 'Go to your team',
+          chk(stay.step && /1 of them may not have started: look at its row\./.test(stay.note) && stay.shown && stay.go === 'Go to your team',
             `${E} #4936 with one not started, the step stays, says so, and offers Go to your team`, JSON.stringify(stay));
           chk(/still know it as Leo\b/.test(r2[1].why), `${E} a member renamed on Try again says its made teammates still know the old name`, r2[1].why);
           chk(await page.evaluate(() => document.getElementById('tc-note').getAttribute('aria-live') === 'polite'), `${E} the step's progress line is a polite live region`);
@@ -359,17 +364,20 @@ function chk(ok, label, extra) {
           chk(staticAsks.length === 0, `${E} #4720: the page never reads a catalogue image path under the board`, JSON.stringify(staticAsks));
           chk(r2.every((r) => !/not set/.test(r.state)), `${E} and no row says its picture was not set`, JSON.stringify(r2.map((r) => r.state)));
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
-          /* #4936: Try again on Ana's hello, now placed: every member started, so the step takes the person back to
-             their agents (Josh: "take me to my agent view wherever I was and show me"), the new members marked. */
-          helloFail.delete('ana');
-          await page.evaluate(() => { window.openDetail = (who) => { window.__tcOpened = who; }; });
+          /* #4936: Try again on Ana while it still is not placed: tried three more times, and the step still stays. */
           await page.click('#tc-list li[data-slot="social"] .tc-retry');
-          await settle(page, () => typeof TC !== 'undefined' && TC === null);
+          await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || '') && hellos.filter((h) => h.who === 'ana').length === 6);
+          chk(await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden), `${E} #4936 a Try again that fails again keeps the step`);
+          /* "Go to your team": to the agents view (Josh: "take me to my agent view wherever I was and show me"), not into
+             one agent's page, the new members' board cards marked, no team left to resume. */
+          await page.evaluate(() => { window.openDetail = (who) => { window.__tcOpened = who; }; });
+          await page.click('#tc-hello');
           await settle(page, () => document.querySelectorAll('.just-made').length >= 3);
-          const went = await page.evaluate(() => ({ team: TC === null, step: !document.getElementById('cstep-teammake').hidden, opened: window.__tcOpened || null,
-            marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort() }));
-          chk(went.team && !went.step && !went.opened && went.marked.join() === 'ana,leo-two,maya-okafor',
-            `${E} #4936 once every hello is placed, the step goes to the agents view (not one agent's page), the new members marked, no team left to resume`, JSON.stringify(went));
+          const went = await page.evaluate(() => ({ team: TC === null, panel: !document.getElementById('panel-create').hidden, opened: window.__tcOpened || null,
+            marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort(),
+            onlyCards: [...document.querySelectorAll('.just-made')].every((e) => e.matches('.acard, .lrow')) }));
+          chk(went.team && !went.panel && !went.opened && went.marked.join() === 'ana,leo-two,maya-okafor' && went.onlyCards,
+            `${E} #4936 Go to your team leaves the create view for the agents view, the new members' cards marked (only board cards), no team left to resume`, JSON.stringify(went));
           /* Review 28: opening a team after that must not show the finished team's Say Hello while the new
              one loads. The load is never answered here, so this is the screen as it stands mid-load. */
           await page.route('**/api/teams/seeded/marketing', () => {});
@@ -379,6 +387,33 @@ function chk(ok, label, extra) {
             options: document.getElementById('tc-project').options.length, tell: !(document.getElementById('tc-tell') || { disabled: true }).disabled }));
           chk(/Loading the team/.test(loading.title) && !loading.hello && loading.options === 0 && !loading.tell, `${E} while another team loads, the finished team's Say Hello, project menu and choice are not on offer`, JSON.stringify(loading));
           await page.close();
+        }
+
+        /* --- #4936: every hello placed: the step takes the person to the agents view on its own ------------------- */
+        {
+          const { page, errs, hellos } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Mia');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Lou');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Ari');
+          await page.click('#tc-go');
+          await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
+          const auto = await page.evaluate(() => ({ panel: !document.getElementById('panel-create').hidden,
+            marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort(),
+            said: (document.getElementById('tc-done-live') || { textContent: '' }).textContent }));
+          chk(hellos.map((h) => h.who).join() === 'mia,lou,ari' || (hellos[0] && hellos[0].who === 'mia' && hellos.length === 3),
+            `${E} #4936 the lead is said hello to first, then the others, once each`, JSON.stringify(hellos.map((h) => h.who)));
+          chk(!auto.panel && auto.marked.join() === 'ari,lou,mia', `${E} #4936 all placed: the step leaves for the agents view on its own, the new members marked`, JSON.stringify(auto));
+          await settle(page, () => /Your team is started\./.test((document.getElementById('tc-done-live') || { textContent: '' }).textContent));
+          const said = await page.evaluate(() => { const l = document.getElementById('tc-done-live'); return l ? [l.textContent, l.getAttribute('aria-live')] : null; });
+          chk(said && said[0] === 'Your team is started. The new agents are marked on your board.' && said[1] === 'polite',
+            `${E} #4936 a screen reader is told the team started and where the members are`, JSON.stringify(said));
+          chk(errs.length === 0, `${E} no page errors (#4936 all-placed arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
         }
 
         /* --- #4557 round 30: the REAL way in (New Agent > Team > pick > Create, no page.evaluate), focus, Back idle -- */
