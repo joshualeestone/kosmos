@@ -9154,7 +9154,7 @@ const server = http.createServer(async (req, res) => {
              board started, carries that date; the page shows it as a calm "login good until". Green only with the
              switch on. */
           const loginArgs = { badge: v.badge, checkLiveState: a.connection && a.connection.state,
-            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), now: nowMs };
+            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), checkRefused: claudeloginlive.checkRefused(a.dir), now: nowMs };
           const loginOk = claudeloginlive.loginGood(loginArgs);
           const loginGreen = loginOk && claudeloginlive.greenFromLogin(loginArgs);
           return {
@@ -9916,8 +9916,10 @@ const server = http.createServer(async (req, res) => {
         // the same #1916 rule the create gate states: a broken checker is not a
         // dead account. claudeAccountLive already returns UNKNOWN (not a throw)
         // for every environmental case, so a throw here is our own bug, logged.
-        try { state = await create.claudeAccountLive(probeDir); }
+        let refused = false;
+        try { ({ state, refused } = await create.claudeAccountCheck(probeDir)); }
         catch (err) { console.error('#3136: claude check-now errored (failing open):', (err && err.stack) || err); state = subscription.STATE.UNKNOWN; }
+        claudeloginlive.noteCheck(acct.dir, { state, refused });   // #3997 review 1: a refusal blocks the login-green
         if (state === subscription.STATE.CONNECTED) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.OK);
         else if (state === subscription.STATE.NONE) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.REJECTED);
         // UNKNOWN records nothing — the prior badge stands, unclobbered.

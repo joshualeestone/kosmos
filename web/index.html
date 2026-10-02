@@ -769,8 +769,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    provider. Green (.acct-connected) = confirmed working. AMBER (.acct-unverified) = signed in, not confirmed yet,
    with Check now beside it. Red (.acct-none) = signed out, or a request was rejected. Muted grey (.acct-unknown) is
    left only for "we could not check at all". The pill stays a short "Signed in" (Josh 6.68, #3136); the reason is
-   in its title. Calm neutral (.acct-loginok, #3997 ruling C) = an idle Claude sign-in whose login date Kosmos read
-   from its stored login: not amber (nothing is wrong) and not green (nothing answered). */
+   in its title. Calm neutral (.acct-loginok, #3997 ruling C) was an idle Claude sign-in whose login date Kosmos read
+   from its stored login. Since ruling A (Josh, 2026-10-02) that sign-in is GREEN instead (the server's
+   GREEN_FROM_LOGIN), so .acct-loginok is drawn only if the switch is turned off again. */
 .acct-unverified { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
 .acct-unverified .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
@@ -25137,7 +25138,8 @@ async function paintAccounts(opts) {
     const connectedWhy = 'this account is signed in. That does not prove a request would succeed, because a rejected token is not visible from here';
     /* #1921: the badge renders VERIFIED liveness from the last OBSERVED real call
        (server-side engine/observed), not the stored-login state alone. `working` is
-       the ONLY green and it means we SAW a request succeed -- so the pulsing dot's
+       the ONLY green and it means we SAW a request succeed, or (#3997 ruling A, observedFrom 'login') that a
+       Claude sign-in's own login is valid and unexpired with no rejection or failed check on record -- so the pulsing dot's
        "actively connected" (Josh, #864) is finally true rather than merely "a
        credential exists". A credential that only EXISTS is `signed_in_unverified`:
        amber since #3997 (it was muted grey), NOT green, which is the say-what-you-know half #874 could not reach.
@@ -25167,8 +25169,8 @@ async function paintAccounts(opts) {
     /* An expired key cannot be checked until Grok runs, so that title does not point at Check now (the server's
        structured verdict, not a match on its sentence: review round 4). */
     const unverifiedTitle = grokWhy ? ((a.connection.liveVerdict === 'expired' || a.connection.liveVerdict === 'pending') ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
-    /* #3997 (ruling C): an idle Claude sign-in whose login date Kosmos read from its stored login. Calm and
-       neutral, with the date; it turns green when an agent uses it or Check now answers. */
+    /* #3997: an idle Claude sign-in whose login date Kosmos read from its stored login. Ruling A (Josh, 10-02): green,
+       with the date (below). The calm neutral pill (ruling C) is drawn only if the server's switch is turned off. */
     const loginUntil = a.connection && Number.isFinite(a.connection.loginValidUntil) ? a.connection.loginValidUntil : null;
     // The year too when it is not this one (review iteration 3): a login can run for close to a year. The viewer's
     // own calendar on purpose, so it can read a day off near midnight UTC (see the plan); not a UTC string.
@@ -25179,10 +25181,15 @@ async function paintAccounts(opts) {
        rests on, the sign-in itself, and that Check now asks Anthropic directly; not "turns green later", which it is. */
     const loginGreenWhy = loginDate ? 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. Press Check now to ask Anthropic directly.' : '';
     let connBadge;
+    /* Review 1: a login-green row with no date to show is not claimed as "a real request succeeded"; it falls back to
+       the unverified state, the honest reading of what the server knows. */
+    const loginGreenNoDate = badge === 'working' && a.connection && a.connection.observedFrom === 'login' && !loginDate;
     if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
       connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
       connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+    } else if (loginGreenNoDate) {
+      connBadge = '<span class="acct-unverified" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? (fromCheck ? ' · checked ' : ' · active ') + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
