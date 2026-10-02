@@ -29,7 +29,7 @@ second (a `kosmos stop` during the update) would lose it.
 - order: the marker line sits directly after the pause's stop, before the three refusals; the disarm sits
   after the arming line and before the port wait.
 - another app on the port, board meant to run: marker gone, our board not started, refusal sentence kept.
-  Only this refusal is driven end to end; the other two share its EXIT-trap path and are pinned by line order.
+  The other two refusals' shipped die lines are driven the same way (marker gone, nothing started, sentence kept).
 - controls: a board the person stopped keeps its marker; past the arming point a computer switched to
   connect keeps its marker; switched to connect before the refusal keeps it; exit 0 keeps it.
 

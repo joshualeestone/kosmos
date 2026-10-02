@@ -2726,8 +2726,9 @@ _kosmos_put_board_back() {
 # port) die BEFORE the put-back is armed, because starting our board there would collide. But our own `kosmos stop`
 # had already written board.stopped, and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once
 # the port was free the board still stayed off. So: on a failed exit, a board.stopped that OUR stop wrote (the board
-# was meant to run, no marker before the run) is taken away, and nothing is started. Disarmed where the put-back is
-# armed, so this rm reaches only the refusal window.
+# was meant to run, no marker before the run) is taken away. This script starts nothing; what supervises the board is
+# no longer held off by the marker, as before the run. Disarmed where the put-back is armed, so this rm reaches only
+# the refusal window.
 _kosmos_marker_ours=no
 _kosmos_clear_own_marker() {
   [ "$_kosmos_marker_ours" = yes ] || return 0

@@ -287,6 +287,10 @@ else
 fi
 APPDIE="$(awk '/die "Another app on this computer is using port \$PORT, which Kosmos needs/{sub(/^ */, ""); print; exit}' "$SETUP")"
 case "$APPDIE" in die*) : ;; *) echo "FAIL: could not extract the another-app die (anchor drift?)" >&2; exit 1 ;; esac
+OURSDIE="$(awk '/die "A Kosmos board is still running on port \$PORT and could not be paused/{sub(/^ */, ""); print; exit}' "$SETUP")"
+case "$OURSDIE" in die*) : ;; *) echo "FAIL: could not extract the our-board die (anchor drift?)" >&2; exit 1 ;; esac
+FOREIGNDIE="$(awk '/die "Another Kosmos is answering on port \$PORT, but this install/{sub(/^ */, ""); print; exit}' "$SETUP")"
+case "$FOREIGNDIE" in die*) : ;; *) echo "FAIL: could not extract the another-Kosmos die (anchor drift?)" >&2; exit 1 ;; esac
 
 # other_app <port> <dir> -> a stand-in for another app holding the port (not Kosmos-shaped), pid in <dir>/other.pid.
 other_app() {
@@ -309,6 +313,21 @@ if [ ! -e "$H/board.stopped" ]; then pass "#5033: the another-app refusal takes 
 if [ ! -e "$H/board.pid" ]; then pass "#5033: and starts nothing (the port is not ours)"; else fail "#5033: the refusal started our board over another app's port"; fi
 if grep -q "Another app on this computer is using port" "$H/err"; then pass "#5033: and the refusal still says why"; else fail "#5033: the refusal sentence is missing: $(cat "$H/err")"; fi
 stop_other "$H"
+
+# 5a. The other two refusals take the marker back the same way (their dies, as shipped, after our stop).
+for pair in "ours:OURSDIE:could not be paused" "foreign:FOREIGNDIE:Another Kosmos is answering"; do
+  nm=${pair%%:*}; rest=${pair#*:}; var=${rest%%:*}; said=${rest#*:}
+  eval "line=\$$var"
+  P=$(free_port); H=$(home "refuse$nm"); export PORT=$P
+  run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$MARKSET"'
+'"$line"
+  if [ ! -e "$H/board.stopped" ] && [ ! -e "$H/board.pid" ] && grep -q "$said" "$H/err"; then
+    pass "#5033: the $nm refusal takes back the marker, starts nothing, and says why"
+  else
+    fail "#5033: the $nm refusal: marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), err: $(cat "$H/err")"
+  fi
+done
 
 # 5b. CONTROL: the person had stopped the board before the run: the same refusal keeps their board.stopped.
 P=$(free_port); H=$(home otherappstopped); export PORT=$P
