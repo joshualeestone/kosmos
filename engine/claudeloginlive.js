@@ -36,7 +36,7 @@ function setReaderForTests(fn) { reader = typeof fn === 'function' ? fn : null; 
 
 const cache = new Map();      // service name -> { at, until, gen }: gen is the login generation it was read under (#5018)
 const inflight = new Map();   // service name -> { gen, read }: the read under way and its generation
-function _clearForTest() { cache.clear(); inflight.clear(); }
+function _clearForTest() { cache.clear(); inflight.clear(); refusedChecks.clear(); }
 
 /* The row's login expiry (epoch ms), or null when there is none to read. Never rejects. */
 function validUntil(row, now = Date.now()) {
@@ -82,12 +82,23 @@ async function validUntilWithin(row, budgetMs = READ_BUDGET_MS, now = Date.now()
    ahead. `latestOutcome` is the newest outcome engine/observed holds for the row, whatever its age; observed keeps
    them in memory, so that reaches back to the board's last start. A rejection it holds keeps the row where the
    verdict put it, since a token refused by Anthropic can still carry a date ahead. */
-function loginGood({ badge, checkLiveState, latestOutcome, until, now = Date.now(), rejected = OUTCOME.REJECTED } = {}) {
+function loginGood({ badge, checkLiveState, latestOutcome, until, checkRefused = false, now = Date.now(), rejected = OUTCOME.REJECTED } = {}) {
   return badge === 'signed_in_unverified' && checkLiveState === 'connected' && latestOutcome !== rejected
-    && Number.isFinite(until) && until > now;
+    && !checkRefused && Number.isFinite(until) && until > now;
 }
+/* #3997 review 1: a Check now that Anthropic refused without the dead-sign-in words (a 403 permission error, a
+   disabled organisation) records no outcome, so with ruling A the row would stay green on its login date while the
+   person reads "Could not check". Marked here, by folder, until a later Check now answers connected or rejected, so
+   the row falls back to the unverified state. In memory, like engine/observed: a board restart forgets it. */
+const refusedChecks = new Set();
+function noteCheck(dir, { state, refused } = {}) {
+  if (!dir) return;
+  if (state === 'connected' || state === 'none') refusedChecks.delete(dir);
+  else if (refused) refusedChecks.add(dir);
+}
+function checkRefused(dir) { return !!dir && refusedChecks.has(dir); }
 /* Whether that good login also turns the row green: only with the switch on. */
 function greenFromLogin(args) { return GREEN_FROM_LOGIN && loginGood(args); }
 
-module.exports = { validUntil, validUntilWithin, loginGood, greenFromLogin, setReaderForTests, _clearForTest,
+module.exports = { validUntil, validUntilWithin, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, _clearForTest,
   GREEN_FROM_LOGIN, CACHE_MS, MISS_CACHE_MS, READ_BUDGET_MS };

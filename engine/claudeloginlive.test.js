@@ -75,3 +75,22 @@ test('#3997 review 1: no answer is kept longer than an answer, so a missing entr
   await m.validUntil({ dir: '/none' }, m.MISS_CACHE_MS);
   assert.equal(calls, 2, 'a miss was never asked again');
 });
+
+test('#3997 review 1: a refused Check now blocks the login-green for that folder until a later connected or rejected answer', () => {
+  m._clearForTest();
+  const good = { badge: 'signed_in_unverified', checkLiveState: 'connected', until: Date.now() + 1e9 };
+  assert.equal(m.loginGood({ ...good, checkRefused: m.checkRefused('/a') }), true, 'premise: green before any check');
+  m.noteCheck('/a', { state: 'unknown', refused: true });
+  assert.equal(m.checkRefused('/a'), true);
+  assert.equal(m.loginGood({ ...good, checkRefused: m.checkRefused('/a') }), false, 'a refused check left the login good');
+  assert.equal(m.checkRefused('/b'), false, 'the mark is per folder');
+  m.noteCheck('/a', { state: 'unknown', refused: false });   // capacity or no answer: changes nothing
+  assert.equal(m.checkRefused('/a'), true);
+  m.noteCheck('/a', { state: 'connected' });
+  assert.equal(m.checkRefused('/a'), false, 'a later connected answer did not clear it');
+  m.noteCheck('/a', { state: 'unknown', refused: true });
+  m.noteCheck('/a', { state: 'none' });
+  assert.equal(m.checkRefused('/a'), false, 'a later rejected answer did not clear it (the rejection itself blocks green)');
+  m.noteCheck('', { state: 'unknown', refused: true });
+  assert.equal(m.checkRefused(''), false, 'an empty folder is never marked');
+});
