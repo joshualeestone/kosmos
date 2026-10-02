@@ -11459,8 +11459,8 @@ const server = http.createServer(async (req, res) => {
      subset check against this snapshot, so if a TCC-root item it serves is NOT
      here, that check is permanently false and a legitimate dismiss silently
      re-shows the whole scan block for anyone who granted file access. So the
-     snapshot reuses the WARM import cache (`importScan.warm()`) (populated by the board's own
-     scan-import polls) when present.
+     snapshot reuses the WARM import cache, `importScan.warm()`, populated by the board's own
+     scan-import polls, when present.
 
      Each population is drawn from ITS OWN source, so the snapshot never depends on
      one scan being a superset of another (an implicit root-ordering assumption a
@@ -13823,7 +13823,10 @@ const server = http.createServer(async (req, res) => {
      Residual (accepted): O_NOFOLLOW and the lstat check guard the FINAL component only, so
      an intermediate directory swapped to a symlink after scan time would be followed. That
      is outside the threat model here -- loopback-only, board-token-gated, single-user home;
-     anyone who can rename a directory in your home already runs as you. */
+     anyone who can rename a directory in your home already runs as you.
+     kosmos#2461: membership now also honours a file the scan offered up to IMPORT_OFFER_KEEP_MS ago
+     (engine/importscan.js), so that residual window is up to 15 minutes rather than 30 s; the request's
+     path is still never trusted, and every guard below still runs. */
   if (pathname === '/api/agent-import-file' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {

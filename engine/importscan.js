@@ -10,15 +10,41 @@
    (scanning:true, none of those folders' rows), and the file the list offered is "not one we found on
    this computer to import". Josh hit it on 0.6.47 (2026-09-07).
 
-   THE FIX. Keep the last COMPLETE scan for keepMs as well, and let membership use it only when the
-   fresh scan is partial. Membership still means "a path our own scanner returned": the request's path
-   is never trusted, and the add route's read-time guards (lstat, O_NOFOLLOW, regular file, size cap)
-   are unchanged and still run. A fresh COMPLETE scan that lacks the file is believed (the file is
-   gone), whatever an older scan said. */
+   A SECOND path to the same refusal (review 1): the next Add, more than about 30 s after the first, finds
+   the hatch's new answer already stale and its request given up, so discover returns a scan marked
+   COMPLETE (scanning:false) but with bounded.tccUnavailable and no rows from those folders. A scan cut off
+   at MAX_IMPORTABLE (bounded.importable) can likewise lack a file that is still there. The panel never
+   re-fetches the list after it paints, so the file is still on screen when it is refused.
+
+   THE FIX. Remember every file a scan OFFERED (partial, limited or full) and when, for keepMs. A file is a
+   member if the fresh scan offers it, or if it was offered within keepMs and the fresh scan cannot prove
+   it gone. Only a FULL scan proves a file gone: complete, every folder reached (no tccUnavailable), and
+   not cut off (no bounded.importable). A scan that cannot run refuses, as before. Membership still means
+   "a path our own scanner returned": the request's path is never trusted, and the add route's read-time
+   guards (lstat, O_NOFOLLOW, regular file, size cap) are unchanged and still run, so an offered file that
+   has since been deleted is refused there. */
+
+const MAX_REMEMBERED = 5000;   // offered files kept for membership; the oldest go first
+
+/* A scan that saw everything it could have offered: only such a scan can say a file is gone. */
+function isFull(result) {
+  const b = (result && result.bounded) || {};
+  return !!result && !result.scanning && b.tccUnavailable !== true && b.importable !== true;
+}
 
 function createImportScan({ scan, now, cacheMs, keepMs }) {
-  let cache = { at: 0, result: null };      // the complete scan served to callers for cacheMs
-  let complete = { at: 0, result: null };   // the last complete scan, kept for keepMs (membership only)
+  let cache = { at: 0, result: null };   // the complete scan served to callers for cacheMs
+  const offered = new Map();             // file -> when a scan last offered it (membership only)
+
+  function remember(result, t) {
+    if (!result || !Array.isArray(result.importable)) return;
+    for (const c of result.importable) {
+      if (!c || typeof c.file !== 'string' || !c.file) continue;
+      offered.delete(c.file);            // re-insert, so the Map stays oldest-first
+      offered.set(c.file, t);
+    }
+    while (offered.size > MAX_REMEMBERED) offered.delete(offered.keys().next().value);
+  }
 
   function get() {
     const t = now();
@@ -27,8 +53,10 @@ function createImportScan({ scan, now, cacheMs, keepMs }) {
     try {
       out = scan();
       /* #3/#2125: a PARTIAL result (scanning:true, the hatch not answered yet) is never cached, so the
-         front-end's retry re-runs the scan and picks up the hatch's answer. */
-      if (out && !out.scanning) { cache = { at: t, result: out }; complete = { at: t, result: out }; }
+         front-end's retry re-runs the scan and picks up the hatch's answer. Every result's rows are
+         remembered: the list paints partial rows too. */
+      if (out && !out.scanning) cache = { at: t, result: out };
+      remember(out, t);
     } catch { out = null; }
     return out;
   }
@@ -42,19 +70,18 @@ function createImportScan({ scan, now, cacheMs, keepMs }) {
   const offers = (result, file) => !!(result && Array.isArray(result.importable)
     && result.importable.some((c) => c && c.file === file));
 
-  /* Whether `file` is one this computer's scan offered. A scan that cannot run, and an empty or
-     non-string file, are not members. */
+  /* Whether `file` is one this computer's scan offered. */
   function known(file) {
     if (typeof file !== 'string' || !file) return false;
     const fresh = get();
     if (offers(fresh, file)) return true;
-    // Only a PARTIAL scan falls back. A complete scan without the file is believed (it is gone), and a
-    // scan that could not run at all refuses, as it always has.
-    if (!fresh || !fresh.scanning) return false;
-    return !!complete.result && now() - complete.at < keepMs && offers(complete.result, file);
+    if (!fresh) return false;            // the scan could not run: refuse, as always
+    if (isFull(fresh)) return false;     // a scan that saw everything and lacks it: the file is gone
+    const at = offered.get(file);
+    return typeof at === 'number' && now() - at < keepMs;
   }
 
   return { get, warm, known };
 }
 
-module.exports = { createImportScan };
+module.exports = { createImportScan, isFull };
