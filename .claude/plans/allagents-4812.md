@@ -178,3 +178,18 @@ proof file; the PR opens only after the relay half (kosmos-relay siblingcors-481
   grid and its neighbours are body children; placeAgentsPanel already moves all three into the agents panel there).
 Focused, green: web.allagents-4812 32/32, fixture-discipline 20/20, reason-grep 5/5, consolidated-980 13/13,
 consolidated-867 7/7, rhythm-1303a 6/6. STILL OPEN: the #oa-only click hang in the browser check (both engines).
+
+## Review (opus, blind, 2026-10-02 15:38, GRID AND LIST + fake-dom): 1 BLOCKER, taken (e27fb4ca)
+B: in the consolidated layout #alist is the left RAIL, shown on every consolidated tab, so oaHost() took it, pulled
+#oa-wrap out of #panel-cons-agents into the body grid and polled the other computers on every tab (review 1's W1
+back). FIXED: when body.consolidated, only #grid counts. fake-dom gets document.body with classList; a unit test
+(consolidated: rail shown, grid hidden -> null; grid shown -> grid; tab layout -> alist) goes red with the condition
+removed (measured). README names S4/S5. NITs: oaGridShown's comment reworded (name kept).
+Measured after: unit 35/35 + the other fake-dom suites; browser check run 5: 58 PASS / 0 FAIL in both engines, both
+sabotages red.
+
+## Review (sonnet, blind, 2026-10-02 17:58, the rail fix): CONVERGED
+Fix complete (showTab toggles body.consolidated before placeAgentsPanel/boardApplyVisibility; a saved 'list' layout
+still shows #grid in the consolidated Agents view; org hides it and the section with it). LEFT NIT: rename oaGridShown.
+
+## Rebase onto main (18:01): EXPECTED_SITES 233 (main: #4930 + #4885) -> 234 with this branch's site.
