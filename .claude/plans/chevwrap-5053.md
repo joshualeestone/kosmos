@@ -61,3 +61,10 @@ CONVENTION taken: the plan's stale line-height decision. NIT taken: the CSS comm
 Left: the 390/360 "|chevTop - titleTop| < 24" belt-and-braces (the 4px phoneHead rule is the real one).
 Verified by the reviewer: DOM, visual and tab order match; no JS measures the head; 640px exactly gets the grid;
 a no-space title breaks at 320; the new-look rules do not touch the head. Check: 48/0.
+
+### Iteration 4 (sonnet, blind): 0 blockers, 0 warnings. CONVERGED.
+Verified: iterations 1-3's fixes; flex-start moves the one-line desktop chevron about 1px; the fixture is restored on
+every path. Left, with reasons: the 44px touch-tablet row puts the chevron about 4px above a one-line title's centre
+(inside tolerance, unasserted); a dead `project.name = LONG` before the 700 block; an unclosed context on a thrown
+error (the run fails anyway); the 700 "share the row" name is structurally true under nowrap; "34px" in a comment is
+a measured figure.
