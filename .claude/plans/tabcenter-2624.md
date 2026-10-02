@@ -16,16 +16,17 @@ rule overrides it with `display: flex; justify-content: space-between`, so the t
 cluster leaves.
 
 ## Change
-- web/index.html: the consolidated header uses the same `1fr auto 1fr` grid (`align-items: start`, the #2624 top
-  alignment kept). The children already carry `justify-self` start / center / end (the rules near the top of the file),
+- web/index.html: the consolidated header rule drops its own display (flex space-between), so it uses the tab view's
+  `1fr auto 1fr` grid (top alignment from the #2624 960px rule). The children already carry `justify-self` start / center / end (the rules near the top of the file),
   so nothing else moves. Its own padding, gap, background and rule are unchanged.
 - render-tophead-stable-2624.js: measures the tabs' x and the switcher's width; a long-name arm per width fails if the
   tabs start at different x in the two views, or move with the name in one screen. CONTROL: the long name really
   widened the switcher. Mutation (the old flex rule back): 4 reds, "they move 90.5px when the view flips".
   The check runs at 1440, 1100 and 960 (the narrowest width with both views); the 1400x950 and 1024x640 numbers above
   are from the card's sizes, measured with ~/.cache/claude-handoffs/renet-header-2624-measure.js.
-- Review 1: the consolidated gap is now the tab view's 24px (it was 12px), so the two grids are the same by
-  construction, not only while both side columns have room.
+- Review 1 and 2: the consolidated rule no longer states display, columns or gap at all (it had flex, then a copied
+  grid with a 12px gap, then a second literal 24px). The header keeps the tab view's own .apphead header grid, so
+  the two views cannot drift apart by one value being edited.
 
 ## Checked, unchanged
 Headed or HEADED=0, on the branch: render-tophead-stable-2624 (with the new arm), render-tophead-consolidated-2282,
