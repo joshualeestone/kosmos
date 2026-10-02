@@ -509,8 +509,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
   const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
   /* #4475: every agent's sender-token files. A token-only agent's own token comes in its environment
-     (KOSMOS_AGENT_TOKEN, minted by the supervisor before launch), never from this folder; another agent's token read
-     from it would let this agent act as that agent, including removing the agents that one made. */
+     (KOSMOS_AGENT_TOKEN, minted by the supervisor before launch); another agent's token read from this folder would
+     let this agent act as that agent, including removing the agents that one made. ONE THING IT COSTS: the Mac CLI's
+     outbox keep (a send made while another Kosmos is the one open, answered 421) resolves the sender by reading this
+     folder (engine/outbox.js resolveKeepSender), so for a token-only agent that send is refused, not kept. */
   const senderTokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
   /* And the supervisor's launch hand-off, where each agent's token waits in a file until its pane starts (written
      under AGENT_WORKFORCE_DATA, the data root's parent, or the app folder). The pane entry reads it before this

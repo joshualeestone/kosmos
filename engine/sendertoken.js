@@ -99,16 +99,19 @@ const MAX_LIVE = 32;
 function fileFor(sessionName) {
   return path.join(DIR, store.safeKey(sessionName) + '.json');
 }
-/* #4475: does any token stand for this name's key right now? (A file that cannot be checked reads as yes.) */
+/* #4475: does any token stand for this name's key right now? Only a file that is plainly not there reads as no; one
+   that cannot be checked (a folder that cannot be read, a bad name) reads as yes. */
 function holdsTokens(sessionName) {
-  try { return fs.existsSync(fileFor(sessionName)); } catch { return true; }
+  try { fs.statSync(fileFor(sessionName)); return true; } catch (e) { return !(e && e.code === 'ENOENT'); }
 }
 /* #4475: does this name's key hold a token that is not named exactly `sessionName` (another spelling with the same
    key, "Dr.Kip" beside "drkip", or a token with no name)? revoke takes the whole key, so removing `sessionName`
    would end that one too. A file that cannot be read reads as yes. */
 function keyHoldsOthers(sessionName) {
+  if (!holdsTokens(sessionName)) return false;
   let held;
-  try { if (!fs.existsSync(fileFor(sessionName))) return false; held = readTokens(sessionName); } catch { return true; }
+  try { held = readTokens(sessionName); } catch { return true; }
+  if (held.length === 0) return true;   // the file is there but readTokens could not read a token from it
   return held.some((t) => typeof t.name !== 'string' || t.name !== String(sessionName));
 }
 

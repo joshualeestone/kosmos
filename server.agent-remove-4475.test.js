@@ -292,6 +292,15 @@ test('removing a name whose key also holds another name\'s token is refused (rev
   assert.match(r.text, NOT_YOURS);
 });
 
+test('a target whose token file is there but unreadable is refused (it cannot be checked for another name)', async () => {
+  born('Garbled Kid', 'pm-agent');
+  assert.ok(reachedEngine(await remove('garbled-kid', asAgent())), 'CONTROL: no token file, and it did not pass');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(path.join(sendertoken.DIR, store.safeKey('garbled-kid') + '.json'), '{not json');
+  const r = await remove('garbled-kid', asAgent());
+  assert.equal(r.code, 403, 'an unreadable token file was read as no other name: ' + r.text.slice(0, 160));
+});
+
 test('a history line whose time is not in toISOString form is read as an end (it cannot be ordered)', async () => {
   fs.mkdirSync(path.dirname(sendertoken.endedLogFile()), { recursive: true });
   born('Odd Time Kid', 'pm-agent');

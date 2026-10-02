@@ -2625,8 +2625,10 @@ function agentBirthOf(name) {
      ends an agent goes through: removing it, deleting what is left of it, and creating an agent of that name). The
      target is checked from after its birth (its own creation revokes its name before the birth is written); the
      creator from the moment it asked, so a creator removed while its request ran is caught. A later agent under either name
-     is then never the one the birth is about. The agent profile id does not show this: it survives a removal and
-     is carried to a new agent of the same name. Ownership does not come back on restore. */
+     is then never the one the birth is about, except by the two paths that mint without revoking (adopting after
+     deleting files by hand outside Kosmos, and a remote token the person issues again; engine/sendertoken.js). The
+     agent profile id does not show this: it survives a removal and is carried to a new agent of the same name.
+     Ownership does not come back on restore. */
 function tokenOnlyMayRemove(caller, target) {
   if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return false;
   const birth = agentBirthOf(target);
