@@ -36,5 +36,6 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 
 ## Validation
 - `bash tools/test-queued-heavy-4977.sh`: 76 OK, 0 BAD, three runs in a row after review 4 (about 80 s each), no sleeps or temp files left behind.
+- After the rebase onto main (head 07e44b907): 76 OK, 0 BAD. Mutant: the side turn's temp files made in /tmp instead of TMPDIR turns the fixture arm red (75 OK, 1 BAD).
 - Mutant: removing the wrapper's scan for suite-like commands turns it red (light runs of browser-checks.sh and `yarn test` forms got side turns).
 - no-name-refs-3071, no-brand-refs-1881, fixture-discipline, tools.heavy-gate-3805, tools.shell-shard-4317, tools.every-test-runs: pass.
