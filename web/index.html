@@ -17349,9 +17349,9 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Gemini subscription agents at once</h3>
       <div class="frow" id="agycap-row" hidden style="margin-top:14px; align-items:center; gap:8px;">
         <label class="dhint" for="agycap-max" style="margin:0;">Working at the same time</label>
-        <select id="agycap-max"></select>
+        <select id="agycap-max" aria-describedby="agycap-hint"></select>
       </div>
-      <p class="dhint" style="margin:8px 0 0;">Gemini agents signed in with a Google subscription on this computer share one Google account's quota, so several working at once can use it up together. Gemini agents on an API key are not counted. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. No limit by default.</p>
+      <p class="dhint" id="agycap-hint" style="margin:8px 0 0;">Gemini agents signed in with a Google subscription on this computer share one Google account's quota, so several working at once can use it up together. Gemini agents on an API key are not counted. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. No limit by default.</p>
       <p class="dhint" id="agycap-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
@@ -24159,13 +24159,13 @@ async function agycapChange() {
     });
     const out = await res.json().catch(() => ({}));
     if (mine !== AGYCAP_EPOCH) return;
-    if (!res.ok) { await paintAgycap(true); if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
+    if (!res.ok) { await paintAgycap(true); if (msg && AGYCAP_EPOCH === mine + 1) msg.textContent = out.error || 'We could not save that setting.'; return; }   // a newer change wins its own message
     agycapShow(out, true);
     if (msg) msg.textContent = '';
   } catch {
     if (mine !== AGYCAP_EPOCH) return;
     await paintAgycap(true);   // never leave a choice on screen that was not saved
-    if (msg) msg.textContent = 'We could not reach Kosmos to save that.';
+    if (msg && AGYCAP_EPOCH === mine + 1) msg.textContent = 'We could not reach Kosmos to save that.';
   }
 }
 document.getElementById('agycap-max') && document.getElementById('agycap-max').addEventListener('change', agycapChange);

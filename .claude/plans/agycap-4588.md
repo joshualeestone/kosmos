@@ -25,7 +25,7 @@ building (12:1x CDT 10-02).
   The assigner's givePart refusal names which hold applies.
 - Routes: GET/PUT `/api/agycap-setting`. The PUT is screen-only (isViaScreen), since an agent lifting its own cap is
   what it exists to stop.
-- Settings > Automation: a "Gemini agents at once" box below the Prompter, a select (No limit, 1 agent, 2 to 4
+- Settings > Automation: a "Gemini subscription agents at once" box below the Prompter (renamed in review 9), a select (No limit, 1 agent, 2 to 4
   agents). It follows the status-control contract: hidden until the read lands, and a failed read says so.
 
 ## Decisions
@@ -43,7 +43,7 @@ happen while the person is messaging all of them directly.
 
 ## Tests
 - engine/agycap-setting.test.js (6): default, the set, round trip, refusals write nothing, a bad file reads no limit.
-- engine/agycap-gate-4588.test.js (14 after reviews 1, 3 and 7 added the reservation, resume-sweep, brake and stale-clock arms),
+- engine/agycap-gate-4588.test.js (15 after reviews 1, 3, 7 and 10 added the reservation, resume-sweep, brake and stale-clock arms),
   with real fleet cards:
   - held at the cap
   - not held under it or with no limit
@@ -199,3 +199,12 @@ happen while the person is messaging all of them directly.
   - person-initiated sends counting toward the limit (review 8)
   - the defensive cap branches (review 4)
 - Theoretical, noted: givePart's noPage path (the assigner never sets it).
+
+## Review 11 (opus): converged
+No BLOCKER, WARNING or CONVENTION. Nits applied:
+- the plan's name and count
+- replynudge's log says which hold
+- a failed save's message does not overwrite a newer change's
+- the hint is the select's aria-describedby
+
+Left as accepted: one setting read per call.
