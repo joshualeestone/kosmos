@@ -169,3 +169,13 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT FIXED: three comments still said "round 1 only" / "first pages"; rewritten.
 - NIT FIXED: an assertion that could never fail is renamed to what it does check (no reply page asked without a cursor).
 - Targeted files: 247/247.
+
+## Review 11 (Sonnet, blind): 0 blockers, 1 warning, 4 nits. ~63 mutants, survivors listed here.
+- WARNING (mutation-proven) FIXED: the round-2 "down" skip had no test. New test: a reply page that keeps failing is
+  partial for FRESH_DOWN_PASSES - 1 passes, then the post is skipped and the other counted. Mutant killed.
+- NIT FIXED: a 404 starting the run of failures over is tested. Mutant killed.
+- NIT (kept): plan()'s MAX_TRIES check duplicates sweepOnce's givenUp gate (count phase). Kept as the planner's own
+  rule (plan is exported and used alone in tests); its arm cannot fail while the gate stands, stated here.
+- NIT (kept): postDown is never pruned; bounded by agents x 10 posts; a restart clears it (delays a skip by ~30 min).
+- NIT (kept, as review 9): a corrupt told file skips that agent, logged once; re-telling would be worse.
+- Targeted files: 249/249.

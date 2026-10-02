@@ -1243,3 +1243,32 @@ test('#4951 review 10 (Opus): the count\'s pace leaves the service room for two 
   const ownRead = cr.REPLIES_POSTS * (1 + 3);   // a read: each post's thread plus up to three reply pages
   assert.ok(perMinute + 2 * ownRead < 200, 'the count paces ' + perMinute + ' a minute; with two reads of ' + ownRead + ' that passes the service\'s 200');
 });
+
+test('#4951 review 11 (Sonnet): a post whose reply page keeps failing is partial for FRESH_DOWN_PASSES - 1 passes, then skipped', async () => {
+  on(); clearSeen(); cr._freshDownReset();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  serve({ ...hiddenRoutes(1, () => ({ status: 500, json: null })),
+    ['/posts/' + RP(8) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'hi' })] } }) });
+  for (let i = 1; i < cr.FRESH_DOWN_PASSES; i += 1) {
+    assert.equal((await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 })).partial, true, 'pass ' + i + ': a failing reply page did not make the count partial');
+  }
+  const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.equal(f.ok, true, 'a post whose reply page failed ' + cr.FRESH_DOWN_PASSES + ' passes in a row still held the count: ' + f.because);
+  assert.deepEqual(f.posts.map((p) => p.remoteId), [RP(8)]);
+  cr._freshDownReset();
+});
+
+test('#4951 review 11 (Sonnet): a post that answers 404 in between starts its run of failures over', async () => {
+  on(); clearSeen(); cr._freshDownReset();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  let answer = { status: 500, json: null };
+  cr.setFetcher(async () => answer);
+  const pass = () => cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  for (let i = 1; i < cr.FRESH_DOWN_PASSES; i += 1) await pass();   // one short of the skip
+  answer = { status: 404, json: null };
+  assert.equal((await pass()).ok, true, 'a gone post held the count');
+  answer = { status: 500, json: null };
+  assert.equal((await pass()).partial, true, 'a 404 did not start the run of failures over (skipped one pass early)');
+  cr._freshDownReset();
+});
