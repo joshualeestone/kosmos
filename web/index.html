@@ -48249,7 +48249,7 @@ async function openTeamCreate(key) {
   /* Round 5: another team waits only while something is actually IN FLIGHT. A team that is unfinished but
      idle (a member refused every time, or never seen running) is replaced by the new one, or it would
      trap the page with a false "still making" until a reload. The same team always resumes. */
-  const inFlight = Boolean(TC && (TC.running || TC.watching || TC.busy || TC.greeting));
+  const inFlight = Boolean(TC && (TC.running || TC.watching || TC.busy || TC.greeting || TC.leaving));   // review 16: leaving waits on pictures
   if (tcLive() && (TC.key === key || inFlight)) {
     const msg = document.getElementById('tc-msg');
     msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;
@@ -48796,7 +48796,7 @@ function tcGoToTeam(auto) {
       if (again && (!at || at === document.body)) { again.tabIndex = -1; again.focus({ preventScroll: true }); first = again; }
       else if (again) focused = false;
     }
-    if (live) setTimeout(mark, 500);
+    if (live) setTimeout(mark, 150);   // review 16: the board redraws its cards each poll; put the mark back quickly
   };
   mark();
   // The step's live region went with the step: say it where a screen reader hears it.

@@ -432,6 +432,7 @@ function chk(ok, label, extra) {
           const loading = await page.evaluate(() => ({ title: document.getElementById('tc-title').textContent, hello: !(document.getElementById('tc-hello') || { hidden: true }).hidden,
             options: document.getElementById('tc-project').options.length, tell: !(document.getElementById('tc-tell') || { disabled: true }).disabled }));
           chk(/Loading the team/.test(loading.title) && !loading.hello && loading.options === 0 && !loading.tell, `${E} while another team loads, the finished team's Go to your team, project menu and choice are not on offer`, JSON.stringify(loading));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});   // review 16: status reads in flight at close
           await page.close();
         }
 
