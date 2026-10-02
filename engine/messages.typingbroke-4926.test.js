@@ -297,3 +297,28 @@ test('#4926 review 4 (Sonnet): a post that began while the unrecorded one was st
     assert.ok(!again.duplicate, 'a repeat after a post that began meanwhile was folded');
   });
 });
+
+test('#4926 review 5 (Opus): the unrecorded twin\'s quiet: only this room breaks it; an outside party\'s reply does; the same millisecond does', async () => {
+  await withRoom(async (roster) => {
+    arm();
+    const addRow = (row) => fs.appendFileSync(messages.LOG, JSON.stringify(row) + '\n');
+    for (const [label, row, folds] of [
+      ['another room', (at) => ({ kind: 'post', id: 'm81', project: 'elsewhere', from: 'cy', to: ['ava'], text: 'x', at, outcomes: { ava: 'placed' } }), true],
+      ['the same millisecond', (at) => ({ kind: 'post', id: 'm82', project: 'room4926', from: 'cy', to: ['ava'], text: 'x', at, outcomes: { ava: 'placed' } }), false],
+    ]) {
+      const restore = failLogOnce();
+      let d;
+      try { d = await agentPost(roster, 'twin ' + label, false); } finally { restore(); }
+      addRow(row(d.at));
+      assert.ok(messages.list().some((r) => r.text === 'x' && r.at === d.at), 'fixture: the ' + label + ' row was dropped by the reader');
+      const again = await agentPost(roster, 'twin ' + label, false);
+      assert.equal(Boolean(again.duplicate), folds, label + ': the fold went the wrong way');
+    }
+  });
+});
+
+test('#4926 review 5 (Opus): an outside party\'s reply (an external row) in the room breaks the unrecorded twin\'s quiet', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'messages.js'), 'utf8');
+  const at = src.indexOf('function unrecordedTwin(');
+  assert.match(src.slice(at, at + 1200), /r\.kind === 'post' \|\| r\.kind === 'external'/, 'the twin\'s quiet no longer counts an outside party\'s reply');
+});

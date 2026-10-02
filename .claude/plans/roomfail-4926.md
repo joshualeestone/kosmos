@@ -113,3 +113,19 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
 - NIT (kept): a held id with no row (an unrecorded post) is never stale.
 - NIT FIXED: the unrecorded answer carries heldUntil like the recorded one.
 - Related files: 268/268.
+
+## Review 5 (Opus, blind, convergence pass): 0 blockers, 2 warnings, 5 nits. 32 mutants: 25 killed, 4 equivalent.
+- WARNING (reproduced) FIXED: a plain post held for a member paused on the shared Google quota (the sender told it was
+  kept, heldUntil) was dropped as stale when the quota reset more than 2 h later. staleHeld now takes the member and
+  counts a quota hold's age from the pause's end (heldUntil); the loop guard still applies. The judge is called with the
+  member at all three flush sites. Test + mutant. Residual (stated, untested): on the typed-arrival path the member is
+  passed by closure; that mutant survives because it matters only for a pause that ended recently on a post over 2 h old.
+- WARNING FIXED (test gaps): the twin's quiet now has tests that another room does NOT break it, the same millisecond
+  DOES, and (source pin) an outside party's 'external' row counts. Mutants killed.
+- NITS FIXED (comments): roomhold's header, HELD's comment and flushOnIdle's doc mention the stale drop; the #4765 block
+  says a throw becomes unconfirmed or could_not; typingBroke's header no longer says "never could_not"; staleHeld moved
+  above aggregateState's own doc comment.
+- NIT (kept): typingBroke's `outcomes[name] === undefined` guard is defensive (no path found where it is set and then
+  throws); NIT (kept): the twin's quiet looks at start times only (a row that started before but finished after the
+  unrecorded post does not break it); NIT (kept, other card): outbox replay of an old kept post.
+- Related files: 271/271.

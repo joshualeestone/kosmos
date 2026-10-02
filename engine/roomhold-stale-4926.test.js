@@ -83,7 +83,7 @@ test('#4926 server.js passes the staleness judge to both flushes', () => {
   for (const call of ['roomhold.flushOnIdle(who, {', 'roomhold.flushReleased(r, {']) {
     const at = src.indexOf(call);
     assert.notEqual(at, -1, call + ' not found');
-    assert.match(src.slice(at, at + 600), /stale: \(p, ids\) => messages\.staleHeld\(p, ids\)/, call + ' does not pass the judge');
+    assert.match(src.slice(at, at + 600), /stale: \(p, ids, who2\) => messages\.staleHeld\(p, ids, undefined, undefined, who2\)/, call + ' does not pass the judge with the member');
   }
 });
 
@@ -106,4 +106,15 @@ test('#4926 review 1 (Opus): flushReleased (the quota retry) passes the judge on
     assert.ok(/m3/.test(typed[0]) && /m5/.test(typed[0]), 'a fresh or asked post was left out: ' + typed[0]);
     assert.ok(!/\bm1\b/.test(typed[0]), 'the quota retry told a stale post: ' + typed[0]);
   } finally { roomhold.forget('gem'); board.restore(); chat.resetForTests(); }
+});
+
+test('#4926 review 5 (Opus): a post held on the member\'s QUOTA is aged from the pause\'s end, not from the post', () => {
+  const maxMin = messages.HELD_TELL_MAX_MS / 60000;
+  const row = Object.assign(post('m1', maxMin + 120), { heldUntil: { gem: new Date(NOW - 10 * 60000).toISOString() } });
+  assert.equal(messages.staleHeld('p1', ['m1'], [row], NOW, 'gem').size, 0, 'a quota-held post was dropped 10 min after the pause ended');
+  assert.ok(messages.staleHeld('p1', ['m1'], [row], NOW, 'kim').has('m1'), 'control: for another member the post\'s own age decides');
+  const ended = Object.assign(post('m2', maxMin + 300), { heldUntil: { gem: new Date(NOW - (maxMin + 5) * 60000).toISOString() } });
+  assert.ok(messages.staleHeld('p1', ['m2'], [ended], NOW, 'gem').has('m2'), 'a pause that ended long ago kept it fresh');
+  const stopped = [Object.assign(post('m3', 30), { heldUntil: { gem: new Date(NOW).toISOString() } }), valve(10)];
+  assert.ok(messages.staleHeld('p1', ['m3'], stopped, NOW, 'gem').has('m3'), 'the loop guard no longer applied to a quota hold');
 });

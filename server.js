@@ -13546,7 +13546,7 @@ const server = http.createServer(async (req, res) => {
             roomhold.flushOnIdle(who, {
               deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
-              stale: (p, ids) => messages.staleHeld(p, ids),   // #4926: a stale post that asks nothing wakes nobody
+              stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: a stale post that asks nothing wakes nobody
             }).then((done) => {
               for (const d of done) process.stdout.write(roomhold.toldLine(who, d));   // #4797: no "told of" for a refused try
             }).catch(() => { /* best-effort: the posts are in the room, and the next typed arrival carries the line */ });
@@ -19108,7 +19108,7 @@ function start(port = PORT) {
             readReport: (n) => selfreport.read(n), now: Date.now(), decayMs: require('./engine/status').REPORT_WORKING_DECAY_MS,
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
-            stale: (p, ids) => messages.staleHeld(p, ids),   // #4926
+            stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926
           }).then((done) => {
             for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold'));   // #4797
           }).catch(() => { /* the posts stay held for the next minute */ });

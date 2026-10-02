@@ -981,15 +981,12 @@ function inFlightTwin(key) {
   return pending;
 }
 function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0000' + place + '\u0000' + text; }
-/* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
-   (or nobody to deliver to) is placed; anything else is unconfirmed.
-   #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
-   the folded retry of one (it reports the first copy's outcomes). */
 /* #4926: which of a room's held post ids are too stale to wake a member about (roomhold.withoutStale): the post is older
    than HELD_TELL_MAX_MS, or the room's loop guard stopped the conversation after it (a 'valve' row with stopped !== false
-   in that project, later than the post). An id not in the record yet (a post still being delivered) is not stale. */
+   in that project, later than the post). An id not in the record yet (a post still being delivered) is not stale.
+   `member`: whose held ids these are (its quota pause, if any, starts the clock). */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
-function staleHeld(projectId, ids, log, now) {
+function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
   try {
     const rows = Array.isArray(log) ? log : readLog();
@@ -1004,11 +1001,21 @@ function staleHeld(projectId, ids, log, now) {
       if (!r || r.kind !== 'post' || r.project !== projectId || !want.has(r.id)) continue;
       const at = Date.parse(r.at);
       if (!Number.isFinite(at)) continue;
-      if (t - at > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
+      /* Review 5 (Opus): a post held for THIS member on the shared Google quota was kept for it while it was paused
+         (the sender was told so); its age counts from the pause's end (heldUntil), not from the post. The loop guard
+         still applies. */
+      const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
+      const from = Number.isFinite(until) && until > at ? until : at;
+      if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
     }
   } catch { /* nothing is dropped */ }
   return out;
 }
+
+/* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
+   (or nobody to deliver to) is placed; anything else is unconfirmed.
+   #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
+   the folded retry of one (it reports the first copy's outcomes). */
 
 function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
@@ -2016,11 +2023,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       : '';
     /* #4624: posts held for this member in this room while it was working ride on this arrival, as one
        line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
-    const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log));   // #4926
+    const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name));   // #4926
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
-         hold (its id, marked when it names them), so it counts as placed for the sender and is told in one line by the
+         hold (its id, marked when it names them), so it counts as placed for the sender and is told (#4926: unless stale, counted from the pause's end) in one line by the
          idle flush, the next typed arrival here, or roomhold.flushReleased after the reset. Could not keep it: not
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
@@ -2065,8 +2072,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   /* #4926: a member whose typing path THREW (not one that answered could_not) is that member's outcome, not the post's.
      It used to throw the whole post after every other member had been typed into and before the row was written: the
      sender read "refused", posted again, and with no row the retry was not folded, so every other member got it twice.
-     A throw can come after the paste went in, so it is UNCONFIRMED ("may have reached"), never could_not: the post is
-     recorded, the sender is told not to re-post, and a retry folds into this row. */
+     A throw once the typing path was entered can come after the paste went in, so it is UNCONFIRMED ("may have
+     reached"): the post is recorded, the sender is told not to re-post, and a retry folds into this row. */
   const typingBroke = (name, err) => {
     /* Review 2 (Sonnet): a throw BEFORE the typing path was entered (the hold check, the spill, a lookup) typed nothing:
        that member could not be reached, and a post where that is every member is refused as before. */
@@ -2170,7 +2177,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        overlap because each start is only one member's tmux calls after the last. The Enters are spread only as
        far as the starts were: waits that come due together still end in one turn (review 2 measured two or
        three members' Enters per turn on 20 members), which is short of one block of all of them. A synchronous throw from
-       deliverOne is caught and becomes that member's failure, so it too waits for the others. */
+       deliverOne is caught and becomes that member's outcome (#4926: unconfirmed once its typing path was entered,
+       could_not before it), so it too waits for the others. */
     const pending = (async () => {
       const runs = [];
       for (let i = 0; i < recipients.length; i++) {

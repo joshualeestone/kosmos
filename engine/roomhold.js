@@ -21,7 +21,9 @@
  *     background while you are idle): the line rides on that arrival (clauseFor + cleared by the
  *     caller once it was typed).
  * A held post is never typed later on its own, so a post the room already answered never re-wakes
- * you (the card's third point).
+ * you (the card's third point). #4926: a held post that asks nothing of you and has gone stale (older than
+ * messages.HELD_TELL_MAX_MS, counted from a quota pause's end for a quota hold, or the room's loop guard stopped the
+ * conversation after it) is dropped from that line instead (withoutStale): it is still in the room.
  *
  * Left exactly as before: the person's posts (to the room or to you), any post that @-names you, and
  * every agent whose latest report is neither a fresh `working` nor `idle` (needs_you, blocked, stopped, never
@@ -57,7 +59,8 @@ const path = require('node:path');
 const store = require('./store');
 
 /* The per-recipient outcome a held post records in the room log. The sender's aggregate treats it
-   as placed (messages.js): the post is kept and the member will be told, so "do not re-post" holds. */
+   as placed (messages.js): the post is kept and the member will be told, so "do not re-post" holds (#4926: unless it
+   asks nothing of the member and goes stale before it is told; the post itself is still in the room). */
 const HELD = 'held';
 /* Ids kept per project per agent. The line names at most SHOWN of them and counts the rest; the cap
    only bounds the file if an agent never goes idle and is never typed to. */
@@ -222,22 +225,23 @@ function clauseFor(projectId, shown, ids) {
    dropped rather than told: hours later, or after the room was stopped, it woke agents into one more short reply after
    the person had asked for quiet. A held post that names the member and asks for an answer is always told. The post
    itself is in the room either way (kosmos room shows it). Without `stale`, nothing is dropped. */
-function withoutStale(projectId, ids, stale) {
+function withoutStale(projectId, ids, stale, name) {
   if (!ids.length || typeof stale !== 'function') return ids;
   let gone;
-  try { gone = stale(projectId, ids.map(plainId)); } catch { return ids; }
+  try { gone = stale(projectId, ids.map(plainId), name); } catch { return ids; }
   if (!(gone instanceof Set) || !gone.size) return ids;
   return ids.filter((x) => plainId(x) !== x || !gone.has(x));
 }
 
 /* The turn ended: tell the member, one line per project, about what was held. `deliver` is the board's
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
-   COULD_NOT), so a pane that could not take it keeps it for the next arrival. Never throws. */
+   COULD_NOT), so a pane that could not take it keeps it for the next arrival; a stale one (#4926, withoutStale) is
+   cleared without being told. Never throws. */
 async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
-    const ids = withoutStale(projectId, take(name, projectId), stale);
+    const ids = withoutStale(projectId, take(name, projectId), stale, name);
     if (!ids.length) continue;
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
