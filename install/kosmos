@@ -932,6 +932,20 @@ _busy_person_hint() {
 # A DETERRENT, not access control: it stops an agent that follows the CLI's own advice into a restart
 # loop. An agent that passes --force or clears its markers gets through, and so does one launched before
 # #4466 with none of the markers. Never rely on it as a security boundary.
+# kosmos#2600: a board started from a remote (SSH) session on a Mac runs in that session's security context, which
+# cannot read the login Keychain. `claude auth status` there answers loggedIn:false, so the board calls EVERY Claude
+# account "Anthropic says this account is not signed in" while the same account is signed in on the Mac itself
+# (measured on Mortals 2026-09-30, three arms: from ssh false, from the agents' tmux session true, and all five
+# accounts connected once the board was restarted from the right context). This says so BEFORE it happens, in one
+# sentence, and never refuses: advice, so a false positive costs one line. The signal is the SSH variables a remote
+# login sets; a session that strips them is not caught. KOSMOS_UNAME lets a test stand in for macOS.
+ssh_keychain_note() {   # <start|restart>
+  [ "${KOSMOS_UNAME:-$(uname -s 2>/dev/null)}" = Darwin ] || return 0
+  [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ] || return 0
+  say "Note: this is a remote (SSH) session. A Kosmos started from here cannot read this Mac's Keychain, so it will show your Claude accounts as not signed in even when they are. To avoid that, start Kosmos on the Mac itself (open the Kosmos app, or run \`kosmos $1\` in Terminal there)."
+  return 0
+}
+
 agent_board_guard() {   # <start|stop|restart> [args...]; returns to go ahead, exits to refuse
   local _verb="$1" _a _last _now _ago _cool
   shift
@@ -4317,9 +4331,9 @@ if [ "${BASH_SOURCE[0]:-$0}" != "$0" ]; then
   return 0 2>/dev/null || true
 fi
 case "${1:-}" in
-  start)   agent_board_guard "$@"; cmd_start ;;     # #4466: agent_board_guard gets the verb as $1
+  start)   agent_board_guard "$@"; ssh_keychain_note start; cmd_start ;;     # #4466: agent_board_guard gets the verb as $1
   stop)    agent_board_guard "$@"; cmd_stop ;;
-  restart) agent_board_guard "$@"; cmd_restart ;;
+  restart) agent_board_guard "$@"; ssh_keychain_note restart; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
   status)  cmd_status ;;
   open)    cmd_open ;;
