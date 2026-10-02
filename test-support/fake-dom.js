@@ -2,7 +2,7 @@
 /**
  * A small fake DOM for the web suites that run web/index.html's SHIPPED functions
  * (#1704 PR4). Enough for the Kosmos picker and settings pane: element creation,
- * a tree (appendChild, append, textContent = '' clears it), attributes, dataset,
+ * a tree (appendChild, append, replaceWith, textContent = '' clears it), attributes, dataset,
  * listeners with bubbling, click on a checkbox, focus, and the selectors those
  * functions use ('.class', 'tag[type="x"]', a bare tag, '[hidden]').
  *
@@ -44,6 +44,7 @@ function makeDom() {
       get textContent() { return this.ownText + this.children.map((c) => c.textContent).join(''); },
       set textContent(v) { this.ownText = String(v); this.children = []; },
       appendChild(c) { c.parent = this; this.children.push(c); return c; },
+      replaceWith(n) { const p = this.parent; if (!p) return; const i = p.children.indexOf(this); n.parent = p; p.children[i] = n; this.parent = null; },
       append(...cs) { for (const c of cs) this.appendChild(c); },
       setAttribute(k, v) { this.attrs[k] = String(v); },
       getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },

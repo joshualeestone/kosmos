@@ -27587,6 +27587,7 @@ function computersRender(data) {
 const OA_COMPUTERS_EVERY_MS = 60000;   // the computers route probes each computer, so not every round
 const OA_STATUS_EVERY_MS = 15000;
 const OA_READ_LIMIT_MS = 10000;
+const OA_COMPUTERS_LIMIT_MS = 30000;   // above the route's own worst case (a 20 s Mac request plus a 4 s probe)
 const OA_STALE_MS = 30000;              // an agents list older than two rounds is not shown as current
 let OA_COMPUTERS = null;               // the last good /api/remote/computers answer
 let OA_COMPUTERS_AT = 0;
@@ -27686,6 +27687,7 @@ function oaStale(seen, now) {
 function oaCard(a, c, off) {
   const el = document.createElement(off ? 'div' : 'a');
   el.className = off ? 'oa-card oa-off' : 'oa-card';
+  el.dataset.session = a.sessionName;   // to give focus back to the same agent after a repaint
   const name = (typeof a.name === 'string' && a.name.trim()) || a.sessionName;
   if (!off) {
     el.href = oaAgentHref(c.address, a.sessionName);
@@ -27752,7 +27754,7 @@ function oaPaint() {
   const others = OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
   const shown = oaGridShown(grid);
   /* Back on screen after reads were paused: read now rather than at the next tick (stale lists show greyed meanwhile). */
-  if (shown && !OA_WAS_SHOWN && !OA_BUSY && others.length && typeof setTimeout === 'function') setTimeout(oaRound, 0);
+  if (shown && !OA_WAS_SHOWN && !OA_BUSY && typeof setTimeout === 'function') setTimeout(oaRound, 0);
   OA_WAS_SHOWN = shown;
   wrap.hidden = !shown || others.length === 0;
   if (wrap.hidden) return;
@@ -27775,35 +27777,53 @@ function oaPaint() {
   } else {
     others.forEach((c, i) => {
       const old = groups.children[i];
-      if (keys[i] !== OA_PAINTED[i]) { old.replaceWith(oaGroup(c, OA_SEEN.get(c.address), now)); return; }
-      const note = old.querySelector('.oa-head .oa-note');
+      if (keys[i] !== OA_PAINTED[i]) { oaReplaceGroup(old, oaGroup(c, OA_SEEN.get(c.address), now)); return; }
+      const head = old.querySelector('.oa-head');
+      const note = head && head.querySelector('.oa-note');
       const said = oaNote(c, OA_SEEN.get(c.address), now);
       if (note && note.textContent !== said) note.textContent = said;
     });
   }
   OA_PAINTED = keys;
 }
+/* Swap one group, and if focus was inside it, give it back to the same agent's card (or the Open link) in the new one,
+   so a state change on one agent does not drop a keyboard or screen-reader user to the top of the page. */
+function oaReplaceGroup(old, next) {
+  const f = document.activeElement;
+  const inside = !!f && typeof f.closest === 'function' && f.closest('.oa-group') === old;
+  const session = inside && f.dataset ? f.dataset.session : undefined;
+  const wasOpen = inside && String(f.className).split(/\s+/).includes('oa-open');
+  old.replaceWith(next);
+  if (!inside) return;
+  const to = session !== undefined ? Array.from(next.querySelectorAll('.oa-card')).find((x) => x.dataset.session === session)
+    : (wasOpen ? next.querySelector('.oa-open') : null);
+  if (to && typeof to.focus === 'function') to.focus();
+}
 /* What one group paints from, minus the note's time words: the computer, its state, whether the list is stale, the
-   agents (in a fixed order, as the other computer's own order is not what is shown) and the sort. */
+   agents (in a fixed order: the page shows its own sort, so a reorder by the other computer alone changes nothing on
+   screen, except among agents with the same name, whose ties keep the order they came in) and the sort. */
 function oaGroupKey(c, seen, now, sort) {
   const agents = seen && Array.isArray(seen.agents)
     ? seen.agents.slice().sort((a, b) => (a.sessionName < b.sessionName ? -1 : a.sessionName > b.sessionName ? 1 : 0)) : null;
   return JSON.stringify([sort, c.name, c.address, seen ? seen.state : 'reading', oaStale(seen, now), !!(seen && typeof seen.at === 'number'), agents]);
 }
-async function oaRound() {
+async function oaRound(again) {
   if (typeof location === 'undefined' || location.protocol !== 'https:') return;
-  if (OA_BUSY) { OA_AGAIN = true; return; }   // run once more when this one ends (a tick of "This computer only" mid-round)
+  /* Only the "This computer only" untick asks to run once more when a round is already running (that round skipped the
+     reads); a tick, a visibility change or a read-on-return landing mid-round is simply dropped. */
+  if (OA_BUSY) { if (again === true) OA_AGAIN = true; return; }
   if (document.hidden) return;
   const grid = document.getElementById('grid');
   if (!oaGridShown(grid)) { oaPaint(); return; }
   OA_BUSY = true;
   try {
+    oaPaint();   // a list that went stale meanwhile shows greyed while the computers route answers
     const now = Date.now();
     if (!OA_COMPUTERS || now - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS) {
       OA_COMPUTERS_AT = now;
       try {
         const ac = typeof AbortController === 'function' ? new AbortController() : null;
-        const cut = ac ? setTimeout(() => ac.abort(), OA_READ_LIMIT_MS) : null;
+        const cut = ac ? setTimeout(() => ac.abort(), OA_COMPUTERS_LIMIT_MS) : null;
         let res, data;
         try {
           res = await fetch('/api/remote/computers', ac ? { cache: 'no-store', signal: ac.signal } : { cache: 'no-store' });
@@ -27826,8 +27846,8 @@ async function oaRound() {
 function oaStart() {
   if (OA_TIMER || typeof location === 'undefined' || location.protocol !== 'https:') return;
   const box = document.getElementById('oa-only');
-  if (box) box.addEventListener('change', () => { oaSetThisOnly(box.checked); oaPaint(); if (!box.checked) oaRound(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) oaRound(); });
+  if (box) box.addEventListener('change', () => { oaSetThisOnly(box.checked); oaPaint(); if (!box.checked) oaRound(true); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { oaPaint(); oaRound(); } });   // greys a list gone stale while hidden, before the read
   oaRound();
   OA_TIMER = setInterval(oaRound, OA_STATUS_EVERY_MS);
 }
