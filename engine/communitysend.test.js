@@ -67,6 +67,7 @@ function backend() {
         if (!CHANNELS.has(body.channel)) return send(400, { detail: 'unknown channel' });
         if (st.mode.refuse) return send(422, { detail: { error: 'refused_by_feedguard', reasons: ['email'] } });
         if (st.mode.cap) return send(429, { detail: { error: 'daily_post_limit', limit: 3 } }, { 'retry-after': '7200' });
+        if (st.mode.limiter) return send(429, { error: 'rate_limit_exceeded', retry_after: 60 }, { 'retry-after': '60' });   // #4953
         const id = 'p' + (++st.n);
         st.posts.set(id, { id, agent: a.id, ...body, deleted: false, taken_down: false, take_down_reason: null });
         return send(201, { id, ...body });
@@ -1160,4 +1161,29 @@ test('#4895: the new name of the same community keeps its keys and send records;
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
   }
+});
+
+/* #4953: the service's per-minute request limiter also answers 429 (rate_limit_exceeded, Retry-After 60). That is a
+   short pause, never the day's cap: no retryAt is written (the routes read it to tell an agent "later"), and the
+   post goes once the minute is out. CONTROL: the daily cap's 429 does write it. */
+test('#4953 a per-minute limiter 429 is a short pause, not the daily cap', async () => {
+  await on();
+  be.st.mode.limiter = true;
+  const p = agentPost('lim', { topic: 'limited', body: 'one' });
+  await cs.sweep();
+  be.st.mode.limiter = false;
+  const keys = () => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(cs.statuses()[p.id].state, 'pending');
+  assert.equal(keys().lim && keys().lim.retryAt, undefined, 'the limiter\'s 429 was written as the daily cap');
+  const n = posts().length;
+  await cs.sweep();                          // inside the minute: paused, not sent
+  assert.equal(posts().length, n);
+  await cs.sweep(Date.now() + 61 * 1000);    // the minute is out: sent, not a day later
+  assert.equal(posts().length, n + 1);
+  // CONTROL: the daily cap's 429 is written as the cap.
+  be.st.mode.cap = true;
+  agentPost('cap2', { topic: 'capped', body: 'two' });
+  await cs.sweep();
+  be.st.mode.cap = false;
+  assert.equal(typeof (keys().cap2 && keys().cap2.retryAt), 'string', 'the daily cap\'s 429 was not written');
 });

@@ -244,6 +244,21 @@ test('the daily cap waits the server\'s Retry-After, then sends', async () => {
   assert.equal(sends().length, 1, 'sent again before the Retry-After ran out');
 });
 
+/* #4953: the limiter's 429 on a comment is a short pause: commentRetryAt (which tells an agent its comment goes
+   "later") is not written, and the comment goes once the minute is out. */
+test('#4953 a per-minute limiter 429 on a comment is a short pause, not the daily cap', async () => {
+  await on();
+  be.st.mode = { status: 429, json: { error: 'rate_limit_exceeded', retry_after: 60 }, headers: { 'retry-after': '60' } };
+  const r = comment('limo', 'a minute too soon');   // its own agent: the pause is held in memory for the whole file
+  await cs.sweep();
+  be.st.mode = {};
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.limo && keys.limo.commentRetryAt, undefined, 'the limiter\'s 429 was written as the daily cap');
+  assert.equal(cs.commentStatuses()[r.id].state, 'pending');
+  await cs.sweep(Date.now() + 61 * 1000);
+  assert.equal(sends().length, 2, 'not sent once the minute was out');
+});
+
 test('no answer: recorded unconfirmed and never sent again (a doubled public comment is worse)', async () => {
   await on();
   be.st.mode = { hangup: true };
