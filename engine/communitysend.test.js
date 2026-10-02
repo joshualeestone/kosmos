@@ -1577,7 +1577,8 @@ test('4922: an agent removed AFTER it was grouped is sent the clear (its group w
     const clears = groupPatches().filter((p) => p.body.install_group === null).length;
     await cs.sweep();
     assert.equal(groupPatches().filter((p) => p.body.install_group === null).length, clears, 'the clear was sent again');
-    fs.rmSync(removedFile, { force: true });   // restored
+    fs.rmSync(removedFile, { force: true });   // restored: off the removed list, its folder there
+    fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'zoe'), { recursive: true });
     await cs.sweep();
     assert.equal(zoe().installGroup, group, 'a restored agent was not sent the id again');
   } finally { fs.rmSync(removedFile, { force: true }); }
@@ -1656,6 +1657,42 @@ test('4922: an id PATCH that was refused outright is not "maybe grouped": remove
     await cs.sweep();
     assert.equal(groupPatches().filter((p) => p.body.install_group === null).length, 0, 'a clear was sent for an agent that was never grouped');
   } finally { be.st.mode.groupBadBody = false; fs.rmSync(removedFile, { force: true }); }
+});
+
+test('4922: an agent whose leftovers were DELETED (off the removed list, folder gone) is never sent the id again', async () => {
+  await on();
+  for (const n of ['ava', 'yan']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const yan = () => [...be.st.agents.values()].find((a) => a.name === 'YAN');
+  const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
+  assert.equal(yan().installGroup, group, 'premise: yan was grouped');
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'yan' }]));
+    await cs.sweep();
+    assert.equal(yan().installGroup, null, 'premise: the removal sent the clear');
+    fs.rmSync(removedFile, { force: true });   // delete-leftover: remove.forget drops it from the list; no folder
+    await cs.sweep(); await cs.sweep();
+    assert.equal(yan().installGroup, null, 'an agent whose leftovers were deleted was put back in the group');
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
+
+test('4922: a later refusal does not drop the mark an earlier LOST PATCH left (it may still have landed)', async () => {
+  cs._installGroupRetry(0);
+  await on();
+  store.writeProfile('zoe', { displayName: 'ZOE', role: 'Ops' });
+  agentPost('zoe', { topic: 'Note', body: 'A note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.zoe.installGroupSent; writeKeys(k);
+  be.st.mode.groupHang = true; cs.setTimeoutMs(150);
+  try {
+    await cs.sweep();
+    assert.ok(readKeys().zoe.installGroupUnsure, 'premise: the lost PATCH left the mark');
+    be.st.mode.groupHang = false; cs.setTimeoutMs(2000);
+    be.st.mode.groupNoMethod = true; cs._installGroupRetry(0);
+    await cs.sweep();
+    assert.ok(readKeys().zoe.installGroupUnsure, 'a 405 on the retry dropped the mark the lost PATCH left');
+  } finally { be.st.mode.groupHang = false; be.st.mode.groupNoMethod = false; cs.setTimeoutMs(2000); }
 });
 
 test('4922: registration reads the removed list fail-closed (unreadable: no id)', async () => {

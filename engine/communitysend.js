@@ -284,6 +284,11 @@ function removedOrUnknown(agentKey) {
   const clean = require('./create').cleanName;
   return removed.names.some((n) => clean(n) === clean(agentKey));
 }
+/* #4922 review 13: does this agent's folder still exist (it is moved to the Trash when its leftovers are deleted)?
+   Fail-closed: any doubt is "gone". */
+function workerFolderExists(agentKey) {
+  try { const d = require('./create').workerDir(agentKey); return Boolean(d) && fs.existsSync(d); } catch { return false; }
+}
 function registration(agentKey) {
   const profile = readProfileSafe(agentKey);
   const out = { name: profileName(profile) || 'agent-' + crypto.randomBytes(3).toString('hex') };
@@ -851,7 +856,12 @@ async function sweepInstallGroup(keys, on) {
     if (Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
-    const removedNow = removedSet.has(clean(agentKey));
+    /* Review 13: deleting a removed agent's leftovers takes it OFF the removed list (delete-leftover calls
+       remove.forget) and moves its folder to the Trash. So an agent once seen removed while grouped is remembered
+       (installGroupOff), and while its folder is gone it is still treated as removed: never sent the id again, and
+       cleared if it was not yet. Its folder back means it was restored: it is sent the id again. */
+    const removedNow = removedSet.has(clean(agentKey)) || (Boolean(k.installGroupOff) && !workerFolderExists(agentKey));
+    if (!removedNow && k.installGroupOff) { delete k.installGroupOff; saveJson(keysFile(), keys); }   // restored
     if (k.refused) {
       // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
       if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
@@ -866,14 +876,17 @@ async function sweepInstallGroup(keys, on) {
     // removed is sent the clear (the service: "send null to clear one"), or its group would keep listing it.
     // installGroupUnsure: an id PATCH whose answer was lost may have landed (review 11), so it counts as grouped.
     const maybeGrouped = Boolean(k.installGroupSent || k.installGroupUnsure);
+    if (removedNow && maybeGrouped && !k.installGroupOff) { k.installGroupOff = true; saveJson(keysFile(), keys); }   // before the clear
     if (removedNow && !maybeGrouped) continue;
     if (!removedNow && k.installGroupSent === group) continue;
     const want = removedNow ? null : group;
-    if (want !== null && k.installGroupUnsure !== want) { k.installGroupUnsure = want; saveJson(keysFile(), keys); }   // written ahead
+    const wroteMark = want !== null && !k.installGroupUnsure;
+    if (wroteMark) { k.installGroupUnsure = want; saveJson(keysFile(), keys); }   // written ahead
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: want });
     // Review 12: a definite refusal proves nothing landed, so the written-ahead mark goes (a later removal must not send
     // a clear for an agent that was never grouped).
-    if (k.installGroupUnsure && (namesInstallGroup(r) || [400, 404, 405, 422].includes(r.status))) { delete k.installGroupUnsure; saveJson(keysFile(), keys); }
+    // Review 13: only a mark THIS request wrote: a refusal proves this request did not land, not an earlier lost one.
+    if (wroteMark && (namesInstallGroup(r) || [400, 404, 405, 422].includes(r.status))) { delete k.installGroupUnsure; saveJson(keysFile(), keys); }
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
     if (namesInstallGroup(r)) {   // #4922: the service does not know the field: pause, as register does
       installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);
