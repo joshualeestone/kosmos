@@ -47,10 +47,13 @@ combination no channel tests. setup.sh had 36 commits in September.
   pointer writer's field (absent, present, refused when not a sha).
 - engine/update.win32-check.test.js: staging box -> /setup-staging, prod control -> /setup.
 - tools/test-staging-wire-2036.sh: the hand-off grep now expects /setup-staging.
-- tools/test-deploy-site-promote.sh cases 19-26 (RUN, not grepped): matching installer deploys and is
+- tools/test-deploy-site-promote.sh cases 19-27 (RUN, not grepped): matching installer deploys and is
   served; mismatched promote and mismatched site copy refuse with nothing served; a lying sidecar
   refuses; a committed /setup-staging pair deploys and passes its edge check, a mangled served one is
   refused; a pointer naming an installer over a commit with no sidecar is refused.
+  Case 27 (review 13): an edge serving an OLD /setup pair that agrees with its own sidecar is refused by the
+  served-vs-pointer check (deploy-site.sh, the CSETUP line); deleting that line reds case 27 alone (measured 12:07
+  CDT 2026-10-02 in a scratch worktree), case 19 is its passing control.
 - tools/test-artifact-setup-source-2360.sh: its static pins follow the \$SETUP_NAME spelling (review 3). Cases 1-18 (pointers with no field) are the not-checked control.
 
 ## Rejected
