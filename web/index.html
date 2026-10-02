@@ -3421,7 +3421,12 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the left side means a lone section (its preceding sibling hidden) gets no
    stray top margin, so single-section pills are unaffected. */
 .dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
-.dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
+/* #4961: no ring round a whole section. A nav pill moves focus INTO its section (detailGo), so a
+   keyboard user's next Tab lands inside; the section is a tabindex=-1 landing spot, not a tab
+   stop, and the control that Tab reaches shows its own ring. The old 2px ink :focus-visible
+   outline drew a black stroke round the 16px-radius card in the Mac app, where WebKit matches
+   :focus-visible on that focus even after a click (Safari does not focus the clicked button). */
+.dsec:focus { outline: none; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
    none while the box is showing. ⚠️ ORDER-DEPENDENT: the sibling rule last
    has the same specificity as the three above it and wins by position; move
