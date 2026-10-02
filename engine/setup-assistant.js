@@ -315,6 +315,23 @@ function guideDenyRulesFor({ home = kosmosHome(), dataRoot = store.ROOT, worldsB
 const RULE_SYNTAX = /[*?[\](){}!\\]/;
 /* A folder's real path when it can be read, else the path as given. */
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
+/* #4491: canonicalize a path whose LEAF may not exist yet (a settings.json not written, a board.token
+   not minted). realpathSync throws on a missing file and path.resolve would then leave a symlinked
+   PARENT (e.g. ~/.claude -> elsewhere) un-canonicalized, so a Seatbelt denyWrite literal built from it
+   would not match the real write. Resolve the deepest existing ancestor and rejoin the rest, so the
+   parent's symlinks are followed even when the leaf is absent. */
+function realOrLeaf(p) {
+  const abs = path.resolve(p);
+  let dir = path.dirname(abs);
+  const tail = [path.basename(abs)];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* climb */ }
+    const parent = path.dirname(dir);
+    if (parent === dir) return abs;   // reached the root with nothing resolvable
+    tail.unshift(path.basename(dir));
+    dir = parent;
+  }
+}
 /* A path as a Claude Code rule spells an absolute one: two slashes, then the path without its leading slashes. */
 function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
 /* #4752: is `rule` one this code writes for a single entry directly in `base` (either form), for a name
@@ -460,33 +477,47 @@ function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
  *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
  *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
  *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
- *    the sandbox from where the agent-folder's cannot. The .claude-* forms are a glob, which the
- *    permission layer honours (the guide globs the same account dirs for Read); the sandbox filesystem
- *    block below gets concrete home-settings paths plus the agent dir, and relies on the permission
- *    layer plus Seatbelt's translation of permission Read/Edit denies for the glob case.
+ *    the sandbox from where the agent-folder's cannot. Every ~/.claude-* account home that EXISTS is
+ *    enumerated and gets CONCRETE settings-file denies in BOTH layers (so a non-default-account agent's
+ *    real config home is covered by a measured file-write deny, not only the glob). A trailing
+ *    ~/.claude-* glob stays in the permission layer for a home created later. What is NOT measured is
+ *    whether Seatbelt translates a permission Edit-GLOB to a subprocess write (the guide's measurement
+ *    only proved a Read-glob -> subprocess read); that is why existing homes are made concrete, and the
+ *    glob-only future-home case is the reasoned residual the plan records.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
+function accountConfigHomes(home) {
+  // ~/.claude plus every EXISTING ~/.claude-<label> (a CLAUDE_CONFIG_DIR account home). Enumerated the
+  // way guideDenyRulesFor enumerates store entries, so an agent's real account home gets concrete denies.
+  const out = [path.join(home, '.claude')];
+  try {
+    for (const d of fs.readdirSync(home, { withFileTypes: true })) {
+      if (/^\.claude-/.test(d.name) && (d.isDirectory() || d.isSymbolicLink())) out.push(path.join(home, d.name));
+    }
+  } catch { /* home unreadable: the permission-layer glob below still covers it */ }
+  return out;
+}
 function tokenOnlySettingsRules(dir, deps = {}) {
   const home = deps.home || kosmosHome();
   const dataRoot = deps.dataRoot || store.ROOT;
   const tokenFile = require('./boardauth').TOKEN_FILE;
   const settingsDir = path.join(dir, '.claude');
-  const userClaude = path.join(home, '.claude');
   const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps);
   const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
   const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
-  // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: ~/.claude holds
+  // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
   // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
-  const settingsFileDirs = [settingsDir, userClaude];
-  // Permission-layer Edit denies also cover the ~/.claude-* account variants via a glob.
-  const editDirs = [settingsDir, userClaude, path.join(home, '.claude-*')];
+  const concreteHomes = accountConfigHomes(home);
+  const settingsFileDirs = [settingsDir, ...concreteHomes];
+  const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
+  // Permission-layer Edit denies: the concrete homes above, plus a ~/.claude-* glob for a home made later.
+  const editTargets = [...settingsFiles.map((p) => ({ f: p })), { f: path.join(home, '.claude-*', 'settings.json') }, { f: path.join(home, '.claude-*', 'settings.local.json') }];
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
-    ...editDirs.flatMap((d) => [`Edit(${ruleAbs(path.join(d, 'settings.json'))})`, `Edit(${ruleAbs(path.join(d, 'settings.local.json'))})`]),
+    ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
-  const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
-  return { deny, settingsDir, userClaude, tokenPaths, tokenTmps, settingsFiles };
+  return { deny, settingsDir, tokenPaths, tokenTmps, settingsFiles };
 }
 
 /*
@@ -534,10 +565,14 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       const fsb = sb.filesystem && typeof sb.filesystem === 'object' && !Array.isArray(sb.filesystem) ? sb.filesystem : {};
       const dr = Array.isArray(fsb.denyRead) ? fsb.denyRead.filter((x) => typeof x === 'string') : [];
       const dw = Array.isArray(fsb.denyWrite) ? fsb.denyWrite.filter((x) => typeof x === 'string') : [];
-      // realOr the paths: Seatbelt matches resolved paths, so a symlinked data dir or /var -> /private/var
-      // would otherwise slip a denyRead/denyWrite (the guide realOr's its own folder for the same reason).
-      const denyReadPaths = rules.tokenPaths.map(realOr);
-      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOr)];
+      // Canonicalize the paths: Seatbelt matches resolved paths, so a symlinked data dir or
+      // /var -> /private/var would otherwise slip a denyRead/denyWrite (the guide realOr's its own
+      // folder for the same reason). The token files and the home settings files often do not exist
+      // yet, so use realOrLeaf (resolves the existing parent, keeps the absent leaf) rather than realOr,
+      // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
+      // realOr resolves it directly.
+      const denyReadPaths = rules.tokenPaths.map(realOrLeaf);
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf)];
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },

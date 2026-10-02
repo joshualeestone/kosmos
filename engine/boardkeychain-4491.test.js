@@ -34,9 +34,19 @@ function agentDir(name) { return path.join(SANDBOX, 'workers', name); }
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
 function tokenAbs() { return path.join(store.ROOT, TOKEN_FILE); }
 function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
-// The sandbox filesystem block realOr's its paths (symlink correctness, e.g. /var -> /private/var on
-// macOS), so sandbox assertions must compare against resolved paths, not the raw ones.
+// The sandbox filesystem block canonicalizes its paths (symlink correctness, e.g. /var -> /private/var
+// on macOS, and the test SANDBOX under os.tmpdir() is itself such a symlink), so sandbox assertions must
+// compare against resolved paths. realOr for a dir that exists; realOrLeaf for a file whose leaf may not
+// (resolve the existing parent, keep the absent basename) -- mirrors the code's two helpers.
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
+function realOrLeaf(p) {
+  const abs = path.resolve(p); let dir = path.dirname(abs); const tail = [path.basename(abs)];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* climb */ }
+    const parent = path.dirname(dir); if (parent === dir) return abs;
+    tail.unshift(path.basename(dir)); dir = parent;
+  }
+}
 
 test('writes the board.token Read deny and the settings Edit denies (own + shared ~/.claude)', () => {
   const dir = agentDir('pilot-a');
@@ -68,15 +78,15 @@ test('on darwin the sandbox block is enabled, cannot be self-disabled, keeps loo
   assert.equal(sb.autoAllowBashIfSandboxed, true);
   assert.equal(sb.allowUnsandboxedCommands, false, 'without this a refused command is re-run with dangerouslyDisableSandbox');
   assert.equal(sb.network.allowLocalBinding, true, 'the loopback board must stay reachable');
-  assert.ok(sb.filesystem.denyRead.includes(realOr(tokenAbs())), 'board.token not in sandbox denyRead');
+  assert.ok(sb.filesystem.denyRead.includes(realOrLeaf(tokenAbs())), 'board.token not in sandbox denyRead');
   // The agent's OWN .claude is denied at DIR level (safe: no runtime state there).
   assert.ok(sb.filesystem.denyWrite.includes(realOr(path.join(dir, '.claude'))), 'own .claude not in denyWrite (shell printf > settings.json)');
   // The config HOME ~/.claude is denied at FILE level only (W4: the whole dir holds Claude Code's own
   // runtime state, so a dir-level denyWrite there would break normal operation).
   const homeClaude = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
-  assert.ok(sb.filesystem.denyWrite.includes(realOr(path.join(homeClaude, 'settings.json'))), '~/.claude/settings.json not in denyWrite');
-  assert.ok(sb.filesystem.denyWrite.includes(realOr(path.join(homeClaude, 'settings.local.json'))), '~/.claude/settings.local.json not in denyWrite');
-  assert.ok(!sb.filesystem.denyWrite.includes(realOr(homeClaude)), 'the whole ~/.claude was denyWritten (would break Claude Code runtime state) — W4');
+  assert.ok(sb.filesystem.denyWrite.includes(realOrLeaf(path.join(homeClaude, 'settings.json'))), '~/.claude/settings.json not in denyWrite');
+  assert.ok(sb.filesystem.denyWrite.includes(realOrLeaf(path.join(homeClaude, 'settings.local.json'))), '~/.claude/settings.local.json not in denyWrite');
+  assert.ok(!sb.filesystem.denyWrite.includes(realOr(homeClaude)), 'the whole ~/.claude was denyWritten (would break Claude Code runtime state): W4');
 });
 
 test('covers board.token in a legacy root and the default-world base (concrete), not just the current store', () => {
@@ -109,7 +119,7 @@ test('preserves pre-existing sandbox.filesystem and sandbox.network entries on m
   assert.equal(sb.network.allowLocalBinding, true, 'allowLocalBinding was not added alongside');
   assert.ok(sb.filesystem.denyRead.includes('/some/other/secret'), 'a pre-existing denyRead entry was dropped');
   assert.ok(sb.filesystem.denyWrite.includes('/some/other/dir'), 'a pre-existing denyWrite entry was dropped');
-  assert.ok(sb.filesystem.denyRead.includes(realOr(tokenAbs())), 'the token denyRead was not added alongside');
+  assert.ok(sb.filesystem.denyRead.includes(realOrLeaf(tokenAbs())), 'the token denyRead was not added alongside');
 });
 
 test('off darwin, no sandbox block is written (it is Seatbelt-specific)', () => {
@@ -187,7 +197,7 @@ test('no em dash in a settings file this test writes', () => {
   const dir = agentDir('pilot-emdash');
   setup.guardTokenOnlyFolder(dir, 'pilot-emdash', DEPS);
   const raw = fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8');
-  assert.ok(!raw.includes('—'), 'an em dash reached a written settings file');
+  assert.ok(!raw.includes('\u2014'), 'an em dash reached a written settings file');
 });
 
 test('sendertoken.tokenOnlyList is the one parse site and tokenOnlyFor reads it', () => {
