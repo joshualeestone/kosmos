@@ -136,6 +136,7 @@ const EXCUSED = {
   // future regression that dropped the real caller either. What protects it is the
   // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
   // already reachable via server.js's failed-store cleanup.)
+  _nextIdForTests: 'test seam (#4888): engine/messages.js says which id the NEXT post will get (the larger of the log\'s highest and the in-memory high mark, +1), so a test that predicts ids does not have to re-derive the minting rule; a refused send now burns its id, which broke tests that counted. Production mints through mintId and never calls it.',
 };
 
 const engineDir = path.join(__dirname, 'engine');
