@@ -35,3 +35,19 @@ jobs start at once.
 
 ## Iterations
 (filled in by the review loop)
+
+### Iteration 1 (opus, blind): 0 blockers, 4 warnings. All taken.
+1. Only the allowlisted checks would be measured on Linux. Fixed: the FULL set is measured once on ubuntu
+   by dispatching browser-checks-full.yml on this branch with a temporary MEASUREMENT ONLY commit
+   (run 37036328772); reverted before the PR, and the workflow test fails while it is in place.
+2. False and stale macOS comments. Rewritten (what the job runs, a fourth way its green differs from 3b).
+3. Linux WebKit is not Safari's. Named in the comment as a cost.
+4. sudo ran the pinned playwright under the image's system node. Removed (install-deps elevates apt itself).
+NITs taken: one apt-get update. Left: click-first-run.js's historical "macos-latest runner" wording.
+
+### Iteration 2 (sonnet, blind): 0 blockers, 1 conditional warning, nits.
+1. WARNING (conditional): the comment promising KNOWN_RED entries. Resolved by the measurement and
+   Splinter's rule: Linux-only reds are explained on #4601 one by one, not added to KNOWN_RED, and KNOWN_RED
+   only suppresses a SELECTED check, so an allowlisted Linux-only red would red every PR. The comment is
+   rewritten with the results.
+NITs taken: the pgrep claim is now "not verified on Linux"; the 2026-09-07 run is "on the macOS runner".

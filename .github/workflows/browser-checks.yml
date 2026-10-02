@@ -29,7 +29,7 @@
 #   - KOSMOS_BC_CI_ALLOWLIST (set on the run step) scopes WHAT RUNS, and therefore
 #     WHAT A GREEN COVERS: the timing-insensitive, headless-ROBUST DOM-state subset
 #     (the #2085 gate class -- element present / hidden / clickable / labeled). The
-#     first real full-suite run on the runner (2026-09-07) FALSE-RED on the timing/
+#     first real full-suite run on the macOS runner (2026-09-07) FALSE-RED on the timing/
 #     animation/paint checks: they are both slow-runner-fragile and headless-weak
 #     (SwiftShader software rendering), so on this runner they red without a defect.
 #     Those stay at the cut-time 3b (headless too, on a quieter dev Mac). See the run step's
@@ -162,8 +162,8 @@ jobs:
     # and Linux WebKit (a different port from Safari's), Linux fonts, and bash 5. A difference
     # only macOS shows now surfaces at the cut's 3b or in the nightly full set, which stay on
     # macOS: later than the PR, still before anything ships. (cut-guard.sh's "is another run
-    # live?" pgrep arm cannot match on Linux, whose pgrep -fl prints no full command line; its
-    # marker arm still works, and a runner runs one job at a time.)
+    # live?" pgrep arm is written against macOS pgrep output and is not verified on Linux; its
+    # marker arm works either way, and a runner runs one job at a time.)
     runs-on: ubuntu-latest
     # provision-pw (npm i + chromium+webkit builds) is ~2-4 min; the CI ALLOWLIST
     # subset (the headless-robust DOM-state checks named in the run step -- the list
