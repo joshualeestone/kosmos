@@ -366,3 +366,19 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   side turn never yields to its own harness forever. Dry arm added.
 - NIT (kept): a lost side take prints "another run took the turn first" whatever the reason.
 - NIT (kept): after a sleep/wake the cap message says "ran past 10 min" though the time was asleep.
+
+## Round 20 (Opus, blind, convergence): 0 blockers, 2 warnings, 5 nits. (Did not run the wrapper: its launcher was denied.)
+- WARNING FIXED (wrapper, temp + mv): the stop file was made AFTER the side command started, so a full disk printed "NOT
+  STARTED" for a command that had run briefly. Now the stop file and the descendants list are made before the command
+  (refused with nothing run), and a stop is recorded by writing to that file (non-empty = stopped, an empty file =
+  not). Residual (stated): on a disk so full that the few bytes of the reason cannot be written, a stopped command that
+  traps TERM and exits 0 could still end green (three rare conditions at once).
+- WARNING FIXED (comments): kosmos_light_side_clear's condition list now states condition 3 as this generation's
+  "queued run (not a cut)" without [light], adds the older-waiter refusal as condition 8, and the obsolete 🛑 paragraph
+  (a gap round 17 closed) is gone.
+- NITS FIXED (comments): the side claim's header says a main turn of either class waits for it; the misplaced "Round 10:
+  KILL, not TERM" comment sits with the capper kill again; the intruder's doc sits on its own function and lists all six
+  reasons it yields; browser-checks.sh says the browser-run check is not waited on (it is asked before and after).
+- NIT (kept, below the bar): a SIGKILLed wrapper whose side command then exits on its own leaves recorded detached
+  descendants to the capper's exit path, which skips _qh_kill_desc.
+- Sonnet round 20 still running at this entry.

@@ -128,7 +128,7 @@ if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ] && [ -z "${KOSMOS_BC_FROZEN_RUNNER
   # #4911: a light run's SIDE turn (beside a heavy run, kosmos_light_side_clear) ends in minutes (queued-heavy.sh stops
   # it at its cap, inside this wait's 20-minute bound). When one is live, WAIT for it rather than refuse: this page
   # layer is likely the heavy holder's own, and refusing would turn its run red for a neighbour it was promised. Then
-  # the browser-run check runs ONCE, as before: waiting on it too made two page layers that both met a side turn wait
+  # the browser-run check is not WAITED on, as before (it is asked before and after this wait): waiting on it too made two page layers that both met a side turn wait
   # on each other's markers until the bound (review 2). A side turn's own page layer carries its cookie, so it is not
   # foreign to itself.
   if ! kosmos_refuse_if_light_side_live "this page layer" 2>/dev/null; then

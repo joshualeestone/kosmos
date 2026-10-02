@@ -1136,7 +1136,7 @@ kosmos_machine_claim_status() {
 # an install harness or another browser run, and never when the load is half the cores or more.
 # The side turn has its own claim, ONE file, "<cookie> <pid> <expires> <label>", written atomically, cleaned when its
 # holder is dead or it expired (the machine claim's posture). Who asks about it:
-#   - queued-heavy.sh: a light MAIN turn refuses while it is live (never two light runs);
+#   - queued-heavy.sh: a MAIN turn of either class waits for it (_qh_clear);
 #   - browser-checks.sh: WAITS for it rather than refusing (a heavy holder's page layer must not read red because a
 #     light check is running beside it);
 #   - test-install.sh and release.sh: wait for it.
@@ -1267,9 +1267,10 @@ _kosmos_playwright_browsers() {
 # unless every one of these holds:
 #   1. this run is light, and KOSMOS_SIDE_LANE is not 0;
 #   2. no side turn is live (one light run beside a heavy one, never two);
-#   3. the box HAS a heavy holder: a live machine claim that is not a cut (its label says "(not a cut)") and not a light
-#      turn (its label says "[light]"). A bare suite with no claim does not count (its age is not readable), and a free
-#      box is the main queue's business, so the side turn never jumps a waiter for an idle box;
+#   3. the box HAS a heavy holder of THIS wrapper generation: a live machine claim labelled "queued run (not a cut)"
+#      and not "[light]" (round 17: an older wrapper's label cannot say its class, so no side turn beside it). A bare
+#      suite with no claim does not count (its age is not readable), and a free box is the main queue's business, so
+#      the side turn never jumps a waiter for an idle box;
 #   4. that claim is at least KOSMOS_SIDE_MIN_HOLD_S old (default 90 s): the load figure is a 1-minute average, so it
 #      reads low for a holder that has only just started a build;
 #   5. no cut, no install harness and no other browser run is live, and no Playwright browser is running (most one-off
@@ -1277,9 +1278,9 @@ _kosmos_playwright_browsers() {
 #      runs competing for CPU is the hazard that guard names);
 #   6. the 1-minute load is below half the cores (KOSMOS_SIDE_MAX_LOAD sets the line instead);
 #   7. no SIDE-CAPABLE light waiter is ahead of this one (earlier queue time, then lower pid; marker line 6), so light
-#      runs keep their order.
-# 🛑 Condition 3 cannot see a light turn whose claim was taken by a queued-heavy.sh older than #4911: its label has no
-# class, so it reads as heavy. Such a holder is one short run, and condition 5 still refuses beside its browser run.
+#      runs keep their order;
+#   8. no queued-heavy.sh older than #4911 is waiting (it would take a main turn without asking about a side turn).
+# The take (kosmos_light_side_take) also records the holder this check validated (KOSMOS_SIDE_SEEN_HOLDER).
 kosmos_light_side_clear() {
   local what="${1:-this run}" active label cookie born now lc load cores maxl dir f pid ts cls mine_ts mine_pid minhold
   [ "${KOSMOS_SIDE_LANE:-1}" != 0 ] || { echo "the side turn is off (KOSMOS_SIDE_LANE=0)." >&2; return 1; }
@@ -1394,13 +1395,6 @@ kosmos_holds_light_side() {
   [ -n "$active" ] && [ "$(printf '%s' "$active" | awk '{print $1}')" = "$self" ]
 }
 
-# kosmos_light_side_intruder <root pid>: 0 (and why, on stdout) when a browser run or a Playwright browser is live that
-# is NOT the side command's own (root pid and its descendants), so the side turn should YIELD. queued-heavy.sh asks it
-# every few seconds through a side turn and stops its command when it says yes (review 5): the start gate cannot see a
-# heavy holder's page layer that starts AFTER the side turn did, and a holder on a branch older than #4911 runs a
-# browser-checks.sh that does not wait for a side turn. Yielding protects that holder whatever it runs; the light run
-# takes the red, which is the side turn's bargain. Same probes as the start gate (KOSMOS_BC_PROBE, KOSMOS_PW_PROBE),
-# plus the run markers. A probe that cannot answer is an intruder (the safe side: the light run stops).
 # _kosmos_old_qh_waiter_live: 0 (echoing its pid) while a queued-heavy.sh older than #4911 (a 'suitewait' marker whose
 # line 2 names queued-heavy and whose line 6 is neither side nor aware) is waiting. Such a waiter takes a main turn
 # without asking about a side turn (round 16, Sonnet): the take refuses while one waits, and the intruder yields to one
@@ -1421,6 +1415,14 @@ _kosmos_old_qh_waiter_live() {
   return 1
 }
 
+# kosmos_light_side_intruder <root pid>: 0 (and why, on stdout) when the side turn should YIELD; 1 to stay. queued-heavy.sh
+# asks it every few seconds through a side turn and stops its command when it says yes. Yields on: an older
+# queued-heavy.sh's waiter (round 16); a machine claim other than the holder the take recorded (round 17: an older
+# wrapper that found the queue empty marks nothing); a cut; an install harness (review 6); a browser run that is not the
+# side command's own (root pid and its descendants); a Playwright browser that is not its own (review 5). The start
+# gate cannot see what starts AFTER the side turn did; yielding protects the holder whatever it runs, and the light run
+# takes the red, which is the side turn's bargain. Same probes as the start gate (KOSMOS_BC_PROBE, KOSMOS_PW_PROBE), plus
+# the run markers. A probe that cannot answer is an intruder (the safe side: the light run stops).
 kosmos_light_side_intruder() {
   local root="${1:-}" lines rc l pid f
   case "$root" in ''|*[!0-9]*) echo "no side command to protect"; return 0 ;; esac
