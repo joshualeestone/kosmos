@@ -72,6 +72,7 @@ function groupReports(posts) {
 }
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const FILE_EXT = new Set(['app', 'html', 'htm', 'js', 'mjs', 'cjs', 'ts', 'json', 'md', 'txt', 'log', 'sh', 'py', 'css', 'plist', 'exe', 'dll', 'zip', 'gz', 'tar', 'dmg', 'pkg']);
 /* What a scrub CAN take out of free text (review 1): emails, links, GitHub @handles (a ping) and #refs (a back-reference
    on another card), HTML comments (invisible to a reader, read by agents), and every author name and name part. */
 function scrub(text, names) {
@@ -79,15 +80,22 @@ function scrub(text, names) {
   t = t.replace(/<!--[\s\S]*?-->/g, '[comment removed]');
   /* Review 4: a home folder names its user ("/Users/jsmith/x", "C:\\Users\\Maria Lopez\\x", "/home/bob/x"). */
   t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/g, '$1[user]');
-  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\n]+/g, '$1[user]');
+  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+(?: [^\\\s]+)?(?=\\)/g, '$1[user]');   // "C:\\Users\\Maria Lopez\\x": one or two words, up to the next \\
+  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+/g, '$1[user]');
+  t = t.replace(/(^|\s)~[a-z_][\w.-]*/gi, '$1~[user]');   // ~jsmith/notes
   /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
-  t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,})/g, '[secret removed]');
-  t = t.replace(/\b[A-Za-z0-9+/_-]{40,}={0,2}/g, '[secret removed]');
+  t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret removed]');
+  /* A long unbroken run with upper and lower case AND digits reads as a secret. Not a path (no "/"), and not plain hex: a
+     commit hash or an id is bug detail, not a credential (review 5: both were being removed). */
+  t = t.replace(/\b[A-Za-z0-9+_-]{24,}={0,2}/g, (m) => (/[a-z]/.test(m) && /[A-Z]/.test(m) && /\d/.test(m) && !/^[0-9a-f-]+$/i.test(m) ? '[secret removed]' : m));
   t = t.replace(/[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu, '[email removed]');
   t = t.replace(/\b(?:https?:\/\/|www\.)\S+/gi, '[link removed]');
   /* Review 4: a bare domain with a path ("github.com/jsmith/repo") is a profile or a repo, so it goes too; and IPs. */
-  t = t.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/\S*/gi, '[link removed]');
-  t = t.replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[address removed]');
+  /* Not a file name: "Kosmos.app/Contents" or "index.html/x" is a path in a bug report, not a site. */
+  t = t.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.([a-z]{2,})\/\S*/gi, (m, tld) => (FILE_EXT.has(tld.toLowerCase()) ? m : '[link removed]'));
+  t = t.replace(/(?<![vV]|version |Version )\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[address removed]');
+  /* A shell prompt names its user and machine ("jsmith@Johns-MacBook-Pro ~ %"); the email rule needs a dot after the @. */
+  t = t.replace(/\b[\w.-]+@[A-Za-z0-9][\w-]*(?![\w.@])/g, '[user]@[host]');
   t = t.replace(/(^|[^\p{L}\p{N}_])@[A-Za-z0-9][A-Za-z0-9-]*/gu, '$1[handle removed]');
   t = t.replace(/\b[\w.-]+\/[\w.-]+#(\d+)\b/g, 'issue $1');   // review 4: owner/repo#4, a cross-repo back-reference
   t = t.replace(/(^|[^\p{L}\p{N}_&])#(\d+)\b/gu, '$1issue $2');
@@ -188,11 +196,20 @@ function cardState(number, { repo, gh }) {
 function withLock(stateFile, fn) {
   const lock = stateFile + '.lock';
   fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-  try { fs.mkdirSync(lock); } catch (e) {
-    if (e && e.code === 'EEXIST') throw new Error('another triage run holds ' + lock + '; wait for it (or remove the folder if no run is going)');
-    throw e;
+  const take = () => { fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid, since: new Date().toISOString() })); };
+  try { take(); } catch (e) {
+    if (!e || e.code !== 'EEXIST') throw e;
+    /* Review 5: a run killed mid-way leaves the lock. Its owner says who; a dead owner's lock is taken over, a live one refuses. */
+    let owner = null; try { owner = JSON.parse(fs.readFileSync(path.join(lock, 'owner'), 'utf8')); } catch { owner = null; }
+    let alive = true; try { if (owner && owner.pid) process.kill(owner.pid, 0); } catch (err) { alive = !(err && err.code === 'ESRCH'); }
+    if (owner && owner.pid && !alive) {
+      try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ }
+      take();
+    } else {
+      throw new Error('another triage run holds ' + lock + (owner ? ` (pid ${owner.pid} since ${owner.since})` : ' (owner unknown)') + '; wait for it');
+    }
   }
-  const release = () => { try { fs.rmdirSync(lock); } catch { /* best effort */ } };
+  const release = () => { try { fs.rmSync(lock, { recursive: true, force: true }); } catch { /* best effort */ } };
   let out;
   try { out = fn(); } catch (e) { release(); throw e; }
   if (out && typeof out.then === 'function') return out.finally(release);
@@ -269,7 +286,13 @@ async function read(opts = {}) {
 async function readLocked(o) {
   const gh = o.gh || ghRun;
   const state = loadState(o.state);
-  const { posts, truncated } = await fetchReports({ base: o.base, channel: o.channel, maxPages: o.maxPages, fetchFn: o.fetchFn || fetch });
+  /* Review 5: the site answers an unknown channel exactly as an empty one, so a renamed channel would read zero forever. */
+  const fetchFn = o.fetchFn || fetch;
+  const ch = await fetchFn(new URL('/api/channels', o.base).toString());
+  if (!ch.ok) throw new Error(`the site answered ${ch.status} for /api/channels`);
+  const known = await ch.json();
+  if (!Array.isArray(known) || !known.some((c) => c && c.slug === o.channel)) throw new Error(`the site has no ${o.channel} channel, so there is nothing to read`);
+  const { posts, truncated } = await fetchReports({ base: o.base, channel: o.channel, maxPages: o.maxPages, fetchFn });
   const names = authorNames(posts);
   const fresh = posts.filter((p) => !(p.id in state.seen));
   const groups = groupReports(fresh);
@@ -286,9 +309,11 @@ async function readLocked(o) {
   return { digest, state, replyDue, lookupFailed, reports: posts.length, fresh: fresh.length, truncated };
 }
 
-function pendingGroup(state, id) {
+/* `allowFiling`: dup and skip may settle a group a run left "filing" (review 5, BLOCKER: nothing could, so it was stuck). */
+function pendingGroup(state, id, allowFiling = false) {
   const g = state.groups[id];
   if (!g) throw new Error(`no group ${id}`);
+  if (g.status === 'filing' && allowFiling) return g;
   if (g.status === 'filing') throw new Error(`group ${id} was being filed when a run stopped; look for its card, then dup ${id} <card> (or skip ${id})`);
   if (g.status !== 'pending') throw new Error(`group ${id} is already ${g.status}${g.card ? ' (#' + g.card + ')' : ''}`);
   return g;
@@ -307,16 +332,18 @@ function fileLocked(id, o) {
   g.status = 'filing'; saveState(o.state, state);
   const title = o.title ? normal(o.title) : g.draft.title;
   const f = path.join(o.tmpDir || os.tmpdir(), 'card-' + process.pid + '-' + Date.now() + '.md');
-  fs.writeFileSync(f, g.draft.body, { mode: 0o600 });
-  let number;
+  let number; let ghFailed = false;
   try {
+    fs.writeFileSync(f, g.draft.body, { mode: 0o600 });
     const r = gh(['issue', 'create', '--repo', o.repo, '--title', title, '--body-file', f]);
-    if (r.status !== 0) throw new Error('gh issue create failed: ' + r.stderr.trim());
+    if (r.status !== 0) { ghFailed = true; throw new Error('gh issue create failed: ' + r.stderr.trim()); }
     const m = /\/issues\/(\d+)\s*$/.exec(r.stdout.trim());
-    if (!m) throw new Error('gh issue create printed no card url: ' + r.stdout.trim());
+    if (!m) throw new Error(`gh made a card but printed no card number we could read (${r.stdout.trim()}); find it, then: dup ${id} <card>`);
     number = Number(m[1]);
   } catch (e) {
-    if (number === undefined) { g.status = 'pending'; saveState(o.state, state); }   // gh made nothing: back to pending
+    /* Back to pending only when nothing can have been made: the body never written, or gh said it failed. When gh said it
+       worked, the card probably exists, so the group stays "filing" (review 5) and only dup/skip settle it. */
+    if (ghFailed || !fs.existsSync(f)) { g.status = 'pending'; saveState(o.state, state); }
     throw e;
   } finally { try { fs.unlinkSync(f); } catch { /* best effort */ } }
   Object.assign(g, { status: 'filed', card: number, at: new Date().toISOString() });
@@ -330,7 +357,7 @@ function dup(id, card, opts = {}) {
   if (!Number.isInteger(n) || n < 1) throw new Error('dup needs a card number');
   return withLock(o.state, () => {
     const state = loadState(o.state);
-    const g = pendingGroup(state, id);
+    const g = pendingGroup(state, id, true);
     /* Review 4: a fresh report on a card that is ALREADY closed is more likely the bug coming back than a fix. */
     const linkedWhileClosed = cardState(n, { repo: o.repo, gh: o.gh || ghRun }) === 'CLOSED';
     Object.assign(g, { status: 'dup', card: n, linkedWhileClosed, at: new Date().toISOString() });
@@ -343,7 +370,7 @@ function skip(id, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   return withLock(o.state, () => {
     const state = loadState(o.state);
-    Object.assign(pendingGroup(state, id), { status: 'skipped', at: new Date().toISOString() });
+    Object.assign(pendingGroup(state, id, true), { status: 'skipped', at: new Date().toISOString() });
     saveState(o.state, state);
   });
 }
@@ -376,7 +403,13 @@ function parseArgs(argv) {
 async function main(argv) {
   const { verb, args, opts } = parseArgs(argv);
   if (opts.title !== undefined && verb !== 'file') throw new Error('--title is only for file. ' + USAGE);
-  if (verb === 'read' && !args.length) return (await read(opts)).digest;
+  if (verb === 'read' && !args.length) {
+    try { return (await read(opts)).digest; } catch (e) {
+      /* Review 5: a failed daily read says so in the digest, so yesterday's file is never read as today's. */
+      if (opts.digest) { try { fs.writeFileSync(opts.digest, `# Kosmos bugs triage FAILED ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC\n\n${e.message}\n`); } catch { /* best effort */ } }
+      throw e;
+    }
+  }
   if (verb === 'file' && args.length === 1) return `filed ${args[0]} as #${file(args[0], opts)}\n`;
   if (verb === 'dup' && args.length === 2) {
     const wasClosed = dup(args[0], args[1], opts);
