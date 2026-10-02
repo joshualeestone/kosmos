@@ -388,7 +388,7 @@ func holdBoardStopped(kosmosHome: String) {
 
 /// What `kosmos update --if-newer` said, from the last line it printed (install/kosmos cmd_update).
 enum UpdateAnswer: Equatable {
-    case current            // nothing newer
+    case current(String)    // nothing newer than this version, the one installed on disk
     case newer(String)      // newer, and updates are off here: offered, not installed
     case updated(String)    // installed
     case failed(String)     // the installer ran and failed
@@ -412,7 +412,7 @@ func updateAnswer(fromOutput text: String) -> UpdateAnswer {
     }
     switch (words.first, words.count) {
     case ("board", 1): return .board
-    case ("current", 2) where version(words[1]): return .current
+    case ("current", 2) where version(words[1]): return .current(words[1])
     case ("newer", 2) where version(words[1]): return .newer(words[1])
     case ("updated", 2) where version(words[1]): return .updated(words[1])
     case ("failed", 2) where version(words[1]): return .failed(words[1])
@@ -2461,8 +2461,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // rather than starting a board in the middle of it.
         stopsInFlight += 1
         if install {
+            // Shown even when the bar was put away with Not Now (the menu item is the other way to press
+            // Update): the person is told the app restarts before it does.
+            let bar = updateBar ?? makeUpdateBar()
             updateBarLabel?.stringValue = "Updating Kosmos. It restarts when the update is installed."
             updateBarButton?.isHidden = true   // pressed once is enough; it comes back with the answer
+            bar.isHidden = false
+            let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
+            items.first(where: { $0.action == #selector(AppDelegate.updateKosmosNow(_:)) })?.isHidden = true
         }
         let port = modePort   // read here, on the main thread, not from the queue below
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -2479,11 +2485,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     private func updateLookDone(_ answer: UpdateAnswer, asked: Bool) {
         guard computerMode == .connect else { showUpdateOffer(nil); return }
-        if case .unknown = answer, !updateLookIsRetry { retryUpdateLookSoon() }
+        if !updateLookIsRetry {
+            if case .unknown = answer { retryUpdateLookSoon() }
+            // An install another run of this app started may still be going: look again within the hour.
+            if case .refused = answer, !asked { retryUpdateLookSoon() }
+        }
         switch answer {
         case .newer(let v):
-            // Not reachable while an installed update waits for Restart (the CLI is then the new one);
-            // if it were, this offer would replace the Restart one.
+            // Replaces a waiting Restart offer, if any: pressing Update installs the newer one and restarts.
             showUpdateOffer(v)
         case .failed(let v):
             showUpdateOffer(v, note: "Kosmos could not update to \(v). Press Update to try again.")
@@ -2504,7 +2513,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .board where asked, .refused where asked:
             // The person pressed Update and it could not start here (another install is under way, or a
             // board now runs): say so, and keep what was offered.
-            showUpdateOffer(offeredUpdate, note: "Kosmos is already being updated on this computer. Try again in a few minutes.")
+            showUpdateOffer(offeredUpdate, note: "Kosmos could not start the update right now. Try again in a few minutes.")
+        case .current(let v) where installedUpdate == nil && v != runningAppVersion() && Self.freshAppURL(theirs: v) != nil:
+            // What is on disk is not what is running, and an app carrying it is there: an install this app
+            // did not see finish (another run of it started it, or a relaunch failed). Offer the Restart.
+            showInstalledOffer(v)
         case .current, .board, .refused:
             // A later look finds the installed version current; an installed update still waits for Restart.
             if let v = installedUpdate { showInstalledOffer(v) } else { showUpdateOffer(nil) }
@@ -5492,7 +5505,7 @@ if CommandLine.arguments.contains("--kosmos-app-update-selftest") {
         if got != want { bad += 1 }
         print((got == want ? "PASS  " : "FAIL  ") + "\(got)".padding(toLength: 18, withPad: " ", startingAt: 0) + why)
     }
-    row("current 0.7.18\n", .current, "nothing newer")
+    row("current 0.7.18\n", .current("0.7.18"), "nothing newer, and which version is on disk")
     row("newer 0.7.19\n", .newer("0.7.19"), "newer, updates off: offered")
     row("updated 0.7.19\n", .updated("0.7.19"), "installed: relaunch")
     row("failed 0.7.19\n", .failed("0.7.19"), "the installer failed")
