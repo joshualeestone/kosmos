@@ -1,0 +1,1892 @@
+'use strict';
+
+/**
+ * kosmos#2806 (asks 1 + 2): in the PROJECT ROOM, the person's OWN message body
+ * wears a light royal-blue box and an AGENT's wears a light gray box -- the same
+ * two tokens the DM view already uses (--usermsg-tint / --k-sunk), now reaching the
+ * room's `.msg` rows via a `.msg-bd` wrapper around the message body.
+ *
+ * Josh, 2026-09-11 (testing 0.6.56), on the room screenshot: "we didn't implement
+ * the light blue background for my messages ... for the agents let's put in a light
+ * gray box for them." #2805 gave the DM (`.dm-b`) its gray; the room uses a
+ * different class (`.msg-b`) that had neither color, so both are new here.
+ *
+ * WHAT IT MEASURES (a relationship, not a literal rgba, so Josh can retune either
+ * color and this stays green):
+ *   (a) the operator body box (.msg.you .msg-bd) is FILLED (not transparent);
+ *   (b) it is BLUE (blue channel dominant), not gray or the surface;
+ *   (c) the agent body box (.msg:not(.you) .msg-bd) is FILLED and a warm cream
+ *       (R>=G>=B), not a neutral gray or the blue (#2947);
+ *   (d) the two boxes are DISTINCT from each other;
+ *   (e) a BODYLESS row (no words, no cards) draws a `.msg` row but NO `.msg-bd`
+ *       -- so there is no empty tinted box.
+ *
+ * #3134-followup (Josh 6.72) extends this to the bubble rework, all also measured on
+ * the real pjRoomRow output:
+ *   (f) the agent NAME is INSIDE the bubble as `.msg-nm`, the FIRST child (top); the
+ *       operator's OWN post carries no name;
+ *   (g) the TIMESTAMP is INSIDE the bubble (`.msg-bd .msg-t`), the LAST child
+ *       (bottom-right), on both bubbles;
+ *   (h) the inline delivery receipt (`.delivery`, "Placed with X ...") is GONE;
+ *   (i) the TAIL is a WING: the colored `::before` is anchored at a negative offset
+ *       (agent=cream on the left, operator=blue on the right) and the `::after` is the
+ *       thread-ground mask that carves the Option A curve. #3267: the wing now OVERLAPS
+ *       the box (Option A geometry) and `--usermsg-tint` is SOLID, so the overlap cannot
+ *       double-tint (the solid fill composites once by construction);
+ *   (j) the agent name + agent avatar are click-to-open (`data-open-agent`), the
+ *       operator's own avatar is not; and the avatar is bottom-aligned (flex-end).
+ *
+ * It renders REAL pjRoomRow output (never a copy) into the loaded page, so the
+ * `:root` color tokens and the `.msg-bd` rules apply exactly as shipped. DOM +
+ * computed-style only, so headless and headed agree.
+ *
+ *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-room-msgbox-2806.js
+ *
+ * HEADED by default (like its siblings). HEADED=0 on a machine with no console.
+ * The #2518 surface gate reads the line-leading annotation below.
+ * ENGINES=chromium,webkit runs every arm in each (WebKit is Playwright's build, not Safari), the
+ * same switch as render-dm-phone-718. Chromium alone by default, which is what the gate runs.
+ */
+// Browser-check-surface: pj-room rxn-quick rxn-show rxn-below pj-list-view sortctl viewtoggle nt-modal am-modal pj-post-mirror pj-add-member pj-back pj-settings-link pj-newtask pj-docs-all pj-alltasks
+const path = require('node:path');
+const playwright = require('playwright');
+/* ENGINES=chromium,webkit (the render-dm-phone-718 switch). An unknown name is refused rather
+   than quietly running Chromium alone. */
+const ENGINES = (process.env.ENGINES || 'chromium').split(',').map((e) => e.trim()).filter(Boolean);
+const BAD_ENGINES = ENGINES.filter((e) => e !== 'chromium' && e !== 'webkit');
+if (BAD_ENGINES.length || !ENGINES.length) { console.error('ENGINES must be chromium and/or webkit, got: ' + (process.env.ENGINES || '')); process.exit(2); }
+let ENGINE = ENGINES[0];
+
+const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+/* The places the page's 16px touch rule covers, read FROM THAT RULE (one list, not four copies),
+   and the input types it skips; every field sweep below uses these. */
+const PAGE_SOURCE = require('node:fs').readFileSync(path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html'), 'utf8');
+const FIELD_VIEWS = (PAGE_SOURCE.match(/:is\((#pj-list-view[^)]*)\) :is\(input:not/) || [, ''])[1].split(',').map((sel) => sel.trim()).filter(Boolean);
+const FIELD_DIALOGS = [...PAGE_SOURCE.matchAll(/(#[\w-]+) :is\(input:not\(\[type=checkbox\]\)/g)].map((match) => match[1]);
+const FIELD_ROOTS = [...FIELD_VIEWS, ...FIELD_DIALOGS];
+if (FIELD_VIEWS.length !== 6 || FIELD_DIALOGS.length !== 2) { console.error('the 16px rule\'s scope could not be read from the page: ' + JSON.stringify(FIELD_ROOTS)); process.exit(2); }
+/* Input types the sweeps skip: the rule's own :not(checkbox, radio), plus types that are not text
+   fields (iOS zooms text entry only). */
+const FIELD_SKIP = ['checkbox', 'radio', 'range', 'color', 'file', 'hidden', 'button', 'submit', 'reset', 'image'];
+
+const fail = [];
+const chk = (ok, label, extra) => {
+  const named = (ENGINES.length > 1 ? '[' + ENGINE + '] ' : '') + label;
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + named + (extra ? '  ' + extra : ''));
+  if (!ok) fail.push(named);
+};
+/* A thrown handler (tap, observer, re-place) can leave the state an arm reads intact and pass it:
+   collect every page error, and each page asserts none before it closes. Loaded over file://, the
+   page's own /api/* polls cannot resolve: that is this harness having no server, not a page defect
+   (WebKit words it "Not allowed to load local resource: file:///..."). */
+function watchErrors(page) {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push('pageerror ' + e.message));
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    if (/ERR_FILE_NOT_FOUND|URL scheme "file" is not supported|Not allowed to load local resource: file:/.test(m.text())) return;
+    errors.push('console ' + m.text());
+  });
+  return errors;
+}
+
+/* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0. */
+function parse(c) {
+  if (!c || c === 'transparent') return [0, 0, 0, 0];
+  // Defensive srgb scaler: Chromium serializes a color-mix() result as
+  // `color(srgb r g b [/ a])` with 0..1 components, and without scaling them
+  // spread/blueLead collapse to ~0 and the arms pass VACUOUSLY. The agent color
+  // is now a plain hex (#3260 removed the color-mix nudges) so this branch is
+  // currently inert, but kept so any future color-mix color is scaled, not
+  // passed vacuously; detect the srgb form and lift the components to 0..255.
+  const srgb = /^color\(\s*srgb\b/i.test(c);
+  const n = (c.match(/[\d.]+/g) || []).map(Number);
+  if (n.length < 3) return [0, 0, 0, 0];
+  const s = srgb ? 255 : 1;
+  return [n[0] * s, n[1] * s, n[2] * s, n.length > 3 ? n[3] : 1];
+}
+/* Channel spread of an rgb triple -- 0 for a perfect gray. */
+function spread(rgb) { return Math.max(rgb[0], rgb[1], rgb[2]) - Math.min(rgb[0], rgb[1], rgb[2]); }
+/* How much the blue channel leads the larger of red/green -- positive and large
+   for the royal blue, ~0 (or negative) for a neutral gray. */
+function blueLead(rgb) { return rgb[2] - Math.max(rgb[0], rgb[1]); }
+
+const now = () => new Date().toISOString();
+
+/* #4663: runs in the page. Reveals the project page's six small controls the way an open project shows them (the
+   static page opens none), measures each one's tap area and its neighbours' centres, then puts every change back, so
+   later arms see the page as it was. A parent is only forced visible where it computes display:none, and only then. */
+function tapProbe4663(skip) {
+  const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'].filter((id) => !(skip || []).includes(id));
+  // What the probe may change, read before and after: each control and its ancestors' hidden, inert and inline display.
+  const snap = () => ids.map((id) => { const out = []; for (let el = document.getElementById(id); el && el !== document.body; el = el.parentElement)
+    out.push([el.hidden, el.hasAttribute('inert'), el.style.display].join('/')); const b = document.getElementById(id); return out.join('>') + '|' + (b ? b.textContent : ''); }).join(';')
+    // The two lists the probe draws into, and the page's cache of the task list (paintProjectTasks skips a repaint
+    // that matches it), so a probe that left either behind reads as not restored.
+    + '|' + ['pj-tasklist', 'pj-docs'].map((i) => { const e = document.getElementById(i); return e ? e.innerHTML : ''; }).join('|')
+    + '|' + ['pj-crumb', 'pj-one-agents'].map((i) => { const e = document.getElementById(i); return e ? e.innerHTML : ''; }).join('|')
+    + '|' + (typeof TK_LIST_HTML === 'undefined' ? '' : String(TK_LIST_HTML))
+    // Every element scrolled away from 0, by position in the page, so a scroll the probe CAUSES reads as not restored
+    // (review round 8: only elements already scrolled at the start were compared).
+    + '|' + [...document.querySelectorAll('*')].map((e, i) => (e.scrollTop || e.scrollLeft ? i + ':' + e.scrollTop + ',' + e.scrollLeft : '')).filter(Boolean).join(';');
+  // Scroll positions too: scrollIntoView below moves the window and every scrolling ancestor.
+  const scrolled = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => e && (e.scrollTop || e.scrollLeft)).map((e) => [e, e.scrollTop, e.scrollLeft]);
+  const sx = scrollX, sy = scrollY;
+  const start = snap() + '#' + scrolled.map(([, t, l]) => t + ',' + l).join(';') + '#' + sx + ',' + sy;
+  const undo = [];
+  /* A project with one task and one file (review round 4): the first task card and the first file row sit a few px
+     under the tasks and Files headers, so an area reaching below a header takes their top edge. With empty lists the
+     neighbour arm below had nothing under a header to measure. Put back at the end like everything else. */
+  const tasklist = document.getElementById('pj-tasklist'), docs = document.getElementById('pj-docs');
+  const crumb = document.getElementById('pj-crumb'), members = document.getElementById('pj-one-agents');
+  const seeded = [tasklist, docs, crumb, members].map((el) => [el, el && el.innerHTML]);
+  const door = document.getElementById('pj-alltasks'); const doorWas = door && [door.hidden, door.textContent];
+  const cacheWas = typeof TK_LIST_HTML === 'undefined' ? undefined : TK_LIST_HTML;
+  if (typeof paintProjectTasks === 'function') paintProjectTasks({ id: 'p4663', tasks: [{ number: 1, sentence: 'Write the launch note', progress: { assigned: 1, closed: 0 }, parts: [] }] });
+  if (docs) docs.innerHTML = '<button type="button" class="pj-doc" data-doc="notes.md"><span class="pj-doc-n">notes.md</span></button>';
+  /* A parent project's crumb beside Back (a role=link, 6px from it) and two member rows under + Add member (they open
+     the agent's page): clickable neighbours the sample did not draw before round 8. */
+  if (crumb) crumb.innerHTML = '<span class="pj-crumb-lead"><span class="pj-crumb-link" role="link" tabindex="0" data-project="p0">Parent</span></span><span class="pj-crumb-sep" aria-hidden="true">/</span><span class="pj-crumb-cur">This project</span>';
+  if (members) members.innerHTML = ['april', 'leo'].map((a) => '<div class="pj-member" data-agent="' + a + '"><span class="pj-member-b">' + a + '</span></div>').join('');
+  undo.push(() => { for (const [el, html] of seeded) if (el) el.innerHTML = html; if (door) { door.hidden = doorWas[0]; door.textContent = doorWas[1]; }
+    if (cacheWas !== undefined) TK_LIST_HTML = cacheWas; });
+  const set = (el, prop, val) => { const was = prop === 'hidden' ? el.hidden : prop === 'inert' ? el.hasAttribute('inert') : el.style[prop];
+    undo.push(() => { if (prop === 'hidden') el.hidden = was; else if (prop === 'inert') { if (was) el.setAttribute('inert', ''); else el.removeAttribute('inert'); } else el.style[prop] = was; });
+    if (prop === 'hidden') el.hidden = val; else if (prop === 'inert') el.removeAttribute('inert'); else el.style[prop] = val; };
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) continue;
+    if (b.hidden) set(b, 'hidden', false);
+    if (id === 'pj-alltasks' && !b.textContent.trim()) { const was = b.textContent; undo.push(() => { b.textContent = was; }); b.textContent = 'View All'; }
+    for (let el = b; el && el !== document.body; el = el.parentElement) {
+      if (el.hidden) set(el, 'hidden', false);
+      if (el.hasAttribute('inert')) set(el, 'inert', false);
+      if (getComputedStyle(el).display === 'none') set(el, 'display', 'block');
+    }
+  }
+  const out = [], theirs = []; let subjects = [];
+  try {
+  const hit = (x, y, b) => { const t = document.elementFromPoint(x, y); return !!t && (t === b || b.contains(t)); };
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) { out.push({ id, error: 'missing' }); continue; }
+    // In the middle of the screen, so every probe point is on screen: a point off screen proves nothing.
+    b.scrollIntoView({ block: 'center', inline: 'center' });
+    const r = b.getBoundingClientRect(); if (!r.width || !r.height) { out.push({ id, error: 'not drawn' }); continue; }
+    /* The tap area's real extent, whatever its shape (centred, or grown inward where a column clips it): every point
+       of a grid around the control that reaches it, and the box those points span. Off-screen points are not
+       sampled, and the control is mid-screen, so none is. */
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const span = Math.max(r.width, r.height, 36) / 2 + 12;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, hits = 0;
+    for (let y = Math.floor(Math.max(0, cy - span)) + 0.5; y <= Math.min(innerHeight - 1, cy + span); y += 1) {
+      for (let x = Math.floor(Math.max(0, cx - span)) + 0.5; x <= Math.min(innerWidth - 1, cx + span); x += 1) {
+        if (hit(x, y, b)) { hits += 1; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+    }
+    const w = x0 === Infinity ? 0 : x1 - x0 + 1, h = y0 === Infinity ? 0 : y1 - y0 + 1;
+    /* Two halves, because hit-testing cannot see below a pixel (both engines round the asked point to a whole pixel,
+       so a 36px area reads 36 or 37 by where it sits, and a 35px area can read 36: review round 7, measured). The
+       SIZE comes from the area's own used width and height, which is exact; the grid then proves the area is really
+       reachable across that size, not clipped, to within that 1px. */
+    const pa = getComputedStyle(b, '::after'); const aw = parseFloat(pa.width) || 0, ah = parseFloat(pa.height) || 0;
+    const size = pa.content !== 'none' ? Math.max(aw, r.width) : r.width, sizeH = pa.content !== 'none' ? Math.max(ah, r.height) : r.height;
+    out.push({ id, drawn: Math.round(r.width) + 'x' + Math.round(r.height), area: size.toFixed(1) + 'x' + sizeH.toFixed(1), tap: w + 'x' + h,
+      // The hits must FILL the area, not only span it: something laid over its middle would leave the edges hitting
+      // (review round 8, measured: a 36x12 overlay across + Add member's area kept a 37x37 span).
+      hits, reach: size >= 36 && sizeH >= 36 && w >= size - 1 && h >= sizeH - 1 && hits >= (size - 1) * (sizeH - 1) });
+  }
+  // The rows under the headers must be drawn, or the neighbour arm has no subject (counted, not assumed).
+  subjects = ['#pj-tasklist .tkcard', '#pj-docs .pj-doc', '#pj-crumb .pj-crumb-link', '#pj-one-agents .pj-member'].map((q) => [...document.querySelectorAll(q)].filter((e) => e.getBoundingClientRect().height > 0).length);
+  for (const id of ids) {
+    const b = document.getElementById(id); if (!b) continue; b.scrollIntoView({ block: 'center', inline: 'center' }); const r = b.getBoundingClientRect();
+    for (const n of document.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"]), [role="button"], [role="link"], .pj-member[data-agent]')) {
+      if (n === b || b.contains(n) || n.contains(b)) continue;
+      const q = n.getBoundingClientRect(); if (!q.width || !q.height) continue;
+      if (!(q.right > r.left - 40 && q.left < r.right + 40 && q.bottom > r.top - 40 && q.top < r.bottom + 40)) continue;
+      const x = q.left + q.width / 2, y = q.top + q.height / 2;
+      if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+      /* Every pixel of the neighbour's drawn box, not only its centre: an area can cover a neighbour's edge (review
+         round 3 found 18% of View All answering as + New task) while its centre stays its own. Any pixel fails, not a
+         share: 1% of a task card is a 6px strip across an area, the round 4 defect (review round 6). */
+      let taken = 0, total = 0, by = '';
+      for (let yy = Math.floor(q.top) + 0.5; yy < q.bottom; yy += 1) for (let xx = Math.floor(q.left) + 0.5; xx < q.right; xx += 1) {
+        if (yy < q.top || xx < q.left) continue;
+        if (xx < 0 || yy < 0 || xx >= innerWidth || yy >= innerHeight) continue; total += 1;
+        const t = document.elementFromPoint(xx, yy);
+        const o = t && ids.map((j) => document.getElementById(j)).find((o2) => o2 && o2 !== n && !n.contains(o2) && (t === o2 || o2.contains(t)));
+        if (o) { taken += 1; by = o.id; }
+      }
+      if (taken) theirs.push((n.id || n.className || n.tagName) + ': ' + taken + ' of ' + total + ' px answer as ' + by);
+    }
+  }
+  } finally {
+    // Put back even if a measurement throws, so later arms never see an altered page.
+    for (const u of undo.reverse()) u();
+    for (const [e, t, l] of scrolled) { e.scrollTop = t; e.scrollLeft = l; }
+    window.scrollTo(sx, sy);
+  }
+  const end = snap() + '#' + scrolled.map(([e]) => e.scrollTop + ',' + e.scrollLeft).join(';') + '#' + scrollX + ',' + scrollY;
+  return { out, theirs, restored: end === start, subjects };
+}
+
+(async () => {
+  for (const engineName of ENGINES) {
+  ENGINE = engineName;
+  const browser = await playwright[ENGINE].launch(ENGINE === 'chromium'
+    ? { headless: process.env.HEADED === '0', ignoreDefaultArgs: ['--hide-scrollbars'] }
+    : { headless: process.env.HEADED === '0' });
+  console.log('engine: ' + ENGINE + (ENGINE === 'webkit' ? ' (Playwright WebKit, not Safari)' : ''));
+  try {
+    for (const theme of ['light', 'dark']) {
+      const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: theme });
+      const errs = watchErrors(page);
+      // Refuse the app's 5s polls so they neither race the render nor fill the
+      // console against file:// (same posture as render-agent-msg-gray-2805.js).
+      await page.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await page.goto(PAGE);
+
+      const m = await page.evaluate((ts) => {
+        if (typeof pjRoomRow !== 'function') return { error: 'pjRoomRow is not a function' };
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const opMsg = { operator: true, at: ts, text: 'moving everyone to the new account now.' };
+        // msg-avatar-baseline (Josh 2026-09-19): give the agent row an id so pjReactions emits
+        // its (empty) .rxns reaction row, the exact resting case the avatar-baseline fix targets.
+        // Without an id, pjReactions returns '' and the reaction-geometry assertions below are
+        // vacuous (no .rxns to reserve height, no .rxn-quick to anchor).
+        const agentMsg = { id: 'm-agent-1', from: 'april', at: ts, text: 'on it, board cleared.' };
+        // A row with no words and no files: the body is empty, so no .msg-bd.
+        const emptyMsg = { operator: true, at: ts, text: '' };
+        // #3134-followup (Josh 6.72): an AGENT bodyless post must ALSO draw no .msg-bd --
+        // the bubble is gated on body content, not on the name (`hasBubble = bd`), so a
+        // name+timestamp-only tinted box is never drawn. The agentRow finder below picks
+        // the FIRST agent row (agentMsg, which has a body); this fourth row is checked
+        // separately as agentEmptyRow.
+        const agentEmptyMsg = { from: 'april', at: ts, text: '' };
+        const host = document.createElement('div');
+        host.style.cssText = 'position:absolute;left:-9999px;top:0;width:640px;';
+        host.innerHTML = pjRoomRow(opMsg, p) + pjRoomRow(agentMsg, p) + pjRoomRow(emptyMsg, p) + pjRoomRow(agentEmptyMsg, p);
+        document.body.appendChild(host);
+        const rows = Array.from(host.querySelectorAll('.msg'));
+        const opRow = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const agentRow = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const emptyRow = rows.find((r) => r.classList.contains('you') && !r.querySelector('.msg-bd'));
+        const agentEmptyRow = rows.find((r) => !r.classList.contains('you') && !r.querySelector('.msg-bd'));
+        const bg = (el) => (el ? getComputedStyle(el).backgroundColor : null);
+        const out = {
+          rowCount: rows.length,
+          opBd: bg(opRow && opRow.querySelector('.msg-bd')),
+          agentBd: bg(agentRow && agentRow.querySelector('.msg-bd')),
+          // The bodyless row: it must be a .msg.you row that has NO .msg-bd at all.
+          emptyRowIsYou: !!emptyRow,
+          emptyRowHasBox: !!(emptyRow && emptyRow.querySelector('.msg-bd')),
+          // #3134-followup (Josh 6.72): the bodyless AGENT row also draws NO .msg-bd.
+          agentEmptyRowExists: !!agentEmptyRow,
+          agentEmptyHasBox: !!(agentEmptyRow && agentEmptyRow.querySelector('.msg-bd')),
+          agentHasYou: agentRow ? agentRow.classList.contains('you') : null,
+          // #3260: the REAL pjRoomRow render no longer emits data-am on the agent
+          // body box (agent messages are one fixed color); null confirms it.
+          agentDataAm: (agentRow && agentRow.querySelector('.msg-bd')) ? agentRow.querySelector('.msg-bd').getAttribute('data-am') : null,
+          // #3260: data-am is no longer emitted for any row, so this stays false as
+          // a redundant control alongside agentDataAm === null (it would catch a
+          // regression that re-added the attribute on the operator's own box).
+          opHasDataAm: !!(opRow && opRow.querySelector('.msg-bd') && opRow.querySelector('.msg-bd').hasAttribute('data-am')),
+          /* #3134-followup (Josh 6.72): name is now INSIDE the bubble as .msg-nm (top).
+             The operator's OWN post still has NO name; an agent's keeps its name. */
+          opHasName: !!(opRow && opRow.querySelector('.msg-bd .msg-nm')),
+          agentHasName: !!(agentRow && agentRow.querySelector('.msg-bd .msg-nm')),
+          agentNameText: (agentRow && agentRow.querySelector('.msg-bd .msg-nm')) ? agentRow.querySelector('.msg-bd .msg-nm').textContent : null,
+          /* #3134-followup (Josh 6.72): the timestamp is now INSIDE the bubble at the
+             bottom-right (.msg-bd .msg-t), on BOTH the agent and the operator bubble,
+             and it is the LAST child of the bubble (after the body). */
+          agentTimeInBubble: !!(agentRow && agentRow.querySelector('.msg-bd .msg-t')),
+          opTimeInBubble: !!(opRow && opRow.querySelector('.msg-bd .msg-t')),
+          agentTimeIsLast: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return !!(bd && bd.lastElementChild && bd.lastElementChild.classList.contains('msg-t')); })(),
+          agentNameIsFirst: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return !!(bd && bd.firstElementChild && bd.firstElementChild.classList.contains('msg-nm')); })(),
+          /* #3134-followup (Josh 6.72): the inline delivery receipt (".delivery") is
+             gone from the room -- no "Placed with X ... could not be reached". */
+          hasReceipt: !!host.querySelector('.delivery'),
+          /* #3134-followup (Josh 6.72): the WING. The COLORED wing is ::before
+             (background-color:inherit, so agent=cream, operator=blue), anchored at a
+             negative left/right. #3267: the wing OVERLAPS the box (Option A geometry) and
+             --usermsg-tint is SOLID, so the overlap composites once by construction (no
+             double-tint). ::after is the --k-surface thread-ground MASK that carves the curve. */
+          agentWing: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::before'); return { on: cs.content !== 'none' && cs.content !== '', left: cs.left, bg: cs.backgroundColor }; })(),
+          opWing: (() => { const bd = opRow && opRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::before'); return { on: cs.content !== 'none' && cs.content !== '', right: cs.right, bg: cs.backgroundColor }; })(),
+          agentMask: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); if (!bd) return null; const cs = getComputedStyle(bd, '::after'); return { on: cs.content !== 'none' && cs.content !== '', bg: cs.backgroundColor }; })(),
+          /* #3134-followup (Josh 6.72): the agent NAME and the agent AVATAR are
+             click-to-open (data-open-agent = sessionName). The operator's OWN avatar is
+             NOT (never a target). */
+          agentNameOpen: (agentRow && agentRow.querySelector('.msg-nm')) ? agentRow.querySelector('.msg-nm').getAttribute('data-open-agent') : null,
+          agentAvOpen: (agentRow && agentRow.querySelector('.msg-av')) ? agentRow.querySelector('.msg-av').getAttribute('data-open-agent') : null,
+          opAvOpen: (opRow && opRow.querySelector('.msg-av')) ? opRow.querySelector('.msg-av').getAttribute('data-open-agent') : null,
+          /* #3134-followup (Josh 6.72): the avatar is bottom-aligned with the bubble
+             (.msg align-items: flex-end). */
+          rowAlign: (() => { const r = agentRow; return r ? getComputedStyle(r).alignItems : null; })(),
+          /* #3130: `.msg-bd` MUST own a stacking context (position:relative +
+             z-index:0) or the tail's negative-z-index pseudo-elements (#3267:
+             ::before wing z-index:-2, ::after mask z-index:-1) resolve against the
+             ambient tree and `.thread`'s opaque ground paints OVER the whole tail --
+             an invisible tail that every getComputedStyle-only tail assertion above
+             still reads as present. This is the structural pin for that (a regression
+             to z-index:auto reds it). */
+          bdPos: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).position : null; })(),
+          bdZ: (() => { const bd = agentRow && agentRow.querySelector('.msg-bd'); return bd ? getComputedStyle(bd).zIndex : null; })(),
+          /* msg-avatar-baseline (Josh 2026-09-19): the avatar sits ON the bubble's bottom
+             baseline (not below a reserved empty-reaction strip), and the hover reaction
+             popout (.rxn-quick, opacity:0 at rest but measurable) anchors to the bubble's
+             RIGHT edge, not the full column width. pjRoomRow emits an (empty) .rxns row for
+             every message, so a regression that lets the empty row reserve height, or that
+             un-anchors the popout from the shrink-wrapped agent body, moves these deltas off ~0. */
+          avatarVsBubbleBottom: (() => { const r = agentRow; if (!r) return null; const av = r.querySelector('.msg-av'); const bd = r.querySelector('.msg-bd'); if (!av || !bd) return null; return Math.round(av.getBoundingClientRect().bottom - bd.getBoundingClientRect().bottom); })(),
+          popoutVsBubbleRight: (() => { const r = agentRow; if (!r) return null; const q = r.querySelector('.rxn-quick'); const bd = r.querySelector('.msg-bd'); if (!q || !bd) return null; return Math.round(q.getBoundingClientRect().right - bd.getBoundingClientRect().right); })(),
+          /* #3134-followup (Josh 6.72): an operator post with a BODY but NO timestamp
+             draws its bubble (body only) -- no name (operator side), and NO empty .msg-t
+             timestamp element inside. Rendered in isolation so it does not disturb the
+             three-row fixture above. */
+          noTimeHasBody: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-bd'); })(),
+          noTimeHasTime: (() => { const tmp = document.createElement('div'); tmp.innerHTML = pjRoomRow({ operator: true, at: null, text: 'placed everyone.' }, p); return !!tmp.querySelector('.msg-t'); })(),
+          /* #3340 (Josh 6.83): the message body TEXT. Dark -> #fff, light -> the dark ink.
+             Read the agent bubble's body paragraph. */
+          msgTextColor: (() => { const el = agentRow && agentRow.querySelector('.msg-bd p'); return el ? getComputedStyle(el).color : null; })(),
+          /* #3340: the TAB-view dialogue GROUND (.thread) AND the sticky .composer, which is
+             blacked in lockstep so the flat area has no lighter band at the bottom (#3267 tied
+             them). Measure both in the real `.pjmid` nesting -- a bare `.thread` inherits the page
+             ground and would not exercise the #000 rule. Dark -> both #000, light -> the surface. */
+          tabGrounds: (() => {
+            const wrap = document.createElement('div'); wrap.className = 'pjmid';
+            const th = document.createElement('div'); th.className = 'thread';
+            th.innerHTML = pjRoomRow(agentMsg, p);
+            const co = document.createElement('div'); co.className = 'composer';
+            wrap.appendChild(th); wrap.appendChild(co); document.body.appendChild(wrap);
+            const out = { thread: getComputedStyle(th).backgroundColor, composer: getComputedStyle(co).backgroundColor };
+            wrap.remove(); return out;
+          })(),
+        };
+        host.remove();
+        return out;
+      }, now());
+
+      const t = `[${theme}]`;
+      if (m.error) { chk(false, `${t} render`, m.error); await page.close(); continue; }
+
+      // Positive controls: all four rows rendered, and the mine/theirs split is real.
+      chk(m.rowCount === 4, `${t} all four fixture rows rendered`, `count=${m.rowCount}`);
+      chk(m.agentHasYou === false, `${t} the agent row is NOT .you (mine/theirs split is real)`);
+      // #3260 (Josh, 2026-09-18): agent messages are ONE fixed color -- the REAL
+      // pjRoomRow render no longer emits data-am on any box. A regression re-adding
+      // per-message variation would fail here.
+      chk(m.agentDataAm === null, `${t} the real agent box carries NO data-am (one fixed color, #3260)`, `data-am=${m.agentDataAm}`);
+      chk(m.opHasDataAm === false, `${t} the operator's own box carries NO data-am`, `opHasDataAm=${m.opHasDataAm}`);
+
+      const op = parse(m.opBd);
+      const ag = parse(m.agentBd);
+      // (a) operator box filled.
+      chk(op[3] > 0, `${t} the operator body box (.msg.you .msg-bd) carries a fill`, m.opBd);
+      // (b) operator box is blue, not gray/surface.
+      // #3267: --usermsg-tint is now SOLID (pre-composited over each theme ground) so the
+      // Option A overlap wing cannot double-composite into a dark triangle. getComputedStyle
+      // therefore returns the true PAINTED pixel (light rgb(232,235,245) lead 10, dark
+      // rgb(20,28,47) lead 19), not the old translucent token whose raw blue read ~114 with the
+      // alpha dropped. Recalibrated floor 8 cleanly separates the painted blue (>=10) from a
+      // neutral gray (~0) and the warm agent cream (negative); the >=20 distinctness guard at (d)
+      // is the strong separator and stays put.
+      chk(blueLead(op) >= 8, `${t} the operator box is BLUE (blue channel leads)`, `${m.opBd} lead=${blueLead(op).toFixed(0)}`);
+      // (c) agent box filled AND its own tone. LIGHT (#2947): a warm cream, R>=G>=B.
+      // DARK (#3340, Josh 6.83): the agent bubble moved to a COOL near-neutral dark
+      // gray (#252529 = rgb 37,37,41), so the warm-cream R>=G>=B shape is a light-mode
+      // claim now. In dark, assert it stays near-neutral (small spread), dark, and NOT
+      // the user's blue -- the distinctness arm (d) is the strong blue/agent separator.
+      chk(ag[3] > 0, `${t} the agent body box (.msg:not(.you) .msg-bd) carries a fill`, m.agentBd);
+      const agentToneOk = theme === 'dark'
+        ? (spread(ag) <= 20 && blueLead(ag) < 20 && blueLead(ag) >= -2 && Math.max(ag[0], ag[1], ag[2]) <= 80)
+        : (ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20);
+      chk(agentToneOk,
+        `${t} the agent box is its own tone (warm cream in light, cool dark gray in dark), not the blue`,
+        `${m.agentBd} rgb=[${ag.slice(0, 3).map((x) => x.toFixed(1)).join(', ')}]`);
+      // (d) the two are distinct (blue vs cream differ well beyond the alpha).
+      chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent cream are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
+      // (e) a bodyless OPERATOR row draws NO box.
+      chk(m.emptyRowIsYou && !m.emptyRowHasBox, `${t} a bodyless operator row draws a .msg row but NO .msg-bd (no empty tinted box)`, `isYou=${m.emptyRowIsYou} hasBox=${m.emptyRowHasBox}`);
+      // (e2) #3134-followup: a bodyless AGENT row ALSO draws NO box (bubble gated on body,
+      // not name), so a name+timestamp-only tinted box is never drawn.
+      chk(m.agentEmptyRowExists && !m.agentEmptyHasBox, `${t} a bodyless agent row draws a .msg row but NO .msg-bd (no name-only box)`, `exists=${m.agentEmptyRowExists} hasBox=${m.agentEmptyHasBox}`);
+
+      // #3134-followup (Josh 6.72): name is INSIDE the bubble (.msg-nm) at the top. The
+      // operator's OWN post shows NO name; an agent's keeps its name and it is the FIRST
+      // child of the bubble ("me as the user doesn't have my name or 'you'", his rule).
+      chk(m.opHasName === false, `${t} the operator's own post shows NO name`, `opHasName=${m.opHasName}`);
+      chk(m.agentHasName === true, `${t} an agent's post keeps its name INSIDE the bubble`, `agentHasName=${m.agentHasName}`);
+      chk(m.agentNameText === 'April', `${t} the in-bubble name is the agent's name`, `name=${m.agentNameText}`);
+      chk(m.agentNameIsFirst === true, `${t} the name is the FIRST child of the bubble (top)`, `first=${m.agentNameIsFirst}`);
+      // #3134-followup (Josh 6.72): the timestamp is INSIDE the bubble (bottom-right) on
+      // both bubbles, and is the LAST child (under the body).
+      chk(m.agentTimeInBubble === true, `${t} the agent timestamp is INSIDE the bubble`, `in=${m.agentTimeInBubble}`);
+      chk(m.opTimeInBubble === true, `${t} the operator timestamp is INSIDE the bubble`, `in=${m.opTimeInBubble}`);
+      chk(m.agentTimeIsLast === true, `${t} the timestamp is the LAST child of the bubble (bottom)`, `last=${m.agentTimeIsLast}`);
+      // #3134-followup (Josh 6.72): the inline delivery receipt ("Placed with X ...") is GONE.
+      chk(m.hasReceipt === false, `${t} no inline "placed with" delivery receipt in the room`, `hasReceipt=${m.hasReceipt}`);
+      // #3134-followup (Josh 6.72): the WING. The COLORED wing is ::before, anchored at a
+      // negative offset; #3267 it overlaps the box (Option A) with a SOLID tint so the fill
+      // composites once and never doubles. agent on the LEFT (cream), operator on the RIGHT (blue).
+      // The offset assertion below stays < 0 (the anchor is still negative); overlap is the
+      // width extending back INTO the box, not a change of anchor sign.
+      chk(!!(m.agentWing && m.agentWing.on) && parseInt(m.agentWing.left, 10) < 0,
+        `${t} the agent wing (::before) sits outside the LEFT edge`, JSON.stringify(m.agentWing));
+      chk(!!(m.opWing && m.opWing.on) && parseInt(m.opWing.right, 10) < 0,
+        `${t} the operator wing (::before) sits outside the RIGHT edge`, JSON.stringify(m.opWing));
+      // the agent wing inherits the warm cream, NOT blue; the operator wing is blue -- a
+      // swap of the side rules reds one of these.
+      const awing = parse(m.agentWing && m.agentWing.bg);
+      // The wing inherits the agent box fill (background-color: inherit), so it tracks
+      // the same tone: warm cream in light, cool dark gray in dark (#3340).
+      const awingToneOk = theme === 'dark'
+        ? (spread(awing) <= 20 && blueLead(awing) < 20 && blueLead(awing) >= -2 && Math.max(awing[0], awing[1], awing[2]) <= 80)
+        : (awing[0] >= awing[1] && awing[1] >= awing[2] && (awing[0] - awing[2]) >= 2 && blueLead(awing) < 20);
+      chk(awingToneOk,
+        `${t} the agent wing inherits the agent tone (warm cream in light, cool dark gray in dark), not blue`, m.agentWing && m.agentWing.bg);
+      const owing = parse(m.opWing && m.opWing.bg);
+      // #3267: the wing inherits the SOLID --usermsg-tint (background-color: inherit), so it reads
+      // the same painted blue as the box at (b) -- floor 8, same recalibration rationale.
+      chk(blueLead(owing) >= 8, `${t} the operator wing is the blue user tint`, m.opWing && m.opWing.bg);
+      // the ::after MASK carries the thread-ground fill (carving the wing to a point).
+      const amask = parse(m.agentMask && m.agentMask.bg);
+      chk(!!(m.agentMask && m.agentMask.on) && amask[3] > 0,
+        `${t} the wing MASK (::after) carries the thread-ground fill`, m.agentMask && m.agentMask.bg);
+      // #3340 (Josh 6.83): the three night-mode-only recolors Josh specified for the room,
+      // pinned by CONTENT so a future deletion of any of them reds here (not just via the gate
+      // trailer). Dark: message text -> #fff, dialogue ground -> #000, and the tail mask FOLLOWS
+      // the ground to #000 (else a #17191c seam shows behind the wing on black). Light is the
+      // control -- text stays the dark ink, ground stays the light surface, so the dark arms are
+      // demonstrably not vacuous.
+      const msgTxt = parse(m.msgTextColor);
+      const grd = parse(m.tabGrounds && m.tabGrounds.thread);
+      const comp = parse(m.tabGrounds && m.tabGrounds.composer);
+      if (theme === 'dark') {
+        chk(msgTxt[0] >= 240 && msgTxt[1] >= 240 && msgTxt[2] >= 240,
+          `${t} the message text is white (#3340)`, m.msgTextColor);
+        chk(grd[3] > 0 && grd[0] <= 8 && grd[1] <= 8 && grd[2] <= 8,
+          `${t} the room dialogue ground is black (#3340)`, m.tabGrounds && m.tabGrounds.thread);
+        chk(comp[3] > 0 && comp[0] <= 8 && comp[1] <= 8 && comp[2] <= 8,
+          `${t} the composer follows the ground to black -- no lighter band (#3340)`, m.tabGrounds && m.tabGrounds.composer);
+        chk(amask[0] <= 8 && amask[1] <= 8 && amask[2] <= 8,
+          `${t} the tail mask follows the ground to black (#3340, no seam on #000)`, m.agentMask && m.agentMask.bg);
+      } else {
+        chk(msgTxt[3] > 0 && msgTxt[0] <= 90 && msgTxt[1] <= 90 && msgTxt[2] <= 90,
+          `${t} the message text is the dark ink (control: the dark #fff arm is not vacuous)`, m.msgTextColor);
+        chk(grd[0] >= 200 && grd[1] >= 200 && grd[2] >= 200,
+          `${t} the room dialogue ground is the light surface (control: the dark #000 arm is not vacuous)`, m.tabGrounds && m.tabGrounds.thread);
+      }
+      // the STRUCTURAL guard for the wing's visibility -- `.msg-bd` owns its own stacking
+      // context so the negative-z-index wing (::before) and mask (::after) tuck behind THIS
+      // bubble, not behind `.thread`.
+      chk(m.bdPos === 'relative' && m.bdZ === '0',
+        `${t} .msg-bd owns a stacking context (position:relative, z-index:0) so the wing is not hidden behind .thread`,
+        `position=${m.bdPos} z-index=${m.bdZ}`);
+      // #3134-followup (Josh 6.72): the agent name + agent avatar are click-to-open
+      // (data-open-agent = sessionName); the operator's own avatar is NOT a target.
+      chk(m.agentNameOpen === 'april', `${t} the agent name is click-to-open (data-open-agent)`, `open=${m.agentNameOpen}`);
+      chk(m.agentAvOpen === 'april', `${t} the agent avatar is click-to-open (data-open-agent)`, `open=${m.agentAvOpen}`);
+      chk(!m.opAvOpen, `${t} the operator's own avatar is NOT a click-to-open target`, `open=${m.opAvOpen}`);
+      // #3134-followup (Josh 6.72): the avatar is bottom-aligned with the bubble.
+      chk(m.rowAlign === 'flex-end', `${t} the avatar is bottom-aligned (.msg align-items: flex-end)`, `align=${m.rowAlign}`);
+      // msg-avatar-baseline (Josh 2026-09-19): the avatar sits ON the bubble bottom baseline
+      // (the empty reaction row reserves no height) and the hover popout anchors to the bubble
+      // right edge (the agent body shrink-wraps). ~0 delta both; a regression moves them off.
+      chk(m.avatarVsBubbleBottom !== null && Math.abs(m.avatarVsBubbleBottom) <= 2,
+        `${t} the avatar sits on the bubble's bottom baseline (empty reaction row reserves no height)`, `avatar-vs-bubble-bottom=${m.avatarVsBubbleBottom}px`);
+      chk(m.popoutVsBubbleRight !== null && Math.abs(m.popoutVsBubbleRight) <= 2,
+        `${t} the hover reaction popout anchors to the bubble's right edge`, `popout-vs-bubble-right=${m.popoutVsBubbleRight}px`);
+      // #3134-followup (Josh 6.72): an operator post with a body but NO timestamp draws
+      // its bubble (body present) with no stray empty timestamp inside.
+      chk(m.noTimeHasBody && !m.noTimeHasTime,
+        `${t} an operator post with no timestamp draws the bubble but no empty timestamp`,
+        `hasBody=${m.noTimeHasBody} hasTime=${m.noTimeHasTime}`);
+
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await page.close();
+    }
+
+    /* #3134-followup (Josh 6.72): the WING NO-SEAM PIXEL ORACLE. The computed-style arms
+       above verify the wing's MECHANISM (::before colored + negative anchor, ::after mask);
+       they cannot see the COMPOSITED OUTCOME. #3130's tail LOOKED right and still
+       double-tinted the then-translucent user bubble into a "colliding triangle" -- a defect
+       invisible to getComputedStyle and to the eye on a quick look, caught only by reading
+       pixels. #3267 rebuilt the tail to the Option A OVERLAP geometry, which would re-introduce
+       exactly that double-composite on a translucent fill -- so --usermsg-tint was made SOLID,
+       and this oracle is what proves the overlap composites once. So: render a real user bubble
+       VISIBLE, screenshot it, decode the PNG in-browser via a canvas (no node PNG dep needed),
+       and assert no pixel in the wing region is more blue than the bubble body (a double
+       composite would read a shade bluer). Light theme, where a seam is hardest to see by eye
+       -- the case the human check is weakest on. */
+    const pxPage = await browser.newPage({ viewport: { width: 760, height: 400 }, colorScheme: 'light' });
+    try {
+      await pxPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await pxPage.goto(PAGE);
+      await pxPage.evaluate((ts) => {
+        const p = { agents: [] };
+        const host = document.createElement('div');
+        host.className = 'thread'; host.setAttribute('data-shot', '1');
+        host.style.cssText = 'position:fixed;left:0;top:0;width:760px;height:400px;z-index:99999;';
+        host.innerHTML = pjRoomRow({ operator: true, at: ts, text: 'can everyone enter a task of 100 character max, please and thanks.' }, p);
+        document.body.appendChild(host);
+      }, now());
+      await pxPage.waitForTimeout(120);
+      const box = await pxPage.evaluate(() => {
+        const bd = document.querySelector('.thread[data-shot="1"] .msg.you .msg-bd');
+        const r = bd.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom };
+      });
+      const shot = await pxPage.screenshot();
+      const px = await pxPage.evaluate(async ({ url, box }) => {
+        const img = new Image();
+        await new Promise((r) => { img.onload = r; img.src = url; });
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+        const at = (x, y) => { const d = ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data; return [d[0], d[1], d[2]]; };
+        const blueLead = (rgb) => rgb[2] - Math.max(rgb[0], rgb[1]);
+        const bodyLead = blueLead(at(box.x + box.w * 0.5, box.y + box.h * 0.5));
+        let maxWingLead = -999;
+        // #3267: this samples the OPERATOR bubble (.msg.you), whose tail is on the RIGHT: ::before
+        // wing is right:-8/width:20/height:20 (spans box.right-12 to box.right+8, overlapping the
+        // body from box.right-12 to box.right) and the ::after mask is right:-14/width:14/height:22
+        // (spans box.right to box.right+14). So the footprint is box.right-14..box.right+14
+        // horizontally (the -14 low bound over-covers the overlap/seam side by 2px) and
+        // box.bottom-22..box.bottom vertically. Sample the whole footprint: dx<0 is the body/overlap
+        // (where a double-tint seam would show, since the wing overlaps back INTO the box), dx>0 is
+        // the outward wing + mask.
+        for (let dx = -14; dx <= 14; dx++) for (let dy = -22; dy <= 3; dy++) {
+          const lead = blueLead(at(box.right + dx, box.bottom + dy));
+          if (lead > maxWingLead) { maxWingLead = lead; window.__worst = { dx, dy, rgb: at(box.right + dx, box.bottom + dy) }; }
+        }
+        // MEASUREMENT (#5052): where the bluest pixel is, what it is, and what sits there.
+        const w = window.__worst; const ex = Math.round(box.right + w.dx), ey = Math.round(box.bottom + w.dy);
+        const el = document.elementFromPoint(ex, ey);
+        const body = at(box.x + box.w * 0.5, box.y + box.h * 0.5);
+        console.log('PROBE-5052 ' + JSON.stringify({ worst: w, at: [ex, ey], el: el ? (el.className || el.tagName) : null, body, box: [Math.round(box.x), Math.round(box.y), Math.round(box.w), Math.round(box.h)],
+          tint: getComputedStyle(document.querySelector('.thread[data-shot="1"] .msg.you .msg-bd')).backgroundColor, dpr: devicePixelRatio, img: [img.width, img.height] }));
+        return { bodyLead: Math.round(bodyLead), maxWingLead: Math.round(maxWingLead) };
+      }, { url: 'data:image/png;base64,' + shot.toString('base64'), box });
+      // A single-composite wing matches the body; a double-tint seam reads several points
+      // bluer. Allow a small anti-aliasing margin.
+      chk(px.maxWingLead <= px.bodyLead + 4,
+        `[pixel] the wing has no double-tint seam on the user bubble`,
+        `bodyLead=${px.bodyLead} maxWingLead=${px.maxWingLead}`);
+    } finally {
+      await pxPage.close();
+    }
+
+    /* #3340 (Josh 6.83): the CONSOLIDATED ("One screen") layout ground. #980 merges the thread
+       into its .pj3 > .pjmid parent (the thread is background:none there), and #3267 tied the
+       composer to that one ground. So the dark #000 must land on the MERGED surface
+       (.pj3 > .pjmid + .composer) with the thread left transparent -- never a black thread box
+       seamed against a lighter panel. Three scenarios, each entering the real layout state
+       (data-layout + body.consolidated at >=960px) and reading the real computed grounds:
+         - light (control): the ground is the light surface, so the dark #000 arm is not vacuous.
+         - dark: the merged panel + composer are #000, the thread transparent.
+         - dark + body.plus-active: the Kosmos Plus navy paid theme is EXCLUDED, so its dialogue
+           ground stays its own navy (NOT #000) -- the regression guard for the paid tier. */
+    for (const sc of [{ theme: 'light', plus: false }, { theme: 'dark', plus: false }, { theme: 'dark', plus: true }]) {
+      const consPage = await browser.newPage({ viewport: { width: 1400, height: 900 }, colorScheme: sc.theme });
+      try {
+        await consPage.addInitScript(() => {
+          window.setInterval = () => 0;
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.fetch = async () => enc({});
+        });
+        await consPage.goto(PAGE);
+        const cons = await consPage.evaluate(({ ts, plus }) => {
+          document.documentElement.setAttribute('data-layout', 'consolidated');
+          document.body.classList.add('consolidated');
+          if (plus) document.body.classList.add('plus-active');
+          const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+          const pj3 = document.createElement('div'); pj3.className = 'pj3';
+          const pjmid = document.createElement('div'); pjmid.className = 'pjmid';
+          const thread = document.createElement('div'); thread.className = 'thread';
+          thread.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'on it, board cleared.' }, p);
+          const composer = document.createElement('div'); composer.className = 'composer';
+          pjmid.appendChild(thread); pjmid.appendChild(composer); pj3.appendChild(pjmid);
+          document.body.appendChild(pj3);
+          const cs = getComputedStyle;
+          const out = { pjmidBg: cs(pjmid).backgroundColor, composerBg: cs(composer).backgroundColor, threadBg: cs(thread).backgroundColor };
+          pj3.remove(); document.body.classList.remove('plus-active');
+          return out;
+        }, { ts: now(), plus: sc.plus });
+        const pj = parse(cons.pjmidBg); const co = parse(cons.composerBg); const th = parse(cons.threadBg);
+        const isBlack = (c) => c[3] > 0 && c[0] <= 8 && c[1] <= 8 && c[2] <= 8;
+        if (sc.plus) {
+          chk(!isBlack(pj), `[dark/consolidated/plus] the Plus navy dialogue ground is NOT blacked (#3340 excludes body.plus-active)`, cons.pjmidBg);
+        } else if (sc.theme === 'dark') {
+          chk(isBlack(pj), `[dark/consolidated] the merged dialogue ground (.pj3 > .pjmid) is black (#3340)`, cons.pjmidBg);
+          chk(isBlack(co), `[dark/consolidated] the composer follows the ground to black (#3267 lockstep)`, cons.composerBg);
+          chk(th[3] === 0, `[dark/consolidated] the thread stays transparent (merges into the black panel, no floating box)`, cons.threadBg);
+        } else {
+          chk(pj[0] >= 200 && pj[1] >= 200 && pj[2] >= 200, `[light/consolidated] the merged ground is the light surface (control: the dark #000 arm is not vacuous)`, cons.pjmidBg);
+        }
+      } finally {
+        await consPage.close();
+      }
+    }
+
+    /* #3493 (Josh, 2026-09-23): the TAB-view conversation column (.pjcol.pjmid) left its
+       var(--k-surface) fill (#17191c in dark) as a gray seam around the blacked thread and
+       composer. It is now blacked to #000 in dark, matching the consolidated view. The gray comes
+       from the .pjcol BASE rule, so the fixture must carry BOTH classes (a bare .pjmid would never
+       show it and the arm would pass vacuously). Three scenarios, no consolidated layout:
+         - light (control): the column is the light surface, so the dark #000 arm is not vacuous.
+         - dark: the column is #000 -- one uniform ground, no gray seam.
+         - dark + body.plus-active: the paid Plus tier is EXCLUDED (:not(.plus-active)), so its
+           navy column is NOT blacked -- the regression guard mirroring the four rules below. */
+    for (const sc of [{ theme: 'light', plus: false }, { theme: 'dark', plus: false }, { theme: 'dark', plus: true }]) {
+      const tabPage = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: sc.theme });
+      try {
+        await tabPage.addInitScript(() => {
+          window.setInterval = () => 0;
+          const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+          window.fetch = async () => enc({});
+        });
+        await tabPage.goto(PAGE);
+        const tv = await tabPage.evaluate(({ ts, plus }) => {
+          document.body.classList.remove('consolidated');
+          document.documentElement.removeAttribute('data-layout');
+          if (plus) document.body.classList.add('plus-active');
+          const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+          const pjmid = document.createElement('div'); pjmid.className = 'pjcol pjmid';
+          const thread = document.createElement('div'); thread.className = 'thread';
+          thread.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'on it.' }, p);
+          const composer = document.createElement('div'); composer.className = 'composer';
+          pjmid.appendChild(thread); pjmid.appendChild(composer); document.body.appendChild(pjmid);
+          const out = { pjmidBg: getComputedStyle(pjmid).backgroundColor };
+          pjmid.remove(); document.body.classList.remove('plus-active');
+          return out;
+        }, { ts: now(), plus: sc.plus });
+        const pj = parse(tv.pjmidBg);
+        const isBlack = (c) => c[3] > 0 && c[0] <= 8 && c[1] <= 8 && c[2] <= 8;
+        if (sc.plus) {
+          chk(!isBlack(pj), `[dark/tab/plus] the Plus navy column (.pjcol.pjmid) is NOT blacked (:not(.plus-active) holds) (#3493)`, tv.pjmidBg);
+        } else if (sc.theme === 'dark') {
+          chk(isBlack(pj), `[dark/tab] the conversation column (.pjcol.pjmid) is black -- no gray seam around the dialogue (#3493)`, tv.pjmidBg);
+        } else {
+          chk(pj[0] >= 200 && pj[1] >= 200 && pj[2] >= 200, `[light/tab] the column is the light surface (control: the dark #000 arm is not vacuous) (#3493)`, tv.pjmidBg);
+        }
+      } finally {
+        await tabPage.close();
+      }
+    }
+
+    /* #3340: the TAB-view Plus exclusion, the common code path. All four tab night-mode rules
+       (.msg text, .thread ground, .composer, .msg-bd::after mask) carry :not(.plus-active); this
+       arm proves the guard by entering dark + body.plus-active WITHOUT the consolidated layout and
+       confirming NONE of them blacked the Kosmos Plus navy dialogue (a dropped guard would turn the
+       paid tier's navy tab black -- the regression this pins). */
+    const tabPlusPage = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: 'dark' });
+    try {
+      await tabPlusPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await tabPlusPage.goto(PAGE);
+      const tp = await tabPlusPage.evaluate((ts) => {
+        document.body.classList.add('plus-active');
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const wrap = document.createElement('div'); wrap.className = 'pjmid';
+        const thread = document.createElement('div'); thread.className = 'thread';
+        thread.innerHTML = pjRoomRow({ id: 'm-a', from: 'april', at: ts, text: 'on it.' }, p);
+        const composer = document.createElement('div'); composer.className = 'composer';
+        wrap.appendChild(thread); wrap.appendChild(composer); document.body.appendChild(wrap);
+        const cs = getComputedStyle;
+        const bd = thread.querySelector('.msg:not(.you) .msg-bd');
+        const pEl = thread.querySelector('.msg-bd p');
+        const out = {
+          threadBg: cs(thread).backgroundColor,
+          composerBg: cs(composer).backgroundColor,
+          textColor: pEl ? cs(pEl).color : null,
+          maskBg: bd ? cs(bd, '::after').backgroundColor : null,
+        };
+        wrap.remove(); document.body.classList.remove('plus-active');
+        return out;
+      }, now());
+      const isBlack = (s) => { const c = parse(s); return c[3] > 0 && c[0] <= 8 && c[1] <= 8 && c[2] <= 8; };
+      const isWhite = (s) => { const c = parse(s); return c[0] >= 240 && c[1] >= 240 && c[2] >= 240; };
+      chk(!isBlack(tp.threadBg), `[dark/tab/plus] the Plus navy thread ground is NOT blacked (:not(.plus-active) holds)`, tp.threadBg);
+      chk(!isBlack(tp.composerBg), `[dark/tab/plus] the Plus navy composer is NOT blacked`, tp.composerBg);
+      chk(!isWhite(tp.textColor), `[dark/tab/plus] the Plus message text is NOT forced white`, tp.textColor);
+      chk(!isBlack(tp.maskBg), `[dark/tab/plus] the Plus tail mask is NOT blacked`, tp.maskBg);
+    } finally {
+      await tabPlusPage.close();
+    }
+
+    /* #3361 (Josh, 2026-09-21 small-size QA): at NARROW widths a message bubble must not grow into
+       the OPPOSITE side's avatar column (user msgs reaching left into the agent-avatar column, agent
+       msgs reaching right into the user-avatar column). The row reserves the near avatar+gap (34+14)
+       before the body; #3340-followup mirrors that gutter on the FAR side so the bubble stops short
+       of the opposite column at every width. Render a deliberately NARROW host (360px), where the
+       78ch max-width no longer binds and the bubble would otherwise reach the far edge, and assert
+       BOTH bubbles leave a >=47px far gutter (the ~48px opposite avatar column) while the bubble is
+       still WIDE (control: the cap is doing real work, not passing on a short message that never
+       reached the column). The wide-width look is covered by the 640/760/1400 fixtures above, which
+       the far gutter leaves unchanged because 78ch binds first there. */
+    const narrowPage = await browser.newPage({ viewport: { width: 420, height: 900 }, colorScheme: 'light' });
+    try {
+      await narrowPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await narrowPage.goto(PAGE);
+      const nar = await narrowPage.evaluate((ts) => {
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const long = 'this is a deliberately long message so the bubble fills the whole available width at a narrow window and would reach the far edge if it were not capped short of the opposite avatar column.';
+        const host = document.createElement('div');
+        host.className = 'thread';
+        host.style.cssText = 'position:absolute;left:0;top:0;width:360px;';
+        host.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long }, p)
+          + pjRoomRow({ operator: true, at: ts, text: long }, p);
+        document.body.appendChild(host);
+        const rows = Array.from(host.querySelectorAll('.msg'));
+        const agentRow = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const opRow = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const rr = (el) => el.getBoundingClientRect();
+        const aRow = rr(agentRow), aBd = rr(agentRow.querySelector('.msg-bd'));
+        const oRow = rr(opRow), oBd = rr(opRow.querySelector('.msg-bd'));
+        const out = {
+          // agent avatar is on the LEFT, so the OPPOSITE (user) column is the RIGHT: far gutter = row.right - bubble.right
+          agentFarGap: Math.round(aRow.right - aBd.right),
+          agentNearGap: Math.round(aBd.left - aRow.left),
+          agentBdW: Math.round(aBd.width),
+          // operator avatar is on the RIGHT, so the OPPOSITE (agent) column is the LEFT: far gutter = bubble.left - row.left
+          opFarGap: Math.round(oBd.left - oRow.left),
+          opNearGap: Math.round(oRow.right - oBd.right),
+          opBdW: Math.round(oBd.width),
+          hostW: Math.round(aRow.width),
+        };
+        host.remove();
+        return out;
+      }, now());
+      const GUT = 47; // 34 avatar + 14 gap, minus 1px rounding tolerance
+      chk(nar.agentFarGap >= GUT, `[narrow] the agent bubble clears the opposite (right) avatar column`, `farGap=${nar.agentFarGap}px (need >=${GUT})`);
+      chk(nar.opFarGap >= GUT, `[narrow] the operator bubble clears the opposite (left) avatar column`, `farGap=${nar.opFarGap}px (need >=${GUT})`);
+      // Non-vacuous control: the cap is engaging on a WIDE bubble at 360px (without the far gutter it
+      // would have reached the far edge). A short bubble that never reached the column would pass the
+      // gutter arms vacuously; requiring width >=180 rules that out.
+      chk(nar.agentBdW >= 180, `[narrow] the agent bubble is wide (control: the cap is doing work, not a short message)`, `bubbleW=${nar.agentBdW}px at host ${nar.hostW}px, nearGap=${nar.agentNearGap}px`);
+      chk(nar.opBdW >= 180, `[narrow] the operator bubble is wide (control: the cap is doing work)`, `bubbleW=${nar.opBdW}px at host ${nar.hostW}px, nearGap=${nar.opNearGap}px`);
+      // CLAUDE.md convention #5: the CSS far gutter is `calc(34px + 14px)`, a by-VALUE duplicate of
+      // the .msg-av width and the .msg gap. Pin the three equal at runtime: the near gutter IS
+      // avatar+gap (the row lays out [avatar][gap][body]), so asserting far == near catches any
+      // future change to the avatar size or the row gap that is not mirrored into the margin literal.
+      chk(Math.abs(nar.agentFarGap - nar.agentNearGap) <= 1, `[narrow] the agent far gutter equals the near avatar+gap (convention #5 pin: margin literal == the row's real avatar+gap)`, `far=${nar.agentFarGap} near=${nar.agentNearGap}`);
+      chk(Math.abs(nar.opFarGap - nar.opNearGap) <= 1, `[narrow] the operator far gutter equals the near avatar+gap`, `far=${nar.opFarGap} near=${nar.opNearGap}`);
+    } finally {
+      await narrowPage.close();
+    }
+
+    /* #718 mobile (Josh, 2026-09-24): on a PHONE the room (#pj-room) runs a leaner row, a 28px
+       avatar (the 14px gap stays, or the tail mask paints over the avatar), so the bubble is not squeezed to a column of words (measured 167px at
+       375 before). #3361's rule must still hold THERE: the far gutter equals the near avatar+gap.
+       The arms above render into a detached .thread, which the #pj-room-scoped phone rules never
+       reach, so they cannot see this; this arm renders the REAL rows inside the REAL #pj-room at
+       375px wide. */
+    const phonePage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+    const phonePageErrors = watchErrors(phonePage);
+    try {
+      await phonePage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await phonePage.goto(PAGE);
+      // Conversation first on a phone, in the DOM (reading order == tab order, #1017), and back
+      // after Members/Files once the window is wider than a phone.
+      const order = () => phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other')).join(','));
+      const order375 = await order();
+      chk(order375.startsWith('room,'), `[phone] the conversation is first in the DOM at 375px`, order375);
+      // Turning a phone mid-post reorders the columns. The conversation column (the composer's)
+      // must never leave the page: re-inserting it blurs the composer, and iOS does not bring the
+      // keyboard back for a scripted focus, so a focus check alone would pass on a lost keyboard.
+      const focusedBefore = await phonePage.evaluate(() => {
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        // The static page shows no project (and the first-run overlay left the app inert): un-hide
+        // and un-inert the room column's ancestors so the composer can take focus, as it does on a
+        // real open project.
+        for (let el = document.querySelector('.pj3 > .pjmid'); el && el !== document.body; el = el.parentElement) {
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        window.__midRemoved = 0;
+        new MutationObserver((recs) => recs.forEach((r) => r.removedNodes.forEach((n) => { if (n.classList && n.classList.contains('pjmid')) window.__midRemoved += 1; })))
+          .observe(document.querySelector('.pj3'), { childList: true });
+        const t = document.getElementById('pj-post'); if (!t) return 'no #pj-post'; t.focus(); return document.activeElement === t ? 'pj-post' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const focusedWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      const orderTurned = await order();   // the move really happened in this same turn
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const focusedBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      chk(focusedBefore === 'pj-post' && focusedWide === 'pj-post' && focusedBack === 'pj-post', `[phone] turning the phone keeps the composer focused across the move`, `${focusedBefore} -> ${focusedWide} -> ${focusedBack}`);
+      const orderBack = await phonePage.evaluate(() => [...document.querySelector('.pj3').children].map((c) => (c.classList.contains('pjmid') ? 'room' : (c.classList.contains('pjsplit') ? 'members-files' : 'other'))).join(','));
+      const midRemoved = await phonePage.evaluate(() => window.__midRemoved);
+      // Control: the reorder must actually have happened both ways (back at 375 now), or "never removed" is vacuous.
+      chk(midRemoved === 0 && order375.startsWith('room,') && orderTurned.startsWith('members-files,room') && orderBack.startsWith('room,'), `[phone] the conversation column never leaves the page while the phone turns (the Members/Files column moves instead)`, `removed=${midRemoved} turned=${orderTurned} back=${orderBack}`);
+      await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
+      // The column that DOES move (Members/Files) must give a focused control its focus back.
+      const splitFocus = await phonePage.evaluate(() => {
+        // What this changes is put back after the turn (review round 4: the #4663 probe below measured this altered page).
+        const undo = []; window.__splitUndo = () => { for (const u of undo.reverse()) u(); };
+        for (let el = document.querySelector('.pj3 > .pjsplit'); el && el !== document.body; el = el.parentElement) {
+          const was = [el.hidden, el.hasAttribute('inert'), el.style.display];
+          undo.push(() => { el.hidden = was[0]; if (was[1]) el.setAttribute('inert', ''); el.style.display = was[2]; });
+          el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block';
+        }
+        const b = document.getElementById('pj-add-member'); if (!b) return 'no #pj-add-member';
+        const bWas = [b.hidden, b.style.display]; undo.push(() => { b.hidden = bWas[0]; b.style.display = bWas[1]; });
+        b.hidden = false; b.style.display = 'inline-block'; b.focus();
+        return document.activeElement === b ? 'pj-add-member' : 'not focusable';
+      });
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const splitWide = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      const splitOrder = await order();
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const splitBack = await phonePage.evaluate(() => (document.activeElement && document.activeElement.id) || '(none)');
+      chk(splitFocus === 'pj-add-member' && splitWide === 'pj-add-member' && splitBack === 'pj-add-member' && splitOrder.startsWith('members-files,room'),
+        `[phone] a control focused in Members/Files keeps its focus when the phone turns`, `${splitFocus} -> ${splitWide} -> ${splitBack} (order ${splitOrder})`);
+      await phonePage.evaluate(() => { const b = document.getElementById('pj-add-member'); if (b) b.blur(); if (window.__splitUndo) window.__splitUndo(); });
+      // #4663: on a touchscreen the project page's small controls (drawn 22 to 28px) take a tap across at least 36px
+      // on each, and none of those areas takes any part of a neighbouring control (the first task and file included).
+      const taps = await phonePage.evaluate(tapProbe4663);
+      chk(taps.out.length === 6 && taps.out.every((x) => !x.error && x.reach), `[phone] #4663: Back, settings, + Add member, + New task and both View All take a tap across at least 36px`, JSON.stringify(taps.out));
+      chk(taps.theirs.length === 0 && taps.subjects.every((n) => n >= 1), `[phone] #4663: no enlarged tap area takes any part of a neighbouring control, the first task and the first file under their headers included`, JSON.stringify({ theirs: taps.theirs, subjects: taps.subjects }));
+      chk(taps.restored, `[phone] #4663: the probe left the page as it found it`, String(taps.restored));
+      // The projects list's top row at 375 on a touchscreen (16px sort): Add Project, the sort and
+      // the view toggle must not overlap and must stay inside the row. (The harness only flags
+      // overflow past the panel; controls drawn over each other inside it pass that.)
+      // At 375 and just above the phone width (30rem) too: the 16px sort applies on every touchscreen,
+      // and above 30rem the row keeps its two-column, no-wrap layout (a folded phone open, a small tablet).
+      for (const rowWidth of [375, 490, 540, 600]) {
+      await phonePage.setViewportSize({ width: rowWidth, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const pjRow = await phonePage.evaluate(() => {
+        const view = document.getElementById('pj-list-view'); const panel = document.getElementById('panel-projects');
+        if (!view || !panel) return { error: 'no projects list' };
+        for (let el = view; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+        const row = view.querySelector('.statsrow'); const add = document.getElementById('pj-new');
+        const sort = view.querySelector('.sortctl'); const tog = view.querySelector('.viewtoggle');
+        if (!row || !add || !sort || !tog) return { error: 'row parts missing' };
+        const r = (el) => el.getBoundingClientRect(); const R = r(row), A = r(add), S = r(sort), T = r(tog);
+        // Its label whole: the select at least as wide as it is when free to take its natural width.
+        // Natural width: a copy OUTSIDE the row (inside it, the shrunk flex box would bound it and
+        // the comparison could never fail), with the same computed font, padding and border.
+        const sel = sort.querySelector('select'); const shownW = sel.getBoundingClientRect().width;
+        const cs = getComputedStyle(sel); const copy = sel.cloneNode(true);
+        copy.style.cssText = 'position:absolute;left:-9999px;top:0;width:auto;min-width:0;max-width:none;'
+          + 'font:' + cs.font + ';padding:' + cs.padding + ';border:' + cs.border + ';box-sizing:' + cs.boxSizing + ';appearance:' + cs.appearance + ';';
+        document.body.appendChild(copy); copy.selectedIndex = sel.selectedIndex;
+        const naturalW = copy.getBoundingClientRect().width; copy.remove();
+        return { fontPx: parseFloat(getComputedStyle(sort.querySelector('select')).fontSize), row: [Math.round(R.left), Math.round(R.right)],
+          add: [Math.round(A.left), Math.round(A.right)], sort: [Math.round(S.left), Math.round(S.right)], toggle: [Math.round(T.left), Math.round(T.right)],
+          // No two of the three overlap, whichever line the toggle lands on.
+          clear: [[A, S], [A, T], [S, T]].every(([p, q]) => p.right <= q.left + 0.5 || q.right <= p.left + 0.5 || p.bottom <= q.top + 0.5 || q.bottom <= p.top + 0.5),
+          inside: [A, S, T].every((b) => b.left >= R.left - 0.5 && b.right <= R.right + 0.5),
+          sortWhole: shownW >= naturalW - 0.5, sortW: [Math.round(shownW), Math.round(naturalW)],
+          // The toggle at its full width too: its buttons are not squeezed (each at its own width).
+          // Against a copy of the toggle measured OUTSIDE the row (its own width, not the row's
+          // squeeze): comparing a button with its own computed width could never fail.
+          toggleWhole: (() => { const copy = tog.cloneNode(true); copy.style.cssText = 'position:absolute;left:-9999px;top:0;';
+            document.body.appendChild(copy); const free = [...copy.querySelectorAll('button')].map((b) => b.getBoundingClientRect().width); copy.remove();
+            const shown = [...tog.querySelectorAll('button')].map((b) => b.getBoundingClientRect().width);
+            return free.length > 0 && shown.length === free.length && shown.every((w, i) => w >= free[i] - 0.5); })(),
+          toggleW: Math.round(T.width) };
+      });
+      chk(!pjRow.error && pjRow.fontPx >= 16 && pjRow.clear && pjRow.inside && pjRow.sortWhole && pjRow.toggleWhole, `[phone/touch] the projects row's Add Project, sort and toggle do not overlap at ${rowWidth}, and neither the sort's label nor the toggle is cut or squeezed`, JSON.stringify(pjRow));
+      }
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      // The composer and its @mention mirror (which draws the text the person reads once the value
+      // is not empty) must match on a touchscreen: same font size, same line height, and after
+      // three lines the mirror is not taller than the composer (it is clipped to the composer's
+      // height, so a mismatch drifts the text off the cursor and cuts the last line).
+      const mirrorMatch = await phonePage.evaluate(() => {
+        const post = document.getElementById('pj-post'); const mirrorText = document.querySelector('#pj-post-mirror .pj-mirror-in');
+        if (!post || !mirrorText) return { error: 'composer or mirror missing' };
+        post.value = 'first line\nsecond line\nthird line';
+        post.dispatchEvent(new Event('input', { bubbles: true }));
+        const postStyle = getComputedStyle(post), mirrorStyle = getComputedStyle(mirrorText);
+        return { hoverNone: matchMedia('(hover: none)').matches,
+          font: [postStyle.fontSize, mirrorStyle.fontSize], lineHeight: [postStyle.lineHeight, mirrorStyle.lineHeight],
+          heights: [post.scrollHeight, mirrorText.scrollHeight] };
+      });
+      await phonePage.evaluate(() => { const post = document.getElementById('pj-post'); if (post) { post.value = ''; post.dispatchEvent(new Event('input', { bubbles: true })); } });
+      chk(!mirrorMatch.error && mirrorMatch.hoverNone && mirrorMatch.font[0] === mirrorMatch.font[1] && mirrorMatch.lineHeight[0] === mirrorMatch.lineHeight[1] && mirrorMatch.heights[1] <= mirrorMatch.heights[0] + 1,
+        `[phone/touch] the composer and its @mention mirror match (size, line height, height after three lines)`, JSON.stringify(mirrorMatch));
+      // A SWEEP, not a hand list (Liu Kang m705): every field on the project page, its Tasks and
+      // members dialogs included, computes at 16px or more on a touchscreen, or iOS zooms in and
+      // the page pans sideways.
+      const fonts = await phonePage.evaluate(({ skipTypes }) => {
+        // The WHOLE project page (#panel-projects) and its two dialogs, not the rule's own list: a
+        // field added outside the six views would show up here. Screens the one-screen layout
+        // moves inside the panel (Settings, Tasks, Create agent) are other screens and excluded.
+        const roots = ['#panel-projects', '#nt-modal', '#am-modal'].map((selector) => document.querySelector(selector)).filter(Boolean);
+        if (roots.length !== 3) return { error: 'a root is missing', found: roots.length };
+        const skip = new Set(skipTypes);
+        const foreign = '#panel-settings, #panel-tasks, #panel-create';
+        const fields = roots.flatMap((root) => [...root.querySelectorAll('input, select, textarea')])
+          .filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())))
+          .filter((el) => !el.closest(foreign));
+        const small = fields.map((el) => ({ id: el.id || el.className || el.tagName, px: parseFloat(getComputedStyle(el).fontSize) })).filter((f) => f.px < 16);
+        return { count: fields.length, small, hoverNone: matchMedia('(hover: none)').matches };
+      }, { skipTypes: FIELD_SKIP });
+      // The one-screen layout (960px and up) appends Settings inside #panel-projects
+      // (placeAppSettings). Its fields are another screen's and must keep their own size on a
+      // touchscreen: moved exactly the way that function moves it, then measured.
+      const settingsIn = await phonePage.evaluate((skipTypes) => {
+        const settings = document.getElementById('panel-settings'); const projects = document.getElementById('panel-projects');
+        if (!settings || !projects) return { error: 'panels missing' };
+        const home = { parent: settings.parentElement, next: settings.nextSibling };
+        const fields = [...settings.querySelectorAll('input, select, textarea')].filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())));
+        // Each field's size AT HOME, then moved inside the projects panel: they must be EQUAL (our
+        // rule does not reach Settings), whatever Settings' own size is (it may fix its zoom itself).
+        const atHome = fields.map((el) => getComputedStyle(el).fontSize);
+        projects.appendChild(settings);
+        const changed = fields.filter((el, index) => getComputedStyle(el).fontSize !== atHome[index]).map((el) => el.id || el.className);
+        const res = { fields: fields.length, changed, inside: projects.contains(settings) };
+        home.parent.insertBefore(settings, home.next);
+        return res;
+      }, FIELD_SKIP);
+      chk(!settingsIn.error && settingsIn.inside && settingsIn.fields >= 3 && settingsIn.changed.length === 0,
+        `[touch, one-screen layout] Settings moved inside the projects panel keeps its own field sizes`, JSON.stringify(settingsIn));
+      // And at 16px nothing in those dialogs runs off the side at 375: each dialog shown, its
+      // card (.rm-box) and every field and button in it inside the screen.
+      // The SCREEN's width (visualViewport), not innerWidth: in a mobile context a page wider
+      // than the screen widens the layout viewport to fit, so innerWidth grows with the overflow
+      // and a comparison against it can never fail (measured: innerWidth 545 on a 375 screen).
+      const dlgFit = await phonePage.evaluate(() => { const screenWidth = window.visualViewport ? window.visualViewport.width : innerWidth; return ['nt-modal', 'am-modal'].map((id) => {
+        const m = document.getElementById(id); if (!m) return { id, error: 'missing' };
+        const was = m.hidden; m.hidden = false; m.removeAttribute('inert');
+        const over = [...m.querySelectorAll('input, select, textarea, button')].filter((el) => el.getBoundingClientRect().width > 0)
+          .filter((el) => { const r = el.getBoundingClientRect(); return r.left < -0.5 || r.right > screenWidth + 0.5; }).map((el) => el.id || el.className);
+        const shown = [...m.querySelectorAll('input, select, textarea')].filter((el) => el.getBoundingClientRect().width > 0).length;   // rendered fields only
+        const card = m.querySelector('.rm-box'); const cardRect = card ? card.getBoundingClientRect() : null;
+        const cardFits = !!(cardRect && cardRect.width > 0 && cardRect.left >= -0.5 && cardRect.right <= screenWidth + 0.5);
+        const res = { id, screenWidth: Math.round(screenWidth), fields: shown, over, cardFits, card: cardRect ? [Math.round(cardRect.left), Math.round(cardRect.right)] : null };
+        m.hidden = was; return res;
+      }); });
+      chk(dlgFit.every((d) => !d.error && d.screenWidth === 375 && d.fields >= 1 && d.over.length === 0 && d.cardFits), `[phone/touch] at 16px the Tasks and add-member dialogs fit a 375 screen`, JSON.stringify(dlgFit));
+      // 24 fields measured; the floor catches a sweep that stopped finding them.
+      chk(!fonts.error && fonts.hoverNone && fonts.count >= 20 && fonts.small.length === 0, `[phone/touch] every field on the project page is at least 16px (no iOS zoom)`, JSON.stringify(fonts));
+      // The project tip (#3755: four steps, each ringing its own area) must work on a phone, where
+      // this branch moves Members and Files below the conversation. Opened with the real tipShow
+      // and walked with its own Next button: at every step the card is on screen and pointing (not
+      // the arrowless "flat" card, which is what an off-screen target gives since #3700), and the
+      // step's area is on screen (the step scrolls it into view).
+      const tipWalk = async () => {
+        const opened = await phonePage.evaluate(() => {
+          if (typeof TIPS === 'undefined' || typeof tipShow !== 'function') return { error: 'TIPS/tipShow missing' };
+          const t = TIPS.find((x) => x.id === 'project'); if (!t || !t.steps) return { error: 'no stepped project tip' };
+          tipShow(t); return { places: TIP_PLACES.map((st) => st.sel) };
+        });
+        if (opened.error) return opened;
+        const steps = [];
+        for (let i = 0; i < opened.places.length; i += 1) {
+          await phonePage.waitForTimeout(200);
+          steps.push(await phonePage.evaluate(() => {
+            const card = document.getElementById('tipcard'); const st = TIP_PLACES[TIP_STEP];
+            const target = st && st.sel && document.querySelector(st.sel);
+            if (!card || card.hidden || !target) return { error: 'no card or no target', title: st && st.title };
+            const C = card.getBoundingClientRect(), T = target.getBoundingClientRect();
+            const screen = window.visualViewport || { width: innerWidth, height: innerHeight };
+            return { title: st.title, pointing: !/\bflat\b/.test(card.className),
+              cardInView: C.top >= 0 && C.bottom <= screen.height && C.left >= 0 && C.right <= screen.width,
+              targetInView: T.bottom > 0 && T.top < screen.height && T.right > 0 && T.left < screen.width,
+              screenWidth: Math.round(screen.width) };
+          }));
+          await phonePage.evaluate(() => { const go = document.querySelector('#tipcard .tip-go'); if (go) go.click(); });
+        }
+        await phonePage.evaluate(() => { if (typeof tipClose === 'function') tipClose({ record: false }); window.scrollTo(0, 0); });
+        return { places: opened.places.length, steps };
+      };
+      const stepOk = (width) => (st) => !st.error && st.screenWidth === width && st.pointing && st.cardInView && st.targetInView;
+      await phonePage.evaluate(() => window.scrollTo(0, 0));
+      const tip375 = await tipWalk();
+      chk(!tip375.error && tip375.places === 4 && tip375.steps.length === 4 && tip375.steps.every(stepOk(375)),
+        `[phone] every step of the project tip is a pointing card, on screen, with its area on screen`, JSON.stringify(tip375));
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const tip800 = await tipWalk();
+      chk(!tip800.error && tip800.places === 4 && tip800.steps.length === 4 && tip800.steps.every(stepOk(800)),
+        `[wide] every step of the project tip is a pointing card, on screen, wider than a phone`, JSON.stringify(tip800));
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      await phonePage.setViewportSize({ width: 800, height: 800 });
+      await phonePage.waitForTimeout(100);
+      const order800 = await order();
+      chk(order800.startsWith('members-files,room'), `[wide] wider than a phone, it goes back after Members/Files`, order800);
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      // IN PLACE: the room left in its real column, beside the real sticky composer (the arms below
+      // lift it to body, which cannot see ancestors or the composer). A short screen makes the
+      // sticky composer sit OVER the thread; a post that runs under it is tapped where it shows.
+      // Precondition asserted (the post really runs under the composer), or the composer half
+      // could not fail. Then: every emoji takes its tap, and the composer stays on top.
+      await phonePage.setViewportSize({ width: 375, height: 560 });
+      await phonePage.waitForTimeout(100);
+      const inPlace = await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); const comp = document.querySelector('.pjmid .composer');
+        if (!room || !comp || !room.closest('.pjmid')) return { error: 'room or composer not in its column' };
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.hidden = false;
+        room.innerHTML = ['m21', 'm22', 'm23', 'm24', 'm25', 'm26', 'm27', 'm28'].map((id, i) => pjRoomRow({ from: 'april', at: ts, text: 'In-place post ' + i + ', a line or two of text so the thread has some height to it.', id }, p)).join('');
+        room.scrollTop = 0;
+        const R = room.getBoundingClientRect();
+        // Put the thread's top at 60% of the screen so its lower part runs past the bottom, where
+        // the sticky composer sits over it.
+        window.scrollTo(0, window.scrollY + R.top - Math.round(innerHeight * 0.6));
+        const C = comp.getBoundingClientRect();
+        // Scroll the thread so one post starts 40px above the composer and runs on under it.
+        const rows = [...room.querySelectorAll('.msg')];
+        const pick = rows.find((m) => m.getBoundingClientRect().top > C.top - 40) || rows[rows.length - 1];
+        room.scrollTop += Math.round(pick.getBoundingClientRect().top - (C.top - 40));
+        const under = rows.find((m) => { const r = m.getBoundingClientRect(); return r.top < C.top - 20 && r.bottom > C.top + 10; });
+        if (!under) { const R2 = room.getBoundingClientRect(); return { error: 'no post runs under the composer', comp: [Math.round(C.top), Math.round(C.bottom)], room: [Math.round(R2.top), Math.round(R2.bottom)], vh: innerHeight, scrollY: Math.round(scrollY), docH: document.documentElement.scrollHeight, rows: [...room.querySelectorAll('.msg')].map((m) => Math.round(m.getBoundingClientRect().top)).join(','), compPos: getComputedStyle(comp).position, roomOverflow: getComputedStyle(room).overflowY }; }
+        const r = under.getBoundingClientRect();
+        const bd = under.querySelector('.msg-bd').getBoundingClientRect();
+        return { x: Math.round(bd.left + Math.min(40, bd.width / 2)), y: Math.round(Math.max(bd.top + 6, Math.min(C.top - 10, bd.bottom - 6))), post: under.querySelector('.rxns') && under.querySelector('.rxns').getAttribute('data-post') };
+      }, now());
+      if (!inPlace.error) {
+        await phonePage.touchscreen.tap(inPlace.x, inPlace.y);
+        await phonePage.waitForTimeout(300);
+      }
+      const inPlaceHits = inPlace.error ? inPlace : await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const comp = document.querySelector('.pjmid .composer');
+        if (!row) return { error: 'no open bar in place' };
+        const q = row.querySelector('.rxn-quick');
+        const at = (x, y) => document.elementFromPoint(x, y);
+        const hits = [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = at(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        const C = comp.getBoundingClientRect(), Rw = row.getBoundingClientRect();
+        const overlap = Rw.bottom > C.top + 4;
+        const t = at(C.left + C.width / 2, Math.min(C.bottom - 4, Math.max(C.top + 4, (C.top + Math.min(C.bottom, Rw.bottom)) / 2)));
+        return { hits, want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), overlap, composerOnTop: !!(t && comp.contains(t)), row: [Math.round(Rw.top), Math.round(Rw.bottom)], comp: [Math.round(C.top), Math.round(C.bottom)] };
+      });
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); window.scrollTo(0, 0); });
+      await phonePage.setViewportSize({ width: 375, height: 800 });
+      await phonePage.waitForTimeout(100);
+      // #4409: every phone arm counts the bar's SHOWN buttons (want), so without read aloud they would all pass on the
+      // narrower bar and never measure the wide one this guards. Pin that an agent's bar here carries it. Seven since
+      // #4631 added Copy reference: it, the three quick emoji, the picker, read aloud and Reply.
+      chk(!inPlaceHits.error && inPlaceHits.want === 7,
+        `[phone/touch] precondition: an agent's bar shows read aloud, so these arms measure the seven-button bar`, JSON.stringify(inPlaceHits));
+      chk(!inPlaceHits.error && inPlaceHits.overlap && inPlaceHits.hits.length === inPlaceHits.want && inPlaceHits.hits.every(Boolean) && inPlaceHits.composerOnTop,
+        `[phone/touch, in place] the open bar takes its taps and the sticky composer stays on top of the open row`, JSON.stringify(inPlaceHits));
+      const phoneGeometry = await phonePage.evaluate((ts) => {
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const long = 'this is a deliberately long message so the bubble fills the whole available width on a phone and would reach the far edge if it were not capped short of the opposite avatar column.';
+        const room = document.getElementById('pj-room');
+        // LIFTED to body: the geometry arms below measure the room on its own. pjRxnVisibleBand still
+        // reads the page's real sticky header (.apphead), which the lifted room is drawn over, so
+        // those placement arms are right for a partly different reason; the IN-PLACE arm above is
+        // the one that measures the room in its real column.
+        document.body.appendChild(room);
+        // Real taps: the first-run overlay (not part of the room) would intercept them.
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        // The thread's real max-height and overflow stay (only width is set): the reaction bar's
+        // clipping against that scroll box is part of what is measured.
+        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;z-index:50;';
+        room.hidden = false;
+        const longName = 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits-A-through-F-and-landlord-comments-inline.pdf';
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long, id: 'm1' }, p) + pjRoomRow({ operator: true, at: ts, text: long, id: 'm2' }, p)
+          + pjRoomRow({ operator: true, at: ts, text: 'Here is the signed copy.', id: 'm3',
+            attachments: [{ id: 'a1', name: longName, type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, p)
+          // A SHORT post of the person's own (right-aligned, the bar keeps its right anchor), with a reaction.
+          + pjRoomRow({ operator: true, at: ts, text: 'ok', id: 'm4', reactions: [{ emoji: '\u{1F44D}', count: 1, who: ['you'], mine: true }] }, p);
+        const rows = Array.from(room.querySelectorAll('.msg'));
+        const a = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const o = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const rr = (el) => el.getBoundingClientRect();
+        const aR = rr(a), aB = rr(a.querySelector('.msg-bd')), oR = rr(o), oB = rr(o.querySelector('.msg-bd'));
+        return { aFar: Math.round(aR.right - aB.right), aNear: Math.round(aB.left - aR.left), aW: Math.round(aB.width),
+          oFar: Math.round(oB.left - oR.left), oNear: Math.round(oR.right - oB.right), oW: Math.round(oB.width),
+          av: Math.round(rr(a.querySelector('.msg-av')).width),
+          // a 120-character file name on the person's OWN post stays inside the ROOM. Measured
+          // against the room, not the bubble: without the fix the bubble grows WITH the card, so
+          // "card inside bubble" stays true while both hang off the left edge.
+          attIn: (() => { const row = room.querySelectorAll('.msg')[2]; const att = row && row.querySelector('.att'); const bd = row && row.querySelector('.msg-bd');
+            if (!att || !bd) return 'no card'; const A = rr(att), B = rr(bd), R = rr(room);
+            return (A.left >= R.left && B.left >= R.left && A.right <= R.right + 1) ? 'inside' : ('card left=' + Math.round(A.left) + ' bubble left=' + Math.round(B.left) + ' room left=' + Math.round(R.left)); })(),
+          opMaskClear: (() => { const bd = o.querySelector('.msg-bd'); const cs = getComputedStyle(bd, '::after');
+            const maskRight = rr(bd).right - parseFloat(cs.right); return Math.round(rr(o.querySelector('.msg-av')).left - maskRight); })(),
+          // the tail's ground mask (::after) must stop short of the avatar: mask left edge vs avatar right edge
+          maskClear: (() => { const bd = a.querySelector('.msg-bd'); const cs = getComputedStyle(bd, '::after');
+            const maskLeft = rr(bd).left + parseFloat(cs.left); return Math.round(maskLeft - rr(a.querySelector('.msg-av')).right); })() };
+      }, now());
+      chk(phoneGeometry.av === 28, `[phone] the room avatar is 28px on a phone`, `avatar=${phoneGeometry.av}px`);
+      chk(Math.abs(phoneGeometry.aFar - phoneGeometry.aNear) <= 1 && phoneGeometry.aNear <= 43, `[phone] the agent far gutter equals the near avatar+gap (#3361 on a phone)`, `far=${phoneGeometry.aFar} near=${phoneGeometry.aNear}`);
+      chk(Math.abs(phoneGeometry.oFar - phoneGeometry.oNear) <= 1 && phoneGeometry.oNear <= 43, `[phone] the operator far gutter equals the near avatar+gap`, `far=${phoneGeometry.oFar} near=${phoneGeometry.oNear}`);
+      chk(phoneGeometry.maskClear >= 0, `[phone] the bubble tail's ground mask stops short of the avatar (it would paint over it)`, `clearance=${phoneGeometry.maskClear}px`);
+      chk(phoneGeometry.attIn === 'inside', `[phone] a 120-character file name on your own post stays inside the room`, phoneGeometry.attIn);
+      chk(phoneGeometry.opMaskClear >= 0, `[phone] the operator tail mask stops short of its avatar`, `clearance=${phoneGeometry.opMaskClear}px`);
+      // 190: in this 297px room the desktop row (34px avatar, 16px thread padding, 48px far
+      // gutter) leaves about 169px, which fails this; the phone row leaves 199px.
+      chk(phoneGeometry.aW >= 190 && phoneGeometry.oW >= 190, `[phone] both bubbles are wide on a phone`, `agent=${phoneGeometry.aW}px operator=${phoneGeometry.oW}px`);
+      // Tap to react (a touchscreen has no hover). Real taps, in a touch context.
+      const bar = () => phonePage.evaluate(() => {
+        const r = document.querySelector('#pj-room .msg.rxn-show'); const q = document.querySelector('#pj-room .msg .rxn-quick');
+        return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, op: r ? getComputedStyle(r.querySelector('.rxn-quick')).opacity : (q ? getComputedStyle(q).opacity : null),
+          hoverNone: matchMedia('(hover: none)').matches };
+      });
+      const firstBody = phonePage.locator('#pj-room .msg .msg-bd p').first();
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);   // the bar fades in over .12s
+      const barAfterFirstTap = await bar();
+      chk(barAfterFirstTap.hoverNone && barAfterFirstTap.shown === 1 && barAfterFirstTap.op === '1', `[phone/touch] a tap on a message shows its add-reaction bar`, JSON.stringify(barAfterFirstTap));
+      // The first post has no room above it inside the thread: its bar must open BELOW it
+      // (pjRxnPlace adds .rxn-below) rather than be cut by the thread's top edge.
+      const clip = await phonePage.evaluate(() => {
+        const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
+        if (!q) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        return { barTop: Math.round(Q.top), roomTop: Math.round(R.top + parseFloat(getComputedStyle(room).borderTopWidth)), barLeft: Math.round(Q.left), roomLeft: Math.round(R.left) };
+      });
+      chk(!clip.error && clip.barTop >= clip.roomTop && clip.barLeft >= clip.roomLeft, `[phone/touch] the first post's bar is not clipped by the thread`, JSON.stringify(clip));
+      // What a thumb actually hits: at each emoji's centre the topmost element must be that
+      // emoji, not the next message painted over a bar that opened below its post.
+      const hits = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick');
+        if (!q) return { error: 'no open bar' };
+        return { below: row.classList.contains('rxn-below'), want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), hits: [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => {
+          const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return top === b || b.contains(top); }) };
+      });
+      chk(!hits.error && hits.below && hits.hits.length === hits.want && hits.hits.every(Boolean), `[phone/touch] a bar that opens below its post is on top: every emoji takes its own tap`, JSON.stringify(hits));
+      // One bar at a time: a tap on a link in ANOTHER row closes it (the link keeps its own job).
+      const linkClose = await phonePage.evaluate(() => {
+        const rows = [...document.querySelectorAll('#pj-room .msg')]; const other = rows[1];
+        if (!other) return { error: 'no second row' };
+        const a = document.createElement('a'); a.href = '#'; a.textContent = 'a link'; a.setAttribute('data-arm', 'link');   // made by this check, not in the page (so no id)
+        a.addEventListener('click', (ev) => ev.preventDefault());
+        (other.querySelector('.msg-bd') || other).appendChild(a); a.scrollIntoView({ block: 'center' });
+        // Precondition: a bar IS open (on another row) right before the tap, or this proves nothing.
+        const open = [...document.querySelectorAll('#pj-room .msg.rxn-show')];
+        return { ok: open.length === 1 && open[0] !== other, openBefore: open.length };
+      });
+      if (!linkClose.error) {
+        await phonePage.locator('[data-arm="link"]').tap();
+        await phonePage.waitForTimeout(200);
+      }
+      const afterLink = await phonePage.evaluate(() => { const a = document.querySelector('[data-arm="link"]'); if (a) a.remove(); return { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }; });
+      chk(!linkClose.error && linkClose.ok && afterLink.shown === 0, `[phone/touch] a tap on a link in another row closes an open bar`, JSON.stringify(Object.assign({}, linkClose, afterLink)));
+      // Reopen it, so the arms below start from an open bar as before.
+      await firstBody.scrollIntoViewIfNeeded(); await firstBody.tap(); await phonePage.waitForTimeout(300);
+      const reopened = await bar();   // precondition: the bar IS open before the tap that must close it
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const barAfterSecondTap = await bar();
+      chk(reopened.shown === 1 && barAfterSecondTap.shown === 0 && barAfterSecondTap.op === '0', `[phone/touch] a second tap closes it`, JSON.stringify({ reopened: reopened.shown, after: barAfterSecondTap }));
+      // A repaint (new post, re-worded time) rewrites the rows: an open bar comes back on its post.
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const repaintResult = await phonePage.evaluate(() => {
+        const room = document.getElementById('pj-room');
+        const openPost = room.querySelector('.msg.rxn-show .rxns') && room.querySelector('.msg.rxn-show .rxns').getAttribute('data-post');
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
+        return new Promise((res) => setTimeout(() => {
+          const now = room.querySelector('.msg.rxn-show .rxns');
+          res({ openPost, after: now ? now.getAttribute('data-post') : null });
+        }, 50));
+      });
+      chk(repaintResult.openPost && repaintResult.after === repaintResult.openPost, `[phone/touch] a repaint keeps the open bar on the same post`, JSON.stringify(repaintResult));
+      await firstBody.tap();   // close it
+      await phonePage.waitForTimeout(300);
+      // A tap BETWEEN messages (the thread's padding) closes an open bar for good: a repaint after
+      // it must not bring it back.
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const gap = await phonePage.evaluate(async () => {
+        const room = document.getElementById('pj-room'); const R = room.getBoundingClientRect();
+        const opened = room.querySelectorAll('.msg.rxn-show').length;
+        // A point whose topmost element IS the thread itself (its padding, not a message and not
+        // anything drawn over it), so the tap exercises the in-room "no message" path.
+        const x = Math.round(R.left + 3);
+        for (let y = Math.max(0, Math.round(R.top) + 2); y < Math.min(window.innerHeight, R.bottom); y += 2) {
+          if (document.elementFromPoint(x, y) === room) return { opened, x, y, hit: 'thread' };
+        }
+        return { opened, error: 'no point where the thread itself is on top' };
+      });
+      if (!gap.error) await phonePage.touchscreen.tap(gap.x, gap.y);   // a clean FAIL below, not a throw
+      await phonePage.waitForTimeout(200);
+      const afterGap = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room');
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
+        setTimeout(() => res(room.querySelectorAll('.msg.rxn-show').length), 50);
+      }));
+      chk(!gap.error && gap.hit === 'thread' && gap.opened === 1 && afterGap === 0, `[phone/touch] a tap between messages closes the bar for good (a repaint does not bring it back)`, JSON.stringify(Object.assign({ afterGap }, gap)));
+      // Picking a reaction closes the bar even when the tapped button keeps focus (Android does).
+      await firstBody.tap();
+      await phonePage.waitForTimeout(300);
+      const picked = await phonePage.evaluate(() => new Promise((res) => {
+        const b = document.querySelector('#pj-room .msg.rxn-show .rxn-pick');
+        if (!b) return res({ error: 'no open bar' });
+        b.focus();
+        const focusedFirst = document.activeElement === b;   // precondition: focus really is in the bar
+        b.click();
+        setTimeout(() => {
+          const q = document.querySelector('#pj-room .msg .rxn-quick');
+          res({ focusedFirst, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length,
+            focusInBar: !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#pj-room .rxn-quick')),
+            op: q ? getComputedStyle(q).opacity : null });
+        }, 300);
+      }));
+      chk(!picked.error && picked.focusedFirst && picked.shown === 0 && !picked.focusInBar && picked.op === '0', `[phone/touch] picking a reaction closes the bar and lets go of focus`, JSON.stringify(picked));
+      // A file card is a download link: stop the navigation (the check must stay on this page),
+      // then tap it for real and require the room to still be here before reading anything.
+      await phonePage.evaluate(() => { window.__cardClicks = 0; document.querySelectorAll('#pj-room .att').forEach((card) => card.addEventListener('click', (event) => { event.preventDefault(); window.__cardClicks += 1; })); });
+      await phonePage.locator('#pj-room .att').first().tap();
+      await phonePage.waitForTimeout(300);
+      const barAfterCardTap = await bar();
+      // Precondition: the tap really reached the card (the bar was already closed, so "shown 0"
+      // alone would hold whatever the tap hit).
+      const rowsLeft = await phonePage.evaluate(() => document.querySelectorAll('#pj-room .msg').length);
+      const cardClicks = await phonePage.evaluate(() => window.__cardClicks);
+      chk(rowsLeft === 4 && cardClicks === 1 && barAfterCardTap.shown === 0 && barAfterCardTap.op === '0', `[phone/touch] a tap on a file card does not toggle the bar`, JSON.stringify(Object.assign({ rowsLeft, cardClicks }, barAfterCardTap)));
+      // The person's own SHORT post: its bar (right anchor) stays inside the thread, and every
+      // touch target in it, and the reaction pill, is at least the room's --room-tap (#3811), which
+      // is itself at least 36px (the size decided for these small repeated targets). Six buttons since
+      // #4631: Copy reference, the three quick emoji, the picker, and Reply (five since #3745).
+      const own = phonePage.locator('#pj-room .msg.you .msg-bd p').last();
+      await own.tap();
+      await phonePage.waitForTimeout(300);
+      const ownBar = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const room = document.getElementById('pj-room');
+        const q = row && row.querySelector('.rxn-quick');
+        if (!row || !row.classList.contains('you') || !q) return { error: 'no open bar on the person\'s own row' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        const size = (el) => { const r = el.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)); };
+        return { tapPx: parseFloat(getComputedStyle(room).getPropertyValue('--room-tap')), inside: Q.left >= R.left && Q.right <= R.right + 1 && Q.top >= R.top, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)],
+          buttons: [...q.querySelectorAll('button')].map(size), pill: row.querySelector('.rxn') ? Math.round(row.querySelector('.rxn').getBoundingClientRect().height) : null };
+      });
+      chk(!ownBar.error && ownBar.inside, `[phone/touch] the bar on a short post of your own stays inside the thread`, JSON.stringify(ownBar));
+      chk(!ownBar.error && ownBar.tapPx >= 36 && ownBar.buttons.length === 6 && ownBar.buttons.every((n) => n >= ownBar.tapPx) && ownBar.pill >= ownBar.tapPx, `[phone/touch] every reaction target is at least --room-tap, and --room-tap is at least 36px (the bar's buttons and a reaction pill)`, JSON.stringify(ownBar));
+      // The open bar is CLEAR of its one-line bubble, so tapping the bubble again closes the bar
+      // and reacts with nothing (at thumb size an overlapping bar covered the whole bubble).
+      const clear = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const q = row && row.querySelector('.rxn-quick'); const bd = row && row.querySelector('.msg-bd');
+        if (!q || !bd) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), B = bd.getBoundingClientRect();
+        // Count reactions sent. The pick handler returns early with no project open, so open one,
+        // or a tap on an emoji would count nothing and this arm could not fail.
+        PJ_CURRENT = 'arm-project';
+        window.__reacts = 0; window.rxnToggle = async () => { window.__reacts += 1; };
+        return { clear: Q.bottom <= B.top || Q.top >= B.bottom, bar: [Math.round(Q.top), Math.round(Q.bottom)], bubble: [Math.round(B.top), Math.round(B.bottom)] };
+      });
+      chk(!clear.error && clear.clear, `[phone/touch] the open bar does not cover its own short bubble`, JSON.stringify(clear));
+      const hitsAbove = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); const quickBar = row && row.querySelector('.rxn-quick'); if (!quickBar) return { error: 'no open bar' };
+        // Precondition: the bar really lies over the message before it, or "on top" proves nothing.
+        const previous = row.previousElementSibling; const barRect = quickBar.getBoundingClientRect();
+        const overlapsPrevious = !!(previous && (() => { const p = previous.getBoundingClientRect(); return barRect.top < p.bottom && barRect.bottom > p.top; })());
+        const hits = [...quickBar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
+        return { overlapsPrevious, hits, want: 6 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
+      });
+      chk(!hitsAbove.error && hitsAbove.overlapsPrevious && hitsAbove.hits.length === hitsAbove.want && hitsAbove.hits.every(Boolean), `[phone/touch] a bar above its post is on top of the message before it`, JSON.stringify(hitsAbove));
+      await own.tap();
+      await phonePage.waitForTimeout(300);
+      const again = await phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, reacts: window.__reacts }));
+      chk(again.shown === 0 && again.reacts === 0, `[phone/touch] a second tap on a short post closes its bar and adds no reaction`, JSON.stringify(again));
+      // Positive control for that spy: open the bar again and tap ONE emoji; exactly one reaction
+      // must be counted, or "reacts 0" above could come from a spy that never hooked.
+      await own.tap();
+      await phonePage.waitForTimeout(300);
+      await phonePage.locator('#pj-room .msg.rxn-show .rxn-pick').first().tap();
+      await phonePage.waitForTimeout(200);
+      const spyControl = await phonePage.evaluate(() => ({ reacts: window.__reacts }));
+      chk(spyControl.reacts === 1, `[phone/touch] (control) a real emoji tap is counted by the same spy`, JSON.stringify(spyControl));
+      // A post TALLER than the thread, read by scrolling: neither above nor below it fits, so the
+      // bar is pinned to the top of the visible thread. It must be fully in view and take taps.
+      const tallAt = await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'm9' }, p);
+        room.style.maxHeight = '360px'; room.style.overflowY = 'auto';
+        room.scrollTop = Math.round((room.scrollHeight - room.clientHeight) / 2);
+        const R = room.getBoundingClientRect();
+        return { x: Math.round(R.left + R.width / 2), y: Math.round(R.top + R.height / 2), tall: room.scrollHeight > 2 * room.clientHeight };
+      }, now());
+      await phonePage.touchscreen.tap(tallAt.x, tallAt.y);
+      await phonePage.waitForTimeout(300);
+      const tall = await phonePage.evaluate(() => {
+        const room = document.getElementById('pj-room'); const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
+        if (!q) return { error: 'no open bar' };
+        const Q = q.getBoundingClientRect(), R = room.getBoundingClientRect();
+        const hits = [...q.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { inView: Q.top >= R.top && Q.bottom <= R.bottom && Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.top), Math.round(Q.bottom)], room: [Math.round(R.top), Math.round(R.bottom)], hits, want: 6 + (q.querySelector('.rxn-speak') && q.querySelector('.rxn-speak').getClientRects().length ? 1 : 0), pinned: q.style.position === 'fixed' };
+      });
+      chk(tallAt.tall && !tall.error && tall.pinned && tall.inView && tall.hits.length === tall.want && tall.hits.every(Boolean), `[phone/touch] on a post taller than the thread the bar is pinned in view and takes its taps`, JSON.stringify(Object.assign({ tall: tallAt.tall }, tall)));
+      // A repaint (a new post arriving) while the pinned bar is up and its post still on screen
+      // keeps it pinned, rather than closing it under the person's thumb.
+      const afterRepaint = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const keep = room.scrollTop;
+        // What paintRoom's rewrite gives: fresh rows, no open class and no inline pin on the bar.
+        { const fresh = room.cloneNode(true); fresh.querySelectorAll('.msg').forEach((m) => m.classList.remove('rxn-show', 'rxn-below')); fresh.querySelectorAll('.rxn-quick').forEach((q) => q.removeAttribute('style')); room.innerHTML = fresh.innerHTML; }
+        room.scrollTop = keep;
+        setTimeout(() => { const q = document.querySelector('#pj-room .msg.rxn-show .rxn-quick');
+          res({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(q && q.style.position === 'fixed') }); }, 100);
+      }));
+      chk(afterRepaint.shown === 1 && afterRepaint.pinned, `[phone/touch] a repaint keeps a pinned bar pinned while its post is on screen`, JSON.stringify(afterRepaint));
+      // A viewport change (the keyboard closing when the pinning tap left the composer, a turn)
+      // RE-PLACES a pinned bar instead of closing it: still open, still pinned, still on screen.
+      const afterResize = await phonePage.evaluate(() => new Promise((res) => {
+        const pinnedBefore = RXN_PINNED && !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]');
+        window.dispatchEvent(new Event('resize'));
+        if (window.visualViewport) window.visualViewport.dispatchEvent(new Event('resize'));
+        setTimeout(() => { const bar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const rect = bar && bar.getBoundingClientRect();
+          res({ pinnedBefore, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(bar && bar.style.position === 'fixed'),
+            onScreen: !!(rect && rect.top >= 0 && rect.bottom <= (window.visualViewport ? window.visualViewport.height : innerHeight)) }); }, 100);
+      }));
+      chk(afterResize.pinnedBefore && afterResize.shown === 1 && afterResize.pinned && afterResize.onScreen, `[phone/touch] a viewport change re-places a pinned bar instead of closing it`, JSON.stringify(afterResize));
+      // Scrolling INSIDE the full emoji picker is not the thread moving: a pinned bar stays.
+      const pickerScroll = await phonePage.evaluate(() => new Promise((res) => {
+        if (typeof rxnPickerEl !== 'function') { res({ error: 'rxnPickerEl missing' }); return; }
+        const pinnedBefore = !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]');
+        const pickerElement = rxnPickerEl(); pickerElement.dispatchEvent(new Event('scroll'));   // a scroll whose target is the picker
+        setTimeout(() => res({ pinnedBefore, pinnedAfter: !!document.querySelector('#pj-room .rxn-quick[style*="fixed"]') }), 50);
+      }));
+      chk(!pickerScroll.error && pickerScroll.pinnedBefore && pickerScroll.pinnedAfter, `[phone/touch] scrolling inside the emoji picker keeps a pinned bar`, JSON.stringify(pickerScroll));
+      // A scroll RE-PLACES a pinned bar: while its post still fills what is showing it stays pinned
+      // over it; the iOS keyboard closing fires a resize AND a window scroll together; once the post
+      // has left the screen the bar closes.
+      const afterScroll = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); room.scrollTop += 120;
+        window.dispatchEvent(new Event('resize')); window.dispatchEvent(new Event('scroll'));
+        setTimeout(() => {
+          const bar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const rect = bar && bar.getBoundingClientRect();
+          const room2 = room.getBoundingClientRect();
+          const kept = { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinned: !!(bar && bar.style.position === 'fixed'),
+            overItsRoom: !!(rect && rect.top >= room2.top - 1 && rect.bottom <= room2.bottom + 1) };
+          room.style.top = '-3000px'; document.dispatchEvent(new Event('scroll'));   // the post leaves the screen
+          setTimeout(() => {
+            res({ kept, afterLeaving: { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, pinnedLeft: !!document.querySelector('#pj-room .rxn-quick[style]') } });
+            room.style.top = '0px';
+          }, 100);
+        }, 150);
+      }));
+      chk(afterScroll.kept.shown === 1 && afterScroll.kept.pinned && afterScroll.kept.overItsRoom && afterScroll.afterLeaving.shown === 0 && !afterScroll.afterLeaving.pinnedLeft,
+        `[phone/touch] a scroll keeps a pinned bar over its own post, and closes it once the post leaves the screen`, JSON.stringify(afterScroll));
+      // Nothing of the thread showing (header and composer take the whole screen): a tapped bar
+      // has nowhere to go and closes, rather than sit open at an unplaced default.
+      const emptyBand = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg'); if (!row || typeof pjRxnPlace !== 'function') return { error: 'no row or pjRxnPlace' };
+        let stubCalled = false;
+        const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => { stubCalled = true; return { top: 300, bottom: 200 }; };
+        // (A thin band, thinner than the bar, is checked just below with its own stub.)
+        row.classList.add('rxn-show'); RXN_SHOW_POST = 'x';
+        try { pjRxnPlace(row, true); } finally { window.pjRxnVisibleBand = real; }
+        const res = { stubCalled, shownAfter: row.classList.contains('rxn-show'), post: RXN_SHOW_POST };
+        return res;
+      });
+      chk(!emptyBand.error && emptyBand.stubCalled && emptyBand.shownAfter === false && emptyBand.post === null, `[phone/touch] with no thread showing a tapped bar closes`, JSON.stringify(emptyBand));
+      // A visible band THINNER than the bar (landscape with the keyboard up): pinning would put it
+      // under the sticky composer or header, so a tapped tall post's bar closes instead.
+      const thinBand = await phonePage.evaluate(() => {
+        const row = document.querySelector('#pj-room .msg'); if (!row || typeof pjRxnPlace !== 'function') return { error: 'no row or pjRxnPlace' };
+        const rowRect = row.getBoundingClientRect(); const bandTop = Math.round(rowRect.top + rowRect.height / 2);
+        let stubCalled = false;
+        const real = window.pjRxnVisibleBand; window.pjRxnVisibleBand = () => { stubCalled = true; return { top: bandTop, bottom: bandTop + 20 }; };
+        row.classList.add('rxn-show'); RXN_SHOW_POST = 'x';
+        try { pjRxnPlace(row, true); } finally { window.pjRxnVisibleBand = real; }
+        return { stubCalled, band: [bandTop, bandTop + 20], shownAfter: row.classList.contains('rxn-show'), pinned: RXN_PINNED };
+      });
+      chk(!thinBand.error && thinBand.stubCalled && thinBand.shownAfter === false && thinBand.pinned === false, `[phone/touch] a visible band thinner than the bar closes a tapped bar instead of pinning it under the composer`, JSON.stringify(thinBand));
+      // An ORDINARY (unpinned) bar follows its post on scroll: scrolled to the thread's top edge it
+      // stays in view (flipped below), and once its post has left the screen it closes.
+      const edge = await phonePage.evaluate((ts) => new Promise((res) => {
+        const room = document.getElementById('pj-room'); room.style.top = '0px';
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        // Enough posts below it that the room can scroll it right off (six could not: a sliver stayed).
+        room.innerHTML = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'e10', 'e11', 'e12'].map((id, i) => pjRoomRow({ from: 'april', at: ts, text: 'Post ' + i + ' with a line of text in it.', id }, people)).join('');
+        room.scrollTop = 0; res(true);
+      }), now());
+      await phonePage.locator('#pj-room .msg .msg-bd p').nth(3).tap();
+      await phonePage.waitForTimeout(250);
+      const edgeResult = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = document.querySelector('#pj-room .msg.rxn-show');
+        if (!row) { res({ error: 'no bar opened' }); return; }
+        const pinnedAtOpen = RXN_PINNED;
+        // The post's top at the top of what is SHOWING (pjRxnVisibleBand: the page's sticky header
+        // covers the top of this lifted room), so "above" no longer fits there.
+        room.scrollTop += row.getBoundingClientRect().top - pjRxnVisibleBand(room).top - 6;
+        room.dispatchEvent(new Event('scroll'));
+        setTimeout(() => {
+          const bar = row.querySelector('.rxn-quick'); const barRect = bar.getBoundingClientRect(); const band = pjRxnVisibleBand(room);
+          const atEdge = { open: row.classList.contains('rxn-show'), below: row.classList.contains('rxn-below'), inBand: barRect.top >= band.top - 1 && barRect.bottom <= band.bottom + 1 };
+          room.scrollTop += 2000; room.dispatchEvent(new Event('scroll'));   // the post leaves the screen
+          setTimeout(() => res({ pinnedAtOpen, atEdge, postGone: row.getBoundingClientRect().bottom <= pjRxnVisibleBand(room).top, afterLeaving: { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST } }), 100);
+        }, 100);
+      }));
+      chk(!edgeResult.error && !edgeResult.pinnedAtOpen && edgeResult.atEdge.open && edgeResult.atEdge.inBand && edgeResult.postGone && edgeResult.afterLeaving.shown === 0 && edgeResult.afterLeaving.post === null,
+        `[phone/touch] an ordinary bar stays in view as its post reaches the thread's edge, and closes once the post leaves`, JSON.stringify(edgeResult));
+      // A PINNED bar on a tall post whose top is showing sits at the post's own top, not over the
+      // message above it (where a tap meant for that message would react to this post).
+      await phonePage.evaluate((ts) => {
+        // The room placed BELOW the page's sticky header here, so the tall post's top can be showing.
+        const room = document.getElementById('pj-room'); room.style.top = '250px'; room.style.maxHeight = '416px';
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'p1' }, people)
+          + pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'p2' }, people);
+        const tall = room.querySelectorAll('.msg')[1];
+        // The tall post's top 20px below the top of what is SHOWING (the sticky header covers the top
+        // of this lifted room), so its top is visible and "above" does not fit.
+        room.scrollTop += tall.getBoundingClientRect().top - (pjRxnVisibleBand(room).top + 20);
+      }, now());
+      const tallTop = await phonePage.evaluate(() => { const r = document.querySelectorAll('#pj-room .msg')[1].querySelector('.msg-bd').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 120) }; });
+      await phonePage.touchscreen.tap(tallTop.x, tallTop.y);
+      await phonePage.waitForTimeout(250);
+      const pinAtTop = await phonePage.evaluate(() => {
+        const rows = document.querySelectorAll('#pj-room .msg'); const row = rows[1]; const bar = row && row.querySelector('.rxn-quick');
+        if (!row || !row.classList.contains('rxn-show')) return { error: 'the tall post did not open a bar' };
+        const barRect = bar.getBoundingClientRect(), rowRect = row.getBoundingClientRect(), aboveRect = rows[0].getBoundingClientRect();
+        const band = pjRxnVisibleBand(document.getElementById('pj-room'));
+        return { pinned: RXN_PINNED, barTop: Math.round(barRect.top), rowTop: Math.round(rowRect.top), bandTop: Math.round(band.top), aboveBottom: Math.round(aboveRect.bottom),
+          rowTopShowing: rowRect.top > band.top + 1, atRowTop: Math.abs(barRect.top - (rowRect.top + 4)) <= 1, clearOfAbove: barRect.top >= aboveRect.bottom - 0.5 };
+      });
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); const room = document.getElementById('pj-room'); room.style.maxHeight = ''; room.style.top = '0px'; });
+      chk(!pinAtTop.error && pinAtTop.pinned && pinAtTop.rowTopShowing && pinAtTop.atRowTop && pinAtTop.clearOfAbove, `[phone/touch] a pinned bar sits at its post's own top, not over the message above`, JSON.stringify(pinAtTop));
+      // Setup shared by the next two arms: the room below the page's sticky header, a short post
+      // then a tall one, the tall post's top placed `topInto` px into what shows, then tapped.
+      const tallSetup = async (topInto) => {
+        await phonePage.evaluate(({ ts, topInto }) => {
+          const room = document.getElementById('pj-room'); room.style.top = '250px'; room.style.maxHeight = '416px';
+          if (typeof pjRxnClose === 'function') pjRxnClose();
+          const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+          room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'q1' }, people)
+            + pjRoomRow({ from: 'april', at: ts, text: 'a long report line. '.repeat(160), id: 'q2' }, people);
+          const tall = room.querySelectorAll('.msg')[1];
+          room.scrollTop += tall.getBoundingClientRect().top - (pjRxnVisibleBand(room).top + topInto);
+        }, { ts: now(), topInto });
+        const point = await phonePage.evaluate(() => { const r = document.querySelectorAll('#pj-room .msg')[1].querySelector('.msg-bd').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 120) }; });
+        await phonePage.touchscreen.tap(point.x, point.y);
+        await phonePage.waitForTimeout(250);
+      };
+      // A pinned bar whose reaction row is rewritten IN PLACE (a reaction's reply repaints .rxns):
+      // the fresh bar is re-pinned by the observer, not left unpinned and clipped.
+      await tallSetup(20);
+      const inPlaceRepaint = await phonePage.evaluate(() => new Promise((res) => {
+        const row = document.querySelector('#pj-room .msg.rxn-show'); if (!row || !RXN_PINNED) { res({ error: 'no pinned bar to start from' }); return; }
+        // What repaintReactions does: rebuild the row from rxnsInner (fresh markup, no inline pin).
+        // Copying innerHTML back would keep the bar's inline style and could not fail.
+        if (typeof rxnsInner !== 'function') { res({ error: 'rxnsInner missing' }); return; }
+        const rxns = row.querySelector('.rxns'); rxns.innerHTML = rxnsInner([]);
+        const freshUnpinned = !(rxns.querySelector('.rxn-quick') && rxns.querySelector('.rxn-quick').style.position === 'fixed');
+        setTimeout(() => { const bar = row.querySelector('.rxn-quick'); res({ freshUnpinned, shown: row.classList.contains('rxn-show'), pinned: !!(bar && bar.style.position === 'fixed') }); }, 100);
+      }));
+      chk(!inPlaceRepaint.error && inPlaceRepaint.freshUnpinned && inPlaceRepaint.shown && inPlaceRepaint.pinned, `[phone/touch] a pinned bar whose reaction row is rewritten in place is pinned again`, JSON.stringify(inPlaceRepaint));
+      // A repaint that drops the pinned bar's post closes it fully (pjRxnClose), pin state included.
+      await tallSetup(20);
+      const postGone = await phonePage.evaluate((ts) => new Promise((res) => {
+        const pinnedBefore = RXN_PINNED && !!document.querySelector('#pj-room .msg.rxn-show');
+        const room = document.getElementById('pj-room');
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A short message above.', id: 'q1' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+        setTimeout(() => res({ pinnedBefore, post: RXN_SHOW_POST, pinned: RXN_PINNED }), 100);
+      }), now());
+      chk(postGone.pinnedBefore && postGone.post === null && postGone.pinned === false, `[phone/touch] a repaint that drops a pinned bar's post clears the bar's state, pin included`, JSON.stringify(postGone));
+      // A tall post's bar tapped while the post's TOP showed (so it opened above, unpinned) stays,
+      // pinned, once that top scrolls away while the post still fills what shows.
+      await tallSetup(90);
+      const tallFollow = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = document.querySelectorAll('#pj-room .msg')[1];
+        const openedUnpinned = row.classList.contains('rxn-show') && !RXN_PINNED;
+        room.scrollTop += 200; room.dispatchEvent(new Event('scroll'));   // the post's top leaves; the post still fills what shows
+        setTimeout(() => res({ openedUnpinned, afterScroll: { shown: row.classList.contains('rxn-show'), pinned: RXN_PINNED } }), 120);
+      }));
+      chk(tallFollow.openedUnpinned && tallFollow.afterScroll.shown && tallFollow.afterScroll.pinned, `[phone/touch] a tall post's bar tapped with its top showing follows it, pinned, as the top scrolls away`, JSON.stringify(tallFollow));
+      await phonePage.evaluate(() => { if (typeof pjRxnClose === 'function') pjRxnClose(); const room = document.getElementById('pj-room'); room.style.maxHeight = ''; room.style.top = '0px'; });
+      // FOUR MORE WAYS A BAR CLOSES, each measured: Escape, a pick from the full picker (closed
+      // BEFORE the reaction's round trip), a tap outside the room, and navigating away (pjView).
+      const freshBar = async () => {
+        await phonePage.evaluate((ts) => {
+          const room = document.getElementById('pj-room'); room.style.top = '0px'; room.scrollTop = 0;
+          if (typeof pjRxnClose === 'function') pjRxnClose();
+          room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A post to react to, two or three words long.', id: 'c1' }, { agents: [{ sessionName: 'april', name: 'April' }] })
+            + pjRoomRow({ from: 'april', at: ts, text: 'And one more below it so the bar has room.', id: 'c2' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+        }, now());
+        await phonePage.locator('#pj-room .msg .msg-bd p').last().tap();
+        await phonePage.waitForTimeout(250);
+        return phonePage.evaluate(() => document.querySelectorAll('#pj-room .msg.rxn-show').length);
+      };
+      const barState = () => phonePage.evaluate(() => ({ shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST, pinned: RXN_PINNED }));
+      const closedClean = (state) => state.shown === 0 && state.post === null && state.pinned === false;
+      // A bar opened by KEYBOARD FOCUS (an iPad with a keyboard, VoiceOver) on the thread's first
+      // post: no tap placed it, so it would open above the post and be cut by the thread's top.
+      // The room sits below the sticky header (at top 0 the first post is under the header, which
+      // is a different case: the post itself is not showing).
+      await phonePage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); room.style.top = '250px'; room.scrollTop = 0;
+        if (typeof pjRxnClose === 'function') pjRxnClose();
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A post to react to, two or three words long.', id: 'f1' }, { agents: [{ sessionName: 'april', name: 'April' }] })
+          + pjRoomRow({ from: 'april', at: ts, text: 'And one more below it so the bar has room.', id: 'f2' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+      }, now());
+      const focusOpen = await phonePage.evaluate(() => new Promise((res) => {
+        const room = document.getElementById('pj-room'); const row = room.querySelector('.msg'); const bar = row && row.querySelector('.rxn-quick');
+        const button = bar && bar.querySelector('button'); if (!button) { res({ error: 'no bar button on the first post' }); return; }
+        // Precondition: unplaced, this bar really is cut by the top of what shows.
+        const wouldClip = bar.getBoundingClientRect().top < pjRxnVisibleBand(room).top;
+        button.focus();
+        setTimeout(() => {
+          const band = pjRxnVisibleBand(room); const B = bar.getBoundingClientRect();
+          const hits = [...bar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+          const placed = { rowTopShowing: row.getBoundingClientRect().top >= band.top - 0.5, below: row.classList.contains('rxn-below'), inView: B.top >= band.top - 0.5 && B.bottom <= band.bottom + 0.5, hits, want: 6 + (bar.querySelector('.rxn-speak') && bar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
+          button.blur();
+          setTimeout(() => { const afterBlur = { below: row.classList.contains('rxn-below'), shown: RXN_SHOW_POST, styled: !!(bar.style.left || bar.style.maxWidth) /* #4409: the fit's inline left and max-width are gone */ }; room.style.top = '0px'; res({ wouldClip, placed, afterBlur }); }, 50);
+        }, 300);
+      }));
+      chk(!focusOpen.error && focusOpen.wouldClip && focusOpen.placed.rowTopShowing && focusOpen.placed.below && focusOpen.placed.inView && focusOpen.placed.hits.length === focusOpen.placed.want && focusOpen.placed.hits.every(Boolean)
+        && !focusOpen.afterBlur.below && focusOpen.afterBlur.shown === null && !focusOpen.afterBlur.styled,
+        `[phone/touch] a bar opened by keyboard focus on the first post opens below it, in view, takes its taps, and drops the flip when focus leaves`, JSON.stringify(focusOpen));
+      // Escape
+      const openBeforeEscape = await freshBar();
+      await phonePage.keyboard.press('Escape');
+      const afterEscape = await barState();
+      chk(openBeforeEscape === 1 && closedClean(afterEscape), `[phone/touch] Escape closes an open bar`, JSON.stringify({ openBeforeEscape, afterEscape }));
+      // A pick from the FULL picker: the bar is closed before the reaction's request resolves.
+      const openBeforePick = await freshBar();
+      const pick = await phonePage.evaluate(() => new Promise((res) => {
+        let resolveToggle; window.__fullPicks = 0;
+        window.rxnToggle = () => { window.__fullPicks += 1; return new Promise((done) => { resolveToggle = done; }); };   // held open: the request is in flight
+        const more = document.querySelector('#pj-room .msg.rxn-show .rxn-more'); if (!more) { res({ error: 'no smiley in the open bar' }); return; }
+        more.click();
+        setTimeout(() => {
+          const picker = document.getElementById('rxn-picker'); const choice = picker && !picker.hidden && picker.querySelector('.rxn-pick');
+          if (!choice) { res({ error: 'the full picker did not open' }); return; }
+          choice.click();
+          setTimeout(() => { const whileInFlight = { shown: document.querySelectorAll('#pj-room .msg.rxn-show').length, post: RXN_SHOW_POST, pinned: RXN_PINNED };
+            if (resolveToggle) resolveToggle(); res({ picks: window.__fullPicks, whileInFlight }); }, 50);
+        }, 100);
+      }));
+      chk(openBeforePick === 1 && !pick.error && pick.picks === 1 && closedClean(pick.whileInFlight), `[phone/touch] a pick from the full picker closes the bar before the reaction's request resolves`, JSON.stringify({ openBeforePick, pick }));
+      // A tap outside the room (pointerdown on the page, not the room)
+      const openBeforeOutside = await freshBar();
+      const outsidePoint = await phonePage.evaluate(() => { const room = document.getElementById('pj-room').getBoundingClientRect(); return { x: Math.round(Math.min(innerWidth - 8, room.right + 30)), y: Math.round(room.top + 40) }; });
+      const outsideTarget = await phonePage.evaluate(({ x, y }) => { const t = document.elementFromPoint(x, y); return t ? !t.closest('#pj-room') : false; }, outsidePoint);
+      await phonePage.touchscreen.tap(outsidePoint.x, outsidePoint.y);
+      await phonePage.waitForTimeout(150);
+      const afterOutside = await barState();
+      chk(openBeforeOutside === 1 && outsideTarget && closedClean(afterOutside), `[phone/touch] a tap outside the room closes an open bar`, JSON.stringify({ openBeforeOutside, outsidePoint, outsideTarget, afterOutside }));
+      // Navigating away (pjView, the one navigation path)
+      const openBeforeNav = await freshBar();
+      await phonePage.evaluate(() => pjView('list'));
+      const afterNav = await barState();
+      chk(openBeforeNav === 1 && closedClean(afterNav), `[phone/touch] navigating away (pjView) closes an open bar`, JSON.stringify({ openBeforeNav, afterNav }));
+    } finally {
+      chk(phonePageErrors.length === 0, '[phone] no script errors on the page', phonePageErrors.join(' | '));
+      await phonePage.close();
+    }
+    // THE WHOLE PAGE at five phone sizes (the four targets and 360) and both themes, touch, in its
+    // REAL layout (not a lifted room): each of the six project views in turn (the room with a long
+    // post and a long file name; the projects list's top row and empty state, as this page has no
+    // server so no project cards), must not run past the screen. The link card's own width is covered by the unit pin (.lpv = .att). Guards what the lifted
+    // arms cannot (paddings, the column, the 16px fields in place).
+    for (const [phoneWidth, phoneHeight] of [[375, 667], [393, 852], [430, 932], [412, 915], [360, 780]]) {
+      for (const theme of ['light', 'dark']) {
+        const sizePage = await browser.newPage({ viewport: { width: phoneWidth, height: phoneHeight }, colorScheme: theme, hasTouch: true, isMobile: true });
+        const sizePageErrors = watchErrors(sizePage);
+        try {
+          await sizePage.addInitScript(() => {
+            window.setInterval = () => 0;
+            window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+          });
+          await sizePage.goto(PAGE);
+          const fit = await sizePage.evaluate(([ts, viewSelectors]) => {
+            const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+            // All six project views, read from the 16px rule's scope (FIELD_VIEWS), one at a time.
+            const views = viewSelectors.map((selector) => document.querySelector(selector));
+            if (views.some((view) => !view)) return { error: 'a view is missing' };
+            // An ancestor clips the page, so it never SCROLLS sideways even when content is too
+            // wide (a 520px column passed that test: the control showed it). What matters is content
+            // cut off at the edge: every rendered element inside the screen, except inside the
+            // boxes made to scroll sideways (a table's .mdtablewrap, a code block). NOT every
+            // overflow:auto box: the thread scrolls vertically, so its overflow-x computes to auto
+            // too, and exempting it would skip the room, where the long-file-name bug lived.
+            // The SCREEN's width: a mobile context widens innerWidth to fit overflowing content.
+            const screenWidth = window.visualViewport ? window.visualViewport.width : innerWidth;
+            const pageScrolls = (view) => document.documentElement.scrollWidth > screenWidth + 1
+              || [...view.querySelectorAll('*')].some((el) => {
+                const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return false;
+                if (el.closest('.mdtablewrap, pre')) return false;
+                return rect.left < -1 || rect.right > screenWidth + 1;
+              });
+            const offenders = (view) => [...view.querySelectorAll('*')].filter((el) => {
+                const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return false;
+                if (el.closest('.mdtablewrap, pre')) return false;
+                return rect.left < -1 || rect.right > screenWidth + 1;
+              }).slice(0, 4).map((el) => (el.id ? '#' + el.id : el.tagName.toLowerCase() + '.' + String(el.className).split(' ')[0]) + ' ' + Math.round(el.getBoundingClientRect().left) + '..' + Math.round(el.getBoundingClientRect().right));
+            const result = {};
+            for (const view of views) {
+              document.querySelectorAll('#panel-projects > [id$="-view"]').forEach((other) => { other.hidden = other !== view; });
+              for (let el = view; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+              if (view.id === 'pj-one-view') {
+                const room = document.getElementById('pj-room'); const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+                room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'A long post that should read as lines on a phone and never push the page wider than the screen, whatever its words. '.repeat(3), id: 's1' }, people)
+                  + pjRoomRow({ operator: true, at: ts, text: 'Here is the file.', id: 's2', attachments: [{ id: 'a1', name: 'Henderson-Lease-Review-2026-signed-countersigned-final-FINAL-v7-with-exhibits.pdf', type: 'application/pdf', size: 912345, kind: 'pdf', url: '/api/attachment/a1' }] }, people);
+              }
+              const rendered = [...view.querySelectorAll('*')].filter((el) => { const rect = el.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; }).length;
+              result[view.id] = { pageScrolls: pageScrolls(view), scrollWidth: document.documentElement.scrollWidth, outside: offenders(view), rendered };
+            }
+            return { screenWidth, innerWidth, result };
+          }, [now(), FIELD_VIEWS]);
+          // The reference IS this phone's width (an engine that zoomed out to fit would widen it and
+          // pass everything), and every view really rendered something to measure.
+          const fits = !fit.error && Math.round(fit.screenWidth) === phoneWidth
+            && Object.values(fit.result).every((r) => !r.pageScrolls && r.rendered >= 3);
+          chk(fits, `[${phoneWidth}x${phoneHeight} ${theme}/touch] nothing on the project page or the projects list runs past the screen`, JSON.stringify(fit));
+        } finally {
+          chk(sizePageErrors.length === 0, `[size ${phoneWidth}x${phoneHeight} ${theme}] no script errors on the page`, sizePageErrors.join(' | '));
+          await sizePage.close();
+        }
+      }
+    }
+    // TABLET, touch, 1180 wide (an iPad in landscape): the 16px rule applies there too (hover:
+    // none). Every field in all six project views and both dialogs (FIELD_ROOTS) must stay inside
+    // its own column or dialog card, so the larger text never pushes a field out of a narrow one.
+    const tabletPage = await browser.newPage({ viewport: { width: 1180, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+    const tabletPageErrors = watchErrors(tabletPage);
+    try {
+      await tabletPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await tabletPage.goto(PAGE);
+      const tablet = await tabletPage.evaluate(({ rootSelectors, skipTypes }) => {
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        const places = rootSelectors.map((selector) => document.querySelector(selector));
+        if (places.some((place) => !place)) return { error: 'a place is missing' };
+        // ONE place shown at a time (as the app shows them), each field bounded by its nearest real
+        // container: its column, dialog card, card or field row, else the view itself.
+        const views = places.filter((place) => place.parentElement && place.parentElement.id === 'panel-projects');
+        let fieldCount = 0, at16 = 0; const outside = [];
+        for (const place of places) {
+          if (views.includes(place)) views.forEach((other) => { other.hidden = other !== place; });
+          for (let el = place; el && el !== document.body; el = el.parentElement) { el.hidden = false; el.removeAttribute('inert'); if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+          const fields = [...place.querySelectorAll('input, select, textarea')]
+            .filter((el) => !(el.tagName === 'INPUT' && skipTypes.includes((el.type || '').toLowerCase())))
+            .filter((el) => el.getBoundingClientRect().width > 0);
+          fieldCount += fields.length;
+          at16 += fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).length;
+          fields.forEach((el) => {
+            const box = el.closest('.pjcol, .rm-box, .pjcard, .field') || place;
+            const fieldRect = el.getBoundingClientRect(); const boxRect = box.getBoundingClientRect();
+            if (fieldRect.left < boxRect.left - 0.5 || fieldRect.right > boxRect.right + 0.5) outside.push((el.id || el.className) + ' in ' + (box.id || box.className));
+          });
+          if (!views.includes(place)) place.hidden = true;   // a dialog closes again
+        }
+        return { hoverNone: matchMedia('(hover: none)').matches, fields: fieldCount, at16, outside };
+      }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
+      // 15 fields render at 1180 (measured, both engines; others sit in views hidden at that width).
+      chk(!tablet.error && tablet.hoverNone && tablet.fields >= 12 && tablet.at16 === tablet.fields && tablet.outside.length === 0,
+        `[tablet 1180/touch] at 16px every field stays inside its nearest container, one view at a time`, JSON.stringify(tablet));
+      // #4663 on a touchscreen tablet in the TAB layout (the static page's own layout at 1180).
+      const ttaps = await tabletPage.evaluate(tapProbe4663);
+      chk(ttaps.out.length === 6 && ttaps.out.every((x) => !x.error && x.reach), `[tablet 1180/touch tabs] #4663: all six small project controls take a tap across at least 36px`, JSON.stringify(ttaps.out));
+      chk(ttaps.theirs.length === 0 && ttaps.subjects.every((n) => n >= 1) && ttaps.restored, `[tablet 1180/touch tabs] #4663: no enlarged tap area takes any part of a neighbour (the first task and file included), and the probe left the page as it found it`, JSON.stringify({ theirs: ttaps.theirs, subjects: ttaps.subjects, restored: ttaps.restored }));
+    } finally {
+      chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
+      await tabletPage.close();
+    }
+    // #4663 in the ONE-SCREEN layout on a touchscreen tablet, set as the dark/consolidated arm above sets it (the
+    // static page does not choose it by itself). Back (its crumb row is display:none) and + Add member (the Members
+    // card is display:none here, #3218) are not shown in this layout, so both are left out rather than forced
+    // visible (forcing Members visible also reflows the Files card); the other four must all take their 36px tap.
+    for (const w of [960, 1024, 1180]) {   // 960: the narrowest width the one-screen layout (and these rules) exist at
+      const consTap = await browser.newPage({ viewport: { width: w, height: 820 }, colorScheme: 'light', hasTouch: true, isMobile: true });
+      const consTapErrors = watchErrors(consTap);
+      try {
+        await consTap.addInitScript(() => { window.setInterval = () => 0; window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
+        await consTap.goto(PAGE);
+        await consTap.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+          document.documentElement.setAttribute('data-layout', 'consolidated'); document.body.classList.add('consolidated'); });
+        const layout = await consTap.evaluate(() => document.documentElement.getAttribute('data-layout') + '/' + document.body.classList.contains('consolidated'));
+        const ctaps = await consTap.evaluate(tapProbe4663, ['pj-back', 'pj-add-member']);
+        chk(layout === 'consolidated/true' && ctaps.out.length === 4 && ctaps.out.every((x) => !x.error && x.reach), `[tablet ${w}/touch one-screen] #4663: the four small project controls it shows take a tap across at least 36px`, JSON.stringify({ layout, out: ctaps.out }));
+        chk(ctaps.theirs.length === 0 && ctaps.subjects.slice(0, 2).every((n) => n >= 1) && ctaps.restored, `[tablet ${w}/touch one-screen] #4663: no enlarged tap area takes any part of a neighbour (the first task and file included), and the probe left the page as it found it`, JSON.stringify({ theirs: ctaps.theirs, subjects: ctaps.subjects, restored: ctaps.restored }));
+      } finally {
+        chk(consTapErrors.length === 0, `[tablet ${w} one-screen] no script errors on the page`, consTapErrors.join(' | '));
+        await consTap.close();
+      }
+    }
+    // #4663 stays off a pointer that hovers (the Mac app is a WKWebView with a mouse or trackpad): no area on any of
+    // the six, and neither one-screen drawn change, in the tab layout and the one-screen layout alike (review round
+    // 10: with the touch gate removed every other arm still passed).
+    for (const cons of [false, true]) {
+      const hoverPage = await browser.newPage({ viewport: { width: 1180, height: 820 }, colorScheme: 'light' });
+      const hoverErrors = watchErrors(hoverPage);
+      try {
+        await hoverPage.addInitScript(() => { window.setInterval = () => 0; window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); });
+        await hoverPage.goto(PAGE);
+        const hv = await hoverPage.evaluate((c) => {
+          const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+          if (c) { document.documentElement.setAttribute('data-layout', 'consolidated'); document.body.classList.add('consolidated'); }
+          const ids = ['pj-back', 'pj-settings-link', 'pj-add-member', 'pj-newtask', 'pj-docs-all', 'pj-alltasks'];
+          const withArea = ids.filter((id) => { const b = document.getElementById(id); return !b || getComputedStyle(b, '::after').content !== 'none'; });
+          const f = document.getElementById('pj-tasks-field'), v = document.getElementById('pj-alltasks');
+          return { hoverNone: matchMedia('(hover: none)').matches, withArea, padTop: f ? getComputedStyle(f).paddingTop : 'missing', viewAllRight: v ? getComputedStyle(v).marginRight : 'missing' };
+        }, cons);
+        chk(!hv.hoverNone && hv.withArea.length === 0 && hv.padTop === '0px' && hv.viewAllRight === '0px',
+          `[hover 1180 ${cons ? 'one-screen' : 'tabs'}] #4663: with a mouse or trackpad none of the six has a tap area, and the tasks header and View All are as drawn`, JSON.stringify(hv));
+      } finally {
+        chk(hoverErrors.length === 0, `[hover 1180 ${cons ? 'one-screen' : 'tabs'}] no script errors on the page`, hoverErrors.join(' | '));
+        await hoverPage.close();
+      }
+    }
+    // DARK, phone, touch: the open bar has its own ground against the dark room ground, so its
+    // emoji read over the message it covers, and it still takes its taps. (Lifted to body, the
+    // room's ground here is --k-bg; in its column it is black. The bar's --k-surface differs from
+    // both.)
+    const darkPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'dark', hasTouch: true, isMobile: true });
+    const darkPageErrors = watchErrors(darkPage);
+    try {
+      await darkPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await darkPage.goto(PAGE);
+      await darkPage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); document.body.appendChild(room);
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        document.querySelectorAll('[inert]').forEach((el) => el.removeAttribute('inert'));
+        room.style.cssText = 'position:absolute;left:0;top:200px;width:297px;z-index:50;'; room.hidden = false;
+        const people = { agents: [{ sessionName: 'april', name: 'April' }] };
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'An earlier message, a line or two long so the bar above the next one lies over it.', id: 'd1' }, people)
+          + pjRoomRow({ from: 'april', at: ts, text: 'ok', id: 'd2' }, people);
+      }, now());
+      await darkPage.locator('#pj-room .msg .msg-bd p').last().tap();
+      await darkPage.waitForTimeout(300);
+      const dark = await darkPage.evaluate(() => {
+        const rgba = (c) => { const m = c.match(/rgba?\(([^)]+)\)/); return m ? m[1].split(',').map((x) => parseFloat(x)) : [0, 0, 0, 0]; };
+        const quickBar = document.querySelector('#pj-room .msg.rxn-show .rxn-quick'); const room = document.getElementById('pj-room');
+        if (!quickBar) return { error: 'no open bar' };
+        const barBg = rgba(getComputedStyle(quickBar).backgroundColor); const threadBg = getComputedStyle(room).backgroundColor;
+        const hits = [...quickBar.querySelectorAll('button')].filter((b) => b.getClientRects().length).map((b) => { const r = b.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return t === b || b.contains(t); });
+        return { dark: matchMedia('(prefers-color-scheme: dark)').matches, barBg: getComputedStyle(quickBar).backgroundColor, threadBg, opaque: (barBg[3] === undefined ? 1 : barBg[3]) > 0.9, differs: getComputedStyle(quickBar).backgroundColor !== threadBg, border: getComputedStyle(quickBar).borderTopWidth, hits, want: 6 + (quickBar.querySelector('.rxn-speak') && quickBar.querySelector('.rxn-speak').getClientRects().length ? 1 : 0) };
+      });
+      chk(!dark.error && dark.dark && dark.opaque && dark.differs && parseFloat(dark.border) >= 1 && dark.hits.length === dark.want && dark.hits.every(Boolean),
+        `[dark/phone/touch] the open bar has its own ground and edge on the dark thread and takes its taps`, JSON.stringify(dark));
+    } finally {
+      chk(darkPageErrors.length === 0, '[phone dark] no script errors on the page', darkPageErrors.join(' | '));
+      await darkPage.close();
+    }
+    // DESKTOP, a mouse (hover available), 1280 wide: the touch-only 16px rule must change nothing.
+    // #nt-modal and #am-modal also open from outside the project page, so this is where a leak
+    // would show. The same sweep as the phone arm; every field keeps its desktop size, and the
+    // named ones are pinned to what they are without the rule (13px, the body text).
+    const deskPage = await browser.newPage({ viewport: { width: 1280, height: 800 }, colorScheme: 'light' });
+    const deskPageErrors = watchErrors(deskPage);
+    try {
+      await deskPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await deskPage.goto(PAGE);
+      const desk = await deskPage.evaluate(({ rootSelectors, skipTypes }) => {
+        const roots = rootSelectors.map((selector) => document.querySelector(selector)).filter(Boolean);
+        const skip = new Set(skipTypes);
+        const fields = roots.flatMap((r) => [...r.querySelectorAll('input, select, textarea')]).filter((el) => !(el.tagName === 'INPUT' && skip.has((el.type || '').toLowerCase())));
+        const px = (id) => { const el = document.getElementById(id); return el ? parseFloat(getComputedStyle(el).fontSize) : null; };
+        return { roots: roots.length, hoverNone: matchMedia('(hover: none)').matches, count: fields.length, at16: fields.filter((el) => parseFloat(getComputedStyle(el).fontSize) >= 16).map((el) => el.id || el.className),
+          named: { 'nt-what': px('nt-what'), 'nt-who': px('nt-who'), 'pj-one-add': px('pj-one-add'), 'tk-due': px('tk-due'), 'pj-name': px('pj-name') } };
+      }, { rootSelectors: FIELD_ROOTS, skipTypes: FIELD_SKIP });
+      const named = Object.values(desk.named || {});
+      chk(desk.roots === FIELD_ROOTS.length && desk.hoverNone === false && desk.count >= 20 && desk.at16.length === 0 && named.length === 5 && named.every((size) => size !== null && size < 16),   /* not a value pin: a desktop typography change is not this check's business; the zero-at-16 sweep is the leak test */
+        `[desktop/mouse] the touch-only 16px rule changes no field's size with a mouse`, JSON.stringify(desk));
+    } finally {
+      chk(deskPageErrors.length === 0, '[desktop] no script errors on the page', deskPageErrors.join(' | '));
+      await deskPage.close();
+    }
+    const hoverPage = await browser.newPage({ viewport: { width: 375, height: 800 }, colorScheme: 'light' });
+    const hoverPageErrors = watchErrors(hoverPage);
+    try {
+      await hoverPage.addInitScript(() => {
+        window.setInterval = () => 0;
+        window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+      await hoverPage.goto(PAGE);
+      await hoverPage.evaluate((ts) => {
+        const room = document.getElementById('pj-room'); document.body.appendChild(room);
+        const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;   // hidden, not removed: the app reads it
+        room.style.cssText = 'position:absolute;left:0;top:0;width:297px;max-height:none;z-index:50;'; room.hidden = false;
+        room.innerHTML = pjRoomRow({ from: 'april', at: ts, text: 'hello there', id: 'h1' }, { agents: [{ sessionName: 'april', name: 'April' }] });
+      }, now());
+      // Precondition: the click really reaches the row (a click that landed elsewhere would also toggle nothing).
+      await hoverPage.evaluate(() => { window.__rowClicks = 0; document.querySelector('#pj-room .msg').addEventListener('click', () => { window.__rowClicks += 1; }); });
+      await hoverPage.locator('#pj-room .msg .msg-bd p').first().click();
+      const hoverResult = await hoverPage.evaluate(() => ({ hoverNone: matchMedia('(hover: none)').matches, rowClicks: window.__rowClicks, shown: document.querySelectorAll('#pj-room .msg.rxn-show').length }));
+      chk(!hoverResult.hoverNone && hoverResult.rowClicks === 1 && hoverResult.shown === 0, `[hover] with a mouse a click toggles nothing (hover reveals the bar there)`, JSON.stringify(hoverResult));
+    } finally {
+      chk(hoverPageErrors.length === 0, '[phone hover] no script errors on the page', hoverPageErrors.join(' | '));
+      await hoverPage.close();
+    }
+
+    /* #3361 (WARNING 2 from iter-1 review): the fix's claim is that at GENUINELY WIDE widths the
+       78ch max-width binds first, so the far gutter is slack and the approved wide look is UNCHANGED
+       (only narrow widths get capped). Prove it: at a 1200px row the 78ch bubble plus both gutters
+       fits with room to spare, so the far gutter is far larger than the 48px margin (the margin is
+       not the binding constraint) and the bubble is the same 78ch-capped width it was before this
+       change. If the margin ever became the binding constraint at wide widths (a regression that
+       narrowed the wide look), agentFarGap would collapse toward 48 and this reds. */
+    const widePage = await browser.newPage({ viewport: { width: 1360, height: 900 }, colorScheme: 'light' });
+    try {
+      await widePage.addInitScript(() => {
+        window.setInterval = () => 0;
+        const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+        window.fetch = async () => enc({});
+      });
+      await widePage.goto(PAGE);
+      const wide = await widePage.evaluate((ts) => {
+        const p = { agents: [{ sessionName: 'april', name: 'April' }] };
+        const long = 'this is a deliberately long message so the bubble grows to its 78ch cap at a wide window, where the far gutter should be slack and the wide look unchanged.';
+        const host = document.createElement('div');
+        host.className = 'thread';
+        host.style.cssText = 'position:absolute;left:0;top:0;width:1200px;';
+        host.innerHTML = pjRoomRow({ from: 'april', at: ts, text: long }, p)
+          + pjRoomRow({ operator: true, at: ts, text: long }, p);
+        document.body.appendChild(host);
+        const rows = Array.from(host.querySelectorAll('.msg'));
+        const agentRow = rows.find((r) => !r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const opRow = rows.find((r) => r.classList.contains('you') && r.querySelector('.msg-bd'));
+        const rr = (el) => el.getBoundingClientRect();
+        const aRow = rr(agentRow), aBd = rr(agentRow.querySelector('.msg-bd'));
+        const oRow = rr(opRow), oBd = rr(opRow.querySelector('.msg-bd'));
+        const out = {
+          agentFarGap: Math.round(aRow.right - aBd.right),
+          opFarGap: Math.round(oBd.left - oRow.left),
+          agentBdW: Math.round(aBd.width),
+          rowW: Math.round(aRow.width),
+        };
+        host.remove();
+        return out;
+      }, now());
+      // The margin (48px) is NOT the binding constraint at 1200px: 78ch binds, so the far gutter is
+      // far larger than 48. >=100 cleanly separates "78ch binds (slack margin)" from "margin binds".
+      chk(wide.agentFarGap >= 100, `[wide] at 1200px the agent bubble is capped by 78ch, not the 48px gutter (margin slack -> wide look unchanged)`, `farGap=${wide.agentFarGap}px`);
+      chk(wide.opFarGap >= 100, `[wide] at 1200px the operator bubble is capped by 78ch, not the 48px gutter`, `farGap=${wide.opFarGap}px`);
+      // Control: the bubble is the 78ch cap, NOT stretched to fill the ~1104px available (which is what
+      // it would do if only the margin bound). A capped-by-78ch bubble stays well under the row width.
+      chk(wide.agentBdW >= 300 && wide.agentBdW < wide.rowW - 300, `[wide] the wide bubble is the 78ch cap, not stretched to the far gutter`, `bubbleW=${wide.agentBdW}px at row ${wide.rowW}px`);
+    } finally {
+      await widePage.close();
+    }
+  } finally {
+    await browser.close();
+  }
+  }
+  if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
+  console.log('\nall passed');
+})().catch((e) => { console.error(e); process.exit(2); });
