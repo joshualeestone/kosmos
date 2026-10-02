@@ -16,7 +16,9 @@ switch use this path.
    dialog (the switch has happened; the wake goes on without it). If the helper never reports, Close returns
    RESTART_READY_WINDOW_MS + 30 s after the waking render: a bound past the readiness window, not a guaranteed upper
    bound on the helper (its fetches have no timeout; a late finish still turns Close into gold Done). The timer is
-   keyed to the opening (`back.__openGen`) so it cannot act on a later opening.
+   keyed to the opening (`back.__openGen`) so it cannot act on a later opening; so are the Escape and backdrop
+   exits. While waking, the dialog box itself takes focus (nothing else can). When the fallback fires, the line stops
+   saying "Waking them…" and says "Send them a message to wake them."
 
 ## Closing early never breaks the switch (card item 2)
 Read from source, not reproduced: `autoHelloAfterRestart` runs independently of the dialog; closing only hides it,

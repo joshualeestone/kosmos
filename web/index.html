@@ -46214,6 +46214,7 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   /* #4963: which opening is current, kept on the dialog (one element, reused), so a timer armed by one
      opening never acts on the next. */
   const openGen = back.__openGen = (back.__openGen || 0) + 1;
+  back.onclick = null;   // a backdrop tap closes only a waking dialog, and only the one this opening armed
   const t = document.getElementById('chg-title');
   const sm = document.getElementById('chg-small');
   const keep = document.getElementById('chg-keep');
@@ -46246,7 +46247,7 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
        interstitial mounts the branded K loader on a canvas whose rAF loop self-terminates on
        `!cv.isConnected` -- but `back.hidden = true` only display:none's the modal, leaving the
        canvas CONNECTED and the loop running. Today no close path is reachable while the loader
-       is up (keep is hidden and Escape is gated on goBtn.disabled during the busy state), so
+       is up (#4963's Escape and backdrop exits open only once the waking line has replaced it) (keep is hidden and Escape is gated on goBtn.disabled during the busy state), so
        this cannot leak now; clearing here makes that robust rather than dependent on it, so a
        future exit-while-busy (the backdrop-click-to-close the #1313/#1316 comments contemplate)
        cannot leave an rAF loop drawing to a hidden canvas. Harmless on every other path: the
@@ -46255,7 +46256,9 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
     document.removeEventListener('keydown', onEsc);
   };
   const onEsc = (e) => {
-    if (e.key !== 'Escape' || back.hidden || (goBtn.disabled && !wakingNow)) return;
+    /* #4963: and only for this opening. An earlier opening's handler that never ran `close` must not act on
+       a later one (its wakingNow would otherwise let Escape close a dialog whose request is in flight). */
+    if (e.key !== 'Escape' || back.hidden || openGen !== back.__openGen || (goBtn.disabled && !wakingNow)) return;
     close();
   };
   document.addEventListener('keydown', onEsc);
@@ -46319,10 +46322,16 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
         if (waking) {
           keep.hidden = true;
           wakingNow = true;
-          back.onclick = (e) => { if (e && e.target === back) close(); };
+          back.onclick = (e) => { if (e && e.target === back && openGen === back.__openGen) close(); };
+          /* Nothing in the dialog can take focus now (both buttons are hidden), so the dialog itself takes
+             it, rather than leaving a keyboard or screen-reader user on the page behind a modal. */
+          const box = typeof back.querySelector === 'function' ? back.querySelector('.rm-box') : null;
+          if (box) { box.setAttribute('tabindex', '-1'); try { box.focus(); } catch { /* the line is announced */ } }
           const window_ = (typeof RESTART_READY_WINDOW_MS === 'number' ? RESTART_READY_WINDOW_MS : 30000) + 30000;
           setTimeout(() => {
             if (openGen !== back.__openGen || back.hidden || !keep.hidden) return;
+            /* The wake did not report, so the line stops claiming it is still waking. */
+            if (/Waking them…$/.test(msg.textContent)) msg.textContent = msg.textContent.replace(/Waking them…$/, 'Send them a message to wake them.');
             keep.textContent = 'Close';
             keep.hidden = false;
             try { keep.focus(); } catch { /* the sentence stands on its own */ }

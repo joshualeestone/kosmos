@@ -130,6 +130,18 @@ test('#4963: if the wake never reports, Close comes back, so the dialog is never
   t.mock.timers.tick(2000);
   assert.ok(wayOut(n), 'the dialog stayed with nothing to press after the longest wake had passed');
   assert.equal(n['chg-keep'].textContent, 'Close', 'an unfinished wake must not be offered as Done');
+  assert.equal(n['chg-msg'].textContent, 'Restarted on Gemini. Send them a message to wake them.',
+    'the line still says it is waking beside a Close');
+});
+
+test('#4963: an earlier opening\'s Escape handler cannot close a later dialog whose request is in flight', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const n = await press(async (say) => { say('Restarted on Gemini. Waking them…', true, true); });
+  const first = n.__listeners.filter((l) => l.type === 'keydown')[0];
+  n['chg-modal'].__openGen = (n['chg-modal'].__openGen || 0) + 1;   // a later opening of the same element
+  n['chg-go'].disabled = true;                                        // its request is in flight
+  first.fn({ key: 'Escape' });
+  assert.equal(n['chg-modal'].hidden, false, 'a stale opening\'s Escape closed the later dialog');
 });
 
 test('CONTROL: the harness can observe the trap, so the assertions above are live', async () => {
