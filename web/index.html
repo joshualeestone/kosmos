@@ -27775,6 +27775,7 @@ function computersRender(data) {
 const OA_COMPUTERS_EVERY_MS = 60000;   // the computers route probes each computer, so not every round
 const OA_STATUS_EVERY_MS = 15000;
 const OA_READ_LIMIT_MS = 10000;
+const OA_MAX_AGENTS = 500;              // cards kept per other computer
 const OA_COMPUTERS_LIMIT_MS = 30000;   // above the route's own worst case (a 20 s Mac request plus a 4 s probe)
 /* Older than a round plus a read's cut plus slack: a list this old was not refreshed by the last round, so it is not
    shown as current. Sibling reads never wait on the computers route (oaRound), so a slow route cannot age a list. */
@@ -27829,6 +27830,7 @@ function oaRemember(seen, address, state, agents, now) {
 function oaAgentsOf(body) {
   return body.agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true
     && typeof a.sessionName === 'string' && a.sessionName)
+    .slice(0, OA_MAX_AGENTS)   // an untrusted answer: a runaway list must not build thousands of cards every 15 s
     .map((a) => ({
       sessionName: a.sessionName,
       name: typeof a.name === 'string' ? a.name : '',
@@ -27857,7 +27859,7 @@ async function oaReadOne(c) {
   } finally { if (cut) clearTimeout(cut); }
   /* Not kept if a refresh took this computer off the account's list while the read ran: one added back later must
      start as new, not as what this read saw. */
-  if (typeof OA_COMPUTERS !== 'undefined' && !(OA_COMPUTERS && oaOthers(OA_COMPUTERS).some((o) => o.address === c.address))) return null;
+  if (!(OA_COMPUTERS && oaOthers(OA_COMPUTERS).some((o) => o.address === c.address))) return null;
   return oaRemember(OA_SEEN, c.address, state, agents, Date.now());
 }
 function oaNote(c, seen, now) {
@@ -28043,7 +28045,8 @@ async function oaRound(again) {
     /* oaGridShown is checked again because the first round can have waited on the refresh meanwhile. */
     if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly() && oaGridShown(grid)) {
       oaPaint();   // groups appear at once, "Reading its agents..." until each answers
-      await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).then(() => oaPaint(), () => null)));   // each group as its own read lands
+      // Each group as its own read lands; a paint that throws must not end the round early (the final paint retries).
+      await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).then(() => { try { oaPaint(); } catch { /* next paint */ } }, () => null)));
     }
     oaPaint();
   } finally {
@@ -33915,6 +33918,7 @@ document.addEventListener('change', (e) => {
   const ordered = sortAgents(shown, AGENT_SORT, PROJECTS);
   document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
   paintAgentList();
+  if (typeof oaPaint === 'function') oaPaint();   // kosmos#4812: the other computers' groups follow the sort at once
 });
 /* #4345: true while the consolidated display column shows the Agents view (openConsolidatedAgents).
    Cleared by any other takeover, any project navigation (pjView) and any showTab. */
