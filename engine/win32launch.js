@@ -292,23 +292,39 @@ function binFor(s) {
   return bare;
 }
 
-/* The spawn seam. Tests replace it; nothing else does. Mirrors the
-   setPaneSource/setRunner shape the rest of the engine uses. */
-let spawnFn = null;
-/** #5039: the Claude settings pre-accept, best-effort. preacceptBypass REPORTS a refusal (a
-    symlinked or unparseable settings file) by returning ok:false rather than throwing, so say it
-    on stderr (the board log): a write that fails every launch otherwise leaves an agent on the
-    modal with no trace. No secret is in `because`. */
-function preacceptSettings(s) {
+/**
+ * The Claude-only first-run writes every launch makes, best-effort and NON-gating (the trust
+ * write before them is the gate). One place for the fence and both keys (#5039).
+ *
+ * Claude-only, POSITIVELY (#5039: not "not codex", now that gemini/grok/antigravity/muse
+ * runners exist; an omitted runner means Claude): a codex agent's `configDir` is a CODEX_HOME,
+ * and these are CLAUDE keys - writing them into another runner's home is Claude state in an
+ * OpenAI (or other) agent's home.
+ *
+ *  - #3383 onboarding: pre-accept the first-run theme picker, which otherwise parks a fresh
+ *    agent on Windows as on macOS.
+ *  - #5039 settings: the Bypass consent (and, once #5042 lands, switchModelsOnFlag) at EVERY
+ *    launch, as the Mac's ensure-launch-trust does, so an agent made before a settings default
+ *    gains it at its next start, not only on re-create or an account move. An explicit false
+ *    Bypass consent is overwritten, as at create and on the Mac. preacceptBypass REPORTS a
+ *    refusal by returning ok:false rather than throwing, so it is said on stderr (the board
+ *    log): a write that fails every launch would otherwise leave an agent on the modal with no
+ *    trace. No secret is in `because`.
+ */
+function preacceptClaudeFirstRun(s) {
+  if (String(s.runner || 'claude') !== 'claude') return;
+  try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* the picker is the agent's own first-run, not a failed launch */ }
   let r;
   try { r = trust.preacceptBypass(s.configDir || null, !s.configDir); }
   catch (e) { r = { ok: false, because: String((e && e.code) || (e && e.message) || e) }; }
   if (r && r.ok === false) {
     process.stderr.write('[win32launch] ' + String(s.name || 'agent') + ': could not pre-accept its Claude settings (' + r.because + '); it starts anyway\n');
   }
-  return r;
 }
 
+/* The spawn seam. Tests replace it; nothing else does. Mirrors the
+   setPaneSource/setRunner shape the rest of the engine uses. */
+let spawnFn = null;
 function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : null; }
 function spawner() { return spawnFn || spawn; }
 
@@ -352,19 +368,7 @@ function launch(spec) {
      leaves the picker the agent would have met anyway, not a reason to refuse a launch whose
      folder is already vouched for. Same .claude.json trustFolder just wrote, so it is keyed
      the same way. */
-  /* Claude-only (#5039: positively, not "not codex", now that gemini/grok/antigravity runners
-     exist), matching the Mac create path's fence: a codex agent's `configDir` is a CODEX_HOME,
-     and these are CLAUDE first-run and settings keys - writing them into another runner's home
-     would be Claude state in an OpenAI (or other) agent's home. */
-  if (String(s.runner || 'claude') === 'claude') {
-    try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* the picker is the agent's own first-run, not a failed launch */ }
-    /* #5039: and the Claude settings pre-accept at EVERY launch, as the Mac's ensure-launch-trust
-       does, so a Windows agent made before a settings default gains it at its next start, not
-       only on re-create or an account move. Today that re-asserts the Bypass consent (an explicit
-       false is overwritten, as at create and on the Mac); switchModelsOnFlag rides this same
-       write once #5042 lands. Best-effort and NON-gating: a failed write never stops a launch. */
-    preacceptSettings(s);
-  }
+  preacceptClaudeFirstRun(s);   // #3383 + #5039: Claude-only, see the helper
 
   /* 2. PREPARE: mint the session id, write the ownership record, mint the token.
         On failure NOTHING was recorded, so there is nothing to abandon. */
@@ -509,10 +513,7 @@ function launchStreaming(spec) {
   if (!trusted.ok) return { ok: false, because: 'we did not start it, because we could not vouch for its folder first: ' + trusted.because };
   /* #3383: pre-accept first-run onboarding on resume too, best-effort, as in launch() -- the
      picker can reappear for an agent whose config was reset while it was down. */
-  if (String(s.runner || 'claude') === 'claude') {
-    try { trust.preacceptOnboarding(s.configDir || null, !s.configDir); } catch { /* #3383: best-effort, as in launch() */ }
-    preacceptSettings(s);   // #5039: best-effort, as in launch()
-  }
+  preacceptClaudeFirstRun(s);   // #3383 + #5039: best-effort, as in launch()
 
   let prepared;
   if (s.resumeSessionId) {

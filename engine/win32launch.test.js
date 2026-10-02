@@ -202,7 +202,8 @@ test('#5039 a codex launch writes NO Claude settings into its CODEX_HOME', () =>
   recordingSpawn();
   const codexHome = path.join(SANDBOX, 'codex-home-5039');
   fs.mkdirSync(codexHome, { recursive: true });
-  launcher.launch({ name: 'bypass-codex', runner: 'codex', cwd: workdir('bypass-codex'), configDir: codexHome, platform: 'win32' });
+  const r = launcher.launch({ name: 'bypass-codex', runner: 'codex', cwd: workdir('bypass-codex'), configDir: codexHome, platform: 'win32' });
+  assert.equal(r.ok, true, r.because || '');
   assert.equal(fs.existsSync(path.join(codexHome, 'settings.json')), false, 'Claude settings never land in an OpenAI agent home');
 });
 
@@ -210,7 +211,8 @@ test('#5039 a codex launch on the default account leaves the default Claude sett
   recordingSpawn();
   const target = process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS;
   try { fs.rmSync(target, { force: true }); } catch { /* absent */ }
-  launcher.launch({ name: 'bypass-codex-default', runner: 'codex', cwd: workdir('bypass-codex-default'), platform: 'win32' });
+  const r = launcher.launch({ name: 'bypass-codex-default', runner: 'codex', cwd: workdir('bypass-codex-default'), platform: 'win32' });
+  assert.equal(r.ok, true, r.because || '');
   assert.equal(fs.existsSync(target), false, 'a codex agent never writes the shared Claude settings');
 });
 
@@ -218,7 +220,8 @@ test('#5039 a non-Claude runner (gemini) gets NO Claude settings or onboarding i
   recordingSpawn();
   const home = path.join(SANDBOX, 'gemini-home-5039');
   fs.mkdirSync(home, { recursive: true });
-  launcher.launch({ name: 'bypass-gemini', runner: 'gemini', cwd: workdir('bypass-gemini'), configDir: home, platform: 'win32' });
+  const r = launcher.launch({ name: 'bypass-gemini', runner: 'gemini', cwd: workdir('bypass-gemini'), configDir: home, platform: 'win32' });
+  assert.equal(r.ok, true, r.because || '');
   assert.equal(fs.existsSync(path.join(home, 'settings.json')), false, 'no Claude settings in another runner\'s home');
   const cfg = readJson(path.join(home, '.claude.json')) || {};
   assert.notEqual(cfg[trust.ONBOARDING_KEY], true, 'and no Claude onboarding state either');
@@ -237,9 +240,20 @@ test('#5039 an unwritable settings file does NOT stop the launch (best-effort, n
   const calls = recordingSpawn();
   const configDir = path.join(SANDBOX, 'acct-broken');
   fs.mkdirSync(path.join(configDir, 'settings.json'), { recursive: true });   // a DIRECTORY where the file belongs
-  const r = launcher.launch({ name: 'bypass-broken', runner: 'claude', cwd: workdir('bypass-broken'), configDir, platform: 'win32' });
+  const said = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => { said.push(String(chunk)); return true; };
+  let r;
+  try {
+    r = launcher.launch({ name: 'bypass-broken', runner: 'claude', cwd: workdir('bypass-broken'), configDir, platform: 'win32' });
+  } finally { process.stderr.write = realWrite; }
   assert.equal(r.ok, true, r.because || '');
   assert.equal(calls.length, 1, 'the agent still started');
+  /* The refusal is RETURNED, not thrown, so without this line a write that fails every launch
+     would leave the agent on the modal with no trace in the board log. */
+  const line = said.find((l) => l.startsWith('[win32launch] bypass-broken:'));
+  assert.ok(line, 'the failed settings write is said in the board log');
+  assert.match(line, /could not pre-accept its Claude settings \(.+\); it starts anyway/);
 });
 
 test('#5039 a streaming RESUME writes the Bypass settings too, so a restarted agent gains them', () => {
