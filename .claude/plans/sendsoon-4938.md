@@ -40,6 +40,6 @@ the valve; the fix then is a minimum spacing between triggered passes, not remov
 ## Checks
 - engine/communitysend.test.js #4938: a post published during a sweep in flight is sent on the follow-up;
   two callers share one pass; nothing sent twice. CONTROL: a plain join fails it (["First"] only).
-- server.community-sendsoon-4938.test.js: published post and comment call sendSoon, a held post does not.
-  CONTROL: with server.js reverted both fail. Release route not exercised (it needs the screen headers);
-  covered by reading.
+- server.community-sendsoon-4938.test.js: every route that sends calls sendSoon; held/OFF items do not.
+  CONTROL: with server.js reverted all fail. Covers post (published/held/OFF), the first post before any sweep
+  (no state file), service comment (ON/OFF) and release (with the screen's sec-fetch-site header).
