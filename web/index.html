@@ -7025,9 +7025,10 @@ html.pv-open { overflow: hidden; scrollbar-gutter: auto; }
 .pv-file b { font: 600 1.0625rem var(--font-ui); }
 .pv-file span { color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
 .pv-bar { display: flex; align-items: center; gap: 14px; padding: 14px 18px 18px; min-width: 0; }
-.pv-btn { flex: none; padding: 9px 14px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .14); color: #fff;
+.pv-btn { flex: none; min-height: 40px; padding: 9px 14px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .14); color: #fff;
   font: 600 .875rem var(--font-ui); text-decoration: none; cursor: pointer; }
 .pv-btn:hover { background: rgba(255, 255, 255, .22); }
+.pv-x:focus-visible, .pv-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .pv-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, .72);
   font: var(--text-caption) var(--font-ui); }
 .pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
@@ -38132,7 +38133,7 @@ function wnWire(back) {
 function wnCovered() {
   // Only windows drawn OVER this one (round 3): the other .rm-back dialogs sit under it at the same layer.
   // #4343: and the restart screen. #4823: and the phone menu.
-  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden])');
+  return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, #pnav:not([hidden]), #pv-preview');
 }
 /* In the capture phase, and stopped once handled (round 12): a dialog open UNDER the window keeps its own
    document-level Escape and Tab handlers, and one Escape must not close both. */
@@ -58664,11 +58665,11 @@ function pjPreviewCard(preview) {
    the file's name goes as the text, and the bubble then said "lease notes.txt"
    above a card that also says it. When the words are only the attachment's
    name, the card carries them and the text line is left out. */
+/* #4930: attachment id -> what its card showed, filled as cards are drawn (pvOpen reads it). */
+const PV_ATTS = new Map();
 /* Every file on a message, in order: `attachments` when the row carries it
    (#426), else the single `attachment` older rows have. One reading for the
    four renderers, so none of them can draw a different count. */
-/* #4930: attachment id -> what its card showed, filled as cards are drawn (pvOpen reads it). */
-const PV_ATTS = new Map();
 function pjFiles(m) {
   const many = m && Array.isArray(m.attachments) ? m.attachments.filter((a) => a && typeof a === 'object') : [];
   if (many.length) return many;
@@ -58731,6 +58732,7 @@ function pjAttachmentCard(att) {
    (Show in File Explorer on Windows) selects the file on this computer; over Kosmos+ the file is not on the
    computer in front of you, so it is Download instead. Read-only: nothing here changes or moves the file. */
 let PV_OPENER = null;
+let PV_OPENER_ID = null;   // the card's attachment, so focus can find it again if a poll redrew the row
 const PV_HTML = '<div class="pv-back" id="pv-preview">'
   + '<div class="pv-box" role="dialog" aria-modal="true" aria-labelledby="pv-name" tabindex="-1">'
   + '<button type="button" class="pv-x" id="pv-x" aria-label="Close">&times;</button>'
@@ -58781,8 +58783,12 @@ function pvOpen(id, from) {
     act.replaceWith(b);
   }
   back.querySelector('#pv-x').addEventListener('click', pvClose);
-  back.addEventListener('click', (e) => { if (e.target === back || e.target === stage) pvClose(); });
+  // A click anywhere on the dark closes it: anything but the file itself, the X and the action.
+  back.addEventListener('click', (e) => {
+    if (!e.target.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do')) pvClose();
+  });
   PV_OPENER = from || document.activeElement;
+  PV_OPENER_ID = id;
   document.documentElement.classList.add('pv-open');
   document.body.appendChild(back);
   back.querySelector('.pv-box').focus();
@@ -58809,7 +58815,7 @@ async function pvReveal(id) {
   if (msg) msg.textContent = '';
   try {
     const res = await fetch('/api/attachment/' + id + '/reveal', { method: 'POST' });
-    if (!res.ok) { const out = await res.json().catch(() => ({})); if (msg) msg.textContent = out.error || 'That did not open.'; }
+    if (!res.ok) { const out = await res.json().catch(() => ({})); if (msg) msg.textContent = out.because || out.error || 'That did not open.'; }
   } catch { if (msg) msg.textContent = 'Kosmos could not be reached.'; }
 }
 function pvClose() {
@@ -58817,21 +58823,25 @@ function pvClose() {
   if (!back) return;
   back.remove();
   document.documentElement.classList.remove('pv-open');
-  const to = PV_OPENER;
+  let to = PV_OPENER;
+  if (to && !document.contains(to) && PV_OPENER_ID) to = document.querySelector('a.att[data-att="' + PV_OPENER_ID + '"]');
   PV_OPENER = null;
+  PV_OPENER_ID = null;
   if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
 }
 /* A plain click on a file card opens the preview; a modifier-click (or a middle click) keeps the download. */
 document.addEventListener('click', (e) => {
   const card = e.target && e.target.closest ? e.target.closest('a.att[data-att]') : null;
-  if (!card || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  if (!card || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   if (pvOpen(card.getAttribute('data-att'), card)) e.preventDefault();
 });
 /* On the document, in the capture phase, like the update window: Escape closes it before a dialog under it, and
    Tab stays between the X and the action while it is up. */
+/* A window drawn over the preview (first run, the update overlay, the restart screen) owns the keys. */
+function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back'); }
 document.addEventListener('keydown', (e) => {
   const back = document.getElementById('pv-preview');
-  if (!back) return;
+  if (!back || pvCovered()) return;
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pvClose(); return; }
   if (e.key !== 'Tab') return;
   e.stopPropagation();

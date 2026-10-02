@@ -96,7 +96,7 @@ const ESCAPES_VIA = {
   'plus-lost-modal': /plus-lost-modal'\)\.hidden\) plusLostClose/,
   /* #4930: the full-page file preview. Its Escape is a capture-phase document keydown that finds it by id and closes it
      (its backdrop id sits in PV_HTML so this sweep can name it). */
-  'pv-preview':      /getElementById\('pv-preview'\);\n\s*if \(!back\) return;\n\s*if \(e\.key === 'Escape'\)/,
+  'pv-preview':      /getElementById\('pv-preview'\);\n\s*if \(!back \|\| pvCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
 };
 
 test('every modal has a named way out with Escape, and the table covers them all', () => {

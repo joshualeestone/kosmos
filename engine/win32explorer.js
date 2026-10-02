@@ -220,8 +220,8 @@ function openFile(file, opts) {
 
 /** #4930: show one file selected in its folder in File Explorer (never opens it). */
 function revealFile(file) {
-  const refusal = targetRefusal(file, 'file');
-  if (refusal) return { ok: false, because: refusal };
+  // The refusal's own words speak of opening; this never opens, so it says what it could not do.
+  if (targetRefusal(file, 'file')) return { ok: false, because: 'Kosmos cannot show that file in File Explorer' };
   return launch(['/select,' + quotedPath(path.win32.normalize(file))]);
 }
 

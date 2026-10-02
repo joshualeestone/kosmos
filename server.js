@@ -15036,7 +15036,8 @@ const server = http.createServer(async (req, res) => {
     const rec = attachments.read(attachReveal[1]);
     if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
     const r = projects.revealFile(rec.file);
-    sendJson(res, r && r.ok ? 200 : 500, r && r.ok ? { ok: true } : { error: (r && r.because) || 'Finder did not open' });
+    // The siblings' shape (the agent Files and project reveal routes): 409 with words a person reads.
+    sendJson(res, r && r.ok ? 200 : 409, r && r.ok ? { ok: true } : { ok: false, because: (r && r.because) || 'Finder did not open' });
     return;
   }
   const attachGet = pathname.match(/^\/api\/attachment\/([0-9a-f]{24})(\/preview)?$/);

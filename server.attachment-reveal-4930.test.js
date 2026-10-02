@@ -60,6 +60,17 @@ test('#4930: the attachment\'s own stored file is selected (open -R), found by i
   assert.ok(calls[0][1][1].startsWith(SANDBOX + path.sep));
 });
 
+test('#4930: a reveal that fails answers 409 with words a person reads, as the sibling reveal routes do', async () => {
+  const row = attachments.save('agent', 'ava', { name: 'b.png', type: 'image/png', bytes: Buffer.from([1, 2, 3]) });
+  const id = row.id || (String(row.url || '').match(/[0-9a-f]{24}/) || [])[0];
+  projects.setRevealRunner(() => { throw new Error('exit 1'); });
+  try {
+    const r = await reveal(id);
+    assert.equal(r.status, 409);
+    assert.deepEqual(await r.json(), { ok: false, because: 'Finder did not open' });
+  } finally { projects.setRevealRunner((bin, args) => { calls.push([bin, args]); return { ok: true }; }); }
+});
+
 test('#4930: an unknown or malformed id reveals nothing', async () => {
   calls.length = 0;
   assert.equal((await reveal('f'.repeat(24))).status, 404);
