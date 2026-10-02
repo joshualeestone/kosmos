@@ -131,3 +131,12 @@ Left: a retry that fires during a pressed look is dropped with a log line (the d
 2. CONVENTION: the order assertion's message was backwards, and the arm's logic was pinned only as text.
    Fixed: message reworded; the logic now has executable selftest rows.
 NIT left: a later look can clear a standing "Quit Kosmos and open it again" note (at worst a day's delay).
+
+### Iteration 7 (opus, blind): 0 blockers, 0 warnings. CONVERGED.
+Verified: restartWanted's rows each fail under the mutation that matters (`!=` fails the newer-running row,
+`!= false` fails the nil and -dev rows); the restart loop is closed; arm order; threading.
+Left, with reasons: (NIT) after two back-to-back installs by two runs of the app, the bar can name the
+older installed version (Restart still opens the newer copy; label only, rare). (NIT) wake and an overdue
+daily timer can both look after a long sleep (one extra CLI look; overlapping looks are dropped).
+(CONVENTION, optional) restartWanted's body is pinned as text beside its executable rows; kept, since the
+text pin is what ties the wiring test to the arm.
