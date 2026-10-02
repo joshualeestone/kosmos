@@ -27,6 +27,7 @@ function constLine(name) {
 }
 const SRC = [
   constLine('OA_READ_LIMIT_MS'),
+  constLine('OA_STALE_MS'),
   'const OA_SEEN = new Map();\n',
   slice('computerAddressOk'),
   slice('agoWords'),
@@ -37,11 +38,12 @@ const SRC = [
   slice('oaAgentsOf'),
   slice('oaAgentHref'),
   slice('oaReadOne'),
+  slice('oaStale'),
   slice('oaNote'),
   slice('oaCard'),
   slice('oaGroup'),
   slice('oaGridShown'),
-  slice('oaPaintKey'),
+  slice('oaGroupKey'),
 ].join('\n');
 
 /* One sandbox per test: the page's functions, a fake document, a fake fetch, and a sortAgents stand-in that
@@ -54,7 +56,7 @@ function load(fetchImpl) {
     const AGENT_SORT = 'name';
     function sortAgents(list, mode, projects) { calls.sort.push([mode, projects]); return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))); }
     ${SRC}
-    return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaPaintKey, OA_SEEN };
+    return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaGroupKey, oaStale, OA_SEEN };
   `)(t.document, fetchImpl || (async () => { throw new Error('no fetch in this test'); }), calls);
   return { api, calls, d: t };
 }
@@ -209,14 +211,33 @@ test('the section reads and shows only while the grid is on screen, a hidden hol
   assert.equal(api.oaGridShown(null), false);
 });
 
-test('paint key: unchanged rounds give the same key, so focus is not taken off a card', () => {
+test('group key: unchanged rounds give the same key, so focus is not taken off a card', () => {
   const { api } = load();
-  const others = api.oaOthers(LIST);
-  const seen = new Map([['agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'A', state: 'idle' }], at: 5 }]]);
-  const k1 = api.oaPaintKey(others, seen, 10000, 'name');
-  assert.equal(api.oaPaintKey(others, new Map(seen), 25000, 'name'), k1, 'a second round with the same answers repaints nothing');
-  seen.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'A', state: 'working' }], at: 25 });
-  assert.notEqual(api.oaPaintKey(others, seen, 25000, 'name'), k1, 'a state change repaints');
-  assert.notEqual(api.oaPaintKey(others, new Map(), 25000, 'name'), k1, 'a computer back to reading repaints');
-  assert.notEqual(api.oaPaintKey(others, seen, 25000, 'role'), api.oaPaintKey(others, seen, 25000, 'name'), 'a sort change repaints');
+  const c = LIST.computers[1];
+  const A = { sessionName: 'a', name: 'A', state: 'idle' }, B = { sessionName: 'b', name: 'B', state: 'idle' };
+  const k1 = api.oaGroupKey(c, { state: 'ok', agents: [A, B], at: 10000 }, 15000, 'name');
+  assert.equal(api.oaGroupKey(c, { state: 'ok', agents: [A, B], at: 25000 }, 30000, 'name'), k1, 'a second round with the same answer');
+  assert.equal(api.oaGroupKey(c, { state: 'ok', agents: [B, A], at: 25000 }, 30000, 'name'), k1, 'the other computer\'s own order is not what is shown');
+  assert.notEqual(api.oaGroupKey(c, { state: 'ok', agents: [A, { ...B, state: 'working' }], at: 25000 }, 30000, 'name'), k1, 'a state change');
+  assert.notEqual(api.oaGroupKey(c, undefined, 30000, 'name'), k1, 'back to reading');
+  assert.notEqual(api.oaGroupKey(c, { state: 'ok', agents: [A, B], at: 25000 }, 30000, 'role'), k1, 'a sort change');
+  // Not connected with a kept list: the note's time words change every round, the key must not.
+  const out = (now) => api.oaGroupKey(c, { state: 'out', agents: [A], at: 1000 }, now, 'name');
+  assert.equal(out(50000), out(65000), 'time words are written in place, not by a rebuild');
+  assert.notEqual(api.oaNote(c, { state: 'out', agents: [A], at: 1000 }, 50000), api.oaNote(c, { state: 'out', agents: [A], at: 1000 }, 200000), 'control: the words do change');
+});
+
+test('stale: a list read longer ago than two rounds shows greyed, never as current', () => {
+  const { api } = load();
+  const c = LIST.computers[1];
+  const two = [{ sessionName: 'z', name: 'Zed', state: 'working' }, { sessionName: 'a', name: 'Ann', state: 'idle' }];
+  const fresh = api.oaGroup(c, { state: 'ok', agents: two, at: 100000 }, 110000);
+  assert.ok(fresh.querySelectorAll('.oa-card').every((x) => x.tagName === 'A'), 'control: a fresh list is live links');
+  const old = api.oaGroup(c, { state: 'ok', agents: two, at: 100000 }, 100000 + 30 * 60000);
+  assert.ok(old.querySelectorAll('.oa-card').every((x) => x.className === 'oa-card oa-off'), 'a 30-minute-old list is greyed');
+  assert.match(old.textContent, /Reading its agents\.\.\. Showing what this page last read\./);
+  assert.equal(api.oaStale({ state: 'ok', at: 0 }, 30000), false, 'exactly two rounds is still current');
+  assert.equal(api.oaStale({ state: 'ok', at: 0 }, 30001), true);
+  assert.notEqual(api.oaGroupKey(c, { state: 'ok', agents: two, at: 100000 }, 110000, 'name'),
+    api.oaGroupKey(c, { state: 'ok', agents: two, at: 100000 }, 100000 + 30 * 60000, 'name'), 'going stale repaints');
 });

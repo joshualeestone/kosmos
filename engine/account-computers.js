@@ -71,8 +71,6 @@ function parseComputers(answer, domain) {
       address: r.address,
       this: r.this === true,
       updating: typeof r.updating_until === 'number',
-      // kosmos#4812: when the coordinator last heard from it (seconds), for "Last seen" on an unreachable computer.
-      lastSeen: Number.isFinite(r.last_seen) ? r.last_seen : null,
     });
   }
   return out;
