@@ -338,3 +338,11 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   unrelated root yield). Perturbed each of the two sites separately: both killed.
 - NIT (kept, stated in r18 Sonnet entry): the moved-aside window in the stale-claim cleanup; the intruder heals it.
 - Dry harness on the final wrapper: 73/73. Lib test: 96/96.
+
+## Round 19 (Sonnet, blind, end to end with concurrent wrapper copies): 0 blockers, 0 warnings, 1 nit. CLEAN for Sonnet.
+- Ran 2 heavy + 3 light concurrently: three side turns beside H1 one at a time, H2 only after all ended, all exit 0,
+  marker dir empty, nothing left running. Another claim cookie mid side turn: yield in one poll, exit 75, all three
+  descendants killed (one ignoring TERM, one setsid). An older-wrapper waiter appearing: yield, exit 75, claims released.
+- NIT (wording, no change): the intruder does not count a suite (run-tests.sh) as an intruder; by design (a suite beside
+  one side turn is the pairing #4911 allows). My review brief said "a real test/browser run", which was loose.
+- Opus round 19 still running at this entry.
