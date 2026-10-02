@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomfail-4926
-diff_hash: f64db1cfc5a326a904b875e9a8d71e6ed1a8e4a78d46e51daceee7d5f6fc26f1
-validation: passed (full tools/run-tests.sh on Mortals at 82b1ff918, 02:56 CDT, remote hash equal to the local one, recorded locally by mortals-validate)
+diff_hash: 1462381a462fbd21a89075f5aba0a44f610a3cbfcbd82c75db28af95809f9b77
+validation: passed (full tools/run-tests.sh on Mortals at f8eeef4dd, 09:15 CDT, remote hash 1462381a462f equal to the local one, recorded locally by mortals-validate); PR #5001 CI also green on f8eeef4dd (node, shell 1/2, shell 2/2, windows, test)
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
-timestamp: 2026-10-02T07:56:34Z
-iterations: 8
+timestamp: 2026-10-02T14:15:59Z
+iterations: 9
 converged: true
 ---
 
@@ -55,3 +55,9 @@ converged: true
 - [WARNING] x2 test gaps --> FIXED
 
 #### Iteration 8 (Sonnet): 0 BLOCKER, 0 WARNING, 3 NIT --> CONVERGED; two nits fixed
+
+#### Iteration 9 (Sonnet, after merging main by hand at 04:05): 0 BLOCKER, 0 WARNING, 2 NIT --> CONVERGED
+- main's #4993 (#4888) and #4967 changed engine/messages.js and the merge conflicted; both sides kept, one comment on
+  id reuse corrected; 65 related test files 1812/1812 on the merged tree. Recorded in the plan, "Merge of main".
+- NITs kept: a long comment line; an unrecorded post's held id can collide with a new id after a restart (already
+  named in the comment).
