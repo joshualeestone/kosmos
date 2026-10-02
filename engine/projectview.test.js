@@ -105,11 +105,11 @@ test('overviewOf: members with family, model and summary; tasks counted; the bri
 
 test('#4927 review 1: project show says when the folder is not on this computer, or cannot be looked in', () => {
   const base = v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: false }));
-  assert.equal(typeof base.folderState, 'string', 'the payload does not carry the folder\'s state');
-  const line = (st) => v.renderShow({ project: { ...base, folderState: st } }).find((l) => l.startsWith('Folder: '));
+  assert.equal(typeof base.folderStatus, 'string', 'the payload does not carry the folder\'s state');
+  const line = (st) => v.renderShow({ project: { ...base, folderStatus: st } }).find((l) => l.startsWith('Folder: '));
   assert.match(line('missing'), /  \(not on this computer right now: moved, removed, or on a drive that is not connected\)$/);
   assert.match(line('not_a_folder'), /not on this computer right now/);
-  assert.match(line('unreadable'), /  \(Kosmos could not look inside it just now\)$/);
+  assert.match(line('unreadable'), /  \(Kosmos could not check it just now; check that you can open it\)$/);
   assert.doesNotMatch(line('readable'), /\(/, 'CONTROL: a folder that is there gets no note');
 });
 
@@ -217,7 +217,7 @@ test('round 3: legitimate text keeps its joiners and flags; a folder prints exac
   const scot = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}';
   const fa = '\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645';
   const folder = '/Users/x/My  Projects/' + fam + ' ';
-  const view = Object.assign(v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true })), { name: fam + ' ' + scot + ' ' + fa, folder, folderState: 'readable' });   // #4927: about how the path prints, not where it is
+  const view = Object.assign(v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true })), { name: fam + ' ' + scot + ' ' + fa, folder, folderStatus: 'readable' });   // #4927: about how the path prints, not where it is
   const text = v.renderShow({ project: view }).join('\n');
   assert.ok(text.includes(fam), 'a family emoji was split');
   assert.ok(text.includes(scot), 'a flag sequence was flattened');
@@ -263,7 +263,7 @@ test('round 4: one future-dated file does not hide a real current summary; an un
 test('round 5: runs of joiners or variation selectors (a zero-width channel) go; single ones and a flag\'s pair stay', () => {
   const rainbow = '\u{1F3F3}\uFE0F\u200D\u{1F308}';
   const steg = 'ok' + '\u200D\u200C'.repeat(60) + 'x' + '\uFE01'.repeat(30);
-  const view = Object.assign(v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true })), { name: rainbow + ' ' + steg, folder: '/x/\u00ad\u206a\u{E0100}y', folderState: 'readable' });   // #4927: the path's printing only
+  const view = Object.assign(v.overviewOf(DESCRIBED, ROSTER, opts({ goal: null, done: null, found: true })), { name: rainbow + ' ' + steg, folder: '/x/\u00ad\u206a\u{E0100}y', folderStatus: 'readable' });   // #4927: the path's printing only
   const lines = v.renderShow({ project: view });
   assert.equal(lines[0], rainbow + ' okx  (id: ff)', JSON.stringify(lines[0]));
   assert.equal(lines[1], 'Folder: /x/???y', 'a carrier in the path was not shown as ?');

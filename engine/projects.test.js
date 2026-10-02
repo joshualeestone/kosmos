@@ -2834,7 +2834,7 @@ test('#4927 review 1: a folder the board may not read is there, and is not calle
   projects.setFsWorldForTests({ realpath: (p) => p, stat: (p) => fs.statSync(p), access: denied });
   try {
     const line = projects.membershipLine({ id: 'j3', name: 'Locked', folder: real }, 'joined');
-    assert.ok(line.includes(' Its folder on this computer is `' + real + '`; Kosmos could not look inside it just now, so check that you can open it before you work in it.'), line);
+    assert.ok(line.includes(' Its folder is recorded as `' + real + '`, but Kosmos could not check it just now, so check that you can open it before you work in it.'), line);
     assert.doesNotMatch(line, /not on this computer right now/, 'a folder the board may not read was called gone');
   } finally { projects.setFsWorldForTests(null); }
 });

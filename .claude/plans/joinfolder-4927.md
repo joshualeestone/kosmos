@@ -20,8 +20,9 @@ The "different mounted path" is the agent's own sandbox, not Kosmos. Kosmos laun
 - Weakest premise: that the report came from a sandboxed agent (the report names no runner or version). A Kosmos-launched agent on a normal install seeing another path would be a real bug, and the decision should be reopened.
 
 ## Review
+- Round 2: NO BLOCKER or WARNING; nits taken (an unreachable folder is not said to be "on this computer", the payload key named folderStatus, project show says to check it). Converged.
 - Round 1: unreadable folder called gone (fixed via folderState), section heading certified an unchecked path (softened), project show unchecked (noted), name vs folder name (reworded), wrapped-sentence test (flattened). Accepted: the one-time rewrite of every agent's file for a wording change (as #4887), and the synchronous stat (as every folderState read).
 
 ## Validation
 - engine/projects.test.js: a real folder reads "on this computer"; a missing folder and a file in its place read "not on this computer right now" for both the join and the listed line; the section carries both sentences. Each fails with its rule removed (measured).
-- The project suites (engine projects*, server and CLI project tests, federation, dmfiles, worldimport) and the file-scanning guards: 559 run, 0 failed.
+- The project suites (engine projects*, server and CLI project tests, federation, dmfiles, worldimport) and the file-scanning guards: 587 run, 0 failed (after review 1); the touched suites 211, 0 failed after review 2.

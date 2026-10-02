@@ -3228,7 +3228,8 @@ function folderSentence(project) {
   const st = folderState(project.folder).state;
   if (st === FOLDER.READABLE) return ' Its folder on this computer is `' + f + '`.';
   if (st === FOLDER.UNREADABLE) {
-    return ' Its folder on this computer is `' + f + '`; Kosmos could not look inside it just now, so check that you can open it before you work in it.';
+    // Review 2: not "on this computer" here: an unreachable drive or a broken parent lands here too.
+    return ' Its folder is recorded as `' + f + '`, but Kosmos could not check it just now, so check that you can open it before you work in it.';
   }
   return ' Its folder `' + f + '` is not on this computer right now (moved, removed, or on a drive that is not connected), so ask your person where it is before you work in it.';
 }
