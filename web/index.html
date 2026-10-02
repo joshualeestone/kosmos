@@ -48779,7 +48779,15 @@ async function tcLeaveWhenSettled(gen) {
   if (TC.members.some((m) => tcRowNote(m) || m.portraitBusy)) { TC.stayed = true; tcPaint(); return; }
   // Review 23: a different team was asked for while this one finished: open THAT, which is what the person asked for,
   // rather than carrying them to the agents view.
-  if (TC.askedKey && TC.askedKey !== TC.key && tcStepShown()) { const k = TC.askedKey; TC_GEN += 1; TC = null; openTeamCreate(k); return; }
+  if (TC.askedKey && TC.askedKey !== TC.key && tcStepShown()) {
+    // Review 26: and say the first team is done, where a screen reader hears it, since the step it was on is replaced.
+    const k = TC.askedKey;
+    const done = 'Kosmos said hello to your ' + ((TC.team && TC.team.label) || 'team') + '. It is on your board.';
+    TC_GEN += 1; TC = null;
+    openTeamCreate(k);
+    tcAnnounce(done);
+    return;
+  }
   tcGoToTeam(true);
 }
 function tcHelloRetry(slot) {
@@ -48848,9 +48856,7 @@ function tcGoToTeam(auto) {
   };
   mark();
   // The step's live region went with the step: say it where a screen reader hears it.
-  let live = document.getElementById('tc-done-live');
-  if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
-  live.textContent = '';
+  const live = tcDoneLive();
   let where = names.length === 1 ? 'It is marked on your board.' : 'The new agents are marked on your board.';
   // Review 8/11: say they are marked only if a card for them is on the screen; the view may draw its cards a moment
   // after it opens, so look for up to 1.5 s before saying "look for them".
@@ -48871,6 +48877,14 @@ function tcGoToTeam(auto) {
   };
   setTimeout(say, 100);
 }
+/* #4936: a polite live region outside the step, which outlives it (the step is hidden or replaced when it speaks). */
+function tcDoneLive() {
+  let live = document.getElementById('tc-done-live');
+  if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
+  live.textContent = '';
+  return live;
+}
+function tcAnnounce(text) { const live = tcDoneLive(); setTimeout(() => { live.textContent = text; }, 100); }
 /* The lead as the list marks it ("leads the team"). */
 function tcLead() {
   return (TC && (TC.members.find((m) => m.slot === TC.leadSlot) || TC.members[0])) || null;
@@ -48942,7 +48956,7 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
 
 /* #4936 "Go to your team": the agents view with the members marked (tcGoToTeam), not one agent's page. */
 document.getElementById('tc-hello').addEventListener('click', () => {
-  if (!tcFinished()) return;
+  if (!TC) return;   // review 26: shown means it goes; a member the watcher just re-reads must not make the click silent
   tcGoToTeam(false);   // #4936 "Go to your team": the team on the agents view, not into one agent's page
 });
 

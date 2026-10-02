@@ -637,8 +637,10 @@ function chk(ok, label, extra) {
           const before = householdAsked;   // picking it while Marketing was in flight loaded nothing; opening it after does
           for (let i = 0; i < 100 && householdAsked === before; i++) await page.waitForTimeout(100);
           await page.waitForTimeout(400);
-          const after = await page.evaluate(() => ({ marketing: !!(TC && TC.key === 'marketing'), panel: !document.getElementById('panel-create').hidden, marked: document.querySelectorAll('.just-made').length }));
-          chk(hellos.filter((h) => h.who === 'zed').length === 1 && householdAsked > before && !after.marketing && after.panel && after.marked === 0,
+          const after = await page.evaluate(() => ({ marketing: !!(TC && TC.key === 'marketing'), panel: !document.getElementById('panel-create').hidden, marked: document.querySelectorAll('.just-made').length,
+            said: (document.getElementById('tc-done-live') || { textContent: '' }).textContent }));
+          chk(hellos.filter((h) => h.who === 'zed').length === 1 && householdAsked > before && !after.marketing && after.panel && after.marked === 0
+            && after.said === 'Kosmos said hello to your Marketing Team. It is on your board.',
             `${E} #4936 once it is up it is said hello to once, and the team asked for meanwhile opens (not the agents view)`, JSON.stringify({ after, hellos: hellos.map((h) => h.who) }));
           chk(errs.length === 0, `${E} no page errors (#4936 waiting arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
