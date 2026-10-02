@@ -75,7 +75,7 @@ concurrency:
 
 jobs:
   browser-checks-full:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest   # MEASUREMENT ONLY (#5052); this branch is never merged
     # The runner's full-set duration is not measured yet (a dispatch run needs this file on
     # main); the cut's 3b render window is ~16 minutes on a dev Mac. Sized generously, and
     # any non-success, a timeout included, still files a card (see file-red-card).
@@ -104,9 +104,23 @@ jobs:
       # #3973: install tmux, as test.yml does (#1794). macos-latest ships none, so render-talk's real
       # status.snapshot() threw "we could not see what is running on this computer" and live-connect
       # found no runnable tmux. brew tmux with no server started is the hermetic no-server path.
+      - name: 'MEASUREMENT (#5052): system libraries'
+        run: '"$HOME/work/pw-runtime/node_modules/.bin/playwright" install-deps chromium webkit'
       - name: install tmux (#3973)
         timeout-minutes: 10
-        run: brew install tmux
+        run: sudo apt-get install -y tmux
+      - name: 'MEASUREMENT (#5052): the UI font pinned, as the Linux PR job does'
+        run: |
+          mkdir -p "$HOME/.config/fontconfig"
+          cat > "$HOME/.config/fontconfig/fonts.conf" <<'XML'
+          <?xml version="1.0"?>
+          <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+          <fontconfig>
+            <alias binding="strong"><family>system-ui</family><prefer><family>Liberation Sans</family></prefer></alias>
+            <alias binding="strong"><family>sans-serif</family><prefer><family>Liberation Sans</family></prefer></alias>
+          </fontconfig>
+          XML
+          fc-cache -f >/dev/null
       - name: 'the FULL page layer, headless, every check (tools/browser-checks.sh, #2518)'
         id: checks
         timeout-minutes: 120
@@ -114,7 +128,7 @@ jobs:
           set -o pipefail
           # SKIP forced OFF: with it on, a missing Playwright or an engine that cannot launch exits
           # 0, and a green scheduled run would close the card.
-          KOSMOS_SKIP_BROWSER_CHECKS=0 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh 2>&1 | tee "$RUNNER_TEMP/browser-checks.log"
+          KOSMOS_BC_CI_ALLOWLIST='render-subback-4586 zz-subback-hidebars-5052 render-orgchart-phone-718 zz-orgchart-probe-5052' KOSMOS_SKIP_BROWSER_CHECKS=0 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh 2>&1 | tee "$RUNNER_TEMP/browser-checks.log"
       # The labels of the checks that went red, for the card. Read from the driver's own
       # summary (`FAILED-LIST:  a|b (why)|c`, one entry per "|", since entries can contain
       # spaces), not from FAIL lines, which the individual checks also print.
