@@ -91,15 +91,16 @@
 # never deleted; on the rare machine where that leaves something behind,
 # the sentence says what it is.
 
-# ⚠️ THE macOS CHECK RUNS BEFORE ANY set OPTION. `set -o pipefail` is not
-# POSIX; on a Linux dash the old order died with a raw shell error before
-# reaching the friendly "Kosmos runs on macOS" sentence below.
+# ⚠️ THE OS CHECK RUNS BEFORE ANY set OPTION. `set -o pipefail` is not
+# POSIX; on a Linux dash it died with a raw shell error before
+# reaching the friendly sentence below.
 case "$(uname -s)" in
-  Darwin) ;;
-  *) printf '\n  Kosmos runs on macOS. This looks like %s.\n\n' "$(uname -s)" >&2; exit 1 ;;
+  Darwin|Linux) ;;
+  *) printf '\n  Kosmos runs on macOS and Linux. This looks like %s.\n\n' "$(uname -s)" >&2; exit 1 ;;
 esac
 
-set -euo pipefail
+set -eu
+[ -n "${BASH_VERSION:-}" ] && set -o pipefail || true
 
 KOSMOS_HOME="${KOSMOS_HOME:-$HOME/.local/share/kosmos}"
 # Slash-normalized, because install/kosmos self-derives ITS home from its
@@ -473,7 +474,14 @@ verify_download() {
     return 1
   }
   want="$(awk '{print $1; exit}' "$file.sha256")"
-  got="$(shasum -a 256 "$file" | awk '{print $1}')"
+  if command -v shasum >/dev/null 2>&1; then
+    got="$(shasum -a 256 "$file" | awk '{print $1}')"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    got="$(sha256sum "$file" | awk '{print $1}')"
+  else
+    info "the download could not be verified (neither shasum nor sha256sum was found)."
+    return 1
+  fi
   rm -f "$file.sha256"
   if [ -z "$want" ] || [ "$want" != "$got" ]; then
     info "the download did not arrive intact."
@@ -797,6 +805,35 @@ sweep_dead_stages() {
   done
 }
 
+setup_linux_tmux() {
+  local dest="$1"
+  local tmux_bin=""
+  tmux_bin="$(command -v tmux 2>/dev/null || true)"
+  if [ -z "$tmux_bin" ]; then
+    if command -v apt-get >/dev/null 2>&1; then
+      if [ "$(/usr/bin/id -u 2>/dev/null || echo 1)" -eq 0 ]; then
+        apt-get update -qq && apt-get install -y -qq tmux >/dev/null 2>&1 || true
+      elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        sudo apt-get update -qq && sudo apt-get install -y -qq tmux >/dev/null 2>&1 || true
+      fi
+      tmux_bin="$(command -v tmux 2>/dev/null || true)"
+    fi
+  fi
+  if [ -z "$tmux_bin" ] || ! { [ -f "$tmux_bin" ] && [ -x "$tmux_bin" ]; }; then
+    info "Kosmos needs tmux on Linux. Install tmux (e.g. sudo apt-get install -y tmux) and run setup again."
+    return 1
+  fi
+  mkdir -p "$dest/bin" || return 1
+  rm -f "$dest/bin/tmux"
+  ln -s "$tmux_bin" "$dest/bin/tmux" || return 1
+  if ! { [ -f "$dest/bin/tmux" ] && [ -x "$dest/bin/tmux" ]; }; then
+    info "Could not link tmux from $tmux_bin into $dest/bin/tmux"
+    return 1
+  fi
+  info "using system tmux from $tmux_bin"
+  return 0
+}
+
 fetch_tmux() {
   local dest="$1"
   local stage="$dest.stage.$$"
@@ -981,12 +1018,25 @@ install_kosmos() {
   # recovery is the installer's own re-run, which `kosmos start` names when
   # the tree is incomplete.
   [ -f "$stage/bin/kosmos" ] && [ -x "$stage/bin/kosmos" ] || { rm -rf "$stage"; return 1; }
+  if [ "$(uname -s)" = "Linux" ]; then
+    if [ ! -f "$stage/runtime/bin/node" ] || ! "$stage/runtime/bin/node" --version >/dev/null 2>&1; then
+      _sys_node="$(command -v node 2>/dev/null || true)"
+      [ -n "$_sys_node" ] || _sys_node="$(command -v nodejs 2>/dev/null || true)"
+      if [ -n "$_sys_node" ] && [ -f "$_sys_node" ] && [ -x "$_sys_node" ]; then
+        mkdir -p "$stage/runtime/bin"
+        rm -f "$stage/runtime/bin/node"
+        ln -s "$_sys_node" "$stage/runtime/bin/node"
+      fi
+    fi
+  fi
   [ -f "$stage/runtime/bin/node" ] && [ -x "$stage/runtime/bin/node" ] || { rm -rf "$stage"; return 1; }
   [ -f "$stage/app/server.js" ] || { rm -rf "$stage"; return 1; }
   [ -f "$stage/app/web/index.html" ] || { rm -rf "$stage"; return 1; }
   # The Plus connector (#583) rides in the bundle; a Kosmos without it installs
   # fine and then cannot turn Plus on, so a missing one is a broken download.
-  [ -f "$stage/app/bin/kosmos-tunnel" ] && [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
+  if [ "$(uname -s)" != "Linux" ]; then
+    [ -f "$stage/app/bin/kosmos-tunnel" ] && [ -x "$stage/app/bin/kosmos-tunnel" ] || { rm -rf "$stage"; return 1; }
+  fi
   # The runtime must RUN here, the same probe the tmux bundle gets: a
   # binary that will not load fails silently and baffling, and the floor
   # gate upstream makes that unlikely, not impossible.
@@ -1357,6 +1407,25 @@ uninstall() {
   # the helper again: after `rm -rf "$KOSMOS_HOME"` the interpreter it consults
   # is gone and a fresh call would quietly return the literal instead.
   _support="$(_kosmos_data_root)"
+  if [ "$(uname -s)" = "Linux" ]; then
+    _unit_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+    _unit_name="kosmos-board.service"
+    if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+      _unit_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
+    fi
+    _unit_file="$_unit_dir/$_unit_name"
+    if [ -f "$_unit_file" ]; then
+      info "removing the systemd service for the board"
+      if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user stop "$_unit_name" 2>/dev/null || true
+        systemctl --user disable "$_unit_name" 2>/dev/null || true
+      fi
+      rm -f "$_unit_file"
+      if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user daemon-reload 2>/dev/null || true
+      fi
+    fi
+  fi
   _board_label=com.kosmos.board
   if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
     _board_label="com.kosmos.board.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
@@ -1522,7 +1591,17 @@ uninstall() {
   # nothing else in the person's profile. awk (not grep -v) because an
   # empty result is a legitimate outcome (a profile that held only our
   # block), not a pipeline error to branch on.
-  _profile="${KOSMOS_PROFILE_FILE:-$HOME/.zprofile}"
+  if [ "$(uname -s)" = "Linux" ]; then
+    if [ -n "${KOSMOS_PROFILE_FILE:-}" ]; then
+      _profile="$KOSMOS_PROFILE_FILE"
+    elif [ -f "$HOME/.bashrc" ]; then
+      _profile="$HOME/.bashrc"
+    else
+      _profile="$HOME/.profile"
+    fi
+  else
+    _profile="${KOSMOS_PROFILE_FILE:-$HOME/.zprofile}"
+  fi
   case "$_profile" in
     /*) ;;
     *) _profile="" ;;
@@ -2389,44 +2468,52 @@ else
 fi
 
 step "Checking this computer."
-# (A second Darwin check, deliberately: the one at the top of the file runs
-# before the log exists and protects the shell from non-bash sh; this one
-# puts the refusal INTO the narrated transcript for the supported flow.)
 case "$(uname -s)" in
-  Darwin) ;;
-  *) die "Kosmos runs on macOS. This looks like $(uname -s)." ;;
+  Darwin)
+    ARCH="$(uname -m)"
+    # ⚠️ Named refusal, not a mystery. Without this an Intel Mac asks the CDN for
+    # a bundle that does not exist and the experience is a bare "Could not
+    # install Kosmos" after a 404. Say the real reason in a sentence.
+    case "$ARCH" in
+      arm64) ;;
+      *) die "Kosmos needs a Mac with Apple silicon (M1 or newer). This Mac is $ARCH." ;;
+    esac
+    # ⚠️ THE macOS FLOOR IS GATED HERE, IN A SENTENCE, NOT DISCOVERED AT THE
+    # LAST STEP. The shipped Node runtime is built with minos 13.5 (measured
+    # with otool on the artifact), so on an older macOS the entire narrated
+    # install would succeed and then die at "Starting Kosmos." with a log
+    # nobody reads -- the exact opposite of the named-refusal rule above. The
+    # build gates its artifacts against this same floor, so the number here
+    # and the binaries cannot drift apart silently.
+    MACOS_FLOOR_MAJOR=13
+    MACOS_FLOOR_MINOR=5
+    _osver="$(sw_vers -productVersion 2>/dev/null || echo 0.0)"
+    [ -n "$_osver" ] || _osver="0.0"
+    _osmajor="${_osver%%.*}"
+    _osrest="${_osver#*.}"
+    _osminor="${_osrest%%.*}"
+    case "$_osmajor" in (*[!0-9]*|'') _osmajor=0 ;; esac
+    case "$_osminor" in (*[!0-9]*|'') _osminor=0 ;; esac
+    if [ "$_osver" = "0.0" ]; then
+      die "Kosmos could not read this Mac's macOS version, so it cannot confirm it will run here. Kosmos needs macOS $MACOS_FLOOR_MAJOR.$MACOS_FLOOR_MINOR or newer."
+    fi
+    if [ "$_osmajor" -lt "$MACOS_FLOOR_MAJOR" ] || { [ "$_osmajor" -eq "$MACOS_FLOOR_MAJOR" ] && [ "$_osminor" -lt "$MACOS_FLOOR_MINOR" ]; }; then
+      die "Kosmos needs macOS $MACOS_FLOOR_MAJOR.$MACOS_FLOOR_MINOR or newer. This Mac is on $_osver. Updating macOS in System Settings gets you there."
+    fi
+    info "macOS $_osver on $ARCH"
+    ;;
+  Linux)
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+      x86_64|aarch64|arm64) ;;
+      *) die "Kosmos on Linux needs an x86_64 or aarch64 machine. This computer is $ARCH." ;;
+    esac
+    info "Linux $(uname -r) on $ARCH"
+    # Until Linux-specific tarballs are published on dist, use the portable bundle:
+    [ -n "${KOSMOS_BUNDLE_ARCH:-}" ] && ARCH="$KOSMOS_BUNDLE_ARCH" || ARCH="arm64"
+    ;;
+  *) die "Kosmos runs on macOS and Linux. This looks like $(uname -s)." ;;
 esac
-ARCH="$(uname -m)"
-# ⚠️ Named refusal, not a mystery. Without this an Intel Mac asks the CDN for
-# a bundle that does not exist and the experience is a bare "Could not
-# install Kosmos" after a 404. Say the real reason in a sentence.
-case "$ARCH" in
-  arm64) ;;
-  *) die "Kosmos needs a Mac with Apple silicon (M1 or newer). This Mac is $ARCH." ;;
-esac
-# ⚠️ THE macOS FLOOR IS GATED HERE, IN A SENTENCE, NOT DISCOVERED AT THE
-# LAST STEP. The shipped Node runtime is built with minos 13.5 (measured
-# with otool on the artifact), so on an older macOS the entire narrated
-# install would succeed and then die at "Starting Kosmos." with a log
-# nobody reads -- the exact opposite of the named-refusal rule above. The
-# build gates its artifacts against this same floor, so the number here
-# and the binaries cannot drift apart silently.
-MACOS_FLOOR_MAJOR=13
-MACOS_FLOOR_MINOR=5
-_osver="$(sw_vers -productVersion 2>/dev/null || echo 0.0)"
-[ -n "$_osver" ] || _osver="0.0"
-_osmajor="${_osver%%.*}"
-_osrest="${_osver#*.}"
-_osminor="${_osrest%%.*}"
-case "$_osmajor" in (*[!0-9]*|'') _osmajor=0 ;; esac
-case "$_osminor" in (*[!0-9]*|'') _osminor=0 ;; esac
-if [ "$_osver" = "0.0" ]; then
-  die "Kosmos could not read this Mac's macOS version, so it cannot confirm it will run here. Kosmos needs macOS $MACOS_FLOOR_MAJOR.$MACOS_FLOOR_MINOR or newer."
-fi
-if [ "$_osmajor" -lt "$MACOS_FLOOR_MAJOR" ] || { [ "$_osmajor" -eq "$MACOS_FLOOR_MAJOR" ] && [ "$_osminor" -lt "$MACOS_FLOOR_MINOR" ]; }; then
-  die "Kosmos needs macOS $MACOS_FLOOR_MAJOR.$MACOS_FLOOR_MINOR or newer. This Mac is on $_osver. Updating macOS in System Settings gets you there."
-fi
-info "macOS $_osver on $ARCH"
 
 # ⚠️ CLAUDE CODE IS NOT GATED HERE ANY MORE, and this header used to say the
 # opposite three lines above the block that says so. Kosmos starts every agent
@@ -2877,12 +2964,19 @@ step "Setting up the pieces Kosmos needs."
 # whole step when a tmux was already present, which froze every machine at
 # whatever tmux its FIRST install shipped -- no path to ever deliver a fix.
 # The staged swap makes re-fetching safe, and the download is ~700KB.
-info "installing a private copy of tmux (about 2MB, nothing system-wide)"
-# On a release this fetches the checksum-verified bundle from the release
-# URL (the binaries inside carry ad-hoc signatures; nothing here is Apple-
-# signed, and saying "signed" would overclaim). Kept as a function so the
-# clean-machine test can point it at a local file.
-fetch_tmux "$KOSMOS_HOME/tmux" || die "Could not set up the terminal manager. The lines above say why, and whether trying again can help."
+case "$(uname -s)" in
+  Linux)
+    setup_linux_tmux "$KOSMOS_HOME/tmux" || die "Could not set up tmux on this computer."
+    ;;
+  *)
+    info "installing a private copy of tmux (about 2MB, nothing system-wide)"
+    # On a release this fetches the checksum-verified bundle from the release
+    # URL (the binaries inside carry ad-hoc signatures; nothing here is Apple-
+    # signed, and saying "signed" would overclaim). Kept as a function so the
+    # clean-machine test can point it at a local file.
+    fetch_tmux "$KOSMOS_HOME/tmux" || die "Could not set up the terminal manager. The lines above say why, and whether trying again can help."
+    ;;
+esac
 ok
 
 # ⚠️ TERMINFO IS PINNED RATHER THAN TRUSTED. The bundled ncurses carries a
@@ -2942,7 +3036,17 @@ ok
 # if absent), marker-guarded so reruns never duplicate it; --uninstall
 # removes exactly the two lines this writes and nothing else. A profile we
 # cannot write degrades to the old honest note, never to silence.
-PROFILE_FILE="${KOSMOS_PROFILE_FILE:-$HOME/.zprofile}"
+if [ "$(uname -s)" = "Linux" ]; then
+  if [ -n "${KOSMOS_PROFILE_FILE:-}" ]; then
+    PROFILE_FILE="$KOSMOS_PROFILE_FILE"
+  elif [ -f "$HOME/.bashrc" ]; then
+    PROFILE_FILE="$HOME/.bashrc"
+  else
+    PROFILE_FILE="$HOME/.profile"
+  fi
+else
+  PROFILE_FILE="${KOSMOS_PROFILE_FILE:-$HOME/.zprofile}"
+fi
 # A relative profile path would resolve against whatever directory each
 # run happens to start from, so install and uninstall could edit two
 # different files (the same reason KOSMOS_HOME refuses relative paths).
@@ -2964,7 +3068,7 @@ case ":$PATH:" in
   *)
     if [ -z "$PROFILE_FILE" ]; then
       info "skipping the shell profile (sandboxed run, no profile named)"
-    elif [ -z "${KOSMOS_PROFILE_FILE:-}" ] && [ -n "${SHELL:-}" ] && [ "${SHELL##*/}" != "zsh" ]; then
+    elif [ "$(uname -s)" != "Linux" ] && [ -z "${KOSMOS_PROFILE_FILE:-}" ] && [ -n "${SHELL:-}" ] && [ "${SHELL##*/}" != "zsh" ]; then
       # An EXPLICIT KOSMOS_PROFILE_FILE outranks this hedge: a bash user
       # pointing at their own ~/.bash_profile asked for exactly this write.
       # ⚠️ The claim must not outrun the file: ~/.zprofile is read by zsh
@@ -3278,6 +3382,7 @@ PLIST
   return 0
 }
 
+if [ "$(uname -s)" != "Linux" ]; then
 step "Adding Kosmos to your Applications."
 resolve_app_dir
 # ⚠️ THE ONE DIALOG THIS RUN CAN SHOW IS NAMED BEFORE IT CAN APPEAR.
@@ -3513,6 +3618,11 @@ else
     info "(something else has the Kosmos spot in Applications; it was left alone)"
   fi
 fi
+else
+  APP_MADE=no
+  APP_SKIP_ICON=yes
+  APP_SKIP_REASON=linux
+fi
 
 # ---- #2028: make a skipped/failed app-bundle write VISIBLE ------------------
 # APP_MADE=no means make_app did not (re)write the bundle this run: it was
@@ -3546,7 +3656,7 @@ fi
 # not-made arm. Aligned with the standing #2023 rule: do NOT offer "relaunch the
 # app" as a remedy -- it is measured-unreliable. Gated to updates (a fresh
 # install has no previous bundle to be stale, and its own open already fired).
-if [ "$FRESH_INSTALL" = "no" ] && [ "$APP_MADE" != "yes" ]; then
+if [ "$(uname -s)" != "Linux" ] && [ "$FRESH_INSTALL" = "no" ] && [ "$APP_MADE" != "yes" ]; then
   info "note: this update did not refresh the Kosmos app itself. If the app opens to an"
   info "empty dashboard, open the Kosmos app from your Applications folder, or run: kosmos open"
 fi
@@ -3893,6 +4003,59 @@ ok
 # the next login).
 # #4356: the heading says what this run does. On a computer set not to run a board, the login item is
 # still installed (so "Run agents on this computer" works later) and board.stopped keeps it off.
+if [ "$(uname -s)" = "Linux" ]; then
+  if [ "$_kosmos_board_off" = yes ]; then
+    step "Preparing Kosmos to start with systemd. It stays off $(_kosmos_off_why)."
+  else
+    step "Keeping Kosmos running with systemd."
+  fi
+  _unit_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+  _unit_name="kosmos-board.service"
+  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+    _unit_name="kosmos-board.$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8).service"
+  fi
+  _unit_file="$_unit_dir/$_unit_name"
+  mkdir -p "$_unit_dir" 2>/dev/null || true
+  cat > "$_unit_file" <<UNIT
+[Unit]
+Description=Kosmos Board
+After=network.target
+ConditionPathExists=!$KOSMOS_HOME/board.stopped
+
+[Service]
+Type=simple
+ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run
+WorkingDirectory=$KOSMOS_HOME
+Restart=always
+RestartSec=5
+Environment=HOME=$HOME
+Environment=KOSMOS_HOME=$KOSMOS_HOME
+Environment=PATH=$KOSMOS_HOME/tmux/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+Environment=LANG=C.UTF-8
+Environment=PORT=$PORT
+Environment=KOSMOS_PORT=$PORT
+StandardOutput=append:$KOSMOS_HOME/logs/board.log
+StandardError=append:$KOSMOS_HOME/logs/board.log
+
+[Install]
+WantedBy=default.target
+UNIT
+  [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
+  loginctl enable-linger "$(id -un 2>/dev/null || echo "$USER")" 2>/dev/null || true
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload 2>/dev/null || true
+    if [ "$_kosmos_board_off" = yes ]; then
+      systemctl --user enable "$_unit_name" 2>/dev/null || true
+      info "Kosmos will not start itself at login $(_kosmos_off_why)"
+    else
+      systemctl --user enable "$_unit_name" 2>/dev/null || true
+      info "Kosmos will start itself when you log in"
+    fi
+  else
+    info "note: systemctl not available; Kosmos was started in background"
+  fi
+  ok
+else
 if [ "$_kosmos_board_off" = yes ]; then
   step "Preparing Kosmos to start at login. It stays off $(_kosmos_off_why)."
 else
@@ -4270,6 +4433,7 @@ else
   # it; the person only loses the automatic recovery this job would have added.
   info "note: could not write $_wd_plist, so Kosmos will not auto-recover the board after a restart."
 fi
+fi
 
 # ⚠️ PROVE THE BOARD ON THE PORT IS THIS INSTALL'S OWN. cmd_start's
 # healthy() accepts ANY board identifying as Kosmos on the port, so on a
@@ -4383,13 +4547,17 @@ elif [ "$BOARD_OURS" = "yes" ]; then
   # best-effort no-op. When it will NOT (a seeded update, a foreign/aliased bundle, no opener,
   # or a harness-suppressed open), print the bare imperative, which is the correct guidance for
   # exactly those cases. Keying on _do_open is what stops the summary and the launch disagreeing.
-  if [ "$_do_open" = "yes" ]; then
+  if [ "$(uname -s)" = "Linux" ]; then
+    printf '  Open your dashboard in the browser: http://127.0.0.1:%s\n' "$PORT"
+    printf '  Or type:  kosmos open\n\n'
+  elif [ "$_do_open" = "yes" ]; then
     printf '  Kosmos will open to walk you through connecting your AI account.\n'
     printf '  If it does not appear, open the Kosmos app from your Applications folder.\n'
+    printf '  (Advanced: the board also serves at http://127.0.0.1:%s, which `kosmos open` uses.)\n\n' "$PORT"
   else
     printf '  Open the Kosmos app from your Applications folder; it will walk you through connecting your AI account.\n'
+    printf '  (Advanced: the board also serves at http://127.0.0.1:%s, which `kosmos open` uses.)\n\n' "$PORT"
   fi
-  printf '  (Advanced: the board also serves at http://127.0.0.1:%s, which `kosmos open` uses.)\n\n' "$PORT"
 else
   # 🛑 THE CAUSE IS NOT ASSERTED ANY MORE, and the old sentence was confidently
   # wrong for the likeliest stranger. It said "often another account's Kosmos",
