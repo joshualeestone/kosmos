@@ -185,7 +185,7 @@ function unloadWaitMs() {
      forever, so the wait is off there unless the test asks for it (the #4964 tests do). A board whose commands are
      not real (dry run, or live execution not allowed: the browser-check boards) has nothing to wait for, and its
      print answers "loaded" forever too. Live: 25 s. */
-  if (runner || !commandsAreReal() || DRY_RUN) return 0;
+  if (runner || !commandsAreReal() || DRY_RUN) return 0;   // (waitUnloaded's dryRun answer is the backstop)
   return 25000;
 }
 const UNLOAD_POLL_MS = 100;
@@ -194,7 +194,9 @@ const UNLOAD_PRINT_TIMEOUT_MS = 2000;
    every flagged agent in one tick) must not freeze the board for N waits: at most UNLOAD_BURST_MS of waiting in any
    UNLOAD_BURST_WINDOW_MS. A restart past that allowance does not wait, and the restart does not trust a bootstrap
    that answered "already loaded" while the old job was still held (restartInner), so it ends PARTIAL, on the
-   failed card, rather than as a RESTARTED with no job. */
+   failed card, rather than as a RESTARTED with no job. The trade-off, stated: past the allowance (a long class-1
+   sweep) an agent is left stopped and on the failed card, where before it was left stopped under a false
+   RESTARTED. PARTIAL here does not mean nothing changed. */
 const UNLOAD_BURST_MS = 30 * 1000;
 const UNLOAD_BURST_WINDOW_MS = 60 * 1000;
 let unloadWaits = [];   // { at, ms }: the waits inside the window
@@ -230,10 +232,10 @@ function waitUnloaded(label) {
   if (spent > 0) unloadWaits.push({ at: started, ms: spent });
   return gone;
 }
-/* #4964: did the last Mac bootstrap answer 5 ("already loaded")? Right after a bootout whose job was still held,
-   that answer is the dying job, not a new one. */
-function bootstrapSaidAlreadyLoaded() {
-  return Boolean(lastBootstrap && lastBootstrap.ok === false && lastBootstrap.code === 5);
+/* #4964: did the last Mac bootstrap really load a job (answer 0)? Right after a bootout whose job was still held, an
+   "already loaded" (5) is the dying job, not a new one. */
+function bootstrapLoadedNew() {
+  return Boolean(lastBootstrap && lastBootstrap.ok === true);
 }
 
 
@@ -2067,7 +2069,9 @@ function restartInner(name, cause, platform, startIfDead) {
     if (ops.waitUnloaded) held = !ops.waitUnloaded(clean, job);
     return ops.startNow(clean, job);
   });
-  const heldAnswer = () => !ops.win32 && held && bootstrapSaidAlreadyLoaded();
+  /* Held: only a bootstrap that really answered 0 is a new job. "Already loaded" is the dying job, and no bootstrap at
+     all (a launch file that is gone: startNow returns true without one) leaves print answering for the dying job. */
+  const heldAnswer = () => !ops.win32 && held && !bootstrapLoadedNew();
   /* #3418: bootstrap can return 0 without the job actually loading, so CONFIRM it is loaded
      rather than trusting the OS call -- this is the exact check that would have caught Nora
      (job registered on disk, not loaded). Routed through step() and short-circuited on a dead

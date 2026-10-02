@@ -2833,6 +2833,27 @@ test('#4964: a job still held when the wait runs out is bootstrapped anyway, and
   }
 });
 
+test('#4964: a job still held when its launch file is gone is not taken as restarted (no bootstrap was ever sent)', () => {
+  const name = madeAgent('unloadnoplist');
+  boardShows(name, name);
+  const m = dyingLaunchd(60 * 60 * 1000);
+  remove.setRunner(m.runner);
+  try {
+    const job = mac.jobFor(name);
+    assert.ok(job && job.plist, 'precondition: the fixture has a launch file');
+    const real = m.runner;
+    // the launch file goes once the old job is booted out (removed by hand while it shuts down)
+    remove.setRunner((file, args) => { if (args && args[0] === 'bootout' && fs.existsSync(job.plist)) fs.rmSync(job.plist); return real(file, args); });
+    const out = withUnloadWait(200, () => mac.restart(name, 'provider'));
+    assert.equal(m.bootstraps, 0, 'precondition: a launch file that is gone is never bootstrapped');
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'the dying job\'s print read as the agent restarted');
+  } finally {
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
 test('#4964: a print that fails for another reason (a timeout) is not read as the job being gone', () => {
   const name = madeAgent('unloadflaky');
   boardShows(name, name);
@@ -2861,14 +2882,14 @@ test('#4964: a burst of restarts waits at most the burst allowance; the rest end
     remove.resetUnloadWaitsForTests();   // earlier tests' waits must not have spent this test's allowance
     remove.setRunner(ma.runner);
     const tA = Date.now();
-    const outA = withUnloadWait(400, () => mac.restart(a, 'provider'), 500);
-    assert.ok(Date.now() - tA >= 450, `precondition: the first restart did not wait (${Date.now() - tA} ms)`);
+    const outA = withUnloadWait(2000, () => mac.restart(a, 'provider'), 2500);
+    assert.ok(Date.now() - tA >= 2400, `precondition: the first restart did not wait (${Date.now() - tA} ms)`);
     assert.equal(outA.outcome, remove.OUTCOME.PARTIAL, outA.because);
     boardShows(b, b);
     remove.setRunner(mb.runner);
     const t0 = Date.now();
-    const outB = withUnloadWait(400, () => mac.restart(b, 'provider'), 500);
-    assert.ok(Date.now() - t0 < 250, `the second restart waited ${Date.now() - t0} ms past the spent allowance`);
+    const outB = withUnloadWait(2000, () => mac.restart(b, 'provider'), 2500);
+    assert.ok(Date.now() - t0 < 1200, `the second restart waited ${Date.now() - t0} ms past the spent allowance`);
     assert.equal(outB.outcome, remove.OUTCOME.PARTIAL, 'past the allowance, the dying job read as a restart');
   } finally {
     remove.setRunner(null);
