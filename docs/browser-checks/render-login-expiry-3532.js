@@ -173,6 +173,8 @@ const CASES = [
         await pg.reload({ waitUntil: 'load' });
         if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
         await pg.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 }).catch(() => {});
+        // The launch cover sits over everything until the board has booted; measure the page, not the cover.
+        await pg.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden || !c.getClientRects().length; }, null, { timeout: 15000 }).catch(() => {});
         await shown();
       }
       const top = await onTop().catch((e) => ({ error: e.message }));
