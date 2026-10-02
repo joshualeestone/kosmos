@@ -391,3 +391,51 @@ test('in one sweep a removal goes out before a new picture (removals are a take-
   const order = avatarCalls().slice(before).map((c) => c.method);
   assert.deepEqual(order, ['DELETE', 'PUT']);
 });
+
+test('a new picture that keeps failing waits after three tries; a different picture tries again at once', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { status: 503 };
+  store.saveAvatar('ava', 'image/png', png(1));
+  for (let i = 0; i < 5; i++) await cs.sweep();
+  assert.equal(puts().length, 3, 'a failing upload was sent every sweep');
+  be.st.mode = {};
+  store.saveAvatar('ava', 'image/png', png(2));
+  await cs.sweep();
+  assert.equal(puts().length, 4);
+  assert.ok(held().raw.equals(png(2)));
+});
+
+test('a key revoked on the first upload: nothing counted as stuck, and no "trying again" line', async (t) => {
+  const lines = [];
+  const real = console.error;
+  console.error = (m) => { lines.push(String(m)); };
+  t.after(() => { console.error = real; });
+  await on();
+  await registered('ava');
+  [...be.st.agents.values()][0].token = 'stale';
+  be.st.mode = { loginRefused: true };
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  assert.equal(held(), null, 'control: nothing reached the community');
+  assert.equal(cs.pictureUnreachable(), 0, 'a picture the community never had is counted as stuck');
+  assert.equal(lines.filter((l) => /picture for ava: no usable answer/.test(l)).length, 0);
+});
+
+test('a same-size replacement given the old timestamp is still read as new', async () => {
+  await on();
+  await registered('ava');
+  const T = 1700000000;   // whole seconds, so both files carry exactly the same mtime
+  store.saveAvatar('ava', 'image/png', png(1));
+  fs.utimesSync(store.avatarPath('ava'), T, T);
+  await cs.sweep();
+  const was = fs.statSync(store.avatarPath('ava'));
+  store.saveAvatar('ava', 'image/png', png(9));
+  fs.utimesSync(store.avatarPath('ava'), T, T);
+  const now = fs.statSync(store.avatarPath('ava'));
+  assert.equal(now.size, was.size, 'control: the two pictures are the same size');
+  assert.equal(now.mtimeMs, was.mtimeMs, 'control: the two pictures carry the same mtime');
+  await cs.sweep();
+  assert.equal(puts().length, 2, 'the cached old picture was used');
+  assert.ok(held().raw.equals(png(9)));
+});
