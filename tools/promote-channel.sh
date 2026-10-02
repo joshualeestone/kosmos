@@ -436,9 +436,9 @@ echo "   refreshed the prod alias $ALIAS to $V"
 # pointer: /setup is what every prod install and update runs, so a cut-off copy must never be served.
 if [ -n "$SETUP_STAGING" ]; then
   for _f in setup setup.sha256; do
-    _t="$(mktemp "$SITE/.$_f.XXXXXX")" || { echo "promote-channel: could not make a temp file for $_f (latest.json is promoted; /setup is NOT yet: copy setup-staging onto setup by hand before any deploy)" >&2; exit 1; }
+    _t="$(mktemp "$SITE/.$_f.XXXXXX")" || { echo "promote-channel: could not make a temp file for $_f (latest.json is promoted; /setup is NOT yet). Finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE). A re-run would refuse: the pointer is already promoted." >&2; exit 1; }
     cp "$SITE/setup-staging${_f#setup}" "$_t" && mv "$_t" "$SITE/$_f" \
-      || { rm -f "$_t"; echo "promote-channel: could not write $_f (latest.json is promoted; copy setup-staging onto setup by hand before any deploy)" >&2; exit 1; }
+      || { rm -f "$_t"; echo "promote-channel: could not write $_f (latest.json is promoted; /setup is NOT yet). Finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE)." >&2; exit 1; }
   done
   cmp -s "$SITE/setup-staging" "$SITE/setup" && cmp -s "$SITE/setup-staging.sha256" "$SITE/setup.sha256" \
     && [ "$(shasum -a 256 < "$SITE/setup" | awk '{print $1}')" = "$SETUP_STAGING" ] \
@@ -446,6 +446,12 @@ if [ -n "$SETUP_STAGING" ]; then
   echo "   copied the staging installer onto /setup (sha256 $SETUP_STAGING)"
 elif [ "$FAMILY" = mac ]; then
   echo "   the staging pointer names no installer (cut before #5032, or republished by hand): /setup left as it is"
+  # Review 2: say it loudly when a committed staging installer differs from /setup. Then prod gets this
+  # build beside the OLDER installer, the pairing #5032 removes; copying is not safe either, because
+  # nothing says the staging installer belongs to this build.
+  if [ -f "$SITE/setup-staging" ] && ! cmp -s "$SITE/setup-staging" "$SITE/setup"; then
+    echo "promote-channel: WARNING setup-staging differs from /setup and the promoted pointer names no installer, so prod now serves $V beside the OLDER /setup. If $V was cut with setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand and commit them with $PROD_NAME." >&2
+  fi
 fi
 
 if [ "$FAMILY" = win ]; then

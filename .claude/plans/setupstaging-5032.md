@@ -61,12 +61,15 @@ prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
   installs (from /setup-staging) exercise the installer the promote will put on /setup.
 - Kosmos.pkg: a staging cut whose pkg inputs changed still copies the rebuilt .pkg into the site's dist/,
   the prod download button. Same class (a staging cut reaching prod), not fixed here.
-- publish-staging-pointer.sh writes no setup_sha256 (it cannot know which installer a hand-republished
-  build was cut with), so a promote of such a pointer leaves /setup as it is and says so.
+- publish-staging-pointer.sh keeps setup_sha256 only when it republishes the same version and artifact
+  the current staging pointer names (review 2); any other republish names no installer, and a promote of
+  it leaves /setup as it is, with a WARNING when a differing setup-staging is committed.
 - Rollback: the deploy guard REFUSES a #5032 pointer served beside the wrong installer, so the operator
   must put that pointer's installer back by hand (docs/staging-channel.md step 5 says where it is).
   Refused rather than automated.
 - A staging box whose updater is new while the site has never had a /setup-staging (only if a prod-channel
   cut carried this change before any staging cut did) fetches a 404; the next staging cut fixes it.
-- Step 9e's outside audit (kosmos-artifact-check.sh) reads the prod pointer and /setup; it does not audit
-  /setup-staging (unchanged by this card; step 9 verify-served covers the staging installer's bytes).
+- Step 9e's outside audit (kosmos-artifact-check.sh) now audits the channel's installer (review 2:
+  KOSMOS_VERIFY_SETUP), so a staging cut that raises the macOS floor is not a false red. It still reads
+  the PROD pointer for the artifact half on every cut, as before this card.
+- tools/clean-machine.sh walks /setup by default; KOSMOS_VERIFY_SETUP=setup-staging walks the staging one.

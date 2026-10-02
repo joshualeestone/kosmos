@@ -227,25 +227,30 @@ $( { find "$WORK/u" -type f -perm +111 2>/dev/null; find "$WORK/u" -type f -name
 EOFSIG
 
 head_ "The served installer matches the repo"
-curl -fsSL -o "$WORK/setup" "$SITE/setup" 2>/dev/null
+# #5032: a staging cut publishes its installer as /setup-staging and leaves /setup at the prior prod
+# installer, so it audits /setup-staging (release.sh passes KOSMOS_VERIFY_SETUP); the floor check below
+# then compares the cut's own installer with this tree's tools/macos-floor. Only the two names.
+SETUP_NAME="${KOSMOS_VERIFY_SETUP:-setup}"
+case "$SETUP_NAME" in setup|setup-staging) ;; *) bad "KOSMOS_VERIFY_SETUP must be setup or setup-staging (got '$SETUP_NAME')"; SETUP_NAME=setup ;; esac
+curl -fsSL -o "$WORK/setup" "$SITE/$SETUP_NAME" 2>/dev/null
 LIVE_SHA="$(shasum -a 256 "$WORK/setup" | awk '{print $1}')"
-# #2360: compare the served /setup against the DEPLOY SOURCE (origin/main), NOT the local working-tree
+# #2360: compare the served /$SETUP_NAME against the DEPLOY SOURCE (origin/main), NOT the local working-tree
 # /setup. The deploy ships from origin/main via the #2286 fresh-origin-main mechanism, so a local
 # checkout that lags origin (a /setup commit lands on origin during a cut; a shared checkout is
-# routinely behind) made this FALSE-RED "served /setup DIFFERS" with release-exit=1 even though the
-# served bytes were CORRECT. Measured on the 0.6.40 cut: served cdbce978 == origin/main:setup, but the
+# routinely behind) made this FALSE-RED "served /$SETUP_NAME DIFFERS" with release-exit=1 even though the
+# served bytes were CORRECT. Measured on the 0.6.40 cut: served cdbce978 == origin/main:$SETUP_NAME, but the
 # local working tree was 312cd7ed (1 commit behind) -> false exit=1, which an operator then had to rule
 # benign by hand. Comparing vs origin/main removes that COMMON local-lag false-red (a shared checkout
 # is behind by default) and still hard-FAILs a real served-vs-source mismatch. It is NOT window-free:
 # a far NARROWER residual remains -- if origin/main advances between the deploy and this audit with a
 # NEW /setup commit that was not what was deployed, the served (correct) bytes differ from the
-# now-newer origin/main:setup and this FAILs. That window is the deploy->9e gap inside one cut
+# now-newer origin/main:$SETUP_NAME and this FAILs. That window is the deploy->9e gap inside one cut
 # (seconds, under the merge-freeze), vs the local-lag window which is always open; the window-free
 # alternative is to compare against the exact sha the deploy shipped (#2286's SITE_SHA), a larger
 # change deferred to a follow-up. Fetch first so origin/main is current; write it to a temp FILE (never a
 # $(...) capture, which strips the trailing newline and so changes the sha); guard on git's own exit
 # (git show of a missing path prints nothing, and shasum of empty input is a fixed non-file hash that
-# would silently mis-compare). Fall back to the local working tree only if origin/main:setup is
+# would silently mis-compare). Fall back to the local working tree only if origin/main:$SETUP_NAME is
 # unreadable, and then always as UNPROVEN (never a pass, never a hard FAIL): the local tree can be
 # stale, so it confirms nothing about the deploy source, and UNPROVEN still exits 1 (fails closed).
 SITE_CO="$REPO/../chaoskosmos-site"
@@ -263,22 +268,22 @@ if git -C "$SITE_CO" rev-parse --git-dir >/dev/null 2>&1; then
   # (refs/remotes, FETCH_HEAD) and git's fetch is concurrency-safe, so mutating the shared site checkout
   # here is benign even while the deploy step touches it.
   git -C "$SITE_CO" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q origin 2>/dev/null || true
-  if git -C "$SITE_CO" show origin/main:setup > "$WORK/origin-setup" 2>/dev/null && [ -s "$WORK/origin-setup" ]; then
+  if git -C "$SITE_CO" show "origin/main:$SETUP_NAME" > "$WORK/origin-setup" 2>/dev/null && [ -s "$WORK/origin-setup" ]; then
     SRC_SHA="$(shasum -a 256 "$WORK/origin-setup" | awk '{print $1}')"
   fi
 fi
 if [ -n "$SRC_SHA" ]; then
-  [ "$LIVE_SHA" = "$SRC_SHA" ] && ok "served /setup is byte-identical to origin/main:setup (the deploy source)" \
-                              || bad "served /setup DIFFERS from origin/main:setup -- the deploy source (live $LIVE_SHA, origin/main $SRC_SHA)"
-elif [ -f "$SITE_CO/setup" ]; then
+  [ "$LIVE_SHA" = "$SRC_SHA" ] && ok "served /$SETUP_NAME is byte-identical to origin/main:$SETUP_NAME (the deploy source)" \
+                              || bad "served /$SETUP_NAME DIFFERS from origin/main:$SETUP_NAME -- the deploy source (live $LIVE_SHA, origin/main $SRC_SHA)"
+elif [ -f "$SITE_CO/$SETUP_NAME" ]; then
   # Origin/main:setup was unreadable, so we CANNOT confirm against the deploy source. Matching the
   # LOCAL working tree does NOT confirm it (the local tree can be stale -- the whole #2360 bug), so a
   # match is UNPROVEN, not a pass: reporting `ok` here would be a silent-pass (served stale + local
   # equal to that stale copy reads as certified). Both arms are UNPROVEN; unproven>0 exits the check 1,
   # so this degraded path fails CLOSED rather than green-lighting an unconfirmed served artifact.
-  REPO_SHA="$(shasum -a 256 "$SITE_CO/setup" | awk '{print $1}')"
-  [ "$LIVE_SHA" = "$REPO_SHA" ] && unp "served /setup matches the LOCAL chaoskosmos-site/setup, but origin/main:setup was unreadable -- a local match does NOT confirm the deploy source (the local tree can be stale), so UNPROVEN not a pass (live $LIVE_SHA) (#2360)" \
-                               || unp "served /setup differs from the LOCAL chaoskosmos-site/setup and origin/main was unreadable -- cannot confirm against the deploy source (live $LIVE_SHA); a stale local checkout can cause this (#2360)"
+  REPO_SHA="$(shasum -a 256 "$SITE_CO/$SETUP_NAME" | awk '{print $1}')"
+  [ "$LIVE_SHA" = "$REPO_SHA" ] && unp "served /$SETUP_NAME matches the LOCAL chaoskosmos-site/$SETUP_NAME, but origin/main:$SETUP_NAME was unreadable -- a local match does NOT confirm the deploy source (the local tree can be stale), so UNPROVEN not a pass (live $LIVE_SHA) (#2360)" \
+                               || unp "served /$SETUP_NAME differs from the LOCAL chaoskosmos-site/$SETUP_NAME and origin/main was unreadable -- cannot confirm against the deploy source (live $LIVE_SHA); a stale local checkout can cause this (#2360)"
 else
   unp "no chaoskosmos-site checkout to compare against (live $LIVE_SHA)"
 fi
