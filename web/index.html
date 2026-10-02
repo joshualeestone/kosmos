@@ -8398,7 +8398,6 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 11rem; }
 #cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
   justify-content: flex-end; gap: var(--space-3); }
-#cstep-teammake .tc-state .spin { flex: none; }
 @media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
 /* Item 8: a menu that cannot be chosen says so by looking it, not only by refusing a click: while the team is made
    (tcPaint disables them), and a model menu that is fixed (the vendor picks, nothing to list) or still loading. */
@@ -48649,7 +48648,8 @@ document.getElementById('tc-account').addEventListener('change', () => { TC_PROV
 /* True while a model list is loading: Create and Try again are held then (a team made then gets no model). */
 function tcIsModelLoading() { const m = document.getElementById('tc-model'); return Boolean(m && m.dataset.loading === '1'); }
 let TC_MODEL_FOR = null;   // the provider|account the model menu was last painted for
-let TC_MODEL_GEN = 0;      // a newer paint supersedes a list still being read
+let TC_MODEL_GEN = 0;
+let TC_MODEL_WAIT_MS = 8000;   // a browser check can shorten it      // a newer paint supersedes a list still being read
 function tcSyncModel() {
   const sel = document.getElementById('tc-model');
   const step = document.getElementById('cstep-teammake');
@@ -48699,8 +48699,12 @@ function tcPaintModel(pv, ac) {
     const openaiOwn = '<option value="" selected>OpenAI picks its own model for now</option>';
     if (!ac) { show(openaiOwn, true, openaiNoModelsNote(null), false); return; }
     show('<option value="">Loading this account\'s models…</option>', true, '', false, true);
-    fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    /* Bounded, as the account read on this step is: a slow or stuck answer (a live check can take ~20 s cold) must not
+       hold Create down with no word why, so after TC_MODEL_WAIT_MS it reads as "cannot list". */
+    Promise.race([
+      fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
+      new Promise((res) => setTimeout(() => res(null), TC_MODEL_WAIT_MS)),
+    ]).catch(() => null)
       .then((out) => {
         if (gen !== TC_MODEL_GEN) return;
         if (out && out.ok && Array.isArray(out.models) && out.models.length) {
@@ -48712,6 +48716,7 @@ function tcPaintModel(pv, ac) {
     return;
   }
   if (pv && pv !== 'anthropic') {   // a provider this menu has no list for sends no model, never a Claude one
+    row.hidden = true;
     show('<option value="" selected></option>', true, '', false);
     return;
   }

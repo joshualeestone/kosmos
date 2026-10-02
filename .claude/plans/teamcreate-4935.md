@@ -44,7 +44,7 @@ statuses change, and Project/Model look locked while making.
   held (dataset.loading, read in tcPaint), so a team is never made on a silent default; tcPaint runs again when
   the list lands.
 - openTeamCreate bumps TC_MODEL_GEN and empties #tc-model as well as resetting TC_MODEL_FOR: the browser check
-  showed the repaint kept the last team's pick (it keeps a pick across a provider round trip, by design), so a
+  showed the repaint kept the last team's pick (it keeps a pick the new list still offers, e.g. across an account change), so a
   new team must start from an empty menu to land on the default.
 - tcPaintModel's branches are unit-tested against a fake document (Claude, vendor picks, OpenAI listable with
   escaping, OpenAI not listable, roles not yet read).
@@ -92,6 +92,12 @@ statuses change, and Project/Model look locked while making.
 - Deferred, verified: "the spinner restarts on every 2 s repaint". The spinner is inserted inside tcPaint's
   signature gate (the list is rebuilt only when a row changes), so a repaint with no change leaves it running.
 - Deferred: comment density. It matches this file's #NNNN comment style, which another review called consistent.
+
+## Review 9 changes
+- The OpenAI models read is bounded (TC_MODEL_WAIT_MS, 8 s, like this step's 5 s account read): a stuck answer reads
+  as "OpenAI picks its own model for now" and Create is offered again. Tested with a read that never answers.
+- A provider with no list hides the row (as the vendor branch does); a redundant .spin rule and an unused test
+  helper removed; the plan's round-trip sentence corrected.
 
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
