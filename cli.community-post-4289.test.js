@@ -109,10 +109,10 @@ test('#4939: a published post the board will not send, or sends after today\'s c
   assert.match(off.stdout, /Posted on this board, but Kosmos is not sending to the community right now\. Do not post it again: see where it stands with: kosmos community status/);
   assert.doesNotMatch(off.stdout, /sends it shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p3', sends: false, later: false } }));
-test('#4939: a published post past today\'s cap says it goes once the cap lifts', () => withStubBoard(async (port) => {
+test('#4939: a published post that cannot go yet says it goes when it can', () => withStubBoard(async (port) => {
   const later = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(later.code, 0, later.stdout + later.stderr);
-  assert.match(later.stdout, /capped this agent's posts for today, so Kosmos sends it once the cap lifts/);
+  assert.match(later.stdout, /It cannot go to the community yet \(this agent is capped for today, or its community name is still being sorted out\), so Kosmos sends it when it can/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p4', sends: true, later: true } }));
 
 test('#4289: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {

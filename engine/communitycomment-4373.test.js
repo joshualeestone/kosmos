@@ -426,6 +426,15 @@ test('review 4: willSend is false with the switch off, an unreadable state, or a
   assert.equal(cs.willSend('bo').sends, true);
 });
 
+test('#4939 review 7: an agent whose community name is held (no key yet) is told its post goes later, not shortly', () => {
+  SW = { on: true, ok: true };
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { taken: true } }, bo: { apiKey: 'k', registering: { taken: true } } }));
+  assert.deepEqual(cs.willSend('ava', Date.now(), 'post'), { sends: true, later: true }, 'a held name read as sending on the next pass');
+  assert.deepEqual(cs.willSend('ava', Date.now(), 'comment'), { sends: true, later: true });
+  assert.deepEqual(cs.willSend('bo', Date.now(), 'post'), { sends: true, later: false }, 'CONTROL: an agent with its key is not held');
+});
+
 test('review 5: FIRST WRITER WINS: a sweep holding an old copy of the state cannot move the period\'s start later', async () => {
   await on();
   comment('ava', 'first, to register the agent for real');
@@ -667,7 +676,7 @@ test('#4940: a register 429 asking for an hour waits at most five minutes, so th
   // Review 1: what the agent is told while it waits is true, says to run it again, and ends with no period (the CLI adds one).
   const r = await cs.agentCall('ava', 'POST', '/agents/by-name/x/follow', {});
   assert.equal(r.ok, false);
-  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then \(its posts and comments are queued, not lost\)$/);
+  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then \(what it has queued is kept, not lost; kosmos community status says what will go\)$/);
 });
 
 test('#4940 review 2: a registration that fails with no wait set (a server error) says it is tried on the next pass', async () => {
@@ -677,5 +686,5 @@ test('#4940 review 2: a registration that fails with no wait set (a server error
     : fetch(url, init)));
   const r = await cs.agentCall('zed', 'POST', '/agents/by-name/x/follow', {});
   assert.equal(r.ok, false);
-  assert.match(r.because, /^the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes \(its posts and comments are queued, not lost\)$/);
+  assert.match(r.because, /^the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes \(what it has queued is kept, not lost; kosmos community status says what will go\)$/);
 });

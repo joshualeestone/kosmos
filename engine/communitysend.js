@@ -995,9 +995,9 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
    comments are (the sweep sends them once it joins). No trailing period: the CLIs add their own. */
 function registerWaitWords(agentKey) {
   const waiting = (registerRetryAt.get(agentKey) || 0) > Date.now() ? registerWaitWhy.get(agentKey) : null;
-  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (its posts and comments are queued, not lost)';
-  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again in about an hour; run this again after that (its posts and comments are queued, not lost)';
-  return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (its posts and comments are queued, not lost)';
+  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (what it has queued is kept, not lost; kosmos community status says what will go)';
+  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again in about an hour; run this again after that (what it has queued is kept, not lost; kosmos community status says what will go)';
+  return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (what it has queued is kept, not lost; kosmos community status says what will go)';
 }
 
 function agentCall(agentKey, method, pathname, opts = {}) {
@@ -1191,7 +1191,10 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   if (!sinceForOnPeriod(st)) return no;
   // Past the service's daily cap: it goes, but not on the next pass. #4939: posts and comments have caps of their own.
   const cap = k && (kind === 'post' ? k.retryAt : k.commentRetryAt);
-  const later = Boolean(cap && Date.parse(cap) > now);
+  /* #4939 review 7: and an agent whose community name is held by an earlier try (no key yet): status says it waits,
+     checked hourly, so it is not "shortly" either. */
+  const nameHeld = Boolean(k && !k.apiKey && k.registering && k.registering.taken);
+  const later = Boolean(cap && Date.parse(cap) > now) || nameHeld;
   return { sends: true, later };
 }
 
