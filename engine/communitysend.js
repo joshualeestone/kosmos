@@ -1119,16 +1119,22 @@ async function sweepIndustry(keys, on) {
  */
 const AVATAR_MAX_BYTES = 60000;                     // the service's cap (app/avatars.py MAX_BYTES)
 const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const AVATAR_FAILS_BEFORE_WAIT = 3;
+const AVATAR_WAIT_MS = 60 * 60 * 1000;
+const AVATAR_WAIT_MAX_MS = 24 * 60 * 60 * 1000;
 
-/* The picture to send for `agentKey`: { id, type, bytes }, or { id: null, why } when there is none to send. A picture
-   the community cannot take (too big, a GIF) is "none" here, so one sent earlier is taken back rather than left
-   showing a picture the person has since replaced. */
-/* The last picture read per agent, keyed by its file, size and mtime, so an unchanged picture is not read and hashed
-   again by every half of every sweep. In memory only: a board restart reads each picture once more. */
+/* The last picture read per agent, keyed by its file and its inode, size, mtime and ctime (saveAvatar unlinks and
+   creates the file again, so a same-size replacement inside one mtime tick still has a new inode), so an unchanged
+   picture is not read and hashed again by every half of every sweep. In memory only: a restart reads each once more. */
 const avatarSeen = new Map();
+const sameFile = (a, b) => a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+
+/* The picture to send for `agentKey`: { id, type, bytes }, or { id: null, why } when there is none to send, or
+   { busy, why } when it cannot be told this sweep. A picture the community cannot take (too big, a GIF) is "none"
+   here, so one sent earlier is taken back rather than left showing a picture the person has since replaced. */
 function avatarWanted(agentKey) {
   let found;
-  try { found = store.avatarLookup(agentKey); } catch { found = { error: 'name' }; }
+  try { found = store.avatarLookup(agentKey); } catch { return { busy: true, why: 'name' }; }
   // Only a confirmed absence is "no picture"; a folder that could not be read is not a reason to take anything down.
   if (found.error) return { busy: true, why: 'unreadable:' + found.error };
   const file = found.file;
@@ -1137,19 +1143,20 @@ function avatarWanted(agentKey) {
   try { before = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { id: null, why: null } : { busy: true, why: 'unreadable:' + ((e && e.code) || 'stat') }; }
   if (before.size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + before.size };
   const memo = avatarSeen.get(agentKey);
-  if (memo && memo.file === file && memo.size === before.size && memo.mtimeMs === before.mtimeMs) return memo.wanted;
+  if (memo && memo.file === file && sameFile(memo.stat, before)) return memo.wanted;
   let bytes;
   let after;
   try { bytes = fs.readFileSync(file); after = fs.statSync(file); } catch (e) { return { busy: true, why: 'unreadable:' + ((e && e.code) || 'read') }; }
   // store.saveAvatar writes the file in place: a picture that changed while it was read is half written. Left for
   // the next sweep rather than sent (the service would refuse the cut-short file) or read as "none".
-  if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || bytes.length !== before.size) return { busy: true };
-  if (!bytes.length) return { busy: true };   // caught between the truncate and the write, which is not no picture
+  if (!sameFile(after, before) || bytes.length !== before.size) return { busy: true };
+  // Empty: caught between the truncate and the write, or left so by a failed write. Not "no picture" either way.
+  if (!bytes.length) return { busy: true, why: 'unreadable:empty' };
   const type = store.imageTypeOf(bytes);
   const wanted = AVATAR_TYPES.has(type)
     ? { id: crypto.createHash('sha256').update(bytes).digest('hex'), type, bytes }
     : { id: null, why: 'type:' + (type || 'unknown') };
-  avatarSeen.set(agentKey, { file, size: before.size, mtimeMs: before.mtimeMs, wanted });
+  avatarSeen.set(agentKey, { file, stat: before, wanted });
   return wanted;
 }
 
@@ -1170,7 +1177,9 @@ async function sweepAvatars(keys, on, { removals }) {
       if (w.why && k.avatarSkipLogged !== w.why) {
         k.avatarSkipLogged = w.why;
         saveJson(keysFile(), keys);
-        log(`picture for ${agentKey}: could not be read (${w.why.slice('unreadable:'.length)}); nothing is sent or taken down until it can`);
+        log(w.why === 'name'
+          ? `picture for ${agentKey}: this agent's name cannot name a picture file, so its picture is not sent`
+          : `picture for ${agentKey}: could not be read (${w.why.slice('unreadable:'.length)}); nothing is sent or taken down until it can`);
       }
       continue;
     }
@@ -1206,14 +1215,25 @@ async function sweepAvatars(keys, on, { removals }) {
     if (!k.avatarUnsure && sent === target) continue;
     if ((target === null) !== removals) continue;          // this call's half: removals, or new pictures
     if (target !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
+    // A new picture that keeps failing waits longer between tries (each is a full upload); a removal never waits.
+    if (k.avatarRetrying !== target) { delete k.avatarFails; delete k.avatarNextTry; }
+    if (target !== null && k.avatarNextTry && Date.now() < k.avatarNextTry) continue;
     const wasUnsure = k.avatarUnsure === true;
     if (!wasUnsure) { k.avatarUnsure = true; saveJson(keysFile(), keys); }
     const r = target === null
       ? await asAgent(agentKey, keys, 'DELETE', '/agents/me/avatar')
       : await asAgent(agentKey, keys, 'PUT', '/agents/me/avatar', rawBody(w.bytes, w.type));
+    if (k.refused) {
+      // The service just refused this agent's key (a 401 that a login could not mend): the request did not land.
+      if (!wasUnsure) delete k.avatarUnsure;
+      saveJson(keysFile(), keys);
+      continue;
+    }
     if (r.status >= 200 && r.status < 300) {
       k.avatarSent = target;
       delete k.avatarRetrying;
+      delete k.avatarFails;
+      delete k.avatarNextTry;
       delete k.avatarUnsure;
       saveJson(keysFile(), keys);
     } else if (target !== null && serviceRefusedAvatar(r)) {
@@ -1222,11 +1242,19 @@ async function sweepAvatars(keys, on, { removals }) {
       delete k.avatarRetrying;
       k.avatarRefused = want;
       saveJson(keysFile(), keys);
-      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes${sent !== null || wasUnsure ? ', and the one it showed before will be taken down' : ''}`);
-    } else if (k.avatarRetrying !== target) {
+      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes${sent !== null || wasUnsure ? ', and the one it showed before will be taken down from the next sweep' : ''}`);
+    } else {
+      const first = k.avatarRetrying !== target;
       k.avatarRetrying = target;
+      if (target !== null) {
+        // Two more tries at once, then an hour, doubling to a day.
+        k.avatarFails = (k.avatarFails || 0) + 1;
+        if (k.avatarFails >= AVATAR_FAILS_BEFORE_WAIT) {
+          k.avatarNextTry = Date.now() + Math.min(AVATAR_WAIT_MAX_MS, AVATAR_WAIT_MS * 2 ** (k.avatarFails - AVATAR_FAILS_BEFORE_WAIT));
+        }
+      }
       saveJson(keysFile(), keys);
-      log(`picture for ${agentKey}: no usable answer (status ${r.status || 'none'}); trying again every sweep until it lands`);
+      if (first) log(`picture for ${agentKey}: no usable answer (status ${r.status || 'none'}); trying again until it lands${target !== null ? ', less often after ' + AVATAR_FAILS_BEFORE_WAIT + ' tries' : ''}`);
     }
   }
 }

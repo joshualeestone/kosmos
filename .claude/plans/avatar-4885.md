@@ -13,9 +13,10 @@ body (PNG, JPEG or WebP, at most 60,000 bytes; metadata stripped server-side; 42
 
 1. communitysend.request() learns a RAW body (a Buffer with its content type), beside the JSON body it has.
 2. A sweep pass, `sweepAvatars`, after `sweepIndustry` and on its exact pattern: per registered agent, the wanted
-   state is the sha256 of the stored picture's bytes (store.avatarPath), or null for none. Sent when it differs from
+   state is the sha256 of the stored picture's bytes (store.avatarLookup), or null for none. Sent when it differs from
    `avatarSent` in keys.json; write-ahead `avatarUnsure` so an unanswered PUT is retried; 404/405/5xx/429/timeouts
-   retried every sweep and logged once per value; the service's own 422 bad_avatar recorded as `avatarRefused`
+   retried and logged once per value (a new picture: three tries, then an hour, doubling to a day, since each try is
+   a full upload; a removal: every sweep); the service's own 422 bad_avatar recorded as `avatarRefused`
    and not sent again until the picture changes; while it is wanted the target is "no picture", so the one the
    person replaced is taken down rather than left showing (review 1).
 3. A picture is sent only if store.imageTypeOf(bytes) is png, jpeg or webp AND it is at most 60,000 bytes. Anything
@@ -75,9 +76,16 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
 - (review 5) No contract test pins the avatar route shapes the fake service mirrors (bad_avatar, the 60,000 cap);
   checked by hand against kosmos-community app/routers/home.py and app/avatars.py at this commit.
 
+- (review 7) The picture is sent as stored, so metadata in a picture already on disk reaches Kosmos's own service,
+  over TLS, which rebuilds the picture from an allow-list and keeps none of it. Stripping it here too would mean a
+  second copy of that walker, in a second language, that must agree with the first. Rejected for now; it is the
+  first thing to add if the service is ever not ours.
+- (review 7) A 401 that a login cannot mend means the request did not land: the write-ahead mark is put back, so the
+  picture is not counted as stuck and no retry is promised.
+
 ## Weakest premise
-That hashing the file each sweep is cheap enough. The file is stat'd first and anything over 60,000 bytes is never
-read; the pass runs in two halves, so a sweep reads and hashes at most 120 KB per registered agent (measured here:
+That stat'ing each picture every sweep is cheap enough. An unchanged picture (same inode, size, mtime and ctime) is
+read and hashed once per board run, a changed one once, and anything over 60,000 bytes is never read (measured here:
 11 to 32 KB pictures).
 
 ## What would change my mind
