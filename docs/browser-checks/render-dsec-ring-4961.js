@@ -12,11 +12,14 @@
  * (AI Settings, Profile, Direct Message pills) and in Settings (AI Models, Your Profile pills):
  *   - click arm: focus moves into the pill's section, and the section draws no outline;
  *   - keyboard arm (focus the pill, Enter): focus moves into the section, and it draws the ring.
- * On chromium only, the Mac case: after a click, :focus-visible is FORCED on the section through
- * the DevTools protocol (what the Mac app's WebKit does on its own), and it must still draw no
- * outline. That arm is the one that reds on the old rule (Playwright's WebKit focuses the clicked
+ * On chromium only, the Mac case: after a click, :focus and :focus-visible are FORCED on the
+ * section through the DevTools protocol (what the Mac app's WebKit matches on its own), and it must
+ * still draw no outline. That arm is the one that reds on the old rule (Playwright's WebKit focuses the clicked
  * button, so it cannot reproduce the Mac app's click by itself). The keyboard arm is the control:
  * it shows the instrument reads a real ring, so "no outline" is not its default.
+ * Then the ring must not outlive the press: land on AI Settings from the keyboard, Tab inside, then
+ * click the Model section's own heading (focus returns to the section): no outline, and on
+ * chromium none with :focus-visible forced either.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dsec-ring-4961.js
  */
@@ -90,6 +93,7 @@ const PAGES = [
   await fetch(URL + '/api/first-run/complete', { method: 'POST' });
   let ran = 0;
   let forced = 0;
+  let outlived = 0;
   try {
     for (const theme of ['light', 'dark']) {
       for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
@@ -131,6 +135,32 @@ const PAGES = [
               }
             }
           }
+          /* The ring belongs to the press: keyboard-land, Tab inside, click the section's heading. */
+          {
+            await page.goto(URL);
+            await page.waitForSelector('.acard .namego', { timeout: 20000 });
+            await page.locator('.acard .namego').first().click();
+            await page.waitForSelector('#d-sec-talk', { timeout: 20000 });
+            const tag = `[${theme}] ${engineName} agent page`;
+            const pill = page.locator('#d-nav button[data-go="model"]');
+            await pill.focus(); await page.keyboard.press('Enter');
+            await page.waitForTimeout(150);
+            const landed = await readFocus(page);
+            await page.keyboard.press('Tab');
+            await page.waitForTimeout(100);
+            const left = await page.evaluate(() => !document.activeElement || document.activeElement.id !== 'd-sec-model');
+            await page.locator('#d-sec-model .dlab').first().click();
+            await page.waitForTimeout(150);
+            const back = await readFocus(page);
+            chk(ring(landed) && left && back.sec === 'model',
+              `${tag}: precondition: landed with the ring, Tab left the section, the heading click refocused it`, JSON.stringify({ landed, left, back }));
+            chk(!ring(back), `${tag}: after Tab and a click back on the section, no outline (the ring went with the keypress)`, JSON.stringify(back));
+            if (engineName === 'chromium') {
+              const m = await forcedRead(page, '#panel-detail .dsec[data-sec="model"]');
+              chk(!ring(m), `${tag}: and none with :focus-visible forced`, JSON.stringify(m));
+            }
+            outlived += 1;
+          }
           chk(errs.length === 0, `[${theme}] ${engineName}: no page errors`, errs.join(' | '));
         } finally {
           await browser.close();
@@ -141,7 +171,7 @@ const PAGES = [
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 40 && forced === 10, 'precondition: every engine, theme, page and pill arm ran', `ran=${ran} forced=${forced}`);
+  chk(ran === 40 && forced === 10 && outlived === 4, 'precondition: every engine, theme, page and pill arm ran', `ran=${ran} forced=${forced} outlived=${outlived}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
