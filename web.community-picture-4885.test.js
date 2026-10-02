@@ -88,9 +88,9 @@ test('#4885: pictures that cannot go as they are (saved before Kosmos fitted the
     assert.equal(line.textContent, '', why);
   }
   assert.equal(paint({ ...base, picturesUnsendable: 1 }, 'community-picture-unsendable').textContent,
-    'One agent’s picture cannot go to the community as it is. Choose it again on the agent’s page and Kosmos will fit it.');
+    'One agent’s picture cannot go to the community as it is. Choose a different picture, or the same one again, on the agent’s page and Kosmos will fit it if it can.');
   assert.equal(paint({ ...base, picturesUnsendable: 3 }, 'community-picture-unsendable').textContent,
-    '3 agents’ pictures cannot go to the community as they are. Choose each one again on the agent’s page and Kosmos will fit it.');
+    '3 agents’ pictures cannot go to the community as they are. Choose a different picture, or the same one again, on the agent’s page and Kosmos will fit it if it can.');
 });
 
 /* pictureStill reads the bytes the way the community does (kosmos-community app/avatars.py). */
@@ -111,7 +111,8 @@ const wchunk = (kind, data) => {
   return Buffer.concat([Buffer.from(kind, 'latin1'), len, data, data.length & 1 ? Buffer.alloc(1) : Buffer.alloc(0)]);
 };
 
-test('#4885 pictureStill: a still PNG or WebP is kept; an animated one, a JPEG, or a cut-short file is not', () => {
+test('#4885 pictureStill: a still PNG is kept; an animated one, a WebP, a JPEG, or a cut-short file is not', () => {
+  assert.equal(pictureStill(riff(wchunk('VP8 ', Buffer.alloc(10)))), false, 'a WebP is kept as chosen (every WebP is redrawn)');
   assert.equal(pictureStill(png(chunk('IDAT', Buffer.alloc(20)))), true);
   // An animation chunk after a text chunk far past the first 4 KB (where a head-only scan stopped looking).
   assert.equal(pictureStill(png(chunk('tEXt', Buffer.alloc(6000, 65)), chunk('acTL', Buffer.alloc(8)), chunk('IDAT', Buffer.alloc(20)))), false);
@@ -121,18 +122,14 @@ test('#4885 pictureStill: a still PNG or WebP is kept; an animated one, a JPEG, 
   const exif = (orientation) => Buffer.from([0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, orientation, 0, 0, 0, 0, 0, 0]);
   assert.equal(pictureStill(png(chunk('eXIf', exif(6)), chunk('IDAT', Buffer.alloc(20)))), false, 'a PNG turned by its eXIf is kept as chosen');
   assert.equal(pictureStill(png(chunk('eXIf', exif(1)), chunk('IDAT', Buffer.alloc(20)))), true, 'an upright eXIf is redrawn for nothing');
+  assert.equal(pictureStill(png(chunk('eXIf', exif(0)), chunk('IDAT', Buffer.alloc(20)))), true, 'Orientation 0 is upright, as the community reads it');
   const webkit = Buffer.from([77,77,0,42,0,0,0,8,0,1,135,105,0,4,0,0,0,1,0,0,0,26,0,0,0,0,0,3,160,1,0,3,0,0,0,1,0,1,0,0,160,2,0,4,0,0,0,1,0,0,0,96,160,3,0,4,0,0,0,1,0,0,0,96,0,0,0,0]);
   assert.equal(pictureStill(png(chunk('sRGB', Buffer.alloc(1)), chunk('eXIf', webkit), chunk('IDAT', Buffer.alloc(20)))), true, 'a WebKit PNG is redrawn for nothing');
   const prefixed = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), exif(6)]);
   assert.equal(pictureStill(png(chunk('eXIf', prefixed), chunk('IDAT', Buffer.alloc(20)))), false, 'an Exif-prefixed eXIf that turns the PNG is missed');
-  assert.equal(pictureStill(riff(wchunk('VP8 ', Buffer.alloc(10))), true), false, 'a WebP is kept when only a PNG may be');
   const ii = Buffer.from([0x49, 0x49, 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0]);
   assert.equal(pictureStill(png(chunk('eXIf', ii), chunk('IDAT', Buffer.alloc(20)))), false, 'little-endian EXIF is read too');
   assert.equal(pictureStill(png(chunk('IDAT', Buffer.alloc(20))).subarray(0, 40)), false, 'a PNG cut short before IEND');
-  assert.equal(pictureStill(riff(wchunk('VP8 ', Buffer.alloc(10)))), true);
-  const vp8x = Buffer.alloc(10); vp8x[0] = 0x02;   // the animation flag
-  assert.equal(pictureStill(riff(wchunk('VP8X', vp8x), wchunk('VP8 ', Buffer.alloc(10)))), false);
-  assert.equal(pictureStill(riff(wchunk('ICCP', Buffer.alloc(5001)), wchunk('ANIM', Buffer.alloc(6)))), false);
   assert.equal(pictureStill(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])), false, 'a JPEG is never kept as chosen');
   assert.equal(pictureStill(new Uint8Array(0)), false);
   const noIdat = new Uint8Array(Buffer.concat([PNG_SIG, chunk('IHDR', Buffer.alloc(13)), chunk('IEND', Buffer.alloc(0))]));
@@ -157,10 +154,17 @@ test('#4885: a quiet re-read that fails leaves the screen as it was; a page-load
       return failWith === 'status' ? { ok: false } : { ok: true, json: async () => ({ ok: true }) };
     };
     // eslint-disable-next-line no-new-func
-    const run = new Function('fetch', 'industryPaint', 'let INDUSTRY_EPOCH = 0; async ' + lift('refreshIndustry') + 'return refreshIndustry;')(fetch, (r) => calls.push(r));
+    const document = { getElementById: () => ({ hidden: false }) };   // something is already on screen
+    const run = new Function('fetch', 'industryPaint', 'document', 'let INDUSTRY_EPOCH = 0; async ' + lift('refreshIndustry') + 'return refreshIndustry;')(fetch, (r) => calls.push(r), document);
     await run(false, quiet);
     assert.equal(calls.length, painted, 'quiet=' + quiet + ' ' + failWith);
   }
+  // A page that opens straight onto Automation has nothing on screen yet: a quiet read that fails still says so.
+  const calls = [];
+  const blank = { getElementById: () => ({ hidden: true }) };
+  const run = new Function('fetch', 'industryPaint', 'document', 'let INDUSTRY_EPOCH = 0; async ' + lift('refreshIndustry') + 'return refreshIndustry;')(async () => ({ ok: false }), (r) => calls.push(r), blank);
+  await run(false, true);
+  assert.deepEqual(calls, [null], 'a first read that failed painted nothing, leaving the picker hidden');
 });
 
 test('#4885: the agent page says when a chosen picture could not be fitted for the community', () => {

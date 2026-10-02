@@ -24,9 +24,9 @@ picture Kosmos can no longer take down is said in Settings.
 3. Applied at all three places a picture is stored: the agent page's file input, the create flow's pending picture,
    and a team member's portrait or mark (tcPortrait). A unit test counts the PUT sites written in that one form, a
    tripwire for a fourth, not a proof that none can skip it.
-4. GET /api/community-industry (which Settings reads when it opens) carries picturesStuck, from
-   communitysend.pictureUnreachable() when the send layer has it (0 before the board half lands); Settings shows one
-   line when it is above 0.
+4. GET /api/community-industry (which Settings reads at page load and, quietly, each time Automation opens) carries
+   picturesStuck and picturesUnsendable, from communitysend.pictureUnreachable() and pictureUnsendable() when the send
+   layer has them (0 before the board half lands, null when they throw); Settings shows a line for each above 0.
 
 ## Rejected
 - Resizing on the board: node has no image codec and Kosmos ships no image dependency.
@@ -104,6 +104,11 @@ picture Kosmos can no longer take down is said in Settings.
   showing "could not be read" over a blip; a failed read at page load still says so. Tested on the lifted function.
 - (review 10) The community reads a rotation only from a JPEG (app/avatars.py _jpeg) and drops a PNG's eXIf unread, so
   no eXIf shape makes it refuse a kept PNG; pictureTurned only decides whether to redraw one upright.
+
+- (review 11) The quiet re-read stays quiet only when the picker is already on screen, so a page that opens straight
+  onto Automation (a refresh there) still says the read failed. The unsendable line says "Choose a different picture,
+  or the same one again ... and Kosmos will fit it if it can", true when a picture cannot be decoded. Orientation 0 is
+  upright, as the community reads it. pictureStill reads PNG only (its unused WebP reading is gone).
 
 ## Weakest premise
 That 512 px is enough for every place Kosmos shows a picture. Agent pictures render at most a few hundred CSS pixels
