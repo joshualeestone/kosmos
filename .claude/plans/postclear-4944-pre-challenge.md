@@ -16,12 +16,69 @@ converged: true
 **Converged:** Yes
 **Fixed:** every BLOCKER and WARNING; one pre-#4944 behaviour deferred (a could_not recorded row's retry copy) | **Asked:** 0
 
-Ledger with every iteration: ~/.cache/claude-handoffs/4944/ledger.md (copied below in summary).
-- Iterations 1-10: converged at 45e52981d (see the ledger lines per iteration).
-- After convergence the queued browser check RAN and failed its "same height" arms: the pending "Sending…" pill was
-  17px taller than the kept row. Fixed in f8ee860a6 (plain text in the time's slot).
-- Iteration 11 (opus): BLOCKER, a sibling check still read the pill -> fixed (c38b97990).
-- Iteration 12 (sonnet): converged; NITs taken (75962edc3).
+### Per-Iteration Breakdown
+
+#### Iteration 1 (opus)
+- [WARNING] no-bubble empties box -> FIXED a3b6983
+- [WARNING] adjacent-reply case vacuous -> FIXED (case 13)
+- [WARNING] could_not vs catch rules -> FIXED (comment)
+- [CONVENTION] README row -> FIXED
+- [NIT] : announcer stale (fixed), undo history, header Run line (fixed)
+
+#### Iteration 2 (sonnet)
+- [BLOCKER] placed with no bubble leaves words armed -> FIXED b0524e6 (SELF)
+- [WARNING] restored words not re-parked -> FIXED
+- [WARNING] loose drawn selector -> FIXED
+- [WARNING] retyped draft retired -> FIXED
+- [WARNING] could_not recorded restores -> DEFERRED (pre-#4944 behaviour, retry copy; case 14)
+- [CONVENTION] plan -> FIXED
+
+#### Iteration 3 (opus)
+- [WARNING] catch restores after placed throw -> FIXED 069fe3d
+- [WARNING] moved-flight draft retire -> FIXED
+- [WARNING] unconfirmed line untrue -> FIXED
+- [WARNING] untested arms -> FIXED (17-19)
+- [NIT] chain adjacency -> FIXED, timer token -> FIXED
+
+#### Iteration 4 (sonnet)
+- [WARNING] not in gated.txt -> FIXED 74f4005
+- [WARNING] could_not/catch line ignores restore -> FIXED (dmNotSentWhere)
+- [CONVENTION] plan gated -> FIXED
+- [NIT] sendGen, header, case 12/19 -> FIXED
+
+#### Iteration 5 (opus)
+- [WARNING] unconfirmed says not sent -> FIXED 6e485f9
+- [WARNING] untested announcer/throw/no-bubble unconfirmed -> FIXED (21-23)
+- [NIT] shared adjacency helper -> FIXED
+
+#### Iteration 6 (sonnet)
+- [WARNING] no Sending line without bubble -> FIXED b4ec68c (SELF)
+- [WARNING] catch after non-delivered verdict -> FIXED
+- [NIT] case 22 discriminating -> DEFERRED (it is: restore would refill the box)
+
+#### Iteration 7 (opus)
+- [BLOCKER] case 17 asserts removed sentence -> FIXED fdd02b0 (SELF)
+- [WARNING] pill vs line -> FIXED (Not confirmed)
+- [WARNING] delivered includes could_not -> FIXED
+- [WARNING] attachment-only line -> FIXED
+- [NIT] rawBox, case 22 throw proof, plan numbering -> FIXED
+
+#### Iteration 8 (sonnet)
+- [WARNING] "back in the box" when retyped -> FIXED 96a5085
+- [WARNING] could_not recorded -> DUP of deferred
+
+#### Iteration 9 (opus)
+- [WARNING] Sending announced twice without bubble -> FIXED 45e5298 (SELF)
+- [WARNING] could_not recorded -> DUP of deferred
+- [NIT] comments -> FIXED
+
+#### Iteration 10 (sonnet)
+- No new issues found. 0 new. W timing/layout not yet run -> DUP of deferred fixed-sleep NIT; settled by the queued run. NIT could_not recorded says "marked not sent" (pill reads Could not deliver) -> open NIT.
+
+#### Iteration 12 (sonnet)
+- No new issues found. 0 BLOCKER, 0 SHOULD-FIX = CONVERGED on the height fix. NITs taken: the kept arm's vacuous pill test reads the slot; the unit test pins Sending… to <span class="msg-t">.
+
+Post-convergence: the queued browser check ran and measured the pending "Sending…" pill 17px taller than the kept row; fixed in f8ee860a6 before iterations 11 and 12.
 
 ### Validation
 - Mortals full suite on 45e52981d: 13678 pass, 0 fail. Its only red was the browser-check surface gate (16 DM checks mapped
