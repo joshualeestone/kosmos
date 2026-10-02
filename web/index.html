@@ -8375,7 +8375,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    #cstep-name rules above, rather than a second set: a field is 20px from the one above with no rule line,
    a label sits 6px over its control, the menus are 18rem, the Model block steps the same way, and the
    footer is its one row. The member box sits 16px under the purpose line, the fields' own spacing below it. */
-#cstep-teammake .field { border-top: 0; padding-top: 0; margin-top: var(--space-7); }
+#cstep-teammake .field { border-top: 0; padding-top: 0; margin-top: var(--space-7); max-width: 36rem; }
 #team-seeded-pick .flabel, #cstep-teammake .flabel { margin-bottom: var(--space-3); }
 #cstep-teammake #tc-project, #cstep-teammake #tc-provider, #cstep-teammake #tc-account,
 #cstep-teammake #tc-model { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
@@ -8384,7 +8384,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #tc-model-why { margin: 8px 0 0; }
 #cstep-teammake .tc-list { margin: var(--space-6) 0 0; }
 #cstep-teammake #tc-note { margin-top: var(--space-7); }
-#cstep-teammake .sfoot { justify-content: space-between; align-items: center; gap: var(--space-6); margin-top: var(--space-7); }
+#cstep-teammake .sfoot { justify-content: space-between; align-items: flex-start; gap: var(--space-6); margin-top: var(--space-7); }
 .tc-btns { display: flex; gap: var(--space-4); flex: 0 0 auto; }
 /* A phone has no room for the box and two buttons on one line: the buttons go under the box. */
 @media (max-width: 560px) { #cstep-teammake .sfoot { flex-wrap: wrap; } #cstep-teammake .tc-btns { margin-left: auto; } }
@@ -8399,9 +8399,10 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
   justify-content: flex-end; gap: var(--space-3); }
 @media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
-/* Item 8: a disabled menu looks locked, not only refuses a click (while the menus fill, and once the team is being
-   made, .tc-making, set by tcPaint, every one). Before the team starts, a model menu shown as one fixed sentence ("OpenAI picks its own model for now", or a list
-   still loading) reads at full strength, as on the single create: it is a statement, not a locked choice. */
+/* Item 8: a disabled menu looks locked, not only refuses a click: while the menus fill, and every menu while the
+   choice is fixed (.tc-making, set by tcPaint from tcChoiceFixed: a click or a run, or a member made). Otherwise a
+   model menu shown as one fixed sentence ("OpenAI picks its own model for now", or a list still loading) reads at
+   full strength, as on the single create: it is a statement, not a locked choice. */
 #cstep-teammake select:disabled { opacity: .55; cursor: default; }
 #cstep-teammake:not(.tc-making) #tc-model[data-fixed="1"]:disabled { opacity: 1; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
@@ -48653,7 +48654,7 @@ document.getElementById('tc-account').addEventListener('change', () => { TC_PROV
 function tcIsModelLoading() { const m = document.getElementById('tc-model'); return Boolean(m && m.dataset.loading === '1'); }
 let TC_MODEL_FOR = null;   // the provider|account the model menu was last painted for
 let TC_MODEL_GEN = 0;      // a newer paint supersedes a list still being read
-let TC_MODEL_WAIT_MS = 8000;   // web.teammodel-4935.test.js shortens it
+let TC_MODEL_WAIT_MS = 25000;   // above the ~20 s a cold OpenAI account check can take; web.teammodel-4935.test.js shortens it
 function tcSyncModel() {
   const sel = document.getElementById('tc-model');
   const step = document.getElementById('cstep-teammake');
@@ -48706,7 +48707,7 @@ function tcPaintModel(pv, ac) {
     if (!ac) { show(openaiOwn, true, openaiNoModelsNote(null), false); return; }
     show('<option value="">Loading this account\'s models…</option>', true, '', false, true);
     /* Bounded, as the account read on this step is: a slow or stuck answer (a live check can take ~20 s cold) must not
-       hold Create down with no word why, so after TC_MODEL_WAIT_MS it reads as "cannot list". */
+       hold Create down with no word why, so after TC_MODEL_WAIT_MS (above a cold check's ~20 s) it reads as "cannot list". */
     let waited;
     Promise.race([
       fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
@@ -48871,7 +48872,7 @@ function tcPaint() {
   go.disabled = Boolean(TC.busy);   // round 4: a resumed team still being started must not offer a dead button
   if (!TC.started && tcIsModelLoading()) go.disabled = true;   // #4935: not while the model list loads
   document.getElementById('tc-project').disabled = TC.started;
-  document.getElementById('cstep-teammake').classList.toggle('tc-making', Boolean(TC.started));   // #4935: every menu looks locked
+  document.getElementById('cstep-teammake').classList.toggle('tc-making', tcChoiceFixed());   // #4935: every menu looks locked while the choice is fixed
   // The "Let Kosmos know" choice: the sheet's one box, shown here too; fixed once the run has started.
   const tell = document.getElementById('tc-tell');
   const tellBox = document.getElementById('create-tell');

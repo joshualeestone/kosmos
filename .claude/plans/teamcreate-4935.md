@@ -140,6 +140,15 @@ statuses change, and Project/Model look locked while making.
 - Deferred: "on Claude the default is sent explicitly, so members are pinned to it". Deliberate: the single create
   sends its selected model the same way, and Josh asked to set one model for every agent; each can be changed later.
 
+## Review 15 changes
+- BLOCKER fixed: web.settings-agy-3874 pins the count of "Add a provider, then Google Gemini." at 4; the team step's
+  hint makes it 5, a deliberate new pointer (updated with a #4935 note). The focused test list missed it; the whole
+  web unit suite now runs before each commit on this branch.
+- .tc-making follows tcChoiceFixed(), not TC.started: after a refused lead the menus reopen and stop looking locked.
+- TC_MODEL_WAIT_MS 8 s -> 25 s, above the ~20 s a cold OpenAI account check can take.
+- The team .field takes the single create's 36rem cap; the footer aligns to the top as the single create's does;
+  the README row says the fixed-column control was measured by hand.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 
