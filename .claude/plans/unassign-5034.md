@@ -107,3 +107,10 @@ member routes / engine/tasks PLUS every test that lists files and reads them: 48
   comment claimed parity with the token read (which needs EVERY record) -> says union, and why. N2 project removal
   cleaned only the first same-id record's members -> members of every record read before remove() (test 13);
   sabotage K (removal ignores the other records) -> #13 red.
+- Review 6 (sonnet, blind): 0 B, 0 W, 2 N => CONVERGED. Ran 117 repo-wide list-and-read test files: 3318 pass, 0 fail.
+  N1 (stale sabotage record again, as review 2 W1) -> ALL re-run below on the final code. N2 roomhold header wrapped.
+- ALL SABOTAGES RE-RUN on 9faee75ac (the final code; only this plan changes after it), each against a restored tree:
+  A no cleanup -> #1 #3 #4 #5 #8 #10; B members not passed -> #2; C forgetProject no-op -> #5 #9 #13; D same-project
+  check gone -> #3; E auto guard gone -> #4; F inherited check gone -> #8; G removal-route call gone -> #9 #13;
+  H `left` handling gone -> #1; I last-record-wins map -> #11; J /api/report copies `left` -> #12; K removal ignores
+  other same-id records -> #13. THIS is the current record.
