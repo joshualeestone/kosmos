@@ -60479,7 +60479,7 @@ function voiceWho(line, forBtn) {
   bar.textContent = line || '';
 }
 /* Every stop the person asks for goes through here (a second tap, letting go of a hold, Escape), and so does the phone's
-   300 s cap. Slice 3: on a phone the audio may still be
+   300 s cap; on a phone, a further press while already Finishing cancels instead (voiceToggle). Slice 3: on a phone the audio may still be
    on its way until the last words come back, so the bar stays, saying so. */
 function voiceStop(h) {
   VOICE.stopping = true;   // a late 'listening' (a stop before the recognizer said it started) must not undo this line
@@ -60490,9 +60490,11 @@ function voiceToggle(btn) {
   const h = voiceBridge();
   if (!h || !btn) return;
   if (VOICE.btn === btn) {   // the second press: stop, keep the words
-    /* A press while already Finishing (a phone waiting up to 5 s for the last words) ends listening now: the person has
-       asked twice, and the bar must not keep saying audio is being turned into words. The words in the box stay. */
-    if (VOICE.stopping) { voiceCancel(); return; }
+    /* On a phone, a press while already Finishing (waiting up to 5 s for the last words) ends listening now: the person
+       has asked twice, and the bar must not keep saying audio is being turned into words. The words in the box stay.
+       Phone only (round 25): on the Mac a cancel throws away the recognizer's final corrected words, and there is no
+       bar to keep honest, so a further press there is one more stop, as before. */
+    if (VOICE.stopping && h.phone) { voiceCancel(); return; }
     voiceStop(h);
     return;
   }

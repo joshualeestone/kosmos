@@ -398,3 +398,13 @@ test('#4409 slice 3: a second press on the listening mic stops it through voiceS
   assert.equal(h.VOICE.btn, btn, 'a stop ends the session only when the last words are back (stopped)');
 });
 
+test('#4409 slice 3 review 25: on the Mac, a press while Finishing is one more stop, never a cancel (a cancel drops the final words)', () => {
+  const { h, posted, mkBtn, mkBox } = voiceHarness();
+  const box = mkBox('d-say');
+  h.set(CARD('april'), null);
+  const btn = mkBtn();
+  Object.assign(h.VOICE, { btn, box, before: '', after: '', where: h.voiceWhere(box), last: '', stopping: true });
+  h.voiceToggle(btn);
+  assert.equal(posted.at(-1).op, 'stop', 'a press while Finishing on the Mac sent ' + JSON.stringify(posted.at(-1)) + ', which throws away the final words');
+  assert.equal(h.VOICE.btn, btn, 'the Mac session ended at once instead of waiting for its final words');
+});

@@ -254,4 +254,10 @@ press stops through voiceStop and marks the stop.
   exactly that, which is how I found it). W3 is the weakest premise (iOS error codes unmeasured) (DUPLICATE). LEFT
   NITs: who-hears recomputed per paint (the gate is cached; a late change is implausible); review-round numbers in
   comments; the cap stop's Finishing; no-on-device is Mac-only (the phone never emits it); touch-action's reason.
+- Round 25 (opus): FIXED W (my own regression from round 24): the press-while-Finishing cancel also reached the Mac
+  app, where a cancel throws away the recognizer's final corrected words (hold, let go, tap again quickly); now phone
+  only, and the Mac's further press is one more stop as before. New unit test: on the Mac bridge a press while Finishing
+  posts stop and keeps the session; with the phone condition removed it goes red. NIT taken: voiceStop's comment names
+  the phone's cancel. LEFT NITs: the node harness stubs VOICE_SAYS_PHONE (the browser check covers the wording); a
+  timed-out stop leaves the cap timer armed (inert: rec === mine).
 
