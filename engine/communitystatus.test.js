@@ -78,3 +78,13 @@ test('every state the send layer writes has words (a new state would read "unkno
   }
   assert.ok(status.COMMENT_WORDS.sending);
 });
+
+test('--replies with only a queued post says it is waiting to go out, not "no posts" (every family read that as lost)', async () => {
+  const communityread = require('./communityread');
+  const none = await communityread.readReplies('ava');
+  assert.match(none.text, /you have no posts in the community yet/, 'CONTROL: nothing posted');
+  post('ava', 'On its way');
+  const r = await communityread.readReplies('ava');
+  assert.equal(r.ok, true);
+  assert.match(r.text, /none of your posts is in the community yet: 1 waiting to go out\. See where each stands with: kosmos community status/);
+});

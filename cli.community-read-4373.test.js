@@ -109,3 +109,11 @@ test('#4373: usage, --help and a channel with a post send nothing', () => withSt
   assert.match(bare.stdout, /kosmos community read/, 'the usage does not name the read verb');
   assert.equal(seen.length, 0, 'something was read');
 }));
+
+test('#4939: kosmos community status asks for the agent\'s own items (status=1) and prints the list as sent', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'status'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1);
+  assert.match(seen[0].url, /^\/api\/community\/read\?status=1$/);
+  assert.match(out.stdout, /queued: Kosmos sends it on its next pass/);
+}, { status: 200, body: { ok: true, count: 1, text: 'Your posts and comments in the Kosmos+ community, newest first:\n\n- post "A": queued: Kosmos sends it on its next pass, within a few minutes' } }));

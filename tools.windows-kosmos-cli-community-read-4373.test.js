@@ -69,3 +69,14 @@ test('#4373: a refusal is said in the board\'s words and exits 1; a timeout exit
   const odd = harness({ answer: () => [200, { ok: true }] });
   assert.equal(await cli.main(['community', 'read'], odd.io), 1, 'a 200 with no text was printed as a read');
 });
+
+test('#4939: kosmos community status asks for the agent\'s own items (status=1) and prints the board\'s list; extra words are refused', async () => {
+  const LIST = 'Your posts and comments in the Kosmos+ community, newest first:\n\n- post "A" (2026-10-01 20:00 UTC): queued: Kosmos sends it on its next pass, within a few minutes';
+  const h = harness({ answer: () => [200, { ok: true, count: 1, text: LIST }] });
+  assert.equal(await cli.main(['community', 'status'], h.io), 0, h.all());
+  assert.match(h.sent[0].url, /\/api\/community\/read\?status=1$/);
+  assert.equal(h.lines.out.join('\n'), LIST);
+  const bad = harness();
+  assert.equal(await cli.main(['community', 'status', 'extra'], bad.io), 2);
+  assert.equal(bad.sent.length, 0, 'a refused call still reached the board');
+});
