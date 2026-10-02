@@ -183,22 +183,16 @@ function scanCacheInvalidate() { scanCache = { at: 0, result: null }; }
    deliberately never walks. It therefore needs its OWN cache: reusing scanCache would
    either leak the TCC roots into the auto poll or hide them from the import flow. Fresh
    within SCAN_CACHE_MS; a scan that throws yields null so callers refuse rather than read. */
-let importScanCache = { at: 0, result: null };
-function getImportScan() {
-  const now = Date.now();
-  if (importScanCache.result && now - importScanCache.at < SCAN_CACHE_MS) return importScanCache.result;
-  let out = null;
-  try {
-    out = discover.scan({ importScan: true });
-    /* #3/#2125: do NOT cache a PARTIAL result. scan() returns scanning:true when the TCC-root
-       rows are not ready yet (the app-identity hatch has been asked and has not answered); caching
-       that would keep serving the TCC-less list for SCAN_CACHE_MS. Leaving it uncached means the
-       front-end's retry re-runs scan(), which picks up the scan-result.json the hatch has since
-       written and returns the complete list. A complete result (scanning falsey) caches normally. */
-    if (out && !out.scanning) importScanCache = { at: now, result: out };
-  } catch { out = null; }
-  return out;
-}
+/* kosmos#2461: the cache now lives in engine/importscan.js, which also remembers every file any scan
+   offered, until a FULL scan no longer offers it. So a file the list showed from Downloads/Documents/
+   Desktop can still be added after the 30 s cache expires, when a re-scan comes back partial or without
+   those folders (the hatch's answer is consumed on read and must be asked for again). */
+const importScan = require('./engine/importscan').createImportScan({
+  scan: () => discover.scan({ importScan: true }),
+  now: () => Date.now(),
+  cacheMs: SCAN_CACHE_MS,
+});
+function getImportScan() { return importScan.get(); }
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const a11ystatus = require('./engine/a11ystatus');
@@ -11517,14 +11511,14 @@ const server = http.createServer(async (req, res) => {
      subset check against this snapshot, so if a TCC-root item it serves is NOT
      here, that check is permanently false and a legitimate dismiss silently
      re-shows the whole scan block for anyone who granted file access. So the
-     snapshot reuses the WARM `importScanCache` (populated by the board's own
-     scan-import polls) when present.
+     snapshot reuses the WARM import cache, `importScan.warm()`, populated by the board's own
+     scan-import polls, when present.
 
      Each population is drawn from ITS OWN source, so the snapshot never depends on
      one scan being a superset of another (an implicit root-ordering assumption a
      future change could quietly break): the auto board population comes from the
      auto scan (a warm `scanCache` when present, else one bounded TCC-free walk),
-     and the TCC-inclusive import population from the warm `importScanCache`.
+     and the TCC-inclusive import population from the warm import cache (`importScan.warm()`).
 
      ⚠️ THE IMPORT CACHE IS READ WARM-ONLY -- a dismiss is a button click and must
      NEVER trigger a fresh `scan({importScan:true})`, which would pop the macOS
@@ -11532,7 +11526,7 @@ const server = http.createServer(async (req, res) => {
      it costs no more than a single board poll, which runs every few seconds anyway;
      the auto scan is a fresh walk only when its cache is cold (the granted case,
      where the board polls scan-import rather than scan-agents). Residual: TCC-root
-     items live ONLY in `importScanCache` (the auto scan is TCC-free by design), so
+     items live ONLY in the import cache (`importScan.warm()`) (the auto scan is TCC-free by design), so
      such an item is snapshotted only when the IMPORT cache is warm; if it is cold
      at the instant of the click (the board has not polled scan-import within
      SCAN_CACHE_MS), the item can miss the snapshot and re-show once, and the next
@@ -11552,9 +11546,8 @@ const server = http.createServer(async (req, res) => {
     }
     if (autoScan) { try { snap.push(...discover.candidateDirs(autoScan)); } catch { /* ignore */ } }
     /* The TCC-inclusive import population, warm cache ONLY (see above). */
-    if (importScanCache.result && (now - importScanCache.at) < SCAN_CACHE_MS) {
-      try { snap.push(...discover.candidateDirs(importScanCache.result)); } catch { /* ignore */ }
-    }
+    { const warm = importScan.warm();
+      if (warm) { try { snap.push(...discover.candidateDirs(warm)); } catch { /* ignore */ } } }
     /* `dismiss()` de-dupes what it is handed, so no Set wrapper is needed here. */
     try { discover.dismiss(snap); }
     catch { sendJson(res, 500, { ok: false, because: 'we could not remember that' }); return; }
@@ -13882,7 +13875,10 @@ const server = http.createServer(async (req, res) => {
      Residual (accepted): O_NOFOLLOW and the lstat check guard the FINAL component only, so
      an intermediate directory swapped to a symlink after scan time would be followed. That
      is outside the threat model here -- loopback-only, board-token-gated, single-user home;
-     anyone who can rename a directory in your home already runs as you. */
+     anyone who can rename a directory in your home already runs as you.
+     kosmos#2461: membership now also honours a file a scan offered earlier, until a FULL scan no longer
+     offers it (engine/importscan.js), so that residual window is no longer bounded by the 30 s cache. The
+     request's path is still never trusted, and every guard below still runs on every add. */
   if (pathname === '/api/agent-import-file' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -13899,8 +13895,7 @@ const server = http.createServer(async (req, res) => {
            lives in a TCC folder the auto scan never walks, so it would never be a member
            there. A scan that cannot run leaves `known` false, so the route refuses rather
            than reading. */
-        const scan = getImportScan();
-        const known = !!(scan && Array.isArray(scan.importable) && scan.importable.some((c) => c && c.file === file));
+        const known = importScan.known(file);   // kosmos#2461: any file a scan offered, unless a FULL scan has since lacked it
         if (!known) {
           sendJson(res, 200, { ok: false, because: 'that file is not one we found on this computer to import' });
           return;
