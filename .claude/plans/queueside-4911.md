@@ -216,6 +216,14 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   LIVE waiters per mix, each on its own lib generation (pre-#4609 704ffeb4c, #4911's base, this branch): mixes 1-3
   move; mix 1 deadlocks on round 12's lib. test-cut-guard.sh pins both arms of the rule. Nits: npm `sit` and
   `clean-install-test`; a nested run's command gets the same clean environment as an ordinary turn's.
+- Round 14 (Opus + Sonnet, blind): no blocker. Sonnet: no should-fix (it fuzzed 120 live trials across the three lib
+  generations against a model; no cycle needed a waiter of this lib). Opus: (1) the "older" half of the both-rules test
+  had no test (dropping it made a real 2-cycle and every arm stayed green): mix 4 added, red without it; (2) the tested
+  property was too weak and the claim overclaimed: a pre-#4609 waiter and a #4609 waiter can circle EACH OTHER, on main
+  today, and no rule here can break that. The arms now assert the property that holds: NO WAIT CYCLE PASSES THROUGH A
+  WAITER OF THIS LIB, computed from the live wait-for graph. CORRECTION to rounds 12-13: "one total order" and "no circle
+  across three generations" are withdrawn; the true statement is the one above. Nits: a marker gone between its read
+  and its line count is skipped (it was read as pre-#4609 for that pass); yarnpkg; a lost side take clears its cookie.
 - WEAKEST PREMISE, added round 11 (Opus): the aging is OFF while any waiter from a lib older than #4911 is live (every
   reader then uses the older rule, which is what prevents the three-waiter circle). A run-tests.sh from any branch not
   yet rebased past this merge writes such a marker, so the 367-minute light wait is fixed only as branches rebase

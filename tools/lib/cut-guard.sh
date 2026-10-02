@@ -708,7 +708,7 @@ _kosmos_suite_waiters_ahead() {
     # Review 12: a marker of 4 lines or fewer is a lib from before #4609, which orders strictly oldest-first; one of 5
     # lines is #4609's (light ahead, starving heavy first). The oldest generation live decides the rule for everyone.
     case "$(sed -n '$=' "$f" 2>/dev/null)" in
-      ''|*[!0-9]*) legacy=2 ;;
+      ''|*[!0-9]*) continue ;;   # review 14: gone between its read and this count (it is leaving to start): not a waiter
       *) if [ "$(sed -n '$=' "$f" 2>/dev/null)" -le 4 ]; then legacy=2
          elif [ "$(sed -n '$=' "$f" 2>/dev/null)" -lt 6 ] && [ "$legacy" != 2 ]; then legacy=1; fi ;;
     esac
@@ -1354,7 +1354,7 @@ kosmos_light_side_take() {
   # Review 3: a cut, an install harness and a page layer MARK themselves and then look for a side claim; this side
   # looked first and claimed second, so one could slip into the gap. Claimed now, it asks again: anything that marked
   # before the claim is seen here, and anything after it sees the claim. Either way one of the two waits.
-  if ! kosmos_light_side_clear "$what" >/dev/null 2>&1; then kosmos_release_light_side; return 1; fi
+  if ! kosmos_light_side_clear "$what" >/dev/null 2>&1; then kosmos_release_light_side; unset KOSMOS_LIGHT_SIDE_COOKIE; return 1; fi
   kosmos_unmark_suite_waiting
   return 0
 }
