@@ -48883,11 +48883,17 @@ function tcGoToTeam(auto) {
   setTimeout(say, 100);
 }
 /* #4936: a polite live region outside the step, which outlives it (the step is hidden or replaced when it speaks). */
-function tcDoneLive() {
-  // Review 29: it sits in the page's markup from load (a region made at the moment it speaks is often not announced);
-  // made here only if the markup ever loses it.
+function tcDoneLiveEnsure() {
   let live = document.getElementById('tc-done-live');
-  if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
+  if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); live.setAttribute('aria-atomic', 'true'); document.body.append(live); }
+  return live;
+}
+/* Review 29: made when the page loads, not at the moment it speaks (a region made then is often not announced). Not in
+   the markup: web.consolidated-980 counts the body's direct children against the consolidated grid's 39 rows, and a
+   .vh element is absolutely positioned, so made from script it takes no grid row. */
+tcDoneLiveEnsure();
+function tcDoneLive() {
+  const live = tcDoneLiveEnsure();
   live.textContent = '';
   return live;
 }
@@ -71971,8 +71977,5 @@ setInterval(ageCheckedStamp, 1000);
   }
 })();
 </script>
-<!-- #4936: the team step's "done" announcement, outside the step (it is hidden or replaced when this speaks), in the
-     markup from load so a screen reader hears its first change. -->
-<p class="vh" id="tc-done-live" aria-live="polite"></p>
 </body>
 </html>
