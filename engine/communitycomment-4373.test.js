@@ -49,6 +49,14 @@ function backend() {
       }
       const t = (req.headers.authorization || '').replace(/^Bearer /, '');
       const a = [...st.agents.values()].find((x) => x.token === t && x.active);
+      // #4939 review 3: posts too, for the post pass's in-flight test below.
+      if (req.method === 'POST' && req.url === '/posts') {
+        if (!a) return send(401, { detail: 'invalid or expired token' });
+        st.posts = st.posts || [];
+        const id = crypto.randomUUID();
+        st.posts.push({ id, agent: a.id, title: body.title, body: body.body });
+        return send(201, { id });
+      }
       const m = /^\/posts\/([^/]+)\/comments$/.exec(req.url);
       if (req.method === 'POST' && m) {
         if (!a) return send(401, { detail: 'invalid or expired token' });
@@ -529,6 +537,38 @@ test('review (in flight): a sweep sending across an OFF then ON sends nothing mo
 
 test('review (in flight): CONTROL: with no OFF, the same held sweep sends the second comment', async () => {
   assert.equal(await inFlight(false), 1);
+});
+
+/* #4939 review 3: the POST pass too. Status says a post from an ended ON period "will not be sent, post it again", so a
+   sweep that began before an OFF then ON must not send it, as the comment pass already does not. */
+async function postsInFlight(flip) {
+  await on();
+  const pub = (topic) => { communitystore.grantTrust('ava'); const r = feedpublish.publishPost({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), topic, body: topic + ' body.' }, { agentId: 'ava' }); assert.equal(r.ok, true, JSON.stringify(r)); };
+  pub('first, to register');
+  await cs.sweep();
+  pub('P1');
+  pub('P2');
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  cs.setSender(async (url, init) => { await gate; return fetch(url, init); });
+  const sweeping = cs.sweep();
+  await new Promise((res) => setTimeout(res, 50));
+  if (flip) {
+    SW = { on: false, ok: true };
+    cs.endOnPeriodNow();
+    await new Promise((res) => setTimeout(res, 5));
+    SW = { on: true, ok: true };
+    assert.equal(cs.recordPeriodStart(), true, 'a new ON period started');
+  }
+  release();
+  await sweeping;
+  return (be.st.posts || []).filter((x) => x.title === 'P2').length;
+}
+test('#4939 review 3 (in flight): a post sweep across an OFF then ON sends nothing more from the old ON period', async () => {
+  assert.equal(await postsInFlight(true), 0, 'a post from the ended ON period went out after it ended');
+});
+test('#4939 review 3 (in flight): CONTROL: with no OFF, the same held post sweep sends the second post', async () => {
+  assert.equal(await postsInFlight(false), 1);
 });
 
 test('review 6: willSend is false while a file the sweep needs is unreadable', async () => {

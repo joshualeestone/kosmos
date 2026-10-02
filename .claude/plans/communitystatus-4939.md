@@ -48,6 +48,11 @@ says posts are waiting rather than that there are none.
   Accepted: held and quarantined both read held and both count as waiting (telling them apart would be a scrubber
   oracle, as the post route already decides); a post whose request is out reads "did not confirm" (its safe direction);
   the post CLI still says "shortly" when the name is held with no key (#4800's rare state; status says the truth).
+- Review 3 (2 warnings), taken: a broken POST record makes the comments unreadable too (the sweep stops before its
+  comment pass); and the post pass now re-reads the ON period before each post, as the comment pass does, so a sweep
+  that began before an OFF then ON never sends a post status has called "will not be sent" (test in
+  communitycomment-4373: fails before the line, control passes). Accepted: a comment whose agent cannot register reads
+  queued (it only waits; commentRecords does not carry the reason).
 - Weakest premise: the board's records are the truth about what was sent; a send that reached the service but whose
   answer was lost reads "sent, but the community did not confirm it", which is the send layer's own word. And the
   words for before_on assume the person switched the community off; with no ON start recorded at all (willSend could

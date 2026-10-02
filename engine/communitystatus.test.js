@@ -110,7 +110,7 @@ test('review 1/2: a corrupt send record is "cannot say", never every sent post r
   assert.equal(stateOfTitle('ava', 'Sent one'), 'queued', 'CONTROL: no send records yet reads as empty, not unreadable');
   writeJson(cs._paths.sentFile(), { [a.id]: { state: 'sent', agent: 'ava', remoteId: 'r1' } });
   assert.equal(stateOfTitle('ava', 'Sent one'), 'sent');
-  const cases = [[cs._paths.sentFile(), 'unreadable', 'queued'], [cs._paths.commentsSentFile(), 'sent', 'unreadable'],
+  const cases = [[cs._paths.sentFile(), 'unreadable', 'unreadable'], [cs._paths.commentsSentFile(), 'sent', 'unreadable'],
     [cs._paths.keysFile(), 'unreadable', 'unreadable'], [cs._paths.stateFile(), 'unreadable', 'unreadable']];
   for (const [f, postState, commentState] of cases) {
     const before = fs.existsSync(f) ? fs.readFileSync(f) : null;

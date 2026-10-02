@@ -852,6 +852,10 @@ async function sweepOnce(now) {
       .filter((p) => !sent[p.id] || sent[p.id].state === 'pending');
     for (const post of due) {
       if (!switchOn()) break;                         // switched off mid-sweep: stop sending
+      // #4939 review 3: still the ON period this sweep began in? An OFF then ON while a POST was out leaves a new start,
+      // and posts from the old period must not go (status tells the agent they will not), as the comment pass does.
+      const cur = loadJson(stateFile());
+      if (!cur || cur.since !== from) break;
       // Re-read the owner's deletes before each send: one can arrive while this sweep waits.
       const nowDeletes = loadJson(deletesFile());
       if (!nowDeletes) break;                         // cannot see the owner's deletes: send nothing more

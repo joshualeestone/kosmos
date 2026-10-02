@@ -50,7 +50,8 @@ const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
 
 /* The send layer's files, read raw so a MISSING file (nothing recorded yet: empty) is told from a CORRUPT one (null:
    then nothing can be said, rather than calling every sent item "queued"). Review 2: per half, as the sweep's passes
-   need them: a broken comment record costs the comments' answers, never the posts'. */
+   need them: a broken comment record costs the comments' answers, never the posts'; a broken post record costs both,
+   because the sweep stops before its comment pass (review 3). */
 function readRecord(file) {
   let raw;
   try { raw = fs.readFileSync(file, 'utf8'); } catch (err) { return err && err.code === 'ENOENT' ? {} : null; }
@@ -67,7 +68,9 @@ function readRecords() {
   const shared = state !== null && keys !== null;
   return { state: state || {}, keys: keys || {},
     postsOk: shared && r(p.sentFile) !== null && r(p.deletesFile) !== null,
-    commentsOk: shared && r(p.commentsSentFile) !== null && r(p.commentDeletesFile) !== null };
+    // Review 3: the sweep stops before the comment pass when a POST record is unreadable, so comments need both halves.
+    commentsOk: shared && r(p.sentFile) !== null && r(p.deletesFile) !== null
+      && r(p.commentsSentFile) !== null && r(p.commentDeletesFile) !== null };
 }
 
 const madeAt = (x) => String(x.releasedAt || x.receivedAt || '');
