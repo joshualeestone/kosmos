@@ -80,6 +80,10 @@ TMUX_BIN="${4:?the path to tmux is required}"
 # own agents on the tmux Kosmos ships (a `brew upgrade` cannot pull it out from under them).
 _kosmos_supervisor_tmux() {
   local _said _cand _own _ownd _gone="" _tried=" "
+  # A bare name (no slash) is a PATH lookup, not a missing file.
+  case "$TMUX_BIN" in */*) ;; *) _cand="$(command -v "$TMUX_BIN" 2>/dev/null || true)"; [ -n "$_cand" ] && TMUX_BIN="$_cand" ;; esac
+  # ⚠️ No probe here has a timeout (bash 3.2 and macOS ship no `timeout`), like every other tmux call in this script; a
+  # server that hangs stalls this job at start as it would at its first has-session.
   if [ -f "$TMUX_BIN" ] && [ -x "$TMUX_BIN" ]; then
     _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
   else
@@ -109,7 +113,9 @@ _kosmos_supervisor_tmux() {
     _ownd="$(cd "${_own%/*}" 2>/dev/null && pwd)" || _ownd=""
     if [ -n "$_ownd" ]; then _own="$_ownd/tmux"; else _own=""; fi
   fi
-  for _cand in "$(command -v tmux 2>/dev/null || true)" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own"; do
+  # The SAME ORDER as the board (engine/status.js tmuxRepick): the known places, then Kosmos's own; this job's PATH
+  # tmux last (usually one of those again). When two can read the server, both sides take the same one.
+  for _cand in ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own" "$(command -v tmux 2>/dev/null || true)"; do
     [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
     case "$_tried" in *" $_cand "*) continue ;; esac   # once per path (command -v usually repeats a known place)
     _tried="$_tried$_cand "

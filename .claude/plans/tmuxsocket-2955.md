@@ -146,4 +146,14 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   to a missing path unless it sets one; the 2 s test's bound is under the 4 s it proves, not a tight 3.5 s; a
   tautological plistFor assertion removed (it could not fail); the redundant lazy require gone (status is required at
   the top of create.js; no cycle).
+- Round 10 (sonnet): FIXED W: the board and the supervisor tried candidates in different orders, so with two working
+  tmux they could settle on different ones; both now try the known places, then Kosmos's own (the supervisor its PATH
+  tmux last), stated in both comments (test: a PATH tmux and a known one both list, the known one wins; the old order
+  reds it). FIXED W (documented): only the board's look triggers the switch; the other readers meet the wall until the
+  next look, which is polled constantly; the comment says so. ACCEPTED W (written in the script): the supervisor's
+  probes have no timeout (bash 3.2 and macOS ship no `timeout`), like every other tmux call there. DUPLICATE W: a new
+  agent bakes the launcher's pick and its supervisor switches at start (round 2 and round 9, tested). NIT taken: a bare
+  tmux name is looked up on PATH, not taken for a gone tmux (test; my first version of it could not fail: a listing PATH
+  tmux won either way; it now uses a serverless PATH tmux and a listing own, so a missed lookup switches). LEFT NIT:
+  LAST_LOOK_PROBLEM is not reset between the new tests (each test that reads it sets it first).
 

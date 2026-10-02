@@ -39,13 +39,14 @@ function sandbox() {
   };
 }
 /** TMUX_BIN and PATH after the reader, from a baked tmux and a list of known places. */
-function run(baked, known, own, noSocket, scriptPath) {
+function run(baked, known, own, noSocket, scriptPath, pathTmux) {
   const script = `say() { :; }\nSESSION=a\nTMUX_BIN=${JSON.stringify(baked)}\n${fn()}\n_kosmos_supervisor_tmux\nprintf '%s\\n%s' "$TMUX_BIN" "$PATH"`;
   // Hermetic: an empty directory first and /bin (no tmux on any runner), so `command -v tmux` finds nothing real.
   const empty = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'supreader-path-'));
   // A socket on disk, as on Agent1s: 3.5a's wall words mean the wall only with one (with none they are its serverless voice).
   const sock = nodePath.join(empty, 'sock');
   if (!noSocket) { fs.mkdirSync(nodePath.join(sock, 'tmux-' + process.getuid()), { recursive: true }); fs.writeFileSync(nodePath.join(sock, 'tmux-' + process.getuid(), 'default'), ''); }
+  if (pathTmux) { fs.copyFileSync(pathTmux, nodePath.join(empty, 'tmux')); fs.chmodSync(nodePath.join(empty, 'tmux'), 0o755); }
   const env = { PATH: `${empty}:/bin:/usr/bin`, TMUX_TMPDIR: sock, KOSMOS_TMUX_KNOWN: known.join(' ') };
   if (own !== 'real') env.KOSMOS_TMUX_OWN = own || nodePath.join(empty, 'no-own-tmux');
   // $0 is the script's path, as under launchd (bash -c script NAME sets it).
@@ -113,6 +114,22 @@ test('#2955: a baked tmux that is gone (a removed Homebrew) is replaced: by one 
   assert.equal(run(gone, [t.wall, t.lists], t.none).bin, t.lists, 'a tmux that can read the server was not taken for a removed one');
   assert.equal(run(gone, [t.wall], t.none).bin, t.none, 'with no server to list, Kosmos\'s own was not taken for a removed tmux');
   assert.equal(run(gone, [t.wall], nodePath.join(t.sb, 'no-own')).bin, gone, 'control: with nothing runnable, the baked path stays');
+  fs.rmSync(t.sb, { recursive: true, force: true });
+});
+test('#2955: the supervisor tries the board\'s order (known places, Kosmos\'s own, then its PATH tmux), so both take the same one', () => {
+  const t = sandbox();
+  // A PATH tmux and a known one can both read the server: the known one wins, as on the board.
+  const r = run(t.wall, [t.lists], null, false, null, t.lists);
+  assert.equal(r.bin, t.lists, 'the supervisor took its PATH tmux over the known place the board takes');
+  assert.ok(!r.bin.includes('supreader-path-'), 'the PATH tmux won');
+  fs.rmSync(t.sb, { recursive: true, force: true });
+});
+test('#2955: a bare tmux name is looked up on PATH, not taken for a tmux that is gone', () => {
+  const t = sandbox();
+  // The PATH tmux works (it says there is no server); Kosmos's own could list. Taken for missing, the name would be
+  // swapped for Kosmos's own: it must stay the PATH tmux.
+  const r = run('tmux', [], t.lists, false, null, t.none);
+  assert.ok(r.bin.endsWith('/tmux') && r.bin.includes('supreader-path-'), 'a bare name was replaced as if missing: ' + r.bin);
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
 

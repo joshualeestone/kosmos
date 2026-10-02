@@ -519,6 +519,11 @@ function isVersionWall(got) {
    own value, so the two disagree and nothing is replaced.
    🔄 KOSMOS'S OWN tmux IS ALWAYS A CANDIDATE (<KOSMOS_HOME>/tmux/bin/tmux), so the board follows a server back to it
    whichever tmux it started on.
+   🔢 THE ORDER is the known places, then Kosmos's own, then the launcher's pick: the supervisor tries the same order
+   (then its PATH tmux), so when two binaries can read the server both sides take the same one.
+   📍 ONLY THE LOOK (tmuxPanes) triggers it. The other readers (list-sessions, display-message, capture-pane) use
+   whatever AGENT_WORKFORCE_TMUX_BIN holds, and meet the wall until the next look switches it; the look is polled
+   constantly, so that window is short.
    ⏳ A SEARCH THAT FOUND NOTHING WAITS A MINUTE before it runs again: each candidate is a process, and a lasting wall
    would otherwise spawn them on every look. KOSMOS_TMUX_KNOWN is a harness seam only, as in install/kosmos. */
 const LAUNCHER_TMUX = process.env.KOSMOS_TMUX_BIN_PICKED === '1' && process.env.AGENT_WORKFORCE_TMUX_BIN
