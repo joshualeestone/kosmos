@@ -39,7 +39,21 @@ it; the text is handed back to keep.
 - The "never delivered later" claim is scoped to a LIVE post: a post that first went to the outbox (wrong-world board)
   is retried by the outbox drain through the same guard, and the agent never sees these words on that path.
 
+## Review 2 (1 warning, 0 nits), taken
+- A piped copy after a cut-reply retry said "The piped message was not sent", which is inaccurate because the first try
+  may have landed before the connection cut. Fixed on both CLIs (install/kosmos and tools/windows/kosmos-cli.js) to pass
+  maybe, outputting "The piped message may not have been sent; a copy is saved at <file>. Check before sending it again."
+- Tests added in cli.busy-health-4466.test.js and tools.windows-kosmos-cli-busy-4466.test.js covering the --stdin retry case.
+
+## Review 3 (0 blockers, 0 warnings, 0 nits). CONVERGED.
+- Parity between Mac and Windows CLIs confirmed across normal post, retried post, piped post, and retried piped post.
+- Test assertions verified with positive matches and negative controls (neither CLI says "Nothing was sent to anyone" or
+  "was not sent" on retries, and both provide appropriate follow-up instructions).
+- No em dashes in code, comments, or documentation.
+
 ## Validation
 engine/messages.test.js (the valve refusal carries room_held, has no id, and stores no row); cli.room-reopen-2710 and
 tools.windows-kosmos-cli-570 (both CLIs' room_held wording, the person-facing sentence never shown, text handed back;
-the generic refusal unchanged). Three mutants (no code; either CLI branch off) each fail a test.
+the generic refusal unchanged); cli.busy-health-4466 and tools.windows-kosmos-cli-busy-4466 (cut-reply retry arms for
+both argument and --stdin posts on both CLIs). Mutant checks confirm test coverage.
+
