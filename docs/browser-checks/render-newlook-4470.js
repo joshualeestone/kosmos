@@ -29,7 +29,8 @@
  *    with no bubble, the composer a grey pill with no stroke; with the look off, today's (the control),
  *  - an agent's left column in the new look (DLEFT_LOOK): one grey box with 28px corners, the open section a tile in the
  *    page's ground and the rest flat, no edge and no gold; Files with no card under a hairline and a sentence-case
- *    heading; 300 to 380px wide on a desktop; with the look off, today's (the control),
+ *    heading; 300 to 380px wide on a desktop; the Profile boxes with no edge and 28px corners and sentence-case field
+ *    labels; with the look off, today's (the control),
  *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
  *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
  *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
@@ -165,6 +166,11 @@ const DLEFT_LOOK = `(() => {
       onBg: O.backgroundColor, onEdge: O.borderTopColor, onInk: O.color, offBg: X.backgroundColor, offEdge: X.borderTopColor, offInk: X.color,
       filesBg: F.backgroundColor, filesRule: F.borderTopWidth, headCase: H.textTransform, headSpacing: H.letterSpacing,
       padL: L.paddingLeft, talkOpen: !document.getElementById('d-sec-talk').hidden,
+      /* Slice 3: a Profile box and its first field label (computed style answers under the hidden section). */
+      ...(() => { const bx = document.querySelector('#d-sec-profile .dbox'), lb = bx && bx.querySelector('.flabel');
+        if (!bx || !lb) return { boxFound: false };
+        const B = getComputedStyle(bx), Lb = getComputedStyle(lb);
+        return { boxFound: true, boxEdge: B.borderTopColor, boxRadius: B.borderTopLeftRadius, labelCase: Lb.textTransform, labelSpacing: Lb.letterSpacing }; })(),
       cut: [...document.querySelectorAll('#d-nav button:not([hidden]) .dnav-lab')].filter((l) => l.scrollWidth > l.clientWidth).map((l) => l.textContent.trim()) };
   } finally { files.hidden = filesHidden; if (panel) panel.hidden = wasHidden; }
 })()`;
@@ -450,6 +456,8 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, an agent's page: Files has no card, a hairline above it, and a sentence-case heading`, JSON.stringify(dlOn));
       if (width >= 1088) chk(dlOn.found && dlOn.width >= 300 && dlOn.width <= 380, `${tag} On, an agent's page: the left column is the project page's 300 to 380px`, JSON.stringify(dlOn));
       chk(dlOn.found && dlOn.cut.length === 0, `${tag} On, an agent's page: no section button's label is cut off`, JSON.stringify(dlOn));
+      chk(dlOn.boxFound && dlOn.boxEdge === CLEAR && dlOn.boxRadius === '28px' && dlOn.labelCase === 'none' && (dlOn.labelSpacing === 'normal' || dlOn.labelSpacing === '0px'),
+        `${tag} On, an agent's Profile: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(dlOn));
       /* Round 1: between 56rem and 68rem the column was still 220px, which inside the box's padding left the file names
          a few letters each; and the phone chat, sized to the pixel, lost 56px of its nav row to the box. Both read here. */
       const atWidth = async (w) => { await page.setViewportSize({ width: w, height: 900 }); await page.waitForTimeout(150); return page.evaluate(DLEFT_LOOK); };
@@ -676,7 +684,7 @@ const AGENTS_LOOK = `(() => {
       /* Equal to the before-switch reading AND today's values pinned: the open button's gold edge, a closed one's
          edge, and FILES in capitals. */
       chk(dlOff.found && dlBefore.found && JSON.stringify(dlOff) === JSON.stringify(dlBefore) && dlOff.onEdge !== 'rgba(0, 0, 0, 0)' && dlOff.offEdge !== 'rgba(0, 0, 0, 0)'
-        && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme],
+        && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme] && dlOff.boxEdge !== 'rgba(0, 0, 0, 0)' && dlOff.labelCase === 'uppercase',
         `${tag} Off, an agent's page: exactly today's left column (edged buttons, FILES in capitals), as before the switch was touched (the control)`, JSON.stringify({ off: dlOff, before: dlBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
