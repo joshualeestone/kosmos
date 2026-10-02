@@ -232,6 +232,12 @@ const BLOCK = [
   'somewhere else. Greeting your manager in a reply to somebody else reads as',
   'not having looked at who was speaking.',
   '',
+  '### Your name is already on your message',
+  '',
+  '**Kosmos shows your name above every message you post in a room and every',
+  'reply you send the person, so never start a message with your own name**',
+  '("Dario: ..." or "**Dario:** ..."). Begin with what you have to say.',
+  '',
   '### Send readable messages, not a wall of text',
   '',
   '**A Kosmos room and your dialogue with the person both render formatting,',
@@ -833,8 +839,14 @@ function block() {
  *     idle, is still typed.
  *     WEAKEST PREMISE, NAMED: that agents who need an answer will name someone once told. Seen only in rooms after
  *     release.
+ *  22. kosmos#4873 (Josh, 2026-10-01 07:31): Claude, OpenAI and Gemini agents start room messages with their own
+ *     name ("Dario: ...") under a header that already says Dario. A NEW section, `### Your name is already on your
+ *     message`, says never to. NEW HEADING for the version 5/6/7/8 delivery reason (missingFrom matches by heading,
+ *     so existing agents are re-offered it). The board also hides a leading self-name when it renders a message
+ *     (web/index.html), so a message written before this lands, or one that slips through, reads cleanly.
+ *     WEAKEST PREMISE, NAMED: one instruction against a habit; the render half is what makes the room clean.
  */
-const DOCTRINE_VERSION = 21;
+const DOCTRINE_VERSION = 22;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

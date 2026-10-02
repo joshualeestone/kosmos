@@ -34753,7 +34753,8 @@ function dmRow(m, name, replyAdjacent) {
       + '<div class="msg-b"><div class="msg-bd">'
       + '<b class="msg-nm">' + esc(shownFrom) + '</b>'
       + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256 (guarded: the lifted dmRow tests run without it)
-      + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
+      + pjRich(typeof pjDropSelfName === 'function' ? pjDropSelfName(pjWords(m), [shownFrom, m.from]) : pjWords(m))   // #4873
+      + pjPreviewCard(m.preview) + pjAttachmentCards(m)
       + (whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '')
       + '</div>' + rxns + '</div></div>';
   }
@@ -34838,12 +34839,12 @@ function dmReplyHead(m, name, adjacent) {
   const orig = DM_ROWS.get(m.replyTo);
   /* As in a room (#3745): right under the message it answers, the thread already reads that way, so the
      header is left out; a screen reader still hears what it answers. */
-  if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig))) + '</span>';
+  if (adjacent === true && orig) return '<span class="vh">' + esc(replyHeardLine(dmReplyWho(orig, name), pjReplyGist(orig, dmReplyWho(orig, name)))) + '</span>';
   /* Never silence: a header whose original is not here says why, and "further back" is not "gone". */
   /* "Further back" only when older messages were left out AND the original is older than the oldest one sent;
      otherwise it is gone (pruned, or never here). */
   if (!orig) return '<span class="msg-replyto gone">' + (DM_ROWS_OLDER && DM_ROWS_OLDEST && m.replyTo < DM_ROWS_OLDEST ? 'Original message is further back' : 'Original message unavailable') + '</span>';
-  const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig);
+  const who = dmReplyWho(orig, name); const gist = pjReplyGist(orig, who);
   return '<button type="button" class="msg-replyto" data-jump-at="' + esc(m.replyTo) + '" aria-label="'
     + esc(who + ': ' + gist + ', the message this answers. Go to it') + '"><b>' + esc(who) + ':</b> ' + esc(gist) + '</button>';
 }
@@ -34890,7 +34891,7 @@ function dmReplyStart(at) {
   // guard is the server's: it refuses a reply to a message that is not in this conversation.
   if (!agent || !m || DM_ROWS_OF !== agent) { dmReplySay('Could not start a reply. Try again.'); return; }
   /* #4423: `from` kept beside the name, so the strip names the sender as they are called NOW (dmReplyPaint). */
-  DM_REPLY[agent] = { at, from: (m && m.from) || null, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m) };
+  DM_REPLY[agent] = { at, from: (m && m.from) || null, who: dmReplyWho(m, DM_ROWS_NAME), words: pjReplyGist(m, dmReplyWho(m, DM_ROWS_NAME)) };
   dmReplyPaint(agent);
   dmReplyAnnounce('Replying to ' + DM_REPLY[agent].who + ': ' + DM_REPLY[agent].words);
   const said = document.getElementById('d-say-msg');   // a refusal about the previous reply is done with
@@ -59034,6 +59035,26 @@ function pjWords(m) {
   if (names.length && text.trim() === names.join(', ')) return '';
   return text;
 }
+/* #4873 (Josh, 2026-10-01): agents start a message with their own name ("Dario: ...") under a header that already
+   says Dario. Drop that one prefix when drawing it: only one of the SENDER's own names, only at the very start, then a
+   colon or a dash, with optional bold around the name ("**Dario:**", "**Dario**:"). Any other name is left alone, and
+   a message that is nothing but the name is left whole. */
+function pjDropSelfName(words, names) {
+  const text = String(words == null ? '' : words);
+  /* Longest first, so "dario-claude" is tried before "Dario". A colon may sit tight against the name ("Dario:hi"); a
+     dash needs a space on both sides ("Dario - hi"), so "Dario-style", "Dario -5" and "Dario -- hi" are not cut. */
+  const sorted = (names || []).map((n) => (typeof n === 'string' ? n.trim() : '')).filter(Boolean).sort((a, b) => b.length - a.length);
+  for (const name of sorted) {
+    const q = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const sep = '(?:[ \\t]*:(?![/\\d])|[ \\t]+[\u2013\u2014-](?=[ \\t]))';   // a colon, or a hyphen, en or em dash with a space on both sides
+    /* Exact case: an agent named Status that writes "status: green" keeps its word. */
+    const re = new RegExp('^[ \\t]*(\\*\\*|__)?' + q + '(?:' + sep + '[ \\t]*\\1|\\1' + sep + ')[ \\t]*');
+    const m = re.exec(text);
+    const rest = m ? text.slice(m[0].length).replace(/^(?:[ \t]*\r?\n)+/, '') : '';   // and the blank lines a name on its own line leaves (not an indent)
+    if (rest.trim()) return rest;
+  }
+  return text;
+}
 /* All of a message's files, one card each, in the order they were added. */
 function pjAttachmentCards(m) {
   return pjFiles(m).map(pjAttachmentCard).join('');
@@ -59979,8 +60000,12 @@ function pjReplyWords(text) {
 }
 /* What the strip and the header quote: the first line, or for a post with no words the file it
    carried, so "Replying to You:" is never followed by nothing. */
-function pjReplyGist(m) {
-  const words = pjReplyWords(m && m.text);
+function pjReplyGist(m, who) {
+  /* #4873: an agent's own leading name is dropped here too, since the strip and the header name it beside the gist.
+     An external post (#3311) is drawn as written, so its gist is too. */
+  const raw = m && m.text;
+  const words = pjReplyWords(m && m.operator !== true && m.kind !== 'external' && m.from && typeof pjDropSelfName === 'function'
+    ? pjDropSelfName(raw, [who, m.from]) : raw);
   if (words) return words;
   const f = pjFiles(m)[0];
   return f ? (typeof f.name === 'string' && f.name ? f.name : 'a file') : 'a message';
@@ -60024,7 +60049,7 @@ function pjReplyStart(postId) {
   if (!p || !m || !PJ_CURRENT || PJ_ROOM_POSTS_OF !== PJ_CURRENT) { pjRoomAnnounce('Could not start a reply. Try again.'); return; }
   const was = PJ_REPLY[PJ_CURRENT];
   /* #4423: who it answers, kept as the id (or "you"), so the strip names them as they are called NOW (pjReplyPaint). */
-  PJ_REPLY[PJ_CURRENT] = { id: m.id, from: (m && m.operator !== true && m.from) || null, who: pjReplyWho(p, m), words: pjReplyGist(m), mention: null };
+  PJ_REPLY[PJ_CURRENT] = { id: m.id, from: (m && m.operator !== true && m.from) || null, who: pjReplyWho(p, m), words: pjReplyGist(m, pjReplyWho(p, m)), mention: null };
   pjReplyPaint(PJ_CURRENT);
   pjReplyMention(p, m, was && was.mention);
   const said = document.getElementById('pj-room-msg');   // a refusal about the previous reply is done with
@@ -60222,8 +60247,26 @@ function pjReceiptSentence(outcomes, p) {
    A tag this code cannot trust (offsets outside the text, overlapping, no
    source row) is not "probably a quote", it is the flat paragraph. */
 function pjRoomBody(m, p) {
-  const words = pjWords(m);
+  let words = pjWords(m);
   if (!words) return '';
+  /* #4873: an agent's own name at the start ("Dario: ...") is dropped; the row's header already says it. Its display
+     name (from pjMentionKeys, before the self-exclusion below) and its machine name both count; a person's post is untouched. */
+  /* The quotes (#460) slice the STORED text by offset, so after a drop of k characters every quote moves back by k;
+     a quote that starts inside the dropped prefix leaves the post drawn exactly as written. The name tried first is the
+     header's own (pjNameOf, which also names a former member), then the mention map's, then the machine name. */
+  let quotes = m && Array.isArray(m.quotes) ? m.quotes : null;
+  if (m && m.operator !== true && m.from) {
+    const keys = pjMentionKeys(p);
+    const shown = typeof pjNameOf === 'function' ? pjNameOf(p, m.from) : null;
+    const dropped = typeof pjDropSelfName === 'function' ? pjDropSelfName(words, [shown, keys && keys.get ? keys.get(m.from) : null, m.from]) : words;
+    const k = words.length - dropped.length;
+    const inPrefix = k && quotes && quotes.some((q) => q && typeof q === 'object' && Number.isInteger(q.start) && q.start < k);
+    if (k && !inPrefix) {
+      words = dropped;
+      if (quotes) quotes = quotes.map((q) => (q && typeof q === 'object' && Number.isInteger(q.start) && Number.isInteger(q.end)
+        ? Object.assign({}, q, { start: q.start - k, end: q.end - k }) : q));
+    }
+  }
   /* #2922: the Set of agent keys (sessionNames) on THIS project, so pjRichSpans can highlight an
      @name that flags an agent here. Derived by pjMentionKeys -- the SAME single source the
      live-input highlighter (pjMentionPaint) and the @ picker use -- so the posted message and the
@@ -60247,12 +60290,12 @@ function pjRoomBody(m, p) {
     agentNames.addressed = new Set(Array.isArray(m.mentioned) ? m.mentioned : []);
   }
   const flat = '<p>' + pjBody(words, PJ_DOC_NAMES, agentNames) + '</p>';
-  const qs = Array.isArray(m.quotes) ? m.quotes.filter((q) => q && typeof q === 'object'
+  const qs = Array.isArray(quotes) ? quotes.filter((q) => q && typeof q === 'object'
     && typeof q.of === 'string' && q.of
     && Number.isInteger(q.start) && Number.isInteger(q.end)
     && q.start >= 0 && q.end > q.start && q.end <= words.length)
     .slice().sort((a, b) => a.start - b.start) : [];
-  if (!qs.length || (Array.isArray(m.quotes) && qs.length !== m.quotes.length)) return flat;
+  if (!qs.length || (Array.isArray(quotes) && qs.length !== quotes.length)) return flat;
   for (let i = 1; i < qs.length; i += 1) if (qs[i].start < qs[i - 1].end) return flat;
   /* Prose between quotes keeps the spacing the person typed inside it; only
      the whitespace at its edges goes, since that only separated it from the
@@ -61039,15 +61082,15 @@ function pjRoomRow(m, p, hideHeader) {
     ? PJ_ROOM_POSTS.get(m.replyTo) : null;
   /* The header is left out when the reply sits right under what it answers; that closeness is only
      seen, so a screen reader still hears what it answers. */
-  if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr))) + '</span>';
+  if (origForSr) replyEl = '<span class="vh">' + esc(replyHeardLine(pjReplyWho(p, origForSr), pjReplyGist(origForSr, pjReplyWho(p, origForSr)))) + '</span>';
   // Left out only when the original is there to name; otherwise the header says it is gone (never silence).
   if (typeof m.replyTo === 'string' && m.replyTo && !origForSr) {
     const orig = PJ_ROOM_POSTS.get(m.replyTo);
     replyEl = !orig && PJ_ROOM_PARTIAL
       ? '<span class="msg-replyto gone">Original message could not be read just now</span>'   // unknown is not gone
       : orig
-      ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig) + ', the message this answers. Go to it') + '">'
-        + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig)) + '</button>'
+      ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig, pjReplyWho(p, orig)) + ', the message this answers. Go to it') + '">'
+        + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig, pjReplyWho(p, orig))) + '</button>'
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
