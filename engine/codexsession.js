@@ -81,6 +81,13 @@ function rollouts(home) {
  * on top of the full-parse this card's main fix removes. Cache the parsed meta (including a null for a
  * non-session_meta or unreadable head) by path, so the walk stays cheap and does not re-open every file.
  * A new rollout is a new path, so it is metaOf'd once; the cache never masks a newer session.
+ *
+ * GROWTH: one small entry (a cwd string + a few fields, or null) per rollout file this process has
+ * walked; entries for deleted rollouts are not pruned here (only readRolloutFields evicts, on a stat
+ * failure). It is bounded by the files on disk and cleared on every board restart, so for a normal
+ * board (tens to low hundreds of sessions) the memory is negligible. A board kept alive for weeks across
+ * thousands of sessions would hold thousands of tiny entries -- still modest, and the deliberate trade
+ * for never re-reading a rollout head; a periodic prune can be added if that ever matters.
  */
 const META_CACHE = new Map();   // file -> payload | null
 
