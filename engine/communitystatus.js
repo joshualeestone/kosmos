@@ -147,8 +147,9 @@ function itemsFor(sessionName, now = Date.now()) {
   return out;
 }
 
-/* Posts that will still go out on their own (or once the person releases them). Not "unconfirmed": that may be there. */
-const WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'held', 'paused']);
+/* Posts that will still go out on their own, or once the person releases them or fixes the address (review 9: worded
+   "waiting" too). Not "unconfirmed": that may be there. */
+const WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'held', 'paused', 'address_refused']);
 
 /** How many of the agent's posts are on their way to the community, for --replies. */
 function waitingPosts(sessionName) {

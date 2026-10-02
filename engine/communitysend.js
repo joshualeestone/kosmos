@@ -1171,10 +1171,12 @@ function statuses() {
 }
 
 /**
- * #4373 part B: will a comment published NOW go to the community? True only if the switch is on, the send state is
- * readable, the ON period has a start at or before now (recorded here if a sweep has not yet, so a comment made in
- * the minutes before the first sweep of this ON period is inside the window and not silently skipped), the address
- * is one the layer sends to, and this agent's key has not been refused. Called by the route BEFORE it stores.
+ * #4373 part B: will a comment (or, #4939, with kind 'post', a post) published NOW go to the community? sends is true
+ * only if the switch is on, the files that kind's pass needs are readable, the ON period has a start at or before now
+ * (recorded here if a sweep has not yet, so an item made in the minutes before the first sweep of this ON period is
+ * inside the window and not silently skipped), the address is one the layer sends to, and this agent's key has not
+ * been refused. later is true when it goes, but not on the next pass: that kind's daily cap, or a community name held
+ * by an earlier try. Called by the route BEFORE it stores.
  */
 function willSend(agentKey, now = Date.now(), kind = 'comment') {
   const no = { sends: false, later: false };

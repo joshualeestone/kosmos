@@ -151,6 +151,7 @@ test('review 2: an address the sweep will not send to reads so, not "queued"', (
   process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://community.example.com';
   writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
   assert.equal(stateOfTitle('ava', 'Insecure'), 'address_refused');
+  assert.equal(status.waitingPosts('ava'), 1, 'review 9: a post worded "waiting" was not counted as waiting for --replies');
   process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://127.0.0.1:9';
   writeJson(cs._paths.stateFile(), { since: '2000-01-01T00:00:00Z' });
   assert.equal(stateOfTitle('ava', 'Insecure'), 'queued', 'CONTROL: a local address is sent to');

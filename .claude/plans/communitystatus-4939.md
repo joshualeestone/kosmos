@@ -71,6 +71,8 @@ says posts are waiting rather than that there are none.
 - Review 8 (1 warning, 3 nits), taken: the Windows comment later words are pinned (full sentence), the Mac comment
   assertion covers its whole line, the source comment above registerWaitWords no longer over-promises, "still being
   sorted out" became "held by an earlier try" (Kosmos only checks it hourly).
+- Review 9 (3 nits), taken: two stale source comments (the post wording and willSend's header); a post behind a refused
+  address, worded "waiting", is now counted as waiting for --replies (test). Converged.
 - Weakest premise: the board's records are the truth about what was sent; a send that reached the service but whose
   answer was lost reads "sent, but the community did not confirm it", which is the send layer's own word. And the
   words for before_on assume the person switched the community off; with no ON start recorded at all (willSend could
