@@ -151,9 +151,15 @@ concurrency:
 
 jobs:
   browser-checks:
-    # 🛑 macos-latest, matching test.yml AND the cut's 3b: a green here must mean
-    # what a green 3b means, so it runs in the same OS family the release gate does.
-    runs-on: macos-latest
+    # #4601: ubuntu-latest, NOT macos-latest. This job was 30% of all macOS runner minutes
+    # (Baron's measurement on #4601: 1,018 of 3,412 on 2026-09-30), and the hosted macOS pool is
+    # the one that queues for about an hour while Linux and Windows jobs start at once. What it
+    # runs is the DOM-state allowlist plus the checks this diff selects (present / hidden /
+    # clickable / labeled), never paint or timing, so it does not need the release gate's OS.
+    # The OS-family gate stays where shipping is decided: the cut's 3b and the nightly
+    # browser-checks-full.yml both run on macOS. Weakest premise: a DOM difference only macOS
+    # shows now surfaces at 3b, not on the PR (later, but still before anything ships).
+    runs-on: ubuntu-latest
     # provision-pw (npm i + chromium+webkit builds) is ~2-4 min; the CI ALLOWLIST
     # subset (the headless-robust DOM-state checks named in the run step -- the list
     # grows batch by batch under #835, so this comment states no fixed count; most
@@ -188,12 +194,17 @@ jobs:
       # non-interactive -- CI-safe.
       - name: provision the pinned Playwright runtime (#1594)
         run: bash tools/provision-pw.sh
+      # #4601: on Linux the browsers need system libraries macOS ships with. Installed by the SAME
+      # pinned playwright provision-pw.sh just put in place, for exactly the two browsers it fetched.
+      - name: 'system libraries for the browsers (#4601, Linux)'
+        timeout-minutes: 15
+        run: sudo "$HOME/work/pw-runtime/node_modules/.bin/playwright" install-deps chromium webkit
       # #4119: tmux, as browser-checks-full.yml installs it (#3973). render-talk's reopen arm reads
       # the real status.snapshot(), which throws without tmux; on the runner that read as a check
       # failure every night until #4076. A selected render-talk needs it here too.
       - name: 'install tmux (#3973, #4119)'
         timeout-minutes: 10
-        run: brew install tmux
+        run: sudo apt-get update -qq && sudo apt-get install -y tmux
       # #4119: WHICH CHECKS THIS DIFF TOUCHES, beyond the fixed allowlist below. On 2026-09-26 two
       # page PRs passed this job and broke a check outside the allowlist, found only at the 0.7.01
       # cut (about 3 hours of release): #3985 broke render-talk, #4095 broke render-fields.

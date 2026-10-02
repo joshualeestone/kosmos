@@ -78,11 +78,12 @@ for p in 'web/index\.html' 'docs/browser-checks/' 'tools/browser-checks\.sh' 'to
 done
 pass "the paths filter LISTS every trigger surface (rendered page, checks, driver, runtime pin, test-support deps, self)"
 
-# 5. It runs where a green means what a green 3b means: macos-latest, matching
-#    test.yml and the cut's own 3b environment.
-grep -qE 'runs-on:[[:space:]]*macos-latest' "$WF" \
-  || fail "the workflow does not run on macos-latest (it must match the cut's 3b environment)"
-pass "the workflow runs on macos-latest, matching the cut"
+# 5. #4601: the PR job runs on ubuntu-latest, off the scarce hosted macOS pool. It runs only the
+#    DOM-state allowlist; the OS-family gate is the cut's 3b and browser-checks-full.yml (pinned to
+#    macos-latest below), which is where shipping is decided.
+grep -qE 'runs-on:[[:space:]]*ubuntu-latest' "$WF" \
+  || fail "the PR job is not on ubuntu-latest (#4601: it would queue on the hosted macOS pool again)"
+pass "the PR job runs on ubuntu-latest (#4601); the full nightly set stays on macOS"
 
 # 6. Sanity: the gate the workflow calls actually exists and parses, so a green
 #    workflow is not calling a missing/broken script.
@@ -142,7 +143,7 @@ if command -v ruby >/dev/null 2>&1; then
     abort "the allowlist job sets no KOSMOS_BC_CI_ALLOWLIST" unless envs.(g).any? { |e| e.key?("KOSMOS_BC_CI_ALLOWLIST") }
     abort "the allowlist job does not run browser-checks.sh with the strict pin" unless runs.(g) =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/
     abort "the allowlist job does not provision Playwright" unless runs.(g).include?("tools/provision-pw.sh")
-    abort "the allowlist job is not on macos-latest" unless g["runs-on"] == "macos-latest"
+    abort "the allowlist job is not on ubuntu-latest (#4601)" unless g["runs-on"] == "ubuntu-latest"
     # kosmos#4119: the PR job also runs the checks the page diff touches. Without the selection
     # step, or with its names never reaching the run line, the job silently falls back to the
     # fixed allowlist that let #3985 (render-talk) and #4095 (render-fields) through on 09-26.
@@ -151,7 +152,11 @@ if command -v ruby >/dev/null 2>&1; then
     abort "the allowlist job checkout needs fetch-depth: 0 (the selection diffs against the merge base)" unless (gco["with"] || {})["fetch-depth"].to_s == "0"
     si = gs.index { |st| st["run"].to_s.include?("node tools/bc-pr-select.js") }
     gi = gs.index { |st| st["run"].to_s =~ /KOSMOS_PW_STRICT_VERSION=1 bash tools\/browser-checks\.sh/ }
-    gti = gs.index { |st| st["run"].to_s =~ /\bbrew install tmux\b/ }
+    gti = gs.index { |st| st["run"].to_s =~ /\bapt-get install -y tmux\b/ }
+    # #4601: on Linux the browsers need system libraries, from the SAME pinned playwright, before any check runs.
+    gdi = gs.index { |st| st["run"].to_s.include?("node_modules/.bin/playwright\" install-deps chromium webkit") }
+    gpi = gs.index { |st| st["run"].to_s.include?("tools/provision-pw.sh") }
+    abort "the allowlist job does not install the browsers system libraries after provisioning (#4601)" unless gdi && gpi && gpi < gdi && gdi < gi
     abort "the allowlist job does not run tools/bc-pr-select.js (#4119)" unless si
     abort "the selection step must come BEFORE the checks step" unless gi && si < gi
     abort "the selection step does not export KOSMOS_BC_PR_SELECTED" unless gs[si]["run"].to_s.include?("KOSMOS_BC_PR_SELECTED=") && gs[si]["run"].to_s.include?("GITHUB_ENV")
