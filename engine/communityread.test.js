@@ -1040,3 +1040,39 @@ test('#4951 review 6 (Opus): a 429 or no answer ends the count as busy with stop
   assert.equal(g.ok, true);
   assert.equal(asked.length, 2, 'a 404 ended the count');
 });
+
+test('#4951 review 7 (Sonnet): a reply past the 2-reply preview is counted, as the agent\'s own read shows it', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const seen = serve({
+    ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: CID(1), created_at: T(8), agent: { name: 'Ann' }, body: 'one', replies_cursor: 'cur1', reply_count: 3, replies: [
+        comment({ id: CID(2), parent_id: CID(1), created_at: T(9), agent: { name: 'nia-writes' }, body: 'mine' }),
+        comment({ id: CID(3), parent_id: CID(1), created_at: T(10), agent: { name: 'Ann' }, body: 'back' }),
+      ] }),
+    ] } }),
+    ['/posts/' + RP(7) + '/comments/' + CID(1) + '/replies']: () => ({ status: 200, json: { replies: [
+      comment({ id: CID(5), parent_id: CID(1), created_at: T(11), agent: { name: 'Bo' }, body: 'third' }),
+    ] } }),
+  });
+  const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.equal(f.ok, true, f.because);
+  assert.deepEqual(f.posts.map((p) => p.ids), [[CID(1), CID(3), CID(5)]], 'the third reply (past the preview) was not counted');
+  assert.ok(seen.some((u) => u.includes('/replies?') && u.includes('cursor=cur1')), 'the unshown replies were not read');
+  const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the agent's own read shows the same three
+  assert.equal(r.count, 3, 'the count and the agent\'s own read disagree');
+});
+
+test('#4951 review 7 (Sonnet): two agents\' own reads still refuse each other (only the nudge\'s count is waited for)', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  let release;
+  cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
+  const first = cr.readReplies('Nia4951', { now: NOW });
+  await new Promise((res) => setImmediate(res));
+  const second = await cr.readReplies('Nia4951', { now: NOW });
+  assert.equal(second.ok, false, 'a second own read ran beside the first');
+  assert.match(second.because, /another read of replies is running/);
+  release();
+  assert.equal((await first).ok, true);
+});

@@ -425,6 +425,22 @@ async function freshReplies(sessionName, opts = {}) {
       if (!list) continue;   // gone, refused or unreadable: nothing to say about it this pass
       let comments;
       try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { continue; }
+      /* Review 7 (Sonnet): the agent's own read also reads the unshown replies of the newest REPLY_PAGES_PER_POST comments
+         that have any (its round 2), so the count does too, one page each, paced and stepping aside the same way. Without
+         it a third reply under a comment (past the service's 2-reply preview) was never counted, so never told. */
+      let unread = false;
+      for (const c of comments.filter((x) => x.replyCount > x.replies.length && x.repliesCursor).slice(0, REPLY_PAGES_PER_POST)) {
+        if (replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
+        if (pace > 0) await new Promise((res) => setTimeout(res, pace));
+        asked += 1;
+        const r = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments/' + encodeURIComponent(c.id)
+          + '/replies?limit=20&cursor=' + encodeURIComponent(c.repliesCursor), THREAD_READ_CAP);
+        if (r.status === 429 || !r.status) return { ok: false, busy: true, stop: true, because: r.status === 429 ? 'the community service is limiting requests' : 'the community service did not answer' };
+        const more = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
+        if (!more) { unread = true; break; }
+        try { c.replies = c.replies.concat(more.slice(0, 20).map(replyOf).filter(Boolean)); } catch { unread = true; break; }
+      }
+      if (unread) continue;   // as the agent's own read: a post half read says nothing this pass (all or nothing)
       const mark = marks[p.remoteId];
       const fresh = [];
       for (const c of comments) for (const x of [c, ...c.replies]) {

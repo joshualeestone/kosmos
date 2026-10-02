@@ -231,10 +231,13 @@ async function sweepOnce(o) {
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;
         let held = false;
+        let paneBusy = false;
         typedOne = true;
-        try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); }
+        try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); paneBusy = Boolean(r && r.busy === true); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
         if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because }); continue; }
+        // Review 7 (Sonnet): a pane still placing another message is busy, not unreachable: no try is counted (as held).
+        if (paneBusy) { results.push({ session, name: display, act: 'pane-busy', delivered: false, delivery: state, because: p.because }); continue; }
         const D = o.DELIVERY || {};
         const delivered = D.PLACED != null && state === D.PLACED;
         const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);

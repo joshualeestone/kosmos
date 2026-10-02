@@ -39,7 +39,7 @@ function rig(over) {
   const store = new Map();
   const typed = [];
   const o = Object.assign({
-    roster: [card('kim')], projects: [], book: new Map(), sent: [], limit: { on: false }, betweenAgentsMs: 0, typeGapMs: 0,
+    roster: [card('kim')], projects: [], book: new Map(), sent: [], limit: { on: false }, betweenAgentsMs: 0, typeGapMs: 0, busyWaitMs: 0,
     fresh: fresh([{ remoteId: P1, title: 'Shipping notes', ids: ['r1', 'r2'] }]),
     readNudged: (s) => new Set(store.get(s) || []), writeNudged: (s, set) => { store.set(s, [...set]); return true; },
     deliver: (s, text) => { typed.push({ s, text }); return { state: D.PLACED }; }, DELIVERY: D,
@@ -354,4 +354,36 @@ test('#4951 review 6 (Opus): a busy count waits for the read and asks again, so 
     fresh: async (s) => { stopped.push(s); return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' }; } });
   await rn.sweepOnce(o2);
   assert.deepEqual(stopped, ['kim'], 'a refusing service was asked again, or asked about a later agent');
+});
+
+test('#4951 review 7 (Sonnet): a pane still placing another message is busy, not a failed try; the reply is told once after', async () => {
+  const { o, typed } = rig({});
+  let busy = 4;
+  o.deliver = (s, text) => { if (busy > 0) { busy -= 1; return { state: D.COULD_NOT, busy: true }; } typed.push({ s, text }); return { state: D.PLACED }; };
+  for (let i = 0; i < 6; i += 1) await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'a reply whose pane was busy past MAX_TRIES passes was never told, or told twice: ' + typed.length);
+  const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  assert.match(src, /still being placed in its window, so this one was not typed',\n[^\n]*\n\s*busy: true,/, 'chat.js no longer marks the being-placed refusal busy');
+});
+
+test('#4951 review 7 (Sonnet): nothing is read for a stood-down agent, nor once the hour cap is met', async () => {
+  const asked = [];
+  const paused = { id: 'p1', agents: ['kim'], tasks: [], paused: true };
+  const a = rig({ projects: [paused], fresh: async (s) => { asked.push(s); return { ok: true, posts: [] }; } });
+  await rn.sweepOnce(a.o);
+  assert.deepEqual(asked, [], 'a stood-down agent was read');
+  const now = Date.now();
+  const b = rig({ limit: { on: true, perHour: 1 }, sent: [now - 1000], fresh: async (s) => { asked.push(s); return { ok: true, posts: [] }; } });
+  await rn.sweepOnce(b.o);
+  assert.deepEqual(asked, [], 'replies were read with the hour cap already met');
+});
+
+test('#4951 review 7 (Sonnet): a told record that turns unreadable between the count and the line types nothing', async () => {
+  let reads = 0;
+  const { o, typed } = rig({});
+  o.readNudged = () => { reads += 1; return reads === 1 ? new Set() : null; };
+  const r = await rn.sweepOnce(o);
+  assert.equal(reads, 2, 'fixture: the record was not read at both points');
+  assert.equal(typed.length, 0, 'a line was typed with the told record unreadable');
+  assert.ok(!r.results.some((x) => x.act === 'error'), 'the unreadable record reached plan() and threw');
 });

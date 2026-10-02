@@ -97,3 +97,17 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT (kept): the marks stamp can be wrong both ways in rare cases (a read that wrote floor marks only; a read whose mark
   write failed; a read still in flight). Each costs at most one delayed or one extra line; the told record still stops
   any reply being told twice.
+
+## Review 7 (Sonnet, blind): 0 blockers, 2 warnings, 8 nits.
+- WARNING FIXED: a reply past the service's 2-reply preview (a third reply under a comment) was never counted, so never
+  told. freshReplies now reads the unshown replies of the newest REPLY_PAGES_PER_POST comments, exactly as the agent's own
+  read does in its round 2 (paced, stepping aside, 429 stops; a post half read says nothing this pass). Test (control:
+  readReplies shows the same 3) + mutant.
+- WARNING FIXED: a "still being placed" refusal burned a try (three busy passes gave the batch up). chat.deliver marks that
+  refusal `busy: true` (additive; chat.test asserts it); the pass counts no try for it, as for held. Test + mutant.
+- NIT FIXED (tests that could not fail): nothing read for a stood-down agent; nothing read once the cap is met; a told
+  record unreadable at typing time types nothing; two agents' own reads refuse each other. Mutants for the first three.
+- NIT FIXED: the rig's busy wait is 0 (a test was paying the real 20 s of retries).
+- NIT (kept): a failed writeNudged can leave a .tmp file; a failed delivery drops skipSaid; a cap-held line is logged each
+  pass. Cosmetic.
+- Reviewer note: its mutation sweep stopped at mutant 9 (removing !givenUp) without a verdict; not a finding.
