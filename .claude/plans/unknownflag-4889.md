@@ -132,3 +132,8 @@ recorded "--clear" as the question, and the agent believed it had cleared the ca
   react and room reopen too, where there is no text slot to quote into. The refusal is still loud and correct; the
   advice is only unhelpful there. Left as is rather than change wording after convergence.
 - Rebased onto 2f6a91e06 (#4875, #4854; neither touches install/kosmos or the Windows CLI).
+
+## Validation at convergence
+- Full tools/run-tests.sh on Mortals at bff9910e4 (2026-10-02 10:56 CDT): validation PASSED, hash 0ca9459c, remote hash equal to the local one.
+- main then moved 79 commits, three of them in this branch's files (engine/messages.js, install/kosmos, tools/windows/kosmos-cli.js: #4926, #4954, #4993, #4970). merge-tree clean. Rebased onto 1ab08b03c/d6e42e04f -> e19475274 (backup branch backup-4889-prerebase2-1056).
+- On the rebased head e19475274 (Agent1s, 11:02-11:05 CDT, queued light): every cli.* and tools.windows-kosmos-cli* file, every engine/messages*.test.js, and every .test.js main added or changed since the old base, 120 files: 2282 tests, 2268 pass, 0 fail, 14 skipped (all Windows-only arms).
