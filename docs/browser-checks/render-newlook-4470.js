@@ -232,6 +232,10 @@ const CTRL_LOOK = `(() => {
     return { found: !!box && !!quiet, plainBg: P.backgroundColor, plainEdge: P.borderTopColor, plainRadius: P.borderTopLeftRadius, plainShadow: P.boxShadow,
       mainBg: M.backgroundColor, mainRadius: M.borderTopLeftRadius, dangerEdge: D.borderTopColor, dangerRadius: D.borderTopLeftRadius,
       quietBg: Q && Q.backgroundColor, quietEdge: Q && Q.borderTopColor, quietRadius: Q && Q.borderTopLeftRadius,
+      /* Round 3: a disabled plain button (Change & Restart, disabled until a model is picked) as an outlined pill. */
+      ...(() => { const d = document.getElementById('d-model-go'); if (!d) return { disabledFound: false };
+        const was = d.disabled; d.disabled = true; const D2 = getComputedStyle(d);
+        const r = { disabledFound: true, disabledBg: D2.backgroundColor, disabledEdge: D2.borderTopColor }; d.disabled = was; return r; })(),
       outsideDangerEdge: getComputedStyle(danger).borderTopColor, plainFocus: (() => {
         /* Round 2: with the edge gone the focus ring is the pill's only cue beyond its label; focused as a keyboard
            would focus it, read, and let go. */
@@ -533,9 +537,14 @@ const AGENTS_LOOK = `(() => {
       chk(setOn.found && setOn.boxEdge === CLEAR && setOn.boxRadius === '28px' && setOn.labelCase === 'none',
         `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
       const ctlOn = await page.evaluate(CTRL_LOOK);
-      chk(ctlOn.found && ctlOn.plainBg === PAGE_OF[theme] && ctlOn.plainEdge === CLEAR && ctlOn.plainRadius === '999px'
+      /* Round 3: a button's fill is above the box in both schemes (white in light; a step lighter than the box in dark,
+         where the field is black), never the field's. */
+      const RAISE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(58, 58, 60)' };
+      chk(ctlOn.disabledFound && ctlOn.disabledBg === CLEAR && ctlOn.disabledEdge !== CLEAR,
+        `${tag} On, the controls: a disabled plain button is an outlined pill, not a faint shape`, JSON.stringify(ctlOn));
+      chk(ctlOn.found && ctlOn.plainBg === RAISE_OF[theme] && ctlOn.plainEdge === CLEAR && ctlOn.plainRadius === '999px'
         && ctlOn.plainShadow !== 'none' && ctlOn.mainRadius === '999px' && ctlOn.mainBg !== PAGE_OF[theme] && ctlOn.mainBg !== CLEAR
-        && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === PAGE_OF[theme] && ctlOn.quietEdge === CLEAR && ctlOn.quietRadius === '999px'
+        && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === RAISE_OF[theme] && ctlOn.quietEdge === CLEAR && ctlOn.quietRadius === '999px'
         && ctlOn.plainFocus !== 'none' && ctlOn.plainFocus !== 'not focused' && ctlOn.outsideDangerEdge !== CLEAR,
         `${tag} On, the controls: plain and quiet buttons are raised pills in the page's ground with no edge, the main one a pill that keeps its fill, a danger one a pill that keeps its edge`, JSON.stringify(ctlOn));
       const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
@@ -611,6 +620,9 @@ const AGENTS_LOOK = `(() => {
         const dmForced = await page.evaluate(DM_LOOK);   // the generated forced-dark rules sit later in the sheet (round 1)
         chk(dmForced.found && dmForced.box === 'rgb(0, 0, 0)' && dmForced.you === GREY_OF.dark && dmForced.agent === 'rgb(0, 0, 0)' && dmForced.tail === 'rgb(0, 0, 0)' && dmForced.composer === GREY_OF.dark,
           `${tag} On + chosen Dark: an agent's page has the black ground, dark-grey own messages and composer`, JSON.stringify(dmForced));
+        const ctlForced = await page.evaluate(CTRL_LOOK);
+        chk(ctlForced.found && ctlForced.plainBg === 'rgb(58, 58, 60)' && ctlForced.plainEdge === 'rgba(0, 0, 0, 0)',
+          `${tag} On + chosen Dark: a plain button is the raised dark pill, a step lighter than the box`, JSON.stringify(ctlForced));
         const dlForced = await page.evaluate(DLEFT_LOOK);
         chk(dlForced.found && dlForced.ground === GREY_OF.dark && dlForced.onBg === 'rgb(0, 0, 0)',
           `${tag} On + chosen Dark: an agent's left column is the dark grey box, the open section a black tile`, JSON.stringify(dlForced));
