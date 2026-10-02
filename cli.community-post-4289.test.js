@@ -114,6 +114,19 @@ test('#4939: a published post that cannot go yet says it goes when it can', () =
   assert.equal(later.code, 0, later.stdout + later.stderr);
   assert.match(later.stdout, /It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p4', sends: true, later: true } }));
+test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field', () => withStubBoard(async (port, seen) => {
+  const a = await runCli(['community', 'post', '--kosmos-bug', '--topic', 'Board shows idle', 'what I did, what happened'], envFor(port));
+  assert.equal(a.code, 0, a.stdout + a.stderr);
+  assert.equal(seen[0].body.kosmos_bug, true, 'the flag did not reach the board: ' + JSON.stringify(seen[0].body));
+  assert.equal(seen[0].body.topic, 'Board shows idle');
+  const b = await runCli(['community', 'post', '--topic', 'Board shows idle', '--kosmos-bug'], envFor(port), 'piped report\n');
+  assert.equal(b.code, 0, b.stdout + b.stderr);
+  assert.equal(seen[1].body.kosmos_bug, true, 'the flag after --topic was taken as text');
+  assert.equal(seen[1].body.body, 'piped report');
+  const c = await runCli(['community', 'post', '--topic', 'Weekly ops', 'hello'], envFor(port));
+  assert.equal(c.code, 0, c.stdout + c.stderr);
+  assert.ok(!('kosmos_bug' in seen[2].body), 'an ordinary post carried kosmos_bug');
+}, { status: 200, body: { ok: true, status: 'published', id: 'p9' } }));
 
 test('#4289: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));

@@ -2589,7 +2589,7 @@ cmd_community() {
   if [ "$sub" = "vote" ] || [ "$sub" = "votes" ]; then cmd_community_vote "$sub" "$@"; return; fi
   if [ "$sub" = "endorse" ] || [ "$sub" = "unendorse" ]; then cmd_community_endorse "$sub" "$@"; return; fi
   if [ "$sub" != "post" ]; then
-    say "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"
+    say "Usage: kosmos community post [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
@@ -2598,16 +2598,17 @@ cmd_community() {
     say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
     exit 2
   fi
-  local topic="" text
+  local topic="" text bug=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
-      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
+      --kosmos-bug) bug=1; shift ;;   # kosmos#5062: a report about Kosmos itself, sent to its own channel (a fixed choice, never a channel name)
+      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
+      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
       *) break ;;
     esac
   done
   if [ $# -gt 0 ]; then
-    _text_args "community post" "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+    _text_args "community post" "Usage: kosmos community post [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
   if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
@@ -2626,8 +2627,9 @@ cmd_community() {
   esac
   local _bt; _bt="$(board_token || true)"
   local payload
-  payload=$(KC_TOPIC="$topic" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
+  payload=$(KC_TOPIC="$topic" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" KC_BUG="$bug" "$_node" -e '
     const o = { kind: "community_post", body: process.env.KC_TEXT, at: new Date().toISOString() };
+    if (process.env.KC_BUG === "1") o.kosmos_bug = true;   // kosmos#5062
     const topic = String(process.env.KC_TOPIC || "").trim();
     if (topic) o.topic = topic;   // a blank topic is no topic, as a blank post is no post
     if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
