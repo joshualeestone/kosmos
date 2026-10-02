@@ -60337,10 +60337,11 @@ function voicePhoneBridge() {
              would stay on and who-hears-the-audio would stay up. A late onend is then not ours (rec !== mine). */
           mine.onerror = (e) => {
             if (rec !== mine) return;   // ours to ignore: our own cancel or a newer start set rec first, aborted included
-            // An 'aborted' that is still ours came from the browser or the phone (a call, another app taking the mic).
-            /* Round 17: an error while our own stop is waiting answers that stop (a quick second tap, before audio began),
-               so it is not a failure: only a refusal is still said. A no-speech still says nothing was heard. */
-            const ownStop = !!stopTimer && !['not-allowed', 'service-not-allowed', 'audio-capture', 'no-speech'].includes(e.error);
+            /* An error that is still ours, outside our own stop, came from the browser or the phone (a call, another app
+               taking the mic) and is said. During our own stop's wait, an 'aborted' (or any code not listed) answers that
+               stop and is not a failure; a refusal, a no-speech, and a network loss (the last words may not come back)
+               are still said. */
+            const ownStop = !!stopTimer && !['not-allowed', 'service-not-allowed', 'audio-capture', 'no-speech', 'network'].includes(e.error);
             unwait();
             rec = null;
             try { mine.abort(); } catch { /* already ended */ }
@@ -60471,7 +60472,7 @@ function voiceWho(line, forBtn) {
   voiceWhoPlace();
   bar.textContent = line || '';
 }
-/* Every stop goes through here (a second tap, letting go of a hold, Escape). Slice 3: on a phone the audio may still be
+/* Every stop the person asks for goes through here (a second tap, letting go of a hold, Escape). Slice 3: on a phone the audio may still be
    on its way until the last words come back, so the bar stays, saying so. */
 function voiceStop(h) {
   VOICE.stopping = true;   // a late 'listening' (a stop before the recognizer said it started) must not undo this line

@@ -629,16 +629,17 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     // P8d (round 17): a browser answering OUR stop with an error is not a failure: a quick second tap says no error.
     // The control, the same error with no stop of ours, still says one.
     const own = {};
-    for (const mine of [true, false]) {
+    for (const [k, code, mine] of [['ours', 'aborted', true], ['theirs', 'aborted', false], ['netOnStop', 'network', true]]) {
       await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
       await phone.tap('#d-mic');
       await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
-      if (mine) { await phone.evaluate(() => { window.__recStopErr = 'aborted'; }); await phone.tap('#d-mic'); }
-      else await phone.evaluate(() => window.__recLast.onerror({ error: 'aborted' }));
+      if (mine) { await phone.evaluate((c) => { window.__recStopErr = c; }, code); await phone.tap('#d-mic'); }
+      else await phone.evaluate((c) => window.__recLast.onerror({ error: c }), code);
       await phone.waitForFunction(() => !VOICE.btn);
-      own[mine ? 'ours' : 'theirs'] = await phone.evaluate(async () => { await new Promise((r) => setTimeout(r, 30)); window.__recStopErr = ''; return document.getElementById('d-say-msg').textContent; });
+      own[k] = await phone.evaluate(async () => { await new Promise((r) => setTimeout(r, 30)); window.__recStopErr = ''; return document.getElementById('d-say-msg').textContent; });
     }
-    chk(!/error/.test(own.ours) && /error/.test(own.theirs), 'P8d an error answering our own stop says nothing; the same error unasked still says one', JSON.stringify(own));
+    chk(!/error/.test(own.ours) && /error/.test(own.theirs) && /could not be reached/.test(own.netOnStop),
+      'P8d an abort answering our own stop says nothing; unasked it says one; a network loss during our stop is still said', JSON.stringify(own));
     await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
     // P10: the bar follows the visible area while it is up (the keyboard, a scroll), and stops following after.
     await phone.tap('#d-mic');

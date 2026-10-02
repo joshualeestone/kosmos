@@ -211,4 +211,10 @@ press stops through voiceStop and marks the stop.
   its control; the fix removed reddens only P8d). NITs taken: a result with no alternative no longer throws; the mic
   has touch-action: manipulation (a start-stop tap pair is not a double-tap zoom). LEFT NITs: the bar does not follow
   pinch zoom (the labels and dialog lines still say who hears); the source-shape unit assertion; "built-in engines".
+- Round 18 (sonnet): FIXED W1: a network loss during our own stop's wait was swallowed with the aborts; it is said now
+  (the last words may not come back), P8d's third arm (the fix removed reddens P8d). W2 (VOICE.heard after a discarded
+  partial; stale state after a stop): no change, the id check drops late events and heard is cleared at every start.
+  W3 is the weakest premise (who hears is named from the user agent, unmeasured on a device; every iOS browser is
+  WebKit and so Apple's service) (DUPLICATE). NITs taken: the onerror comment is one statement; voiceStop's comment says
+  stops the person asks for. LEFT NIT: decision history in the bridge's comments.
 
