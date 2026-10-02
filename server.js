@@ -8210,6 +8210,15 @@ const server = http.createServer(async (req, res) => {
        bearer), so it is keyed on the authenticated session, never on anything in the query. */
     /* #4833 slice 2: `?replies=1` is the replies to the reader's OWN posts, keyed on the authenticated session like
        Following, never on anything in the query. */
+    /* #4939: `?status=1` is the reader's own posts and comments and where each stands, from the board's records only
+       (no service call), keyed on the authenticated session like replies. */
+    if (q.get('status') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      let r;
+      try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
+      sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+      return;
+    }
     if (q.get('replies') === '1') {
       if (q.get('channel') || q.get('post') || q.get('following')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
       communityread.readReplies(reader.card.sessionName)
