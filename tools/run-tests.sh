@@ -277,8 +277,10 @@ _rt_box_clear() {
   return 0
 }
 if [ "$KOSMOS_ONLY" = 1 ]; then
-  # #4929: no queue wait, but a release's claim and a live install harness still refuse, asked once (fail-open on a
-  # missing lib, as above). A light queue turn's own claim is not foreign, so it does not refuse its own run.
+  # #4929: no queue wait, but a foreign machine claim and a live install harness still refuse, asked once (fail-open
+  # on a missing lib, as above). A run started inside a queued-heavy.sh turn inherits that turn's
+  # KOSMOS_MACHINE_CLAIM_COOKIE (kosmos_claim_machine exports it before the command runs), so the turn's own claim
+  # is not foreign and does not refuse it.
   if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
     kosmos_refuse_if_machine_claimed "this test run" || exit 1
     if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
