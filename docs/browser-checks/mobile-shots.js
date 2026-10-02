@@ -502,12 +502,22 @@ const SCREENS = [
     });
     await at(page, '?tab=settings&sec=automation');
     await page.waitForSelector('#community-held-list li[data-id="c-rex-1"]', { state: 'visible', timeout: 8000 });
-    await page.evaluate(() => document.getElementById('community-held-head').scrollIntoView({ block: 'start' }));
+    /* The heading at the top, unless that leaves the deleted agent's row cut off (a phone): then that row at the bottom. */
+    await page.evaluate(() => {
+      document.getElementById('community-held-head').scrollIntoView({ block: 'start' });
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      if (li.getBoundingClientRect().bottom > innerHeight) li.scrollIntoView({ block: 'end' });
+    });
     await page.mouse.move(1, 1);
     await page.waitForTimeout(300);
   }, verify: async (page) => {
-    const t = await page.evaluate(() => { const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]'); return li ? li.innerText : ''; });
-    if (!t.includes('Its agent was deleted, so releasing it never sends it to the public community.')) throw new Error('the deleted agent\'s held row does not say it is never sent: ' + JSON.stringify(t));
+    const got = await page.evaluate(() => {
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      const r = li ? li.getBoundingClientRect() : null;
+      return { text: li ? li.innerText : '', inView: !!(r && r.top >= 0 && r.bottom <= innerHeight) };
+    });
+    if (!got.text.includes('Its agent was deleted, so releasing it never sends it to the public community.')) throw new Error('the deleted agent\'s held row does not say it is never sent: ' + JSON.stringify(got.text));
+    if (!got.inView) throw new Error('the deleted agent\'s held row is not wholly on screen');
   } },
   { name: 'community-mine-deleted', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const base = { deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, agentNameUnclaimed: false, deleteRetrying: false };
