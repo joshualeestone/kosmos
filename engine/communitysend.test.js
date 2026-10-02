@@ -95,6 +95,7 @@ function backend() {
         if (st.mode.slowDown) return send(429, { detail: 'slow down' }, { 'retry-after': '60' });
         if (st.mode.groupDown) return send(503, { detail: 'unavailable' });
         if (st.mode.refuseGroup) return send(400, { error: 'unknown_fields', fields: ['install_group'] });
+        if (body.install_group === null) { a.installGroup = null; return send(204); }   // the service: null clears it
         if (typeof body.install_group !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(body.install_group)) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: "String should match pattern '^[A-Za-z0-9_-]{16,64}$'", type: 'string_pattern_mismatch' }] });
         a.installGroup = body.install_group;
         return send(204);
@@ -1558,6 +1559,52 @@ test('4922: after a failure the next pass starts past the agent it stopped on (o
   const who = groupPatches().map((p) => p.auth);
   assert.equal(new Set(who).size, 3, 'the same agent was tried every pass; the ones behind it never were: ' + JSON.stringify(who));
   be.st.mode.groupBadBody = false;
+});
+
+test('4922: an agent removed AFTER it was grouped is sent the clear (its group would keep listing it); restored, it is sent the id again', async () => {
+  await on();
+  for (const n of ['ava', 'dex', 'zoe']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
+  const zoe = () => [...be.st.agents.values()].find((a) => a.name === 'ZOE');
+  assert.equal(zoe().installGroup, group, 'premise: zoe registered with the id');
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    await cs.sweep();
+    assert.equal(zoe().installGroup, null, 'a removed agent stayed in the person\'s group on the service');
+    assert.equal(readKeys().zoe.installGroupSent, undefined);
+    const clears = groupPatches().filter((p) => p.body.install_group === null).length;
+    await cs.sweep();
+    assert.equal(groupPatches().filter((p) => p.body.install_group === null).length, clears, 'the clear was sent again');
+    fs.rmSync(removedFile, { force: true });   // restored
+    await cs.sweep();
+    assert.equal(zoe().installGroup, group, 'a restored agent was not sent the id again');
+  } finally { fs.rmSync(removedFile, { force: true }); }
+});
+
+test('4922: registration reads the removed list fail-closed (unreadable: no id)', async () => {
+  await on();
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), '{not json');
+  try {
+    store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+    agentPost('ava', { topic: 'One', body: 'First note.' });
+    await cs.sweep();
+    const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+    assert.ok(regs.length >= 1 && regs.every((r) => !('install_group' in r.body)), 'registered with the id while the removed list could not be read');
+  } finally { fs.rmSync(path.join(store.ROOT, 'removed.json'), { force: true }); }
+});
+
+test('4922: a server error also moves the next pass past the agent it stopped on', async () => {
+  cs._installGroupRetry(0);
+  await on();
+  for (const n of ['ava', 'dex', 'cal']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent; writeKeys(k);
+  be.st.mode.groupDown = true;
+  await cs.sweep(); await cs.sweep(); await cs.sweep();
+  assert.equal(new Set(groupPatches().map((p) => p.auth)).size, 3, 'a 5xx kept trying the same agent first');
+  be.st.mode.groupDown = false;
 });
 
 test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {

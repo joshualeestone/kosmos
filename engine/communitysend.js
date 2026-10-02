@@ -846,9 +846,14 @@ async function sweepInstallGroup(keys, on) {
     const stopHere = () => installGroupFrom.set(ep, (start + idx + 1) % order.length);
     if (!switchOn() || Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
-    if (!k || !k.apiKey || k.refused || k.installGroupSent === group) continue;
-    if (removedSet.has(clean(agentKey))) continue;   // removed: never linked to the person's other agents
-    const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: group });
+    if (!k || !k.apiKey || k.refused) continue;
+    const removedNow = removedSet.has(clean(agentKey));
+    // Review 9: a removed agent is never linked to the person's other agents. One that was sent the id before it was
+    // removed is sent the clear (the service: "send null to clear one"), or its group would keep listing it.
+    if (removedNow && !k.installGroupSent) continue;
+    if (!removedNow && k.installGroupSent === group) continue;
+    const want = removedNow ? null : group;
+    const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: want });
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
     if (namesInstallGroup(r)) {   // #4922: the service does not know the field: pause, as register does
       installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);
@@ -878,7 +883,7 @@ async function sweepInstallGroup(keys, on) {
       break;
     }
     if (r.status === 204 || r.status === 200) {
-      k.installGroupSent = group;
+      if (want === null) delete k.installGroupSent; else k.installGroupSent = group;   // a restored agent is sent it again
       delete k.installGroupRetrying;
       saveJson(keysFile(), keys);
     } else {
