@@ -111,35 +111,29 @@ export NO_PROXY no_proxy
 # #4933: BUT THAT EXEMPTION ASSUMES DIRECT LOOPBACK WORKS. Another kind of sandbox blocks direct loopback while its
 # proxy forwards to the board, and there status, reply and post all said Kosmos is not running (the 0.7.15
 # diagnostic, Meta family). So before this run's first call to the board, and only when a proxy curl uses for
-# http:// is set (http_proxy, all_proxy, ALL_PROXY), one direct probe decides the route (1 s to connect, 2 s in all),
+# http:// is set (http_proxy, all_proxy, ALL_PROXY), one direct probe decides the route (1 s to connect, 1.2 s in all),
 # read from curl's verbose lines (curl 8 prints only "Couldn't connect" otherwise; LC_ALL=C keeps the errno English):
 #   - "Connected to": direct works (a BUSY board connects, then waits: that is not a block);
-#   - refused: nothing answers directly. The board is down, or the sandbox has its own loopback (a network namespace)
-#     with the board outside it. One request through the proxy tells which: only a Kosmos health body
-#     ("app":"kosmos") picks the proxy, so #4466's empty proxy answer never does;
-#   - anything else (not permitted, a connect timeout): blocked, so the proxy.
+#   - otherwise (refused, not permitted, a connect timeout): ONE request through the proxy decides. Only a Kosmos
+#     health body ("app":"kosmos") picks the proxy, so the board and agent tokens never go to a proxy that cannot
+#     show it reaches this board (a corporate proxy, a saturated board timing out: review 2), and #4466's empty proxy
+#     answer never does. A "direct" reached this way is not remembered, so a later call (kosmos start, once the board
+#     is up) asks again.
 # The proxy route is per call (curl --noproxy "", which overrides NO_PROXY), so the exported exemption above, which
-# the board and its agents inherit, is never rewritten. KOSMOS_LOOPBACK_PROBE_URL is a test seam for the probe.
+# the board and its agents inherit, is never rewritten. KOSMOS_LOOPBACK_PROBE_URL is a TEST seam for the probe target.
 KOSMOS_NP=()
 _KOSMOS_LB=""
 kosmos_loopback_route() {
   [ -n "$_KOSMOS_LB" ] && return 0
-  _KOSMOS_LB=direct
-  [ -n "${http_proxy:-}${all_proxy:-}${ALL_PROXY:-}" ] || return 0
+  [ -n "${http_proxy:-}${all_proxy:-}${ALL_PROXY:-}" ] || { _KOSMOS_LB=direct; return 0; }
   local _err _rc=0
-  _err="$(LC_ALL=C /usr/bin/curl --noproxy '*' -sS -v -o /dev/null --connect-timeout 1 -m 2 "${KOSMOS_LOOPBACK_PROBE_URL:-$URL/api/health}" 2>&1)" || _rc=$?
-  [ "$_rc" = 0 ] && return 0
-  case "$_err" in *"Connected to"*) return 0 ;; esac
-  case "$_err" in
-    *[Rr]efused*)
-      case "$(LC_ALL=C /usr/bin/curl --noproxy '' -sS --connect-timeout 1 -m 3 "$URL/api/health" 2>/dev/null)" in
-        *'"app":"kosmos"'*) ;;
-        *) return 0 ;;
-      esac
-      ;;
+  _err="$(LC_ALL=C /usr/bin/curl --noproxy '*' -sS -v -o /dev/null --connect-timeout 1 -m 1.2 "${KOSMOS_LOOPBACK_PROBE_URL:-$URL/api/health}" 2>&1)" || _rc=$?
+  if [ "$_rc" = 0 ]; then _KOSMOS_LB=direct; return 0; fi
+  case "$_err" in *"Connected to"*) _KOSMOS_LB=direct; return 0 ;; esac
+  case "$(LC_ALL=C /usr/bin/curl --noproxy '' -sS --connect-timeout 1 -m 3 "$URL/api/health" 2>/dev/null)" in
+    *'"app":"kosmos"'*) _KOSMOS_LB=proxy; KOSMOS_NP=(--noproxy '') ;;
+    *) KOSMOS_NP=() ;;   # direct for this call, decided again next time
   esac
-  _KOSMOS_LB=proxy
-  KOSMOS_NP=(--noproxy '')
 }
 PIDFILE="$KOSMOS_HOME/board.pid"
 # #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes

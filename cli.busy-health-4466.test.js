@@ -431,8 +431,23 @@ test('#4933 blocked direct loopback with a forwarding proxy: the board is reache
     // A verb that goes through kosmos_curl (the post) takes the same route.
     await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
     assert.ok(hits.some((u) => u.includes(':' + port + '/api/post')), 'the post did not go through the proxy: ' + JSON.stringify(hits));
-    const left = await bash(`source "${CLI}"; printf '%s' "$NO_PROXY"`, env);
-    assert.equal(left.stdout, '127.0.0.1,localhost,corp.example', 'the exported exemption was rewritten');
+    // The route itself runs here (review 2: sourcing alone never called it), and what a child process sees is unchanged.
+    const left = await bash(`source "${CLI}"; kosmos_loopback_route; printf '%s|%s|' "$_KOSMOS_LB" "$NO_PROXY"; env | grep '^NO_PROXY='`, env);
+    assert.equal(left.stdout.trim(), 'proxy|127.0.0.1,localhost,corp.example|NO_PROXY=127.0.0.1,localhost,corp.example', 'the route did not run, or rewrote the exported exemption');
+  } finally { await new Promise((r) => proxy.close(r)); }
+}));
+
+test('#4933 a failed probe with a proxy that is not this board stays direct: the tokens never go to that proxy', () => withBoard('ok', async (port) => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url + ' ' + Object.keys(req.headers).filter((h) => /token/.test(h)).join(',')); res.writeHead(502); res.end('bad gateway'); });
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(port, proxyEnv(p, { KOSMOS_LOOPBACK_PROBE_URL: 'http://127.0.0.1:0/' }));
+    const out = await runCli(['status'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos is running at/);
+    await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
+    assert.ok(hits.every((h) => /\/api\/health $/.test(h)), 'something past the health check, or a token, went to the proxy: ' + JSON.stringify(hits));
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
 
