@@ -33,12 +33,16 @@ through the relay, Safari's continuous mode). NOT MEASURED: it needs a real iPho
 drives a recording stand-in on an emulated iPhone in Chromium. Second premise: the exact shapes in which Android
 Chrome repeats results and iOS restarts its list (and whether either resends a list from index 0); the rules keep
 finals once by resultIndex and handle the reported shapes, each pinned both ways, but none is measured.
+Known defects, chosen and pinned (P2d, P2f): under Android's repeat pattern a one-word first result lands twice
+("call call the client"); a result said again word for word as the first thing after a list restart is taken as sent
+back and lost. Third premise: that an unfocused box given a selection does not open the iPhone keyboard (P2 measures
+it in Chromium only).
 
 ## Tests
 docs/browser-checks/render-voice-4409.js, on an emulated iPhone (touch, coarse pointer, an iPhone user agent, no
 navigator.userAgentData as on WebKit) with a recording stand-in recognizer that behaves as a real one does on abort:
 - Who can get the mic: P1 (phone yes; a computer's browser, a touch-screen Windows computer and another engine on an
-  iPhone no), P1c (an iPad, which says Macintosh, yes), P1b (Android Chrome by brand yes; Samsung, Brave and a rebranded Chromium no), P18 (the Mac app's bridge
+  iPhone no), P1c (an iPad, which says Macintosh, yes), P1d (an iPad with a trackpad no), P1b (Android Chrome by brand yes; Samsung, Brave and a rebranded Chromium no), P18 (the Mac app's bridge
   wins on any screen), P12 (no bar, no audio).
 - Saying who hears it: P1 (every mic's label from load, the Guide's too), P2a (the bar in the tap itself, readable in
   the top half), P5 (another message line untouched), P10 (the bar follows the visible area), P11 (inside a modal
@@ -163,4 +167,12 @@ press stops through voiceStop and marks the stop.
   comments were crossed (the 5 s one sat on the cap); the header says holding does not work on a phone; one Brave
   comment, not two; the cap left armed through a stop is commented; the iPad branch is exercised (P1c; removing it
   reds it).
+- Round 13 (opus): PARTLY DUPLICATE W: the one-word doubling under Android's repeat pattern was decided in round 7, but
+  only this log said so; it is now a KNOWN DEFECT in the code comment and in the premises, and P2f's pin is named as
+  pinning a chosen defect. NITs taken: the restart loss is a result said again word for word, not only one word; the
+  Kosmos+ line says the BROWSER's speech service (what the code decides), not the phone's; the iPhone keyboard under
+  setSelectionRange is a named premise; the pointer gate has a behavioural control (P1d, an iPad with a trackpad gets
+  no mic; removing the gate reds it; Chromium calls any touch screen coarse, so the check answers the pointer query as
+  a trackpad iPad does). Checked, not changed: Splinter's card comment is stamped 22:16:37Z, 17:16 CDT,
+  the same minute as Josh's question. LEFT NIT: pinch zoom (scale, offsetLeft).
 

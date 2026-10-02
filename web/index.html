@@ -17549,7 +17549,7 @@ window.kosmosMeasureScrollbarWidth();
         <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a1.9 1.9 0 003.4 0"/></svg></span><div><b>Know when you're needed</b><span>Get notified when an agent finishes, hits a blocker, or asks a question.</span></div></li>
         <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.7-5 5.5-5s5.5 2 5.5 5"/><path d="M18.5 8.5v5M16 11h5"/></svg></span><div><b>Work with others</b><span>Invite people and their agents into selected projects. Remove access at any time.</span></div></li>
       </ul>
-      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval. One exception: talking to type on a phone, where the phone's own speech service (Apple's or Google's) hears it, and Kosmos says so while it listens.</span></div></div>
+      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval. One exception: talking to type on a phone, where the browser's speech service (Apple's or Google's) hears it, and Kosmos says so while it listens.</span></div></div>
       <!-- #476, #567: the door is the trust sentence and it is BUILT, so
            it is said as a fact. "Nothing to install" left this paragraph
            on 2026-08-24: the installer ships no connector yet, and the
@@ -60299,8 +60299,9 @@ function voicePhoneBridge() {
             if (from < doneIdx) {
               /* A list that starts again. Results it sends back that match, position by position, the finals this list
                  already gave us (as they arrived, not as merged) are ours already: skip them. The first that differs
-                 starts a fresh list, and what came before it is kept as said. A one-word result said again right after
-                 a restart cannot be told from one sent back, and is taken as sent back: a known loss of one word. */
+                 starts a fresh list, and what came before it is kept as said. A result said again, word for word, as the
+                 first thing after a restart cannot be told from one sent back, and is taken as sent back: a known loss
+                 of that result (in practice a short one: "no", "okay"). */
               let j = from;
               while (j < e.results.length && j < raw.length && e.results[j].isFinal && fold(e.results[j][0].transcript) === raw[j]) j += 1;
               raw.length = j;
@@ -60318,7 +60319,10 @@ function voicePhoneBridge() {
                 /* Android Chrome is reported to repeat the previous result inside the next ("call the", then "call the
                    client"). Compared with the PREVIOUS result only, never with everything so far, so one miss cannot
                    cascade; at a word boundary, punctuation aside; and only when that result is two words or more: "a"
-                   then "apple pie", "no" then "no thanks", and "no" then "no" are real speech and are kept. */
+                   then "apple pie", "no" then "no thanks", and "no" then "no" are real speech and are kept.
+                   KNOWN DEFECT, chosen: under that Android pattern a ONE-word first result lands twice ("call" then "call
+                   the client" gives "call call the client"). Merging it would drop real one-word speech instead; a
+                   doubled word is visible and easy to delete, a dropped one is not. */
                 if (repeats(part)) finals[finals.length - 1] = part; else finals.push(part);
                 raw[i] = fold(part);
                 doneIdx = i + 1;

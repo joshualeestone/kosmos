@@ -484,6 +484,26 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await pad.goto(PAGE);
     const padMic = await pad.evaluate(() => ({ cls: document.documentElement.classList.contains('has-voice'), label: document.getElementById('d-mic').getAttribute('aria-label') }));
     await padCtx.close();
+    // An iPad with a trackpad: a fine pointer that hovers. The pointer gate, not the user agent, keeps the mic off.
+    const tpCtx = await browser.newContext({ viewport: { width: 1180, height: 820 }, hasTouch: true,
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15' });
+    const tp = await tpCtx.newPage();
+    await tp.addInitScript(harness(false), [false]);
+    await tp.addInitScript(SR);
+    await tp.addInitScript(asWebKit);
+    // Chromium calls any touch screen coarse; a trackpad iPad reports a fine pointer that hovers, so answer as it does.
+    await tp.addInitScript(() => {
+      const real = window.matchMedia.bind(window);
+      window.matchMedia = (q) => {
+        const m = real(q);
+        if (!/pointer: coarse|hover: none/.test(q)) return m;
+        return { matches: false, media: q, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; } };
+      };
+    });
+    await tp.goto(PAGE);
+    const tpMic = await tp.evaluate(() => ({ cls: document.documentElement.classList.contains('has-voice'), touch: 'ontouchend' in document, coarse: matchMedia('(pointer: coarse)').matches }));
+    await tpCtx.close();
+    chk(tpMic.touch && !tpMic.coarse && !tpMic.cls, 'P1d an iPad with a trackpad (touch, but a fine pointer that hovers) gets no mic', JSON.stringify(tpMic));
     chk(padMic.cls && /\(Apple hears the audio\)/.test(padMic.label), 'P1c an iPad (which says Macintosh, with touch) draws the mic, named Apple', JSON.stringify(padMic));
     await openDm(phone);
     const p1 = { cls: await phone.evaluate(() => document.documentElement.classList.contains('has-voice')), shown: await shown(phone, '#d-mic'),
@@ -660,7 +680,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     chk(merge.wordPrefix === 'a apple pie' && merge.oneWordRepeat === 'no no thanks' && merge.midWord === 'go to go tomorrow' && merge.noNo === 'no no',
       'P2e a result that only starts with the same letters, or repeats one word, is real speech and is kept', JSON.stringify({ wordPrefix: merge.wordPrefix, oneWordRepeat: merge.oneWordRepeat, midWord: merge.midWord, noNo: merge.noNo }));
     chk(merge.cascade === 'call call the client' && merge.punctuated === 'call the client tomorrow',
-      'P2f a repeat is compared with the previous result only, so one doubled word cannot cascade, and punctuation does not hide it', JSON.stringify({ cascade: merge.cascade, punctuated: merge.punctuated }));
+      'P2f a repeat is compared with the previous result only, so one doubled word cannot cascade (the doubled one-word first result is a KNOWN DEFECT, chosen; see the plan), and punctuation does not hide it', JSON.stringify({ cascade: merge.cascade, punctuated: merge.punctuated }));
     chk(merge.iosReset === 'call the client tomorrow' && merge.continuing === 'call the client tomorrow' && merge.cumulativeAtZero === 'call the client tomorrow' && merge.iosResetRepeats === 'call the client tomorrow' && merge.multiResend === 'call the client now tomorrow' && merge.resetShown === 'call the client tomorrow' && merge.mergedResend === 'call the client tomorrow' && merge.noAcrossReset === 'no',
       'P2d a fresh results list after a pause keeps the words before it, and an ordinary or cumulative list does not double them', JSON.stringify({ iosReset: merge.iosReset, continuing: merge.continuing, cumulativeAtZero: merge.cumulativeAtZero, iosResetRepeats: merge.iosResetRepeats, multiResend: merge.multiResend, resetShown: merge.resetShown, mergedResend: merge.mergedResend, noAcrossReset: merge.noAcrossReset }));
     // P11: a mic inside a modal dialog also says it in the dialog's own line (a screen reader cannot see past aria-modal).
