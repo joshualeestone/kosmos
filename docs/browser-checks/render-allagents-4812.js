@@ -193,14 +193,22 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       chk(closed.inPanel && closed.afterGrid && !closed.visible, 'S4 consolidated, Agents view closed: moved with the grid, not on screen', JSON.stringify(closed));
       /* Wait out any round already in flight, or the manual one returns early on OA_BUSY and reads nothing whatever
          oaGridShown says (review 2). The direct assertion does not depend on timing at all. */
-      await until(page, () => !OA_BUSY);
+      chk(await until(page, () => !OA_BUSY), 'S4 no round in flight before the off-screen check');
       const gridShown = await page.evaluate(() => oaGridShown(document.getElementById('grid')));
       chk(gridShown === false, 'S4 the grid counts as off screen while its panel is hidden', String(gridShown));
       const before = elsewhere.length;
       await page.evaluate(() => oaRound());
       await page.waitForTimeout(1500);
       chk(elsewhere.length === before, 'S4 and no other computer is read while it is not on screen', (elsewhere.length - before) + ' requests');
-      await page.evaluate(() => { BOARD_LAYOUT = 'grid'; openConsolidatedAgents(); oaRound(); });
+      /* No oaRound() by hand: coming back on screen must start a read itself. The 15 s tick is stopped first, so a
+         tick landing inside the 4 s window cannot pass this for the wrong reason. */
+      await page.evaluate(() => { clearInterval(OA_TIMER); });
+      const beforeOpen = elsewhere.length;
+      const openedAt = Date.now();
+      await page.evaluate(() => { BOARD_LAYOUT = 'grid'; openConsolidatedAgents(); });
+      let readAgain = false;
+      while (!readAgain && Date.now() - openedAt < 4000) { readAgain = elsewhere.length > beforeOpen; if (!readAgain) await page.waitForTimeout(100); }
+      chk(readAgain, 'S4 opening the Agents view reads the other computers at once, not at the next tick', (elsewhere.length - beforeOpen) + ' requests in ' + (Date.now() - openedAt) + ' ms');
       const shown = await until(page, () => document.querySelectorAll('#panel-cons-agents #oa-groups .oa-card').length >= 2 && !document.getElementById('oa-wrap').hidden);
       const open = await where();
       chk(shown && open.inPanel && open.visible, 'S4 Agents view open: the section shows inside it, under the grid', JSON.stringify(open));

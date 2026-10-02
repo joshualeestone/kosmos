@@ -92,3 +92,15 @@ field removed; catch comment says the probe can be a minute old; a round asked f
 oaGridShown directly; the computers fetch is cut at 10 s. Review 1's third nit (catch comment) is the one taken here.
 Unit 13/13; 7 sabotages RED-OK (time words in key, never stale, unsorted key, stale not greyed, projection,
 gridShown, fetch headers).
+
+### Review 3 taken (opus, blind, 2026-10-01 21:23): 0 blockers, 4 warnings, 4 nits
+W1 oaPaint is now unit-tested against a fake DOM (an unchanged round keeps every group; only the changed group is
+replaced; focus goes back to the same agent; a note's time words change in place; a read starts on return even
+before the computers are known); S4 no longer calls oaRound by hand and stops the 15 s tick, so it needs the
+read-on-return. W2 oaReplaceGroup gives focus back to the same agent's card (data-session) or the Open link.
+W3 oaPaint runs on visibilitychange and at the start of each round, so a list gone stale while hidden is greyed
+before the computers route answers. W4 the computers fetch is cut at 30 s (OA_COMPUTERS_LIMIT_MS), above the
+route's own worst case. Nits taken: OA_AGAIN only from the "This computer only" untick; read-on-return no longer
+needs the computers list; S4 checks its own wait; the key comment states the same-name tie. fake-dom gains
+replaceWith. Unit 17/17; 6 more sabotages RED-OK (no in-place note, always rebuild, no focus restore, no read on
+return, return needs computers, replace every group).

@@ -241,3 +241,85 @@ test('stale: a list read longer ago than two rounds shows greyed, never as curre
   assert.notEqual(api.oaGroupKey(c, { state: 'ok', agents: two, at: 100000 }, 110000, 'name'),
     api.oaGroupKey(c, { state: 'ok', agents: two, at: 100000 }, 100000 + 30 * 60000, 'name'), 'going stale repaints');
 });
+
+/* oaPaint itself, against a fake #oa-wrap / #grid / #oa-groups: the per-group repaint, the in-place note and focus. */
+function loadPaint() {
+  const t = makeDom();
+  const grid = t.add('grid');
+  const wrap = t.add('oa-wrap'); wrap.hidden = true;
+  t.add('oa-only', 'input', { type: 'checkbox' });
+  wrap.appendChild(t.add('oa-groups'));
+  const timers = [];
+  const clock = { now: 1000000 };
+  const api = new Function('document', 'location', 'setTimeout', 'Date', `
+    const STATE_COPY = { working: { label: 'Working' }, idle: { label: 'Idle' } };
+    const AGENT_SORT = 'name';
+    function sortAgents(list) { return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))); }
+    let OA_BUSY = false, OA_WAS_SHOWN = false, OA_PAINTED = [];
+    let OA_COMPUTERS = null;
+    function oaRound() {}
+    ${SRC}
+    ${slice('oaThisOnly')}
+    ${slice('oaReplaceGroup')}
+    ${slice('oaPaint')}
+    return { oaPaint, OA_SEEN, set computers(v) { OA_COMPUTERS = v; }, set busy(v) { OA_BUSY = v; } };
+  `)(t.document, { hostname: 'laptop.kosmosplus.com', protocol: 'https:' }, (fn) => timers.push(fn), { now: () => clock.now });
+  return { api, d: t, grid, groups: t.document.getElementById('oa-groups'), timers, clock };
+}
+
+test('paint: an unchanged round keeps every group element, so focus stays on its card', () => {
+  const { api, d, groups } = loadPaint();
+  api.computers = LIST;
+  const A = { sessionName: 'a', name: 'Ann', state: 'idle' };
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [A], at: 1000000 });
+  api.oaPaint();
+  const first = groups.children.slice();
+  assert.equal(first.length, 2, 'control: one group per other computer');
+  first[0].querySelector('.oa-card').focus();
+  api.oaPaint();
+  assert.ok(groups.children.every((g, i) => g === first[i]), 'no group rebuilt');
+  assert.equal(d.focused(), first[0].querySelector('.oa-card'), 'focus untouched');
+});
+
+test('paint: only the changed group is replaced, and focus goes back to the same agent', () => {
+  const { api, d, groups } = loadPaint();
+  api.computers = LIST;
+  const A = { sessionName: 'a', name: 'Ann', state: 'idle' }, B = { sessionName: 'b', name: 'Bo', state: 'idle' };
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [A, B], at: 1000000 });
+  api.oaPaint();
+  const [g1, g2] = groups.children;
+  g1.querySelectorAll('.oa-card')[1].focus();   // Bo
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ ...A, state: 'working' }, B], at: 1000000 });
+  api.oaPaint();
+  assert.notEqual(groups.children[0], g1, 'the changed group is rebuilt');
+  assert.equal(groups.children[1], g2, 'the other group is not');
+  const f = d.focused();
+  assert.equal(f && f.dataset.session, 'b', 'focus is back on Bo in the new group');
+  assert.equal(f.closest('.oa-group'), groups.children[0]);
+});
+
+test('paint: a not-connected note\'s time words change in place, the group stays', () => {
+  const { api, groups, clock } = loadPaint();
+  api.computers = LIST;
+  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'out', agents: [{ sessionName: 'p', name: 'P', state: 'idle' }], at: 1000000 - 120000 });
+  api.oaPaint();
+  const g = groups.children[1];
+  const note = () => g.querySelector('.oa-head').querySelector('.oa-note').textContent;
+  assert.match(note(), /last read it 2 minutes ago/);
+  clock.now += 5 * 60000;
+  api.oaPaint();
+  assert.equal(groups.children[1], g, 'same element');
+  assert.match(note(), /last read it 7 minutes ago/, 'the words moved on');
+});
+
+test('paint: coming back on screen asks for a read at once, even before the computers are known', () => {
+  const { api, grid, timers } = loadPaint();
+  grid.hidden = true;
+  api.oaPaint();
+  assert.equal(timers.length, 0, 'control: nothing while off screen');
+  grid.hidden = false;
+  api.oaPaint();
+  assert.equal(timers.length, 1, 'a read is started on return, with no computers list yet');
+  api.oaPaint();
+  assert.equal(timers.length, 1, 'once, not on every paint');
+});
