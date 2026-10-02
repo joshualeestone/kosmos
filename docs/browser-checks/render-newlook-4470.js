@@ -415,6 +415,7 @@ async function tasksLook(page) {
 async function projectsLook(page) {
   await page.mouse.move(1, 1);
   await page.evaluate(() => { showTab('projects'); pjView('list'); });
+  // A timeout is swallowed on purpose: the read below then returns found: false, which reds every Projects arm.
   await page.waitForSelector('#pj-list .pj-row', { state: 'visible', timeout: 8000 }).catch(() => {});
   await page.evaluate(() => { const g = document.querySelector('#pj-list-view .vt[data-layout="grid"]'); if (g && g.getAttribute('aria-pressed') !== 'true') g.click(); });
   await page.waitForTimeout(400);
