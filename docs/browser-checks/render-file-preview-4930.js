@@ -18,6 +18,7 @@
  *   P7  at 390 x 844 (a phone) the X and the action are inside the window and at least 40 px tall to tap;
  *   P8  with the "Kosmos has been updated" window open under it, one Escape closes only the preview, and the window
  *       under it does not take focus while the preview is up;
+ *   P10 Tab moves between the X and the action and wraps both ways; focus never leaves the preview;
  *   P9  a card drawn by the real message rows (the project thread panel's pjMsg and the DM's dmRow) opens the preview;
  *   and no page errors from the preview's own code.
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
@@ -121,7 +122,7 @@ async function runOn(engine, base, say) {
       await pg.waitForTimeout(100);
       const back2 = await pg.evaluate((sel) => ({ open: !!document.getElementById('pv-preview'), focus: document.activeElement === document.querySelector(sel) }), card(IMG_ID));
       say(!back2.open && back2.focus, tag + ' P2: Escape closes it and focus goes back to the card', JSON.stringify(back2));
-      const unlocked = await pg.evaluate(() => !document.documentElement.classList.contains('pv-open') && getComputedStyle(document.documentElement).scrollbarGutter !== 'auto');
+      const unlocked = await pg.evaluate(() => getComputedStyle(document.documentElement).scrollbarGutter !== 'auto' && getComputedStyle(document.documentElement).overflow !== 'hidden');
       say(unlocked, tag + ' P2: closing gives the page its scrollbar strip back');
       await pg.click(card(IMG_ID));
       await pg.click('#pv-x');
@@ -133,6 +134,13 @@ async function runOn(engine, base, say) {
       const bar = await pg.evaluate(() => { const b = document.querySelector('#pv-preview .pv-bar').getBoundingClientRect(); return { x: Math.round(b.right - 6), y: Math.round(b.top + b.height / 2) }; });
       await pg.mouse.click(bar.x, bar.y);
       say(!(await open()), tag + ' P2: a click on the dark bottom bar closes it too');
+
+      // P10
+      await pg.click(card(IMG_ID));
+      const seq = [];
+      for (const k of ['Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab']) { await pg.keyboard.press(k); seq.push(await pg.evaluate(() => document.activeElement && document.activeElement.id)); }
+      say(JSON.stringify(seq) === JSON.stringify(['pv-x', 'pv-do', 'pv-x', 'pv-do', 'pv-x']), tag + ' P10: Tab moves between the X and the action and wraps both ways', JSON.stringify(seq));
+      await pg.keyboard.press('Escape');
 
       // P8
       await pg.click(card(IMG_ID));
@@ -148,11 +156,13 @@ async function runOn(engine, base, say) {
 
       // P5
       // The click must land on the card (a control that counts it), or this would pass on a click that never happened.
-      await pg.evaluate((sel) => { window.__cardClicks = 0; document.querySelector(sel).addEventListener('click', (e) => { window.__cardClicks += 1; e.preventDefault(); }, { once: false }); }, card(IMG_ID));
+      // Counted in the capture phase WITHOUT cancelling it, so the page's own handler decides (a cancelled click would
+      // test the defaultPrevented guard, not the modifier one).
+      await pg.evaluate((sel) => { window.__cardClicks = 0; window.__cardCancelled = null; document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest(sel)) { window.__cardClicks += 1; setTimeout(() => { window.__cardCancelled = e.defaultPrevented; }, 0); } }, true); }, card(IMG_ID));
       await pg.click(card(IMG_ID), { modifiers: ['Meta'] });
       await pg.waitForTimeout(150);
-      const mod = await pg.evaluate(() => ({ clicks: window.__cardClicks, open: !!document.getElementById('pv-preview') }));
-      say(mod.clicks === 1 && !mod.open, tag + ' P5: a Cmd-click lands on the card, keeps the download and opens no preview', JSON.stringify(mod));
+      const mod = await pg.evaluate(() => ({ clicks: window.__cardClicks, open: !!document.getElementById('pv-preview'), cancelled: window.__cardCancelled }));
+      say(mod.clicks === 1 && !mod.open && mod.cancelled === false, tag + ' P5: a Cmd-click lands on the card, keeps the download and opens no preview', JSON.stringify(mod));
       await pg.evaluate(() => { const b = document.getElementById('pv-preview'); if (b) b.remove(); });
 
       // P9
