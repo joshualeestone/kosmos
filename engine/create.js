@@ -3797,11 +3797,14 @@ function defaultClaudeProbe(configDir) {
 async function claudeAccountLive(configDir) {
   return (await claudeAccountCheck(configDir)).state;
 }
-/* #3997 review 1: the same verdict, plus `refused`: an UNKNOWN from a run that ended non-zero with neither the
-   capacity nor the dead-sign-in words. That is a refusal (a 403 permission error, a disabled organisation) or claude
-   itself failing; either way the check failed, which Josh's ruling A keeps non-green. Capacity, a run that never
-   started, or one killed without an exit code is not `refused`. Check now uses it so a row's login-green does not
-   outlive a failed check it just saw. */
+/* #3997 review 1: the same verdict, plus `refused`: an UNKNOWN whose probe reported an exit code other than 0 and
+   whose output has neither the capacity nor the dead-sign-in words. With the real probe (defaultClaudeProbe) that is
+   BROAD, measured from its code by review 2: it reports 1 for any error without a numeric code, so a refusal (a 403
+   permission error, a disabled organisation), a timeout, claude not being found, or a network failure all count.
+   Every one of those is a Check now that failed, which Josh's ruling A keeps non-green, so the row falls back to
+   unverified until a later check answers. Capacity is not `refused` (the account is fine, only busy), and neither is
+   a probe that throws or reports no exit code. Check now uses it so a row's login-green does not outlive a failed
+   check it just saw; the create gate still reads only the state, so it is unchanged. */
 async function claudeAccountCheck(configDir) {
   const subscription = require('./subscription');
   const run = claudeProbe || defaultClaudeProbe;
