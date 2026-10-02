@@ -1,25 +1,22 @@
-// Browser-check-surface: d-sec-talk d-sec-profile d-sec-model
+// Browser-check-surface: d-sec-talk d-sec-profile d-sec-model s-sec-accounts s-sec-you
 'use strict';
 /**
  * #4961 (Josh, 2026-10-01): on the agent page in the Mac app, a black stroke drew round the whole
- * Direct Message section after clicking its pill. Cause: a nav click moves focus into the section
- * (detailGo, so a keyboard user's next Tab lands inside), and WebKit, the engine the Mac app runs,
- * matches :focus-visible on that programmatic focus after a click. `.dsec:focus-visible` then drew
- * a 2px ink outline round the 16px-radius section. Chromium does not match it on a click, so a
- * click-only Chromium check never saw it.
+ * Direct Message section after clicking its pill. A nav pill moves focus into its section
+ * (detailGo, and settingsGo in Settings) so a keyboard user's next Tab lands inside, and the ring
+ * marking that landing (#350) was keyed on :focus-visible. Safari does not focus a clicked button,
+ * so in the Mac app the focus moved next can match :focus-visible after a CLICK, and the 2px ink
+ * outline drew round the 16px-radius card. The ring is now drawn only for a keyboard press.
  *
- * Playwright's WebKit does not reproduce the click case (Safari does not focus a button on click,
- * so the focus that follows reads as keyboard-ish; Playwright's build does focus it). Activating a
- * pill from the KEYBOARD makes the section match :focus-visible on every engine, so that arm is the
- * one that reds on the old rule everywhere; the click arm covers the same promise for mouse users.
- *
- * Boots a sandboxed board with one agent, opens its page, then on chromium and webkit, light and
- * dark, activates each nav pill (AI Settings, Profile, Direct Message) by click and by keyboard
- * (focus the pill, Enter) and reads, for the element that took focus:
- *   - focus still moved into the pill's section (the keyboard behaviour #350 / #2916 rely on);
- *   - that section draws no outline (outline-style none, or zero width).
- * Control: the instrument reads the outline of a section after a forced :focus-visible style is
- * injected, and must see it, so "none" is not the instrument's default.
+ * Boots a sandboxed board with one agent. On chromium and webkit, light and dark, on the agent page
+ * (AI Settings, Profile, Direct Message pills) and in Settings (AI Models, Your Profile pills):
+ *   - click arm: focus moves into the pill's section, and the section draws no outline;
+ *   - keyboard arm (focus the pill, Enter): focus moves into the section, and it draws the ring.
+ * On chromium only, the Mac case: after a click, :focus-visible is FORCED on the section through
+ * the DevTools protocol (what the Mac app's WebKit does on its own), and it must still draw no
+ * outline. That arm is the one that reds on the old rule (Playwright's WebKit focuses the clicked
+ * button, so it cannot reproduce the Mac app's click by itself). The keyboard arm is the control:
+ * it shows the instrument reads a real ring, so "no outline" is not its default.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dsec-ring-4961.js
  */
@@ -54,12 +51,37 @@ const readFocus = (page) => page.evaluate(() => {
   const cs = el ? getComputedStyle(el) : null;
   return {
     sec: el && el.dataset ? (el.dataset.sec || '') : '',
-    id: el ? el.id : '',
     style: cs ? cs.outlineStyle : '',
     width: cs ? cs.outlineWidth : '',
   };
 });
-const drawsNoRing = (f) => f.style === 'none' || parseFloat(f.width) === 0;
+const ring = (f) => f.style !== 'none' && parseFloat(f.width) > 0;
+
+/* Chromium only: force :focus and :focus-visible on one element, as the Mac app's WebKit matches
+   them after a click, then read its outline. */
+async function forcedRead(page, selector) {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send('DOM.enable');
+    await cdp.send('CSS.enable');
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
+    await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: ['focus', 'focus-visible'] });
+    const f = await page.evaluate((sel) => {
+      const cs = getComputedStyle(document.querySelector(sel));
+      return { style: cs.outlineStyle, width: cs.outlineWidth };
+    }, selector);
+    await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
+    return f;
+  } finally {
+    await cdp.detach();
+  }
+}
+
+const PAGES = [
+  { name: 'agent page', nav: '#d-nav', pills: [['model', 'model'], ['profile', 'profile'], ['talk', 'talk']] },
+  { name: 'Settings', nav: '#s-nav', pills: [['accounts', 'accounts'], ['you', 'you']] },
+];
 
 (async () => {
   fleet.install([fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' })]);
@@ -67,6 +89,7 @@ const drawsNoRing = (f) => f.style === 'none' || parseFloat(f.width) === 0;
   const URL = 'http://127.0.0.1:' + server.address().port;
   await fetch(URL + '/api/first-run/complete', { method: 'POST' });
   let ran = 0;
+  let forced = 0;
   try {
     for (const theme of ['light', 'dark']) {
       for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
@@ -75,28 +98,40 @@ const drawsNoRing = (f) => f.style === 'none' || parseFloat(f.width) === 0;
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, colorScheme: theme });
           const errs = [];
           page.on('pageerror', (e) => errs.push(e.message));
-          await page.goto(URL);
-          await page.waitForSelector('.acard .namego', { timeout: 20000 });
-          await page.locator('.acard .namego').first().click();
-          await page.waitForSelector('#d-sec-talk', { timeout: 20000 });
-          const tag = `[${theme}] ${engineName}`;
-          for (const how of ['click', 'keyboard']) {
-            for (const [go, sec] of [['model', 'model'], ['profile', 'profile'], ['talk', 'talk']]) {
-              const pill = page.locator(`#panel-detail [data-go="${go}"]`).first();
-              if (how === 'click') await pill.click();
-              else { await pill.focus(); await page.keyboard.press('Enter'); }
-              await page.waitForTimeout(150);
-              const f = await readFocus(page);
-              chk(f.sec === sec, `${tag}: ${how} ${go}: focus moved into the ${sec} section`, JSON.stringify(f));
-              chk(drawsNoRing(f), `${tag}: ${how} ${go}: the section draws no outline round itself`, JSON.stringify(f));
-              ran += 1;
+          for (const pg of PAGES) {
+            if (pg.nav === '#d-nav') {
+              await page.goto(URL);
+              await page.waitForSelector('.acard .namego', { timeout: 20000 });
+              await page.locator('.acard .namego').first().click();
+              await page.waitForSelector('#d-sec-talk', { timeout: 20000 });
+            } else {
+              await page.goto(URL + '/?tab=settings');
+              await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
+            }
+            const tag = `[${theme}] ${engineName} ${pg.name}`;
+            for (const how of ['click', 'keyboard']) {
+              for (const [go, sec] of pg.pills) {
+                const pill = page.locator(`${pg.nav} button[data-go="${go}"]`).first();
+                if (how === 'click') await pill.click();
+                else { await pill.focus(); await page.keyboard.press('Enter'); }
+                await page.waitForTimeout(150);
+                const f = await readFocus(page);
+                chk(f.sec === sec, `${tag}: ${how} ${go}: focus moved into the ${sec} section`, JSON.stringify(f));
+                if (how === 'click') {
+                  chk(!ring(f), `${tag}: click ${go}: the section draws no outline round itself`, JSON.stringify(f));
+                  if (engineName === 'chromium') {
+                    const m = await forcedRead(page, `${pg.nav === '#d-nav' ? '#panel-detail' : '#panel-settings'} .dsec[data-sec="${sec}"]`);
+                    chk(!ring(m), `${tag}: click ${go}, then :focus-visible as the Mac app matches it: still no outline`, JSON.stringify(m));
+                    forced += 1;
+                  }
+                } else {
+                  chk(ring(f) && f.style === 'solid' && f.width === '2px', `${tag}: keyboard ${go}: the landing ring shows (2px solid)`, JSON.stringify(f));
+                }
+                ran += 1;
+              }
             }
           }
-          /* Control: force a visible outline on the focused section; the instrument must read it. */
-          await page.addStyleTag({ content: '#panel-detail .dsec:focus { outline: 2px solid red !important; }' });
-          const c = await readFocus(page);
-          chk(c.sec === 'talk' && !drawsNoRing(c), `${tag}: control: a forced outline on the focused section reads as an outline`, JSON.stringify(c));
-          chk(errs.length === 0, `${tag}: no page errors`, errs.join(' | '));
+          chk(errs.length === 0, `[${theme}] ${engineName}: no page errors`, errs.join(' | '));
         } finally {
           await browser.close();
         }
@@ -106,7 +141,7 @@ const drawsNoRing = (f) => f.style === 'none' || parseFloat(f.width) === 0;
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 24, 'precondition: every engine, theme and pill arm ran', String(ran));
+  chk(ran === 40 && forced === 10, 'precondition: every engine, theme, page and pill arm ran', `ran=${ran} forced=${forced}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
