@@ -57,6 +57,7 @@ async function press(run) {
   const changeDialog = new Function('document', `${page.lift(SCRIPT, 'changeDialog')}\nreturn changeDialog;`)(document);
   changeDialog({ title: 't', small: 's', go: 'Go', run });
   await nodes['chg-go'].onclick();
+  nodes.__listeners = listeners;   // #4963: so a test can press Escape
   return nodes;
 }
 
@@ -86,6 +87,61 @@ test('#1313: a run that DOES speak is unchanged, and its own sentence wins', asy
     'the run said one thing and the dialog showed another');
   assert.equal(n['chg-keep'].textContent, 'Done',
     'a successful run should offer Done rather than Close');
+});
+
+/* #4963 (Josh, 0.7.16): "you should not be able to press Done ... we shouldnt even show that button until
+   the process is totally complete". While a restart is waking the agent the dialog shows no button. That is
+   only acceptable because it is still not a trap: Escape closes it (the wake goes on without the dialog),
+   and if the wake helper never reports, Close comes back once its longest wait has passed. */
+test('#4963: while the agent is waking there is no button, but Escape still closes the dialog', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });   // the fallback timer must not hold the process open
+  const n = await press(async (say) => { say('Restarted on Gemini. Waking them…', true, true); });
+  assert.equal(n['chg-keep'].hidden, true, 'a button is offered while the agent is still waking');
+  assert.equal(n['chg-msg'].textContent, 'Restarted on Gemini. Waking them…');
+  const esc = n.__listeners.filter((l) => l.type === 'keydown');
+  assert.equal(esc.length, 1, 'the dialog lost its Escape handler');
+  esc[0].fn({ key: 'Escape' });
+  assert.equal(n['chg-modal'].hidden, true, 'Escape did not close a dialog whose switch has already happened');
+});
+
+test('#4963: while the agent is waking, a tap outside the dialog closes it (no Escape on a phone)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const n = await press(async (say) => { say('Restarted on Gemini. Waking them…', true, true); });
+  assert.equal(typeof n['chg-modal'].onclick, 'function', 'the backdrop has no way out while waking');
+  n['chg-modal'].onclick({ target: { id: 'chg-title' } });
+  assert.equal(n['chg-modal'].hidden, false, 'a tap INSIDE the dialog closed it');
+  n['chg-modal'].onclick({ target: n['chg-modal'] });
+  assert.equal(n['chg-modal'].hidden, true, 'a tap on the backdrop did not close a waking dialog');
+});
+
+test('#4963 CONTROL: before the switch has happened, a tap outside does not close it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const n = await press(async (say) => { say('Switched to OpenAI.', true); });
+  if (typeof n['chg-modal'].onclick === 'function') n['chg-modal'].onclick({ target: n['chg-modal'] });
+  assert.equal(n['chg-modal'].hidden, false, 'a finished, non-waking dialog closed on a backdrop tap, which this change did not add');
+});
+
+test('#4963: if the wake never reports, Close comes back, so the dialog is never a trap', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const n = await press(async (say) => { say('Restarted on Gemini. Waking them…', true, true); });
+  assert.equal(n['chg-keep'].hidden, true);
+  t.mock.timers.tick(59000);
+  assert.equal(n['chg-keep'].hidden, true, 'the button came back before the wake could have finished');
+  t.mock.timers.tick(2000);
+  assert.ok(wayOut(n), 'the dialog stayed with nothing to press after the longest wake had passed');
+  assert.equal(n['chg-keep'].textContent, 'Close', 'an unfinished wake must not be offered as Done');
+  assert.equal(n['chg-msg'].textContent, 'Restarted on Gemini. Send them a message to wake them.',
+    'the line still says it is waking beside a Close');
+});
+
+test('#4963: an earlier opening\'s Escape handler cannot close a later dialog whose request is in flight', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const n = await press(async (say) => { say('Restarted on Gemini. Waking them…', true, true); });
+  const first = n.__listeners.filter((l) => l.type === 'keydown')[0];
+  n['chg-modal'].__openGen = (n['chg-modal'].__openGen || 0) + 1;   // a later opening of the same element
+  n['chg-go'].disabled = true;                                        // its request is in flight
+  first.fn({ key: 'Escape' });
+  assert.equal(n['chg-modal'].hidden, false, 'a stale opening\'s Escape closed the later dialog');
 });
 
 test('CONTROL: the harness can observe the trap, so the assertions above are live', async () => {
