@@ -17205,7 +17205,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos+ community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one. Each agent’s picture goes with it.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one. Their profiles show each agent’s picture too.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
@@ -17218,6 +17218,8 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
       <!-- #4885: a picture the community shut an agent out with stays up, and only the board's log knew. -->
       <p class="dhint" id="community-picture-stuck" style="margin:4px 0 0;" hidden></p>
+      <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
+      <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
       <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
@@ -30304,6 +30306,11 @@ function industryPaint(r, keepMsg) {
   stuck.hidden = !ns;
   stuck.textContent = !ns ? '' : (ns === 1 ? 'One agent\u2019s picture' : ns + ' agents\u2019 pictures')
     + ' may still show in the community. The community shut ' + (ns === 1 ? 'that agent' : 'those agents') + ' out, so Kosmos can no longer take ' + (ns === 1 ? 'it' : 'them') + ' down.';
+  const unsendable = document.getElementById('community-picture-unsendable');
+  const nu = r && Number.isInteger(r.picturesUnsendable) && r.picturesUnsendable > 0 ? r.picturesUnsendable : 0;
+  unsendable.hidden = !nu;
+  unsendable.textContent = !nu ? '' : (nu === 1 ? 'One agent\u2019s picture' : nu + ' agents\u2019 pictures')
+    + ' cannot go to the community as ' + (nu === 1 ? 'it is' : 'they are') + '. Choose ' + (nu === 1 ? 'it' : 'each one') + ' again on the agent\u2019s page and Kosmos will fit it.';
   // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
   if (keepMsg) return;
   // Said by case: with the list here, any choice sets it again; without it, only None is offered.
@@ -39499,16 +39506,36 @@ document.getElementById('detail-back').addEventListener('click', () => {
    meets all of that is kept exactly as chosen. Anything else (a big photo, a GIF, an animated picture, a tiny or huge
    one, and every JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is
    redrawn: longest side at most 512 px, short side at least 16 px (padded, never stretched), as WebP, then PNG (both
-   keep transparency), then JPEG on white, stepping down until it fits. Every picture the person chooses comes through
-   here. Never throws: a picture that cannot be redrawn is kept as it was (the board then does not send it and the
+   keep transparency, and a picture with transparency tries every size in them first), then JPEG on white, stepping
+   down until it fits. Every agent picture the person chooses comes through here. Never throws: a picture that
+   cannot be redrawn is kept as it was (the board then does not send it and the
    community shows its mark). */
 const PICTURE_MAX_BYTES = 60000;
 const PICTURE_MIN_SIDE = 16;
 const PICTURE_MAX_SIDE = 2048;
 let PICTURE_WEBP = null;   // whether this browser can write WebP (WebKit cannot); asked once
 /* Whether `bytes` are a still PNG or WebP, read from the bytes (never the file name), the way the community reads
-   them (app/avatars.py): a PNG with no acTL, fcTL or fdAT chunk anywhere; a WebP with no ANIM or ANMF chunk and the
+   them (app/avatars.py): a PNG with no acTL, fcTL or fdAT chunk anywhere, and no eXIf chunk that turns the picture
+   (the community drops eXIf, and with it the turn, so such a PNG is redrawn upright; WebKit writes an eXIf with no
+   turn into every PNG it makes); a WebP with no ANIM or ANMF chunk and the
    VP8X animation flag clear. Anything else, or anything cut short, is not kept as chosen. */
+/* Whether EXIF data (a TIFF header and its first directory) carries an Orientation other than 1, upright. */
+function pictureTurned(exif) {
+  if (exif.length < 8) return false;
+  const le = exif[0] === 0x49 && exif[1] === 0x49;
+  if (!le && !(exif[0] === 0x4d && exif[1] === 0x4d)) return false;
+  const u16 = (at) => (le ? exif[at] + (exif[at + 1] << 8) : (exif[at] << 8) + exif[at + 1]);
+  const u32 = (at) => (le ? u16(at) + u16(at + 2) * 65536 : u16(at) * 65536 + u16(at + 2));
+  const dir = u32(4);
+  if (dir + 2 > exif.length) return false;
+  const n = u16(dir);
+  for (let i = 0; i < n; i++) {
+    const e = dir + 2 + i * 12;
+    if (e + 12 > exif.length) return false;
+    if (u16(e) === 0x0112) return u16(e + 8) !== 1;
+  }
+  return false;
+}
 function pictureStill(bytes) {
   const tag = (at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
   const u32be = (at) => ((bytes[at] << 24) >>> 0) + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3];
@@ -39518,6 +39545,7 @@ function pictureStill(bytes) {
     for (let at = 8; at + 8 <= bytes.length;) {
       const kind = tag(at + 4);
       if (kind === 'acTL' || kind === 'fcTL' || kind === 'fdAT') return false;
+      if (kind === 'eXIf' && pictureTurned(bytes.subarray(at + 8, at + 8 + u32be(at)))) return false;
       if (kind === 'IEND') return true;
       at += 12 + u32be(at);
     }
@@ -39548,11 +39576,27 @@ async function fitPicture(blob) {
       const b = await new Promise((r) => probe.toBlob(r, 'image/webp'));
       PICTURE_WEBP = Boolean(b && b.type === 'image/webp');
     }
-    const types = (PICTURE_WEBP ? ['image/webp'] : []).concat(['image/png', 'image/jpeg']);
+    const keepAlpha = (PICTURE_WEBP ? ['image/webp'] : []).concat(['image/png']);
     const big = Math.max(bmp.width, bmp.height) || 1;
     // Sides to try, largest first; a picture smaller than a step is tried once at its own size.
     const sides = [...new Set([512, 384, 256, 192, 128].map((x) => Math.min(x, big)))];
-    for (const side of sides) {
+    // A picture with transparency tries every size in a format that keeps it before any JPEG on white; one without
+    // tries each size in every format before going smaller, so a photo stays as large as the cap allows.
+    const probe = document.createElement('canvas');
+    probe.width = probe.height = 64;
+    const pctx = probe.getContext('2d');
+    pctx.drawImage(bmp, 0, 0, 64, 64);
+    const px = pctx.getImageData(0, 0, 64, 64).data;
+    let alpha = false;
+    for (let i = 3; i < px.length && !alpha; i += 4) alpha = px[i] < 255;
+    const tries = [];
+    if (alpha) {
+      for (const type of keepAlpha) for (const side of sides) tries.push([side, type]);
+      for (const side of sides) tries.push([side, 'image/jpeg']);
+    } else {
+      for (const side of sides) for (const type of keepAlpha.concat(['image/jpeg'])) tries.push([side, type]);
+    }
+    for (const [side, type] of tries) {
       const k = Math.min(1, side / big);
       const w = Math.max(1, Math.round(bmp.width * k));
       const h = Math.max(1, Math.round(bmp.height * k));
@@ -39561,16 +39605,13 @@ async function fitPicture(blob) {
       cv.height = Math.max(PICTURE_MIN_SIDE, h);
       const ctx = cv.getContext('2d');
       ctx.imageSmoothingQuality = 'high';
-      for (const type of types) {
-        ctx.clearRect(0, 0, cv.width, cv.height);
-        // JPEG has no transparency: on white, or a transparent picture comes out with a black background.
-        if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); }
-        ctx.drawImage(bmp, Math.floor((cv.width - w) / 2), Math.floor((cv.height - h) / 2), w, h);
-        for (const q of type === 'image/png' ? [undefined] : [0.86, 0.72]) {
-          const out = await new Promise((r) => cv.toBlob(r, type, q));
-          // A browser that cannot write a type hands back a PNG instead; only a blob of the asked-for type counts.
-          if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) return out;
-        }
+      // JPEG has no transparency: on white, or a transparent picture comes out with a black background.
+      if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); }
+      ctx.drawImage(bmp, Math.floor((cv.width - w) / 2), Math.floor((cv.height - h) / 2), w, h);
+      for (const q of type === 'image/png' ? [undefined] : [0.86, 0.72]) {
+        const out = await new Promise((r) => cv.toBlob(r, type, q));
+        // A browser that cannot write a type hands back a PNG instead; only a blob of the asked-for type counts.
+        if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) return out;
       }
     }
     return blob;

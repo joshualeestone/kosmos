@@ -11,7 +11,7 @@ bytes, 16 to 2,048 px a side, upright) whenever the browser can redraw it; and a
 picture Kosmos can no longer take down is said in Settings.
 
 ## Call
-1. Copy, in the Community box: the switch's description ends "Each agent's picture goes with it."; the off note adds
+1. Copy, in the Community box: the switch's description ends "Their profiles show each agent's picture too."; the off note adds
    "and a picture stays until you remove it from the agent."
 2. fitPicture(blob) in web/index.html: a still PNG or WebP within the cap with each side from 16 to 2,048 px (the
    community's limits, app/avatars.py) is kept exactly; anything else (a big photo, a GIF, an animated picture, a tiny
@@ -51,12 +51,27 @@ picture Kosmos can no longer take down is said in Settings.
   need the board half added or this line held.
 - (review 2) A failed Settings read hides the stuck-picture line until the next good read, as the industry line does.
 
+- (review 3) Pictures saved before this change never passed through fitPicture, so a big photo or GIF already on an
+  agent cannot go. Rejected: re-fitting them silently (it would replace the person's stored pictures with smaller
+  ones without asking). Instead Settings counts them (picturesUnsendable, from the board half's pictureUnsendable())
+  and says to choose each again on the agent's page, which fits it.
+- (review 3) A picture with transparency tries every size as WebP or PNG before any JPEG on white (F6c; WebKit, with
+  the old size-first order, returned a grey-on-white JPEG). A PNG with an eXIf chunk is redrawn, since the community
+  drops eXIf and with it any rotation note.
+- (review 3) Every agent picture saved is now at most 512 px (and every JPEG re-encoded), so Kosmos's own display
+  gets the fitted picture too, not only the community. A PNG or WebP under the cap is kept exactly.
+- (review 3) Still unchecked against the community's WebP parser: a chunk running past the RIFF end, a VP8X canvas
+  that differs from the frame, or two image chunks. A WebP like that is kept as chosen and then refused by the
+  community, and the board shows the mark.
+- (review 3) "Saved." on the agent page does not say when a picture could not be fitted; the Settings count does.
+
 ## Weakest premise
 That 512 px is enough for every place Kosmos shows a picture. Agent pictures render at most a few hundred CSS pixels
 wide; a person who wants a sharper picture can choose a PNG or WebP under 60,000 bytes, which is kept as is.
 
 ## Verified
-- docs/browser-checks/render-picture-fit-4885.js, Chromium and WebKit, all good (F1 to F8); a no-op fitPicture makes
+- docs/browser-checks/render-picture-fit-4885.js, Chromium and WebKit, all good (F1 to F9, F6b, F6c); the size-first
+  order makes WebKit F6c red; a no-op fitPicture makes
   F1 and F2 red; removing the white fill makes WebKit F6 red (corner [0,0,0,255]); removing the padding makes F8 red. Wired in tools/browser-checks.sh and the README (browser-checks-indexed and -wired tests pass).
 - web.community-picture-4885.test.js; all web.*.test.js 2,284/2,284 with the industry route test and both wiring
   tests; every inline script block passes node --check.

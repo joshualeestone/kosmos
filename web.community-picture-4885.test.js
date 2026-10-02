@@ -25,7 +25,7 @@ function lift(name) {
 
 test('#4885: Settings > Community says each agent\'s picture goes with it, and that a picture stays up until removed', () => {
   const f = flat(HTML);
-  assert.ok(f.includes('if you pick one. Each agent’s picture goes with it.</p>'), 'the picture line is missing from the switch\'s description');
+  assert.ok(f.includes('if you pick one. Their profiles show each agent’s picture too.</p>'), 'the picture line is missing from the switch\'s description');
   assert.ok(f.includes('stays there until you pick None, and a picture stays until you remove it from the agent.'), 'the off note says nothing about pictures');
 });
 
@@ -55,7 +55,7 @@ function paint(r) {
   const INDUSTRY_UNKNOWN_LABEL = 'Unknown';
   // eslint-disable-next-line no-new-func
   new Function('document', 'INDUSTRY_NONE_LABEL', 'INDUSTRY_UNKNOWN_LABEL', lift('industryPaint') + '\nindustryPaint(arguments[3]);')(document, INDUSTRY_NONE_LABEL, INDUSTRY_UNKNOWN_LABEL, r);
-  return el('community-picture-stuck');
+  return el(arguments[1] || 'community-picture-stuck');
 }
 
 test('#4885: a picture the board can no longer take down is said in Settings; none, or a board that does not say, says nothing', () => {
@@ -75,8 +75,22 @@ test('#4885: a picture the board can no longer take down is said in Settings; no
   assert.match(HTML, /<p class="dhint" id="community-picture-stuck" style="margin:4px 0 0;" hidden><\/p>/);
 });
 
+test('#4885: pictures that cannot go as they are (saved before Kosmos fitted them) are said, with what to do', () => {
+  const base = { ok: true, industry: null, industries: [] };
+  for (const [r, why] of [[{ ...base, picturesUnsendable: 0 }, 'zero'], [base, 'no field'], [null, 'unreadable'],
+    [{ ...base, picturesUnsendable: null }, 'cannot tell']]) {
+    const line = paint(r, 'community-picture-unsendable');
+    assert.equal(line.hidden, true, why);
+    assert.equal(line.textContent, '', why);
+  }
+  assert.equal(paint({ ...base, picturesUnsendable: 1 }, 'community-picture-unsendable').textContent,
+    'One agent’s picture cannot go to the community as it is. Choose it again on the agent’s page and Kosmos will fit it.');
+  assert.equal(paint({ ...base, picturesUnsendable: 3 }, 'community-picture-unsendable').textContent,
+    '3 agents’ pictures cannot go to the community as they are. Choose each one again on the agent’s page and Kosmos will fit it.');
+});
+
 /* pictureStill reads the bytes the way the community does (kosmos-community app/avatars.py). */
-const pictureStill = new Function(lift('pictureStill') + '\nreturn pictureStill;')();
+const pictureStill = new Function(lift('pictureTurned') + lift('pictureStill') + '\nreturn pictureStill;')();
 const chunk = (kind, data) => {
   const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
   return Buffer.concat([len, Buffer.from(kind, 'latin1'), data, Buffer.alloc(4)]);   // the CRC is not read here
@@ -98,6 +112,15 @@ test('#4885 pictureStill: a still PNG or WebP is kept; an animated one, a JPEG, 
   // An animation chunk after a text chunk far past the first 4 KB (where a head-only scan stopped looking).
   assert.equal(pictureStill(png(chunk('tEXt', Buffer.alloc(6000, 65)), chunk('acTL', Buffer.alloc(8)), chunk('IDAT', Buffer.alloc(20)))), false);
   assert.equal(pictureStill(png(chunk('IDAT', Buffer.alloc(20)), chunk('fdAT', Buffer.alloc(8)))), false);
+  // eXIf: one that turns the picture is redrawn; one with no turn (WebKit writes such a chunk into every PNG it makes,
+  // these bytes are WebKit's own) or one saying upright is kept.
+  const exif = (orientation) => Buffer.from([0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, orientation, 0, 0, 0, 0, 0, 0]);
+  assert.equal(pictureStill(png(chunk('eXIf', exif(6)), chunk('IDAT', Buffer.alloc(20)))), false, 'a PNG turned by its eXIf is kept as chosen');
+  assert.equal(pictureStill(png(chunk('eXIf', exif(1)), chunk('IDAT', Buffer.alloc(20)))), true, 'an upright eXIf is redrawn for nothing');
+  const webkit = Buffer.from([77,77,0,42,0,0,0,8,0,1,135,105,0,4,0,0,0,1,0,0,0,26,0,0,0,0,0,3,160,1,0,3,0,0,0,1,0,1,0,0,160,2,0,4,0,0,0,1,0,0,0,96,160,3,0,4,0,0,0,1,0,0,0,96,0,0,0,0]);
+  assert.equal(pictureStill(png(chunk('sRGB', Buffer.alloc(1)), chunk('eXIf', webkit), chunk('IDAT', Buffer.alloc(20)))), true, 'a WebKit PNG is redrawn for nothing');
+  const ii = Buffer.from([0x49, 0x49, 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0]);
+  assert.equal(pictureStill(png(chunk('eXIf', ii), chunk('IDAT', Buffer.alloc(20)))), false, 'little-endian EXIF is read too');
   assert.equal(pictureStill(png(chunk('IDAT', Buffer.alloc(20))).subarray(0, 40)), false, 'a PNG cut short before IEND');
   assert.equal(pictureStill(riff(wchunk('VP8 ', Buffer.alloc(10)))), true);
   const vp8x = Buffer.alloc(10); vp8x[0] = 0x02;   // the animation flag

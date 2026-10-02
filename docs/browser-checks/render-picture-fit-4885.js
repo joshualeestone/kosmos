@@ -15,6 +15,8 @@
  *   F6  a transparent picture over the cap never gets a black background: transparent where it can be kept within
  *       the cap, else on white (WebKit cannot write WebP, and a JPEG once turned every transparent pixel black);
  *   F6b a transparent logo too big to keep (2,500 px) stays transparent in every engine;
+ *   F6c a soft transparent illustration that only fits as a smaller PNG stays transparent in every engine: every
+ *       size in a format that keeps transparency is tried before any JPEG on white;
  *   F7  a phone JPEG with a rotation tag (EXIF Orientation 6) comes back upright, its sides swapped;
  *   F8  a thin banner is padded to the community's 16 px minimum, never squeezed under it;
  *   F9  a JPEG whose file says PNG is still redrawn: what is kept is decided by the bytes, never the name;
@@ -117,6 +119,19 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
         lctx.fillStyle = '#2a6'; lctx.beginPath(); lctx.arc(1250, 1250, 900, 0, Math.PI * 2); lctx.fill();
         const logo = await new Promise((res) => lc.toBlob(res, 'image/png'));
         const logoOut = await window.fitPicture(logo);
+        // F6c: soft shaded blobs on transparent, which compress only at smaller sizes.
+        const sc = document.createElement('canvas');
+        sc.width = 1024; sc.height = 1024;
+        const sctx = sc.getContext('2d');
+        for (let b = 0; b < 40; b++) {
+          const x = 100 + ((b * 211) % 824); const y = 100 + ((b * 377) % 824);
+          const g = sctx.createRadialGradient(x, y, 0, x, y, 160);
+          g.addColorStop(0, 'rgba(' + ((b * 53) % 255) + ',' + ((b * 97) % 255) + ',' + ((b * 31) % 255) + ',0.9)');
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          sctx.fillStyle = g; sctx.fillRect(x - 160, y - 160, 320, 320);
+        }
+        const soft = await new Promise((res) => sc.toBlob(res, 'image/png'));
+        const softOut = await window.fitPicture(soft);
         // F7: a 200 x 100 JPEG with an EXIF Orientation 6 segment spliced in after its start marker.
         const wide = document.createElement('canvas');
         wide.width = 200; wide.height = 100;
@@ -139,6 +154,7 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
         const jpg = await new Promise((res) => small.toBlob(res, 'image/jpeg', 0.9));
         const jpgOut = await window.fitPicture(jpg);
         return {
+          softIn: soft.size, softType: softOut.type, softSize: softOut.size, softCorner: await corner(softOut),
           logoType: logoOut.type, logoSize: logoOut.size, logoSame: logoOut === logo, logoCorner: await corner(logoOut),
           transIn: trans.size, transType: transOut.type, transSize: transOut.size, transCorner: await corner(transOut),
           lyingRedrawn: lyingOut !== lying, lyingType: lyingOut.type,
@@ -163,6 +179,8 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
       const [cr, cg, cb, ca] = r.transCorner;
       say(ca === 0 || (cr === 255 && cg === 255 && cb === 255), engine + ' F6: its transparent corner is transparent, or white, never black', JSON.stringify(r.transCorner));
       say(r.logoCorner[3] === 0 && r.logoSize <= 60000 && !r.logoSame, engine + ' F6b: a transparent logo too big to keep stays transparent', r.logoType + ' ' + r.logoSize + ' ' + JSON.stringify(r.logoCorner));
+      say(r.softIn > 60000, engine + ' F6c control: the soft illustration really is over the cap', r.softIn + ' bytes');
+      say(r.softCorner[3] < 255 && r.softSize <= 60000 && r.softType !== 'image/jpeg', engine + ' F6c: a soft transparent illustration stays transparent', r.softType + ' ' + r.softSize + ' ' + JSON.stringify(r.softCorner));
       say(r.rotDims.w === 100 && r.rotDims.h === 200, engine + ' F7: a phone JPEG with a rotation tag comes back upright', r.rotDims.w + 'x' + r.rotDims.h);
       say(!r.thinSame && Math.min(r.thinDims.w, r.thinDims.h) >= 16, engine + ' F8: a thin banner is padded to at least 16 px', r.thinDims.w + 'x' + r.thinDims.h);
       say(r.lyingRedrawn, engine + ' F9: a JPEG whose file says PNG is redrawn, not kept', r.lyingType);

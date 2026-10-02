@@ -8036,7 +8036,10 @@ const server = http.createServer(async (req, res) => {
        null when it cannot tell, as `unreachable` beside it. */
     let picturesStuck = 0;
     try { picturesStuck = typeof communitysend.pictureUnreachable === 'function' ? communitysend.pictureUnreachable() : 0; } catch { picturesStuck = null; }
-    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck };
+    // #4885: pictures saved before Kosmos fitted them that cannot go as they are (too big, not a still picture, refused).
+    let picturesUnsendable = 0;
+    try { picturesUnsendable = typeof communitysend.pictureUnsendable === 'function' ? communitysend.pictureUnsendable() : 0; } catch { picturesUnsendable = null; }
+    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck, picturesUnsendable };
   };
   if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, industryBody()); }
