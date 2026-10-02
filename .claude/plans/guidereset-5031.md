@@ -85,4 +85,9 @@ The time-only shape is probably the common one for 5-hour limits, and this does 
   the command; TWO_REACHED uses the captured row. NITs not taken: last vs first menu row (differs only with two menus on screen, which the
   modal makes unlikely); minute > 59 (Claude Code never writes it); a year-old line re-reads capped in the 35 days before its anniversary
   (safe side). Measured 11:53: the unanchored upsell test reds TWO_REACHED by name. 241/241.
-- Round 6: PENDING.
+- Round 6 (sonnet, blind; a first attempt was STOPPED at 12:15 for retrying an unguarded `rm -rf $S/$n` that Splinter refused twice,
+  and re-run with a guarded-rm rule in its prompt): 0 BLOCKER, 0 SHOULD-FIX. CONVERGED (12:17). Read every /usage-credits string in the
+  2.1.287 binary: rows that START with it are upsells, rows that name it mid-row are limits, and every wrong case errs toward capped.
+  Traced live+expired arrangements (live above, live after, shared footer): all stay capped. No path hides a question. Mutants: 5 red by
+  name, 2 survive and are equivalent (\b after usage-credits; loop inclusive of the footer). NIT kept: removing a block can pull a footer into
+  an older quoted row's window, a stale capped reading on a pane that already had an expired block (safe side, unconstructed).
