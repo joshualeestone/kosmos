@@ -53,7 +53,7 @@ test('#4588 ask 3: a hello held by the Gemini cap says the limit, never that the
   let said = null;
   const until = new Date(Date.now() + 60e3).toISOString();
   await liftWithHeld(answer({ state: 'could_not', held: true, heldBy: 'cap', heldUntil: until }), { bob: 5 })('bob', 5, (t) => { said = t; }, 'SAID', 'MANUAL');
-  assert.equal(said, 'MANUAL The Gemini agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.');
+  assert.equal(said, 'MANUAL The Gemini subscription agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.');
   assert.doesNotMatch(said, /quota/i);
 });
 test('#4959: deliverPickup passes a held 409 verdict through, and still returns null for any other refusal', async () => {

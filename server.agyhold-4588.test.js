@@ -293,6 +293,9 @@ test('#4588 B pin: the agy-quota-resume sweep stays on chat.deliver (it is the l
 test('#4588 B pin: the recommender passes heldUntil built on agyQuota.heldForAgy (the quota hold, then #4588 ask 3\'s cap) over its roster', () => {
   const w = windowAfter('recommender.runOnce({');
   assert.match(w, /heldUntil:\s*\(session\)\s*=>\s*agyQuota\.heldForAgy\(session, roster, Date\.now\(\)\)/);
+  // #4588 ask 3 review 9: the stuck agent's slot is reserved before its peers are asked, and given back if unreached.
+  assert.match(w, /reserve:\s*\(session\)\s*=>\s*agyQuota\.noteCapStart\(session, roster, Date\.now\(\)\)/);
+  assert.match(w, /release:\s*\(slot\)\s*=>\s*agyQuota\.releaseCapStart\(slot\)/);
   // agyQuota is declared in code before the recommender runner that closes over it.
   const decl = CODE.indexOf("const agyQuota = require('./engine/agyquota');");
   assert.notEqual(decl, -1);

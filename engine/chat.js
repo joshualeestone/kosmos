@@ -1718,7 +1718,7 @@ function quotaHeldVerdict(sessionName, roster, opts = {}) {
     if (opts.cap === false) return null;
     try { until = require('./agyquota').heldForCap(sessionName, roster, now); } catch { until = null; }
     if (until === null) return null;
-    because = 'held: the Gemini agents on this computer are at the limit you set for working at once; looking again at ' + new Date(until).toISOString();
+    because = 'held: the Gemini subscription agents on this computer are at the limit you set for working at once; looking again at ' + new Date(until).toISOString();
   }
   return {
     state: DELIVERY.COULD_NOT, held: true, heldBy, heldUntil: new Date(until).toISOString(), because,

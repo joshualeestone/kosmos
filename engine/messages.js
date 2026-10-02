@@ -1930,7 +1930,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   const outcomes = {};
   /* #4588 PR B review 2 (W2): when each quota-held member's post will be told (ISO), beside its HELD outcome, so a
      reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
-  const heldUntil = {};
+  const heldUntil = {};   // #4588 ask 3: for a Gemini cap hold this is the next look (a minute ahead), not a release time
   let reached = 0;
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line

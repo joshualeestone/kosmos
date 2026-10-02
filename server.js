@@ -451,7 +451,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
     // #4588 ask 3: the person's cap on how many Gemini agents work at once.
     try { heldUntil = agyq.heldForCap(who, r, now); } catch { heldUntil = null; }
-    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " waits: the Gemini agents on this computer are at the limit set for working at once" };
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " waits: the Gemini subscription agents on this computer are at the limit set for working at once" };
     // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
     try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
   }
@@ -19521,6 +19521,8 @@ function start(port = PORT) {
             deliver: (session, text) => chat.deliverAutomatic(session, text, roster, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             heldUntil: (session) => agyQuota.heldForAgy(session, roster, Date.now()),   // #4588 ask 3: the cap too
+            reserve: (session) => agyQuota.noteCapStart(session, roster, Date.now()),   // #4588 ask 3 review 9: the stuck agent first
+            release: (slot) => agyQuota.releaseCapStart(slot),
           });
           recommenderPrev = out.next;
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.

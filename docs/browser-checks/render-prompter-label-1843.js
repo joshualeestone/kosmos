@@ -161,9 +161,9 @@ function chk(ok, label, extra) {
       // this sibling was not, staling it and blocking the 0.6.91 cut (#3552).
       // #4288 added the "Community" box directly below Daily report (SEVEN headings); the PR's
       // browser-checks job caught this sibling after web.settings-nav had been updated alone.
-      // #4588 ask 3 added "Gemini agents at once" directly below the Prompter.
-      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Gemini agents at once', 'Agent Communication', 'Daily report', 'Community', 'Recommender', 'Assigner']),
-        `[${theme}] the Automation headings read Auto-save, Prompter, Gemini agents at once, Agent Communication, Daily report, Community, Recommender, Assigner (#2619, #4288, #4588)`, JSON.stringify(sec.headings));
+      // #4588 ask 3 added "Gemini subscription agents at once" directly below the Prompter.
+      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Gemini subscription agents at once', 'Agent Communication', 'Daily report', 'Community', 'Recommender', 'Assigner']),
+        `[${theme}] the Automation headings read Auto-save, Prompter, Gemini subscription agents at once, Agent Communication, Daily report, Community, Recommender, Assigner (#2619, #4288, #4588)`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
       // #2632/#2771 (Josh 2026-09): the toggle copy was changed so it no longer promises
       // an undeliverable nudge -- both the visible <b> label and the slider's aria-label

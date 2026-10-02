@@ -177,3 +177,15 @@ happen while the person is messaging all of them directly.
   work.
 - Not changed (nits): one setting read per call (small sync reads); the shared .tmp name (identical tiny writes);
   ready() is called twice per member (it is idempotent).
+
+## Review 9 (opus) and what changed
+- **The recommender's fan-out:** it checked the stuck agent once, then asked peers. A peer's ask could take the only
+  slot and leave the agent that needs help held, with an attempt spent. runOnce now reserves the stuck agent's slot
+  BEFORE the peer asks (optional reserve/release deps; the server passes agyquota's), and gives it back if the playbook
+  reaches nothing. Tested at cap 1 with a control that shows the bug without reserve; the server wiring is pinned.
+- **The name said more than the code covers:** the cap counts and holds only Antigravity agents (Gemini on a Google
+  subscription). It is now "Gemini subscription agents at once", and the hint says API-key Gemini agents are not
+  counted. The server, chat and page messages use the same words.
+- Nits: the settings-nav failure message lists the new heading; messages.js says a cap hold's heldUntil is the next
+  look, not a release time.
+- Related set: 44 files, 773 tests, all pass.
