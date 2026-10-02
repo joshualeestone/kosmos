@@ -354,10 +354,18 @@ test('#4581 N10 review 4: a Codex member is never excused (it reports idle and n
 test('#4581 N10 review 5: only a runner known to report working is excused; a paneless member (no runner) never is', () => {
   const stale = { state: 'stale', file: 'summaries/2026-09-29-07.md', at: new Date(NOW - 600 * 60000).toISOString(), ageMinutes: 600 };
   const report = () => ({ found: true, state: 'idle', at: new Date(NOW - 420 * 60000).toISOString() });
-  const member = (runner) => ({ present: true, tied: true, state: 'idle', sessionName: 'x', runner });
-  // The positive arm: a Claude member is excused.
-  assert.equal(v.idleExcused(stale, member('claude'), report, NOW).state, 'idle');
-  for (const runner of [null, undefined, 'codex', 'someday-runner']) {
-    assert.equal(v.idleExcused(stale, member(runner), report, NOW).state, 'stale', 'excused a member with runner ' + runner);
-  }
+  /* A REAL member (fixture-discipline: no hand-built card), an idle Claude one from the fleet fixture through describe(),
+     with only its runner varied: the runners under test include ones no fixture can launch (none, a future one). */
+  const board = fleet.install([fleet.agent('cara', { state: 'idle' })]);
+  try {
+    const raw = { id: 'cr', name: 'Cara Room', folder: '/p/cr', agents: ['cara'], tasks: [] };
+    const real = projects.describe(raw, board.agents, [raw]).agents.find((m) => m.sessionName === 'cara');
+    assert.ok(real && real.present && real.tied && real.state === 'idle', 'fixture: cara is not an idle tied member: ' + JSON.stringify(real));
+    const member = (runner) => Object.assign({}, real, { runner });
+    // The positive arm: a Claude member is excused.
+    assert.equal(v.idleExcused(stale, member('claude'), report, NOW).state, 'idle');
+    for (const runner of [null, undefined, 'codex', 'someday-runner']) {
+      assert.equal(v.idleExcused(stale, member(runner), report, NOW).state, 'stale', 'excused a member with runner ' + runner);
+    }
+  } finally { board.restore(); }
 });
