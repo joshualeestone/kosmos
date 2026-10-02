@@ -43,7 +43,11 @@ and cannot force a removal; the person (the board token) removes any agent exact
 
 ## Decisions
 - Scope, stated as the card's spike did: real enforcement only for a TOKEN-ONLY agent, which cannot present the
-  board token (#4491 keeps it unreadable, slice 9 stops it sending one). An agent that can still read the board
+  board token (#4491 keeps it unreadable, slice 9 stops it sending one). It also must not present ANOTHER agent's
+  token: those are files under `sendertokens/`, readable by the same Mac user, so the token-only guard
+  (`setup-assistant.tokenOnlySettingsRules`) now Read-denies that folder under every data root, in the permission
+  layer and the macOS sandbox (review 13). Its own token comes in its environment from the supervisor. The tests
+  assert the config written; Seatbelt enforcing a folder deny was measured by hand for board.token's file only. An agent that can still read the board
   token is indistinguishable from the person, so for it this stays advisory (step 1's doctrine). It widens as
   token-only becomes the default.
 - The creator is matched by its EXACT token name, recorded on the birth (`createdByName`). `createdBy` is not used:
@@ -70,6 +74,9 @@ and cannot force a removal; the person (the board token) removes any agent exact
   under the same key. A token-only removal is refused while the key holds a token of any other name (review 12).
 - History times are compared as strings, which is right only in toISOString's fixed form; a line or a birth time in
   any other form refuses.
+- #4845's refusal on the remote-token route fails open when the created list cannot be read (and off macOS), so the
+  person could issue a remote token under exactly a made agent's name after its birth; a creator's removal would
+  then revoke it with the rest of the key. Narrow, rests on #4845's documented fail-open, accepted.
 - A remote token the person issues again under a name (POST /api/agent-token) mints without revoking, so it carries
   that name's identity on: a remote creator re-issued its name keeps what it made. That is the person's act and is
   taken as the same identity.
@@ -96,7 +103,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
   name (adopt mints without revoking), is not seen.
 
 ## Validation
-- `server.agent-remove-4475.test.js` 31/31, `server.team-agent-token-1279.test.js` 23/23, `engine/remove.test.js` 93/93,
+- `engine/boardkeychain-4491.test.js` 18/18 (the sender-token folder denied), `server.agent-remove-4475.test.js` 31/31, `server.team-agent-token-1279.test.js` 23/23, `engine/remove.test.js` 93/93,
   `engine/delete-leftover.test.js` 15/15, `engine/team.newrole-4474.test.js` 22/22,
   `server.agent-token-gate-4491.test.js` 25/25, `server.agent-token-sender-570.test.js` 7/7.
 - Mutants, each failing only its own cases: revoke not writing the history (the delete-leftover and end-to-end tests),

@@ -2591,10 +2591,8 @@ function activeAgentsCreatedBy(creator) {
   return n;
 }
 
-/* #4475: the newest birth that made the agent `name` (its slug): outcome `created` or `partial`, by the rule
-   activeAgentsCreatedBy counts with (the newest line wins), or null when the birth log has none. A `partial` counts
-   here, unlike the cap's count, so a newer partial line is the one returned, and tokenOnlyMayRemove refuses any
-   birth that is not `created`. */
+/* #4475: the newest `created` or `partial` birth line for the agent `name`, by slug, or null when the birth log has
+   none. tokenOnlyMayRemove refuses any birth that is not `created`, so a newer partial line ends the older one. */
 function agentBirthOf(name) {
   let want; try { want = create.slugFor(name); } catch { return null; }
   if (!want) return null;

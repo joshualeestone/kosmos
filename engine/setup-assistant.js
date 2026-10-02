@@ -508,6 +508,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps);
   const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
   const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
+  /* #4475: every agent's sender-token files. A token-only agent's own token comes in its environment
+     (KOSMOS_AGENT_TOKEN, minted by the supervisor before launch), never from this folder; another agent's token read
+     from it would let this agent act as that agent, including removing the agents that one made. */
+  const senderTokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
   // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: a config home holds
   // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
   const concreteHomes = accountConfigHomes(home);
@@ -518,9 +522,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const deny = [
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
+    ...senderTokenDirs.map((p) => `Read(${ruleAbs(p)}/**)`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
-  return { deny, settingsDir, tokenPaths, tokenTmps, settingsFiles };
+  return { deny, settingsDir, tokenPaths, tokenTmps, senderTokenDirs, settingsFiles };
 }
 
 /*
@@ -574,7 +579,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // yet, so use realOrLeaf (resolves the existing parent, keeps the absent leaf) rather than realOr,
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
-      const denyReadPaths = rules.tokenPaths.map(realOrLeaf);
+      const denyReadPaths = [...rules.tokenPaths, ...rules.senderTokenDirs].map(realOrLeaf);
       const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf)];
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,

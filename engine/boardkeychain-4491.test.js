@@ -238,6 +238,22 @@ test('legacy and default-world board.token are in the sandbox denyRead too, not 
   assert.ok(dr.includes(realOrLeaf(path.join(worldBase, TOKEN_FILE))), 'the default-world board.token is not in sandbox denyRead');
 });
 
+test('#4475: every agent\'s sender-token folder is Read-denied (current, legacy and default-world roots) and in the sandbox denyRead', () => {
+  const dir = agentDir('pilot-tokens');
+  const legacy = path.join(SANDBOX, 'tok-legacy', 'Kosmos');
+  const worldBase = path.join(SANDBOX, 'tok-world');
+  setup.guardTokenOnlyFolder(dir, 'pilot-tokens', { ...DEPS, legacyRoots: [legacy], worldsBase: worldBase });
+  const s = readSettings(dir);
+  for (const root of [store.ROOT, legacy, worldBase]) {
+    const tokens = path.join(root, 'sendertokens');
+    assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(tokens)}/**)`), 'another agent\'s token files are readable under ' + root + ': ' + JSON.stringify(s.permissions.deny));
+    assert.ok(s.sandbox.filesystem.denyRead.includes(realOrLeaf(tokens)), 'the sender-token folder is not in sandbox denyRead under ' + root);
+  }
+  // CONTROL: the token-only list (read by the supervisor, outside the sandbox) and the agent's own folder are not denied.
+  assert.ok(!s.permissions.deny.some((r) => r.includes('agent-token-only.json')), 'the token-only list was denied');
+  assert.ok(path.dirname(sendertoken.tokenOnlyFile()) === store.ROOT, 'CONTROL: the token-only list moved into a denied folder');
+});
+
 test('realOrLeaf: resolves an existing leaf (incl a symlink), a symlinked parent of an absent leaf, and an all-missing path', () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'realorleaf-'));
   // existing symlink leaf -> target: resolves to the target
