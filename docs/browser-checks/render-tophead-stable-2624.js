@@ -65,6 +65,7 @@ async function measure(page, view, notice, name) {
     const cons = view === 'consolidated';
     document.documentElement.setAttribute('data-layout', cons ? 'consolidated' : 'tabs');
     document.body.classList.toggle('consolidated', cons);
+    const left = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? Math.round(r.left * 10) / 10 : null; };
     const top = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? Math.round(r.top * 10) / 10 : null; };
     const head = document.querySelector('.apphead');
     const hdr = head && head.querySelector('header');
@@ -82,6 +83,8 @@ async function measure(page, view, notice, name) {
       noteTop: (() => { const n = document.querySelector('[data-check-notice]'); if (!n) return null; const r = n.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? Math.round(r.top * 10) / 10 : null; })(),
       headBottom: hdr ? Math.round(hdr.getBoundingClientRect().bottom * 10) / 10 : null,
       tabsShown: top('.apphead header .tabs') !== null,
+      // Left edges too (review 5): a top-only compare stays green if a side cluster moves sideways when the view flips.
+      klinkX: left('.apphead header .klink'), youX: left('.apphead header .headright'), tabsTop: top('.apphead header .tabs'),
       // The center tabs' left edge, and the switcher's width (so a long-name arm can prove the name widened it).
       tabsX: (() => { const t = document.querySelector('.apphead header .tabs'); if (!t) return null; const r = t.getBoundingClientRect(); return r.width > 0 ? Math.round(r.left * 10) / 10 : null; })(),
       worldswW: (() => { const w = document.querySelector('.apphead header .worldsw'); return w ? Math.round(w.getBoundingClientRect().width * 10) / 10 : null; })(),
@@ -115,6 +118,9 @@ async function measure(page, view, notice, name) {
         const m = await measure(page, view, notice);
         rows.push({ width, view, notice, ...m });
         const where = `${width}px ${view}${notice ? ' with a tall notice' : ''}`;
+        for (const k of ['klinkX', 'youX', 'tabsTop']) {
+          if (m[k] !== ref[k]) problems.push(`${where}: ${k} is ${m[k]}, consolidated without a notice has ${ref[k]}`);
+        }
         for (const k of ['klink', 'worldsw', 'you']) {
           if (m[k] === null) problems.push(`${where}: .${k} does not render in the header`);
           else if (m[k] !== ref[k]) problems.push(`${where}: ${k} top is ${m[k]}, consolidated without a notice has ${ref[k]} (the header moved ${Math.round((m[k] - ref[k]) * 10) / 10}px)`);
@@ -172,6 +178,7 @@ async function measure(page, view, notice, name) {
     // The center tabs sit on the same pixels in both views, whatever the Kosmos name's width: the consolidated header
     // used to lay them out after the left cluster (flex space-between), so a longer name moved them sideways when the
     // view flipped (90.5px at 1440px with a 220px switcher). CONTROL: the long name really widened the switcher.
+    // Last on this page on purpose: the long name is written into the switcher and not put back.
     const LONG = 'Weekend launch Kosmos for every computer';
     const long = {};
     for (const view of ['tabs', 'consolidated']) { long[view] = await measure(page, view, false, LONG); rows.push({ width, view, notice: false, name: 'long', ...long[view] }); }
