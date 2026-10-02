@@ -608,13 +608,14 @@ function recordApproval(agentId, receivedAt) {
   return rec;
 }
 
-// Explicit operator/admin grant — promotes immediately, no ladder.
 // #5000: a grant or a revoke keeps a forgotten name's forgottenAt, so a held post the deleted agent left behind still
 // credits nobody afterwards.
 function keepForgotten(prev, rec) {
   if (prev && typeof prev.forgottenAt === 'string') rec.forgottenAt = prev.forgottenAt;
   return rec;
 }
+
+// Explicit operator/admin grant — promotes immediately, no ladder.
 function grantTrust(agentId) {
   const all = loadTrust();
   all[trustKey(agentId)] = keepForgotten(all[trustKey(agentId)], { trust: 'trusted', approved_count: PROMOTE_THRESHOLD });

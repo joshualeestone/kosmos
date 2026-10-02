@@ -60,3 +60,8 @@ no reset in del (4).
   number reaches the person (sabotage red).
 - N "Try again" on a failed reset promised a retry that may fail the same way -> dropped.
 - N inverted assertion message in communitystore.test.js -> fixed.
+
+## Review 4 (blind, whole diff): 0 blockers, 0 warnings, 2 nits; both taken -> CONVERGED
+- N the for-good late refusal said "Nothing was deleted." after token files were deleted -> "None of its files were
+  moved/deleted." (test updated).
+- N keepForgotten sat under grantTrust's comment -> moved above it.
