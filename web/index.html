@@ -53071,7 +53071,7 @@ function importNamesRestore(box, kept) {
     const f = k && row.querySelector('.fr-importinput');
     if (f) {
       f.value = k.value;
-      if (k.bad) f.setAttribute('aria-invalid', 'true');   // review 6: a refusal shown just before the redraw stays shown
+      if (k.bad) { f.setAttribute('aria-invalid', 'true'); if (f.classList) f.classList.add('bad'); }   // review 6: a refusal shown just before the redraw stays shown (review 9: border too)
       const said = row.querySelector('.fr-importsaid');
       if (said && k.why) said.textContent = k.why;
       if (k.focused && typeof f.focus === 'function') f.focus();
@@ -53112,15 +53112,21 @@ function importAddsNewVisit() {
     if (st.state === 'added' || (typeof st.at === 'number' && Date.now() - st.at > 60000)) IMPORT_ADDS.delete(f);
   }
 }
-function importRowsSync(file, msg, aboutName) {
-  /* Review 8: at most ONE copy takes focus, and never one inside a hidden list: with both lists visible, focus must
-     not jump to the other surface's field. */
-  let focusedOne = false;
+function importRowsSync(file, msg, aboutName, pressed) {
+  /* Review 8/9: focus moves only when the PRESSED row was redrawn away (fail() has already focused it when it is
+     still on screen), and then to at most one copy, never one inside a hidden list. */
+  const rows = [];
   for (const id of ['import-found', 'fr-fleet']) {
     const box = document.getElementById(id);
     if (!box || !box.querySelectorAll) continue;
     for (const row of Array.from(box.querySelectorAll('.fr-importrow'))) {
-      if (row.getAttribute('data-import-file') !== file) continue;
+      if (row.getAttribute('data-import-file') === file) rows.push(row);
+    }
+  }
+  let focusedOne = !!pressed && rows.includes(pressed);
+  for (const row of rows) {
+    {
+      if (row === pressed) continue;
       if (IMPORT_ADDS.has(file)) { importRowApply(row); continue; }
       /* The add failed: a copy redrawn meanwhile goes back to ready AND carries the reason (review 3), since
          the pressed row may no longer be on screen to show it. */
@@ -53133,7 +53139,11 @@ function importRowsSync(file, msg, aboutName) {
         field.disabled = false;
         if (aboutName) {
           field.setAttribute('aria-invalid', 'true');
+          if (field.classList) field.classList.add('bad');   // the flagged border goes with the attribute (#2606)
           if (!focusedOne && !(row.closest && row.closest('[hidden]'))) { field.focus(); focusedOne = true; }
+        } else {
+          field.removeAttribute('aria-invalid');
+          if (field.classList) field.classList.remove('bad');
         }
       }
     }
@@ -53244,7 +53254,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
       else { field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
     }
     if (!aboutName && hadInRow && typeof had.focus === 'function') had.focus();
-    importRowsSync(file, msg, aboutName);
+    importRowsSync(file, msg, aboutName, row);
   };
   IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: Date.now() });
   if (field) field.disabled = true;

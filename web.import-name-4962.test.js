@@ -491,7 +491,7 @@ test('review 8: a refusal about the name focuses ONE copy, never one in a hidden
     const go = t.create('button'); go.className = 'fr-importgo'; go.textContent = 'Adding...';
     const said = t.create('p'); said.className = 'fr-importsaid';
     row.append(f, go, said); box.appendChild(row);
-    return { f, said };
+    return { f, said, row };
   };
   const a = copy(found);
   const b = copy(fleet);
@@ -506,5 +506,15 @@ test('review 8: a refusal about the name focuses ONE copy, never one in a hidden
   found.hidden = true;
   api.importRowsSync('/p/pip.md', 'That name is taken.', true);
   assert.equal(t.focused(), b.f, 'not into the hidden list');
+  // Review 9: the PRESSED row still on screen keeps focus (fail() focused it); the other copy is marked, not focused.
+  found.hidden = false;
+  b.f.focus();                                         // fail() focused the pressed row's field, in #fr-fleet
+  a.f.removeAttribute('aria-invalid');
+  api.importRowsSync('/p/pip.md', 'That name is taken.', true, b.row);
+  assert.equal(t.focused(), b.f, 'focus stays on the field the person used');
+  assert.equal(a.f.getAttribute('aria-invalid'), 'true', 'the other copy is still marked');
+  // A refusal NOT about the name clears a stale mark on the other copies.
+  api.importRowsSync('/p/pip.md', 'No account here.', false, b.row);
+  assert.equal(a.f.getAttribute('aria-invalid'), null);
 });
 

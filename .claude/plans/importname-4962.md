@@ -111,3 +111,13 @@ browser check (bc-4962, queued; its first run is its first proof), the full vali
   panels too, not only the import panel. One field shape, one keyboard rule; the first-run exemption is what keeps
   Enter from also pressing Continue. The PR body says so.
 - NITs noted, not taken: a comment names chk where chkAll carries the FAIL string; HEADED default is the sibling checks'.
+
+## Review 9 (opus, blind, 2026-10-02 11:34): 0 blockers, 1 warning, 4 nits
+- FIXED: review 8's "at most one copy" could still move focus off the field the person used (fail() focuses the
+  pressed row, then the sync focused the first copy in #import-found). importRowsSync now takes the pressed row and
+  moves focus only when that row was redrawn away. Unit test arm, red with the old line.
+- FIXED (nit): the flagged border (.bad) now goes with aria-invalid everywhere it is set or cleared (the sync, the
+  redraw restore), and a refusal not about the name clears a stale mark on the other copies. The fake DOM gained
+  removeAttribute (all four fake-DOM test files pass).
+- Not taken: first run's frPaintScan never forgets a receipt (first-run import rows are not reached in setup today);
+  the chk/chkAll comment wording; the adopt-row Enter scope (deliberate, stated in the PR body).
