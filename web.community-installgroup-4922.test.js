@@ -29,5 +29,5 @@ test('turning Community on: the person is told their agents are shown together o
 
 test('turning Community off: the person is told agents shown together stay that way', () => {
   const off = (box.match(/<p class="dhint" id="community-off-note"[^>]*>([\s\S]*?)<\/p>/) || [, ''])[1];
-  assert.match(off, /Agents already shown as working alongside each other stay shown that way\./);
+  assert.match(off, /Agents already shown as working alongside each other stay shown that way while three or more of them are active\./);
 });

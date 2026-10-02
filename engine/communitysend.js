@@ -20,7 +20,7 @@
  *                                              429 daily comment cap (#4370; #4373 part B, sendComment)
  *   DELETE /posts/{id}/comments/{comment_id}   204, or 404 when it is gone or not this agent's (kosmos-community #24;
  *                                              #4801, sweepCommentDeletes)
- * payload() is the single source of the POST shape; a test pins its keys, and the
+ * payload() is the single source of the post shape; a test pins its keys, and the
  * server refuses any key it does not know (400), so the two sides cannot drift quietly.
  *
  * 🔑 THE KEY IS NOT HANDED TO THE AGENT. The board registers each posting agent once and
@@ -466,12 +466,11 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     if (!(r.status >= 400 && r.status < 500)) return null;
     delete keys[agentKey];
     saveJson(keysFile(), keys);
-    /* #4922: a service that does not know install_group answers 422 naming it (its schemas forbid unknown fields).
-       Registered again without it, so no agent is kept off the community by the id; the install-group pass sends it
-       once the service knows it. */
-    // #4922: named by a validation entry's `loc` when the answer has them (a 422 that echoes the whole
-    // body would otherwise always match); the fallback does not use up one of the three tries.
-    if (r.status === 422 && reg.install_group && namesInstallGroup(r)) {
+    /* #4922: a service that does not know install_group refuses it as an unknown field (kosmos-community app/main.py:
+       400 {error: 'unknown_fields', fields: [...]}). Registered again without it, so no agent is kept off the
+       community by the id; the install-group pass sends it once the service knows it. The fallback does not use up one
+       of the three tries. */
+    if (reg.install_group && namesInstallGroup(r)) {
       delete reg.install_group;
       installGroupUnknownUntil.set(endpointDir(), Date.now() + INSTALL_GROUP_UNKNOWN_MS);
       log(`register for ${agentKey}: the service does not take install_group yet; registering without it`);
@@ -785,9 +784,9 @@ function serviceRefusedIndustry(r) {
 
 /**
  * #4922: send this install's group id to each agent registered before it existed, once, by PATCH /agents/me
- * { install_group }. Only while Community is on (it is about taking part). A refused key is skipped. A 422 naming the
- * field is a service that does not know it yet (its schemas forbid unknown fields; the id always matches its
- * pattern): the pass stops and that service is not sent it for an hour (as registration does). A 429 pauses the pass
+ * { install_group }. Only while Community is on (it is about taking part). A refused key is skipped. An unknown-field
+ * refusal naming it (400 unknown_fields) is a service that does not know it yet: the pass stops and that service is
+ * not sent it for an hour (as registration does). A rejected value is not that (the id always matches the pattern). A 429 pauses the pass
  * (capped like #4940's register wait). Any other failure waits 15 minutes for that agent and id, logged once each.
  * (Waits, not "every sweep": since #4938 a sweep runs on every publish, and this pass holds the lock agent calls wait on.)
  */
@@ -797,16 +796,19 @@ let INSTALL_GROUP_RETRY_MS = 15 * 60 * 1000;   // a failed install-group PATCH w
 const installGroupRetryAt = new Map();   // endpointDir|agentKey|group -> ms
 const installGroupPassAt = new Map();    // endpointDir -> ms: a 429 pauses the whole pass, as #4940 pauses register
 const INSTALL_GROUP_UNKNOWN_MS = 60 * 60 * 1000;
-const installGroupUnknownUntil = new Map();   // endpointDir -> ms: the service refused the field (422 naming it)
-// A 422 that names install_group: by a validation entry's `loc` (FastAPI), or a plain-string detail that says it. The
-// whole body is not searched (#4922): a 422 that echoes the request would always match.
+const installGroupUnknownUntil = new Map();   // endpointDir -> ms: the service refused the field as unknown
+/* #4922 review 5: "this service does not know install_group". kosmos-community turns every extra_forbidden into
+   400 {error: 'unknown_fields', fields: [...]} (app/main.py), and answers 422 only for a bad VALUE, which is not a
+   missing field and must not drop the id for an hour. A plain FastAPI service (no such handler) says it as a 422 whose
+   entry has the field's `loc` and type extra_forbidden, so that shape counts too. Nothing else does: the body is never
+   searched for the word. */
 function namesInstallGroup(r) {
-  const detail = r && r.json && r.json.detail;
-  // Only "this field is not allowed" (extra_forbidden): a rejected VALUE (string_pattern_mismatch, measured live on a
-  // bad id) is not a service that lacks the field, and must not drop the id for an hour.
-  if (Array.isArray(detail)) return detail.some((e) => e && Array.isArray(e.loc) && e.loc.includes('install_group')
-    && (!e.type || /extra|forbid|not.?permitted|unexpected/i.test(String(e.type) + ' ' + String(e.msg || ''))));
-  return typeof detail === 'string' && detail.includes('install_group');
+  const j = r && r.json;
+  if (r && r.status === 400 && j && j.error === 'unknown_fields' && Array.isArray(j.fields)) return j.fields.includes('install_group');
+  if (r && r.status === 422 && j && Array.isArray(j.detail)) {
+    return j.detail.some((e) => e && Array.isArray(e.loc) && e.loc.includes('install_group') && e.type === 'extra_forbidden');
+  }
+  return false;
 }
 async function sweepInstallGroup(keys, on) {
   if (!on) return;
@@ -825,7 +827,7 @@ async function sweepInstallGroup(keys, on) {
     if ((installGroupRetryAt.get(waitKey) || 0) > Date.now()) continue;
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: group });
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
-    if (r.status === 422 && namesInstallGroup(r)) {   // #4922: the service does not know the field: pause, as register does
+    if (namesInstallGroup(r)) {   // #4922: the service does not know the field: pause, as register does
       installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);
       log(`install group: the service does not take install_group yet; trying again in an hour`);
       break;
@@ -1425,6 +1427,7 @@ module.exports = {
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
+  namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
   _installGroupRetry: (ms) => { installGroupRetryAt.clear(); installGroupPassAt.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };

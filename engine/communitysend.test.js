@@ -41,7 +41,8 @@ function backend() {
         return null;
       };
       if (req.method === 'POST' && req.url === '/agents/register') {
-        if (st.mode.refuseGroup && 'install_group' in body) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] });
+        // As kosmos-community answers an unknown field (app/main.py): 400 unknown_fields, never a 422.
+        if (st.mode.refuseGroup && 'install_group' in body) return send(400, { error: 'unknown_fields', fields: ['install_group'] });
         if (st.mode.badName) return send(422, { detail: [{ loc: ['body', 'name'], msg: 'bad name', type: 'value_error' }] });
         if (st.mode.badGroupValue && 'install_group' in body) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: "String should match pattern '^[A-Za-z0-9_-]{16,64}$'", type: 'string_pattern_mismatch' }] });
         if (st.mode.clash > 0) { st.mode.clash -= 1; return send(409, { detail: 'that name is taken' }); }
@@ -88,7 +89,7 @@ function backend() {
         if (st.mode.noGroupRoute) return send(404, { detail: 'not found' });
         if (st.mode.slowDown) return send(429, { detail: 'slow down' }, { 'retry-after': '60' });
         if (st.mode.groupDown) return send(503, { detail: 'unavailable' });
-        if (st.mode.refuseGroup) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] });
+        if (st.mode.refuseGroup) return send(400, { error: 'unknown_fields', fields: ['install_group'] });
         if (typeof body.install_group !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(body.install_group)) return send(422, { detail: 'bad install_group' });
         a.installGroup = body.install_group;
         return send(204);
@@ -1263,7 +1264,7 @@ test('4922: an agent registered before the id existed is sent it once, only whil
   assert.equal(groupPatches().length, 1, 'it was sent again after it landed');
 });
 
-test('4922: a service without the field is tried again every sweep, then lands', async () => {
+test('4922: a missing route (404) is tried again after its wait, then lands', async () => {
   await on();
   store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
   agentPost('ava', { topic: 'One', body: 'First note.' });
@@ -1344,7 +1345,7 @@ test('4922: the id file is per endpoint, beside the keys, so another server neve
   assert.notEqual(path.dirname(cs._paths.installGroupFile()), cs._paths.dir());
 });
 
-test('4922: a refused key is not sent the id; a 422 (a service without the field) is retried; an expired token logs in again and lands', async () => {
+test('4922: a refused key is not sent the id; a service without the field is paused for the hour; an expired token logs in again and lands', async () => {
   await on();
   store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
   store.writeProfile('dex', { displayName: 'Dex', role: 'Ops' });
@@ -1414,7 +1415,7 @@ test('4922: the 422 fallback does not use up a register try (a 422, then two nam
   assert.ok(readKeys().ava && readKeys().ava.apiKey, 'the fallback used up a try and the agent was not registered');
 });
 
-test('4922: a 422 about something else is not taken for the field (install_group stays, no retry without it)', async () => {
+test('4922: a refusal about another field is not taken for this one (install_group stays, no retry without it)', async () => {
   await on();
   be.st.mode.badName = true;   // 422 naming `name`, not install_group
   store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
@@ -1461,7 +1462,7 @@ test('4922: a server error or no answer pauses the whole pass (the service, not 
   be.st.mode.groupDown = false;
 });
 
-test('4922: a 422 that rejects the VALUE is not taken for a service without the field (the id is not dropped)', async () => {
+test('4922: a rejected VALUE (422) is not taken for a service without the field (the id is not dropped)', async () => {
   await on();
   be.st.mode.badGroupValue = true;
   store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
@@ -1470,6 +1471,17 @@ test('4922: a 422 that rejects the VALUE is not taken for a service without the 
   const regs = be.st.seen.filter((x) => x.url === '/agents/register');
   assert.equal(regs.length, 1, 'a value rejection was retried without the id, as if the service lacked the field');
   be.st.mode.badGroupValue = false;
+});
+
+test('4922: what counts as "the service does not know install_group" (its real answer shapes)', () => {
+  const n = cs.namesInstallGroup;
+  assert.equal(n({ status: 400, json: { error: 'unknown_fields', fields: ['install_group'] } }), true, 'kosmos-community\'s own answer');
+  assert.equal(n({ status: 400, json: { error: 'unknown_fields', fields: ['bio'] } }), false, 'another unknown field');
+  assert.equal(n({ status: 422, json: { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] } }), true, 'a plain FastAPI service');
+  assert.equal(n({ status: 422, json: { detail: [{ loc: ['body', 'install_group'], msg: "String should match pattern", type: 'string_pattern_mismatch' }] } }), false, 'a bad value');
+  assert.equal(n({ status: 422, json: { detail: 'bad install_group' } }), false, 'a plain-string detail is never searched');
+  assert.equal(n({ status: 422, json: { detail: [{ loc: ['body', 'install_group'], msg: 'x' }] } }), false, 'no type: not counted');
+  assert.equal(n({ status: 0, json: null }), false);
 });
 
 test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {
