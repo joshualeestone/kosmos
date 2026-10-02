@@ -2,7 +2,7 @@
 /**
  * #4973: a read of /api/status that another of the person's computers' pages caused (Sec-Fetch-Site same-site or
  * cross-site; the #4812 relay passes that header through and rewrites Origin) gets the agents only: sessionName, name,
- * state (and the guide's mark). The board's own page (same-origin), an address-bar load (none) and the CLI (no header)
+ * state (the guide left out). The board's own page (same-origin), an address-bar load (none) and the CLI (no header)
  * get the full answer.
  */
 const fs = require('node:fs');
@@ -71,8 +71,9 @@ test('#4973: a sibling read (same-site, cross-site) gets the agents only; the fu
       assert.deepEqual(Object.keys(mara).sort(), ['name', 'sessionName', 'state'], site + ': not the three fields the Agents view uses');
       assert.equal(mara.name, fullMara.name, site);
       assert.equal(mara.state, fullMara.state, site);
-      assert.equal(r.body.agents.find((a) => a.sessionName === 'guidebot').isGuide, true, site + ': the guide lost its mark, so the other computer would list it');
-      assert.equal(r.body.agents.length, full.body.agents.length, site + ': rows were dropped');
+      assert.ok(full.body.agents.some((a) => a.sessionName === 'guidebot'), 'CONTROL: the guide is in the full answer');
+      assert.equal(r.body.agents.some((a) => a.sessionName === 'guidebot'), false, site + ': the guide was sent to the other computer');
+      assert.equal(r.body.agents.length, full.body.agents.length - 1, site + ': agents were dropped');
     }
   } finally { board.restore(); }
 });

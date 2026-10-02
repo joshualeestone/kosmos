@@ -3699,7 +3699,9 @@ function withPreviews(rows) {
    crossSiteRead uses: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
    Agents view on the other computer uses sessionName, name and state, and the rest of the answer (the update state,
    updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business. A
-   request with no Sec-Fetch-Site (curl, the CLI, an old browser) is not a sibling read and gets the full answer. */
+   request with no Sec-Fetch-Site (curl, the CLI) is not a sibling read and gets the full answer. An OLD browser's
+   sibling read (no header) is closed by the relay, not here: it withholds the board token without the header
+   (kosmos-relay proxy.rs board_token_allowed) and the board then refuses it. A change to either reopens that. */
 function isSiblingRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   return typeof site === 'string' && site !== '' && site !== 'same-origin' && site !== 'none';
@@ -3708,12 +3710,11 @@ function statusForSibling(json) {
   let full = null;
   try { full = JSON.parse(json); } catch { full = null; }
   const agents = full && Array.isArray(full.agents) ? full.agents : [];
+  const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
   return JSON.stringify({
-    agents: agents.filter((a) => a && typeof a === 'object').map((a) => {
-      const o = { sessionName: a.sessionName, name: a.name, state: a.state };
-      if (a.isGuide === true) o.isGuide = true;   // the sibling view leaves the guide out (oaAgentsOf), so it must still see the mark
-      return o;
-    }),
+    // The guide is left out here (review 1): the other computer's view drops it anyway, so it need not be sent.
+    agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
+      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })),
   });
 }
 
