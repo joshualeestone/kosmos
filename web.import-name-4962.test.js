@@ -73,7 +73,8 @@ function rig({ withField, parsed, created }) {
     return { ok: answer.httpOk !== false, json: async () => answer };
   };
   // eslint-disable-next-line no-new-func
-  const add = new Function('document', 'fetch', slice('addImportedInPlace') + '\nreturn addImportedInPlace;')(t.document, fetchImpl);
+  const add = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+    + slice('addImportedInPlace') + '\nreturn addImportedInPlace;')(t.document, fetchImpl);
   return { add, row, btn, field, said, calls, d: t };
 }
 const PARSED_NAMELESS = { ok: true, name: '', displayName: '', instructions: 'You help with the site.', provider: 'anthropic' };
@@ -108,9 +109,9 @@ test('control: a row with a name still adds from the file\'s own name, as before
   assert.equal(r.calls[1].body.label, 'Don');
 });
 
-test('a name the engine refuses shows its reason, and the field and button work again', async () => {
+test('a name the engine refuses (field: name) shows its reason, and the field and button work again', async () => {
   const r = rig({ withField: true, parsed: PARSED_NAMELESS,
-    created: { ok: false, httpOk: false, because: 'use letters, numbers, hyphens and underscores, starting with a letter or number' } });
+    created: { ok: false, httpOk: false, field: 'name', because: 'use letters, numbers, hyphens and underscores, starting with a letter or number' } });
   r.field.value = '!!';
   await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
   assert.match(r.said.textContent, /use letters, numbers, hyphens and underscores/);
@@ -188,7 +189,7 @@ test('a typed name and the cursor survive a redraw of the list', () => {
     return f;
   };
   // eslint-disable-next-line no-new-func
-  const api = new Function('document', slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\nreturn { importNamesKept, importNamesRestore };')(t.document);
+  const api = new Function('document', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\nreturn { importNamesKept, importNamesRestore };')(t.document);
   const f1 = build(); f1.value = 'Claude Pip'; f1.focus();
   const kept = api.importNamesKept(box);
   const f2 = build();
@@ -196,4 +197,70 @@ test('a typed name and the cursor survive a redraw of the list', () => {
   api.importNamesRestore(box, kept);
   assert.equal(f2.value, 'Claude Pip');
   assert.equal(t.focused(), f2);
+});
+
+test('review 2: a refusal that is NOT about the name re-enables the field but does not mark it invalid or move the cursor', async () => {
+  const r = rig({ withField: true, parsed: { ...PARSED_NAMELESS, provider: 'openai' },
+    created: { ok: false, httpOk: false, because: 'connect an OpenAI account first' } });
+  r.field.value = 'Pip';
+  r.btn.focus();
+  await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
+  assert.match(r.said.textContent, /connect an OpenAI account first/);
+  assert.equal(r.field.disabled, false, 'the field works again');
+  assert.equal(r.field.getAttribute('aria-invalid'), null, 'the name is not called invalid');
+  assert.notEqual(r.d.focused(), r.field, 'the cursor is not moved into the name');
+});
+
+test('review 2: a redraw during an add shows the new row as adding, then added, never ready to add again', async () => {
+  const t = makeDom();
+  const box = t.add('import-found');
+  const FILE = '/Users/p/Downloads/pip.md';
+  const mk = () => {
+    box.textContent = '';
+    const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', FILE);
+    const cls = (el) => { el.classList = { add(c) { el.className += ' ' + c; } }; return el; };
+    cls(row);
+    const name = t.create('span'); name.className = 'fr-importname'; name.textContent = 'An agent file with no name in it';
+    const field = t.create('input'); field.className = 'tk-inp fr-importinput'; field.removeAttribute = function (k) { delete this.attrs[k]; };
+    const go = cls(t.create('button')); go.className = 'btn uprime fr-importgo'; go.textContent = 'Add to Kosmos';
+    const said = t.create('p'); said.className = 'fr-importsaid';
+    row.append(name, field, go, said); box.appendChild(row);
+    return { row, field, go, name };
+  };
+  let release;
+  const fetchImpl = async (url) => {
+    if (/agent-import-file$/.test(url)) { await new Promise((res) => { release = res; }); return { ok: true, json: async () => PARSED_NAMELESS }; }
+    return { ok: true, json: async () => CREATED };
+  };
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+    + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\n' + slice('addImportedInPlace')
+    + '\nreturn { addImportedInPlace, importNamesKept, importNamesRestore };')(t.document, fetchImpl);
+  const first = mk();
+  first.field.value = 'Pip';
+  const adding = api.addImportedInPlace(FILE, first.go, first.row);
+  await Promise.resolve();
+  const kept = api.importNamesKept(box);
+  const second = mk();                         // the scan's second phase repaints the list
+  api.importNamesRestore(box, kept);
+  assert.equal(second.go.disabled, true, 'the redrawn row is not ready to add again');
+  assert.equal(second.field.disabled, true);
+  assert.match(second.go.textContent, /^Adding/);
+  release();
+  await adding;
+  assert.equal(second.go.textContent, 'Added to Kosmos', 'the receipt lands on the row on screen');
+  assert.equal(second.name.textContent, 'Pip');
+});
+
+test('review 2: a held Enter (key repeat) does not press Add again', () => {
+  const r = enterRig();
+  r.api.importNameEnter(r.ev(r.field, { repeat: true }));
+  assert.deepEqual(r.counts(), { next: 0, go: 0 });
+});
+
+test('review 2: Enter in a first-run adopt field does not press Continue either', () => {
+  const r = enterRig();
+  r.other.className = 'fr-adoptinput';   // the ordinary text field, now an adopt row's name field
+  r.api.frEnterSubmit(r.ev(r.other));
+  assert.equal(r.counts().next, 0);
 });
