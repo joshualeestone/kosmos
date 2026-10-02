@@ -60,6 +60,13 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
 - The "file changed while read" guard has no test: forcing a write between two stats needs an fs stub in a module
   that reads fs directly. It can only ever skip a sweep, never send.
 
+- (review 4) No code-level gate holds the uploads until the web half ships. The draft status does, and gh refuses
+  to merge a draft; a flag in the code would outlive the one-time ordering it exists for.
+- (review 4) A route answering a persistent non-refusal error is retried every sweep, as sweepIndustry does. A backoff
+  belongs to both passes together, not to one.
+- (review 4) A phone JPEG carrying a rotation tag is refused by the service; the web half redraws every JPEG, which
+  applies the rotation and drops the tag, so new pictures arrive upright and accepted.
+
 ## Weakest premise
 That hashing the file each sweep is cheap enough. The file is stat'd first and anything over 60,000 bytes is never
 read, so a sweep reads and hashes at most 60 KB per registered agent (measured here: 11 to 32 KB pictures).

@@ -335,3 +335,22 @@ test('an agent with no community account is never sent anything', async () => {
   await cs.sweep();
   assert.equal(be.st.seen.length, 0);
 });
+
+test('a picture caught half written (an empty file) waits a sweep: no take-down, and no false "not a picture" line', async (t) => {
+  const lines = [];
+  const real = console.error;
+  console.error = (m) => { lines.push(String(m)); };
+  t.after(() => { console.error = real; });
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  fs.writeFileSync(store.avatarPath('ava'), Buffer.alloc(0));   // saveAvatar truncated, not yet written
+  await cs.sweep();
+  assert.equal(deletes().length, 0, 'a half-written picture took the good one down');
+  assert.equal(lines.filter((l) => /picture for ava: not sent/.test(l)).length, 0);
+  store.saveAvatar('ava', 'image/png', png(2));
+  await cs.sweep();
+  assert.equal(puts().length, 2);
+  assert.ok(held().raw.equals(png(2)));
+});
