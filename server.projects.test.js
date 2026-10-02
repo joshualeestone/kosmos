@@ -60,6 +60,14 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 // rule is every root the code writes to, and the code grew one.
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
+
+function caseInsensitiveFS() {
+  const probe = path.join(SANDBOX, 'CaseProbe');
+  try { fs.mkdirSync(probe, { recursive: true }); } catch { /* exists */ }
+  const ci = fs.existsSync(path.join(SANDBOX, 'caseprobe'));
+  try { fs.rmSync(probe, { recursive: true, force: true }); } catch { /* best effort */ }
+  return ci;
+}
 /* ⚠️ A FAKE TMUX, NOT /bin/echo (#332). echo stubbed the writes and printed
    its arguments to the reads, which the parser refused, so every read fell
    through to the real tmux on the PATH and these tests measured the
@@ -1786,7 +1794,7 @@ test('a project reusing an earlier name says its OWN conversation is empty, not 
     });
 });
 
-test('the folder-preview ROUTE answers the case-corrected path, not the raw derivation', async () => {
+test('the folder-preview ROUTE answers the case-corrected path, not the raw derivation', { skip: !caseInsensitiveFS() && 'case correction requires case-insensitive filesystem' }, async () => {
   // ⚠️ The route's docblock is where "the path shown is the path the act
   // produces" is promised, and swapping folderPathPreview back to
   // folderPathFor there failed nothing (round 13) -- the engine function was

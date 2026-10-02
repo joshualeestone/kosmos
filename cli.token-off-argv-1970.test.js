@@ -86,7 +86,7 @@ test('#1970: the CLI delivers its token off argv, via a mode-600 file', () => wi
     '  case "$a" in',
     '    @*) f=${a#@};',
     '        if [ -f "$f" ]; then',
-    '          printf \'PERM %s\\n\' "$(stat -f \'%Lp\' "$f")" >> "$KOSMOS_FILECAP_LOG";',
+    '          printf \'PERM %s\\n\' "$(stat -c \'%a\' "$f" 2>/dev/null || stat -f \'%Lp\' "$f" 2>/dev/null)" >> "$KOSMOS_FILECAP_LOG";',
     '          cat "$f" >> "$KOSMOS_FILECAP_LOG";',
     '        fi ;;',
     '  esac',

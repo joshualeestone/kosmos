@@ -75,7 +75,7 @@ function fixture() {
     '    before=""',
     '    for arg in "$@"; do',
     '      if [ "$before" = --pane-entry ]; then',
-    '        (stat -f %Lp "$arg" 2>/dev/null || stat -c %a "$arg" 2>/dev/null) > "$MODE_RECORD"',
+    '        (stat -c %a "$arg" 2>/dev/null || stat -f %Lp "$arg" 2>/dev/null) > "$MODE_RECORD"',
     '        break',
     '      fi',
     '      before="$arg"',

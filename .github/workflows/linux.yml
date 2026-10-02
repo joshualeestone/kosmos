@@ -1,0 +1,39 @@
+# #4919: the Linux test suite, run on ubuntu-latest.
+#
+# Runs on demand (workflow_dispatch) and on PRs.
+# Part of the Linux port (#4916, umbrella #4903).
+
+name: linux
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  suite:
+    name: suite (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: start the clock
+        run: echo "SUITE_T0=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux lsof zsh >/dev/null
+      - name: the node suite on Linux (#4919)
+        run: |
+          KOSMOS_TEST_PART=node KOSMOS_NO_WAIT=1 tools/run-tests.sh
