@@ -447,11 +447,15 @@ test('saving a picture never leaves a moment with no picture, and a stray file i
   await cs.sweep();
   const dir = path.dirname(store.avatarPath('ava'));
   // A replacement of another type: the new file is in place before the old one goes.
-  const realUnlink = fs.unlinkSync;
-  let seenAtUnlink = null;
-  fs.unlinkSync = (f) => { if (String(f).endsWith('ava.png')) seenAtUnlink = store.avatarLookup('ava').file; return realUnlink(f); };
-  try { store.saveAvatar('ava', 'image/jpeg', JPEG); } finally { fs.unlinkSync = realUnlink; }
-  assert.ok(seenAtUnlink, 'there was a moment with no picture');
+  // Look for a picture at the moment the new bytes are written: an unlink-then-write save has none then.
+  const realWrite = fs.writeFileSync;
+  let seenAtWrite;
+  fs.writeFileSync = (f, ...rest) => {
+    if (String(f).startsWith(dir + path.sep) && seenAtWrite === undefined) seenAtWrite = store.avatarLookup('ava').file;
+    return realWrite(f, ...rest);
+  };
+  try { store.saveAvatar('ava', 'image/jpeg', JPEG); } finally { fs.writeFileSync = realWrite; }
+  assert.ok(seenAtWrite, 'there was a moment with no picture');
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), [], 'a temporary file was left behind');
   await cs.sweep();
   assert.equal(deletes().length, 0);
