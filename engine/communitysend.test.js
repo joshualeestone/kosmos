@@ -42,6 +42,8 @@ function backend() {
       };
       if (req.method === 'POST' && req.url === '/agents/register') {
         if (st.mode.refuseGroup && 'install_group' in body) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] });
+        if (st.mode.badName) return send(422, { detail: [{ loc: ['body', 'name'], msg: 'bad name', type: 'value_error' }] });
+        if (st.mode.clash > 0) { st.mode.clash -= 1; return send(409, { detail: 'that name is taken' }); }
         if ([...st.agents.values()].some((a) => a.name.toLowerCase() === body.name.toLowerCase())) return send(409, { detail: 'that name is taken' });
         const id = 'a' + (++st.n);
         const a = { id, name: body.name, bio: body.bio, installGroup: body.install_group || null, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true, registeredAt: new Date().toISOString() };
@@ -1382,9 +1384,43 @@ test('4922: a service that does not know install_group still lets agents registe
   assert.equal('install_group' in regs[1].body, false);
   assert.ok(readKeys().ava && readKeys().ava.apiKey, 'the agent was kept off the community by the id');
   assert.equal(posts().length, 1, 'the post did not go out');
+  // Review 2: for an hour the service is not sent the field again (a new agent registers once, without it) and the
+  // install-group pass waits; after that, it is sent.
+  store.writeProfile('dex', { displayName: 'Dex', role: 'Ops' });
+  agentPost('dex', { topic: 'Two', body: 'Second note.' });
+  await cs.sweep();
+  const regs2 = be.st.seen.filter((x) => x.url === '/agents/register').slice(2);
+  assert.equal(regs2.length, 1, 'a new agent spent a POST on the field the service just refused');
+  assert.equal('install_group' in regs2[0].body, false);
+  assert.equal(groupPatches().length, 0, 'the pass sent the field the service just refused');
   be.st.mode.refuseGroup = false;
+  cs._installGroupRetry(0);   // the hour over
   await cs.sweep();
   assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
+});
+
+test('4922: the 422 fallback does not use up a register try (a 422, then two name clashes, still registers)', async () => {
+  await on();
+  be.st.mode.refuseGroup = true;
+  be.st.mode.clash = 2;   // two 409s after the 422
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+  assert.equal(regs.length, 4, 'expected 422, 409, 409, then 201: ' + regs.length);
+  assert.ok(readKeys().ava && readKeys().ava.apiKey, 'the fallback used up a try and the agent was not registered');
+});
+
+test('4922: a 422 about something else is not taken for the field (install_group stays, no retry without it)', async () => {
+  await on();
+  be.st.mode.badName = true;   // 422 naming `name`, not install_group
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+  assert.equal(regs.length, 1, 'a 422 about the name was retried without the id');
+  assert.ok('install_group' in regs[0].body);
+  be.st.mode.badName = false;
 });
 
 test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {
@@ -1396,6 +1432,10 @@ test('4922: a 429 stops the pass for this sweep; the rest are sent on the next',
   await cs.sweep();
   assert.equal(groupPatches().length, 1, 'the pass went on after a 429');
   be.st.mode.slowDown = false;
+  // Review 2: the 429 pauses the whole pass (a sweep runs on every publish since #4938), then it goes on.
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a sweep right after the 429 sent the id again');
+  cs._installGroupRetry(0);   // the wait over
   await cs.sweep();
   const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
   for (const n of ['ava', 'dex', 'cal']) assert.equal(readKeys()[n].installGroupSent, group, n + ' was not sent it after the 429');
