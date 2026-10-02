@@ -386,6 +386,49 @@ printf connect > "$KOSMOS_HOME/mode"
 if [ -e "$H/board.stopped" ]; then pass "#5033 control: a computer switched to connect keeps its marker through the refusal"; else fail "#5033: the take-back ignored a switch to connect"; fi
 stop_other "$H"
 
+# 5g. The pause's REAL routing, run as shipped (from the probe of the port to the end of its case), with something on
+#     the port. The arms above splice a die in directly; these reach it the way setup.sh does.
+ROUTE="$(awk '/^  _pausebody="\$\(curl -fsS -m 2 /{f=1} f{print} f && /^  esac$/{exit}' "$SETUP")"
+case "$ROUTE" in *'_pausebody="$(curl'*'Another app on this computer'*'  esac') : ;;
+  *) echo "FAIL: could not extract the pause routing (anchor drift?)" >&2; exit 1 ;; esac
+# kosmos_on <port> <dir> -> a Kosmos-shaped stand-in on the port that is not this install's board.
+kosmos_on() {
+  mkdir -p "$2/other"; printf '<html>Kosmos</html>\n' > "$2/other/index.html"
+  python3 -m http.server "$1" --bind 127.0.0.1 --directory "$2/other" >/dev/null 2>&1 &
+  echo $! > "$2/other.pid"
+  i=0; while [ $i -lt 50 ] && ! answers "$1"; do sleep 0.1; i=$((i + 1)); done
+}
+for kind in app kosmos; do
+  P=$(free_port); H=$(home "route$kind"); export PORT=$P
+  if [ "$kind" = app ]; then other_app "$P" "$H"; said="Another app on this computer"; else kosmos_on "$P" "$H"; said="Another Kosmos is answering"; fi
+  LOG_DIR="$H" run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$MARKSET"'
+'"$ROUTE"
+  if [ ! -e "$H/board.stopped" ] && [ ! -e "$H/board.pid" ] && grep -q "$said" "$H/err"; then
+    pass "#5033: routed: another $kind on the port reaches its refusal, takes back the marker and starts nothing"
+  else
+    fail "#5033: routed $kind: marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), board.pid $( [ -e "$H/board.pid" ] && echo present || echo absent ), err: $(cat "$H/err")"
+  fi
+  stop_other "$H"
+done
+# Our own board still running after a stop that could not kill it: the our-board refusal, routed. The stand-in stop
+# leaves the board up and a marker that is not ours (as the real one takes its own back): it is kept.
+P=$(free_port); H=$(home routeours); export PORT=$P
+"$H/bin/kosmos" start
+cat > "$H/bin/kosmos.stop" <<'EOS'
+#!/bin/sh
+: > "$KOSMOS_HOME/board.stopped"
+EOS
+chmod +x "$H/bin/kosmos.stop"
+LOG_DIR="$H" run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos.stop"
+'"$MARKSET"'
+'"$ROUTE"
+if [ -e "$H/board.stopped" ] && grep -q "could not be paused" "$H/err"; then
+  pass "#5033: routed: our board that would not pause keeps a marker that is not ours"
+else
+  fail "#5033: routed ours: marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), err: $(cat "$H/err")"
+fi
+
 # 5f. CONTROL: past the arming point the take-back is disarmed. The new board started, a person stopped Kosmos during
 #     the rest of the run, and the run then failed: their marker stays (the mode still runs a board here, so only the
 #     disarm keeps it).
