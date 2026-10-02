@@ -273,7 +273,9 @@ function createTeam(opts, deps) {
        BY the team, so a member that tries to name its own createdBy/purpose does
        not get to overwrite the truth -- the team is the authority on who built it
        and why, which is exactly the record's value. */
-    const out = doCreate(Object.assign({}, member, { createdBy: creator, purpose }));
+    /* #4475: `createdByAgent` marks a birth an agent asked for on its own token (not the person, not the setup guide,
+       which makes agents on the person's behalf). Set here for every member, true or false, so a member cannot set it. */
+    const out = doCreate(Object.assign({}, member, { createdBy: creator, purpose, createdByAgent: opts.fromAgent === true && opts.fromGuide !== true }));
     const memberName = String((member.name !== undefined && member.name !== null) ? member.name : '').slice(0, 120) || null;
     if (out && out.outcome === 'created') {
       /* The id is read back from the profile by the agent's canonical NAME (the

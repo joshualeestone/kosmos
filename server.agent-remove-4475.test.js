@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 const { start, server, boardAuthState } = require('./server');
 const sendertoken = require('./engine/sendertoken');
 const create = require('./engine/create');
+const store = require('./engine/store');
 
 const BOARD = 'BOARDTOKEN_test_4475_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
@@ -46,9 +47,14 @@ test.before(async () => {
   pmToken = minted.token;
 });
 
-function born(name, createdBy) {
+/* A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: createdByAgent, and the
+   profile id the agent's profile carries (minted on the profile's first write). `extra` overrides fields per case. */
+function born(name, createdBy, extra = {}) {
   fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
-  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ name, outcome: 'created', createdBy }) + '\n');
+  store.writeProfile(create.slugFor(name), {});
+  const id = store.readProfile(create.slugFor(name)).id;
+  assert.ok(id, 'the test could not mint a profile id for ' + name);
+  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ name, outcome: 'created', createdBy, createdByAgent: true, id, ...extra }) + '\n');
 }
 async function remove(name, headers, query = '') {
   const res = await fetch(`${base}/api/agent/${encodeURIComponent(name)}/removal${query}`, { method: 'DELETE', redirect: 'manual', headers });
@@ -118,6 +124,64 @@ test('a refused birth does not make its creator the owner', async () => {
   fs.appendFileSync(create.createdLogFile(), JSON.stringify({ name: 'Never Made', outcome: 'refused', createdBy: 'pm-agent' }) + '\n');
   const r = await remove('never-made', asAgent());
   assert.equal(r.code, 403);
+  assert.match(r.text, NOT_YOURS);
+});
+
+test('a birth the person made (no createdByAgent) never makes an agent of the recorded creator\'s name the owner', async () => {
+  // The org-chart import records createdBy "operator" and the setup guide "kosmos"; an agent can take either name.
+  const op = sendertoken.mint('operator');
+  assert.ok(op.ok);
+  born('Imported Kid', 'operator', { createdByAgent: undefined });
+  const r = await remove('imported-kid', { 'x-kosmos-agent-token': op.token });
+  assert.equal(r.code, 403, 'an agent named operator removed an agent the person imported: ' + r.text.slice(0, 160));
+  assert.match(r.text, NOT_YOURS);
+  born('Imported Ok', 'operator');
+  assert.ok(reachedEngine(await remove('imported-ok', { 'x-kosmos-agent-token': op.token })), 'CONTROL: the same token with an agent-made birth did not pass');
+});
+
+test('a name freed and used again is not the old creator\'s (the birth\'s profile id must be the current one)', async () => {
+  born('Reborn Kid', 'pm-agent');
+  const before = store.readProfile('reborn-kid').id;
+  // Deleting what is left of an agent (#514) removes its profile; the next agent of that name mints a new id.
+  const want = store.profileFileName('reborn-kid');
+  const find = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const fp = path.join(dir, e.name); if (e.isDirectory()) { const hit = find(fp); if (hit) return hit; } else if (e.name === want && path.basename(dir) === store.PROFILES_DIRNAME) return fp; } return null; };
+  const file = find(SANDBOX);
+  assert.ok(fs.existsSync(file), 'the test did not find the profile it meant to delete: ' + file);
+  fs.rmSync(file);
+  store.writeProfile('reborn-kid', {});
+  assert.notEqual(store.readProfile('reborn-kid').id, before, 'the test did not make a new incarnation');
+  const r = await remove('reborn-kid', asAgent());
+  assert.equal(r.code, 403, 'a stale birth gave removal of a new agent of the same name: ' + r.text.slice(0, 160));
+  assert.match(r.text, NOT_YOURS);
+});
+
+test('a birth with no profile id (dry run, or before #170) is not honoured', async () => {
+  born('No Id Kid', 'pm-agent', { id: null });
+  const r = await remove('no-id-kid', asAgent());
+  assert.equal(r.code, 403);
+  assert.match(r.text, NOT_YOURS);
+});
+
+test('an older token that carries only its key (no name) is refused, even for its own creation', async () => {
+  const minted = sendertoken.mint('key-only');
+  assert.ok(minted.ok);
+  born('Key Kid', 'key-only');
+  assert.ok(reachedEngine(await remove('key-kid', { 'x-kosmos-agent-token': minted.token })), 'CONTROL: the named token did not pass');
+  // Strip the name, as a token minted before #4792 has none.
+  let rewrote = 0;
+  for (const f of fs.readdirSync(sendertoken.DIR)) {
+    const fp = path.join(sendertoken.DIR, f);
+    let list; try { list = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { continue; }
+    const arr = Array.isArray(list) ? list : (list && Array.isArray(list.tokens) ? list.tokens : null);
+    if (!arr) continue;
+    let hit = false;
+    for (const t of arr) if (t && t.token === minted.token) { delete t.name; hit = true; }
+    if (hit) { fs.writeFileSync(fp, JSON.stringify(list)); rewrote++; }
+  }
+  assert.equal(rewrote, 1, 'the test could not find the token file to make it key-only');
+  born('Key Kid Two', 'key-only');
+  const r = await remove('key-kid-two', { 'x-kosmos-agent-token': minted.token });
+  assert.equal(r.code, 403, 'a key-only token removed an agent: ' + r.text.slice(0, 160));
   assert.match(r.text, NOT_YOURS);
 });
 

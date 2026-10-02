@@ -2591,30 +2591,38 @@ function activeAgentsCreatedBy(creator) {
   return n;
 }
 
-/* #4475: who created the agent `name`, by the same rule activeAgentsCreatedBy counts with (the newest 'created' birth
-   for its slug), or null when the birth log has none (made before the log, by the person's own setup, or never here). */
-function agentCreatorOf(name) {
+/* #4475: the newest 'created' birth for the agent `name` (its slug), by the rule activeAgentsCreatedBy counts with,
+   or null when the birth log has none. */
+function agentBirthOf(name) {
   let want; try { want = create.slugFor(name); } catch { return null; }
   if (!want) return null;
   let births;
   try { births = create.createdLog(); } catch { return null; }
   if (!Array.isArray(births)) return null;
-  let owner = null;
+  let newest = null;
   for (const b of births) {
     if (!b || b.outcome !== 'created' || !b.name) continue;
     let slug; try { slug = create.slugFor(b.name); } catch { slug = String(b.name); }
-    if (slug === want) owner = b.createdBy || null;
+    if (slug === want) newest = b;
   }
-  return owner;
+  return newest;
 }
 /* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
-   Only an agent it created. A token that names nobody, or a target with no recorded creator, is refused. */
+   Only when all of these hold, else refused:
+   - the newest birth for the target was made at an agent's own request (createdByAgent, set by engine/team.js), so
+     a fixed creator word the person's paths record ("operator" from the org-chart import, "kosmos" for the setup
+     guide) never makes an agent of that name the owner;
+   - that birth's profile id is the target's current one, so a name freed and used again is not the old creator's;
+   - the caller's token carries its agent's name (an older key-only token cannot say which agent it is);
+   - the birth's creator is the caller, by slug. */
 function tokenOnlyMayRemove(caller, target) {
-  if (!caller) return false;
-  const owner = agentCreatorOf(target);
-  if (!owner) return false;
+  if (!caller || caller.byKey || caller.twins) return false;
+  const birth = agentBirthOf(target);
+  if (!birth || birth.createdByAgent !== true || !birth.createdBy || !birth.id) return false;
+  let current; try { current = store.readProfile(create.slugFor(target)).id; } catch { return false; }
+  if (!current || current !== birth.id) return false;
   let a; let b;
-  try { a = create.slugFor(owner); b = create.slugFor(caller.name); } catch { return false; }
+  try { a = create.slugFor(birth.createdBy); b = create.slugFor(caller.name); } catch { return false; }
   return Boolean(a) && a === b;
 }
 
