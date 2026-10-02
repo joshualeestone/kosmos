@@ -60,7 +60,7 @@ navigator.userAgentData as on WebKit) with a recording stand-in recognizer that 
   P15 (a cancel then a new start), P17 (stops itself at 300 s, on a fake clock).
 - P4 read aloud on a phone; P14 the DM composer fits at 390 px.
 Every fix was mutated and each mutation reds its check with a non-zero exit (listed per round below).
-web.voice-4409.test.js 22/22: the recognizer is reached only inside the phone shim, after the Mac bridge; a second
+web.voice-4409.test.js 23/23: the recognizer is reached only inside the phone shim, after the Mac bridge; a second
 press stops through voiceStop and marks the stop.
 
 ## Review rounds
@@ -260,4 +260,6 @@ press stops through voiceStop and marks the stop.
   posts stop and keeps the session; with the phone condition removed it goes red. NIT taken: voiceStop's comment names
   the phone's cancel. LEFT NITs: the node harness stubs VOICE_SAYS_PHONE (the browser check covers the wording); a
   timed-out stop leaves the cap timer armed (inert: rec === mine).
+- Round 26 (sonnet): NITs only. CONVERGED. Taken: the Tests count (23). LEFT: cache the who-name beside the shim
+  (inputs are read at load and agree today); dlgSaid is one global (two dialogs never listen at once).
 
