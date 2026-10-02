@@ -1286,6 +1286,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* Josh, 2026-09-26 review: an X top-right instead of Got it. The window opens with focus on itself (no
    ring at all); a keyboard Tab still shows where it is, in gold, never the black ring. */
 .wn-box:focus { outline: none; }
+/* #4963: a waking change dialog focuses its own box (both buttons are hidden then); no ring around the box. */
+#chg-modal .rm-box:focus { outline: none; }
 .wn-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: 0; border-radius: 8px;
   background: none; color: var(--label-2); font-size: 1.5rem; line-height: 1; cursor: pointer; }
 .wn-x:hover { color: var(--label); background: var(--bg); }
@@ -18489,7 +18491,18 @@ async function kplusLogout(out, msg) {
     /* The board's page is kept by the offline worker; logged out, it must not come back from there without the
        network, so this browser's copies go with the session. */
     try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) if (k.startsWith('kosmos-shell')) await caches.delete(k); } catch { /* the session is gone either way */ }   // sw.js's SHELL_CACHE, any version
-    location.replace('/');
+    // kosmos#4879: when the tunnel serves its page, '#signed-out' makes it say "You're signed out" (kosmos-relay
+    // gate.html) instead of a plain sign-in. Through this board's service worker the page load arrives as
+    // dest "empty" still asking for HTML (measured in Chromium and WebKit, kosmos-relay plan signedout-4879), and
+    // the gate then serves its page. A tunnel from before it shows the plain sign-in page, which is still right.
+    // From a bare '/' (the Agents tab's address) only the fragment would change, and a fragment-only change
+    // reloads nothing: the board would stay up, signed out (review 1). So set the fragment and reload there.
+    if (location.pathname === '/' && !location.search) {
+      history.replaceState(null, '', '/#signed-out');
+      location.reload();
+    } else {
+      location.replace('/#signed-out');
+    }
     return;
   }
   out.disabled = false;
@@ -34583,6 +34596,7 @@ const TALK_DRAFTS = {};
  * quietly disappears. { text, startedAt, recorded, failed, because }.
  */
 const TALK_PENDING = {};
+let TALK_SEND_GEN = 0;   // #4944: which send last said "Sending…", so an older send's clear cannot take a newer one's
 /* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
    so switching agents never loses a half-typed reply and never carries it onto
    the next agent's window. Mirrors TALK_DRAFTS. */
@@ -34831,17 +34845,28 @@ function dmReplyStart(at) {
   if (input) input.focus();
 }
 
-/* The in-flight (or not-kept) message, in the person's own bubble. The pill is
-   the thread's delivery pill: dashed while it is on its way, red if it did not go. */
-function dmPendingRow(p) {
+/* The in-flight (or not-kept) message, in the person's own bubble. While it is on its way
+   the time's slot says "Sending…" in plain text (#4944: same height as the kept row);
+   if it did not go, the thread's red delivery pill says so.
+   #4944: the same bubble the kept row is (dmRow's own-message arm), with the reply header the kept row will
+   carry, so the swap when the thread holds it happens in place rather than as a jump. `name` and `adjacent`
+   are dmReplyHead's. */
+function dmPendingRow(p, name, adjacent) {
   const youAv = YOU_PIC
     ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
     : '<div class="msg-av mine" aria-hidden="true"></div>';
+  /* #4944: an unconfirmed send may have arrived, so its pill does not say "Not sent". */
   const pill = p.failed
-    ? '<span class="delivery failed">Not sent. ' + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
-    : '<span class="delivery unsure">Sending…</span>';
+    ? '<span class="delivery failed">' + (p.unsure ? 'Not confirmed. ' : 'Not sent. ')
+      + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
+    /* #4944 (measured by the browser check): "Sending…" is plain text in the time's own slot, NOT the bordered
+       pill. The pill's margin, padding and border made the pending bubble 17px taller than the kept row, so the
+       swap shrank the newest bubble, and in a thread scrolled to the bottom everything above it jumped. A failed
+       send keeps its pill: that is a verdict, and the kept row draws a failure with the same pill. */
+    : 'Sending…';
   return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
+    + (p.replyTo && typeof dmReplyHead === 'function' ? dmReplyHead({ replyTo: p.replyTo }, name, adjacent) : '')
     + pjRich(pjWords({ text: p.text }))
     + '<span class="msg-t">' + pill + '</span></div></div></div>';
 }
@@ -34853,6 +34878,22 @@ function dmPendingKept(rows, p) {
   const want = flat(p.text);
   return rows.some((m) => m && !m.from && m.kind !== 'kosmos' && flat(m.text) === want
     && !(Date.parse(m.at) < p.startedAt - 60000));
+}
+
+/* #4256: a reply right under what it answers draws no header, nor one right under another answer to the same
+   message whose header was left out (the room's rule, #3745 round 27: the chain back to the original must be
+   unbroken). Not while searching, which hides the rows between. `rows[i]` is row i's answer; `next` is the
+   answer for one more row after them replying to `nextReplyTo` (#4944: the pending bubble). */
+function dmReplyAdjacency(rows, filtering, nextReplyTo) {
+  const adjacentTo = (prev, replyTo, prevHid) => !filtering && !!prev && typeof replyTo === 'string' && !!replyTo
+    && (prev.at === replyTo || (prev.replyTo === replyTo && prevHid));
+  let prevHid = false;
+  const out = rows.map((m, i) => {
+    const adjacent = adjacentTo(i > 0 ? rows[i - 1] : null, m.replyTo, prevHid);
+    prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
+    return adjacent;
+  });
+  return { rows: out, next: adjacentTo(rows.length ? rows[rows.length - 1] : null, nextReplyTo, prevHid) };
 }
 
 /* The thread rows, and only them, so the search box can repaint between
@@ -34917,7 +34958,11 @@ function paintTalkThread(body, name) {
     delete TALK_PENDING[dmSession];
     pending = null;
   }
-  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending) : '';
+  /* #4944: the bubble's header follows the kept rows' rule, as one more row after them, so the kept row that
+     replaces it draws the same header. */
+  const replyAdj = dmReplyAdjacency(rows, filtering, pending ? pending.replyTo : null);
+  const pendingAdjacent = replyAdj.next;
+  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending, name, pendingAdjacent) : '';
   if (body.historyUnfilable && !allRows.length && !pendingHtml) {
     /**
      * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
@@ -34992,17 +35037,9 @@ function paintTalkThread(body, name) {
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
       + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
-    /* #4256: a reply right under what it answers draws no header, nor one right under another answer to the same
-       message whose header was left out (the room's rule, #3745 round 27: the chain back to the original must be
-       unbroken). Not while searching, which hides the rows between. */
-    let prevHid = false;
-    const dmHtml = rows.map((m, i) => {
-      const prev = i > 0 ? rows[i - 1] : null;
-      const adjacent = !filtering && !!prev && typeof m.replyTo === 'string' && !!m.replyTo
-        && (prev.at === m.replyTo || (prev.replyTo === m.replyTo && prevHid));
-      prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
-      return dmRow(m, name, adjacent);
-    }).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
+    /* #4256: reply headers by dmReplyAdjacency. */
+    const dmHtml = rows.map((m, i) => dmRow(m, name, replyAdj.rows[i])).join('')
+      + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
     setThread(thread, dmHtml, threadKey);
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
     if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
@@ -35629,6 +35666,14 @@ function talkPaintPending(sessionName, name) {
   paintTalkThread(th.__lastBody, th.__lastName || name);
 }
 
+/* #4944: where a message that did not go, and could not go back in the box, can be found. */
+function dmNotSentWhere(unsure, files) {
+  /* An unconfirmed send may have arrived, so its line does not call it "not sent". Files are cleared only
+     when a send goes or is kept, so after one of these they are still attached for another try. */
+  return (unsure ? 'Your message stays in this conversation.' : 'Your message stays in this conversation, marked not sent.')
+    + (TALK_QUERY.trim() ? ' Clear the search to see it.' : '')
+    + (files ? ' The files are still attached, so you can send them again.' : '');
+}
 /**
  * Send one message to this agent, and say what became of it.
  *
@@ -35697,6 +35742,30 @@ async function sendTalk(text, attachment) {
   TALK_SENDING = true;
   TALK_FLIGHT = sentName;
   DM_REPLY_SENDING = replying ? { agent: sentName, at: replying.at } : null;
+  /* #4944: whether this send emptied the box, and the one way its words go back when the send is not
+     known to have arrived or been kept. Outside the try, because the catch needs both. Into the box when
+     it is still this agent's and empty (words typed since belong to the next message, and the bubble
+     still shows these, marked not sent or not confirmed); into the parked draft when the person has moved to another
+     agent, so the words are in the box when they come back. Returns whether the box holds them now
+     (whoever put them there), so the sentence under it never promises a box that does not hold them. */
+  let tookBox = false;
+  let rawBox = '';        // what the box held when the press emptied it, put back as it was
+  let delivered = false;  // placed, or kept and not refused: from then on a throw must not re-arm the words
+  let sendGen = -1;       // this send's TALK_SEND_GEN, once it has said "Sending…"
+  const restoreUnsent = () => {
+    if (!tookBox) return !flightMoved() && say.value.trim() === text;
+    if (flightMoved()) {
+      if (!(TALK_DRAFTS[sentName] || '').trim()) TALK_DRAFTS[sentName] = rawBox || text;
+      return false;
+    }
+    if (say.value.trim() === '') {
+      say.value = rawBox || text; pjGrowComposer(say);
+      /* Parked as a keystroke would park it: a value written by the program fires no input event, and
+         the press retired the old draft, so without this a switch to another agent would lose it. */
+      TALK_DRAFTS[sentName] = say.value;
+    }
+    return say.value.trim() === text;
+  };
   /**
    * ⚠️ EVERYTHING AFTER THE FLAG IS INSIDE THE TRY. Three DOM statements used
    * to sit between the flag and the `try`, and a throw in any of them would
@@ -35711,11 +35780,44 @@ async function sendTalk(text, attachment) {
     // stays enabled through the flight, and it is where the answer they may
     // want to type instead goes.
     if (sendHadFocus) say.focus();
-    msg.textContent = 'Sending…';
+    /* #4944: the bubble says "Sending…", so the line under the box starts empty. Said there as well, it
+       was the second copy of one fact, and a line that appears and then empties moves the screen. Who
+       says it instead is decided once the bubble is known to be drawn, below. */
+    msg.textContent = '';
+    sendGen = ++TALK_SEND_GEN;
     /* The message goes into the thread NOW, before the board has answered (see
        TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
-    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
+    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null,
+      replyTo: replying ? replying.at : null };   // #4944: drawn with its reply header, as the kept row will be
+    /**
+     * #4944 (Josh, 0.7.16): "as soon as i hit POST, it shows in both places for a second and then shifts
+     * around". The box kept the words until the POST answered, so for the whole flight they were in the
+     * thread AND in the box, and then the box emptied under them. The box empties in the same frame the
+     * bubble is drawn, if one was drawn, and only when the box holds exactly what this send took: an
+     * attachment-only send carries the files' names, which were never in the box. The parked draft goes
+     * too, or the repaint at the end of the flight would put the words straight back.
+     *
+     * 🛑 THIS DOES NOT CHANGE WHERE THE WORDS ARE KEPT. The bubble holds them for the flight, and every
+     * verdict that used to leave them in the box puts them back (`restoreUnsent`, below), so the box is
+     * still their only copy whenever we did not keep the message and cannot say it arrived.
+     */
     talkPaintPending(sentName, name);
+    /* Only once the bubble is really on screen. A search filtering the thread draws no bubble, and nor
+       does a send made before this agent's first thread read has landed; emptying the box then would
+       show the words nowhere for the whole flight. In those two cases the box keeps them as before. */
+    const th = document.getElementById('d-dmthread');
+    const drawn = !!(th && th.__lastSession === sentName
+      && th.querySelector('.dm-pending[data-mid="pending:' + TALK_PENDING[sentName].startedAt + '"]'));   // startedAt is a number
+    tookBox = drawn && say.value.trim() === text;
+    /* With no bubble, nothing on screen would say it is on its way, so the line under the box says it (and,
+       being an alert, is heard). With the bubble, only the quiet announcer says it, so it is heard once. */
+    if (!drawn) msg.textContent = 'Sending…';
+    else dmReplyAnnounce('Sending…');
+    if (tookBox) {
+      rawBox = say.value;
+      say.value = ''; pjGrowComposer(say);
+      if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
+    }
     /* #4639: after the drawn bubble, so it is the row they land on. */
     jumpToOwnSend(document.getElementById('d-dmthread'), TALK_QUERY);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
@@ -35728,6 +35830,7 @@ async function sendTalk(text, attachment) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
     const d = body.delivery || {};
+    delivered = d.state === 'placed' || (body.recorded === true && d.state !== 'could_not');
     /* The kept row takes over from the drawn one once the thread holds it. One the
        board did not keep stays drawn, as not sent, unless it reached the agent: then
        the line below says it was not kept, and the bubble goes. */
@@ -35735,7 +35838,7 @@ async function sendTalk(text, attachment) {
     if (flying) {
       if (body.recorded === true) flying.recorded = true;
       else if (d.state === 'placed') delete TALK_PENDING[sentName];
-      else { flying.failed = true; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
+      else { flying.failed = true; flying.unsure = d.state === 'unconfirmed'; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
     }
     const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
     /**
@@ -35754,14 +35857,17 @@ async function sendTalk(text, attachment) {
      * reached the agent"), and the two screens must not disagree about what a
      * send did. So the rule is "the box is the only copy when we did not keep
      * it AND we cannot say it arrived", which is `unconfirmed` and, by leaving
-     * the words in place with no clear at all, `could_not`.
+     * the words in place with no clear at all, `could_not` (since #4944, by putting them back: see restoreUnsent).
      */
     const inThread = body.recorded === true;
     const clearSent = () => {
-      // Only the text THIS send took, and only if the box still holds exactly
-      // it: anything typed on top belongs to the next message.
-      if (!flightMoved() && say.value.trim() === text) { say.value = ''; pjGrowComposer(say); }
-      if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
+      /* #4944: when the press emptied the box, words there now were typed during the flight and belong
+         to the next message, even when they are the same words. When it did not (no bubble was drawn),
+         the box still holds this send's words and empties now, as it always did. */
+      if (!tookBox && !flightMoved() && say.value.trim() === text) { say.value = ''; pjGrowComposer(say); }
+      /* The parked draft is retired only when the press did not already retire it (after that, a matching
+         draft is new typing) and it is not also what the box holds now. */
+      if (!tookBox && (TALK_DRAFTS[sentName] || '').trim() === text && (flightMoved() || say.value.trim() !== text)) delete TALK_DRAFTS[sentName];
       /* The files follow the words' rule exactly: cleared for the agent they
          were sent to, on the same verdicts, so an unconfirmed-and-unrecorded
          send keeps them for the retry the sentence invites. */
@@ -35786,16 +35892,25 @@ async function sendTalk(text, attachment) {
       line = placedWords(d);
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
+      /* #4944: not kept, so the box is its only sure copy again: the words go back into it. */
+      const inBox = !inThread && restoreUnsent();
       line = 'We could not confirm ' + name + ' got that' + note + '. '
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
-        + (inThread ? ' Your message is kept above.' : ' Your message is still in the box below.');
+        + (inThread ? ' Your message is kept above.'
+          : inBox ? (tookBox ? ' Your message is in the box below.' : ' Your message is still in the box below.')
+          : ' ' + dmNotSentWhere(true, pendingIds.length > 0));
     } else {
-      /* Nothing was typed, so the text stays in the box in front of them and
-         no time phrase rides this line: "could not deliver just now" reads as
+      /* #4944: nothing was typed, so the words go back into the box for the retry. Even when the board
+         kept a record of the attempt: before #4944 this arm never emptied the box, so the retry copy is
+         what it always offered. When they cannot go back (words typed since, or another agent opened),
+         the line says where they are instead. */
+      const inBox = restoreUnsent();
+      /* No time phrase rides this line: "could not deliver just now" reads as
          "not at this moment", which invites a retry we have no reason to
          promise. The row in the thread carries the time. */
       line = 'We could not get that to ' + name + ': '
-        + pjSentence(d.because || 'we could not reach them');
+        + pjSentence(d.because || 'we could not reach them')
+        + (inBox || flightMoved() ? '' : ' ' + dmNotSentWhere(false, pendingIds.length > 0));
     }
     // Delivering and keeping are two acts and two sentences. Said whenever the
     // record failed, on every verdict — a message that went through and could
@@ -35805,17 +35920,28 @@ async function sendTalk(text, attachment) {
     if (!flightMoved()) msg.textContent = line;
   } catch (err) {
     /* Nothing was kept, so the drawn bubble is the only record of the attempt: it
-       stays, marked not sent. The words are still in the box for a retry. */
+       stays, marked not sent. The words go back in the box for a retry. */
     const flying = TALK_PENDING[sentName];
     if (flying && !flying.recorded) {
       flying.failed = true;
       flying.because = (err && err.message) || 'we could not send that';
     }
-    if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
+    /* #4944: and back into the box, which was emptied at the press, unless the board's verdict placed or
+       kept it: a throw after that must not re-arm words it already has. Any other throw takes the not-kept
+       rule, whether or not a verdict had arrived. */
+    const inBox = delivered ? true : restoreUnsent();
+    if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that')
+      + (inBox ? '' : ' ' + dmNotSentWhere(false, pendingIds.length > 0));
   } finally {
     TALK_SENDING = false;
     TALK_FLIGHT = null;
     DM_REPLY_SENDING = null;   // #4256
+    /* #4944: the quiet announcer said "Sending…"; the verdict line, or silence on success, replaces it.
+       After dmReplyAnnounce's own 30 ms delay, so a send answered faster than that is cleared too. */
+    setTimeout(() => {
+      const quiet = document.getElementById('d-reply-say');
+      if (sendGen === TALK_SEND_GEN && quiet && quiet.textContent === 'Sending…') quiet.textContent = '';
+    }, 40);
     // The repaint is about the takeoff agent too: with the flight moved, the
     // open page belongs to somebody else and its own poll is already painting
     // it. The record is the account of what happened, visible when that agent
@@ -46207,7 +46333,16 @@ async function moveAccountNow(say) {
 const WAKE_SPIN_HTML = '<span class="spin spin-sweep wake-spin" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 const WAKE_DONE_HTML = '<svg class="wake-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
+  /* #4963: set once the run has said a restart is waking the agent. From then the switch no longer needs
+     the person, so Escape may close the dialog: the wake goes on without it. */
+  let wakingNow = false;
   const back = document.getElementById('chg-modal');
+  /* #4963: which opening is current, kept on the dialog (one element, reused), so a timer armed by one
+     opening never acts on the next. */
+  const openGen = back.__openGen = (back.__openGen || 0) + 1;
+  back.onclick = null;   // a backdrop tap closes only a waking dialog, and only the one this opening armed
+  { const box0 = typeof back.querySelector === 'function' ? back.querySelector('.rm-box') : null;
+    if (box0) box0.removeAttribute('tabindex'); }   // set only while waking, below
   const t = document.getElementById('chg-title');
   const sm = document.getElementById('chg-small');
   const keep = document.getElementById('chg-keep');
@@ -46229,24 +46364,30 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
      switch went ahead: the person would believe they cancelled something that
      is happening. A key that silently means the opposite of what it says is
      worse than a key that does nothing.
+     #4963: one exception, once a restart is waking the agent: the request has
+     answered and the switch has happened, and the wake carries on whether or not
+     the dialog is open, so Escape closing it says nothing untrue.
      📌 The listener is removed in `close`, so opening this dialog repeatedly
      does not stack handlers. */
   const close = () => {
-    back.hidden = true; keep.onclick = null; goBtn.onclick = null;
+    back.hidden = true; keep.onclick = null; goBtn.onclick = null; back.onclick = null;
     /* #2692: DETACH the interstitial content on close, not just hide the modal. The restart
        interstitial mounts the branded K loader on a canvas whose rAF loop self-terminates on
        `!cv.isConnected` -- but `back.hidden = true` only display:none's the modal, leaving the
        canvas CONNECTED and the loop running. Today no close path is reachable while the loader
-       is up (keep is hidden and Escape is gated on goBtn.disabled during the busy state), so
-       this cannot leak now; clearing here makes that robust rather than dependent on it, so a
+       is up (keep is hidden and Escape is gated on goBtn.disabled during the busy state; #4963's
+       Escape and backdrop exits open only once the waking line has replaced it), so this cannot
+       leak now; clearing here makes that robust rather than dependent on it, so a
        future exit-while-busy (the backdrop-click-to-close the #1313/#1316 comments contemplate)
        cannot leave an rAF loop drawing to a hidden canvas. Harmless on every other path: the
        modal is hidden and changeDialog resets msg on its next open. */
     msg.textContent = '';
     document.removeEventListener('keydown', onEsc);
   };
+  /* #4963: and only for this opening. An earlier opening's handler that never ran `close` must not act on
+     a later one (its wakingNow would otherwise let Escape close a dialog whose request is in flight). */
   const onEsc = (e) => {
-    if (e.key !== 'Escape' || back.hidden || goBtn.disabled) return;
+    if (e.key !== 'Escape' || back.hidden || openGen !== back.__openGen || (goBtn.disabled && !wakingNow)) return;
     close();
   };
   document.addEventListener('keydown', onEsc);
@@ -46301,6 +46442,31 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
         if (waking && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
         goBtn.hidden = true;
         keep.textContent = ok ? 'Done' : 'Close';
+        /* #4963 (Josh, 0.7.16): "you should not be able to press Done ... we shouldnt even show that button
+           until the process is totally complete". While the agent is waking there is no button: the
+           wake helper (autoHelloOnSwitchRestart) shows Done, gold, when it finishes. Escape, or a tap on
+           the backdrop (a phone has no Escape), still closes the dialog, and closing never stops the
+           wake. If the helper never reports, Close comes back after a bound past the readiness window,
+           so the dialog is never a trap (#1313). */
+        if (waking) {
+          keep.hidden = true;
+          wakingNow = true;
+          back.onclick = (e) => { if (e && e.target === back && openGen === back.__openGen) close(); };
+          /* Nothing in the dialog can take focus now (both buttons are hidden), so the dialog itself takes
+             it, rather than leaving a keyboard or screen-reader user on the page behind a modal. */
+          const box = typeof back.querySelector === 'function' ? back.querySelector('.rm-box') : null;
+          if (box) { box.setAttribute('tabindex', '-1'); try { box.focus(); } catch { /* the line is announced */ } }
+          const window_ = (typeof RESTART_READY_WINDOW_MS === 'number' ? RESTART_READY_WINDOW_MS : 30000) + 30000;
+          setTimeout(() => {
+            if (openGen !== back.__openGen || back.hidden || !keep.hidden) return;
+            /* The wake did not report, so the line stops claiming it is still waking. */
+            if (/Waking them…$/.test(msg.textContent)) msg.textContent = msg.textContent.replace(/Waking them…$/, 'Send them a message to wake them.');
+            keep.textContent = 'Close';
+            keep.hidden = false;
+            try { keep.focus(); } catch { /* the sentence stands on its own */ }
+          }, window_);
+          return;
+        }
         keep.hidden = false;
         try { keep.focus(); } catch { /* the sentence stands on its own */ }
       };
@@ -52568,6 +52734,18 @@ async function restartReadyWait(name, mine) {
   return false;
 }
 
+/* #4959: the wake (or the handoff pickup) was HELD because this computer's shared Google quota is out, so nothing was
+   typed. The site's own manual line still stands, and the reason follows it, promising nothing: nothing re-sends the
+   wake after the reset, so "Kosmos will say hello later" would be false. The time is #4588's own wording
+   (quotaResetWords); a missing or past time just says the quota is out. Guarded with typeof, so the lifted unit
+   tests (no page globals) still read. */
+function wakeHeldLine(manualText, delivery) {
+  const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
+  const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
+  return manualText + ' ' + (when
+    ? "This computer's shared Google quota is out until " + when + ', so Kosmos sent nothing.'
+    : "This computer's shared Google quota is out, so Kosmos sent nothing.");
+}
 /* Do the wake for one user-initiated restart: wait for readiness, then POST
    'hello' to the agent's thread and report the outcome. `report(text)` writes
    the site's own status line (a stale-notice element, or the doctrine dialog's
@@ -52599,14 +52777,14 @@ async function sendWakeHello(name, token, report, saidText, manualText, deliver)
           const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text: 'hello' }),
+            body: JSON.stringify({ text: 'hello', automatic: true }),   // #4959: held while the shared quota is out
           });
           const out = await res.json().catch(() => null);
           return (res.ok && out && out.delivery) ? out.delivery : null;
         })();
     if (token !== RESTART_HELLO_SEQ[name]) return;
     const placed = delivery && delivery.state === 'placed';
-    report(placed ? saidText : manualText);
+    report(placed ? saidText : (delivery && delivery.held === true) ? wakeHeldLine(manualText, delivery) : manualText);
   } catch {
     if (token !== RESTART_HELLO_SEQ[name]) return;
     report(manualText);
@@ -52621,7 +52799,8 @@ async function sendWakeHello(name, token, report, saidText, manualText, deliver)
 async function deliverPickup(name) {
   const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/pickup', { method: 'POST' });
   const out = await res.json().catch(() => null);
-  return (res.ok && out && out.delivery) ? out.delivery : null;
+  // #4959: a held pickup is answered 409; its verdict still comes back, so the person is told why.
+  return (out && out.delivery && (res.ok || out.delivery.held === true)) ? out.delivery : null;
 }
 
 async function autoHelloAfterRestart(name, report, saidText, manualText, deliver) {
@@ -52675,9 +52854,12 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
     const title = document.getElementById('chg-title');
     if (title && doneTitle) title.textContent = doneTitle;
     const keep = document.getElementById('chg-keep');
-    if (keep && !keep.hidden) {
+    if (keep) {
+      /* #4963: the button appears only now, when the wait is over (changeDialog hides it while waking). */
+      keep.textContent = 'Done';
+      keep.hidden = false;
       if (keep.classList) keep.classList.add('uprime');
-      // Only if it is not there already (say's render focused it): a second focus re-announces the button.
+      // Only if it is not there already: a second focus re-announces the button.
       try { if (document.activeElement !== keep) keep.focus(); } catch { /* the line stands on its own */ }
     }
   };
@@ -52692,7 +52874,9 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
         const m = document.getElementById('chg-msg');
         const back = document.getElementById('chg-modal');
         if (!m || !back || back.hidden || !CURRENT || CURRENT.sessionName !== forAgent) return;
-        if (m.textContent === waitingLine) { finish(m, t); return; }
+        /* #4963: or the line changeDialog's fallback leaves when the wake has not reported by then, so a late
+           report still finishes the dialog (Done, gold) instead of leaving a plain Close. */
+        if (m.textContent === waitingLine || m.textContent === waitingLine.replace(/Waking them…$/, 'Send them a message to wake them.')) { finish(m, t); return; }
         if (Date.now() < until) setTimeout(apply, SWITCH_HELLO_RETRY_MS);
       };
       apply();

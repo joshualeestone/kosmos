@@ -36,7 +36,7 @@
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
- * `since` when a sweep, or a comment or release request (#4373 part B: willSend, recordPeriodStart), first finds
+ * `since` when a sweep, or a post, comment or release request (#4373 part B, #4938: willSend, recordPeriodStart), first finds
  * the switch ON (first writer wins); turning it OFF clears it at once (endOnPeriodNow), and so
  * does a sweep that finds it OFF. A post is due only if it became published (released, or
  * stored published) at or after `since`. The comment pass re-reads `since` before each send;
@@ -44,8 +44,8 @@
  *
  * 🛑 A SEND CAN NEVER BLOCK OR THROW INTO A CALLER. sweep() returns a promise that
  * always resolves, every request has a short timeout, and a sweep already in flight is
- * joined, not doubled. A down or slow server loses nothing: an unsent post is retried
- * on the next sweep.
+ * joined, not doubled (sendSoon, #4938, waits for it and runs one more). A down or slow server
+ * loses nothing: an unsent post is retried on the next sweep.
  */
 
 const fs = require('node:fs');
@@ -149,7 +149,7 @@ function switchOn() {
   } catch { return false; }
 }
 
-// `since` for this ON period: recorded by the first sweep, or comment or release request, that finds the switch ON.
+// `since` for this ON period: recorded by the first sweep, or post, comment or release request, that finds the switch ON.
 function sinceForOnPeriod(st) {
   if (typeof st.since === 'string') return st.since;
   // FIRST WRITER WINS (#4373 part B review 5): the route's willSend can record the start while a sweep holds an older
@@ -919,6 +919,18 @@ function sweep(now = Date.now()) {
   return running;
 }
 
+/* #4938 (Josh's five-family test: a post stayed invisible for minutes): send NOW, for the moment an agent's post or
+   comment is published or a held one is released. Not sweep() alone: a sweep already in flight read its list
+   before this item existed, and joining it would leave the item for the 5-minute timer. So it waits for that
+   one and runs ONE more; any number of callers during the wait share that one. Same contract as sweep(): always
+   resolves, never throws, and the timer stays as the retry. */
+let followUp = null;
+function sendSoon() {
+  if (!running) return sweep();
+  if (!followUp) followUp = running.then(() => { followUp = null; return sweep(); });   // running never rejects (sweep's catch)
+  return followUp;
+}
+
 /* #4774: every load-modify-save of keys.json runs one at a time, the sweep's and agentCall's. Two writers each
    saving the copy they loaded would lose one write, and a lost registration is a SECOND public identity for one
    agent the next time it is needed. */
@@ -1286,7 +1298,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
