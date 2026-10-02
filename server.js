@@ -3693,6 +3693,32 @@ function withPreviews(rows) {
   return rows;
 }
 
+/* #4973: a read of /api/status that another of the person's computers' pages caused (#4812: the relay hands the board
+   token to a `same-site` read from the account's listed sibling origins, and passes that read's Origin and
+   Sec-Fetch-Site through unchanged; only this computer's OWN origin is rewritten to loopback, for the board's own
+   guards). Sec-Fetch-Site is the browser's own provenance (a page cannot set it), so the board reads it the way
+   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
+   Agents view on the other computer uses sessionName, name and state, and the rest of the answer (the update state,
+   updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business. A
+   request with no Sec-Fetch-Site (curl, the CLI) is not a sibling read and gets the full answer. An OLD browser's
+   sibling read (no header) is closed by the relay, not here: it withholds the board token without the header
+   (kosmos-relay proxy.rs board_token_allowed) and the board then refuses it. A change to either reopens that. */
+function isSiblingRead(req) {
+  const site = req && req.headers && req.headers['sec-fetch-site'];
+  return typeof site === 'string' && site !== '' && site !== 'same-origin' && site !== 'none';
+}
+function statusForSibling(json) {
+  let full = null;
+  try { full = JSON.parse(json); } catch { full = null; }
+  const agents = full && Array.isArray(full.agents) ? full.agents : [];
+  const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
+  return JSON.stringify({
+    // The guide is left out here (review 1): the other computer's view drops it anyway, so it need not be sent.
+    agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
+      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })),
+  });
+}
+
 function crossSiteRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   if (site && site !== 'same-origin' && site !== 'none') {
@@ -5471,11 +5497,14 @@ const server = http.createServer(async (req, res) => {
          by the engine rather than asked for again here: a second call would
          report a different moment from the one that just failed. */
       res.writeHead(500, { 'content-type': 'application/json' });
+      // #4973: another computer's page gets that it failed, not why (tmux's words can carry this Mac's paths).
+      if (isSiblingRead(req)) { res.end(JSON.stringify({ error: 'we could not read the agents just now' })); return; }
       let detail = null;
       try { detail = lastLookProblem(); } catch { detail = null; }
       res.end(JSON.stringify({ error: String(err && err.message), detail: detail || undefined }));
       return;
     }
+    if (isSiblingRead(req)) body = statusForSibling(body);   // #4973: another computer's page reads the agents only
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(body);
     return;
