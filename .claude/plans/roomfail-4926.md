@@ -80,3 +80,20 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
   mutant (cleanMessage made to throw on an earlier row's text).
 - NIT (kept, pre-existing): putBack after a paste-then-throw can tell held ids twice.
 - Gap noted again (kept, other card): outbox replay of an old kept post wakes everyone.
+
+## Review 3 (Opus, blind, end to end): 0 blockers, 2 warnings, 4 nits. 21 mutants, 20 killed (the survivor fixed here).
+- WARNING (reproduced) FIXED: the PERSON's post that reached the room but could not be recorded: the page shows
+  "Posted." (every outcome placed), the room reloads without it, the person posts again, and every member got it twice
+  (person's posts are never folded by the record). The unrecorded twin now folds the person's re-post too (only in this
+  case: no row exists to show it). No web change. Test + mutant.
+- WARNING (kept, other card): the outbox replays a kept post (up to 7 days old) stamped with the current time, so the
+  2 h rule cannot see its age; and a person saying "go quiet" by posting is not a staleness signal (decided in review 1).
+- NIT FIXED: a member that failed after its long post was spilled but before typing kept the inbox file; unspilled on
+  could_not. Test (with worker folders so the spill really happens) + mutant.
+- NIT FIXED: the stderr line names the outcome actually recorded (unconfirmed or could_not).
+- NIT FIXED: the unrecorded twin is pruned on every look, expires with the dedup window (tested with a moved clock), and
+  is forgotten once anything is posted in the room since (the record fold's quiet rule; >= because the unrecorded post
+  has no row of its own, and a fast re-post can share the millisecond). Tests + 2 mutants.
+- NIT (kept, stated in the code comment): the twin is in memory, so a board restart forgets it; the next post can reuse
+  the unrecorded post's id (pre-existing: ids are minted from the record).
+- Related files: 267/267.

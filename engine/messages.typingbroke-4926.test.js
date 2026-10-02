@@ -221,3 +221,64 @@ test('#4926 review 2 (Sonnet): a throw from the quoted-words pass after delivery
     assert.ok(rows().some((r) => r.text === 'a later post by ava'), 'the post was not recorded');
   });
 });
+
+const opPost = (roster, text) => messages.sendPostAsync({ operator: true, project: 'room4926', projectName: 'Room', text }, roster, roster.map((c) => c.sessionName));
+const failLogOnce = () => {
+  const real = fs.appendFileSync;
+  let failed = false;
+  fs.appendFileSync = (f, ...rest) => { if (f === messages.LOG && !failed) { failed = true; throw new Error('ENOSPC'); } return real(f, ...rest); };
+  return () => { fs.appendFileSync = real; };
+};
+
+test('#4926 review 3 (Opus): the PERSON\'s post that reached the room but could not be recorded: a re-post folds, nobody typed twice', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    const restore = failLogOnce();
+    try {
+      const d = await opPost(roster, 'from the person');
+      assert.equal(d.state, chat.DELIVERY.UNCONFIRMED);
+      const typed = enters(calls).length;
+      const again = await opPost(roster, 'from the person');
+      assert.equal(again.duplicate, true, 'the person\'s re-post was sent again');
+      assert.equal(enters(calls).length, typed, 'a member was typed into twice');
+    } finally { restore(); }
+  });
+});
+
+test('#4926 review 3 (Opus): an unrecorded post\'s twin is forgotten once the room has spoken since, and after the window', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    let restore = failLogOnce();
+    try { await agentPost(roster, 'said once', false); } finally { restore(); }
+    await postAs(roster, 'cy', 'someone else spoke');   // recorded
+    const before = enters(calls).length;
+    const again = await agentPost(roster, 'said once', false);
+    assert.ok(!again.duplicate, 'a repeat after the room spoke was folded');
+    assert.ok(enters(calls).length > before, 'the repeat was not typed');
+    // The window: past SEND_DEDUP_WINDOW_MS the twin is gone.
+    restore = failLogOnce();
+    try { await agentPost(roster, 'said twice', false); } finally { restore(); }
+    const realNow = Date.now;
+    Date.now = () => realNow() + messages.SEND_DEDUP_WINDOW_MS + 1000;
+    let late;
+    try { late = await agentPost(roster, 'said twice', false); } finally { Date.now = realNow; }
+    assert.ok(!late.duplicate, 'a twin outlived the dedup window');
+  });
+});
+
+test('#4926 review 3 (Opus): a member that fails after its long post was spilled but before typing keeps no inbox file', async () => {
+  await withRoom(async (roster) => {
+    arm();
+    for (const n of MEMBERS) fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true });   // a spill needs the agent's own folder
+    const real = roomhold.take;
+    roomhold.take = (name, ...rest) => { if (name === 'cy') throw new Error('take broke'); return real(name, ...rest); };
+    let d;
+    try { d = await agentPost(roster, 'long '.repeat(200), false); } finally { roomhold.take = real; }
+    assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT);
+    const inbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cy', 'Inbox');
+    const left = fs.existsSync(inbox) ? fs.readdirSync(inbox).filter((f) => f.startsWith(d.id)) : [];
+    assert.deepEqual(left, [], 'cy kept a spill file for a post it never got');
+    const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
+    assert.ok(fs.existsSync(bixInbox) && fs.readdirSync(bixInbox).some((f) => f.startsWith(d.id)), 'fixture: the post did not spill at all (cannot see the cleanup)');
+  });
+});

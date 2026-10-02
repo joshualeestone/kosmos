@@ -962,10 +962,16 @@ const IN_FLIGHT_SENDS = new Map();
 /* #4926 review 2 (Sonnet): a post the members got whose record could not be written has no row for recentSameSend to
    fold a retry into, so its answer is kept here for the dedup window. */
 const UNRECORDED_SENDS = new Map();
-function unrecordedTwin(key) {
+/* Review 3 (Opus): the same quiet rule as the record's fold: anything posted in the room since breaks it (a repeat
+   after others spoke is a real second post). Also used for the PERSON's posts, which the record's fold never folds: a
+   person told nothing (the page shows "Posted." when every member was placed) re-posts, and every member got it twice.
+   In memory only: a board restart forgets it (and the next post can reuse the unrecorded post's id, as before this). */
+function unrecordedTwin(key, log, projectId) {
+  for (const [k, u] of UNRECORDED_SENDS) if (Date.now() - u.keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_SENDS.delete(k);   // pruned on every look
   const u = UNRECORDED_SENDS.get(key);
   if (!u) return null;
-  if (Date.now() - u.keptAt > SEND_DEDUP_WINDOW_MS) { UNRECORDED_SENDS.delete(key); return null; }
+  const since = (Array.isArray(log) ? log : []).some((r) => r && (r.kind === 'post' || r.kind === 'external') && r.project === projectId && Date.parse(r.at) >= u.keptAt);   // >=: the unrecorded post has no row to match itself
+  if (since) { UNRECORDED_SENDS.delete(key); return null; }
   return u.result;
 }
 // A twin still in flight, unless it has been in flight longer than the window (a delivery that never settles must
@@ -1646,6 +1652,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      the same post again, and the first one's flags stand. */
   const answeredId = answered ? answered.id : null;
   const postKey = sendKey('post', from, projectId + '\u0000' + (answeredId || ''), stored);
+  const unrecorded = unrecordedTwin(postKey, log, projectId);   // #4926 review 2: delivered but not recorded (review 3: the person's too)
+  if (unrecorded) return asDuplicate(unrecorded);
   if (operator !== true) {
     const samePost = recentSameSend(log, at, (r) => r.kind === 'post' && r.from === from && r.project === projectId && r.text === stored && r.operator !== true && (r.replyTo || null) === answeredId);
     // An outside party's reply in a federated room is an 'external' row: it breaks the quiet like any post.
@@ -1653,8 +1661,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       const foldedState = aggregateState(samePost.outcomes);
       return { state: foldedState, because: foldedState === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
     }
-    const unrecorded = unrecordedTwin(postKey);   // #4926 review 2: delivered but not recorded
-    if (unrecorded) return asDuplicate(unrecorded);
     // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
     const inFlight = asynchronousDelivery ? inFlightTwin(postKey) : null;
     if (inFlight) return inFlight.then(asDuplicate);
@@ -2067,10 +2073,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     /* Review 2 (Sonnet): a throw BEFORE the typing path was entered (the hold check, the spill, a lookup) typed nothing:
        that member could not be reached, and a post where that is every member is refused as before. */
     if (outcomes[name] === undefined) {
-      if (typingStarted.has(name)) { outcomes[name] = chat.DELIVERY.UNCONFIRMED; reached += 1; } else outcomes[name] = chat.DELIVERY.COULD_NOT;
+      if (typingStarted.has(name)) { outcomes[name] = chat.DELIVERY.UNCONFIRMED; reached += 1; }
+      else { outcomes[name] = chat.DELIVERY.COULD_NOT; unspill(spilled[name]); }   // review 3: no inbox file for a post it never got
     }
     // Review 1: the error's first line only, cut short (a tmux error can carry its arguments, the pasted text among them).
-    try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + '); recorded as unconfirmed\n'); } catch { /* never breaks the post */ }
+    try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + '); recorded as ' + outcomes[name] + '\n'); } catch { /* never breaks the post */ }
   };
 
   const finishDeliveries = () => {
@@ -2131,7 +2138,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
     const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, from, text: stored };
-    if (operator !== true) UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now() });   // review 2: a retry folds
+    UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now() });   // review 2: a retry folds (review 3: the person's too)
     return unrecorded;
   }
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
