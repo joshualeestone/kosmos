@@ -467,14 +467,15 @@ async function findExisting(agentKey, keys, body, sent) {
    the pause is kept in memory like a register 429, so a board restarted inside it sends once more. Each retry after
    a pause is itself counted by the limiter, a handful per agent per hour at most. willSend's `later` reads only
    the daily cap: a comment held by this pause is still told it goes on a coming pass, which is true within 10 min.
-   One pause per agent covers its post and comment SENDS (the limiter counts every request in one bucket, refused
-   ones included); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */
+   One pause per agent covers its post and comment SENDS (with a valid token the limiter counts every request in one
+   bucket per agent, refused ones included; a token it cannot resolve is counted in a bucket shared by the board's
+   address, which this per-agent pause does not model); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */
 const limiterPauseUntil = new Map();   // agentKey -> ms
 function dailyCap429(r, name) {
   return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
 }
-/* An unreadable 429 (neither the cap nor the limiter) is said once per agent, so a service that renamed its cap
-   error is seen in the board's log, not only as quiet retries. */
+/* An unreadable 429 (neither the cap nor the limiter) is said once per agent until the board restarts, so a service
+   that renamed its cap error is seen in the board's log, not only as quiet retries. */
 const unreadable429Said = new Set();
 function pauseFor429(r, agentKey, now, what) {
   const limiter = Boolean(r && r.json && r.json.error === 'rate_limit_exceeded');
