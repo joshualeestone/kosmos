@@ -345,25 +345,31 @@ if [ "$FAMILY" = win ]; then
 fi
 
 # #5032: the installer moves with the pointer. A staging cut publishes /setup-staging and leaves /setup
-# (what prod installs and prod updates run) at the prior prod installer, so the promote copies the pair
-# onto /setup below. Checked HERE, before any write, so a refusal leaves prod untouched:
-#   - absent: a site whose last staging cut predates #5032. /setup already carries that installer (cuts
-#     wrote it before #5032), so nothing is copied and the promote goes on.
-#   - present: it must be COMMITTED and UNMODIFIED, because only a committed file was ever served (a
-#     deploy serves an export of the committed site), and its sidecar must name its bytes. A working-tree
-#     copy nobody served must never become every prod box's installer.
+# (what prod installs and prod updates run) at the prior prod installer, and its pointer NAMES that
+# installer (setup_sha256). The promote copies the pair onto /setup below. Checked HERE, before any
+# write, so a refusal leaves prod untouched:
+#   - the staging pointer names no installer: a cut before #5032, or a pointer republished by hand
+#     (publish-staging-pointer.sh cannot know which installer a build was cut with). /setup is left
+#     as it is, and the promote says so.
+#   - it names one: setup-staging must be COMMITTED and UNMODIFIED (a working-tree copy that was never
+#     committed was never served), it must hash to the pointer's setup_sha256, and its sidecar must name
+#     the same bytes. Anything else refuses: the promote would otherwise pair the build with an
+#     installer it was not cut with.
 SETUP_STAGING=""
-if [ "$FAMILY" = mac ] && { [ -e "$SITE/setup-staging" ] || [ -e "$SITE/setup-staging.sha256" ]; }; then
+PTR_SETUP="$(read_field setup_sha256)"
+if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
   for _f in setup-staging setup-staging.sha256; do
     git -C "$SITE" ls-files --error-unmatch "$_f" >/dev/null 2>&1 \
-      || { echo "promote-channel: $SITE/$_f is not committed, so it was never served - refusing; nothing was written. (An aborted staging cut leaves one; remove it, or commit the cut's own pair.)" >&2; exit 1; }
+      || { echo "promote-channel: the staging pointer names installer $PTR_SETUP but $SITE/$_f is not committed - refusing; nothing was written. (Refresh the site checkout, or remove a leftover from an aborted cut.)" >&2; exit 1; }
     git -C "$SITE" diff --quiet HEAD -- "$_f" \
       || { echo "promote-channel: $SITE/$_f differs from its committed copy, so the working tree is not what staging served - refusing; nothing was written." >&2; exit 1; }
   done
-  _sw="$(awk 'NR==1{print $1}' "$SITE/setup-staging.sha256")"
   _sg="$(shasum -a 256 < "$SITE/setup-staging" | awk '{print $1}')"
-  [ -n "$_sw" ] && [ "$_sw" = "$_sg" ] \
-    || { echo "promote-channel: setup-staging hashes to $_sg but setup-staging.sha256 names '${_sw:-nothing}' - refusing; nothing was written." >&2; exit 1; }
+  _sw="$(awk 'NR==1{print $1}' "$SITE/setup-staging.sha256")"
+  [ "$_sg" = "$PTR_SETUP" ] \
+    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. (A later staging cut replaced it, or the checkout is stale.)" >&2; exit 1; }
+  [ "$_sw" = "$_sg" ] \
+    || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
   SETUP_STAGING="$_sg"
 fi
 
@@ -448,7 +454,7 @@ if [ -n "$SETUP_STAGING" ]; then
     || { echo "promote-channel: /setup does not read back as the verified setup-staging - check both by hand before any deploy" >&2; exit 1; }
   echo "   copied the staging installer onto /setup (sha256 $SETUP_STAGING)"
 elif [ "$FAMILY" = mac ]; then
-  echo "   no setup-staging in the site checkout (its staging cut predates #5032): /setup already carries that installer, left as it is"
+  echo "   the staging pointer names no installer (cut before #5032, or republished by hand): /setup left as it is"
 fi
 
 if [ "$FAMILY" = win ]; then
@@ -460,7 +466,7 @@ else
 fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
-[ -n "$SETUP_STAGING" ] && echo "promote-channel: COMMIT setup and setup.sha256 together with $PROD_NAME (#5032): a deploy serves the committed site, and deploy-site.sh --promote refuses a committed /setup that is not the committed setup-staging."
+[ -n "$SETUP_STAGING" ] && echo "promote-channel: COMMIT setup and setup.sha256 together with $PROD_NAME (#5032): a deploy serves the committed site, and deploy-site.sh refuses a committed /setup that does not hash to the pointer's setup_sha256."
 
 if [ "$FAMILY" = win ]; then
   win_append_approval_line "$(date -u +%FT%TZ) family=win path=promote version=$V sha256=$SHA approval_ref=$APPROVAL_REF promoted=yes" \

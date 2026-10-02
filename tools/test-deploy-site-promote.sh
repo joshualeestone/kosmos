@@ -76,7 +76,7 @@ cat > "$BIN/vercel" <<'VERCEL'
 # a real deploy replaces the site, but additive is enough to run the served-verify honestly).
 mkdir -p "$LIVE_DIR/dist"
 [ -d ./dist ] && cp -R ./dist/. "$LIVE_DIR/dist/" 2>/dev/null
-for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
+for f in setup setup.sha256 setup-staging setup-staging.sha256 index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
 # A deploy that silently drops one file (the #1669 shape): the post-deploy served-verify must catch it.
 [ -n "${DROP_FROM_DEPLOY:-}" ] && rm -f "$LIVE_DIR/dist/$DROP_FROM_DEPLOY"
 # A deploy that serves DIFFERENT bytes for one file than the export held (#4819).
@@ -383,6 +383,34 @@ write_ptr "$L18/dist/latest-staging.json" 0.6.33 "$(sha_of "$T/stg-bytes")" kosm
 run_deploy "$S18" "$L18" --publish
 { [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && [ ! -e "$S18/dist/$NEWART" ] && has "$(cat "$L18/dist/latest-staging.json")" "0.6.33"; } \
   && pass "mac staged (--publish): a site-copy deploy from a checkout behind LIVE's staging refuses before any fetch" || bad "mac staged publish stale (rc=$RC) out=$out"
+
+# =============================================================================================
+# #5032: the pointer NAMES its installer (setup_sha256). Every deploy refuses a committed /setup that is
+# not that installer. Scenarios 1-18 above use pointers with no field, so they are the "not checked" control.
+with_setup() {  # <site> <installer-text>: commit a setup pair with that text, and make the committed pointer name <named-sha> (arg 3, default the pair's own)
+  local s="$1"; printf '%s\n' "$2" > "$s/setup"; ( cd "$s" && shasum -a 256 setup > setup.sha256 )
+  local named="${3:-$(sha_of "$s/setup")}"
+  node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.setup_sha256=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$s/dist/latest.json" "$named"
+  git -C "$s" add setup setup.sha256 dist/latest.json && git -C "$s" commit -q -m "pointer names its installer"
+}
+# 19) a promote whose committed /setup IS the installer the pointer names: deploys, and serves it.
+read -r S19 L19 <<<"$(make_scenario)"; with_setup "$S19" "NEW-INSTALLER"
+run_deploy "$S19" "$L19" --promote
+{ [ "$RC" = 0 ] && [ "$(cat "$L19/setup")" = NEW-INSTALLER ]; } && pass "#5032: a promote whose /setup is the pointer's installer deploys and serves it" || bad "#5032 matching promote (rc=$RC) out=$out"
+# 20) a promote whose committed /setup is NOT that installer (promote-channel's copy not committed, or a
+#     rollback that kept the newer installer): refused before anything is served.
+read -r S20 L20 <<<"$(make_scenario)"; with_setup "$S20" "OLD-INSTALLER" "$(printf 'NEW-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"
+run_deploy "$S20" "$L20" --promote
+{ [ "$RC" = 1 ] && has "$out" "names installer" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L20/dist/latest.json")" = "$OLD" ] && [ "$(cat "$L20/setup")" = setup-script ]; } \
+  && pass "#5032: a promote whose /setup is not the pointer's installer is refused, nothing served" || bad "#5032 mismatched promote (rc=$RC) out=$out"
+# 21) the same mismatch on a site-copy --publish (committed pointer == live): refused too.
+read -r S21 L21 <<<"$(make_scenario)"; with_setup "$S21" "OLD-INSTALLER" "$(printf 'NEW-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"; cp "$S21/dist/latest.json" "$L21/dist/latest.json"
+run_deploy "$S21" "$L21" --publish
+{ [ "$RC" = 1 ] && has "$out" "names installer"; } && pass "#5032: a site-copy deploy whose /setup is not the pointer's installer is refused" || bad "#5032 mismatched publish (rc=$RC) out=$out"
+# 22) a sidecar that does not name the committed setup, under a pointer that does: refused.
+read -r S22 L22 <<<"$(make_scenario)"; with_setup "$S22" "NEW-INSTALLER"; printf '%064d  setup\n' 0 > "$S22/setup.sha256"; git -C "$S22" commit -qam "bad sidecar"
+run_deploy "$S22" "$L22" --promote
+{ [ "$RC" = 1 ] && has "$out" "setup.sha256 names"; } && pass "#5032: a committed setup.sha256 that does not name the installer is refused" || bad "#5032 bad sidecar (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi
