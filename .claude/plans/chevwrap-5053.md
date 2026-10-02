@@ -9,22 +9,36 @@ render-subback-4586 with a long-name arm ("Five Families Holdings"), on main, on
 (`gap -32, overlapY -16`).
 
 ## Change
-web/index.html: `#panel-tasks .tsk-head` flex-wrap: nowrap; `#tsk-title` min-width: 0, overflow-wrap: anywhere;
-`#tsk-new` flex: none. The chevron was already flex: none. Desktop unchanged.
-docs/browser-checks/render-subback-4586.js: the long-name arm (renames the fixture's project, restores it after).
+web/index.html, the Tasks head (#panel-tasks .tsk-head):
+- Desktop: the flex row no longer wraps; the title shrinks and wraps inside its own box (min-width: 0,
+  overflow-wrap: anywhere); the chevron and "+ New task" keep their size. Looks as before with ordinary names.
+- Phone width (max-width: 40rem, the repo's phone breakpoint), Mona Lisa's design call on #5053: a grid. The chevron
+  and title share the first row, the title taking the rest of the width; "+ New task" ALWAYS on its own row below,
+  left-aligned with the title's text; the chevron top-aligned with the title's first line; the title's line-height
+  1.2 (it inherited .panel h2's 20px, set for 15px text, so wrapped lines touched). No column gap: the chevron
+  carries its margin, so with the chevron hidden (all projects) the title is not indented.
+docs/browser-checks/render-subback-4586.js: a long-name arm at 390 and 360 and the phone-layout rules (below,
+left-aligned, chevron at the first line, lines not touching), a 390 control for the all-projects head, the short-name
+390 and desktop rules.
 docs/browser-checks/mobile-shots.js: a `project-tasks` screen for design shots.
-Only one other head uses `.sub-back`: #pj-docs-view .pjtitle is a grid with the chevron in its own column, already
-robust; not changed.
+Only one other head uses `.sub-back`: #pj-docs-view .pjtitle, a grid with the chevron in its own column; not changed.
 
 ## Decisions (reversible)
-- "+ New task" stays on the title's row (it used to drop below); the title wraps in a narrower column. The
-  alternative (New task below, title full width) is offered to the design reviewer (Mona Lisa) on #5053.
-  Weakest premise: a four-line title beside a centred chevron reads well enough on a phone.
+- Phone layout per Mona Lisa (#5053): "+ New task" below always (it stays in one place), title full width.
+  Earlier version (New task beside a 4-line title) superseded.
+- line-height 1.2 only at phone width, so the desktop title keeps its height. Weakest premise: a desktop title long
+  enough to wrap (about 60 characters) still has 20px lines; rare, left.
 
 ## Verification
-- render-subback-4586: 35/0 with the fix on this Mac; red on main at the new arm only.
-- The 12 checks tools/bc-pr-select.js selects for this diff (queued, Agent1s).
+- render-subback-4586 on this Mac: 44/0 with the fix. CONTROL: the same check on main's CSS, 6 FAILED, exactly the
+  new phone arms (separation, chevron top, all-projects head, short-name layout).
+- The 12 checks tools/bc-pr-select.js selects (queued on Agent1s).
 - Design shots: ~/work/design-shots/kosmos-5053 (project-tasks, tasks; desktop and iPhone 15; light and dark).
 
 ## Iterations
-(filled in by the review loop)
+### Iteration 1 (opus, blind; it read the committed fix and the uncommitted phone grid): 0 blockers, 2 warnings.
+1. The title's 20px line-height (from .panel h2) made wrapped 24px lines touch. Fixed at phone width; pinned.
+2. The committed flex version centred the chevron on the whole title block; resolved by the phone grid
+   (align-self: start) and the 4px chevron-top assertion.
+CONVENTIONs taken: the plan rewritten for the new design; the stale "may wrap" comment. NIT taken: mobile-shots says
+"built-in seed". Left: the loose "(right of or below)" arm stays (the per-width rules are stricter).
