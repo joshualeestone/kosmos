@@ -121,3 +121,9 @@ browser check (bc-4962, queued; its first run is its first proof), the full vali
   removeAttribute (all four fake-DOM test files pass).
 - Not taken: first run's frPaintScan never forgets a receipt (first-run import rows are not reached in setup today);
   the chk/chkAll comment wording; the adopt-row Enter scope (deliberate, stated in the PR body).
+
+## Review 10 (sonnet, blind, 2026-10-02 11:37): 0 blockers, 2 warnings, 4 nits
+- FIXED: the flagged border outlived a retry and a success (only aria-invalid was cleared). An attempt now starts
+  unflagged, success clears both marks, and importRowApply clears both on any adding or added copy (unit test,
+  red without the importRowApply line).
+- DEFERRED again (decided in review 1, for the PR body): Enter on adopt rows outside the import panel.
