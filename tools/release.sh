@@ -1740,7 +1740,8 @@ step "== 9e. the served artifact, audited from OUTSIDE the build (Splinter's che
 # check compares served /setup against ../chaoskosmos-site beside the repo,
 # and the build tree has no site beside it. 0.5.65's 9e reported that check
 # UNPROVEN and failed the cut on a sound artifact for exactly this reason.
-if ! bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$MAIN_REPO"; then
+# #5032: and the channel's installer, /setup-staging on a staging cut (its floor is this tree's).
+if ! KOSMOS_VERIFY_SETUP="$SETUP_FILE" bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$MAIN_REPO"; then
   echo "THE SERVED ARTIFACT FAILED THE OUTSIDE AUDIT (the lines above say which check). The pointer is live. Do not announce this cut as verified; read the red, and bump rather than republish if bytes must change."
   exit 1
 fi
@@ -1834,7 +1835,9 @@ if [ "$CUT_CHANNEL" = staging ]; then
   echo "     2. exercise it: open the board and click (a person, or an agent driving a browser)"
   echo "     3. promote:  tools/promote-channel.sh \"$SITE\" <that-board's-port>"
   echo "        (promote-channel HOLDS unless a FRESH session can use the board -- the #2063 gate)"
-  echo "   Rollback is a pointer flip: promote a prior staging pointer, no rebuild."
+  echo "   Rollback is a pointer flip, no rebuild: restore the prior pointer AND the installer it names"
+  echo "   (#5032: deploy-site.sh refuses a /setup that does not hash to the pointer's setup_sha256; the"
+  echo "   prior installer is the setup pair committed with that pointer, see docs/staging-channel.md step 5)."
 fi
 
 # #2159: on a PROD cut the build is now live to users, so generate the release-notes social posts.
