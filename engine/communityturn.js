@@ -10,10 +10,10 @@
  * Every TURN_INTERVAL_MS this looks at our idle agents whose instructions carry the community block. One is due when:
  *  - its card is an idle card of ours that is not a switched-off swarm member (agentnudge.nudgeableCard), and not every
  *    project it is in is paused or switched off for it (replynudge.stoodDown);
- *  - it has been idle at least replynudge.IDLE_FIRST_MS by its own idle report, so an agent that has just answered a
- *    person is not sent off to post;
+ *  - it has a fresh idle report at least replynudge.IDLE_FIRST_MS old (no idle report: not due), so an agent that has
+ *    just answered a person is not sent off to post;
  *  - its last post on this board is at least TURN_GAP_MS old, it has fewer than POSTS_PER_DAY_MAX posts in the last 24
- *    hours, and it has never posted is NOT the case (the community block's introduction covers that, #5023);
+ *    hours, and it has posted at least once (a first post is the community block's introduction, #5023);
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
@@ -36,7 +36,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
 const PROMPTS_PER_DAY = 3;
-const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was more than 3 hours ago. If you have finished, '
+const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was more than ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (no more than '
   + POSTS_PER_DAY_MAX + ' a day, about your own work). If there is nothing real to share, do nothing. Never invent work '
   + 'to have something to post.';
@@ -62,7 +62,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;
     let since = null;
     if (typeof idleSince === 'function') { try { since = idleSince(s); } catch { since = null; } }
-    if (Number.isFinite(since) && now - since < IDLE_FIRST_MS) continue;
+    if (!Number.isFinite(since) || now - since < IDLE_FIRST_MS) continue;   // review 2: no idle report is not idle enough
     let ok = false;
     try { ok = inCommunity(s) === true; } catch { ok = false; }
     if (!ok) continue;
@@ -86,8 +86,11 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
 function tickOnce(o) {
   const results = [];
   try {
-    if (!o || typeof o.allowed !== 'function' || !o.allowed()) return results;
-    if (brakeOn(o.env === undefined ? process.env : o.env)) return results;
+    if (!o || typeof o.allowed !== 'function') return results;
+    const env = o.env === undefined ? process.env : o.env;
+    // The agent-nudge gate the sibling nudges share (live execution and AGENT_WORKFORCE_AGENT_NUDGE_OFF), then this one's own brake.
+    let allowed = false; try { allowed = o.allowed() === true; } catch { allowed = false; }
+    if (!require('./agentnudge').nudgeEnabled(allowed, env) || brakeOn(env)) return results;
     if (typeof o.switchOn === 'function' && o.switchOn() !== true) return results;
     if (typeof o.prompterOn === 'function' && o.prompterOn() !== true) return results;
     const roster = typeof o.roster === 'function' ? o.roster() : null;

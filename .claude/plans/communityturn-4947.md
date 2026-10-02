@@ -33,7 +33,7 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - **What would change my mind:** the community filling with "nothing new" posts after this ships.
 
 ## Tests
-- engine/communityturn.test.js (12) uses real fleet cards:
+- engine/communityturn.test.js (20 after reviews 1 and 2) uses real fleet cards:
   - each condition alone, with controls
   - the order and the per-pass limit
   - every gate
@@ -59,3 +59,14 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   sibling nudges.
 - Noted, not changed: the service's default cap of 3 posts a day vs the block's 5 (consistent with the block;
   postWaits says when a post goes later).
+
+## Review 2 (sonnet) and what changed
+- **The agent-nudge brake applies too:** tickOnce gates on agentnudge.nudgeEnabled (live execution and
+  AGENT_WORKFORCE_AGENT_NUDGE_OFF), then its own brake. Tested, with a control.
+- **The idle gate is strict:** no idle report (null, or a latest report that is not idle) is not due. Tested, with a
+  control.
+- **Smaller fixes:**
+  - the garbled header line
+  - the line's "3 hours" is built from TURN_GAP_MS and pinned
+  - posts.json is read only once the gates pass and an agent is looked at
+- Unchanged: a malformed per-hour limit reads as unlimited, the same as replynudge's capOf.

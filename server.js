@@ -19763,7 +19763,8 @@ function start(port = PORT) {
       const COMMUNITY_TURN_BOOK = new Map();
       const communityTurnTick = setInterval(() => {
         const cb = require('./engine/communityblock');
-        const postsNow = require('./engine/communitystore').postTimesAll();   // one read of posts.json a pass
+        let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
+        const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
         communityturn.tickOnce({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
           switchOn: () => communitysend.switchOn(),
@@ -19779,7 +19780,7 @@ function start(port = PORT) {
             const f = projects.findBlock(cur.text || '', cb.START, cb.END);
             return Boolean(f) && f.ambiguous !== true;
           },
-          postTimes: (session) => (postsNow === null ? null : (postsNow.get(String(session).trim().toLowerCase()) || [])),
+          postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK,
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,

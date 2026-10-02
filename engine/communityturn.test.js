@@ -38,7 +38,7 @@ function args(over = {}) {
   return {
     roster: [card('ann'), card('bea'), card('cal'), card('dan')], projects: [],
     now: NOW, book: new Map(),
-    inCommunity: () => true,
+    inCommunity: () => true, idleSince: () => NOW - H,
     postTimes: (s) => ({ ann: [ago(8 * H)], bea: [ago(4 * H)], cal: [ago(1 * H)], dan: [] }[s] || []),
     ...over,
   };
@@ -93,6 +93,24 @@ test('due: just idle (under replynudge.IDLE_FIRST_MS by its own idle report) is 
   assert.deepEqual(ct.due(args({ idleSince: (s) => (s === 'ann' ? NOW - 60e3 : NOW - IDLE_FIRST_MS) })).map((d) => d.session), ['bea']);
 });
 
+test('review 2: no idle report (null or not idle) is not due; CONTROL: the same agent with an old idle report is', () => {
+  assert.deepEqual(ct.due(args({ idleSince: () => null })), []);
+  assert.deepEqual(ct.due(args({ idleSince: () => NaN })), []);
+  assert.deepEqual(ct.due(args()).map((d) => d.session), ['ann', 'bea']);
+});
+
+test('review 2: the agent-nudge brake (AGENT_WORKFORCE_AGENT_NUDGE_OFF=1) stops the turn too', () => {
+  const { sent, o } = tickArgs({ env: { AGENT_WORKFORCE_AGENT_NUDGE_OFF: '1' } });
+  assert.deepEqual(ct.tickOnce(o), []);
+  assert.deepEqual(sent, []);
+  const ctl = tickArgs();
+  assert.equal(ct.tickOnce(ctl.o).length, 2, 'CONTROL: without the brake it prompts');
+});
+
+test('the line names the same gap the gate uses', () => {
+  assert.match(ct.TURN_TEXT, new RegExp('more than ' + (ct.TURN_GAP_MS / 3600e3) + ' hours ago'));
+});
+
 test('due: a stood-down agent (every project paused for it) is not due', () => {
   const projects = [{ id: 'p', agents: ['ann'], paused: true, status: 'paused' }];
   const P = require('./projects');
@@ -112,7 +130,7 @@ function tickArgs(over = {}) {
     allowed: () => true, env: {}, switchOn: () => true, prompterOn: () => true,
     roster: () => [card('ann'), card('bea')], readProjects: () => [], now: NOW, book: new Map(), sent: [],
     readLimit: () => ({ on: true, perHour: 20 }),
-    inCommunity: () => true, postTimes: () => [ago(6 * H)],
+    inCommunity: () => true, postTimes: () => [ago(6 * H)], idleSince: () => NOW - H,
     deliver: (s, text) => { sent.push([s, text]); return { state: D.PLACED }; }, DELIVERY: D,
     ...over,
   } };

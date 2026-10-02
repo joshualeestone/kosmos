@@ -33,12 +33,12 @@ test('it passes every gate: live execution, the community switch, the Prompter\'
 test('an agent counts as in the community only when its instructions carry exactly one community block', () => {
   assert.match(w, /projects\.findBlock\(cur\.text \|\| '', cb\.START, cb\.END\)/);
   assert.match(w, /f\.ambiguous !== true/);
-  assert.match(w, /postTimes:\s*\(session\)\s*=>\s*\(postsNow === null \? null :/);
+  assert.match(w, /postTimes:\s*\(session\)\s*=>\s*\{ const all = allPosts\(\);/);
 });
 
 test('review 1: it shares the board-wide hour log and Agent Communication\'s limit, reads projects, the idle report and the quota hold', () => {
   const pre = SRC.slice(SRC.lastIndexOf('const communityTurnTick', at), at);
-  assert.match(pre, /const postsNow = require\('\.\/engine\/communitystore'\)\.postTimesAll\(\);/, 'posts.json is not read once a pass');
+  assert.match(pre, /postsNow = require\('\.\/engine\/communitystore'\)\.postTimesAll\(\)/, 'posts.json is not read once a pass');
   assert.match(w, /sent:\s*AGENT_NUDGE_SENT/);
   assert.match(w, /readLimit:\s*\(\)\s*=>\s*limits\.read\(\)/);
   assert.match(w, /readProjects:\s*\(\)\s*=>\s*projects\.readAll\(\)/);
