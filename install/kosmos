@@ -2025,7 +2025,8 @@ cmd_post() {
       # `kosmos room reopen <project-id>`, after which this text can be re-posted.)
       # #2909: a piped message can be megabytes; it goes to a private file instead of the screen.
       if [ "$from_stdin" = 1 ]; then
-        _keep_piped
+        # #4934: after the cut-reply retry the first try may be in the room, so the copy says "may not have been sent".
+        if [ -n "${_retried:-}" ]; then _keep_piped maybe; else _keep_piped; fi
       else
         # #3224: a which-room hold is a question, not a closed room, so say "send again".
         case "$body" in

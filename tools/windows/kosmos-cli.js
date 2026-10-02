@@ -301,17 +301,18 @@ async function readPipedMessage(ctx, verb, usage) {
 
 /* #2909: a piped message may have no other copy, so a failure after the read keeps it in a
    private file and names the path. */
-function keepPipedCopy(ctx, text) {
+function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may have arrived, as install/kosmos's _keep_piped maybe
   const os = require('os');
   let dir = '';
   try {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-unsent-'));
     const file = path.join(dir, 'message.txt');
     fs.writeFileSync(file, text, { mode: 0o600 });
-    ctx.err('The piped message was not sent; it is saved at ' + file);
+    ctx.err(maybe ? 'The piped message may not have been sent; a copy is saved at ' + file + '. Check before sending it again.'
+      : 'The piped message was not sent; it is saved at ' + file);
   } catch (e) {
     if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ } }
-    ctx.err('The piped message was not sent, and we could not save a copy of it.');
+    ctx.err('The piped message ' + (maybe ? 'may not have been sent' : 'was not sent') + ', and we could not save a copy of it.');
   }
 }
 
@@ -527,7 +528,8 @@ async function verbPost(ctx, args) {
         : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
     ctx.err(text);
   }
-  keepPiped();
+  // #4934: after the cut-reply retry the first try may be in the room, so a piped copy says "may not have been sent".
+  if (retried) { if (fromStdin) keepPipedCopy(ctx, text, true); } else keepPiped();
   return 1;
 }
 
