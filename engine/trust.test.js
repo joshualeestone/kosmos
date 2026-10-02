@@ -747,6 +747,7 @@ test('#1919: preacceptBypass records a displaced explicit value (e.g. a prior fa
   assert.equal(r.ok, true);
   assert.equal(r.displaced, false, 'the prior explicit value is reported (merge awareness), not silently overwritten unseen');
   assert.equal(sRead(d)[BYPASS_KEY], true);
+  assert.equal(sRead(d)[SWITCH_KEY], true, '#5039: the combined write sets the switch key in the same pass');
 });
 
 test('#5039: settings with the bypass key but no switch key gets switchModelsOnFlag, other keys kept', () => {
@@ -767,7 +768,7 @@ test('#5039: an explicit switchModelsOnFlag false is the person\'s choice and is
   assert.equal(sRead(d)[SWITCH_KEY], false);
 });
 
-test('#5039: the key is the one Claude Code writes for "Switch automatically"', () => {
+test('#5039: SWITCH_KEY is spelled switchModelsOnFlag (measured in a real settings.json; this pins the spelling only)', () => {
   assert.equal(SWITCH_KEY, 'switchModelsOnFlag');
 });
 

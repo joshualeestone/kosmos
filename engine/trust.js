@@ -754,11 +754,16 @@ function dropRecordInner(name) {
  * starts. Setting BYPASS_KEY true in the account's settings.json ahead of time skips that
  * redundant gate. It GRANTS NOTHING NEW -- the flag already set what the agent may do; this
  * only removes the interactive prompt for a decision already made -- and it is scoped to the
- * per-agent config dir, never global, and to this ONE consent, no other prompt.
+ * account's config dir (for a default-account agent, the operator's own ~/.claude/settings.json).
+ *
+ * #5039 (Josh 2026-10-02): it also sets SWITCH_KEY when absent. That one IS a new decision made for
+ * the person: when Opus 5.5's safeguards flag a message, the agent continues on Opus 4.8 instead of
+ * stopping on a modal nobody is watching. An explicit false is never overwritten, and it is the only
+ * opt-out that lasts: a deleted key is written again at the next launch.
  *
  * Unlike trustFolder (which refuses to CREATE .claude.json, because that file holds session
  * state and creating it would fabricate a history), this CREATES settings.json if absent: a
- * settings file holding only `{ BYPASS_KEY: true }` is a valid minimal PREFERENCE, not a
+ * settings file holding only these preferences is a valid minimal PREFERENCE, not a
  * fabricated history, and creating it is what makes this work on a fresh product install --
  * the case #1919 was filed from. Same SAFETY otherwise: refuse a symlinked target, refuse a
  * non-object shape, merge (never replace) so other settings survive, preserve mode, atomic
@@ -767,6 +772,7 @@ function dropRecordInner(name) {
  * @param {string|null} configDir the ACCOUNT's config dir (null = this process's own).
  * @returns {{ok:true, already:boolean, target:string, displaced:*, madeFile:boolean}
  *          | {ok:false, because:string}}
+ *          (already: both keys were in place and nothing was written; displaced: the prior BYPASS_KEY value)
  */
 // #3088: serialise the settings read-modify-write on the SETTINGS file (a separate
 // lock from the config's). preacceptBypass runs on every relaunch alongside
