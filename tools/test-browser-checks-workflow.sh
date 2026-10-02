@@ -83,7 +83,7 @@ pass "the paths filter LISTS every trigger surface (rendered page, checks, drive
 #    macos-latest below), which is where shipping is decided.
 grep -qE 'runs-on:[[:space:]]*ubuntu-latest' "$WF" \
   || fail "the PR job is not on ubuntu-latest (#4601: it would queue on the hosted macOS pool again)"
-pass "the PR job runs on ubuntu-latest (#4601); the full nightly set stays on macOS"
+pass "the PR job runs on ubuntu-latest (#4601)"   # the nightly's macos-latest pin is the YAML block below
 
 # 6. Sanity: the gate the workflow calls actually exists and parses, so a green
 #    workflow is not calling a missing/broken script.
