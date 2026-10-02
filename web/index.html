@@ -53237,7 +53237,8 @@ async function addImportedInPlace(file, btn, row, viaKey) {
   const was = btn.textContent;
   /* Where the keyboard was when the add began (the field, after Enter, or the button). Disabling it drops
      focus to the page, so it is given back on a refusal, and, for an add made FROM THE KEYBOARD (viaKey:
-     the click's detail was 0), moved on to the next row on success (review 5): this list is pressed down,
+     the click's detail was 0, which also covers voice control and screen-reader activation; those act as keys
+     here, deliberately), moved on to the next row on success (review 5): this list is pressed down,
      add after add. A pointer add leaves focus alone (review 6): Chrome focuses a clicked button, and moving
      focus into the next field after a tap would open a phone's keyboard over the list. */
   const had = document.activeElement;
@@ -53356,6 +53357,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      found/scan Add rows keep, on a screen where a person is about to press several
      more. Full-opacity settled green with a check, not the half-visible disabled
      state, and the row is marked done. No sentence on success: the button says it. */
+  if (!current()) return;   // review 11/12: a newer attempt owns the row now; a late success paints nothing
   btn.textContent = 'Added to Kosmos';
   /* 🔑 THE ACCESSIBLE NAME TRACKS THE VISIBLE ONE. Without this the button keeps its
      "Add to Kosmos, <name>" label, so the visible "Added to Kosmos" would no longer be
@@ -53376,7 +53378,6 @@ async function addImportedInPlace(file, btn, row, viaKey) {
     field.removeAttribute('aria-invalid');
     if (field.classList) field.classList.remove('bad');
   }
-  if (!current()) return;   // review 11: a newer attempt owns the row now
   IMPORT_ADDS.set(file, { state: 'added', name: typed || name });
   importRowsSync(file);
   if (viaKey && hadInRow && row && row.parentElement) {
