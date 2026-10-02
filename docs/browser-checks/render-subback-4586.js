@@ -1,8 +1,9 @@
 'use strict';
-// Browser-check-surface: docs-chev tsk-back tsk-crumb tsk-crumb-open sub-back pj-docs-view tsk-title tsk-new docs-back
+// Browser-check-surface: docs-chev tsk-back tsk-crumb tsk-crumb-open tsk-crumb-sep sub-back pj-docs-view tsk-title tsk-new docs-back
 // (#2518) the distinctive web/index.html tokens this check asserts: the round back chevron #4586 puts
 // beside the title of a project's Documents (#docs-chev) and Tasks (#tsk-back) views, the titles it
-// sits against, and #docs-back, which stays hidden in the consolidated view (#3502).
+// sits against, #docs-back, which stays hidden in the consolidated view (#3502), and the Tasks crumb's
+// Open project and separator dot (#5072).
 /* #4586 (Josh, 2026-09-29 11:35): "When I'm in either Documents or Tasks for a project, let's put a
  * back chevron back in ... click the back button at the top left next to the title and go right back
  * into the project."
