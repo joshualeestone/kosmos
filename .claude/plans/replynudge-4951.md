@@ -111,3 +111,26 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT (kept): a failed writeNudged can leave a .tmp file; a failed delivery drops skipSaid; a cap-held line is logged each
   pass. Cosmetic.
 - Reviewer note: its mutation sweep stopped at mutant 9 (removing !givenUp) without a verdict; not a finding.
+
+## Review 8 (Opus, blind): 0 blockers, 3 warnings, 4 nits. All fixed at 40aa09967 + 02b57677b.
+- WARNING (reproduced) FIXED: one post that did not answer (status 0) ended the count as busy+stop, so the agent's other
+  posts were not counted and every later agent in roster order starved, every pass. Now ONE unanswered request skips that
+  post (as the agent's own read skips it; a round-2 page unanswered leaves the post unsaid), and only NO_ANSWER_STOP (2) in
+  a row stop; a 429 still stops at once. And the pass ROTATES: it starts after the last agent asked last pass (o.rotation,
+  kept by server.js as REPLY_NUDGE_ROTATION), so a pass that ends early does not starve the same agents, and an agent
+  whose posts end the count goes to the back. Tests (control: without a rotation bo is never reached) + mutants.
+- WARNING (mutation-proven) FIXED: the round-2 loop was untested. Fixture: 5 comments listed newest first, each with a
+  hidden reply; asserts exactly REPLY_PAGES_PER_POST pages read, the exact ids oldest first, and agreement with readReplies
+  (count and every id). Second test: a failed page leaves the post unsaid, a round-2 429 stops after one page, a read that
+  starts waiting during round 2 makes it step aside (busy, not stop) before the next page, and round-2 pages are paced.
+  All 7 of the reviewer's surviving mutants now killed, plus fresh.sort (killed only once the fixture was newest first).
+- WARNING (mutation-proven) FIXED: the stamp equality test ran with no marks ("{}" both sides). New test: the agent's read
+  writes marks first, a new reply arrives, and the count's stamp must equal the written marks (asserted not "{}").
+  Mutant marksStamp(sessionName, {}) killed.
+- NIT FIXED: typeGap spacing tested (setTimeout spy: 2 gaps for 3 lines). Mutant killed. (Also Sonnet r7 late nit a.)
+- NIT FIXED: the count-phase memo.told merge tested (store unwritable, cap 2, second agent). Mutant killed. (Sonnet r7 b.)
+- NIT FIXED: the hour log is pruned before every agent's cap check, not once per pass. Test with a clock that ages an
+  entry out between two agents. Mutant killed.
+- NIT FIXED: a quota hold or busy pane at typing time is logged once per change of state (book waitSaid). Test asserts
+  the sequence held, busy, held, nudge. Mutant killed.
+- Targeted files: replynudge-4951 + communityread + chat, 241/241.
