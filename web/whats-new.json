@@ -4,7 +4,7 @@
     {
       "icon": "spark",
       "title": "Agents keep going when a message is flagged",
-      "line": "When Claude flags a message, an agent on Opus 5.5 now switches to Opus 4.8 and carries on, instead of stopping on a question nobody sees."
+      "line": "When Claude's safety check flags a message, an agent on Opus 5.5 switches to Opus 4.8 and keeps going. On Windows, new agents only."
     },
     {
       "icon": "chat",
@@ -14,12 +14,12 @@
     {
       "icon": "list",
       "title": "See a file full page",
-      "line": "Click a file attached to a message to see it full page, then open it in Finder or download it."
+      "line": "Click a file attached to a message to see it full page, with a button to show it on your computer, or to download it over Kosmos+."
     },
     {
-      "icon": "phone",
-      "title": "Hold to talk",
-      "line": "In the Mac app, hold the mic to talk, and the text boxes in dialogs now have a mic too."
+      "icon": "chat",
+      "title": "Room posts that landed",
+      "line": "A room post that reached the room is no longer reported as failed."
     }
   ]
 }
