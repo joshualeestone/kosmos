@@ -82,3 +82,15 @@ happen while the person is messaging all of them directly.
   - The visible label is the select's accessible name (the extra aria-label is gone).
 - Four source pins in server.agyhold-4588.test.js and replynudge-4951.test.js now name heldForAgy, and the givePart
   pin also checks heldForCap before assignPart.
+
+## Review 2 (sonnet) and what changed
+- **BLOCKER, the Assigner's fan-out was not capped:** givePart tells through chat.deliver (not deliverAutomatic), so
+  it never reserved. It now reserves right after its cap check, and gives the slot back if assignPart fails or the tell
+  reaches nothing. Tested with two gives back to back at cap 1 (the second is held before assignPart), plus a control
+  where a failed tell keeps no reservation. Dropping the reservation reds it.
+- **Corrected claims:**
+  - A reservation counts for CAP_START_MS and is not ended early when the agent finishes. The Settings copy now says
+    "while that many are working, counting each one it just started for a few minutes".
+  - isViaScreen is advisory, and the route comment says so.
+- Nothing is reserved while the cap is off.
+- The room-hold comment now names the behaviour change for every held post while a cap is set.

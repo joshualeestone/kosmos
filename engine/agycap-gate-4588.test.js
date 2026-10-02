@@ -92,15 +92,17 @@ test('review 1: a reservation counts as working until it is released or its wind
   q.CAP_STARTS.clear();
   const r = world({ 'agy-a': 'idle', 'agy-b': 'idle', 'agy-c': 'idle', 'claude-x': 'idle' });
   assert.equal(q.heldForCap('agy-b', r, NOW, cap(1), NOENV), null, 'CONTROL: nobody working, nobody reserved');
-  const tok = q.noteCapStart('agy-a', r, NOW);
+  const tok = q.noteCapStart('agy-a', r, NOW, cap(1));
   assert.deepEqual(tok, { name: 'agy-a', at: NOW });
   assert.equal(q.heldForCap('agy-b', r, NOW, cap(1), NOENV), NOW + q.CAP_RECHECK_MS, 'agy-a reserved fills the one slot');
   assert.equal(q.heldForCap('agy-a', r, NOW, cap(1), NOENV), null, 'the reserved agent itself is not held (it counts as working)');
   assert.equal(q.heldForCap('agy-b', r, NOW + q.CAP_START_MS, cap(1), NOENV), null, 'the reservation lapses after its window');
-  q.noteCapStart('agy-a', r, NOW);
+  q.noteCapStart('agy-a', r, NOW, cap(1));
   q.releaseCapStart({ name: 'agy-a', at: NOW });
   assert.equal(q.heldForCap('agy-b', r, NOW, cap(1), NOENV), null, 'a released reservation frees the slot');
-  assert.equal(q.noteCapStart('claude-x', r, NOW), null, 'a Claude agent is never reserved');
+  assert.equal(q.noteCapStart('claude-x', r, NOW, cap(1)), null, 'a Claude agent is never reserved');
+  assert.equal(q.noteCapStart('agy-a', r, NOW, cap(0)), null, 'nothing is reserved while the cap is off');
+  assert.equal(q.CAP_STARTS.has('agy-a'), false);
   q.CAP_STARTS.clear();
 });
 

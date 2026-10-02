@@ -104,6 +104,50 @@ test('#4588 B givePart CONTROL: the same give with the pool open (or a person\'s
   } finally { s.board.restore(); }
 });
 
+/* #4588 ask 3 review 2 (a blocker): the Assigner tells through chat.deliver, not deliverAutomatic, so givePart reserves
+   the cap slot itself. Two gives in one tick at cap 1: the first is told, the second waits. chat.deliver is stubbed to
+   PLACED for the length of the test (givePart reads it at call time), so the first give keeps its reservation. */
+test('#4588 ask 3: two assigner gives back to back at cap 1: the first is given and told, the second is held 409 before assignPart', () => {
+  const capSetting = require('./engine/agycap-setting');
+  const q = require('./engine/agyquota');
+  q.CAP_STARTS.clear();
+  const board = fleet.install([fleet.agent('capone', { state: 'idle' }), fleet.agent('captwo', { state: 'idle' })]);
+  const p = projects.create({ name: 'Agy Cap Give ' + (++seq) });
+  projects.addAgent(p.id, 'capone', board.agents);
+  projects.addAgent(p.id, 'captwo', board.agents);
+  const t1 = tasks.create(p.id, { sentence: 'write the release notes', made: { via: 'screen' } });
+  const t2 = tasks.create(p.id, { sentence: 'check the figures', made: { via: 'screen' } });
+  const n1 = t1.task ? t1.task.number : t1.number;
+  const n2 = t2.task ? t2.task.number : t2.number;
+  const realDeliver = chat.deliver;
+  assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+  try {
+    chat.deliver = () => ({ state: chat.DELIVERY.PLACED, because: null });
+    const roster = [idleAgy('capone'), idleAgy('captwo')];
+    const first = givePart(p.id, n1, 1, 'capone', { assigner: true, roster });
+    assert.equal(first.ok, true, 'the first give goes through: ' + JSON.stringify(first.because));
+    spyAssign((calls) => {
+      const second = givePart(p.id, n2, 1, 'captwo', { assigner: true, roster });
+      assert.equal(second.ok, false);
+      assert.equal(second.status, 409);
+      assert.equal(second.held, true);
+      assert.match(second.because, /limit set for working at once/);
+      assert.equal(calls.length, 0, 'tasks.assignPart was called for an agent the cap holds');
+    });
+    // CONTROL: when the first give's tell reaches nothing, its slot is given back and the next give is not held.
+    q.CAP_STARTS.clear();
+    chat.deliver = () => ({ state: chat.DELIVERY.COULD_NOT, because: 'unreachable' });
+    const lost = givePart(p.id, n2, 1, 'captwo', { assigner: true, roster });
+    assert.equal(lost.ok, false, 'fixture: the tell failed as arranged');
+    assert.equal(q.CAP_STARTS.has('captwo'), false, 'a give whose tell reached nothing keeps no reservation');
+  } finally {
+    chat.deliver = realDeliver;
+    fs.rmSync(capSetting.FILE, { force: true });
+    q.CAP_STARTS.clear();
+    board.restore();
+  }
+});
+
 /* ---- source pins on server.js ---- */
 
 const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');

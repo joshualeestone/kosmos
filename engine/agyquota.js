@@ -126,9 +126,10 @@ const CAP_RECHECK_MS = 60 * 1000;
 /* Review 1 (a blocker): a card reads `working` only once the agent's next report lands, so a fan-out from one roster
    (a room post to six idle agents, the assigner's loop, a held-post flush) saw nobody working and let them all
    through. So an automatic line about to be typed RESERVES its agent here, at the gate, before the keystroke (a
-   parallel fan-out sees the reservation), and it counts as working for CAP_START_MS or until its card says so. A
-   delivery that reached nothing gives it back (releaseCapStart). In memory only: a board restart forgets them, and the
-   cards take over within a report. */
+   parallel fan-out sees the reservation), and it counts as working for CAP_START_MS (it is not ended early when the
+   agent finishes sooner: with a cap of 1 that is at most one automatic start every CAP_START_MS), and as long as its
+   card says working after that. A delivery that reached nothing gives it back (releaseCapStart). Nothing is reserved
+   while the cap is off. In memory only: a board restart forgets them, and the cards take over within a report. */
 const CAP_START_MS = 3 * 60 * 1000;
 const CAP_STARTS = new Map();   // session name -> when its automatic line was let through
 function startedRecently(name, now) {
@@ -157,7 +158,10 @@ function heldForCap(session, roster, now, readCap = () => require('./agycap-sett
 }
 /* Reserve `session`'s slot for an automatic line about to be typed (only our antigravity agents). Returns a token for
    releaseCapStart, or null. */
-function noteCapStart(session, roster, now) {
+function noteCapStart(session, roster, now, readCap = () => require('./agycap-setting').read()) {
+  let max = 0;
+  try { max = Number(readCap().maxWorking) || 0; } catch { max = 0; }
+  if (max <= 0) return null;
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
   if (!isOurAgy(card)) return null;
@@ -265,7 +269,7 @@ function sweepOnce(o) {
     const tries = (d.entry && d.entry.until === d.report.until && Number.isInteger(d.entry.tries) ? d.entry.tries : 0) + 1;
     book.set(d.session, { until: d.report.until, nudgedAt: mayHaveReached ? now : null, tries, lastTryAt: now, delivery: state });
     // Only a line that may have reached the pane spaces the next agent out: a refusal reached nobody (review 2).
-    if (mayHaveReached) { book.set(LAST, now); noteCapStart(d.session, o.roster, now); }
+    if (mayHaveReached) { book.set(LAST, now); noteCapStart(d.session, o.roster, now, o.readCap); }
     const gaveUp = !mayHaveReached && tries >= MAX_TRIES;
     const r = { session: d.session, name: d.card.name || d.session, act: gaveUp ? 'gave-up' : 'nudge', delivered, delivery: state,
       because: gaveUp ? d.because + '; nothing reached the pane in ' + tries + ' tries, so it is left idle with its turn unfinished until someone messages it' : d.because, waiting: due.length - 1 };

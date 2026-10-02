@@ -441,6 +441,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   }
   /* #4588 PR B: the assigner does not give a part to an agent held on its machine's shared Google quota. Refused here,
      before the part is assigned, so a held agent is not given work and taken off it again every tick. */
+  let capSlot = null;   // #4588 ask 3 review 2: the Assigner's own reservation (its tell is not deliverAutomatic)
   if (assigner) {
     let heldUntil = null;
     const agyq = require('./engine/agyquota');
@@ -451,10 +452,12 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     // #4588 ask 3: the person's cap on how many Gemini agents work at once.
     try { heldUntil = agyq.heldForCap(who, r, now); } catch { heldUntil = null; }
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " waits: the Gemini agents on this computer are at the limit set for working at once" };
+    // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
+    try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
   }
   const made = assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
   const out = tasks.assignPart(projectId, n, partId, who, made);
-  if (!out.ok) return { ok: false, status: 400, because: out.because };
+  if (!out.ok) { require('./engine/agyquota').releaseCapStart(capSlot); return { ok: false, status: 400, because: out.because }; }
   const r = roster || safeRoster();
   let heard;
   if (noPage) {
@@ -470,6 +473,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (assigner && out.changed && !(heardResult && heardResult.state !== chat.DELIVERY.COULD_NOT)) {
       // Only if it is still ours: the pane line took time, and somebody may have taken the part since.
       const back = tasks.assignPart(projectId, n, partId, null, { via: 'assigner', onlyIfWho: who });
+      require('./engine/agyquota').releaseCapStart(capSlot);   // nothing reached the pane: the slot is free again
       return { ok: false, status: 409, because: 'we could not reach ' + who + ', so the task was not given' + (back.ok ? '' : ' (and taking it back failed: ' + back.because + ')'), heard: heardResult };
     }
     return { ok: true, status: 200, task: out.task, changed: out.changed, told: tellEveryoneOn(out.task, r), heard: heardResult };
@@ -8891,8 +8895,9 @@ const server = http.createServer(async (req, res) => {
   }
   /* #4588 ask 3: how many Gemini (Antigravity) agents on this computer may work at once before automatic messages to
      the others wait (Settings > Automation). maxWorking 0 is no limit, the default. A STATUS control like the
-     heartbeat's: a read error is a 500. Only the person changes it (isViaScreen, advisory as on the Recommender): an
-     agent lifting the cap on itself is the thing it exists to stop. */
+     heartbeat's: a read error is a 500. The PUT refuses an agent's token and a caller with no browser header
+     (isViaScreen). That is ADVISORY, as on the Recommender: a local process that sends a browser header, or edits the
+     file, can still change it. */
   if (pathname === '/api/agycap-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const r = agycapSetting.read();
