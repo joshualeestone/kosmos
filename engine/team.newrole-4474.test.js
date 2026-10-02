@@ -122,7 +122,15 @@ test('#4474: an agent\'s member reaches create with only the fields it may send:
   const { got } = build([{ name: 'Rex', role: 'pm', provider: 'anthropic', model: 'x', projects: ['p1'], kind: 'agent',
     claudeBin: '/tmp/evil', codexBin: '/tmp/evil', tmuxBin: '/tmp/evil', configDir: '/tmp/x', accountDir: '/tmp/x', runner: 'r', pickedByPerson: true, platform: 'win32' }]);
   const keys = Object.keys(got[0]).sort();
-  assert.deepEqual(keys, ['createdBy', 'kind', 'model', 'name', 'projects', 'provider', 'purpose', 'role'], 'a launch-level field reached create: ' + keys.join(','));
+  // createdByAgent (#4475) is set by the team, never taken from the member: see the next test.
+  assert.deepEqual(keys, ['createdBy', 'createdByAgent', 'kind', 'model', 'name', 'projects', 'provider', 'purpose', 'role'], 'a launch-level field reached create: ' + keys.join(','));
+});
+
+test('#4475: createdByAgent is the team\'s to set: true only for an agent that is not the setup guide, whatever a member sends', () => {
+  const ask = () => [{ name: 'Rex', role: 'pm', createdByAgent: true }];
+  assert.equal(build(ask(), true, false).got[0].createdByAgent, true, 'an agent\'s member was not marked as an agent\'s');
+  assert.equal(build(ask(), true, true).got[0].createdByAgent, false, 'the setup guide\'s member was marked as an agent\'s');
+  assert.equal(build(ask(), false, false).got[0].createdByAgent, false, 'the person\'s member took createdByAgent from what it sent');
 });
 
 test('#4474: the shared working rules stay as Kosmos wrote them; served whole, or deleted whole, is fine', () => {
@@ -154,7 +162,8 @@ test('#4474: every field create reads is either one an agent may send or one it 
   const read = new Set([...src.matchAll(/\bopts(?:\s*&&\s*opts)?\.([a-zA-Z]+)/g)].map((m) => m[1]));
   // teamInstructions (kosmos#4557): only the person's seeded-team step sends it; an agent's team member
   // never carries it (AGENT_MEMBER_KEYS strips it), so a brief cannot be layered in by an agent.
-  const NOT_FROM_AN_AGENT = ['platform', 'configDir', 'accountDir', 'pickedByPerson', 'runner', 'createdBy', 'purpose',
+  // createdByAgent (kosmos#4475): set by engine/team.js for every member, so an agent's own value is overwritten.
+  const NOT_FROM_AN_AGENT = ['platform', 'configDir', 'accountDir', 'pickedByPerson', 'runner', 'createdBy', 'purpose', 'createdByAgent',
     'claudeBin', 'codexBin', 'tmuxBin', 'museBin', 'grokBin', 'geminiBin', 'antigravityBin', 'teamInstructions'];
   assert.ok(read.has('claudeBin') && read.has('reportsTo'), 'CONTROL: the scan of create.js found nothing');
   const unsorted = [...read].filter((k) => !team.AGENT_MEMBER_KEYS.includes(k) && !NOT_FROM_AN_AGENT.includes(k));
