@@ -217,6 +217,11 @@ function foldLines(acc, text) {
     if (!line.trim()) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }
+    /* A line that parses to null or a non-object (a bare `null`, number, string) is "not a row": skip
+       it, as the intent "unparseable lines skipped" means. Without this foldRow would throw on
+       `row.timestamp`, and that throw would poison the per-file cache (readRolloutFields deletes the
+       entry and every later read full-re-parses) -- the exact cost this cache removes (sonnet review). */
+    if (!row || typeof row !== 'object') continue;
     foldRow(acc, row);
   }
 }
@@ -271,13 +276,17 @@ function readRolloutFields(file) {
     }
     if (st.size !== cache.size || st.mtimeMs !== cache.mtimeMs) {
       const tailBuf = readBytes(file, cache.offset, st.size);
-      const tail = tailBuf.toString('utf8');
-      const lastNl = tail.lastIndexOf('\n');
-      const settled = tail.slice(0, lastNl + 1);
-      const settledBytes = Buffer.byteLength(settled, 'utf8');
-      foldLines(cache.acc, settled);
+      /* Find the last newline and split IN RAW BYTES, not in the decoded string: `\n` (0x0a) is ASCII
+         so it never falls inside a multibyte sequence, and the settled byte count is then exact. Taking
+         it from Buffer.byteLength(decoded) would drift if the tail ever held invalid UTF-8 (toString
+         turns each bad byte into a 3-byte U+FFFD), pushing the offset past the real position (sonnet
+         review). Settled lines are complete, so decoding them is lossless; only a mid-write fragment
+         could end mid-character, and the fragment is re-read next time rather than folded. */
+      const lastNl = tailBuf.lastIndexOf(0x0a);
+      const settledBytes = lastNl + 1;   // bytes through and including the last '\n'; 0 when none yet
+      foldLines(cache.acc, tailBuf.slice(0, settledBytes).toString('utf8'));
       cache.offset += settledBytes;
-      cache.fragment = lastNl + 1 < tail.length ? tail.slice(lastNl + 1) : '';
+      cache.fragment = settledBytes < tailBuf.length ? tailBuf.slice(settledBytes).toString('utf8') : '';
       cache.seam = Buffer.concat([cache.seam, tailBuf.slice(0, settledBytes)]).slice(-SEAM_BYTES);
       cache.size = st.size;
       cache.mtimeMs = st.mtimeMs;
@@ -310,7 +319,7 @@ function read(dir, home) {
   if (fields.fragment && fields.fragment.trim()) {
     let row;
     try { row = JSON.parse(fields.fragment); } catch { row = null; }
-    if (row) foldRow(acc, row);
+    if (row && typeof row === 'object') foldRow(acc, row);
   }
 
   return {

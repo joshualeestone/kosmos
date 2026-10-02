@@ -122,21 +122,42 @@ test('read stays fresh: a change is reflected on the very next read (no result m
   const { home, cwd, file } = setup();
   fs.appendFileSync(file, turnModel('v1', '2026-10-02T09:00:01Z'));
   assert.equal(codex.read(cwd, home).model, 'v1');
-  fs.appendFileSync(file, turnModel('v2', '2026-10-02T09:00:02Z') + '\n'.repeat(0));
-  // bump mtime so a same-second append is still seen (the cache keys on size+mtime, both change here)
+  fs.appendFileSync(file, turnModel('v2', '2026-10-02T09:00:02Z'));
   assert.equal(codex.read(cwd, home).model, 'v2', 'a change was not reflected on the next read');
 });
 
-test('a metaOf transient failure is not cached as a permanent miss', () => {
+test('a rollout appearing after the first walk is matched (new path, metaOf once)', () => {
   const { home, cwd, file } = setup();
   fs.appendFileSync(file, turnModel('m', '2026-10-02T09:00:01Z'));
   assert.equal(codex.read(cwd, home).found, true, 'control: the session is found');
-  // a newly-appeared rollout for a DIFFERENT cwd is metaOf'd once and matched
   const cwd2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cx5054-cwd2-'));
   const day = path.dirname(file);
   const f2 = path.join(day, 'rollout-2026-10-02T10-00-00-bbbbbbbb.jsonl');
   fs.writeFileSync(f2, JSON.stringify({ type: 'session_meta', payload: { cwd: cwd2, session_id: 's2' } }) + '\n' + turnModel('m2', '2026-10-02T10:00:01Z'));
   assert.equal(codex.read(cwd2, home).model, 'm2', 'a rollout that appeared after the first walk was not matched');
+});
+
+test('a multibyte UTF-8 character split across two appends folds correctly (byte-exact offset)', () => {
+  const { home, cwd, file } = setup();
+  // a response_item whose text ends in a 3-byte char (U+2603 SNOWMAN), then a turn_context, written in
+  // two appends so the cache is warm between them and the tail boundary can land mid-sequence.
+  const row1 = JSON.stringify({ type: 'response_item', timestamp: '2026-10-02T09:00:01Z', payload: { text: 'hi☃' } }) + '\n';
+  const buf1 = Buffer.from(row1, 'utf8');
+  // first append: everything but the final byte of the line's last char region + newline is still one
+  // whole line (row1 is complete with its \n), so warm the cache on it
+  fs.appendFileSync(file, buf1);
+  const a = codex.read(cwd, home);
+  assert.equal(a.messages, 1, 'the first multibyte line was not counted');
+  // now append a turn_context in two raw halves, splitting a 3-byte char across the writes
+  const row2 = Buffer.from(JSON.stringify({ type: 'turn_context', timestamp: '2026-10-02T09:00:02Z', payload: { model: 'sn☃w' } }) + '\n', 'utf8');
+  const cut = row2.length - 4;   // land inside the trailing bytes
+  fs.appendFileSync(file, row2.slice(0, cut));
+  const mid = codex.read(cwd, home);   // fragment ends mid-character; must not corrupt the offset
+  fs.appendFileSync(file, row2.slice(cut));
+  const done = codex.read(cwd, home);
+  assert.equal(done.model, 'sn☃w', 'the split multibyte line did not fold to the right value');
+  assert.deepEqual(strip(done), strip(freshParse(cwd, home)), 'split-multibyte read != fresh parse');
+  assert.equal(done.messages, 1);
 });
 
 test('a missing session returns found:false (and the real one is found, as a control)', () => {
