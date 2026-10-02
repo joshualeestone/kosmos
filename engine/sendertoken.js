@@ -99,6 +99,10 @@ const MAX_LIVE = 32;
 function fileFor(sessionName) {
   return path.join(DIR, store.safeKey(sessionName) + '.json');
 }
+/* #4475: does any token stand for this name's key right now? (A file that cannot be checked reads as yes.) */
+function holdsTokens(sessionName) {
+  try { return fs.existsSync(fileFor(sessionName)); } catch { return true; }
+}
 
 /**
  * Read the stored tokens, tolerating #1000's single-token shape.
@@ -238,10 +242,12 @@ function othersTokens(held, sessionName) {
 
 /* #4475: the history of names whose tokens were revoked, appended and never rewritten: the name and when. That is
    every name whose agent was removed or had what was left of it deleted, and every name create was asked to make
-   (create revokes a name before its own checks, so a create that is then refused writes a line too). A restart
-   retires one run and does not come here. The removal route reads it so an agent's ownership of an agent it created
-   ends at the first line for either name after it was made. NOT covered: a name freed by deleting an agent's files
-   by hand, outside Kosmos, and then used by a path that mints without revoking (adopt). */
+   (create revokes a name before its remaining checks, so a create that is then refused can write a line too). A
+   restart retires one run and does not come here. The removal route reads it so an agent's ownership of an agent it
+   created ends at the first line for either name after it was made. NOT covered, because these mint without
+   revoking: a name freed by deleting an agent's files by hand, outside Kosmos, and then adopted; and a remote token
+   the person issues again under a name (POST /api/agent-token), which carries that name's identity on, so a remote
+   creator re-issued its name keeps what it made. */
 function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 function noteEnded(sessionName) {
   try {
@@ -599,4 +605,4 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, retire, endedSince, endedLogFile, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE };
+  mint, revoke, retire, endedSince, endedLogFile, holdsTokens, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE };

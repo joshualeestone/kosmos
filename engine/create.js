@@ -4067,6 +4067,11 @@ async function accountConnectable({ provider, accountDir } = {}) {
 }
 
 function createAgent(opts) {
+  /* #4475: did a token already stand for this name when we were asked? A live remote agent holds no folder, job or
+     pane, so create can take its name, and its own revoke then clears that agent's tokens. The birth says so, and the
+     removal route never lets the asking agent remove such a name. */
+  let tookTokens = false;
+  try { tookTokens = Boolean(opts && opts.name) && sendertoken.holdsTokens(String(opts.name)); } catch { tookTokens = true; }
   const out = createAgentInner(opts);
   /* The name as typed, because a refusal can be ABOUT the spelling; role and
      model as asked for, since a refused creation wrote no plist to read them
@@ -4099,6 +4104,7 @@ function createAgent(opts) {
        compares it exactly. Absent otherwise (older lines, the person's creates, the guide's). */
     ...((opts && typeof opts.createdByName === 'string' && opts.createdByName) ? { createdByName: String(opts.createdByName) } : {}),
     ...((opts && typeof opts.askedAt === 'string' && opts.askedAt) ? { askedAt: String(opts.askedAt).slice(0, 40) } : {}),
+    ...(tookTokens ? { tookTokens: true } : {}),
     outcome: (out && out.outcome) || 'unknown',
     because: (out && out.because) ? String(out.because).slice(0, 300) : null,
     /* #170: the same id the profile carries, on the creation line, so "was

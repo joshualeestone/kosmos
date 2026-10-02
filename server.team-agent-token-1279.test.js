@@ -324,6 +324,23 @@ test('#4475 END TO END: an agent removes what it made with its own token; once i
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
+test('#4475 END TO END: an agent that makes a member under a live remote agent\'s name cannot then remove that name', async () => {
+  create.setClaudeProbe(LIVE);
+  sendertoken.mint('remotev');          // a live remote agent: a token and a heartbeat, no folder, job or pane
+  liveness.seen('remotev');
+  const tok = sendertoken.mint('takerpm').token;
+  liveness.seen('takerpm');
+  const board = fleet.install([]);
+  try {
+    const made = await postTeam({ purpose: 'agent builds a team', members: [{ name: 'remotev', role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const b = birthOf('remotev');
+    assert.ok(b && b.tookTokens === true, 'the birth did not record that a token already stood for the name: ' + JSON.stringify(b));
+    const res = await fetch(`${base}/api/agent/remotev/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': tok } });
+    assert.equal(res.status, 403, 'the agent removed the name of a remote agent it took over');
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
 test('AUTH: the BOARD token drives the operator path (createdBy = body.creator)', async () => {
   create.setClaudeProbe(LIVE);
   const board = fleet.install([]);

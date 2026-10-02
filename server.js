@@ -2616,9 +2616,11 @@ function agentBirthOf(name) {
      that is not the setup guide). The person's paths record neither, so a fixed creator word they write ("operator",
      "kosmos") never makes an agent its owner;
    - the caller's token carries its name, and it is `createdByName` exactly;
+   - no token stood for the name when it was made (`tookTokens`): a live remote agent holds no folder, job or pane,
+     so create can take its name, and this keeps the asking agent from then removing that remote agent's name;
    - neither identity has ended since (sendertoken.endedSince: the history `revoke` writes, which every path that
      ends an agent goes through: removing it, deleting what is left of it, and creating an agent of that name). The
-     target from after its birth (its own creation revokes its name just before the birth is written); the creator
+     target from after its birth (its own creation revokes its name before the birth is written); the creator
      from the moment it asked, so a creator removed while its request ran is caught. A later agent under either name
      is then never the one the birth is about. The agent profile id does not show this: it survives a removal and
      is carried to a new agent of the same name. Ownership does not come back on restore. */
@@ -2626,7 +2628,7 @@ function tokenOnlyMayRemove(caller, target) {
   if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return false;
   const birth = agentBirthOf(target);
   if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return false;
-  if (birth.createdByName !== caller.name) return false;
+  if (birth.createdByName !== caller.name || birth.tookTokens === true) return false;
   if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return false;
   let creatorKey; try { creatorKey = store.safeKey(caller.name); } catch { creatorKey = null; }
   const targetGone = sendertoken.endedSince([target], birth.at);

@@ -57,7 +57,10 @@ function agentToken(name) {
   return minted.token;
 }
 
-/* A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: the time, when the
+/* The board runs DRY_RUN, so a removal through the route here does not revoke (recordRemoval returns first): a case may
+   remove the same target twice (a CONTROL, then the case) without the first ending it. A real end is written with
+   sendertoken.revoke, which removing, deleting what is left, and creating all call.
+   A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: the time, when the
    creator asked, and createdByName (its exact token name). `extra` overrides fields per case. The end-to-end case
    (POST /api/team, then this route) is in server.team-agent-token-1279.test.js. */
 function born(name, createdBy, extra = {}) {
@@ -267,6 +270,13 @@ test('a creator whose identity ended while its request ran (after it asked, befo
   const r = await remove('midway-kid', { 'x-kosmos-agent-token': t2 });
   assert.equal(r.code, 403, 'a creator removed mid-request owned the member: ' + r.text.slice(0, 160));
   void t;
+});
+
+test('an agent made under a name a token already stood for (a live remote agent\'s) is not removable by its creator', async () => {
+  born('Taken Name', 'pm-agent', { tookTokens: true });
+  const r = await remove('taken-name', asAgent());
+  assert.equal(r.code, 403);
+  assert.match(r.text, NOT_YOURS);
 });
 
 test('a token-only agent may not force a removal, even of its own creation', async () => {
