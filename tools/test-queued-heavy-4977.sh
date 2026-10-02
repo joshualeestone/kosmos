@@ -71,7 +71,7 @@ ok "side turn runs beside a heavy holder and releases" '[[ "$o" == *"SIDE TURN"*
 until_true 30 '[ -e $S/m/light-side-claim ] && [ ! -e $S/m/suitewait.$B ] && grep -q "SIDE TURN: running" $S/b.log'; b_started=$?; rm -f $S/m/machine-claim
 o=$(KOSMOS_NO_WAIT=1 /bin/bash $QH "b-heavy" true 2>&1)
 ok "heavy main turn refused beside a live side turn" '[ "$b_started" = 0 ] && [[ "$o" == *"side turn beside the heavy one"* && "$o" == *REFUSED* ]]'
-for p in $(pgrep -f "^sleep $((U+8))$"); do kill -KILL $p; done; wait $B 2>/dev/null   # review 4: no 6-second race
+for p in $(pgrep -f "^sleep $((U+8))$"); do kill -KILL $p; done; kill $B 2>/dev/null; wait $B 2>/dev/null   # review 4: no 6-second race; review 5: fail fast
 o=$(QUEUED_HEAVY_RENEW_SEC=1 /bin/bash $QH "d" sleep 3 2>&1); until_true 20 '[ ! -e $S/m/machine-claim ]'
 ok "main turn: renewer stops, no claim after release" '[[ "$o" == *"claim released"* && ! -e $S/m/machine-claim ]]'
 hold
