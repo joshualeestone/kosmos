@@ -3334,6 +3334,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    Projects there and the header does not stick, so the nav keeps 16px from the panel's top. Below
    56rem .snav is static and none of this applies. */
 body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + 16px); }
+/* #4979: a window too short to hold the whole nav below the header (11 pills, 434px, under a header
+   of up to 77px, with 16px either side: 543px) would hang its last pills off the bottom while it is
+   stuck, and at the page's end push its first ones back under the header. There the nav scrolls
+   with the page instead, as the agent page's does. */
+@media (max-height: 35rem) { body:not(.consolidated) #s-nav { position: static; } }
 /* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
    side padding, because that centered full-width pill was the longest label and word-wrapped.
    #3500 supersedes it: the pill is relabelled "AI Settings" (shorter), the buttons are flex

@@ -14,6 +14,10 @@
  * is the tab view, whatever layout is saved), the header shows, the nav is sticky, and the page
  * scrolled further than the nav's own top (so the nav is stuck, not resting where it was drawn).
  *
+ * A short window (1200x480, 900x520), where the whole nav cannot fit below the header: on Mac,
+ * scrolled halfway and to the end, either the nav is not sticky (it scrolls with the page) or every
+ * pill is between the header and the window's bottom (control: the page scrolled).
+ *
  * Then the consolidated view itself (Settings opened from the user menu while body.consolidated is
  * on, where Settings is its own scroll box and the header does not stick): on the Mac section, at
  * the panel's top and scrolled to its end, the nav stays within the panel's top padding plus 16px,
@@ -54,6 +58,7 @@ function chk(ok, label, extra) {
   await fetch(URL + '/api/first-run/complete', { method: 'POST' });
   let ran = 0;
   let consRan = 0;
+  let shortRan = 0;
   try {
     for (const [engineName, engine] of [['chromium', chromium], ['webkit', webkit]]) {
       const browser = await engine.launch({ headless: process.env.HEADED === '0' });
@@ -92,6 +97,29 @@ function chk(ok, label, extra) {
             await page.close();
           }
         }
+        /* A short window: the nav either scrolls with the page or fits between header and bottom. */
+        await fetch(URL + '/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'tabs' }) });
+        for (const [width, height] of [[1200, 480], [900, 520]]) {
+          const page = await browser.newPage({ viewport: { width, height } });
+          await page.goto(URL + '/?tab=settings&sec=mac');
+          await page.waitForSelector('#s-nav button[data-go]', { state: 'visible', timeout: 20000 });
+          await page.waitForTimeout(300);
+          for (const where of ['halfway', 'the end']) {
+            const tag = `${engineName} short ${width}x${height} mac, scrolled ${where}`;
+            await page.evaluate((wh) => { const m = document.documentElement.scrollHeight - innerHeight; window.scrollTo(0, wh === 'the end' ? m : Math.round(m / 2)); }, where);
+            await page.waitForTimeout(150);
+            const r = await page.evaluate(() => {
+              const hb = document.querySelector('.apphead').getBoundingClientRect().bottom;
+              const pills = [...document.querySelectorAll('#s-nav button[data-go]')].filter((x) => !x.hidden && x.getClientRects().length).map((x) => x.getBoundingClientRect());
+              return { y: Math.round(scrollY), navPos: getComputedStyle(document.getElementById('s-nav')).position, headBottom: Math.round(hb),
+                underHeader: pills.filter((p) => p.top < hb - 0.5).length, offBottom: pills.filter((p) => p.bottom > innerHeight + 0.5).length };
+            });
+            chk(r.y > 0, `${tag}: control: the page scrolled`, JSON.stringify(r));
+            chk(r.navPos !== 'sticky' || (r.underHeader === 0 && r.offBottom === 0), `${tag}: the nav scrolls with the page, or every pill is between the header and the bottom`, JSON.stringify(r));
+            shortRan += 1;
+          }
+          await page.close();
+        }
         /* The consolidated view: Settings from the user menu, inside Projects, its own scroll box. */
         await fetch(URL + '/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: 'consolidated' }) });
         for (const width of [1000, 1280]) {
@@ -117,7 +145,7 @@ function chk(ok, label, extra) {
           await page.waitForTimeout(200);
           const atEnd = await read();
           chk(atTop.cons && atTop.inProjects && atEnd.scrolled > 0, `${tag}: control: the consolidated view, Settings inside Projects, and the panel itself scrolled`, JSON.stringify({ atTop, atEnd }));
-          chk(atTop.navFromPanel <= atTop.limit && atEnd.navFromPanel <= atEnd.limit, `${tag}: the nav stays within the panel's top padding plus 16px, at the top and scrolled to the end`, JSON.stringify({ atTop, atEnd }));
+          chk([atTop, atEnd].every((x) => x.navFromPanel >= 0 && x.navFromPanel <= x.limit), `${tag}: the nav stays stuck within the panel's top padding plus 16px, at the top and scrolled to the end`, JSON.stringify({ atTop, atEnd }));
           chk(errs.length === 0, `${tag}: no page errors`, errs.join(' | '));
           consRan += 1;
           await page.close();
@@ -130,7 +158,7 @@ function chk(ok, label, extra) {
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 16 && consRan === 4, 'precondition: every engine, layout, width and section ran, and the consolidated view on both engines', `ran=${ran} consRan=${consRan}`);
+  chk(ran === 16 && shortRan === 8 && consRan === 4, 'precondition: every engine, layout, width and section ran, the short windows and the consolidated view on both engines', `ran=${ran} shortRan=${shortRan} consRan=${consRan}`);
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
