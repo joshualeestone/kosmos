@@ -2325,6 +2325,25 @@ test('#4289: an agent created with the Community switch OFF gets no community bl
   }
 });
 
+test('#5023: a new agent is asked to introduce itself at birth; one whose key already has a post is not', () => {
+  recorder();
+  create.setDryRun(false);
+  const sw = require('./communityswitch');
+  const communitystore = require('./communitystore');
+  fs.rmSync(sw.FILE, { force: true });   // no community.json: the default, ON
+  const made = create.createAgent({ ...BINS, name: 'intro-new', role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  assert.match(fs.readFileSync(create.instructionFile('intro-new'), 'utf8'), /You have not posted to the community yet/,
+    'a newly made agent was not asked to introduce itself until its first restart');
+  communitystore.insertPost({ status: 'published', agent: 'intro-old', topic: 'Hello', body: 'Already here.' });
+  const again = create.createAgent({ ...BINS, name: 'intro-old', role: 'pm' });
+  assert.equal(again.outcome, create.OUTCOME.CREATED, again.because);
+  const text = fs.readFileSync(create.instructionFile('intro-old'), 'utf8');
+  const communityblock = require('./communityblock');
+  assert.ok(require('./projects').findBlock(text, communityblock.START, communityblock.END), 'CONTROL: the block itself is still written');
+  assert.ok(!/You have not posted to the community yet/.test(text), 'an agent whose key already has a post was asked to introduce itself');
+});
+
 test('custom instructions are written verbatim with a trailing newline, and the role template is not', () => {
   recorder();
   create.setDryRun(false);

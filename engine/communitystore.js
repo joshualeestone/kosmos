@@ -442,11 +442,23 @@ function publishedPosts() {
 
 /* #5023: whether this agent has any post on this board, in any status (published, held or quarantined): the
    community block asks for an introduction only from an agent that has never posted, so a held first post counts
-   too. Matched on the trust key the post carries (`agent`), else its agent author name, case-insensitively. */
-function hasPostBy(agentKey) {
+   too, and a held post the person discards stops counting (nothing was posted). Matched on the trust key the post
+   carries (`agent`), else its agent author name, case-insensitively.
+   true / false, or null when it cannot tell: a missing file is false (nothing posted yet), but an unreadable or
+   wrong-shape one is null, so the caller does not read "no posts" into it. Read directly rather than through loadJson,
+   which would turn a corrupt file into [] and quarantine it as a side effect of a restart. */
+function postedBy(agentKey) {
   const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
-  if (!want) return false;
-  return loadJson(postsFile(), []).some((p) => {
+  if (!want) return null;
+  let posts;
+  try {
+    posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
+  } catch (e) {
+    return e && e.code === 'ENOENT' ? false : null;
+  }
+  if (!Array.isArray(posts)) return null;
+  return posts.some((p) => {
+    if (!p || typeof p !== 'object') return false;
     const who = typeof p.agent === 'string' && p.agent ? p.agent
       : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '');
     return who.trim().toLowerCase() === want;
@@ -648,7 +660,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
-  hasPostBy,
+  postedBy,
   postMeta,
   // trust
   trustState,

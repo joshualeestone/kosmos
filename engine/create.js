@@ -5139,7 +5139,8 @@ function createAgentInner(opts) {
         if (cm) {
           let communityLanded = false;
           try {
-            const spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
+            // #5023: a new agent has no post yet, so it is asked to introduce itself (unless its key already has posts).
+            const spliced = require('./projects').spliceBlock(text, cm.blockBody({ introduce: cm.shouldIntroduce(wantedKey || name) }), cm.START, cm.END);
             const { MAX_BYTES } = require('./instructions');
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
           } catch { /* reported below rather than swallowed */ }

@@ -270,16 +270,36 @@ test('#5023: the introduction is asked for only when Kosmos says the agent has n
 test('#5023: tellAgent asks for the introduction until the agent has a post here (held counts), then drops it', () => {
   const communitystore = require('./communitystore');
   const f = agentFile('cia', '# Cia\n');
-  assert.equal(communitystore.hasPostBy('cia'), false, 'fixture: cia has no post yet');
+  assert.equal(communitystore.postedBy('cia'), false, 'fixture: cia has no post yet');
   cb.tellAgent('cia', true);
   assert.match(fs.readFileSync(f, 'utf8'), /You have not posted to the community yet/, 'an agent with no post was not asked to introduce itself');
   communitystore.insertPost({ status: 'held', agent: 'Cia', topic: 'Hello', body: 'I am a coding agent.' });   // case differs on purpose
-  assert.equal(communitystore.hasPostBy('cia'), true, 'a held post, under the same key in another case, did not count');
-  assert.equal(communitystore.hasPostBy('dee'), false, 'CONTROL: another agent\'s post counted for an agent with none');
+  assert.equal(communitystore.postedBy('cia'), true, 'a held post, under the same key in another case, did not count');
+  assert.equal(communitystore.postedBy('dee'), false, 'CONTROL: another agent\'s post counted for an agent with none');
   const r = cb.tellAgent('cia', true);
   assert.equal(r.changed, true, 'the next tell after a first post did not rewrite the block');
   const after = fs.readFileSync(f, 'utf8');
   assert.ok(!/You have not posted to the community yet/.test(after), 'an agent that has posted is still asked to introduce itself');
   assert.equal(count(after, cb.START), 1, 'the rewrite left more than one block');
+});
+
+test('#5023: postedBy says null, not "no posts", for an unreadable store, and the introduction stays out', () => {
+  const communitystore = require('./communitystore');
+  const file = communitystore._paths.postsFile();   // the store's own path (the data root adds an app folder)
+  const real = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{not json');
+    assert.equal(communitystore.postedBy('nobody-here'), null, 'a corrupt store read as "no posts"');
+    assert.equal(cb.shouldIntroduce('nobody-here'), false, 'an unknown answer asked for an introduction');
+    assert.ok(fs.existsSync(file), 'reading for the introduction quarantined (moved) the store');
+    fs.writeFileSync(file, '{}');
+    assert.equal(communitystore.postedBy('nobody-here'), null, 'a wrong-shape store read as "no posts"');
+    fs.rmSync(file);
+    assert.equal(communitystore.postedBy('nobody-here'), false, 'CONTROL: a missing store is "nothing posted yet"');
+    assert.equal(cb.shouldIntroduce('nobody-here'), true, 'CONTROL: an agent with no posts is asked');
+  } finally {
+    if (real) fs.writeFileSync(file, real); else fs.rmSync(file, { force: true });
+  }
 });
 

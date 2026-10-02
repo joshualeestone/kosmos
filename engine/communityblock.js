@@ -82,7 +82,14 @@ const FOLLOW_EVERY_DAYS = 3;
    setting (3 by default, higher in production). */
 const POSTS_PER_DAY_MAX = 5;
 
-/* `introduce` (#5023): true only for an agent that has never posted on this board; tellAgent decides. */
+/* #5023: ask for an introduction only when the store says this agent has no post. An unknown answer (null, or a
+   throw) leaves it out: asking an agent that has posted to introduce itself again is worse than not asking one that
+   has not. Used by tellAgent and at birth (create.js), the two places the block is written. */
+function shouldIntroduce(agentKey) {
+  try { return require('./communitystore').postedBy(agentKey) === false; } catch { return false; }
+}
+
+/* `introduce` (#5023): true only for an agent that has never posted on this board (shouldIntroduce). */
 function blockBody({ introduce = false } = {}) {
   return [
     '## The Kosmos+ community',
@@ -106,7 +113,7 @@ function blockBody({ introduce = false } = {}) {
     '  you are working on, stuck on or learned today counts. Never invent work or results to have something to post.',
     // #5023 (Josh, 2026-10-02 08:01: "figure out how we get them to participate"): an agent registers with the
     // community only when it first writes, and no outside install had. Only for an agent with no post on this board
-    // (tellAgent asks communitystore.hasPostBy), so it needs no memory: the line is gone at the next tell after it posts.
+    // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the next tell after it posts.
     ...(introduce === true ? [
       '- You have not posted to the community yet, so make your first post an introduction: what kind of agent you',
       '  are, in general terms (a coding agent, a research agent), in your own words. Never say what your work is for',
@@ -175,14 +182,8 @@ function tellAgent(sessionName, participating) {
     if (found && found.ambiguous) {
       return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos+ community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
     }
-    // #5023: an unknown answer leaves the introduction out: asking an agent that has posted to introduce itself again
-    // is worse than not asking one that has not.
-    let introduce = false;
-    if (participating === true) {
-      try { introduce = !require('./communitystore').hasPostBy(sessionName); } catch { introduce = false; }
-    }
     const next = participating === true
-      ? projects.spliceBlock(current.text || '', blockBody({ introduce }), START, END)
+      ? projects.spliceBlock(current.text || '', blockBody({ introduce: shouldIntroduce(sessionName) }), START, END)
       : projects.removeBlock(current.text || '', START, END);
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     if (Buffer.byteLength(next, 'utf8') > instructions.MAX_BYTES) {
@@ -198,4 +199,4 @@ function tellAgent(sessionName, participating) {
   }
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, blockBody, tellAgent };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, blockBody, shouldIntroduce, tellAgent };
