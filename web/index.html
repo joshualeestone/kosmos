@@ -10252,14 +10252,16 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* #4470, the last page in the card's order, the phone (and what it showed on a desktop too). An agent's message has
    no bubble in the new look, so its avatar no longer sits beside a bubble's tail: it goes to the top, beside the name
    and time, as Josh's drawing draws it (Files/kosmos-project-two-col-v9). Your own messages keep their bubble and
-   today's foot-aligned avatar. Tasks' "+ New task" is the drawing's main action, a gold pill ("Post"). On a phone the
-   project's gear sits in the crumb's row instead of a line of its own; the "Made by" line stays below. */
-:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg:not(.you) { align-items: flex-start; }
+   today's foot-aligned avatar, and so does an outside sender's message, which keeps its drawn box. Tasks' "+ New task"
+   is the drawing's main action, a gold pill ("Post"). Up to 60rem, where the project header stacks (the 60rem block
+   for .pjmidhead), the project's gear sits in the crumb's row instead of a line of its own; "Made by" stays below. */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg:not(.you):not(.ext) { align-items: flex-start; }   /* .ext keeps its drawn box, so its foot avatar */
 :root[data-look="new"] body:not(.consolidated) #panel-tasks #tsk-new { border-radius: 999px; }
-@media (max-width: 40rem) {
+@media (max-width: 60rem) {
   /* placeLook moves the crumb row into .pjmidhead beside .pjhead, so the gear (in .pjhead > .pjtitle > .pjtitle-row)
-     is not the crumb's sibling, and on a phone .pjmidhead is a column: it becomes a wrapping row and the two
-     wrappers dissolve, so the gear's row joins the crumb's line. */
+     is not the crumb's sibling, and up to 60rem .pjmidhead is a column: it becomes a wrapping row and the two
+     wrappers dissolve, so the gear's row joins the crumb's line. ⚠️ With .pjhead and .pjtitle dissolved, a rule that
+     sizes either box does nothing here, under the look. */
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead { flex-direction: row; flex-wrap: wrap; align-items: center; }
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjhead,
   :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle { display: contents; }
