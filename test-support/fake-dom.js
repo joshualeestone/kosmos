@@ -47,6 +47,7 @@ function makeDom() {
       append(...cs) { for (const c of cs) this.appendChild(c); },
       setAttribute(k, v) { this.attrs[k] = String(v); },
       getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
+      removeAttribute(k) { delete this.attrs[k]; },
       addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); },
       dispatch(t) {
         const ev = { type: t, target: this, stopPropagation() { ev.stopped = true; } };
