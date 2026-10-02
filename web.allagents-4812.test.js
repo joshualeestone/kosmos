@@ -248,6 +248,7 @@ function loadPaint() {
   const grid = t.add('grid');
   const wrap = t.add('oa-wrap'); wrap.hidden = true;
   t.add('oa-only', 'input', { type: 'checkbox' });
+  t.add('oa-title', 'h2', { tabIndex: -1 });
   wrap.appendChild(t.add('oa-groups'));
   const timers = [];
   const clock = { now: 1000000 };
@@ -258,6 +259,7 @@ function loadPaint() {
     let OA_BUSY = false, OA_WAS_SHOWN = false, OA_PAINTED = [], OA_TIMER = 1;
     let OA_COMPUTERS = null;
     function oaRound() {}
+    function oaRefreshComputers() { return null; }
     ${SRC}
     ${slice('oaThisOnly')}
     ${slice('oaReplaceGroup')}
@@ -326,7 +328,7 @@ test('paint: coming back on screen asks for a read at once, even before the comp
   assert.equal(timers.length, 1, 'once, not on every paint');
 });
 
-test('paint: focus on a card that goes stale falls back to the group, never to the page', () => {
+test('paint: focus on a card that goes stale falls back to the Open link, never to the page', () => {
   const { api, d, groups, clock } = loadPaint();
   api.computers = LIST;
   api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'Ann', state: 'idle' }], at: 1000000 });
@@ -375,10 +377,97 @@ test('paint: no read on return while a round runs, or before oaStart', () => {
   assert.equal(b.timers.length, 0, 'oaStart has not run (first run): nothing is read');
 });
 
-test('stale line: a list refreshed by the last round is never stale', () => {
+test('stale line: a list refreshed by the last round is not stale at the next round', () => {
   const cut = Number(/OA_READ_LIMIT_MS = (\d+)/.exec(PAGE)[1]);
   const tick = Number(/OA_STATUS_EVERY_MS = (\d+)/.exec(PAGE)[1]);
   const stale = Number(/OA_STALE_MS = (\d+)/.exec(PAGE)[1]);
   assert.ok(stale > tick + cut, 'OA_STALE_MS ' + stale + ' must exceed a round (' + tick + ') plus a read cut (' + cut + ')');
-  assert.ok(/if \(OA_COMPUTERS\) await Promise\.all\(\[refresh, readAll\(\)\]\)/.test(PAGE), 'the reads run beside the computers refresh, not behind it');
+  // That the reads do not wait on the refresh is driven, not read off the source: see the "round:" tests.
+});
+
+test('paint: the same count but a different computer rebuilds, so focus never lands on another computer\'s agent', () => {
+  const { api, d, groups } = loadPaint();
+  const two = (names) => ({ ...LIST, computers: [LIST.computers[0], ...names.map((n) => ({ name: n, address: n + '.kosmosplus.com', this: false, online: true }))] });
+  api.computers = two(['agent1s', 'pizzarama']);
+  const angel = [{ sessionName: 'angel', name: 'Angel', state: 'idle' }];
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: angel, at: 1000000 });
+  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'ok', agents: angel, at: 1000000 });
+  api.oaPaint();
+  groups.children[0].querySelector('.oa-card').focus();   // angel on agent1s
+  api.computers = two(['pizzarama', 'zeta']);             // agent1s gone, zeta added: still two
+  api.oaPaint();
+  assert.deepEqual(groups.children.map((g) => g.dataset.address), ['pizzarama.kosmosplus.com', 'zeta.kosmosplus.com'], 'control: rebuilt in the new places');
+  const f = d.focused();
+  assert.notEqual(f && f.closest && f.closest('.oa-group'), groups.children[0], 'not on pizzarama\'s angel');
+  assert.equal(f && f.id, 'oa-title', 'its computer is gone: the section\'s title');
+});
+
+test('paint: focus on a group itself stays on the group when it is rebuilt', () => {
+  const { api, d, groups } = loadPaint();
+  api.computers = LIST;
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [], at: 1000000 });
+  api.oaPaint();
+  groups.children[0].focus();
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'A', state: 'idle' }], at: 1000000 });
+  api.oaPaint();
+  assert.equal(d.focused(), groups.children[0], 'the new group, not its Open link');
+});
+
+/* oaRound and oaRefreshComputers themselves, with a fetch the test controls. */
+function loadRound(computersAnswer) {
+  const t = makeDom();
+  const grid = t.add('grid');
+  const wrap = t.add('oa-wrap');
+  t.add('oa-only', 'input', { type: 'checkbox' });
+  wrap.appendChild(t.add('oa-groups'));
+  const asked = [];
+  const fetchImpl = (url) => {
+    asked.push(url);
+    if (url === '/api/remote/computers') return computersAnswer();
+    return Promise.resolve({ status: 200, json: async () => ({ agents: [{ sessionName: 'a', name: 'A', state: 'idle' }] }) });
+  };
+  t.document.hidden = false;
+  const api = new Function('document', 'location', 'fetch', 'setTimeout', 'clearTimeout', `
+    const STATE_COPY = {};
+    const AGENT_SORT = 'name';
+    function sortAgents(list) { return list.slice(); }
+    ${constLine('OA_COMPUTERS_EVERY_MS')}${constLine('OA_COMPUTERS_LIMIT_MS')}
+    let OA_BUSY = false, OA_WAS_SHOWN = true, OA_PAINTED = [], OA_TIMER = 1, OA_AGAIN = false, OA_REFRESHING = false;
+    let OA_COMPUTERS = null, OA_COMPUTERS_AT = 0;
+    ${SRC}
+    ${slice('oaThisOnly')}
+    ${slice('oaReplaceGroup')}
+    ${slice('oaFocusSaved')}
+    ${slice('oaFocusBack')}
+    ${slice('oaPaint')}
+    ${slice('oaRefreshComputers')}
+    ${slice('oaRound')}
+    return { oaRound, OA_SEEN, get busy() { return OA_BUSY; }, get computers() { return OA_COMPUTERS; },
+      set computers(v) { OA_COMPUTERS = v; }, set at(v) { OA_COMPUTERS_AT = v; } };
+  `)(t.document, { hostname: 'laptop.kosmosplus.com', protocol: 'https:' }, fetchImpl, () => 0, () => {});
+  return { api, asked, grid };
+}
+
+// A timeout, so a round that waits on the hung refresh FAILS here rather than hanging the suite.
+test('round: a computers refresh that never answers holds up neither the reads nor the next tick', { timeout: 2000 }, async () => {
+  const { api, asked } = loadRound(() => new Promise(() => {}));   // hangs
+  api.computers = LIST; api.at = 0;   // known, but due for a refresh
+  await api.oaRound();
+  const reads = () => asked.filter((u) => u.endsWith('/api/status')).length;
+  assert.equal(asked.filter((u) => u === '/api/remote/computers').length, 1, 'control: the refresh was asked for');
+  assert.equal(reads(), 2, 'both other computers read while it hangs');
+  assert.equal(api.busy, false, 'the round ended without it');
+  api.at = 0;   // due again, while the first refresh still hangs
+  await api.oaRound();
+  assert.equal(reads(), 4, 'the next tick reads again');
+  assert.equal(asked.filter((u) => u === '/api/remote/computers').length, 1, 'and does not pile up a second refresh');
+});
+
+test('round: the first round waits for the list, then reads; a computer dropped from it is forgotten', { timeout: 2000 }, async () => {
+  const { api, asked } = loadRound(async () => ({ ok: true, json: async () => ({ ...LIST, computers: LIST.computers.filter((c) => c.name !== 'pizzarama') }) }));
+  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'out', agents: [{ sessionName: 'old' }], at: 1 });
+  await api.oaRound();
+  assert.equal(asked[0], '/api/remote/computers', 'the list first');
+  assert.deepEqual(asked.slice(1), ['https://agent1s.kosmosplus.com/api/status'], 'then the one other valid computer');
+  assert.equal(api.OA_SEEN.has('pizzarama.kosmosplus.com'), false, 'a computer off the list starts as new if it comes back');
 });

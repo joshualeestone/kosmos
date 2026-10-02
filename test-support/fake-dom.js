@@ -67,8 +67,13 @@ function makeDom() {
         if (this.tagName === 'INPUT' && this.type === 'checkbox') { this.checked = !this.checked; this.dispatch('change'); return; }
         this.dispatch('click');
       },
-      // Only what a browser lets take focus: a link, a form control, or anything given a tabIndex.
-      focus() { if (['A', 'INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(this.tagName) || typeof this.tabIndex === 'number') focused = this; },
+      /* Roughly what a browser lets take focus: a link with an href, an enabled form control, or anything given a
+         tabIndex, and nothing under a hidden ancestor. (Not modelled: display:none from CSS, inert, contenteditable.) */
+      focus() {
+        if (this.disabled || this.closest('[hidden]')) return;
+        const can = (this.tagName === 'A' && !!this.href) || ['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(this.tagName) || typeof this.tabIndex === 'number';
+        if (can) focused = this;
+      },
       select() {},
       querySelectorAll(sel) {
         const out = [];
