@@ -2590,7 +2590,9 @@ function limitResetAt(line, nowMs) {
 function retireResetLimits(text, nowMs) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  const lastMenu = rows.reduce((at, row, i) => (/What do you want to do\?/.test(row) ? i : at), -1);
+  /* Anchored to the row's start (the menu draws it indented, 3 spaces observed): an agent's own sentence that contains
+     the phrase, or a tool result quoting it, is not a menu (review round 4). */
+  const lastMenu = rows.reduce((at, row, i) => (/^\s*What do you want to do\?/.test(row) ? i : at), -1);
   const drop = new Set();
   rows.forEach((row, i) => {
     if (!HIT_YOUR_LIMIT.test(row) || lastMenu > i) return;

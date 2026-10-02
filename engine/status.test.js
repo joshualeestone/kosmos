@@ -4374,6 +4374,12 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   assert.equal(read(MENU, RESET + 3600000).state, STATE.RATE_LIMITED, 'the limit menu past the reset handed the bubble back');
   /* Review round 3: the same menu with the two other option-1 labels Claude Code 2.1.287 draws under that title
      (vendor strings, not captures): "Stop" (usage-based billing) and the spend-limit menu's "Wait for limit to reset". */
+  /* Review round 4: only a menu AFTER the limit row holds the session over it; one above it (from an earlier turn)
+     does not, and an agent's own sentence containing the title is no menu at all. */
+  const MENU_ABOVE = '> hello\n   What do you want to do?\n   ❯ 1. Stop and wait for limit to reset\n' + '> later\n' + OLD + STATUS;
+  assert.notEqual(read(MENU_ABOVE, RESET + 3600000).state, STATE.RATE_LIMITED, 'a menu ABOVE the expired row kept it capped');
+  const PROSE = '> hello\n' + OLD + '● I will ask: What do you want to do? next\n' + STATUS;
+  assert.notEqual(read(PROSE, RESET + 3600000).state, STATE.RATE_LIMITED, 'an agent sentence containing the menu title kept it capped');
   for (const first of ['Stop', 'Wait for limit to reset']) {
     const other = MENU.replace('Stop and wait for limit to reset', first);
     assert.equal(read(other, RESET + 3600000).state, STATE.RATE_LIMITED, 'the menu with "' + first + '" handed the bubble back');
@@ -4394,6 +4400,7 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   assert.equal(read(TWO_REACHED, RESET + 3600000).state, STATE.RATE_LIMITED, 'an expired limit row took a live "reached your" row');
   /* Review round 3: the printed reset drops seconds; within a minute of it the pane stays capped. */
   assert.equal(read(SCREEN, RESET + 30 * 1000).state, STATE.RATE_LIMITED, 'retired before the minute of grace');
+  assert.notEqual(read(SCREEN, RESET + 90 * 1000).state, STATE.RATE_LIMITED, 'still capped a minute and a half past the reset');
 
   /* Controls: limit lines with no reset this can place stay capped however late it is (the old behaviour). */
   for (const line of ["You've hit your weekly limit · resets 3pm (America/Chicago)",
