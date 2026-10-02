@@ -62,3 +62,11 @@ quota-held retry (#4588), its own card.
   browser arm 5b now asserts the sentence. Page script compile-checked.
 - NIT taken: the server test installs its stubs inside the try.
 - NIT taken: a route comment says the thread route answers a hold 200 and the pickup 409; read delivery.held.
+
+## Review 3 (23:12 CDT): 0 BLOCKER, 0 SHOULD-FIX = CONVERGED
+- It checked every site the held line lands in (each manualText ends in a full stop; nothing compares a report to
+  manualText exactly; the change dialog's finish() adds the Ready check only on saidLine) and the merge with
+  switchdone-4963 (#4963): no textual overlap (that branch edits autoHelloOnSwitchRestart only), and the behaviours
+  compose (read, not executed; worth one combined arm after both merge).
+- NIT taken: wakeHeldLine had landed between sendWakeHello and its doc comment. Moved above the older comment block,
+  so main's comment order is untouched and the diff is one added block.
