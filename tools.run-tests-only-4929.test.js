@@ -124,8 +124,10 @@ test('--only runs the named file with the suite\'s environment and guards', () =
 });
 
 test('--only runs a file named twice once', () => {
+  // node itself drops a repeated file, so the count the runner prints is what can fail here.
   const r = run(['--only', PROBE, PROBE]);
   assert.equal(r.code, 0, r.out.slice(-1500));
+  assert.match(r.out, /--only: 1 named file\(s\)/, 'the runner counted the file twice');
   assert.match(r.out, /tests 1\b/, 'the file ran twice');
 });
 
@@ -198,10 +200,10 @@ test('--only asks the install harness once: a live one refuses it; the override 
 
 test('the runner\'s text keeps --only out of the whole suite\'s parts (coverage count, shell part, both gates)', () => {
   const src = fs.readFileSync(RUNNER, 'utf8');
-  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n[\s\S]{0,800}?\n  KOSMOS_TEST_FILES=\("\$\{KOSMOS_ONLY_FILES\[@\]\}"\)/, 'the coverage count is no longer skipped for --only');
+  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n[\s\S]{0,800}?\n  KOSMOS_TEST_FILES=\("\$\{KOSMOS_ONLY_FILES\[@\]\}"\)[^\n]*\nelse\nshopt -s nullglob\nKOSMOS_TEST_FILES=\(engine\/\*\.test\.js \*\.test\.js\)\n[\s\S]{0,2000}?\n  exit 1\nfi\nfi\n/, 'the coverage count (the else branch, closed by its own fi) is no longer skipped for --only');
   // An empty --only list must stop before the node line too: bash 5 expands it to nothing and node runs every file.
   assert.match(src, /if \[ "\$\{#KOSMOS_ONLY_FILES\[@\]\}" -eq 0 \]; then\n.*\n    exit 2\n  fi\n  KOSMOS_TEST_FILES=/, 'the second stop for an empty --only list is gone');
-  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n  :   # #4929: --only runs named node files; the shell part is the whole suite's\nelif \[ "\$NODE_STATUS" -eq 0 \]/, 'the shell part is no longer skipped for --only');
+  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n  :[^\n]*\nelif \[ "\$NODE_STATUS" -eq 0 \]/, 'the shell part is no longer skipped for --only');
   assert.equal((src.match(/if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_ONLY" != 1 \]; then\n  \( \. "\$\(dirname "\$0"\)\/lib\/browser-check(-surface)?-gate\.sh"/g) || []).length, 2,
     'a browser-check gate is no longer skipped for --only');
 });

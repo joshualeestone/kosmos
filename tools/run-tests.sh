@@ -57,8 +57,8 @@ fi
 # does NOT wait for or refuse a live suite (no queue wait, above): it is meant for inside a light queue turn.
 KOSMOS_ONLY=0
 KOSMOS_ONLY_FILES=()
-# --only counts only as the FIRST argument. Anywhere else node --test would take it as its own option and run the
-# whole suite, so it refuses instead.
+# --only counts only as the FIRST argument. Anywhere else it would reach node --test beside every suite file, so the
+# whole suite would run; it refuses instead.
 if [ "${1:-}" != --only ]; then
   for _only_f in "$@"; do
     if [ "$_only_f" = --only ]; then
@@ -87,6 +87,7 @@ if [ "${1:-}" = --only ]; then
       echo "run-tests: no test file '$_only_f' (a relative path is read from the repo root)" >&2
       exit 2
     fi
+    _only_f="${_only_f#./}"   # ./a.test.js and a.test.js are one file
     _only_dup=0
     for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
     [ "$_only_dup" = 1 ] || KOSMOS_ONLY_FILES+=("$_only_f")   # a file named twice runs once
@@ -94,10 +95,17 @@ if [ "${1:-}" = --only ]; then
   set --
   KOSMOS_ONLY=1
   echo "run-tests: --only: ${#KOSMOS_ONLY_FILES[@]} named file(s), not the whole suite (#4929)" >&2
-  # Relative names are read from THIS runner's repo root, not the caller's folder: print what will run.
+  # Relative names are read from THIS runner's repo root, not the caller's folder: print what will run, and say so
+  # when the caller is elsewhere (another worktree's runner would otherwise test its own copy of the file, green).
+  # OLDPWD is the caller's folder: the `cd "$REPO"` at the top is the only cd before here.
   for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do
     case "$_only_f" in /*) echo "run-tests: --only:   $_only_f" >&2 ;; *) echo "run-tests: --only:   $REPO/$_only_f" >&2 ;; esac
   done
+  if [ -n "${OLDPWD:-}" ] && [ "$OLDPWD" != "$REPO" ]; then
+    for _only_f in "${KOSMOS_ONLY_FILES[@]}"; do
+      case "$_only_f" in /*) ;; *) echo "run-tests: --only: note: relative names are read from this runner's tree ($REPO), not from your folder ($OLDPWD)" >&2; break ;; esac
+    done
+  fi
 fi
 # Extra arguments go to node --test, so a shell-only run has nowhere to put them: refuse them.
 if [ "$KOSMOS_TEST_PART" = shell ] && [ "$#" -gt 0 ]; then
