@@ -1145,48 +1145,56 @@ function serviceRefusedAvatar(r) {
 async function sweepAvatars(keys, on) {
   for (const agentKey of Object.keys(keys)) {
     const k = keys[agentKey];
-    if (!k || !k.apiKey || k.refused) continue;
+    if (!k || !k.apiKey) continue;
     const w = avatarWanted(agentKey);
     const want = w.id;
+    if (k.refused) {
+      // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
+      // so it is on record (as sweepIndustry does for a clear).
+      const shown = (Object.prototype.hasOwnProperty.call(k, 'avatarSent') && k.avatarSent !== null) || k.avatarUnsure;
+      if (want === null && shown && !k.avatarRemoveUnreachable) {
+        k.avatarRemoveUnreachable = true;
+        saveJson(keysFile(), keys);
+        log(`picture for ${agentKey}: the service refused this agent's key, so its community picture cannot be taken down from here`);
+      }
+      continue;
+    }
+    if (!w.why && k.avatarSkipLogged) { delete k.avatarSkipLogged; saveJson(keysFile(), keys); }
     if (w.why && k.avatarSkipLogged !== w.why) {
       k.avatarSkipLogged = w.why;
       saveJson(keysFile(), keys);
       log(`picture for ${agentKey}: not sent (${w.why.startsWith('too-big') ? 'over ' + AVATAR_MAX_BYTES + ' bytes' : 'not a PNG, JPEG or WebP'}); the community shows its own mark`);
     }
     const sent = Object.prototype.hasOwnProperty.call(k, 'avatarSent') ? k.avatarSent : null;
-    if (!k.avatarUnsure && sent === want) {
-      if (Object.prototype.hasOwnProperty.call(k, 'avatarRefused') && k.avatarRefused !== want) {
-        delete k.avatarRefused;
-        saveJson(keysFile(), keys);
-      }
-      continue;
-    }
-    if (want !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
-    if (Object.prototype.hasOwnProperty.call(k, 'avatarRefused')) {
-      if (k.avatarRefused === want) continue;
+    // A picture the service refused is not sent again until it changes, and while it is wanted the community shows
+    // no picture rather than the one the person replaced: the target is then "none".
+    if (Object.prototype.hasOwnProperty.call(k, 'avatarRefused') && k.avatarRefused !== want) {
       delete k.avatarRefused;
+      saveJson(keysFile(), keys);
     }
+    const target = want !== null && k.avatarRefused === want ? null : want;
+    if (!k.avatarUnsure && sent === target) continue;
+    if (target !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
     const wasUnsure = k.avatarUnsure === true;
     k.avatarUnsure = true;
     saveJson(keysFile(), keys);
-    const r = want === null
+    const r = target === null
       ? await asAgent(agentKey, keys, 'DELETE', '/agents/me/avatar')
       : await asAgent(agentKey, keys, 'PUT', '/agents/me/avatar', rawBody(w.bytes, w.type));
-    const done = want === null ? (r.status === 204 || r.status === 200) : r.status === 200;
-    if (done) {
-      k.avatarSent = want;
-      delete k.avatarRefused;
+    if (r.status >= 200 && r.status < 300) {
+      k.avatarSent = target;
       delete k.avatarRetrying;
       delete k.avatarUnsure;
       saveJson(keysFile(), keys);
-    } else if (want !== null && serviceRefusedAvatar(r)) {
+    } else if (target !== null && serviceRefusedAvatar(r)) {
+      // This PUT changed nothing; an earlier unanswered one may still have landed, so the mark is put back as it was.
       if (!wasUnsure) delete k.avatarUnsure;
       delete k.avatarRetrying;
       k.avatarRefused = want;
       saveJson(keysFile(), keys);
-      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes`);
-    } else if (k.avatarRetrying !== want) {
-      k.avatarRetrying = want;
+      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes, and the one it showed before is taken down`);
+    } else if (k.avatarRetrying !== target) {
+      k.avatarRetrying = target;
       saveJson(keysFile(), keys);
       log(`picture for ${agentKey}: no usable answer (status ${r.status || 'none'}); trying again every sweep until it lands`);
     }
