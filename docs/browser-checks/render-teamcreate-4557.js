@@ -531,9 +531,13 @@ function chk(ok, label, extra) {
             && /picture not set/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
           await page.waitForTimeout(600);   // room for a wrong move to the agents view
           const pf = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden,
-            row: (document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || '', marked: document.querySelectorAll('.just-made').length }));
-          chk(pf.team && pf.panel && pf.row === 'Said hello (picture not set)' && pf.marked === 0,
-            `${E} #4936 all hellos placed but a picture failed: the step stays and the row says both`, JSON.stringify(pf));
+            row: (document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || '', marked: document.querySelectorAll('.just-made').length,
+            note: document.getElementById('tc-note').textContent, go: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
+          chk(pf.team && pf.panel && pf.row === 'Said hello (picture not set)' && pf.marked === 0 && /A picture was not set: see its row\./.test(pf.note) && pf.go,
+            `${E} #4936 all hellos placed but a picture failed: the step stays, the row and the note say so, and Go to your team is offered`, JSON.stringify(pf));
+          await page.click('#tc-hello');
+          await settle(page, () => TC === null && document.querySelectorAll('.just-made').length >= 3);
+          chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 and Go to your team leaves for the agents view`);
           chk(errs.length === 0, `${E} no page errors (#4936 picture-failed arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();

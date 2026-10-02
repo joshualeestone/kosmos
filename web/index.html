@@ -48591,7 +48591,8 @@ function tcPaint() {
     const notN = TC.members.filter((m) => m.hello === 'failed' || m.hello === 'unsure').length;
     const look = warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '';
     // "Said hello", not "started": placed means the hello reached the agent; its first turn is measured live (0.7.17).
-    if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look;
+    const noPic = TC.members.some((m) => m.portrait === 'failed') ? ' A picture was not set: see its row.' : '';   // review 8
+    if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look + noPic;
     else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
       : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at ' + (notN === 1 ? 'its row.' : 'their rows.')) + look;
     else {
@@ -48610,7 +48611,10 @@ function tcPaint() {
   const hello = document.getElementById('tc-hello');
   const finished = tcFinished();
   const settled = finished && TC.members.every((m) => m.hello && m.hello !== 'sending');
-  hello.hidden = !(settled && TC.members.some((m) => m.hello !== 'started'));
+  // Review 8: also when every hello is placed but a picture failed, or is still going up after the wait: the step
+  // stays for that row, and the person needs a way on that is not Back.
+  hello.hidden = !(settled && (TC.members.some((m) => m.hello !== 'started')
+    || TC.members.some((m) => m.portrait === 'failed') || (!TC.leaving && TC.members.some((m) => m.portraitBusy))));
   hello.textContent = n === 1 ? 'Go to your agent' : 'Go to your team';
   if (finished && TC_AUTO_HELLO && !TC.helloStarted) tcSayHello();
 }
@@ -48680,7 +48684,7 @@ async function tcLeaveWhenSettled(gen) {
 }
 function tcHelloRetry(slot) {
   const m = TC && TC.members.find((x) => x.slot === slot);
-  if (!m || m.hello !== 'failed') return;
+  if (!m || m.hello !== 'failed' || TC.leaving) return;
   const gen = TC_GEN;
   TC.greeting = true;
   tcHelloOne(m, gen).then(() => {
@@ -48739,8 +48743,10 @@ function tcGoToTeam(auto) {
   let live = document.getElementById('tc-done-live');
   if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
   live.textContent = '';
-  const where = names.length === 1 ? 'It is marked on your board.' : 'The new agents are marked on your board.';
+  let where = names.length === 1 ? 'It is marked on your board.' : 'The new agents are marked on your board.';
   setTimeout(() => {
+    // Review 8: say they are marked only if a card for them is on the screen to mark.
+    if (!(sel && document.querySelector(sel))) where = (names.length === 1 ? 'Look for it on your board.' : 'Look for them on your board.');
     live.textContent = notSaid === 0 ? 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. ' : 'team. ') + where
       : (names.length === 1 ? 'Your agent' : (notSaid === 1 ? '1 of them' : notSaid + ' of them')) + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;
   }, 100);
@@ -49006,7 +49012,11 @@ async function tcWatchLoop(gen) {
       TC_UPLOADING += 1;
       m.portraitBusy = true;   // #4936 review 7: the step does not leave on its own while this is going up
       tcPortrait(m.made.name, m.made.image, m.made.shownAs, TC.key, m.slot).then((r) => { m.portrait = r; if (r === 'set') tick(); })
-        .finally(() => { m.portraitBusy = false; TC_UPLOADING -= 1; tcPaint(); });
+        .finally(() => {
+          m.portraitBusy = false; TC_UPLOADING -= 1; tcPaint();
+          // Review 8: a picture that lands after the step gave up waiting lets it leave on its own after all.
+          if (TC && TC.members.includes(m) && !TC.leaving && TC.members.every((x) => x.hello === 'started')) tcLeaveWhenSettled(TC_GEN);
+        });
       for (const pr of (m.made.projects || [])) {
         if (!pr || !pr.added) continue;
         fetch('/api/project/' + encodeURIComponent(pr.id) + '/agent/' + encodeURIComponent(m.made.name), {
