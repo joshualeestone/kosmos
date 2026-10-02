@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: unloadwait-4964
-diff_hash: 3d933b5e910a6e9d6b334d5de25f1f0c3237adda9e7200125a40f6834985a121
+diff_hash: 4903db3726e9352582ca5d1a3bff41de9315f74d95e5e8610caedc70d8dad958
 validation: focused after the rebase onto origin/main (head afd7f1ea8): every restart, class-1, remove, provider, switch, create and disruption test file plus fixture-discipline, no-brand-refs-1881, no-name-refs-3071, cli.sandbox-data-4796, run from the worktree root (55 files, 828 run, 0 failed); each review rule removed once fails its test (measured: dry-run guards, held answer, print-gone, burst ledger, gone launch file, first-loaded skip, failed bootout); LIVE on Agent1s with the final code: remove.restart of zz-test-4964 against the real launchd, RESTARTED in 755 ms, job state = running for the 10 s after. Not run: docs/browser-checks/render-start-agent-3410.js (the round-1 dry-run scenario; covered by the dry-run unit test, CI browser-checks job runs it)
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
-timestamp: 2026-10-02T04:02:38Z
+timestamp: 2026-10-02T06:04:13Z
 iterations: 5
 converged: true
 ---
@@ -39,3 +39,5 @@ converged: true
 
 #### Iteration 5 (opus)
 - NO NEW ISSUES. [NIT] the fromDead + refused-bootout wording says "did not load" -> ACCEPTED (outcome PARTIAL is honest; rare)
+
+Post-convergence: CI found engine.reachable.test.js flagging the new test seam resetUnloadWaitsForTests; excused there as a test seam (test-only change). engine.reachable + engine/remove.test.js: 93 pass. Rebased onto 868888de0.
