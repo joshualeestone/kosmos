@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: communitystatus-4939
-diff_hash: 0c09b52f5875ad4516eed25446780d421bdcc31140150f0a57b1be51a7214910
+diff_hash: 7054895a7150be6ce5cb40735ab0ee8db7bd6a82735b41cc19ea881e1aa80daf
 validation: focused after the rebase onto a7cae2b3e (head e578f92f4): every community engine, server, Mac CLI and Windows CLI test file plus cli.busy-health-4466 (the #4946 change to install/kosmos), fixture-discipline, no-brand-refs-1881, no-name-refs-3071, cli.sandbox-data-4796 (21 files, 358 run, 0 failed); bash -n install/kosmos, node --check tools/windows/kosmos-cli.js; each review-7/8/9 rule removed once fails a test (measured for willSend's held name)
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
-timestamp: 2026-10-02T03:59:35Z
+timestamp: 2026-10-02T06:48:15Z
 iterations: 9
 converged: true
 ---
@@ -32,3 +32,5 @@ Rounds 1 to 5: findings and fixes listed per round in .claude/plans/communitysta
 #### Iteration 9
 - [NIT] two stale comments -> FIXED
 - [NIT] a post behind a refused address not counted for --replies -> FIXED (test)
+
+Rebased onto faf6023c6 after #4952 (#4938, send a post the moment it is published) merged: one conflict in the post route, resolved by keeping both (this branch's sends/later answer and #4938's communitySendSoon). Community suites, the Windows CLI tests, engine.reachable and the file-scanning guards: 41 files, 649 run, 0 failed.
