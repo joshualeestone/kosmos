@@ -346,3 +346,23 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
 - NIT (wording, no change): the intruder does not count a suite (run-tests.sh) as an intruder; by design (a suite beside
   one side turn is the pairing #4911 allows). My review brief said "a real test/browser run", which was loose.
 - Opus round 19 still running at this entry.
+
+## Round 19 (Opus, blind): 0 blockers, 2 warnings, 4 nits.
+- REVIEWER INCIDENT (disclosed to Splinter 23:44, verified): the reviewer's sandbox script cleared KOSMOS_RUN_MARKER_DIR,
+  so three COPIES of the wrapper (pids 22723, 33402, 34022) waited in the REAL Agent1s queue 23:36 to 23:39 behind
+  Baron's claim. None took a turn or claim; take lock and side claim untouched; killed by pid; no marker left (checked).
+  Round 20's prompts require any wrapper copy to refuse to start unless the marker dir is private.
+- WARNING (kept, decided, goes in the PR body and rollout note): after the swap, side turns are refused until every
+  older queued-heavy.sh waiter has left (hours), and aging is off while ANY 5-line marker is live (unrebased branches'
+  run-tests.sh keep writing them: days). Measured by the reviewer on a private copy of the live markers (21 waiters,
+  all 5-line). The reviewer's proposed fix (with legacy=1, "ahead" only if ahead by BOTH the new rank and #4609's, an
+  intersection of orders, so acyclic; relaxes one "exactly one sees nobody ahead" arm to "no circle") is sound in
+  reasoning but a late design change to the cycle rule; filed as a follow-up card rather than folded in at round 19.
+- WARNING (kept, stated): the wrapper is out of repo, so no committed test runs it; the dry harness (scratchpad) is its
+  test and is run after every wrapper edit. Follow-up: bring the wrapper into the repo with its harness.
+- NIT FIXED (wrapper): no temp stop file (full disk) means no side turn (exit 75) rather than a yield that cannot be
+  recorded.
+- NIT FIXED (wrapper): _qh_scan routes any *test-install* script (test-install-gate-control.sh) to an ordinary turn, so a
+  side turn never yields to its own harness forever. Dry arm added.
+- NIT (kept): a lost side take prints "another run took the turn first" whatever the reason.
+- NIT (kept): after a sleep/wake the cap message says "ran past 10 min" though the time was asleep.
