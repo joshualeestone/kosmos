@@ -4262,6 +4262,42 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
   assert.equal(classify(pane, WITH_SURVEY).state, STATE.RATE_LIMITED, 'Claude Code\'s own survey after the limit hid a capped pane');
 });
 
+test('#5031: a Claude limit whose own line says it has reset stops reading capped, so the Guide hands back', () => {
+  /* The 2026-10-02 capped screen (#5029), read before and after the reset it names. Nothing else clears it: the line
+     stays on screen until the agent gets a new turn, and the Guide's bubble on the backup never gives it one. */
+  const { reconcileReport: reconcile, limitResetAt } = require('./status');
+  const { guideFailure } = require('./setup-assistant');
+  const pane = { session: 'guide', name: 'guide', claim: 'guide', command: '2.1.239', title: '✳ Claude Code' };
+  const RULE = '─'.repeat(80) + '\n';
+  const SCREEN = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Sautéed for 0s · done 10:35 PM\n' + RULE + '❯ \n' + RULE + '  guide · Opus 4.8 · 7d 100%\n';
+  const scraped = classify(pane, SCREEN);
+  assert.equal(scraped.state, STATE.RATE_LIMITED, 'the fixture is not a capped screen: ' + scraped.state);
+  const RESET = Date.UTC(2026, 9, 5, 5, 0);   // Oct 5, 12am in Chicago (CDT, UTC-5)
+  assert.equal(limitResetAt(scraped.evidence, Date.UTC(2026, 9, 2, 15)), RESET, 'the reset time was read wrong');
+
+  const before = reconcile({ found: false }, scraped, RESET - 60 * 1000);
+  assert.equal(before.state, STATE.RATE_LIMITED, 'a minute BEFORE the reset the card must still read capped');
+  assert.deepEqual(guideFailure({ ...before, runner: 'claude' }), { problem: STATE.RATE_LIMITED, runner: 'claude' });
+
+  const after = reconcile({ found: false }, scraped, RESET + 60 * 1000);
+  assert.equal(after.state, STATE.IDLE, 'a minute AFTER the reset the card still reads ' + after.state);
+  assert.match(after.because, /^its usage limit reset at /);
+  assert.equal(guideFailure({ ...after, runner: 'claude' }), null, 'past the reset the bubble stays on the backup');
+
+  /* Controls: a limit line with no date it can read stays capped however late it is (the old behaviour), and so does
+     one naming a zone this runtime does not know. Neither may fail toward "answering again". */
+  for (const line of ["You've reached your Fable 5 limit. Run /usage-credits to continue.",
+    "You've hit your weekly limit · resets 3pm (America/Chicago)",
+    "You've hit your weekly limit · resets Oct 5 at 12am (Mars/Olympus_Mons)"]) {
+    const s = { ...scraped, evidence: line };
+    assert.equal(reconcile({ found: false }, s, Date.UTC(2030, 0, 1)).state, STATE.RATE_LIMITED, 'unreadable reset un-capped: ' + line);
+  }
+  /* A January reset read in late December is next year's, not eleven months ago. */
+  assert.equal(limitResetAt("resets Jan 2 at 12am (America/Chicago)", Date.UTC(2026, 11, 30)), Date.UTC(2027, 0, 2, 6, 0));
+});
+
 test('#887: the prompt glyph ❯ (and Codex\'s ›) is stripped from the evidence line', () => {
   /* Observed live on 0.5.31's #880 walk: the API's stateEvidence read
      "❯ 401 {...}" because the strip class covered ASCII > and the box glyphs
