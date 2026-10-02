@@ -16,13 +16,18 @@ combination no channel tests. setup.sh had 36 commits in September.
   chooses which served installer is compared with install/setup.sh and with the site's origin/main.
 - lib/release-freeze.sh `release_site_restore`: puts back a changed tracked setup-staging pair; removes an
   untracked one (never committed = never served).
-- promote-channel.sh (Mac): before any write, a present setup-staging pair must be committed, unmodified,
-  and its sidecar must name its bytes; after the pointer and alias, the pair is copied onto setup /
-  setup.sha256 (temp + rename, read back). Absent pair (a staging cut before #5032) = /setup left alone.
-  Prints that setup + setup.sha256 must be committed with latest.json.
-- deploy-site.sh: `--promote` refuses when the site has a committed setup-staging and the committed setup
-  (or its sidecar) is not the same blob; every deploy checks the /setup-staging pair at the edge when the
-  commit carries one.
+- THE POINTER NAMES ITS INSTALLER (review 1): release.sh passes the build's installer sha to
+  tools/lib/write-latest-pointer.js (KM_LJ_SETUP_SHA -> "setup_sha256", optional, must be a sha256).
+  Promote copies the pointer verbatim, so latest.json names the /setup it belongs beside.
+- promote-channel.sh (Mac): if the staging pointer names an installer, setup-staging must be committed,
+  unmodified, hash to that sha, and its sidecar must agree, checked before any write; after the pointer
+  and alias the pair is copied onto setup / setup.sha256 (temp + rename, read back). A pointer naming no
+  installer (before #5032, or republished by hand) leaves /setup alone, whatever setup-staging holds.
+- deploy-site.sh: EVERY deploy (promote, rollback, site copy) refuses when the committed latest.json names
+  an installer and the committed setup or setup.sha256 is not it. This replaced a setup == setup-staging
+  blob comparison that review 1 showed wrong for rollbacks (it passed a rollback beside the newer
+  installer, refused the correct one, and refused every rollback while a staging cut was pending).
+  Every deploy also edge-checks the /setup-staging pair when the commit carries one.
 - engine/update.js `setupUrl()`: `/setup-staging` when `installPointer()` is staging.
 - Docs: releasing.md, staging-channel.md (promote step, commit line, fresh install), phone-push-go-live.md.
 - Site half (chaoskosmos-site branch setupstaging-5032): vercel.json headers for the new pair. Merges first.
@@ -35,6 +40,9 @@ combination no channel tests. setup.sh had 36 commits in September.
   and its name mapping evaluated under sh.
 - engine/update.win32-check.test.js: staging box -> /setup-staging, prod control -> /setup.
 - tools/test-staging-wire-2036.sh: the hand-off grep now expects /setup-staging.
+- tools/test-deploy-site-promote.sh cases 19-22 (RUN, not grepped): matching installer deploys and is
+  served; mismatched promote and mismatched site copy refuse with nothing served; a lying sidecar
+  refuses. Cases 1-18 (pointers with no field) are the not-checked control.
 
 ## Rejected
 - Keep one /setup and flag setup.sh diffs at cut time: keeps the untested combination.
@@ -48,8 +56,16 @@ That no installer change must reach prod boxes before their app update. The esca
 prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
 
 ## Residuals
-- Rollback by promoting a PRIOR staging pointer copies the CURRENT setup-staging onto /setup; restore the
-  prior commit's setup-staging pair with the pointer (documented here; not automated).
+- First cuts after this lands: staging boxes still on a pre-#5032 build update with /setup (prod's
+  installer) until they run a build carrying the new setupUrl, so for those cuts only FRESH staging
+  installs (from /setup-staging) exercise the installer the promote will put on /setup.
+- Kosmos.pkg: a staging cut whose pkg inputs changed still copies the rebuilt .pkg into the site's dist/,
+  the prod download button. Same class (a staging cut reaching prod), not fixed here.
+- publish-staging-pointer.sh writes no setup_sha256 (it cannot know which installer a hand-republished
+  build was cut with), so a promote of such a pointer leaves /setup as it is and says so.
+- Rollback: the deploy guard REFUSES a #5032 pointer served beside the wrong installer, so the operator
+  must put that pointer's installer back by hand (docs/staging-channel.md step 5 says where it is).
+  Refused rather than automated.
 - A staging box whose updater is new while the site has never had a /setup-staging (only if a prod-channel
   cut carried this change before any staging cut did) fetches a 404; the next staging cut fixes it.
 - Step 9e's outside audit (kosmos-artifact-check.sh) reads the prod pointer and /setup; it does not audit

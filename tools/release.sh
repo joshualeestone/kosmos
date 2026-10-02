@@ -1288,7 +1288,12 @@ KM_ARTIFACT_SHA="$(awk '{print $1}' "$REPO/dist/kosmos-arm64.tar.gz.sha256")"
 # the staging and prod pointers cannot diverge in shape -- promote-channel.sh copies the
 # staging pointer verbatim onto latest.json. With KOSMOS_CUT_CHANNEL=prod, $POINTER_FILE is
 # latest.json and this is the old direct-to-prod behavior (escape hatch).
-KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" \
+# #5032: the pointer names the installer this build was cut with (setup_sha256), the bytes step 5
+# publishes as /$SETUP_FILE. Read from the build's own sidecar, checked against the bytes beside it.
+KM_SETUP_SHA="$(awk 'NR==1{print $1}' "$REPO/dist/setup.sha256")"
+[ -n "$KM_SETUP_SHA" ] && [ "$KM_SETUP_SHA" = "$(shasum -a 256 < "$REPO/dist/setup" | awk '{print $1}')" ] \
+  || { echo "dist/setup.sha256 does not name dist/setup's bytes" >&2; exit 1; }
+KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" KM_LJ_SETUP_SHA="$KM_SETUP_SHA" \
 KM_LJ_ARTIFACT="kosmos-$V-arm64.tar.gz" KM_LJ_MANIFEST="kosmos-$V-arm64.manifest.json" \
   node "$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js" "$SITE/dist/$POINTER_FILE"
 echo "   $POINTER_FILE ($CUT_CHANNEL) -> $(cat "$SITE/dist/$POINTER_FILE")"

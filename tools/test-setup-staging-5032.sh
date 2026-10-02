@@ -80,9 +80,11 @@ promote_site() {   # a git site: committed prod installer, a published staging p
   if [ "${1:-}" = yes ]; then
     printf 'STAGING-INSTALLER\n' > "$s/setup-staging"; ( cd "$s" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
     git -C "$s" add setup-staging setup-staging.sha256; git -C "$s" commit -qm "staging installer"
+    name_installer "$s" "$(shasum -a 256 < "$s/setup-staging" | awk '{print $1}')"   # the staging pointer names it, as release.sh writes it
   fi
   printf '%s' "$s"
 }
+name_installer() { node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.setup_sha256=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$1/dist/latest-staging.json" "$2"; }
 Sp="$(promote_site yes)"
 [ "$(cat "$Sp/setup")" = PROD-INSTALLER ] && pass "promote: CONTROL before the promote /setup is the prod installer" || bad "promote fixture: /setup is not the prod installer"
 out="$(bash "$HERE/promote-channel.sh" "$Sp" 2>&1)"; rc=$?
@@ -92,11 +94,15 @@ cmp -s "$Sp/setup-staging" "$Sp/setup" && cmp -s "$Sp/setup-staging.sha256" "$Sp
 has "$out" "COMMIT setup and setup.sha256" && pass "promote: says to commit the installer pair with the pointer" || bad "promote did not say to commit the pair (out=$out)"
 ls -a "$Sp" | grep -q '^\.setup' && bad "promote left a .setup temp file" || pass "promote: no temp file left beside /setup"
 
-# Absent (a staging cut before #5032): /setup is left alone and the promote goes on.
+# The pointer names no installer (a cut before #5032, or a hand republish): /setup is left alone and the
+# promote goes on, EVEN with a committed setup-staging beside it (nothing says which build it belongs to).
 Sa="$(promote_site no)"
 out="$(bash "$HERE/promote-channel.sh" "$Sa" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ "$(cat "$Sa/setup")" = PROD-INSTALLER ] && grep -q '"9.9.9"' "$Sa/dist/latest.json" && has "$out" "no setup-staging" \
-  && pass "promote: with no setup-staging, /setup is left as it is and the pointer still promotes" || bad "promote absent arm (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && [ "$(cat "$Sa/setup")" = PROD-INSTALLER ] && grep -q '"9.9.9"' "$Sa/dist/latest.json" && has "$out" "names no installer" \
+  && pass "promote: a pointer naming no installer leaves /setup as it is and still promotes" || bad "promote no-field arm (rc=$rc, out=$out)"
+Sb="$(promote_site no)"; printf 'SOME-INSTALLER\n' > "$Sb/setup-staging"; ( cd "$Sb" && shasum -a 256 setup-staging > setup-staging.sha256 ); git -C "$Sb" add setup-staging setup-staging.sha256; git -C "$Sb" commit -qm x
+out="$(bash "$HERE/promote-channel.sh" "$Sb" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$Sb/setup")" = PROD-INSTALLER ] && pass "promote: CONTROL a committed setup-staging the pointer does not name is not copied" || bad "promote copied an unnamed setup-staging (rc=$rc, out=$out)"
 
 # Refusals: each leaves BOTH the prod pointer and /setup untouched.
 refused() {   # label site expected-phrase
@@ -106,22 +112,29 @@ refused() {   # label site expected-phrase
   else bad "promote $1 (rc=$rc, latest.json: $(cat "$2/dist/latest.json"), out=$out)"; fi
 }
 Su="$(promote_site no)"; printf 'NEVER-SERVED\n' > "$Su/setup-staging"; ( cd "$Su" && shasum -a 256 setup-staging > setup-staging.sha256 )
-refused "an untracked setup-staging" "$Su" "is not committed"
+name_installer "$Su" "$(shasum -a 256 < "$Su/setup-staging" | awk '{print $1}')"
+refused "an untracked setup-staging the pointer names" "$Su" "is not committed"
+Sg="$(promote_site no)"; name_installer "$Sg" "$(printf 'X\n' | shasum -a 256 | awk '{print $1}')"
+refused "a pointer naming an installer the site does not have" "$Sg" "is not committed"
+So="$(promote_site yes)"; name_installer "$So" "$(printf 'ANOTHER-CUT\n' | shasum -a 256 | awk '{print $1}')"
+refused "a setup-staging that is not the installer the pointer names" "$So" "but the staging pointer names installer"
 Sm="$(promote_site yes)"; printf 'EDITED\n' > "$Sm/setup-staging"; ( cd "$Sm" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 refused "a setup-staging that differs from its committed copy" "$Sm" "differs from its committed copy"
 Sx="$(promote_site yes)"; printf '%s  setup\n' "$(printf 0%.0s $(seq 64))" > "$Sx/setup-staging.sha256"; git -C "$Sx" commit -qam "bad sidecar"
-refused "a sidecar that does not name the bytes" "$Sx" "setup-staging.sha256 names"
+refused "a sidecar that does not name the bytes" "$Sx" "not the setup-staging bytes"
 Sh="$(promote_site yes)"; rm -f "$Sh/setup-staging"; git -C "$Sh" commit -qam "script gone, sidecar kept" >/dev/null 2>&1
 refused "a sidecar with no script" "$Sh" "not committed"
 
-# ---- deploy-site.sh: a promote must publish the committed staging installer as /setup (source check) ----
-grep -qF '"$H:setup-staging"' "$REPO/tools/deploy-site.sh" && grep -qF '_q="setup-staging${_p#setup}"' "$REPO/tools/deploy-site.sh" \
-  && grep -qF 'the committed $_p is not the committed $_q' "$REPO/tools/deploy-site.sh" \
-  && pass "deploy-site: --promote compares committed setup with committed setup-staging" || bad "deploy-site: the promote guard is missing"
+# ---- deploy-site.sh: the guard (the pointer names its installer) is RUN in tools/test-deploy-site-promote.sh
+# (cases 19-22). Here only that the staging pair is edge-checked after a deploy (needs a live host to run).
 grep -qF 'served_verify_asset_ok "$HOST/setup-staging"' "$REPO/tools/deploy-site.sh" && pass "deploy-site: the staging pair is checked at the edge" || bad "deploy-site: no edge check for /setup-staging"
-# The guard's name mapping, evaluated (sh, as deploy-site.sh runs).
-[ "$(sh -c '_p=setup; echo "setup-staging${_p#setup}"; _p=setup.sha256; echo "setup-staging${_p#setup}"' | tr '\n' ' ')" = "setup-staging setup-staging.sha256 " ] \
-  && pass "deploy-site: the name mapping gives setup-staging and setup-staging.sha256 under sh" || bad "deploy-site: name mapping wrong under sh"
+
+# ---- the pointer writer: setup_sha256 only when given, and only a real sha ----
+WR="$REPO/tools/lib/write-latest-pointer.js"; P="$T/ptr.json"; G="$(printf 'g\n' | shasum -a 256 | awk '{print $1}')"
+KM_LJ_VERSION=1 KM_LJ_SHA=a KM_LJ_ARTIFACT=b KM_LJ_MANIFEST=c node "$WR" "$P" && ! grep -q setup_sha256 "$P" && pass "writer: no KM_LJ_SETUP_SHA, no field (CONTROL: the old shape)" || bad "writer wrote a field it was not given: $(cat "$P")"
+KM_LJ_VERSION=1 KM_LJ_SHA=a KM_LJ_ARTIFACT=b KM_LJ_MANIFEST=c KM_LJ_SETUP_SHA="$G" node "$WR" "$P" && grep -q "\"setup_sha256\":\"$G\"" "$P" && pass "writer: KM_LJ_SETUP_SHA becomes setup_sha256" || bad "writer did not write setup_sha256: $(cat "$P")"
+KM_LJ_VERSION=1 KM_LJ_SHA=a KM_LJ_ARTIFACT=b KM_LJ_MANIFEST=c KM_LJ_SETUP_SHA=NOTASHA node "$WR" "$P" 2>/dev/null && bad "writer accepted a non-sha installer" || pass "writer: refuses a KM_LJ_SETUP_SHA that is not a sha256"
+grep -qF 'KM_LJ_SETUP_SHA="$KM_SETUP_SHA"' "$REPO/tools/release.sh" && pass "release: the cut's pointer names its installer" || bad "release: the pointer does not get KM_LJ_SETUP_SHA"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-setup-staging-5032: ALL PASS"; else echo "test-setup-staging-5032: FAILURES above"; exit 1; fi

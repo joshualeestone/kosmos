@@ -354,6 +354,7 @@ CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null) || CJ=""
 ptr_artifact()  { printf '%s' "$1" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 ptr_sha()       { printf '%s' "$1" | sed -n 's/.*"sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 ptr_version()   { printf '%s' "$1" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_setup_sha() { printf '%s' "$1" | sed -n 's/.*"setup_sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }   # #5032
 ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 # The version inside a Windows zip NAME (kosmos-<version>-win-x64.zip), empty if it is not that shape.
 win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p'; }
@@ -442,18 +443,6 @@ if [ "$PROMOTE" = 1 ]; then
   [ -n "$ART" ] || { echo "deploy-site: --promote: the committed latest.json names no artifact -- refusing"; exit 1; }
   CSHA=$(ptr_sha "$CJ")
   [ -n "$CSHA" ] || { echo "deploy-site: --promote: the committed latest.json names no sha256 -- refusing"; exit 1; }
-  # #5032: the installer moves with the pointer. When the site carries a committed staging installer,
-  # promote-channel.sh copied it onto /setup; the committed /setup must BE it (same blob), or this
-  # deploy would publish the promoted pointer beside the PRIOR prod installer. Compared as git blob
-  # ids, which are equal exactly when the bytes are. A site with no setup-staging (its staging cut
-  # predates #5032) is not checked: /setup already carried that cut's installer.
-  if git -C "$SITE" rev-parse -q --verify "$H:setup-staging" >/dev/null 2>&1; then
-    for _p in setup setup.sha256; do
-      _q="setup-staging${_p#setup}"   # setup -> setup-staging, setup.sha256 -> setup-staging.sha256
-      [ "$(git -C "$SITE" rev-parse -q --verify "$H:$_p" 2>/dev/null)" = "$(git -C "$SITE" rev-parse -q --verify "$H:$_q" 2>/dev/null)" ] \
-        || { echo "deploy-site: --promote: the committed $_p is not the committed $_q -- refusing. promote-channel.sh copies the staging installer onto /setup; commit setup and setup.sha256 with latest.json (#5032)."; exit 1; }
-    done
-  fi
 else
   ART=$(ptr_artifact "$LJ")
   [ -n "$ART" ] || { echo "deploy-site: latest.json names no artifact -- refusing"; exit 1; }
@@ -467,6 +456,24 @@ else
   # workflow and this never false-refuses. (Both sides are command-substitution captures, so a
   # trailing-newline difference cannot cause a false refusal.) A promote takes the branch above.
   [ "$CJ" = "$LJ" ] || { echo "deploy-site: the checkout's COMMITTED latest.json differs from LIVE -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer pointer. Sync $SITE to the current release, then retry."; exit 1; }
+fi
+# #5032: THE POINTER NAMES ITS INSTALLER. A pointer cut since #5032 carries setup_sha256, the installer that
+# build was cut with; promote copies the pointer verbatim, so the committed prod pointer names the /setup it
+# must be served beside. Refuse any deploy (a promote, a rollback to a prior pointer, a site copy) whose
+# committed /setup or /setup.sha256 is not that installer: it would serve a build beside an installer it
+# was not cut with, the pairing #5032 exists to remove. A pointer without the field (every pointer before
+# #5032) is not checked. A rollback to a #5032 pointer must therefore put that pointer's own installer back
+# on /setup, which is the point.
+CSETUP=$(ptr_setup_sha "$CJ")
+if [ -n "$CSETUP" ]; then
+  git -C "$SITE" rev-parse -q --verify "$H:setup" >/dev/null 2>&1 && git -C "$SITE" rev-parse -q --verify "$H:setup.sha256" >/dev/null 2>&1 \
+    || { echo "deploy-site: the committed latest.json names installer $CSETUP but the commit has no setup or setup.sha256 -- refusing (#5032)."; exit 1; }
+  _cs_tmp=$(mktemp "${TMPDIR:-/tmp}/deploy-site-csetup.XXXXXX")
+  git -C "$SITE" show "$H:setup" > "$_cs_tmp" || { rm -f "$_cs_tmp"; echo "deploy-site: could not read the committed setup -- refusing (#5032)."; exit 1; }
+  _cs_got=$(shasum -a 256 < "$_cs_tmp" | awk '{print $1}'); rm -f "$_cs_tmp"
+  _cs_side=$(git -C "$SITE" show "$H:setup.sha256" | awk 'NR==1{print $1}')
+  [ "$_cs_got" = "$CSETUP" ] && [ "$_cs_side" = "$CSETUP" ] \
+    || { echo "deploy-site: the committed latest.json names installer $CSETUP, but the committed setup hashes to $_cs_got and setup.sha256 names ${_cs_side:-nothing} -- refusing (#5032). After promote-channel.sh, commit setup and setup.sha256 with latest.json; for a rollback, put back the installer that pointer was cut with (its commit's setup-staging pair, or the setup pair committed with it)."; exit 1; }
 fi
 # >>> staged Mac carry (#4819) -- tools/test-deploy-site-staged-mac-4819.sh extracts and tests this block.
 # The STAGED Mac build: the tarball the committed latest-staging.json names, and its .sha256. Both
