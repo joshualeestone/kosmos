@@ -4327,38 +4327,89 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
 
 test('#5031: a Claude limit whose own line says it has reset stops reading capped, so the Guide hands back', () => {
   /* The 2026-10-02 capped screen (#5029), read before and after the reset it names. Nothing else clears it: the line
-     stays on screen until the agent gets a new turn, and the Guide's bubble on the backup never gives it one. */
-  const { reconcileReport: reconcile, limitResetAt } = require('./status');
+     stays on screen until the agent gets a new turn, and the Guide's bubble on the backup never gives it one. The
+     screen is read through retireResetLimits, as snapshot() reads it. */
+  const { reconcileReport: reconcile, retireResetLimits: retire } = require('./status');
   const { guideFailure } = require('./setup-assistant');
   const pane = { session: 'guide', name: 'guide', claim: 'guide', command: '2.1.239', title: '✳ Claude Code' };
   const RULE = '─'.repeat(80) + '\n';
-  const SCREEN = '> hello\n'
-    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
-    + '✻ Sautéed for 0s · done 10:35 PM\n' + RULE + '❯ \n' + RULE + '  guide · Opus 4.8 · 7d 100%\n';
-  const scraped = classify(pane, SCREEN);
-  assert.equal(scraped.state, STATE.RATE_LIMITED, 'the fixture is not a capped screen: ' + scraped.state);
+  const STATUS = RULE + '❯ \n' + RULE + '  guide · Opus 4.8 · 7d 100%\n';
+  const OLD = "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n" + '✻ Sautéed for 0s · done 10:35 PM\n';
+  const SCREEN = '> hello\n' + OLD + STATUS;
   const RESET = Date.UTC(2026, 9, 5, 5, 0);   // Oct 5, 12am in Chicago (CDT, UTC-5)
-  assert.equal(limitResetAt(scraped.evidence, Date.UTC(2026, 9, 2, 15)), RESET, 'the reset time was read wrong');
+  const read = (text, at) => reconcile({ found: false }, classify(pane, retire(text, at)), at);
 
-  const before = reconcile({ found: false }, scraped, RESET - 60 * 1000);
+  const before = read(SCREEN, RESET - 60 * 1000);
   assert.equal(before.state, STATE.RATE_LIMITED, 'a minute BEFORE the reset the card must still read capped');
   assert.deepEqual(guideFailure({ ...before, runner: 'claude' }), { problem: STATE.RATE_LIMITED, runner: 'claude' });
-
-  const after = reconcile({ found: false }, scraped, RESET + 60 * 1000);
-  assert.equal(after.state, STATE.IDLE, 'a minute AFTER the reset the card still reads ' + after.state);
-  assert.match(after.because, /^its usage limit reset at /);
+  /* After the reset the pane reads exactly as the same screen with no limit line on it ever did (here unknown: an
+     at-rest Claude Code with nothing reported), not some relabel of the capped reading. */
+  const after = read(SCREEN, RESET + 60 * 1000);
+  const clean = reconcile({ found: false }, classify(pane, '> hello\n✻ Sautéed for 0s · done 10:35 PM\n' + STATUS), RESET + 60 * 1000);
+  assert.equal(after.state, clean.state, 'a minute AFTER the reset the card reads ' + after.state + ', not as the clean screen (' + clean.state + ')');
+  assert.notEqual(after.state, STATE.RATE_LIMITED);
   assert.equal(guideFailure({ ...after, runner: 'claude' }), null, 'past the reset the bubble stays on the backup');
+  assert.doesNotMatch(String(after.evidence || ''), /hit your/, 'an idle card still quotes the old limit line');
 
-  /* Controls: a limit line with no date it can read stays capped however late it is (the old behaviour), and so does
-     one naming a zone this runtime does not know. Neither may fail toward "answering again". */
-  for (const line of ["You've reached your Fable 5 limit. Run /usage-credits to continue.",
-    "You've hit your weekly limit · resets 3pm (America/Chicago)",
-    "You've hit your weekly limit · resets Oct 5 at 12am (Mars/Olympus_Mons)"]) {
-    const s = { ...scraped, evidence: line };
-    assert.equal(reconcile({ found: false }, s, Date.UTC(2030, 0, 1)).state, STATE.RATE_LIMITED, 'unreadable reset un-capped: ' + line);
+  /* Review round 1, BLOCKER 1: capped AGAIN after the reset. The old line must not decide: the new one does, whether
+     it has a reset (later), none at all, or is the 2026-08-21 wording. */
+  for (const line of ["You've hit your monthly spend limit.", "You've hit your session limit · resets 5am (America/Chicago)",
+    "You've hit your weekly limit · resets Oct 12 at 12am (America/Chicago)"]) {
+    const again = read('> hello\n' + OLD + '> hi again\n  ⎿  ' + line + '\n✻ Cooked for 0s · done 9:01 AM\n' + STATUS, RESET + 3600000);
+    assert.equal(again.state, STATE.RATE_LIMITED, 'capped again after the reset reads ' + again.state + ': ' + line);
+    assert.match(again.evidence, new RegExp('^' + line.slice(0, 30).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'the OLD line is the evidence');
   }
-  /* A January reset read in late December is next year's, not eleven months ago. */
-  assert.equal(limitResetAt("resets Jan 2 at 12am (America/Chicago)", Date.UTC(2026, 11, 30)), Date.UTC(2027, 0, 2, 6, 0));
+  const reached = read('> hello\n' + OLD + '> hi again\n'
+    + "  ⎿  You've reached your Opus limit.\n     Run /usage-credits to continue or switch models with /model.\n" + STATUS, RESET + 3600000);
+  assert.equal(reached.state, STATE.RATE_LIMITED, 'capped again (2026-08-21 wording) after the reset reads ' + reached.state);
+
+  /* BLOCKER 2: the limit MENU holds the session until a key is pressed; past the reset it must stay capped, so the
+     bubble stays on the backup rather than sending into a held session. The menu as observed 2026-10-01. */
+  const MENU = '> hello\n' + OLD + '   What do you want to do?\n'
+    + '   ❯ 1. Stop and wait for limit to reset\n     2. Wait here, then continue automatically at Oct 5 at 12am\n'
+    + '     3. Switch to usage credits\n   Enter to confirm · Esc to cancel\n';
+  assert.equal(read(MENU, RESET + 3600000).state, STATE.RATE_LIMITED, 'the limit menu past the reset handed the bubble back');
+
+  /* SHOULD-FIX 1 (#5029 round 6's recovered pane): reset passed, the person typed on, the agent asks a question. The
+     question must surface; before #5031 the old line hid it as capped, and round 1's relabel hid it as idle. */
+  const ASKS = '> hello\n' + OLD + '> go on\n● Bash(rm -rf build)\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  assert.equal(read(ASKS, RESET + 3600000).state, STATE.NEEDS_YOU, 'a recovered pane hid its question');
+
+  /* Controls: limit lines with no reset this can place stay capped however late it is (the old behaviour). */
+  for (const line of ["You've hit your weekly limit · resets 3pm (America/Chicago)",
+    "You've hit your weekly limit · resets Oct 5 at 12am (Mars/Olympus_Mons)", "You've hit your monthly spend limit."]) {
+    const late = read('> hello\n  ⎿  ' + line + '\n✻ Cooked for 0s · done 9:01 AM\n' + STATUS, Date.UTC(2030, 0, 1));
+    assert.equal(late.state, STATE.RATE_LIMITED, 'unreadable reset un-capped: ' + line);
+  }
+  /* And only Claude Code's own block is removed: a catted capture's indented rows (no column-0 footer) are untouched. */
+  const CATTED = '● Bash(cat x)\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '      Do you want to proceed?\n● done\n' + STATUS;
+  assert.equal(retire(CATTED, RESET + 3600000), CATTED, 'rows outside a vendor limit block were removed');
+});
+
+test('#5031: limitResetAt places the reset Claude Code writes, and nothing it cannot', () => {
+  const { limitResetAt: at } = require('./status');
+  const NOW = Date.UTC(2026, 9, 2, 15);
+  const Z = '(America/Chicago)';
+  const cases = [
+    ['Oct 5 at 12am', Date.UTC(2026, 9, 5, 5, 0), '12am is midnight'],
+    ['Oct 5 at 12pm', Date.UTC(2026, 9, 5, 17, 0), '12pm is noon'],
+    ['Oct 5 at 4pm', Date.UTC(2026, 9, 5, 21, 0), 'pm read as am: un-caps 12 hours early'],
+    ['Oct 5 at 4:30pm', Date.UTC(2026, 9, 5, 21, 30), 'minutes dropped'],
+    ['Nov 1 at 3am', Date.UTC(2026, 10, 1, 9, 0), 'after the fall-back the offset is CST (-6)'],
+    ['Nov 1 at 1:30am', Date.UTC(2026, 10, 1, 7, 30), 'the repeated hour must resolve LATER (stay capped)'],
+    ['Jan 2, 2027 at 12am', Date.UTC(2027, 0, 2, 6, 0), "Claude Code's explicit-year form"],
+    ['Mar 14, 2027 at 4am', Date.UTC(2027, 2, 14, 9, 0), 'after the spring-forward the offset is CDT (-5): one offset pass reads it an hour late'],
+    ['Oct 5, 12am', Date.UTC(2026, 9, 5, 5, 0), 'the comma form a newer ICU writes'],
+  ];
+  for (const [when, want, why] of cases) assert.equal(at('resets ' + when + ' ' + Z, NOW), want, when + ': ' + why);
+  assert.equal(at('resets Oct 5 at 12am (UTC)', NOW), Date.UTC(2026, 9, 5, 0, 0), 'a one-part zone');
+  /* The year: the latest candidate at most 35 days ahead. */
+  assert.equal(at('resets Jan 2 at 12am ' + Z, Date.UTC(2026, 11, 30)), Date.UTC(2027, 0, 2, 6, 0), 'January read in December is next year');
+  assert.equal(at('resets Dec 31 at 11pm ' + Z, Date.UTC(2027, 0, 1, 12)), Date.UTC(2027, 0, 1, 5, 0), 'December read in January is last year');
+  assert.equal(at('resets Oct 5 at 12am ' + Z, Date.UTC(2027, 4, 1)), Date.UTC(2026, 9, 5, 5, 0), 'a line left on screen for months reads as passed');
+  for (const bad of ['resets Feb 30 at 12am ' + Z, 'resets Oct 5 at 13pm ' + Z, 'resets 4pm ' + Z, 'resets Oct 5 at 12am (Mars/Olympus_Mons)', 'resets soon'])
+    assert.equal(at(bad, NOW), null, 'placed an unplaceable reset: ' + bad);
 });
 
 test('#887: the prompt glyph ❯ (and Codex\'s ›) is stripped from the evidence line', () => {

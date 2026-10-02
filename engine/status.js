@@ -2508,24 +2508,33 @@ if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LI
    What it must NOT take is the mid-turn spinner, which also uses the ✻ frame ("✻ Improvising… (35s · thought for 8s)"):
    a healthy agent that cats a capture mid-turn has that spinner right under the tool result. */
 const TURN_FOOTER = /^✻ (?:\S+ for \d[\d.dhms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
+/* The index of the turn footer that makes rows[i] Claude Code's own limit row, or -1: the first non-blank column-0 row
+   within six after it (#5029 review 7). Shared by limitMarkersFor and #5031's retireResetLimits so the two cannot
+   disagree about which rows are the vendor's. */
+function vendorFooterAt(rows, i) {
+  for (let k = i + 1; k < Math.min(rows.length, i + 7); k++) {
+    if (/^\S/.test(rows[k])) return TURN_FOOTER.test(rows[k]) ? k : -1;
+  }
+  return -1;
+}
 function limitMarkersFor(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
-  const vendor = rows.some((row, i) => {
-    if (!HIT_YOUR_LIMIT.test(row)) return false;
-    const next = rows.slice(i + 1, i + 7).find((r) => /^\S/.test(r));
-    return next !== undefined && TURN_FOOTER.test(next);
-  });
+  const vendor = rows.some((row, i) => HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0);
   return vendor ? RATE_LIMIT_MARKERS : RATE_LIMIT_MARKERS.filter((re) => re !== HIT_YOUR_LIMIT);
 }
 
 /* #5031: when a Claude limit's own line says it has reset. Observed 2026-10-02 (#5029):
      You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
-   The time is wall-clock in the IANA zone the line names, with no year. Returns epoch ms, or null for anything else
-   (a time with no date, a zone this runtime does not know, no reset at all): null keeps the card capped, which is
-   what it did before, so an unparsed wording can only fail toward Paused, never toward a false "answering again".
-   The year is the one that puts the reset nearest to now, so a December reset read in January lands right. */
-const LIMIT_RESET = /\bresets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}) at (\d{1,2})(?::(\d{2}))?(am|pm) \(([A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+)\)/;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+   The time is wall-clock in the zone the line names. Claude Code 2.1.287 adds ", <year>" when the reset falls in
+   another year, and writes a time with no date when the reset is under a day away (review round 1, from its formatter;
+   neither is in a capture). Returns epoch ms, or null for anything it cannot place: a time with no date, an unknown
+   zone, no reset at all. Null keeps the pane capped, as before, so an unread wording fails toward Paused, never toward
+   a false "answering again". With no year, the reset is the LATEST candidate no more than 35 days ahead: no Claude
+   limit resets further out, so a line left on screen for months still reads as passed, and a January reset read in
+   late December lands next year. A wall time the fall-back hour repeats resolves to the LATER instant (stay capped). */
+const LIMIT_RESET = /\bresets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})(?:, (\d{4}))?(?: at|,) (\d{1,2})(?::(\d{2}))? ?(am|pm) \(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)*)\)/i;
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const RESET_HORIZON_MS = 35 * 24 * 3600 * 1000;
 function zoneOffsetMs(zone, ms) {
   const at = Math.floor(ms / 1000) * 1000;
   const p = {};
@@ -2537,25 +2546,56 @@ function limitResetAt(line, nowMs) {
   const m = LIMIT_RESET.exec(String(line == null ? '' : line));
   if (!m) return null;
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  const month = MONTHS.indexOf(m[1]);
+  const month = MONTHS.indexOf(m[1].toLowerCase());
   const day = Number(m[2]);
-  const hour12 = Number(m[3]);
-  const minute = m[4] === undefined ? 0 : Number(m[4]);
+  const hour12 = Number(m[4]);
+  const minute = m[5] === undefined ? 0 : Number(m[5]);
   if (day < 1 || day > 31 || hour12 < 1 || hour12 > 12 || minute > 59) return null;
-  const hour = (hour12 % 12) + (m[5] === 'pm' ? 12 : 0);
-  let best = null;
+  const hour = (hour12 % 12) + (m[6].toLowerCase() === 'pm' ? 12 : 0);
+  const zone = m[7];
+  const instant = (y) => {
+    const wall = Date.UTC(y, month, day, hour, minute);
+    if (new Date(wall).getUTCDate() !== day) return null;   // Feb 30 and the like
+    /* Twice: the offset AT the instant, not at the wall time read as UTC (they differ near a DST change). */
+    let at = wall - zoneOffsetMs(zone, wall);
+    at = wall - zoneOffsetMs(zone, at);
+    if (at + 3600000 + zoneOffsetMs(zone, at + 3600000) === wall) at += 3600000;   // the repeated fall-back hour: later
+    return at;
+  };
   try {
+    if (m[3] !== undefined) return instant(Number(m[3]));
     const year = new Date(now).getUTCFullYear();
+    let best = null;
     for (const y of [year - 1, year, year + 1]) {
-      const wall = Date.UTC(y, month, day, hour, minute);
-      if (new Date(wall).getUTCDate() !== day) continue;   // Feb 30 and the like
-      /* Twice: the offset AT the instant, not at the wall time read as UTC (they differ near a DST change). */
-      let at = wall - zoneOffsetMs(m[6], wall);
-      at = wall - zoneOffsetMs(m[6], at);
-      if (best === null || Math.abs(at - now) < Math.abs(best - now)) best = at;
+      const at = instant(y);
+      if (at !== null && at <= now + RESET_HORIZON_MS && (best === null || at > best)) best = at;
     }
+    return best;
   } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
-  return best;
+}
+
+/* #5031: the screen with every Claude limit block whose own reset has PASSED taken out, so classify reads what is
+   left (review round 1: relabelling the whole reading idle read only the OLDEST limit line and hid whatever else the
+   screen showed). A limit line stays on screen until the agent gets a new turn, and a capped Guide gets none (the
+   bubble is on the backup, #3660), so without this its card read capped forever. Removed: a vendor limit row (the
+   #5029 gate: its first column-0 row within six is a turn footer) and Claude Code's own indented rows under it, up
+   to that footer. Kept, so the pane stays capped: a row whose reset this cannot read or has not passed, and any row
+   with the limit menu ("Stop and wait for limit to reset", observed 2026-10-01) still on screen after it, because
+   that menu holds the session until a key is pressed and a message sent to it would queue unread. */
+function retireResetLimits(text, nowMs) {
+  const rows = String(text == null ? '' : text).split('\n');
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const lastMenu = rows.reduce((at, row, i) => (/Stop and wait for limit to reset/.test(row) ? i : at), -1);
+  const drop = new Set();
+  rows.forEach((row, i) => {
+    if (!HIT_YOUR_LIMIT.test(row) || lastMenu > i) return;
+    const footer = vendorFooterAt(rows, i);
+    if (footer < 0) return;
+    const resetAt = limitResetAt(row, now);
+    if (resetAt === null || now < resetAt) return;
+    for (let k = i; k < footer; k++) drop.add(k);
+  });
+  return drop.size ? rows.filter((_, k) => !drop.has(k)).join('\n') : text;
 }
 
 /**
@@ -6950,19 +6990,6 @@ function quotaPauseUntil(reported, nowMs) {
 
 // #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
-  /* #5031: a Claude usage limit whose own line says it has reset is over. Nothing else clears it: the limit line stays
-     on the screen until the agent is given a new turn, and the Guide's bubble, on Kosmos's backup while its Guide is
-     capped (#3660), never gives it one, so the card read capped and the bubble never handed back. Turned into the
-     idle reading here, the one place with a clock, so every rule below sees an agent that is simply waiting. Only a
-     reset this can read and that has passed: anything else stays capped, as before. */
-  if (scraped && scraped.state === STATE.RATE_LIMITED && scraped.confidence === CONFIDENCE.SCRAPED) {
-    const resetAt = limitResetAt(scraped.evidence, nowMs);
-    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-    if (resetAt !== null && now >= resetAt) {
-      scraped = { ...scraped, state: STATE.IDLE,
-        because: 'its usage limit reset at ' + require('./quotawords').quotaResetWords(resetAt, now) + ' and it has not been given anything since' };
-    }
-  }
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
      never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
@@ -7803,7 +7830,7 @@ function snapshot() {
   const panes = onePanePerSession(read);
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
-    const scrapedStatus = classify(pane, text);
+    const scrapedStatus = classify(pane, retireResetLimits(text, Date.now()));   // #5031
     /* The agent's own account outranks the scrape when fresh (#188); only a
        pane TIED to the name may read that name's record, the same gate every
        name-keyed read below honours. */
@@ -8701,7 +8728,7 @@ module.exports = {
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, retireResetLimits, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
