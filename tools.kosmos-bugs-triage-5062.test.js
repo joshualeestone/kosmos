@@ -367,3 +367,15 @@ test('#5062 review 10: a group left "filing" stays in the digest and can be retr
   assert.match(out, /then the token expired/, 'plain prose about a token was taken for a secret');
   assert.throws(() => t.dup('g1', '0x10', o), /dup needs a card number/);
 });
+
+test('#5062 review 11: env-var and compound secret labels, Basic auth, short and quoted values go; counts and plain words stay', () => {
+  const gone = ['OPENAI_API_KEY=abcd1234efgh5678', 'refresh_token: abcdefghijkl', 'DB_PASS=abcdefghijk', 'api key: abcdefgh12345678',
+    'Authorization: Basic dXNlcjpwYXNzd29yZA==', 'password: hunter2', 'password="my secret pass phrase" ok', 'password: 12345678'];
+  const out = gone.map((x) => t.scrub(x, [])).join('\n');
+  assert.doesNotMatch(out, /abcd1234|abcdefgh|dXNlcj|hunter2|pass phrase|12345678/, out);
+  assert.match(out, /OPENAI_API_KEY=\[secret-removed\]/, 'the label must stay so the report still says what was set');
+  const keep = 'tokens: 1234567890 used; token: undefined; secret: required; the token expired';
+  assert.equal(t.scrub(keep, []), keep, 'bug detail was taken for a secret');
+  assert.equal(t.scrub('header -----BEGIN RSA PRIVATE KEY----- missing.\n\nmore detail here', []), 'header [secret-removed]\n\nmore detail here',
+    'a header with no END took the rest of the post');
+});
