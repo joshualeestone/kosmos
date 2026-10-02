@@ -235,6 +235,9 @@ test('#4951 review 3: a failed delivery keeps the told ids held in memory (store
   ok = true;
   await rn.sweepOnce(o);            // b again: the line must count only b
   assert.match(typed[typed.length - 1], /you have 1 new reply/, 'a was told again after a failed delivery: ' + typed[typed.length - 1]);
+  const told = typed.length;
+  await rn.sweepOnce(o);            // review 10 (Opus): a and b both held in memory now; nothing may be typed
+  assert.equal(typed.length, told, 'a reply held in memory was told again after its batch went out: ' + typed[typed.length - 1]);
 });
 
 test('#4951 review 3 (Opus): the gates are asked again before each line; switched off mid-pass, the next agent is not told', async () => {
@@ -468,4 +471,14 @@ test('#4951 review 9 (Sonnet): a batch that keeps reaching nothing is logged on 
   o.deliver = () => ({ state: D.COULD_NOT });
   for (let i = 0; i < rn.MAX_TRIES + 1; i += 1) await rn.sweepOnce(o);
   assert.equal(said.length, 2, 'not one line on the first try and one on the last: ' + JSON.stringify(said));
+});
+
+test('#4951 review 10 (Opus): a partial count (a post it could not read) is not asked again this pass, and nothing is typed', async () => {
+  const asked = [];
+  const { o, typed } = rig({ roster: [card('kim'), card('ann')], busyWaitMs: 0,
+    fresh: async (s) => { asked.push(s); return s === 'kim' ? { ok: false, busy: true, partial: true, because: 'one of its posts could not be read' } : { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }; } });
+  const r = await rn.sweepOnce(o);
+  assert.deepEqual(asked, ['kim', 'ann'], 'a partial count was asked again in the same pass, or ended it');
+  assert.deepEqual(typed.map((t) => t.s), ['ann'], 'an agent whose count was partial was told something');
+  assert.ok(r.results.some((x) => x.session === 'kim' && x.act === 'busy'));
 });

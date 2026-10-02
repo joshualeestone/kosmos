@@ -149,3 +149,23 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT (kept): an unparseable told file skips that agent until someone looks. The safe direction for "never twice";
   quarantining it would risk a repeat line. The skip is logged once with its reason.
 - Targeted files: 245/245.
+
+## Review 10 (Opus, blind): 1 blocker, 2 warnings, 2 nits.
+- BLOCKER (reproduced, both arms) FIXED: a post the count skipped (no answer, a non-200, a failed reply page) moved the
+  cap boundary. The read a minute later could reach it, its older replies took places in the read's 30, and counted
+  replies fell past the cap; those were recorded as told and never told again. Fix: a post that cannot be read makes
+  the WHOLE count partial ({ ok: false, busy: true, partial: true }), so nothing is told about that agent this pass, and
+  sweepOnce does not ask a partial count again in the same pass. Only a post that has failed FRESH_DOWN_PASSES (3)
+  passes in a row is skipped as gone (down that long, it is down for the read too, and it must not hold the agent's
+  nudges forever); its run starts over once it answers. 404/410 is gone, as in the read. Tests: partial until 3 passes,
+  then skipped; counted again when it answers; a 500 counts as unreadable; two unanswered in a row still stop; a failed
+  round-2 page is partial; a partial count is not retried and types nothing. 6 mutants killed.
+  WEAKEST PREMISE: a post down 3 passes (30 min) is also down for the agent's read. If it comes back between the count
+  and the read, the old class returns for that one pass.
+- WARNING FIXED: FRESH_PACE_MS 500 -> 1500 (40 a minute at most), so two agents' own reads (40 each) fit inside the
+  service's 200 a minute beside a count. Pin: perMinute + 2 reads < 200 (fails at 500, checked).
+- WARNING FIXED: the in-memory told union had no test that could fail: the review-3 test now runs a fourth pass and
+  asserts nothing is typed. Mutant killed.
+- NIT FIXED: three comments still said "round 1 only" / "first pages"; rewritten.
+- NIT FIXED: an assertion that could never fail is renamed to what it does check (no reply page asked without a cursor).
+- Targeted files: 247/247.

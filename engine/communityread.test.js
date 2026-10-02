@@ -941,7 +941,7 @@ test('#4951 freshReplies counts what read --replies would show as new, and MOVES
   assert.equal(f.ok, true, f.because);
   assert.deepEqual(f.posts.map((p) => [p.remoteId, p.ids]), [[RP(7), [CID(1), CID(3)]]], 'not the new items, oldest first, without its own or the too-old one');
   assert.ok(!seen.some((u) => u.includes(RP(8))), 'another agent\'s post was read');
-  assert.ok(!seen.some((u) => u.includes('/replies?')), 'freshReplies read beyond round 1');
+  assert.ok(!seen.some((u) => u.includes('/replies?')), 'a reply page was asked for though no comment has hidden replies');
   assert.equal(fs.existsSync(seenPath('Nia4951')), false, 'freshReplies wrote a mark');
   assert.equal(f.marksAt, cr.marksStamp('Nia4951'), 'review 5: the stamp taken with the count does not match an unchanged read');
   const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the agent's own read still shows both, and moves the mark
@@ -1022,7 +1022,7 @@ test('#4951 review 2: the count steps aside between posts while an agent\'s own 
   assert.equal(asked.length < 4, true, 'the count went on to its second post while the agent\'s read was waiting: ' + asked.length);
 });
 
-test('#4951 review 6 (Opus): a 429 (or, review 8, NO_ANSWER_STOP unanswered in a row) ends the count as busy with stop; other posts are not asked', async () => {
+test('#4951 review 6 (Opus): a 429 ends the count as busy with stop, and (review 10) one unanswered post makes it partial; other posts are not asked', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
     b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
@@ -1031,8 +1031,11 @@ test('#4951 review 6 (Opus): a 429 (or, review 8, NO_ANSWER_STOP unanswered in a
     cr.setFetcher((url) => { asked.push(url); return Promise.resolve({ status, json: null }); });
     const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
     assert.equal(f.busy, true, status + ': not busy');
-    assert.equal(f.stop, true, status + ': not a stop');
-    assert.equal(asked.length, status ? 1 : cr.NO_ANSWER_STOP, status + ': asked past the stop: ' + asked.length);
+    assert.equal(Boolean(f.stop), status === 429, status + ': stop is for a 429 only');
+    assert.equal(Boolean(f.partial), status !== 429, status + ': an unanswered post did not make the count partial');
+    cr._freshDownReset();
+    // Review 10: one unanswered post makes the count partial (busy, no stop); a 429 stops.
+    assert.equal(asked.length, 1, status + ': asked past the first post: ' + asked.length);
   }
   const asked = [];
   cr.setFetcher((url) => { asked.push(url); return Promise.resolve({ status: 404, json: null }); });   // CONTROL: a gone post is skipped, not a stop
@@ -1079,25 +1082,33 @@ test('#4951 review 7 (Sonnet): two agents\' own reads still refuse each other (o
 
 /* #4951 review 8 (Opus): ONE post that does not answer is skipped (the agent's own read skips it too); the count stops
    only on a 429 or NO_ANSWER_STOP unanswered requests in a row. */
-test('#4951 review 8 (Opus): one unanswered post is skipped and the agent\'s other posts still count; two in a row stop', async () => {
-  on(); clearSeen();
+test('#4951 review 10 (Opus): a post it cannot read makes the count partial until it has failed FRESH_DOWN_PASSES passes in a row; then it is skipped', async () => {
+  on(); clearSeen(); cr._freshDownReset();
   writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
     b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
   const answer = { status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'hi' })] } };
-  const run = async (down) => {
-    const asked = [];
-    cr.setFetcher(async (url) => { asked.push(url); return down.some((d) => url.includes(d)) ? { status: 0, json: null } : answer; });
-    return { f: await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 }), asked };
-  };
-  const one = await run([RP(7)]);
-  assert.equal(one.f.ok, true, 'one unanswered post ended the count: ' + one.f.because);
-  assert.deepEqual(one.f.posts.map((p) => p.remoteId), [RP(8)], 'the agent\'s other post was not counted');
-  const own = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the agent's own read shows the same one reply
-  assert.equal(own.count, 1, 'the count and the agent\'s own read disagree with one post down');
-  clearSeen();
-  const both = await run([RP(7), RP(8)]);
-  assert.equal(both.f.stop, true, 'two unanswered requests in a row did not stop the count');
-  assert.equal(both.asked.length, cr.NO_ANSWER_STOP);
+  let down = [RP(7)];
+  let downAs = { status: 0, json: null };
+  cr.setFetcher(async (url) => (down.some((d) => url.includes(d)) ? downAs : answer));
+  const pass = () => cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  for (let i = 1; i < cr.FRESH_DOWN_PASSES; i += 1) {
+    const f = await pass();
+    assert.equal(f.partial, true, 'pass ' + i + ': a post that could not be read did not make the count partial');
+    assert.ok(!f.ok && !f.stop, 'pass ' + i + ': a partial count read as ok, or as a stop');
+  }
+  const skipped = await pass();
+  assert.equal(skipped.ok, true, 'a post down ' + cr.FRESH_DOWN_PASSES + ' passes in a row still held the count: ' + skipped.because);
+  assert.deepEqual(skipped.posts.map((p) => p.remoteId), [RP(8)]);
+  down = [];
+  assert.equal((await pass()).posts.length, 2, 'the post answering again was not counted');
+  down = [RP(7)]; downAs = { status: 500, json: null };   // its run starts over once it has answered, and a 500 counts too
+  assert.equal((await pass()).partial, true, 'a post that answered in between was still skipped, or a 500 was not unreadable');
+  cr._freshDownReset();
+  down = [RP(7), RP(8)]; downAs = { status: 0, json: null };
+  for (let i = 1; i < cr.FRESH_DOWN_PASSES; i += 1) await pass();   // both down: partial at the first
+  const both = await pass();   // the first is now skipped (one no-answer), the second is the second in a row
+  assert.equal(both.stop, true, 'two unanswered requests in a row did not stop the count');
+  cr._freshDownReset();
 });
 
 /* Review 8 (Opus): the round-2 loop (the unshown replies of the newest REPLY_PAGES_PER_POST comments that have any). */
@@ -1132,13 +1143,13 @@ test('#4951 review 8 (Opus): round 2 reads exactly REPLY_PAGES_PER_POST pages, i
   assert.equal(shownSeen.filter((u) => u.includes('/replies?')).length, 3);
 });
 
-test('#4951 review 8 (Opus): round 2: a failed page leaves that post unsaid; a 429 stops; a waiting read makes it step aside; it is paced', async () => {
+test('#4951 review 8 (Opus): round 2: a failed page makes the count partial (review 10); a 429 stops; a waiting read makes it step aside; it is paced', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
   serve(hiddenRoutes(4, (i) => (i === 1 ? { status: 500, json: null } : hiddenPage(i))));
   const failed = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
-  assert.equal(failed.ok, true, failed.because);
-  assert.deepEqual(failed.posts, [], 'a post with a failed round-2 page was counted (its own read shows nothing of it)');
+  assert.equal(failed.partial, true, 'a post with a failed round-2 page did not make the count partial (review 10)');
+  cr._freshDownReset();
   const asked = serve(hiddenRoutes(4, (i) => (i === 3 ? { status: 429, json: null } : hiddenPage(i))));   // c3: the first page asked
   const limited = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
   assert.equal(limited.stop, true, 'a round-2 429 did not stop the count');
@@ -1182,18 +1193,23 @@ test('#4951 review 8 (Opus): the stamp taken with a count matches the marks the 
   assert.equal(f.marksAt, written, 'the stamp taken with the count is not the agent\'s marks');
 });
 
-test('#4951 review 9 (Sonnet): "in a row" means in a row: no answer, an answer, no answer again does not stop the count', async () => {
-  on(); clearSeen();
+test('#4951 review 9 (Sonnet): "in a row" means in a row: a skipped post, an answer, then no answer is partial, not a stop', async () => {
+  on(); clearSeen(); cr._freshDownReset();
   writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
     b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' },
     c: { state: 'sent', agent: 'Nia4951', remoteId: RP(9), sentAt: '2026-09-30T08:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  let cDown = false;
   const asked = [];
-  cr.setFetcher(async (url) => { asked.push(url); return url.includes(RP(8)) ? { status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'hi' })] } } : { status: 0, json: null }; });
+  cr.setFetcher(async (url) => { asked.push(url); if (url.includes(RP(7)) || (cDown && url.includes(RP(9)))) return { status: 0, json: null };
+    return { status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'hi' })] } }; });
+  for (let i = 0; i < cr.FRESH_DOWN_PASSES; i += 1) await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });   // RP(7) is now skipped
+  cDown = true; asked.length = 0;
   const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
-  assert.equal(asked.length, 3, 'fixture: not every post was asked, in the order fail, answer, fail');
+  assert.equal(asked.length, 3, 'fixture: not every post was asked, in the order no answer (skipped), answer, no answer');
   assert.ok(asked[0].includes(RP(7)) && asked[1].includes(RP(8)) && asked[2].includes(RP(9)), 'fixture: posts asked in another order');
-  assert.equal(f.ok, true, 'two unanswered requests with an answer between them stopped the count: ' + f.because);
-  assert.deepEqual(f.posts.map((p) => p.remoteId), [RP(8)]);
+  assert.ok(!f.stop, 'two unanswered requests with an answer between them stopped the count');
+  assert.equal(f.partial, true);
+  cr._freshDownReset();
 });
 
 test('#4951 review 9 (Sonnet): the count is capped as the agent\'s own read is (REPLIES_SHOWN_MAX, oldest first across posts); the rest come after it reads', async () => {
@@ -1220,4 +1236,10 @@ test('#4951 review 9 (Sonnet): the count is capped as the agent\'s own read is (
   for (const x of want.flat()) assert.ok(r.text.includes(x), 'the read does not show ' + x);
   const after = await cr.freshReplies('Nia4951', { now: NOW + 1000, paceMs: 0 });
   assert.deepEqual(after.posts.flatMap((p) => p.ids).sort(), [30, 31, 32, 33, 34, 35].map(id).sort(), 'the rest were not counted once the agent had read the first ' + max);
+});
+
+test('#4951 review 10 (Opus): the count\'s pace leaves the service room for two agents\' own reads in the same minute', () => {
+  const perMinute = 60000 / cr.FRESH_PACE_MS;
+  const ownRead = cr.REPLIES_POSTS * (1 + 3);   // a read: each post's thread plus up to three reply pages
+  assert.ok(perMinute + 2 * ownRead < 200, 'the count paces ' + perMinute + ' a minute; with two reads of ' + ownRead + ' that passes the service\'s 200');
 });

@@ -9,7 +9,7 @@
  * could sit unanswered until the agent happened to look.
  *
  * What this does. Every REPLY_NUDGE_INTERVAL_MS the board looks, for each idle agent of ours, at what its own read would
- * show as new (communityread.freshReplies: the same posts, marks and own-name rule, round 1 only, and it moves no
+ * show as new (communityread.freshReplies: the same posts, marks, own-name rule, round 2 and 30-reply cap, and it moves no
  * mark). For the reply ids it has not nudged about before, it types ONE line into the agent's session through
  * chat.deliverAutomatic, the board's own typing path (agentnudge.js and firstreply-nudge.js use it the same way):
  * "You have N new replies on your community post '<title>'. Answer each once: kosmos community read --replies".
@@ -43,7 +43,7 @@ const MAX_TRIES = 3;
 const BUSY_WAIT_MS = 5 * 1000;   // review 6: a busy count waits this long for the read holding the lock, then asks again
 const BUSY_RETRIES = 4;          // so about 20 s, past an agent's own read (two 8 s rounds at most)
 const TYPE_GAP_MS = 20 * 1000;   // review 2: between two agents' lines, so each told agent reads with the lock free
-/* Ids kept per agent. One read shows at most 30 and a pass sees at most 10 posts' first pages, so this holds weeks. */
+/* Ids kept per agent. One count names at most 30 (the read's cap), so this holds weeks. */
 const NUDGED_MAX = 1000;
 const TITLE_CAP = 80;
 
@@ -186,7 +186,8 @@ async function sweepOnce(o) {
         /* Review 6 (Opus): a count that stepped aside for an agent's own read would leave every later agent busy too (the
            read holds the lock for seconds). So a busy count waits for the read and asks again, up to BUSY_RETRIES times.
            A service that refuses (429, or not answering) ends the counting for this pass: its budget is the agents'. */
-        for (let i = 0; fresh && fresh.busy && !fresh.stop && i < BUSY_RETRIES; i += 1) {
+        // Review 10: a partial count (a post it could not read) is not asked again this pass: nothing changes in 20 s.
+        for (let i = 0; fresh && fresh.busy && !fresh.stop && !fresh.partial && i < BUSY_RETRIES; i += 1) {
           const wait = Number.isFinite(o.busyWaitMs) ? o.busyWaitMs : BUSY_WAIT_MS;
           if (wait > 0) await new Promise((res) => setTimeout(res, wait));
           fresh = await o.fresh(session);
