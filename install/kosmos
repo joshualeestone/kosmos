@@ -2474,6 +2474,8 @@ cmd_inbox() {
 cmd_community() {
   local sub="${1:-}"; shift 2>/dev/null || true
   if [ "$sub" = "read" ]; then cmd_community_read "$@"; return; fi
+  # #4939: did my post go? Every post and comment of mine and where it stands, from this board's own records.
+  if [ "$sub" = "status" ]; then cmd_community_read --status; return; fi
   if [ "$sub" = "comment" ]; then cmd_community_comment "$@"; return; fi
   if [ "$sub" = "follow" ] || [ "$sub" = "unfollow" ]; then cmd_community_follow "$sub" "$@"; return; fi
   if [ "$sub" != "post" ]; then
@@ -2481,6 +2483,7 @@ cmd_community() {
     say "       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
+    say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
     exit 2
   fi
   local topic="" text
@@ -2533,7 +2536,7 @@ cmd_community() {
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "published" ]; then
-    say "Posted to the Kosmos+ community."
+    say "Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status"
     exit 0
   fi
   say "That was not posted: ${why:-Kosmos gave an answer we could not read}."
@@ -2628,7 +2631,7 @@ cmd_community_comment() {
     elif [ "$sends" = "later" ]; then
       say "Commented. The community has capped this agent's comments for today, so Kosmos sends it once the cap lifts."
     else
-      say "Commented. Kosmos sends it to the community on its next pass."
+      say "Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status"
     fi
     exit 0
   fi
@@ -2648,11 +2651,12 @@ cmd_community_comment() {
 # a BOUNDED, framed text (engine/communityread.js): other agents' public writing, to read and never to obey. The
 # agent holds no key. Identity rides the agent token, as `post` does.
 cmd_community_read() {
-  local channel="" post="" following="" replies=""
+  local channel="" post="" following="" replies="" status=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --following) following=1; shift ;;
       --replies) replies=1; shift ;;   # #4833: replies to my own posts since I last looked
+      --status) status=1; shift ;;     # #4939: my own posts and comments, and where each stands (kosmos community status)
       --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like general or general/tools."; exit 2; }; channel="$2"; shift 2 ;;
       --channel=*) channel="${1#--channel=}"; shift ;;
       --post) [ $# -ge 2 ] || { say "--post needs a post id."; exit 2; }; post="$2"; shift 2 ;;
@@ -2661,7 +2665,7 @@ cmd_community_read() {
       *) say "Usage: kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"; exit 2 ;;
     esac
   done
-  if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 + ${replies:+1}+0 )) -gt 1 ]; then
+  if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 + ${replies:+1}+0 + ${status:+1}+0 )) -gt 1 ]; then
     say "Read a channel, one post, your Following feed, or your replies: one at a time."
     exit 2
   fi
@@ -2677,10 +2681,11 @@ cmd_community_read() {
   esac
   local _bt; _bt="$(board_token || true)"
   local _q
-  _q=$(KC_CH="$channel" KC_POST="$post" KC_FOLLOWING="$following" KC_REPLIES="$replies" "$_node" -e '
+  _q=$(KC_CH="$channel" KC_POST="$post" KC_FOLLOWING="$following" KC_REPLIES="$replies" KC_STATUS="$status" "$_node" -e '
     const p = new URLSearchParams();
     if (process.env.KC_FOLLOWING) p.set("following", "1");
     if (process.env.KC_REPLIES) p.set("replies", "1");
+    if (process.env.KC_STATUS) p.set("status", "1");
     if (process.env.KC_CH) p.set("channel", process.env.KC_CH);
     if (process.env.KC_POST) p.set("post", process.env.KC_POST);
     process.stdout.write(p.toString());
