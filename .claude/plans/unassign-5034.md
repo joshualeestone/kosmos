@@ -19,9 +19,8 @@ Removal deliberately does not unassign task parts (projects.js "A departed assig
 ## The call
 
 In the member route (DELETE `/api/project/:id/agent/:name`), only when the leave MOVED membership:
-- **Clear the report** when the agent's standing report is needs_you or blocked, the board ties it to THIS project
-  (`read().project === id`, stated or carried forward, the same attribution that lit the card), and it is not an
-  automatic permission wait. Written exactly as the person's own clear (#2575): `state: idle, by: 'operator'`, with a
+- **Clear the report** when the agent's standing report is needs_you or blocked, it NAMED this project itself
+  (`read().project === id` and not `projectInferred`; review 1), and it is not an automatic permission wait. Written exactly as the person's own clear (#2575): `state: idle, by: 'operator'`, with a
   `because` naming the project and who took it off. It re-derives: a question still on the agent's screen comes back
   on the next poll.
 - **Drop that project's held room posts** (`roomhold.forgetProject`, a `take` whose ids are discarded). Other
@@ -44,13 +43,15 @@ the same rule `joinTaskClaims` already applies to a departed holder's claim ("ca
 - **Clearing automatic permission waits too.** Those are about the agent's screen, not the project, and are re-derived
   from it anyway.
 
+- **Removing a whole project** does the same for every member (review 1): ids are reused name slugs, so a later
+  project of the same id would inherit both. One helper, `clearLeftovers`, serves both routes.
+
 ## Weakest premise
 
-That a needs_you/blocked the board attributes to the project is ABOUT the project. An inferred attribution (the
-report named no project and inherited the last one) could be a question about something else; the board already
-shows it on this project's cards on the same inference, so the clear matches what the person sees. It re-derives, so
-a wrong clear costs one poll, and the agent's next report raises it again. What would change my mind: a report shape
-where an inherited project is routinely wrong.
+That a needs_you/blocked which NAMED the project is still about it at the moment of the leave. A deliberate question
+at an idle prompt does not re-derive on the next poll, so a wrong clear loses its words until the agent's next turn.
+Mitigated by clearing only a stated attribution (an inherited one is left standing; the card filter already takes
+it out of red). What would change my mind: agents routinely naming one project on a question about another.
 
 Second: `by: 'operator'` on an agent-made removal is not literally a person. Accepted for the reason above.
 
@@ -70,4 +71,9 @@ Wider run: 205 files touching roomhold / waitingOnPerson / selfreport / member r
 
 ## Review log
 
-(challenge loop iterations recorded below)
+- Review 1 (opus, blind): 0 B, 4 W, 4 N. W1 inherited project cleared -> only a stated one (test 8). W2 selfreport
+  security comments named one operator writer -> name clearLeftovers too. W3 project removal left the same leftovers
+  -> shared helper, called for every member (test 9). W4 test 1 after-check changed the screen -> same needs_you
+  screen. N1 read/write race and N2 flush-restore race documented in the helper. N3 "(by an agent)" -> "(not from the
+  screen)". N4 members map built once per request. Sabotage F (inherited check removed) -> test 8 red; G (delete-route
+  call removed) -> test 9 red.
