@@ -318,6 +318,7 @@ test('willSend says later, never no, for a name whose retirement FAILED on this 
     await cs.sweep();
     assert.equal(retireFiles().length, 1, 'CONTROL: the retirement really did not land');
     assert.deepEqual(cs.willSend('rex'), { sends: true, later: true }, 'a held name was not told its comment goes later');
+    assert.equal(cs.postWaits('rex'), true, 'a held name was told its post goes at once');
     assert.deepEqual(cs.willSend('other'), { sends: true, later: false }, 'another agent was held by this name\'s retirement');
   } finally { fs.chmodSync(ep, 0o700); }
   await cs.sweep();

@@ -25,7 +25,7 @@ later (after a restart) does not retire the new agent's account. (A key's time i
 so one that answered after the delete is still the deleted agent's. A record sent after the delete stays with the new
 agent only once a newer key exists; before that it was the deleted agent's send, on the network at the delete.) Each folder is applied on its own and recorded in the request (`done`;
 failures in `stuck`). Until the current service's folder is done, the name acts as nobody there (ensureRegistered,
-agentCallSteps, and a check again after a registration's network wait), willSend ignores the deleted agent's key and
+agentCallSteps, and a check again after a registration's network wait), willSend (and postWaits for a post) ignores the deleted agent's key and
 says "later" (never "no", which the route makes permanent) once a try there has failed, and an unreadable retire folder
 or request holds every name.
 
@@ -78,6 +78,8 @@ record no longer matches. The read, follow and mine paths go through communityse
 - A pending record whose post has left the store (discarded) is neither moved nor marked; nothing sends from records
   without a store row. In a stale service's folder, applied while the post store could not be read, pending records stay
   under the bare name; the store mark is what keeps their posts home.
+- A create under a name that a remote (token) agent holds retires that agent's community account, as the #1131 token
+  revoke in the same step already ends its tokens: create treats a name with no folder, job or session as free.
 - After a restart, a request applied again moves a new agent's record that is `attempted` with no `sentAt` and whose
   post has left the store. Needs an unremovable request file, a restart and a discarded post.
 - A `registering` mark with no key is moved like a key; no key exists to use either way. A retired record still

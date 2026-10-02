@@ -1181,7 +1181,7 @@ function exclusive(fn) {
 
 /* #4994: deleting an agent's leftover frees its name, and a new agent under that name must not inherit the old one's
    community account (its public posts and profile). So the old account is RETIRED, not dropped: its entry in every
-   service folder's keys.json moves to a key no agent name can match (a name never holds a colon), and
+   service folder's keys.json moves to a key no agent name can match (a name never holds a colon: create.js NAME_RE), and
    every record of something it sent follows. Dropped, the owner's later deletes of those public posts would have no
    key to ask with; retired, the delete and take-down passes still reach them as the account that made them, while a
    new agent under the name registers fresh.
@@ -1253,7 +1253,8 @@ function failedHere(agentKey) {   // a try has already failed in the current ser
 }
 function retiredKey(agentKey, at) { return `${RETIRED_PREFIX}${agentKey}:${at}`; }
 /* For the delete's confirmation: how many posts and service comments of the agent the sender could still send, so the
-   delete keeping them home is a real loss: a held one (releasing it could send it), or a published one inside the
+   delete keeping them home is a real loss: a held one (releasing it could send it; quarantined ones never go), or a
+   published one inside the
    current ON period, either with no record or one still waiting, and not deleted by the owner. Read-only; anything
    unreadable counts as some. */
 function unsentCount(agentKey) {
@@ -1366,6 +1367,60 @@ function retireIn(epDir, agentKey, at) {
 // A record the old account never reached: nothing of it is on the service.
 const neverSent = (rec) => rec.state === 'pending' && !rec.attempted;
 const reportedStuck = new Set();
+/* One request at a time, each in its own try (applyRetirements), so one that cannot save its progress does not hold up
+   the others. */
+function applyOne(r, eps) {
+  const file = path.join(retireDir(), r.file);
+  // Until the store is marked, the current folder is not done, so the name stays held and nothing of the deleted
+  // agent can go out as a new one (a folder with nothing to move would otherwise finish the request).
+  let marked = r.marked;                           // once it has landed it is not read again every pass
+  if (!marked) { try { communitystore.markAgentNotSent(r.agent, r.at); marked = true; } catch { marked = false; } }
+  const done = new Set(r.done);
+  let movedAny = false;
+  // Folders a try has failed in, kept IN THE REQUEST so willSend can say so after a restart.
+  const stuck = new Set(r.stuck);
+  for (const ep of eps) {
+    const name = path.basename(ep);
+    if (done.has(name)) continue;
+    let ok = false;
+    let why = marked || ep !== endpointDir() ? 'unknown' : 'the post store';
+    try { ok = (marked || ep !== endpointDir()) && retireIn(ep, r.agent, r.at); } catch (e) { ok = false; why = (e && e.code) || 'unknown'; }
+    if (ok === 'moved') movedAny = true;
+    if (ok) {
+      done.add(name);
+      // The current service's folder is the one the name registers in: the old agent's waits end with it.
+      if (ep === endpointDir()) { registerRetryAt.delete(r.agent); registerWaitWhy.delete(r.agent); }
+      stuck.delete(name);
+    } else stuck.add(name);
+    if (!ok && !reportedStuck.has(r.file + ':' + name)) {
+      reportedStuck.add(r.file + ':' + name);
+      log(`retiring ${r.agent}'s community account: a record in ${name}${marked ? '' : ' or the board\'s post store'} cannot be read or saved (${why}), so that service still has it; tried again on every pass`);
+    }
+  }
+  if ([...eps].every((ep) => done.has(path.basename(ep)))) {
+    // Saved before the unlink: a file that cannot be removed must still say every folder is done, or it would hold
+    // the name on every later pass.
+    if (done.size > r.done.length || marked !== r.marked) {
+      try { saveJson(file, { agent: r.agent, at: r.at, done: [...done], stuck: [], marked }); } catch { /* the unlink may still land */ }
+    }
+    let gone = true;
+    try { fs.unlinkSync(file); } catch (e) { gone = Boolean(e && e.code === 'ENOENT'); }   // applied twice: already gone
+    if (!gone) {
+      finishedRequests.add(r.file);
+      log(`retire request ${r.file} for ${r.agent} is applied everywhere but cannot be removed; it is treated as finished`);
+    }
+    pendingCache.mtimeMs = null;
+    for (const k of [...reportedStuck]) if (k.startsWith(r.file + ':')) reportedStuck.delete(k);
+    // Only when something moved: every create files a request, and most names have nothing to retire.
+    if (movedAny) log(`${r.agent}'s community account is retired: a new agent under the name joins as itself`);
+  } else if (done.size > r.done.length || stuck.size !== r.stuck.length || [...stuck].some((n) => !r.stuck.includes(n))
+    || marked !== r.marked) {
+    saveJson(file, { agent: r.agent, at: r.at, done: [...done], stuck: [...stuck], marked });
+    pendingCache.mtimeMs = null;
+  }
+
+}
+
 function applyRetirements() {
   try {
     const pending = pendingRetirements();
@@ -1381,59 +1436,6 @@ function applyRetirements() {
       try { applyOne(r, eps); } catch (e) { log(`retiring ${r.agent}: ${e && e.code ? e.code : 'failed'}; tried again on the next pass`); }
     }
   } catch (e) { log(`retirements: ${e && e.code ? e.code : 'failed'}; tried again on the next pass`); }
-  // One request at a time, each in its own try, so one that cannot save its progress does not hold up the others.
-  function applyOne(r, eps) {
-    {
-      const file = path.join(retireDir(), r.file);
-      // Until the store is marked, the current folder is not done, so the name stays held and nothing of the deleted
-      // agent can go out as a new one (a folder with nothing to move would otherwise finish the request).
-      let marked = r.marked;                           // once it has landed it is not read again every pass
-      if (!marked) { try { communitystore.markAgentNotSent(r.agent, r.at); marked = true; } catch { marked = false; } }
-      const done = new Set(r.done);
-      let movedAny = false;
-      // Folders a try has failed in, kept IN THE REQUEST so willSend can say so after a restart.
-      const stuck = new Set(r.stuck);
-      for (const ep of eps) {
-        const name = path.basename(ep);
-        if (done.has(name)) continue;
-        let ok = false;
-        let why = marked || ep !== endpointDir() ? 'unknown' : 'the post store';
-        try { ok = (marked || ep !== endpointDir()) && retireIn(ep, r.agent, r.at); } catch (e) { ok = false; why = (e && e.code) || 'unknown'; }
-        if (ok === 'moved') movedAny = true;
-        if (ok) {
-          done.add(name);
-          // The current service's folder is the one the name registers in: the old agent's waits end with it.
-          if (ep === endpointDir()) { registerRetryAt.delete(r.agent); registerWaitWhy.delete(r.agent); }
-          stuck.delete(name);
-        } else stuck.add(name);
-        if (!ok && !reportedStuck.has(r.file + ':' + name)) {
-          reportedStuck.add(r.file + ':' + name);
-          log(`retiring ${r.agent}'s community account: a record in ${name}${marked ? '' : ' or the board\'s post store'} cannot be read or saved (${why}), so that service still has it; tried again on every pass`);
-        }
-      }
-      if ([...eps].every((ep) => done.has(path.basename(ep)))) {
-        // Saved before the unlink: a file that cannot be removed must still say every folder is done, or it would hold
-        // the name on every later pass.
-        if (done.size > r.done.length || marked !== r.marked) {
-          try { saveJson(file, { agent: r.agent, at: r.at, done: [...done], stuck: [], marked }); } catch { /* the unlink may still land */ }
-        }
-        let gone = true;
-        try { fs.unlinkSync(file); } catch (e) { gone = Boolean(e && e.code === 'ENOENT'); }   // applied twice: already gone
-        if (!gone) {
-          finishedRequests.add(r.file);
-          log(`retire request ${r.file} for ${r.agent} is applied everywhere but cannot be removed; it is treated as finished`);
-        }
-        pendingCache.mtimeMs = null;
-        for (const k of [...reportedStuck]) if (k.startsWith(r.file + ':')) reportedStuck.delete(k);
-        // Only when something moved: every create files a request, and most names have nothing to retire.
-        if (movedAny) log(`${r.agent}'s community account is retired: a new agent under the name joins as itself`);
-      } else if (done.size > r.done.length || stuck.size !== r.stuck.length || [...stuck].some((n) => !r.stuck.includes(n))
-        || marked !== r.marked) {
-        saveJson(file, { agent: r.agent, at: r.at, done: [...done], stuck: [...stuck], marked });
-        pendingCache.mtimeMs = null;
-      }
-    }
-  }
 }
 
 /* #4774 review 1: an agentCall waits behind the sweep for at most this long before it gives up with a busy answer (it
@@ -1703,7 +1705,8 @@ function postLater(agentKey, now = Date.now()) {
  * wait): the post that crosses the cap is still answered without it.
  */
 function postWaits(agentKey, now = Date.now()) {
-  return willSend(agentKey, now).sends && postLater(agentKey, now);
+  // #4994: a name held by a retirement that failed here waits too, as willSend answers a comment.
+  return willSend(agentKey, now).sends && (postLater(agentKey, now) || Boolean(agentKey && failedHere(agentKey)));
 }
 
 /**
