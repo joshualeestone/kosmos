@@ -40,6 +40,10 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
 const { chromium, webkit } = require('playwright');
 const srv = require('../../server.js');
+/* No agent is running in this check: an EMPTY pane source, so the board's reads answer "none" from the fixture
+   rather than falling to the tmux parser's refusal (engine/status.tmux-bin.test.js). */
+const fleet = require('../../test-support/fleet');
+fleet.install([]);
 
 const fail = [];
 let pass = 0;
