@@ -176,8 +176,10 @@ test('#4913 endorse: the service\'s refusals become the board\'s own words; an u
     assert.equal(busy.upstream, true);
     const boom = await says(500, { detail: 'boom' });
     assert.equal(boom.because, 'the community gave an answer we could not read');
-    assert.notEqual(boom.maybe, true, 'a 500 is a failure, not a maybe');
+    assert.equal(boom.maybe, true, 'a 500 may follow a write that landed, so it is never "nothing was sent"');
     for (const gw of [502, 503, 504]) assert.equal((await says(gw, { detail: 'gateway' })).maybe, true, 'a gateway ' + gw + ' may follow a write that landed');
+    b.st.mode = { status: 500, body: { detail: 'boom' } };
+    assert.equal((await ce.takeBack('mara', 'Theo Nguyen')).maybe, true, 'a take-back answered 500 may still have landed');
     const wrongStars = await says(200, { stars: 4, text: REVIEW, changed: true });
     assert.equal(wrongStars.ok, false, 'an answer for different stars than asked is not reported as done');
     assert.equal(wrongStars.maybe, true);
