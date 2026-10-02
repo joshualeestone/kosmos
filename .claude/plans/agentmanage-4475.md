@@ -27,12 +27,13 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - `engine/sendertoken.js`: a history of ended identities, `ended-agents.jsonl` (append-only: name and time), written
   by `revoke` (`noteEnded`, before the unlink, so a failed revoke still records it) and read by `endedSince(names,
   since, { inclusive })` (slug match, loose on purpose since a match refuses; null when unreadable).
-- `engine/create.js` records `tookTokens` on a birth when a token stood for the name as create was asked
+- `engine/create.js` records on each birth the board name the create acted on (`slug`, its returned name), and
+  `tookTokens` when a token stood for that board name or the typed name's key as create was asked
   (`sendertoken.holdsTokens`), before create's own revoke clears it.
 - `engine/team.js` sets `createdByName` and `askedAt` on every member: the asking agent's token name and its request
   time when an agent (not the setup guide) asked on a named token, else null, so a member cannot set them.
   `engine/create.js` records them on the birth.
-- Tests: `server.agent-remove-4475.test.js` (31); `engine/remove.test.js` (a real removal ends the identity in the
+- Tests: `server.agent-remove-4475.test.js` (32); `engine/remove.test.js` (a real removal ends the identity in the
   history and a restore does not erase it); `engine/delete-leftover.test.js` (deleting a stopped, never-removed
   agent's leftovers ends it too); `server.team-agent-token-1279.test.js` (the agent path records the exact token name
   and askedAt for a creator whose sessionName differs; the board-token path records none; END TO END: an agent makes
@@ -48,10 +49,17 @@ and cannot force a removal; the person (the board token) removes any agent exact
   (`setup-assistant.tokenOnlySettingsRules`) now Read-denies that folder under every data root, in the permission
   layer and the macOS sandbox (review 13), and write-denies it and the records the check trusts (created.jsonl,
   ended-agents.jsonl, agent-token-only.json), which only the board and the supervisor write, so it cannot forge a
-  birth, erase an end or plant a token (review 14). Its own token comes in its environment from the supervisor. The tests
+  birth, erase an end or plant a token (review 14), and Read-denies the supervisor's launch hand-off folders
+  (`launch-secrets/`, beside the data root and in the app folder), where a token waits until its pane starts
+  (review 15). Its own token comes in its environment from the supervisor. NOT closed: another agent's token in its
+  process environment (readable with `ps -E` by the same Mac user, unless Claude Code's sandbox blocks it, not
+  measured), and typing into another agent's tmux pane; both need a per-agent OS user to close. The tests
   assert the config written; Seatbelt enforcing a folder deny was measured by hand for board.token's file only. An agent that can still read the board
   token is indistinguishable from the person, so for it this stays advisory (step 1's doctrine). It widens as
   token-only becomes the default.
+- The target is matched by the board name its create acted on (`slug` on the birth), never by the typed `name`,
+  which the birth log cuts to 120 characters: a member named "Helper" + 200 spaces + "Zed" is made as `helper-zed`
+  while its cut name slugs to `helper` (review 15). A birth with no `slug` (older format) is not honoured.
 - The creator is matched by its EXACT token name, recorded on the birth (`createdByName`). `createdBy` is not used:
   it is the card's sessionName, a slug with a pane and a lossy store key without one, so any comparison with it is
   either too loose (dr-kip and drkip) or too strict (an adopted "Casey"). Reviews 2 and 3.
@@ -108,13 +116,14 @@ and cannot force a removal; the person (the board token) removes any agent exact
   name (adopt mints without revoking), is not seen.
 
 ## Validation
-- `engine/boardkeychain-4491.test.js` 19/19 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 31/31, `server.team-agent-token-1279.test.js` 23/23, `engine/remove.test.js` 93/93,
+- `engine/boardkeychain-4491.test.js` 20/20 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 32/32, `server.team-agent-token-1279.test.js` 25/25, `engine/remove.test.js` 93/93,
   `engine/delete-leftover.test.js` 15/15, `engine/team.newrole-4474.test.js` 22/22,
   `server.agent-token-gate-4491.test.js` 25/25, `server.agent-token-sender-570.test.js` 7/7.
 - Mutants, each failing only its own cases: revoke not writing the history (the delete-leftover and end-to-end tests),
   the creator checked from the birth instead of askedAt, the target check removed, the creator check removed, an
   unreadable history read as none, the target's end counted at the birth's exact time, the removal route ignoring
   `tookTokens`, create not recording it, the shared-key check removed, a malformed history time skipped, a malformed
-  birth time accepted, plus (re-run on this code at
+  birth time accepted, the birth's `slug` ignored, the `slug === target` check removed, `tookTokens` checking only the
+  typed name's key, the launch hand-off deny removed, plus (re-run on this code at
   b54ebe022) the createdByName presence check, the key-only refusal, the board-name check, a slug comparison of the
   creator, and the team route recording the sessionName in place of the token name.
