@@ -190,7 +190,7 @@ LANE="${KOSMOS_WAIT_LANE:-main}"
 # Review 4: a killed wrapper its parent has not reaped yet is a zombie, and macOS `kill -0` succeeds on one, so a
 # zombie (ps state Z) is gone too.
 _qh_wrapper_gone() {
-  local e; e="$(kill -0 "$1" 2>&1)" || { case "$e" in *"No such process"*) return 0 ;; *) return 1 ;; esac; }
+  local e; e="$(LC_ALL=C kill -0 "$1" 2>&1)" || { case "$e" in *"No such process"*) return 0 ;; *) return 1 ;; esac; }   # C: the words, as cut-guard.sh's _kosmos_pid_gone
   case "$(ps -o stat= -p "$1" 2>/dev/null)" in Z*) return 0 ;; *) return 1 ;; esac
 }
 _qh_note_desc() {
@@ -264,7 +264,7 @@ if [ "$LANE" != side ]; then
   while [ "$n" -lt "$MAX_RENEWALS" ]; do
     sleep "$RENEW_SEC" & sp=$!
     wait "$sp"; sp=""
-    kill -0 "$$" 2>/dev/null || exit 0
+    _qh_wrapper_gone "$$" && exit 0   # #4977 review 5: a zombie wrapper too (kill -0 succeeds on one), or it renews for hours
     # Round 11: a renewal keeps the label the claim carries (a cut run through this turn relabels it "release <v>").
     KOSMOS_CLAIM_KEEP_LABEL=1 kosmos_claim_machine "$CLAIM_MIN"
     n=$((n + 1))
@@ -306,6 +306,9 @@ if [ "$LANE" = side ]; then
       kill -0 "$CMD" 2>/dev/null || { _qh_wrapper_gone "$$" && rm -f "$QH_STOPPED" "$QH_DESC"; exit 0; }
       # Round 18 (Opus): the wrapper itself was killed (SIGKILL: no EXIT trap ran, and its side claim self-cleans by its
       # dead pid), so nothing holds the box for this command: stop it now, not at the cap. $$ is the wrapper's pid here.
+      # #4977 review 5: "self-cleans" holds once the wrapper is REAPED; a zombie wrapper's claim still reads live to the
+      # lib's liveness check (cut-guard.sh, kill -0) until its parent reaps it, at most the claim's own expiry. The
+      # command is stopped either way; the lib's zombie gap is #4977 item 1's file, changed after #4911 merges.
       _qh_wrapper_gone "$$" && { why="the queued-heavy.sh that started it was killed"; break; }   # #4977 review 4: a zombie too
       _qh_note_desc "$CMD"
       if command -v kosmos_light_side_intruder >/dev/null && why="$(kosmos_light_side_intruder "$CMD")"; then break; fi
