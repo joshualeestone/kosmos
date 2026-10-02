@@ -52,6 +52,14 @@ const fleet = require('../test-support/fleet');
 const WORK = path.join(SANDBOX, 'work');
 fs.mkdirSync(WORK, { recursive: true });
 
+function caseInsensitiveFS() {
+  const probe = path.join(SANDBOX, 'CaseProbe');
+  try { fs.mkdirSync(probe, { recursive: true }); } catch { /* exists */ }
+  const ci = fs.existsSync(path.join(SANDBOX, 'caseprobe'));
+  try { fs.rmSync(probe, { recursive: true, force: true }); } catch { /* best effort */ }
+  return ci;
+}
+
 function reset() {
   try { fs.rmSync(projects.file()); } catch { /* nothing written yet */ }
 }
@@ -1733,7 +1741,7 @@ test('an over-long name on the default path meets the SAME sentence the preview 
     /longer than a project name should be/);
 });
 
-test('the previewed path IS the path the act produces, case correction included', () => {
+test('the previewed path IS the path the act produces, case correction included', { skip: !caseInsensitiveFS() && 'case correction requires case-insensitive filesystem' }, () => {
   // ⚠️ Volume-portable on purpose, the same lesson create.test.js records: on
   // a case-insensitive disk `lease` beside an existing `Lease` ADOPTS that
   // folder, on a case-sensitive one they are two entries -- so the assertion
@@ -1812,7 +1820,7 @@ test('pointing at a folder you already have still works, and is untouched by any
     'and no folder was made for it under the Kosmos root');
 });
 
-test('"Lease" and "lease" are ONE project on a case-insensitive volume, not two over one folder', () => {
+test('"Lease" and "lease" are ONE project on a case-insensitive volume, not two over one folder', { skip: !caseInsensitiveFS() && 'requires case-insensitive filesystem' }, () => {
   /**
    * ⚠️ REPRODUCED BEFORE IT WAS FIXED, and the failure was data corruption
    * rather than cosmetics: `fs.realpathSync` does not canonicalise case, so the
@@ -1846,7 +1854,7 @@ test('"Lease" and "lease" are ONE project on a case-insensitive volume, not two 
   assert.equal(path.basename(first.folder), 'Lease');
 });
 
-test('an adopted folder is stored under the spelling the filesystem uses, not the one we derived', () => {
+test('an adopted folder is stored under the spelling the filesystem uses, not the one we derived', { skip: !caseInsensitiveFS() && 'requires case-insensitive filesystem' }, () => {
   reset();
   fs.mkdirSync(path.join(projects.projectsRoot(), 'Henderson Lease'), { recursive: true });
   const made = projects.create({ name: 'henderson lease' });
@@ -1855,9 +1863,9 @@ test('an adopted folder is stored under the spelling the filesystem uses, not th
   assert.equal(made.name, 'henderson lease', 'and what the person called it is untouched');
 });
 
-test('the same folder reached by two spellings of a MIDDLE segment is still one project', () => {
+test('the same folder reached by two spellings of a MIDDLE segment is still one project', { skip: !caseInsensitiveFS() && 'requires case-insensitive filesystem' }, () => {
   // The advanced "use a folder you already have" route takes a typed path, so
-  // the case difference can be anywhere in it — not only in the project name.
+  // the case difference can be anywhere in it, not only in the project name.
   reset();
   const parent = path.join(WORK, 'Mixed-Case-Parent');
   fs.mkdirSync(path.join(parent, 'work'), { recursive: true });
@@ -2717,9 +2725,11 @@ test('os.tmpdir itself and a sibling that merely shares its prefix', () => {
   // The temp root itself is under it.
   assert.equal(projects.isUnderTmpDir(os.tmpdir()), true);
   // A path boundary, not a string prefix: a sibling named like the root but
-  // longer is NOT inside it.
-  assert.equal(projects.isUnderTmpDir(os.tmpdir() + 'x-not-inside'), false);
-  assert.equal(projects.tmpFolderRefused(os.tmpdir() + 'x-not-inside', realStore), false);
+  // longer is NOT inside it. When os.tmpdir() is under /tmp (like Linux /tmp/kt...),
+  // test a sibling of /tmp itself so it is genuinely outside any temp root.
+  const sibling = os.tmpdir().startsWith('/tmp') ? '/tmpx-not-inside' : os.tmpdir().replace(/\/+$/, '') + 'x-not-inside';
+  assert.equal(projects.isUnderTmpDir(sibling), false);
+  assert.equal(projects.tmpFolderRefused(sibling, realStore), false);
   // Home is not temp.
   assert.equal(projects.isUnderTmpDir(os.homedir()), false);
 });

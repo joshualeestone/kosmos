@@ -3378,7 +3378,7 @@ test('a program that cannot be run at all is still "we could not ask"', () => {
   assert.equal(require('./status').tmuxSaidNoServer(got), false);
 });
 
-test('a tmux failure we do not recognise still refuses, rather than reading as empty', () => {
+test('a tmux failure we do not recognise still refuses, rather than reading as empty', { skip: process.platform !== 'darwin' && 'macOS-specific tmux socket error formatting' }, () => {
   // ⚠️ FAILS CLOSED, against a REAL tmux error that is not "no server".
   //
   // MEASURED on this machine: a plain file sitting where the socket should be

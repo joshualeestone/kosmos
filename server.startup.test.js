@@ -59,7 +59,8 @@ test('#923: the board process chdirs to $HOME at startup, so a directory it was 
     // lsof, not a debug endpoint this file would need to invent: the
     // process's own cwd is an OS-level fact, and this is the same tool
     // used to trace the original bug live.
-    const lsofOut = execFileSync('/usr/sbin/lsof', ['-p', String(child.pid)], { encoding: 'utf8' });
+    const lsofBin = ['/usr/sbin/lsof', '/usr/bin/lsof'].find((p) => fs.existsSync(p)) || 'lsof';
+    const lsofOut = execFileSync(lsofBin, ['-p', String(child.pid)], { encoding: 'utf8' });
     const cwdLine = lsofOut.split('\n').find((l) => /\bcwd\b/.test(l));
     assert.ok(cwdLine, 'lsof reported no cwd entry for the child process: ' + lsofOut);
     assert.ok(
