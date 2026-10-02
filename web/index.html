@@ -10205,12 +10205,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on .dnav-ico { color: var(--k-ink); }
 :root[data-look="new"] body:not(.consolidated) #panel-detail #d-files.pjcard { border: 0; border-radius: 0; background: none; padding: 22px 0 0; margin-top: 22px; border-top: 1px solid var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #d-files .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
-/* #4470, an agent's page, slice 3: the Profile and AI Settings sections. Their boxes take the left column's dress, the
-   one grey with no edge and its 28px corners, and their field labels lose the spaced capitals for sentence case in
-   full ink (a label, not a section heading, so not the headings' grey). Buttons and fields are the whole app's and
-   are left for their own slice. */
-:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec .dbox { border-color: transparent; border-radius: 28px; }
-:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec .dbox .flabel { text-transform: none; letter-spacing: 0; font: 600 .9375rem var(--font-ui); color: var(--k-ink); }
+/* #4470, an agent's page, slice 3: the boxes of every section but the conversation (Profile, AI Settings and the
+   rest; the conversation's box stays edge to edge, #3414). They take the left column's dress, the one grey with no
+   edge and its 28px corners. Their headings take the project page's grey sentence case, as Files did, and their field
+   labels lose the spaced capitals for sentence case in full ink (a label, not a heading). Buttons and fields are the
+   whole app's and are left for their own slice. */
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox { border-color: transparent; border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
 /* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
    there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
