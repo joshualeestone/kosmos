@@ -27979,12 +27979,15 @@ function computersRender(data) {
 const OA_COMPUTERS_EVERY_MS = 60000;   // the computers route probes each computer, so not every round
 const OA_STATUS_EVERY_MS = 15000;
 const OA_READ_LIMIT_MS = 10000;
+const OA_STALE_MS = 30000;              // an agents list older than two rounds is not shown as current
 let OA_COMPUTERS = null;               // the last good /api/remote/computers answer
 let OA_COMPUTERS_AT = 0;
 const OA_SEEN = new Map();             // address -> { state: 'ok'|'notin'|'blocked'|'out', agents, at }
 let OA_TIMER = null;
 let OA_BUSY = false;
-let OA_PAINTED = '';                  // oaPaintKey of what #oa-groups shows now
+let OA_PAINTED = [];                  // oaGroupKey of each group #oa-groups shows now, in order
+let OA_AGAIN = false;                 // a round was asked for while one was running
+let OA_WAS_SHOWN = false;             // whether the grid was on screen at the last paint
 
 function oaThisOnly() {
   try { return localStorage.getItem('kosmos.agents.thisOnly') === '1'; } catch { return false; }
@@ -28048,8 +28051,8 @@ async function oaReadOne(c) {
     state = oaClassify(res.status, body);
     if (state === 'ok') agents = oaAgentsOf(body);
   } catch {
-    /* No answer the page may read. A computer the board just reached is up, so it answered and did not let this
-       page read it (an older connector without the sibling answer does exactly that). */
+    /* No answer the page may read. A computer the board's last probe (up to a minute old) said is up most likely
+       answered and did not let this page read it (an older connector without the sibling answer does exactly that). */
     state = c.online === true ? 'blocked' : 'out';
   } finally { if (cut) clearTimeout(cut); }
   return oaRemember(OA_SEEN, c.address, state, agents, Date.now());
@@ -28060,11 +28063,17 @@ function oaNote(c, seen, now) {
      a day, so it would say "a day ago" of a computer that was answering minutes before. */
   const last = seen && typeof seen.at === 'number' ? agoWords(now - seen.at) : '';
   if (st === 'reading') return 'Reading its agents...';
+  if (oaStale(seen, now)) return 'Reading its agents... Showing what this page last read.';
   if (st === 'ok') return '';
   if (st === 'notin') return 'This browser is not let in on ' + c.name + ' yet. Open it to sign in.';
   const kept = seen && seen.agents ? ' Showing what this page last read.' : '';
   if (st === 'blocked') return c.name + ' is online but did not let this page read its agents.' + kept;
   return 'Not connected' + (last ? ', this page last read it ' + last : '') + '.' + kept;
+}
+/* An agents list this page read, but longer ago than two rounds (the section was off screen meanwhile): shown greyed
+   until the next read, never as current. */
+function oaStale(seen, now) {
+  return !!seen && seen.state === 'ok' && typeof seen.at === 'number' && now - seen.at > OA_STALE_MS;
 }
 function oaCard(a, c, off) {
   const el = document.createElement(off ? 'div' : 'a');
@@ -28108,7 +28117,7 @@ function oaGroup(c, seen, now) {
     head.appendChild(open);
   }
   g.appendChild(head);
-  const off = st !== 'ok';
+  const off = st !== 'ok' || oaStale(seen, now);
   const list = seen && Array.isArray(seen.agents) ? sortAgents(seen.agents, typeof AGENT_SORT === 'string' ? AGENT_SORT : 'name', []) : [];
   if (list.length) {
     const cards = document.createElement('div');
@@ -28133,32 +28142,49 @@ function oaPaint() {
   const grid = document.getElementById('grid');
   if (!wrap || !grid) return;
   const others = OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
-  wrap.hidden = !oaGridShown(grid) || others.length === 0;
+  const shown = oaGridShown(grid);
+  /* Back on screen after reads were paused: read now rather than at the next tick (stale lists show greyed meanwhile). */
+  if (shown && !OA_WAS_SHOWN && !OA_BUSY && others.length && typeof setTimeout === 'function') setTimeout(oaRound, 0);
+  OA_WAS_SHOWN = shown;
+  wrap.hidden = !shown || others.length === 0;
   if (wrap.hidden) return;
   const only = oaThisOnly();
   const box = document.getElementById('oa-only');
   if (box) box.checked = only;
   const groups = document.getElementById('oa-groups');
   groups.hidden = only;
-  if (only) { groups.textContent = ''; OA_PAINTED = ''; return; }
+  if (only) { groups.textContent = ''; OA_PAINTED = []; return; }
   const now = Date.now();
-  /* Rebuilt only when what it shows changed: a rebuild every round would take keyboard and screen-reader focus off
-     a card twice every 15 seconds. */
-  const said = oaPaintKey(others, OA_SEEN, now, typeof AGENT_SORT === 'string' ? AGENT_SORT : 'name');
-  if (said === OA_PAINTED && groups.children.length) return;
-  OA_PAINTED = said;
-  groups.textContent = '';
-  for (const c of others) groups.appendChild(oaGroup(c, OA_SEEN.get(c.address), now));
+  /* Each group is rebuilt only when what it shows changed, and only that group: a rebuild every round would take
+     keyboard and screen-reader focus off a card twice every 15 seconds. A note's time words ("2 minutes ago") are
+     not part of the key; they are written in place. */
+  const sort = typeof AGENT_SORT === 'string' ? AGENT_SORT : 'name';
+  const keys = others.map((c) => oaGroupKey(c, OA_SEEN.get(c.address), now, sort));
+  const same = keys.length === OA_PAINTED.length && groups.children.length === keys.length;
+  if (!same) {
+    groups.textContent = '';
+    for (const c of others) groups.appendChild(oaGroup(c, OA_SEEN.get(c.address), now));
+  } else {
+    others.forEach((c, i) => {
+      const old = groups.children[i];
+      if (keys[i] !== OA_PAINTED[i]) { old.replaceWith(oaGroup(c, OA_SEEN.get(c.address), now)); return; }
+      const note = old.querySelector('.oa-head .oa-note');
+      const said = oaNote(c, OA_SEEN.get(c.address), now);
+      if (note && note.textContent !== said) note.textContent = said;
+    });
+  }
+  OA_PAINTED = keys;
 }
-/* Everything oaGroup paints from, as one string: the computers, each one's note and state, its agents and the sort. */
-function oaPaintKey(others, seen, now, sort) {
-  return JSON.stringify([sort, others.map((c) => {
-    const s = seen.get(c.address);
-    return [c.name, c.address, oaNote(c, s, now), s ? s.state : 'reading', s && Array.isArray(s.agents) ? s.agents : null];
-  })]);
+/* What one group paints from, minus the note's time words: the computer, its state, whether the list is stale, the
+   agents (in a fixed order, as the other computer's own order is not what is shown) and the sort. */
+function oaGroupKey(c, seen, now, sort) {
+  const agents = seen && Array.isArray(seen.agents)
+    ? seen.agents.slice().sort((a, b) => (a.sessionName < b.sessionName ? -1 : a.sessionName > b.sessionName ? 1 : 0)) : null;
+  return JSON.stringify([sort, c.name, c.address, seen ? seen.state : 'reading', oaStale(seen, now), !!(seen && typeof seen.at === 'number'), agents]);
 }
 async function oaRound() {
-  if (OA_BUSY || typeof location === 'undefined' || location.protocol !== 'https:') return;
+  if (typeof location === 'undefined' || location.protocol !== 'https:') return;
+  if (OA_BUSY) { OA_AGAIN = true; return; }   // run once more when this one ends (a tick of "This computer only" mid-round)
   if (document.hidden) return;
   const grid = document.getElementById('grid');
   if (!oaGridShown(grid)) { oaPaint(); return; }
@@ -28168,8 +28194,13 @@ async function oaRound() {
     if (!OA_COMPUTERS || now - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS) {
       OA_COMPUTERS_AT = now;
       try {
-        const res = await fetch('/api/remote/computers', { cache: 'no-store' });
-        const data = res.ok ? await res.json() : null;
+        const ac = typeof AbortController === 'function' ? new AbortController() : null;
+        const cut = ac ? setTimeout(() => ac.abort(), OA_READ_LIMIT_MS) : null;
+        let res, data;
+        try {
+          res = await fetch('/api/remote/computers', ac ? { cache: 'no-store', signal: ac.signal } : { cache: 'no-store' });
+          data = res.ok ? await res.json() : null;
+        } finally { if (cut) clearTimeout(cut); }
         if (data && data.ok === true) OA_COMPUTERS = data;
         else if (data && data.signedIn === false) OA_COMPUTERS = null;   // no Kosmos+ here: nothing to show
       } catch { /* keep the last good list */ }
@@ -28179,7 +28210,10 @@ async function oaRound() {
       await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).catch(() => null)));
     }
     oaPaint();
-  } finally { OA_BUSY = false; }
+  } finally {
+    OA_BUSY = false;
+    if (OA_AGAIN) { OA_AGAIN = false; setTimeout(oaRound, 0); }
+  }
 }
 function oaStart() {
   if (OA_TIMER || typeof location === 'undefined' || location.protocol !== 'https:') return;

@@ -191,6 +191,11 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       await page.evaluate(() => { document.documentElement.setAttribute('data-layout', 'consolidated'); showTab('projects'); });
       const closed = await where();
       chk(closed.inPanel && closed.afterGrid && !closed.visible, 'S4 consolidated, Agents view closed: moved with the grid, not on screen', JSON.stringify(closed));
+      /* Wait out any round already in flight, or the manual one returns early on OA_BUSY and reads nothing whatever
+         oaGridShown says (review 2). The direct assertion does not depend on timing at all. */
+      await until(page, () => !OA_BUSY);
+      const gridShown = await page.evaluate(() => oaGridShown(document.getElementById('grid')));
+      chk(gridShown === false, 'S4 the grid counts as off screen while its panel is hidden', String(gridShown));
       const before = elsewhere.length;
       await page.evaluate(() => oaRound());
       await page.waitForTimeout(1500);
