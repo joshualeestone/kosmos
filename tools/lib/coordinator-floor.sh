@@ -61,7 +61,7 @@ coordinator_floor_check() {
   done < "$floor"
   [ -n "$needed" ] || return 0   # the connector carries no floor change: nothing to ask the coordinator
   meta="$(curl -fsS -m 15 "$url/v1/meta" 2>/dev/null)" \
-    || { echo "coordinator_floor: could not read $url/v1/meta, so whether the coordinator carries what this connector needs is UNKNOWN; refused." >&2; return 1; }
+    || { echo "coordinator_floor: could not read $url/v1/meta, so whether the coordinator carries what this connector needs is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand (the override does not cover this)." >&2; return 1; }
   build="$(printf '%s' "$meta" | sed -n 's/.*"build":[[:space:]]*"\([0-9a-f]\{7,40\}\(-dirty\)\{0,1\}\)".*/\1/p')"
   if [ -z "$build" ]; then
     case "$meta" in *'"build":"unknown"'*) echo "coordinator_floor: the coordinator reports an UNSTAMPED build (\"unknown\"), so what it carries is unknown; redeploy it with deploy/deploy-coordinator.sh, which stamps it. Refused." >&2 ;;

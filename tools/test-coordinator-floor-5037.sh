@@ -56,7 +56,7 @@ coordinator none; run && bad "an unreadable /v1/meta was waved on" || { grep -q 
 rm -rf "$T/coord"; mkdir -p "$T/coord/v1"; printf '{"domain":"x"}' > "$T/coord/v1/meta"
 run && bad "a meta with no build was waved on" || { grep -q "names no build" "$T/err" && ok "a meta with no build refuses" || bad "wrong refusal for no build: $(cat "$T/err")"; }
 coordinator deadbeef0; run && bad "a build the relay does not have was waved on" || { grep -q "deployed from a branch" "$T/err" && ok "a build the relay checkout does not have refuses, naming the branch-deploy case" || bad "wrong refusal for an unknown build: $(cat "$T/err")"; }
-coordinator unknown; run && bad "an unstamped (unknown) build was waved on" || { grep -q "unstamped" "$T/err" && ok "an unstamped coordinator build refuses, said as unstamped" || bad "wrong refusal for an unknown build word: $(cat "$T/err")"; }
+coordinator unknown; run && bad "an unstamped (unknown) build was waved on" || { grep -q "UNSTAMPED" "$T/err" && ok "an unstamped coordinator build refuses, said as unstamped" || bad "wrong refusal for an unknown build word: $(cat "$T/err")"; }
 coordinator "${NEWER:0:8}-dirty"; run && bad "a dirty coordinator build was waved on" || { grep -q "DIRTY build" "$T/err" && ok "a dirty coordinator build refuses, said as dirty" || bad "wrong refusal for a dirty build: $(cat "$T/err")"; }
 coordinator "$NEWER"; printf '%s why\n' "0123456789012345678901234567890123456789" > "$T/floor2"
 KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor2" 2>"$T/err" \
@@ -69,6 +69,13 @@ if KOSMOS_ALLOW_COORDINATOR_BEHIND=1 KOSMOS_COORDINATOR_URL="file://$T/coord" co
 else bad "the override still refused: $(cat "$T/err")"; fi
 KOSMOS_ALLOW_COORDINATOR_BEHIND=yes KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err"; rc=$?
 [ "$rc" = 1 ] && behind && ok "only KOSMOS_ALLOW_COORDINATOR_BEHIND=1 overrides (=yes refuses on the behind arm)" || bad "=yes: rc=$rc, not the behind refusal: $(cat "$T/err")"
+# The override covers a coordinator KNOWN to be behind, never an unknown one.
+coordinator none
+KOSMOS_ALLOW_COORDINATOR_BEHIND=1 KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err"; rc=$?
+[ "$rc" = 1 ] && grep -q "UNKNOWN" "$T/err" && ok "the override does not cover an unreadable /v1/meta" || bad "override waved an unreadable meta: rc=$rc $(cat "$T/err")"
+coordinator deadbeef0
+KOSMOS_ALLOW_COORDINATOR_BEHIND=1 KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err"; rc=$?
+[ "$rc" = 1 ] && grep -q "deployed from a branch" "$T/err" && ok "the override does not cover a build the checkout lacks" || bad "override waved an unknown build: rc=$rc $(cat "$T/err")"
 
 # 6. the committed floor file and the release.sh wiring
 REAL_FLOOR="$(grep -v '^#' tools/coordinator-floor | awk 'NF{print $1}')"
