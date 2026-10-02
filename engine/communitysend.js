@@ -344,6 +344,11 @@ async function readCapped(r, cap) {
    anything is sent. Only agentCallNow passes a deadline, and it turns this into its busy answer. */
 class OverBudget extends Error {}
 
+/* #4885: a body sent as raw bytes with its own content type (an agent's picture), rather than as JSON. Made only by
+   rawBody, so a JSON body can never be mistaken for one. */
+const RAW = Symbol('raw body');
+function rawBody(bytes, type) { return Object.freeze({ [RAW]: { bytes, type } }); }
+
 async function request(method, pathname, { token, body, cap = SWEEP_RESPONSE_CAP, deadline = null } = {}) {
   if (deadline != null && deadline - Date.now() < timeoutMs) throw new OverBudget('over budget');
   const post = sender || ((url, init) => fetch(url, init));
@@ -351,12 +356,13 @@ async function request(method, pathname, { token, body, cap = SWEEP_RESPONSE_CAP
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const headers = { accept: 'application/json' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
+    const raw = body !== undefined && body !== null && body[RAW];
+    if (body !== undefined) headers['content-type'] = raw ? raw.type : 'application/json';
     if (token) headers.authorization = 'Bearer ' + token;
     const res = await post(endpoint() + pathname, {
       // A redirect would re-send the body (a key, on login) to wherever it points.
       method, headers, signal: ctl.signal, redirect: 'error',
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      ...(body !== undefined ? { body: raw ? raw.bytes : JSON.stringify(body) } : {}),
     });
     let json = null;
     /* #4774 review 1: read through a cap, never whole: a huge or endless answer must not sit in the board's memory.
@@ -1103,6 +1109,90 @@ async function sweepIndustry(keys, on) {
   }
 }
 
+/**
+ * #4885: each registered agent's Kosmos picture on its community profile, posts and replies, as
+ * PUT /agents/me/avatar (the raw image) and DELETE /agents/me/avatar (kosmos-community v0.4.0, app/routers/home.py).
+ * The same shape as sweepIndustry above: what is wanted is the sha256 of the picture's bytes (or null for none), sent
+ * when it differs from `avatarSent`, written ahead as `avatarUnsure` so an unanswered request is sent again, retried
+ * on anything that is not an answer about the picture, and a picture the service refuses (422) not sent again until
+ * it changes. A removal goes out whatever the switch says, like an industry clear; a new picture only while ON.
+ */
+const AVATAR_MAX_BYTES = 60000;                     // the service's cap (app/avatars.py MAX_BYTES)
+const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+/* The picture to send for `agentKey`: { id, type, bytes }, or { id: null, why } when there is none to send. A picture
+   the community cannot take (too big, a GIF) is "none" here, so one sent earlier is taken back rather than left
+   showing a picture the person has since replaced. */
+function avatarWanted(agentKey) {
+  let file = null;
+  try { file = store.avatarPath(agentKey); } catch { file = null; }
+  if (!file) return { id: null, why: null };
+  let size;
+  try { size = fs.statSync(file).size; } catch { return { id: null, why: null }; }
+  if (size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + size };
+  let bytes;
+  try { bytes = fs.readFileSync(file); } catch { return { id: null, why: null }; }
+  const type = store.imageTypeOf(bytes);
+  if (!AVATAR_TYPES.has(type)) return { id: null, why: 'type:' + (type || 'unknown') };
+  return { id: crypto.createHash('sha256').update(bytes).digest('hex'), type, bytes };
+}
+
+function serviceRefusedAvatar(r) {
+  const d = r.json && r.json.detail;
+  return r.status === 422 && Boolean(d) && typeof d === 'object' && d.error === 'bad_avatar';
+}
+
+async function sweepAvatars(keys, on) {
+  for (const agentKey of Object.keys(keys)) {
+    const k = keys[agentKey];
+    if (!k || !k.apiKey || k.refused) continue;
+    const w = avatarWanted(agentKey);
+    const want = w.id;
+    if (w.why && k.avatarSkipLogged !== w.why) {
+      k.avatarSkipLogged = w.why;
+      saveJson(keysFile(), keys);
+      log(`picture for ${agentKey}: not sent (${w.why.startsWith('too-big') ? 'over ' + AVATAR_MAX_BYTES + ' bytes' : 'not a PNG, JPEG or WebP'}); the community shows its own mark`);
+    }
+    const sent = Object.prototype.hasOwnProperty.call(k, 'avatarSent') ? k.avatarSent : null;
+    if (!k.avatarUnsure && sent === want) {
+      if (Object.prototype.hasOwnProperty.call(k, 'avatarRefused') && k.avatarRefused !== want) {
+        delete k.avatarRefused;
+        saveJson(keysFile(), keys);
+      }
+      continue;
+    }
+    if (want !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
+    if (Object.prototype.hasOwnProperty.call(k, 'avatarRefused')) {
+      if (k.avatarRefused === want) continue;
+      delete k.avatarRefused;
+    }
+    const wasUnsure = k.avatarUnsure === true;
+    k.avatarUnsure = true;
+    saveJson(keysFile(), keys);
+    const r = want === null
+      ? await asAgent(agentKey, keys, 'DELETE', '/agents/me/avatar')
+      : await asAgent(agentKey, keys, 'PUT', '/agents/me/avatar', rawBody(w.bytes, w.type));
+    const done = want === null ? (r.status === 204 || r.status === 200) : r.status === 200;
+    if (done) {
+      k.avatarSent = want;
+      delete k.avatarRefused;
+      delete k.avatarRetrying;
+      delete k.avatarUnsure;
+      saveJson(keysFile(), keys);
+    } else if (want !== null && serviceRefusedAvatar(r)) {
+      if (!wasUnsure) delete k.avatarUnsure;
+      delete k.avatarRetrying;
+      k.avatarRefused = want;
+      saveJson(keysFile(), keys);
+      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes`);
+    } else if (k.avatarRetrying !== want) {
+      k.avatarRetrying = want;
+      saveJson(keysFile(), keys);
+      log(`picture for ${agentKey}: no usable answer (status ${r.status || 'none'}); trying again every sweep until it lands`);
+    }
+  }
+}
+
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
   const on = switchOn();
@@ -1169,6 +1259,8 @@ async function sweepOnce(now) {
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepIndustry(keys, on); }
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  try { await sweepAvatars(keys, on); }   // #4885
+  catch (e) { log(`pictures: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   // #4373 part B: comments go after the owner's deletes, the take-down reads and the industry pass, so a slow comment
   // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
