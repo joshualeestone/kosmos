@@ -33,3 +33,11 @@ Review R1 (opus) 0B 3W 0C 3N:
   repeat the agent page's (kept apart so each page's slice can move alone); rebase after the earlier slices land and
   re-run render-newlook-4470 on the rebased head.
 Validation now: 228/228.
+
+Review R2 (sonnet) 0B 2W 0C 3N, CONVERGED:
+- WARNING deferred: plus-active on the agent page. Measured: syncPlusChrome sets it only when plusOnScreen() is true,
+  which needs SETTINGS_SEC === 'plus' with Settings on screen, so it is never set while the agent page shows.
+- WARNING deferred: a Settings box whose edge carries meaning. Measured: all 24 boxes in #panel-settings are a plain
+  class="dbox" with no modifier, and no rule, inline style or script gives a .dbox a coloured edge.
+- NITs left: hover can stick after a tap on a phone (today's .snav hover has the same property); the 40rem pair of
+  boundaries; SETTINGS_LOOK samples the first box (the rule is one selector).
