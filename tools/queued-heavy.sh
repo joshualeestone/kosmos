@@ -272,9 +272,9 @@ unset KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE   # review 5: a command that queues 
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).
-  QH_STOPPED="$(mktemp -t qh-stopped)" || QH_STOPPED=""
+  QH_STOPPED="$(mktemp "${TMPDIR:-/tmp}/qh-stopped.XXXXXXXXXX")" || QH_STOPPED=""   # #4977: under TMPDIR (macOS `mktemp -t` ignores it)
   if [ -z "${QH_STOPPED:-}" ]; then echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN NOT STARTED (nothing ran): no temporary file could be made (a full disk?); queue $WHAT again"; exit 75; fi
-  QH_DESC="$(mktemp -t qh-desc)" || QH_DESC=""
+  QH_DESC="$(mktemp "${TMPDIR:-/tmp}/qh-desc.XXXXXXXXXX")" || QH_DESC=""
   # The command in its own process group (job control on for this one start), so the cap stops all of it.
   # stdin: the command keeps this script's, as a main turn does (review 10: `printf ... | queued-heavy.sh --light x sh`
   # ran nothing and ended green as a side turn). Only a TERMINAL is swapped for /dev/null: a background job that reads
@@ -310,7 +310,9 @@ if [ "$LANE" = side ]; then
     printf '%s\n' "${why:-cap}" > "$QH_STOPPED" 2>/dev/null
     # Round 18 (Opus): the stop stands only if there was a group to stop (it had finished on its own otherwise).
     kill -TERM -- "-$CMD" 2>/dev/null || : > "$QH_STOPPED"
-    sleep 10 </dev/null >/dev/null 2>&1; kill -KILL -- "-$CMD" 2>/dev/null; _qh_kill_desc ) &
+    sleep 10 </dev/null >/dev/null 2>&1; kill -KILL -- "-$CMD" 2>/dev/null; _qh_kill_desc
+    # #4977 review 2: a KILLed wrapper never reaches _qh_end, so its two temp files would stay in $TMPDIR for good.
+    kill -0 "$$" 2>/dev/null || rm -f "$QH_STOPPED" "$QH_DESC" ) &
   CAPPER=$!; set +m
   wait "$CMD"; rc=$?
   kill -KILL -- "-$CAPPER" 2>/dev/null; wait "$CAPPER" 2>/dev/null
