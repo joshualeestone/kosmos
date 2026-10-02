@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 4
 **Converged:** Yes
-**Total findings:** 0 BLOCKERs, 6 WARNINGs, 1 CONVENTION, 8 NITs over four rounds (detail in .claude/plans/trustforget-5000.md)
+**Total findings:** 0 BLOCKERs, 6 WARNINGs, 2 CONVENTIONs, 7 NITs over four rounds (detail in .claude/plans/trustforget-5000.md)
 **Fixed:** all | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
