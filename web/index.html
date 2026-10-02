@@ -10217,19 +10217,22 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    phone it stays today's sideways scroller with its fade) with its items flat, no edge and no gold, the current one a
    tile in the page's ground (on a phone, where there is no box, a grey tile) in full ink and today's heavier weight.
    The boxes have no edge and 28px corners, headings take the grey sentence case and field labels sentence case in
-   full ink. Buttons and fields are the whole app's and are left for their own slice. */
+   full ink. Buttons and fields are the whole app's and are left for their own slice. The Kosmos+ section repaints
+   the page navy (body.plus-active), which the look's greys know nothing of, so it keeps today's chrome. The needs-you
+   dot on the current item takes --warn-ink, as on the agent page: the dark red was tuned for the gold. */
 @media (min-width: 40.01rem) {
-  :root[data-look="new"] body:not(.consolidated) #s-nav { background: var(--nl-grey); border-radius: 28px; padding: 12px; }
+  :root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav { background: var(--nl-grey); border-radius: 28px; padding: 12px; }
 }
-:root[data-look="new"] body:not(.consolidated) #s-nav button { border-color: transparent; background: none; color: var(--nl-ink-3); }
-:root[data-look="new"] body:not(.consolidated) #s-nav button:not(.on):hover { background: color-mix(in srgb, var(--k-bg) 55%, transparent); color: var(--k-ink); }
-:root[data-look="new"] body:not(.consolidated) #s-nav button.on { background: var(--k-bg); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button { border-color: transparent; background: none; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button:not(.on):hover { background: color-mix(in srgb, var(--k-bg) 55%, transparent); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on { background: var(--k-bg); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on .dot { background: var(--warn-ink); }
 @media (max-width: 40rem) {
-  :root[data-look="new"] body:not(.consolidated) #s-nav button.on { background: var(--nl-grey); }
+  :root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on { background: var(--nl-grey); }
 }
-:root[data-look="new"] body:not(.consolidated) #panel-settings .dbox { border-color: transparent; border-radius: 28px; }
-:root[data-look="new"] body:not(.consolidated) #panel-settings .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
-:root[data-look="new"] body:not(.consolidated) #panel-settings .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox { border-color: transparent; border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
 /* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
    there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
