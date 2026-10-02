@@ -187,7 +187,12 @@ LANE="${KOSMOS_WAIT_LANE:-main}"
 # not seen (the limit, stated).
 # #4977 review 3: the wrapper is GONE (ESRCH), not merely unsignalable (EPERM in a sandbox): only then may its capper
 # remove the temp files (removing the stop file under a live wrapper would read a stop as a pass).
-_qh_wrapper_gone() { local e; e="$(kill -0 "$1" 2>&1)" && return 1; case "$e" in *"No such process"*) return 0 ;; *) return 1 ;; esac; }
+# Review 4: a killed wrapper its parent has not reaped yet is a zombie, and macOS `kill -0` succeeds on one, so a
+# zombie (ps state Z) is gone too.
+_qh_wrapper_gone() {
+  local e; e="$(kill -0 "$1" 2>&1)" || { case "$e" in *"No such process"*) return 0 ;; *) return 1 ;; esac; }
+  case "$(ps -o stat= -p "$1" 2>/dev/null)" in Z*) return 0 ;; *) return 1 ;; esac
+}
 _qh_note_desc() {
   [ -n "${QH_DESC:-}" ] || return 0
   local q kids all="" p c g
@@ -234,7 +239,8 @@ _qh_end() {
   # gone and finish the stop (it watches this pid). Round 10: KILL, not TERM: the capper holds nothing to clean up (the
   # command group is stopped above), and a TERM into its trap-reset subshell made bash 3.2 warn on most side turns.
   if [ -n "$CAPPER" ]; then kill -KILL -- "-$CAPPER" 2>/dev/null; wait "$CAPPER" 2>/dev/null; fi
-  [ -n "${QH_DESC:-}" ] && rm -f "$QH_DESC"
+  # Review 4: the stop file too, once the capper is gone (a yield in the window before could write it again).
+  rm -f ${QH_STOPPED:+"$QH_STOPPED"} ${QH_DESC:+"$QH_DESC"}
   if [ "$LANE" = side ]; then kosmos_release_light_side; else kosmos_release_machine; fi
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') claim released"
 }
@@ -300,7 +306,7 @@ if [ "$LANE" = side ]; then
       kill -0 "$CMD" 2>/dev/null || { _qh_wrapper_gone "$$" && rm -f "$QH_STOPPED" "$QH_DESC"; exit 0; }
       # Round 18 (Opus): the wrapper itself was killed (SIGKILL: no EXIT trap ran, and its side claim self-cleans by its
       # dead pid), so nothing holds the box for this command: stop it now, not at the cap. $$ is the wrapper's pid here.
-      kill -0 "$$" 2>/dev/null || { why="the queued-heavy.sh that started it was killed"; break; }
+      _qh_wrapper_gone "$$" && { why="the queued-heavy.sh that started it was killed"; break; }   # #4977 review 4: a zombie too
       _qh_note_desc "$CMD"
       if command -v kosmos_light_side_intruder >/dev/null && why="$(kosmos_light_side_intruder "$CMD")"; then break; fi
       why=""
