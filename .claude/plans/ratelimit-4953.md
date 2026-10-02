@@ -24,6 +24,11 @@ That the limiter's body stays {error: 'rate_limit_exceeded'} and the cap's stays
 If the service renames the cap error, a real cap reads as a short pause: retried every <= 10 min and refused, which
 costs requests but never claims a false cap. The fake backends pin both shapes.
 
+## Review 2
+- The comment at the pause states its three limits (an unreadable cap body is a short pause; memory only, so a
+  restart inside a pause sends once more; sends only, not register/login/lookup) and no longer names #4947.
+  Behaviour unchanged.
+
 ## Checks
 - Review 1: the comment test now sweeps inside the minute and asserts nothing is sent (control: removing the comment
   pause fails it); the comment no longer says a route reads retryAt (only willSend reads commentRetryAt on main;

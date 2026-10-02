@@ -460,11 +460,13 @@ async function findExisting(agentKey, keys, body, sent) {
 }
 
 /* #4953: the service answers 429 for two reasons. Its daily cap (detail.error daily_post_limit / daily_comment_limit)
-   is waited out across sweeps in keys.json (retryAt, commentRetryAt); commentRetryAt is what willSend reads to tell
-   an agent its comment goes later (and retryAt, once #4947 lands, its post). Its request limiter (rate_limit_exceeded,
-   Retry-After 60), or a 429 whose reason cannot be read, is only a short pause, kept here in memory like a register
-   429, so it never reads as the day's cap. One pause per agent for posts and comments alike: the limiter counts every
-   request in one bucket, refused ones included, so a comment sent into a post's pause would keep it limited longer. */
+   is waited out across sweeps in keys.json (retryAt, commentRetryAt), the waits that say an item goes later. Its
+   request limiter (rate_limit_exceeded, Retry-After 60), or a 429 whose reason cannot be read, is only a short pause
+   (Retry-After, held to 60..600 s), so it never reads as the day's cap. Two costs, accepted: a cap 429 whose body
+   cannot be read is also only a short pause (the service keeps refusing; one refused send per agent per pause), and
+   the pause is kept in memory like a register 429, so a board restarted inside it sends once more.
+   One pause per agent covers its post and comment SENDS (the limiter counts every request in one bucket, refused
+   ones included); the register, login and lookup calls do not set it. */
 const limiterPauseUntil = new Map();   // agentKey -> ms
 function dailyCap429(r, name) {
   return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
