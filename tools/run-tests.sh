@@ -278,9 +278,8 @@ _rt_box_clear() {
 }
 if [ "$KOSMOS_ONLY" = 1 ]; then
   # #4929: no queue wait, but a foreign machine claim and a live install harness still refuse, asked once (fail-open
-  # on a missing lib, as above). A run started inside a queued-heavy.sh turn inherits that turn's
-  # KOSMOS_MACHINE_CLAIM_COOKIE (kosmos_claim_machine exports it before the command runs), so the turn's own claim
-  # is not foreign and does not refuse it.
+  # on a missing lib, as above). A run that holds the claim's own KOSMOS_MACHINE_CLAIM_COOKIE is not refused by it
+  # (tools.run-tests-only-4929.test.js).
   # Worded apart from the full suite's lines on purpose: tools/test-cut-guard.sh pins those by their text.
   if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
     if ! kosmos_holds_machine_claim; then
