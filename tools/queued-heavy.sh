@@ -185,6 +185,9 @@ LANE="${KOSMOS_WAIT_LANE:-main}"
 # descendant that leads its own group ("pid command" in QH_DESC); the stop and _qh_end kill those groups, but only a
 # pid whose command is still the one noted (a recycled pid is not ours). One started and orphaned between two polls is
 # not seen (the limit, stated).
+# #4977 review 3: the wrapper is GONE (ESRCH), not merely unsignalable (EPERM in a sandbox): only then may its capper
+# remove the temp files (removing the stop file under a live wrapper would read a stop as a pass).
+_qh_wrapper_gone() { local e; e="$(kill -0 "$1" 2>&1)" && return 1; case "$e" in *"No such process"*) return 0 ;; *) return 1 ;; esac; }
 _qh_note_desc() {
   [ -n "${QH_DESC:-}" ] || return 0
   local q kids all="" p c g
@@ -272,9 +275,9 @@ unset KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE   # review 5: a command that queues 
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).
-  QH_STOPPED="$(mktemp "${TMPDIR:-/tmp}/qh-stopped.XXXXXXXXXX")" || QH_STOPPED=""   # #4977: under TMPDIR (macOS `mktemp -t` ignores it)
+  QH_STOPPED="$(mktemp "${TMPDIR:-/tmp}/qh-stopped.XXXXXXXXXX" 2>/dev/null || mktemp /tmp/qh-stopped.XXXXXXXXXX)" || QH_STOPPED=""   # #4977: under TMPDIR (macOS `mktemp -t` ignores it)
   if [ -z "${QH_STOPPED:-}" ]; then echo "QUEUED-HEAVY $(date '+%H:%M:%S') SIDE TURN NOT STARTED (nothing ran): no temporary file could be made (a full disk?); queue $WHAT again"; exit 75; fi
-  QH_DESC="$(mktemp "${TMPDIR:-/tmp}/qh-desc.XXXXXXXXXX")" || QH_DESC=""
+  QH_DESC="$(mktemp "${TMPDIR:-/tmp}/qh-desc.XXXXXXXXXX" 2>/dev/null || mktemp /tmp/qh-desc.XXXXXXXXXX)" || QH_DESC=""   # review 3: a stale TMPDIR falls back to /tmp
   # The command in its own process group (job control on for this one start), so the cap stops all of it.
   # stdin: the command keeps this script's, as a main turn does (review 10: `printf ... | queued-heavy.sh --light x sh`
   # ran nothing and ended green as a side turn). Only a TERMINAL is swapped for /dev/null: a background job that reads
@@ -294,7 +297,7 @@ if [ "$LANE" = side ]; then
     end=$(( $(date +%s) + SIDE_MIN * 60 )); why=""
     while [ "$(date +%s)" -lt "$end" ]; do
       sleep "$POLL" </dev/null >/dev/null 2>&1
-      kill -0 "$CMD" 2>/dev/null || exit 0
+      kill -0 "$CMD" 2>/dev/null || { _qh_wrapper_gone "$$" && rm -f "$QH_STOPPED" "$QH_DESC"; exit 0; }
       # Round 18 (Opus): the wrapper itself was killed (SIGKILL: no EXIT trap ran, and its side claim self-cleans by its
       # dead pid), so nothing holds the box for this command: stop it now, not at the cap. $$ is the wrapper's pid here.
       kill -0 "$$" 2>/dev/null || { why="the queued-heavy.sh that started it was killed"; break; }
@@ -302,7 +305,7 @@ if [ "$LANE" = side ]; then
       if command -v kosmos_light_side_intruder >/dev/null && why="$(kosmos_light_side_intruder "$CMD")"; then break; fi
       why=""
     done
-    kill -0 "$CMD" 2>/dev/null || exit 0
+    kill -0 "$CMD" 2>/dev/null || { _qh_wrapper_gone "$$" && rm -f "$QH_STOPPED" "$QH_DESC"; exit 0; }
     # The stop file carries WHY (the script says it after the command has gone, so the line cannot be lost with this
     # capper, and it exits 75, try again later, not 143). Round 9: STOP FIRST, then record nothing that can block.
     # Said first, a reader that had gone (`| head`) killed the capper with SIGPIPE at the echo and the command ran on
@@ -311,8 +314,9 @@ if [ "$LANE" = side ]; then
     # Round 18 (Opus): the stop stands only if there was a group to stop (it had finished on its own otherwise).
     kill -TERM -- "-$CMD" 2>/dev/null || : > "$QH_STOPPED"
     sleep 10 </dev/null >/dev/null 2>&1; kill -KILL -- "-$CMD" 2>/dev/null; _qh_kill_desc
-    # #4977 review 2: a KILLed wrapper never reaches _qh_end, so its two temp files would stay in $TMPDIR for good.
-    kill -0 "$$" 2>/dev/null || rm -f "$QH_STOPPED" "$QH_DESC" ) &
+    # #4977 review 2: a KILLed wrapper never reaches _qh_end, so its two temp files would stay in $TMPDIR for good
+    # (review 3: on every capper exit, and only when the wrapper is really gone).
+    _qh_wrapper_gone "$$" && rm -f "$QH_STOPPED" "$QH_DESC" ) &
   CAPPER=$!; set +m
   wait "$CMD"; rc=$?
   kill -KILL -- "-$CAPPER" 2>/dev/null; wait "$CAPPER" 2>/dev/null
