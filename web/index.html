@@ -10234,14 +10234,16 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
 :root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
 /* #4470, the controls in the new look, in the agent page's boxes and Settings' (not the conversation, not Kosmos+'s navy
-   page): as Josh's drawing draws them (Files/kosmos-project-two-col-v9), a button is a pill. A plain button is the
-   page's ground with no edge ("Use the left", "Use the right"), the main one keeps its gold ("Post"). A danger button
-   keeps its red edge, which says what it does. Fields keep today's edge: a white field on the grey box has no other
-   boundary. ⚠️ Today's gold edge on a plain button is the one control boundary that clears WCAG 1.4.11's 3:1 (see
-   .dbox .btn above); the pill's label identifies it instead, as in the drawing. */
-:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox .btn:not(.danger-btn) { border-radius: 999px; }
-:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox .btn:not(.uprime):not(.danger-btn) { background: var(--k-bg); border-color: transparent; }
-:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox .btn:not(.uprime):not(.danger-btn):not(:disabled):hover { background: color-mix(in srgb, var(--k-ink) 6%, var(--k-bg)); }
+   page): as Josh's drawing draws them (Files/kosmos-project-two-col-v9), a button is a pill. A plain or quiet button
+   is the page's ground with no edge ("Use the left", "Use the right"), the main one keeps its gold ("Post"), a danger
+   button keeps its edge, which says what it does. Fields keep today's edge: a white field on the grey box has no other
+   boundary. A button stays raised and a field recessed (the ruling above .dbox .btn): the pill shape and a hairline
+   shadow say button, the field's edge and its square corners say field. ⚠️ Today's gold edge on a plain button is the
+   one control boundary that clears WCAG 1.4.11's 3:1 (see .dbox .btn above); the pill's label identifies it instead,
+   as in the drawing. */
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet) { border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn) { background: var(--k-bg); border-color: transparent; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):not(:disabled):hover { background: color-mix(in srgb, var(--k-ink) 6%, var(--k-bg)); }
 /* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
    there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
