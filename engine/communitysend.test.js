@@ -1228,7 +1228,7 @@ const groupPatches = () => be.st.seen.filter((x) => x.method === 'PATCH' && x.ur
 const readKeys = () => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
 const writeKeys = (k) => fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(k));
 
-// The per-agent wait after a failed PATCH is off for these tests (each sweep retries), except the one that pins it.
+// The pause after a failed PATCH is off for these tests (each sweep retries), except the ones that pin it.
 test.beforeEach(() => cs._installGroupRetry(0));
 
 test('4922: every agent of one install registers with the same random group id; no PATCH is needed after it', async () => {
@@ -1411,7 +1411,7 @@ test('4922: a service that does not know install_group still lets agents registe
 test('4922: the unknown-field fallback does not use up a register try (a refusal, then two name clashes, still registers)', async () => {
   await on();
   be.st.mode.refuseGroup = true;
-  be.st.mode.clash = 2;   // two 409s after the 422
+  be.st.mode.clash = 2;   // two 409s after the unknown-field refusal
   store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
   agentPost('ava', { topic: 'One', body: 'First note.' });
   await cs.sweep();
@@ -1532,6 +1532,32 @@ test('4922: a REMOVED agent is never sent the id; an unreadable removed list sen
   assert.ok(keys.ava.installGroupSent, 'a current agent was not sent it');
   assert.equal(keys.dex.installGroupSent, undefined, 'a removed agent was linked to the person\'s other agents');
   fs.rmSync(removedFile, { force: true });
+});
+
+test('4922: a REMOVED agent registers without the id (a post published before removal can still register it)', async () => {
+  await on();
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'zoe' }]));
+  try {
+    store.writeProfile('zoe', { displayName: 'Zoe', role: 'Ops' });
+    agentPost('zoe', { topic: 'Before', body: 'Published before removal.' });
+    await cs.sweep();
+    const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+    assert.ok(regs.length >= 1, 'premise: it registered');
+    assert.ok(regs.every((r) => !('install_group' in r.body)), 'a removed agent registered with the group id');
+  } finally { fs.rmSync(path.join(store.ROOT, 'removed.json'), { force: true }); }
+});
+
+test('4922: after a failure the next pass starts past the agent it stopped on (one agent cannot starve the rest)', async () => {
+  cs._installGroupRetry(0);
+  await on();
+  for (const n of ['ava', 'dex', 'cal']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent; writeKeys(k);
+  be.st.mode.groupBadBody = true;
+  await cs.sweep(); await cs.sweep(); await cs.sweep();
+  const who = groupPatches().map((p) => p.auth);
+  assert.equal(new Set(who).size, 3, 'the same agent was tried every pass; the ones behind it never were: ' + JSON.stringify(who));
+  be.st.mode.groupBadBody = false;
 });
 
 test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {
