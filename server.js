@@ -3964,8 +3964,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    token is that agent, never the person. Person-only routes (restarting or reconfiguring agents, settings,
    POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board
    token. Removing an agent is in the patterns (#4475), narrowed in its handler to the caller's own creations.
-   The header only, never `token` in the body: this gate runs before the body is read, and the handlers resolve the header first (presentedAgentToken), so both see the same
-   caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
+   The header only, never `token` in the body: this gate runs before the body is read, and the handlers resolve the
+   header first (presentedAgentToken), so both see the same caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
    does not see it: what stops an internet caller there is the tunnel itself, which forwards only
    for an admitted device and then presents the person's board token anyway (read from

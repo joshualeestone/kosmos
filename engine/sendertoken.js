@@ -236,11 +236,12 @@ function othersTokens(held, sessionName) {
   return (t) => { const n = tokenName(t, key); return n !== null && n !== String(sessionName); };
 }
 
-/* #4475: the history of agents whose identity ended, appended and never rewritten: the name and when. `revoke` is
-   where it is written, because every path that ends an agent revokes it first (remove, deleting what is left of
-   it, and create, which revokes a name before making a new agent of it); a restart retires one run and does not
-   come here. The removal route reads it so an agent's ownership of an agent it created ends the first time either
-   name's identity ends: a later agent under either name is then never the one the ownership was about. */
+/* #4475: the history of names whose tokens were revoked, appended and never rewritten: the name and when. That is
+   every name whose agent was removed or had what was left of it deleted, and every name create was asked to make
+   (create revokes a name before its own checks, so a create that is then refused writes a line too). A restart
+   retires one run and does not come here. The removal route reads it so an agent's ownership of an agent it created
+   ends at the first line for either name after it was made. NOT covered: a name freed by deleting an agent's files
+   by hand, outside Kosmos, and then used by a path that mints without revoking (adopt). */
 function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 function noteEnded(sessionName) {
   try {
