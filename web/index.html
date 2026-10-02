@@ -53106,7 +53106,11 @@ function importRowApply(row) {
   }
 }
 function importAddsNewVisit() {
-  for (const [f, st] of [...IMPORT_ADDS]) if (st.state === 'added') IMPORT_ADDS.delete(f);
+  /* An add still in flight is kept, unless it has been in flight over a minute: a request that never
+     settles must not leave the row "Adding..." until the page is reloaded (review 7). */
+  for (const [f, st] of [...IMPORT_ADDS]) {
+    if (st.state === 'added' || (typeof st.at === 'number' && Date.now() - st.at > 60000)) IMPORT_ADDS.delete(f);
+  }
 }
 function importRowsSync(file, msg, aboutName) {
   for (const id of ['import-found', 'fr-fleet']) {
@@ -53208,6 +53212,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
   if (field && !typed) {
     if (said) said.textContent = 'Give this agent a name first.';
     field.setAttribute('aria-invalid', 'true');
+    if (field.classList) field.classList.add('bad');   // the page's flagged-field border (#2606), as on Create an agent
     field.focus();
     return;
   }
@@ -53229,13 +53234,13 @@ async function addImportedInPlace(file, btn, row, viaKey) {
     if (said) said.textContent = msg;
     if (field) {
       field.disabled = false;
-      if (aboutName) { field.setAttribute('aria-invalid', 'true'); field.focus(); }
-      else field.removeAttribute('aria-invalid');
+      if (aboutName) { field.setAttribute('aria-invalid', 'true'); if (field.classList) field.classList.add('bad'); field.focus(); }
+      else { field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
     }
     if (!aboutName && hadInRow && typeof had.focus === 'function') had.focus();
     importRowsSync(file, msg, aboutName);
   };
-  IMPORT_ADDS.set(file, { state: 'adding', name: typed });
+  IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: Date.now() });
   if (field) field.disabled = true;
   btn.disabled = true;
   btn.textContent = 'Adding…';
@@ -53400,6 +53405,7 @@ function importNameInput(e) {
   const f = e.target && e.target.closest && e.target.closest('.fr-importinput');
   if (!f) return;
   f.removeAttribute('aria-invalid');
+  if (f.classList) f.classList.remove('bad');
   const said = f.closest('.fr-importrow') && f.closest('.fr-importrow').querySelector('.fr-importsaid');
   if (said) said.textContent = '';   // the old reason is not read with a field that is being fixed
 }
