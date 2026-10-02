@@ -52,7 +52,10 @@ const shown = (page, sel) => page.evaluate((s) => {
           window.fetch = async (url, init) => {
             const u = String(url);
             if (u.includes('/reveal-folder')) return new Response(JSON.stringify({ error: 'we could not open that folder' }), { status: 500, headers: { 'content-type': 'application/json' } });
-            if (u.includes('/documents')) return enc({ ok: true, total: 1, files, names: files.map((f) => f.name), stamp: 'x' });
+            if (u.includes('/documents')) {
+              if (window.HOLD_DOCS) { const held = window.HOLD_DOCS; window.HOLD_DOCS = null; await held; return enc({ ok: false, because: 'stale folder answer' }); }
+              return enc({ ok: true, total: 1, files, names: files.map((f) => f.name), stamp: 'x' });
+            }
             if (u.includes('/room')) { window.ROOM_HITS += 1; if (window.HOLD_ROOM) await window.HOLD_ROOM; const r = enc({ rows }); setTimeout(() => { window.ROOM_DONE += 1; }, 0); return r; }
             if (u.includes('/api/status')) return enc({ agents: [], version: '0.2.0' });
             return enc({});
@@ -98,7 +101,8 @@ const shown = (page, sel) => page.evaluate((s) => {
           const fin = await page.evaluate(() => ({ seg: document.getElementById('pj-docs-view').dataset.docseg, msg: document.getElementById('docs-msg').textContent }));
           chk(fin.seg === 'folder' && /could not open that folder/i.test(fin.msg) && await shown(page, '#docs-msg'),
             `${tag}: a failed Open in Finder from the conversation's list shows its sentence (on the folder's segment)`, JSON.stringify(fin));
-          /* Two opens while the first's room read is still out: the list ends with one row, not two. */
+          /* Two opens while the first's room read is still out (View All, back, View All again before the first
+             read answers): the list ends with one row, not two. */
           const twice = await page.evaluate(async () => {
             let release;
             window.HOLD_ROOM = new Promise((r) => { release = r; });
@@ -112,6 +116,22 @@ const shown = (page, sel) => page.evaluate((s) => {
             return document.querySelectorAll('#docs-convo .pj-doc').length;
           });
           chk(twice === 1, `${tag}: a reopen while the first read is out shows each conversation file once`, String(twice));
+          /* The same for the folder: the first open's folder read answers late, with a failure; the second open's
+             list and message stand. */
+          const late = await page.evaluate(async () => {
+            let release;
+            window.HOLD_DOCS = new Promise((r) => { release = r; });
+            const first = openDocsView();
+            await new Promise((r) => setTimeout(r, 30));
+            const second = openDocsView();
+            await second;
+            await new Promise((r) => setTimeout(r, 100));
+            release();
+            await first;
+            await new Promise((r) => setTimeout(r, 100));
+            return { msg: document.getElementById('docs-msg').textContent, rows: document.querySelectorAll('#docs-list .pj-doc').length };
+          });
+          chk(!/stale|cannot read/i.test(late.msg) && late.rows === 1, `${tag}: an earlier open's folder read answering late does not paint`, JSON.stringify(late));
           await page.click('#docs-seg [data-docseg="convo"]');
           await open();
           chk(await page.evaluate(() => document.getElementById('pj-docs-view').dataset.docseg) === 'folder', `${tag}: opening the screen again starts on the folder`);

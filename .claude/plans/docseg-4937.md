@@ -35,7 +35,8 @@ the project folder" and delete or default to "In the project folder.""
   sentence).
 - Each open counts itself; neither read from an earlier open (the conversation's or the folder's) paints.
   A reopen while the room read was out appended its rows twice (check arm: 2 rows without the guard, 1 with,
-  both engines, measured). Each open also hides the last project's pager until its own folder lists.
+  both engines, measured). A late failing folder read from the first open painted its sentence over the
+  second open's list (check arm: red without the folder guard, both engines, measured). Each open also hides the last project's pager until its own folder lists.
 - No focus restore on a reopen: the screen is opened only by the project view's "View All" (hidden while
   Documents shows) and by the docs=1 link at startup, so focus cannot be on the switch when it is reopened.
   (Built in round 7, measured working on a synthetic reopen, then removed in round 9 as unreachable.)
@@ -55,7 +56,7 @@ Second: that opening on the folder is right even when the folder is empty and th
 screen says "Nothing here yet" beside a switch that holds files). The card says default to the folder.
 
 ## Evidence
-- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 35 PASS;
+- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 37 PASS;
   red on main.
 - node --test browser-checks-*, web.*, tools.browser-checks-*: 2351/2351.
 - Surface gate: render-consolidated-nav-4345, render-subback-4586, render-subview-cleanup-3502 pass on
