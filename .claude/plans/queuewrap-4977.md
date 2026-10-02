@@ -16,8 +16,14 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
   - every run of the wrapper goes through a shim that refuses (exit 99) unless KOSMOS_RUN_MARKER_DIR is inside the test's own mktemp dir; a control arm proves the shim refuses;
   - fake package managers first on PATH (as the harness had);
   - stray processes are stopped only by an exact `^sleep <N>$` match on lengths unique to this run (no broad pkill), and an EXIT trap cleans up;
-  - it counts: 0 BAD and exactly 75 OK, else it fails.
+  - it counts: 0 BAD and exactly 76 OK, else it fails (74 seeded arms, the shim control, the killed wrapper's temp files).
 - `package.json`: `test:shell` runs it (tools.every-test-runs.test.js would otherwise flag it as orphaned).
+
+## Review rounds
+- 1: a 15-min fuse (the fake holder was `sleep 900`), yield arms racing the start gate, fixed sleeps, no per-run deadline, the env not cleaned, unanchored reads, background wrappers not stopped. Fixed (one browser flag per arm, raised once the arm's command runs; polls; a perl alarm in the shim, QH_DEADLINE 240 s).
+- 2: the SIGPIPE arm never ran its command (fixed: the reader leaves after the side turn starts, and the arm requires the command ran); the wrapper's temp files outside the test dir (fixed in the wrapper: named under `${TMPDIR:-/tmp}`, since macOS `mktemp -t` ignores TMPDIR; and a killed wrapper's capper removes them); stale pids and TERM-proof sleeps in the trap; per-pid-unique sleep lengths.
+- 3: the trap could match another agent's wrapper (now by parentage and this tree's path); the capper's cleanup only on the stop path (now on every exit, only on ESRCH); a stale TMPDIR falls back to /tmp; an arm pins the cleanup; the b arm's race (wait for the side turn to leave the queue).
+- 4: a killed but unreaped wrapper (a zombie: macOS `kill -0` succeeds on it) was not seen as killed, so its command ran on unclaimed to the cap; `_qh_wrapper_gone` now counts ps state Z (probed: zombie gone, live live, reaped gone). Also: `_qh_end` removes the stop file after the capper is gone; the b arm checks its wait and uses a unique sleep; the trap waits for what it stopped. Not testable in the suite: holding a zombie open (bash reaps promptly), so it was probed by hand.
 
 ## Decisions
 - The repo copy keeps reading the guards from ONE main checkout, not the worktree it runs from: every worktree reading its own branch's lib is how several lib generations end up in one queue (item 1's cause).
@@ -25,6 +31,6 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 - Weakest premise: that the single main checkout stays updated; if not, every waiter reads the same stale lib (as today).
 
 ## Validation
-- `bash tools/test-queued-heavy-4977.sh`: 75 OK, 0 BAD.
+- `bash tools/test-queued-heavy-4977.sh`: 76 OK, 0 BAD, three runs in a row after review 4 (about 80 s each), no sleeps or temp files left behind.
 - Mutant: removing the wrapper's scan for suite-like commands turns it red (light runs of browser-checks.sh and `yarn test` forms got side turns).
 - no-name-refs-3071, no-brand-refs-1881, fixture-discipline, tools.heavy-gate-3805, tools.shell-shard-4317, tools.every-test-runs: pass.
