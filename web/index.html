@@ -27855,6 +27855,9 @@ async function oaReadOne(c) {
        answered and did not let this page read it (an older connector without the sibling answer does exactly that). */
     state = c.online === true ? 'blocked' : 'out';
   } finally { if (cut) clearTimeout(cut); }
+  /* Not kept if a refresh took this computer off the account's list while the read ran: one added back later must
+     start as new, not as what this read saw. */
+  if (typeof OA_COMPUTERS !== 'undefined' && !(OA_COMPUTERS && oaOthers(OA_COMPUTERS).some((o) => o.address === c.address))) return null;
   return oaRemember(OA_SEEN, c.address, state, agents, Date.now());
 }
 function oaNote(c, seen, now) {
@@ -27966,8 +27969,9 @@ function oaPaint() {
   const same = keys.length === OA_PAINTED.length && groups.children.length === keys.length
     && others.every((c, i) => groups.children[i].dataset.address === c.address);   // same computers in the same places
   if (!same) {
-    /* The computers changed (added, removed, renamed or reordered): every group is rebuilt, and focus goes back by
-       computer address, or to the section's title if that computer is gone. */
+    /* The computers changed (added, removed, reordered, or a different address; a rename at the same address is a
+       per-group change): every group is rebuilt, and focus goes back by address, or to the section's title if that
+       computer is gone. */
     const was = Array.from(groups.children).map((g) => [g.dataset ? g.dataset.address : undefined, oaFocusSaved(g)]).find((x) => x[1]);
     groups.textContent = '';
     for (const c of others) groups.appendChild(oaGroup(c, OA_SEEN.get(c.address), now));
@@ -28039,7 +28043,7 @@ async function oaRound(again) {
     /* oaGridShown is checked again because the first round can have waited on the refresh meanwhile. */
     if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly() && oaGridShown(grid)) {
       oaPaint();   // groups appear at once, "Reading its agents..." until each answers
-      await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).catch(() => null)));
+      await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).then(() => oaPaint(), () => null)));   // each group as its own read lands
     }
     oaPaint();
   } finally {

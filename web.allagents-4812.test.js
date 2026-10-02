@@ -259,7 +259,6 @@ function loadPaint() {
     let OA_BUSY = false, OA_WAS_SHOWN = false, OA_PAINTED = [], OA_TIMER = 1;
     let OA_COMPUTERS = null;
     function oaRound() {}
-    function oaRefreshComputers() { return null; }
     ${SRC}
     ${slice('oaThisOnly')}
     ${slice('oaReplaceGroup')}
@@ -442,7 +441,10 @@ function loadRound(computersAnswer) {
     ${slice('oaPaint')}
     ${slice('oaRefreshComputers')}
     ${slice('oaRound')}
-    return { oaRound, OA_SEEN, get busy() { return OA_BUSY; }, get computers() { return OA_COMPUTERS; },
+    const realFetch = fetch;
+    function readOneHeld(hold) { fetch = () => new Promise(hold); const p = oaReadOne(LISTED); fetch = realFetch; return p; }
+    const LISTED = { name: 'agent1s', address: 'agent1s.kosmosplus.com', this: false, online: true };
+    return { oaRound, OA_SEEN, readOneHeld, get busy() { return OA_BUSY; }, get computers() { return OA_COMPUTERS; },
       set computers(v) { OA_COMPUTERS = v; }, set at(v) { OA_COMPUTERS_AT = v; } };
   `)(t.document, { hostname: 'laptop.kosmosplus.com', protocol: 'https:' }, fetchImpl, () => 0, () => {});
   return { api, asked, grid };
@@ -470,4 +472,20 @@ test('round: the first round waits for the list, then reads; a computer dropped 
   assert.equal(asked[0], '/api/remote/computers', 'the list first');
   assert.deepEqual(asked.slice(1), ['https://agent1s.kosmosplus.com/api/status'], 'then the one other valid computer');
   assert.equal(api.OA_SEEN.has('pizzarama.kosmosplus.com'), false, 'a computer off the list starts as new if it comes back');
+});
+
+test('round: a read that lands after a refresh dropped its computer is not kept', { timeout: 2000 }, async () => {
+  let land;
+  const t = loadRound(async () => ({ ok: true, json: async () => LIST }));
+  t.api.computers = LIST; t.api.at = Date.now();   // known and fresh: this round only reads
+  // Hold agent1s's read open, drop agent1s from the list, then let the read land.
+  const r = t.api.readOneHeld((resolve) => { land = resolve; });
+  t.api.computers = { ...LIST, computers: LIST.computers.filter((c) => c.name !== 'agent1s') };
+  land({ status: 200, json: async () => ({ agents: [{ sessionName: 'a', name: 'A', state: 'idle' }] }) });
+  await r;
+  assert.equal(t.api.OA_SEEN.has('agent1s.kosmosplus.com'), false, 'not written back');
+  t.api.computers = LIST;
+  const kept = t.api.readOneHeld((resolve) => resolve({ status: 200, json: async () => ({ agents: [] }) }));
+  await kept;
+  assert.equal(t.api.OA_SEEN.get('agent1s.kosmosplus.com').state, 'ok', 'control: still listed, kept');
 });
