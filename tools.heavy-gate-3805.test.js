@@ -272,6 +272,9 @@ test('live (opt-in, KOSMOS_HG_LIVE=1): a real release.sh outside any test ancest
 
 /* This one runs the real who-has-the-box.sh, which (like any consult) sweeps a dead or expired
    claim in the real run-markers folder: the one place the default suite touches live state. */
+/* #4911 review 12: ONE copy of the wordings the tool reads, shared by the live test and the made one below, so
+   narrowing it in one place cannot leave the other green. */
+const LIVE_RESERVATION = /^reservation: (none \(no release holds|HELD \((the machine is reserved for a release|the machine is held by an ordinary queued turn|no release holds the machine right now\.\na light run has a side turn))/m;
 /* #4911: two more real answers. An ordinary queued turn's claim says "held by an ordinary queued turn" (it is not a
    release), and a light run's side turn adds its own line after the status, so the free line alone with a side turn
    live reads as HELD. Missing these turned this test red in any suite that is itself a queued turn's holder. */
@@ -281,7 +284,7 @@ test('the real reservation line is one of the wordings the tool reads', () => {
   delete env.KOSMOS_HG_CLAIM;
   const r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
   fs.rmSync(env.KOSMOS_HG_SNAPSHOT, { force: true });
-  assert.match(r.stdout, /^reservation: (none \(no release holds|HELD \((the machine is reserved for a release|the machine is held by an ordinary queued turn|no release holds the machine right now\.\na light run has a side turn))/m, r.stdout);
+  assert.match(r.stdout, LIVE_RESERVATION, r.stdout);
 });
 
 /* #4911 review 11: the two new wordings in the live test above are only ever met while the box is held, so a quiet box
@@ -295,16 +298,15 @@ test('#4911 the real tool prints the held wordings the live test accepts', (t) =
   const env = { ...process.env, KOSMOS_RUN_MARKER_DIR: dir, KOSMOS_HG_SNAPSHOT: path.join(dir, 'empty') };
   fs.writeFileSync(env.KOSMOS_HG_SNAPSHOT, '');
   delete env.KOSMOS_HG_CLAIM;
-  const LIVE = /^reservation: (none \(no release holds|HELD \((the machine is reserved for a release|the machine is held by an ordinary queued turn|no release holds the machine right now\.\na light run has a side turn))/m;
   fs.writeFileSync(path.join(dir, 'machine-claim'), `c-${now}-1 ${holder.pid} ${now + 600} host queued run (not a cut): a full suite\n`);
   let r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
   assert.match(r.stdout, /HELD \(the machine is held by an ordinary queued turn/, r.stdout);
-  assert.match(r.stdout, LIVE, r.stdout);
+  assert.match(r.stdout, LIVE_RESERVATION, r.stdout);
   fs.rmSync(path.join(dir, 'machine-claim'));
   fs.writeFileSync(path.join(dir, 'light-side-claim'), `s-${now}-1 ${holder.pid} ${now + 600} one check\n`);
   r = spawnSync('bash', [TOOL], { encoding: 'utf8', env });
   assert.match(r.stdout, /HELD \(no release holds the machine right now\.\na light run has a side turn/, r.stdout);
-  assert.match(r.stdout, LIVE, r.stdout);
+  assert.match(r.stdout, LIVE_RESERVATION, r.stdout);
 });
 
 test('--except-cwd rules out your own run, exact or below, and not a sibling that shares the prefix', (t) => {

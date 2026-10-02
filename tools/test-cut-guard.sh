@@ -670,10 +670,10 @@ kosmos_unmark_suite_waiting
 # lwait <queue time> [class]: rewrite the stand-in waiter's marker (class on line 5, none for an older lib's marker).
 lwait() { { printf '%s %s\n%s\n%s\n%s\n' "$1" "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")"; [ -n "${2:-}" ] && printf '%s\n' "$2"; } > "$W/markers/suitewait.$wp"; }
 NOW="$(date +%s)"
-lwait $((NOW - 60))                                   # an older lib's marker: no class, so heavy
+lwait $((NOW - 60)) heavy                             # a #4609-lib heavy waiter (class on line 5)
 KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && pass "#4609 a light run goes ahead of an older heavy waiter (and an older lib's marker reads as heavy)" \
+[ "$rc" -eq 0 ] && pass "#4609 a light run goes ahead of an older heavy waiter" \
   || fail "#4609 a light run waited behind a heavy one (rc=$rc, $out)"
 [ "$(sed -n '5p' "$W/markers/suitewait.$$")" = light ] && pass "#4609 the marker records the class on line 5" \
   || fail "#4609 the marker's line 5 is not the class ($(sed -n '5p' "$W/markers/suitewait.$$"))"
@@ -681,7 +681,7 @@ kosmos_mark_suite_waiting $((NOW - 30))                # CONTROL: the same place
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "is ahead of" && has_pid "$out" "$wp"; } && pass "#4609 CONTROL: a heavy run in the same place waits behind the older heavy one" \
   || fail "#4609 CONTROL: a heavy run jumped an older heavy waiter (rc=$rc, $out)"
-lwait $((NOW - 3000))                                 # heavy, past the default starve line (2700 s)
+lwait $((NOW - 3000)) heavy                           # heavy, past the default starve line (2700 s)
 KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4609 a heavy waiter past the starve line goes ahead of a light run" \
@@ -689,6 +689,14 @@ out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 out="$(KOSMOS_QUEUE_STARVE_S=4000 kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4609 CONTROL: under a longer starve line the same heavy waiter does not" \
   || fail "#4609 CONTROL: KOSMOS_QUEUE_STARVE_S did not move the starve line (rc=$rc, $out)"
+# #4911 review 12: a marker with NO class line is a lib from before #4609, whose reader orders strictly oldest-first.
+# While one is live every reader here uses that rule too, so the two agree: the light run waits for the OLDER one
+# (before, each named itself first). CONTROL: the same waiter as a #4609 heavy marker lets the light run go (above).
+lwait $((NOW - 60))
+KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4911 with a pre-#4609 waiter live, order is oldest-first for everyone (a light run waits for it)" \
+  || fail "#4911 a light run went ahead of a pre-#4609 waiter, which reads itself first (rc=$rc, $out)"
 lwait $((NOW - 60)) light                             # two light runs: oldest first between them
 KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?

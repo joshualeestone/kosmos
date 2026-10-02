@@ -188,6 +188,23 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   who-has-the-box and the status say there is a second line for a side turn. Dry run 49/49 (fake yarn/npm/pnpm first
   on its PATH: at 21:04 an unquoted heredoc that built the harness ran a real `yarn test`, which joined the real
   queue as a waiter for 6 minutes before I found and stopped it; it never ran a test).
+- Round 12 (Sonnet + Opus, blind). Sonnet: no blocker, no should-fix (4 nits, below). Opus: no blocker; two
+  should-fix, both OLDER than this card and reproduced. Fixed: (1) a waiter from a lib before #4609 (4-line marker)
+  orders strictly oldest-first, so the "older rule" fallback was a SECOND rule against it, and an older light waiter
+  and a starving heavy one could each name the other: while any such marker is live every reader here now uses
+  oldest-first (rank 0 for all), the one rule all three lib generations share. Two #4609 arms in test-cut-guard.sh
+  wrote 4-line stand-ins while meaning "a #4609 heavy waiter"; they now write the class, and a new arm pins
+  oldest-first against a 4-line one (red on round 11's lib). (2) a queued-heavy.sh nested inside a main turn took its
+  "turn" at once (the claim read as its own) and RELEASED the parent's claim at its end, so the box read free under
+  the parent's running command: such a run now executes its command directly under the parent's turn and claims and
+  releases nothing (a stale inherited cookie takes an ordinary turn); dry-run checked both. Nits taken: npm's test
+  aliases (tst, it, cit, install-test, install-ci-test); one shared LIVE_RESERVATION regex for both heavy-gate tests.
+  Not taken: the wait-control unset also applies in the main lane (intended: the command waits on its own terms);
+  a ps walk that loses an ancestor mid-poll can cause one spurious yield (the light run's cost, exit 75); `node --run
+  test`, `bun test` and quote-concatenated spellings are not matched (run-tests.sh refuses inside a side turn, exit 2);
+  Playwright with system Chrome or a custom browsers path is not seen (the "no Playwright browser" check is literal);
+  a renewal overwrites a foreign live claim (older than this card; a cut overwriting a queued turn is that path).
+  Dry run 55/55.
 - WEAKEST PREMISE, added round 11 (Opus): the aging is OFF while any waiter from a lib older than #4911 is live (every
   reader then uses the older rule, which is what prevents the three-waiter circle). A run-tests.sh from any branch not
   yet rebased past this merge writes such a marker, so the 367-minute light wait is fixed only as branches rebase
