@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-0718
-diff_hash: e93f4770c865a629bc539906e6f90b3422ce1494706508455c54ac834071c33a
+diff_hash: 937bb3812305bf151eecbd888e99b4cc5e21d0d98d111003363dd613cd23c5e8
 subdir_audit: passed
-timestamp: 2026-10-02T17:09:59Z
+timestamp: 2026-10-02T17:44:51Z
 converged: true
 ---
 
@@ -27,6 +27,9 @@ NITs only. CONVERGED. NIT TAKEN: line 4 says what the person sees (teammates sto
 NITs only. CONVERGED, line 4 confirmed against #5001 (the agent re-posted after a false failure; nothing else
 duplicated it). LEFT NITs: line 4's title reads broader than the narrow fix; "see it full page" is generous for a
 file kind the preview shows only by name and size; two lines share the chat icon.
+
+## [NIT] Round 4 (sonnet)
+CONVERGED, no NITs. After #5042 and #5044 merged, line 1 lost its Windows qualifier; true on both platforms.
 
 ## Checks
 tools/whats-new-check.js 0.7.18: 4 highlights, every line at most 140 characters; no em dash in any spelling.
