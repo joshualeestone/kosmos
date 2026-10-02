@@ -12,7 +12,8 @@
  *      pointer's sha256, re-read when the pointer or the file's headers change, after a failed read, and daily. The
  *      names must be the ones the installers derive from `version` (and `arch`). Also what every install fetches
  *      whatever the pointers say: /setup, the tmux bundle and the generic fallback tarball (each against its sidecar).
- *   2. community.installkosmos.com: /api/health answers {"ok":true}, and the public feed answers.
+ *   2. community.kosmosplus.com (where builds post): /api/health answers {"ok":true}, and the public feed answers;
+ *      community.installkosmos.com (its old name, while installed apps still post there): /api/health answers.
  *   3. The relay: a computer name that never exists answers with the relay's own "Mac not connected" page, so the relay
  *      process itself is checked, whatever computer is on (a person's computer as the canary would alarm every time it
  *      slept). Its build is NOT checked: the relay writes it only to its own journal (kosmos-relay: crates/relay/src/serve.rs), with
@@ -46,7 +47,7 @@
  * Exit: 0 healthy, 1 alarm, 2 could not tell (including a sha or sidecar mismatch seen once, not yet twice).
  * EXIT 2 IS NOT A PASS.
  *
- * SEAMS (tests): SERVE_WATCH_SITE, SERVE_WATCH_DIST, SERVE_WATCH_COMMUNITY, SERVE_WATCH_RELAY (base URLs), SERVE_WATCH_NOW (epoch
+ * SEAMS (tests): SERVE_WATCH_SITE, SERVE_WATCH_DIST, SERVE_WATCH_COMMUNITY, SERVE_WATCH_COMMUNITY_OLD, SERVE_WATCH_RELAY (base URLs), SERVE_WATCH_NOW (epoch
  * seconds), SERVE_WATCH_STATE, SERVE_WATCH_MSG_CMD, SERVE_WATCH_TO, SERVE_WATCH_GH_CMD, SERVE_WATCH_ISSUE,
  * SERVE_WATCH_TIMEOUT_MS. Under the test runner it posts only through seams a test supplies.
  */
@@ -70,7 +71,10 @@ const HOLD_S = 3600;
 
 const DIST = (env.SERVE_WATCH_DIST || 'https://installkosmos.com/dist').replace(/\/+$/, '');
 const SITE = (env.SERVE_WATCH_SITE || 'https://installkosmos.com').replace(/\/+$/, '');
-const COMMUNITY = (env.SERVE_WATCH_COMMUNITY || 'https://community.installkosmos.com').replace(/\/+$/, '');
+const COMMUNITY = (env.SERVE_WATCH_COMMUNITY || 'https://community.kosmosplus.com').replace(/\/+$/, '');   // #4895: where builds post
+/* #4895: the community's old name. Installed apps from before the move still post there until they update, so its
+   health is watched too while it is an alias. SERVE_WATCH_COMMUNITY_OLD='' turns this check off. */
+const COMMUNITY_OLD = (env.SERVE_WATCH_COMMUNITY_OLD !== undefined ? env.SERVE_WATCH_COMMUNITY_OLD.trim() : 'https://community.installkosmos.com').replace(/\/+$/, '');
 /* A computer name that never exists: the relay's own listener answers it with its "Mac not connected" page
    (kosmos-relay: crates/relay/src/redirect.rs), whatever computer is or is not on, over plain http (no certificate involved). */
 const RELAY = env.SERVE_WATCH_RELAY || 'http://serve-watch-canary.kosmosplus.com/';
@@ -254,6 +258,12 @@ async function gather(prev, now) {
   const health = await getJson(COMMUNITY + '/api/health');
   const healthOk = health.status === 200 && health.json && health.json.ok === true;
   if (!healthOk) add('community-health', 'the community site\'s /api/health did not answer ok (' + why(health) + ')');
+  if (COMMUNITY_OLD) {
+    const old = await getJson(COMMUNITY_OLD + '/api/health');
+    if (!(old.status === 200 && old.json && old.json.ok === true)) {
+      add('community-old-health', 'the community site\'s old name (' + COMMUNITY_OLD.replace(/^https?:\/\//, '') + ') did not answer /api/health ok (' + why(old) + '): installed apps from before the move post there');
+    }
+  }
   // The status is the answer here: a healthy feed can grow past BODY_CAP, which getJson would read as no answer.
   // head() is tried twice itself; the live feed refuses HEAD (405), so its GET is the read that needs the second try.
   const feed = await head(COMMUNITY + '/api/posts/feed').then((h) => (h.status === 405 ? twice(() => getStatusOnly(COMMUNITY + '/api/posts/feed')) : h));

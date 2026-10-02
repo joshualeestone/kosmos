@@ -67,6 +67,7 @@ function serve(site) {
     }
     if (u.pathname === '/site/setup') return site.setup ? send(200, 'text/plain; charset=utf-8', '#!/bin/sh\n') : send(404, 'text/html', 'not found');
     if (u.pathname === '/community/api/health') return send(site.health ? 200 : 503, 'application/json', JSON.stringify(site.health || { ok: false }));
+    if (u.pathname === '/community-old/api/health') return send(site.oldHealth === false ? 503 : 200, 'application/json', JSON.stringify(site.oldHealth === false ? { ok: false } : { ok: true }));
     if (u.pathname === '/community/api/posts/feed') {
       // The real feed answers HEAD with 405 (measured): only GET reads it.
       if (site.feedNoHead && req.method === 'HEAD') return send(405, 'application/json', '{}');
@@ -96,7 +97,7 @@ function stubs(dir) {
 function run(base, dir, st, { now, args = [] } = {}) {
   return new Promise((resolve) => {
     const env = Object.assign({}, process.env, {
-      SERVE_WATCH_SITE: base + '/site', SERVE_WATCH_DIST: base + '/dist', SERVE_WATCH_COMMUNITY: base + '/community', SERVE_WATCH_RELAY: base + '/relay/',
+      SERVE_WATCH_SITE: base + '/site', SERVE_WATCH_DIST: base + '/dist', SERVE_WATCH_COMMUNITY: base + '/community', SERVE_WATCH_COMMUNITY_OLD: base + '/community-old', SERVE_WATCH_RELAY: base + '/relay/',
       SERVE_WATCH_STATE: path.join(dir, 'state.json'), SERVE_WATCH_MSG_CMD: st.msg, SERVE_WATCH_GH_CMD: st.gh,
       SERVE_WATCH_TO: 'test-pane', SERVE_WATCH_ISSUE: '999999', SERVE_WATCH_NOW: String(now), SERVE_WATCH_TIMEOUT_MS: '5000',
     });
@@ -539,6 +540,15 @@ test('a problem down one run in three is one alarm, alone or beside another', ()
   site.files.delete('kosmos-1.0.0-arm64.tar.gz');
   for (let i = 12; i < 24; i++) { site.relayUp = i % 3 !== 0; await run(base, dir, st, { now: T0 + i * 900 }); }
   assert.equal(posts(), 2, 'beside a standing problem: ' + st.card());
+}));
+
+test('the community\'s old name is watched too while installed apps still post there (#4895)', () => withSite(async ({ site, base, dir, st }) => {
+  assert.equal((await run(base, dir, st, { now: T0 })).code, 0, 'CONTROL: both names healthy');
+  assert.ok(site.hits.includes('GET /community-old/api/health'), 'the old name was not asked');
+  site.oldHealth = false;
+  assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 1);
+  assert.match(st.card(), /the community site's old name \(127\.0\.0\.1:\d+\/community-old\) did not answer \/api\/health ok \(503\)/);
+  assert.doesNotMatch(st.card(), /People installing or updating/, 'a community problem was called a download failure');
 }));
 
 test('the relay check is the relay\'s own page: any other answer (a proxy, a parked domain) is an alarm', () => withSite(async ({ site, base, dir, st }) => {

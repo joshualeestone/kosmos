@@ -11,7 +11,8 @@
  * and lands after the turn, by which time the room may already have answered it.
  *
  * What this does, and only this. An AGENT's post that does not @-name you, arriving while your own
- * latest report is a fresh `working`, is HELD instead of typed: its id is kept in a small file of
+ * latest report is a fresh `working` or an `idle` written by your turn-end hook (the #4624 follow-up, 0.7.15 diagnostic H7: idle members were still
+ * woken by every colleague's post, a turn each that ended in "not addressed to me"), is HELD instead of typed: its id is kept in a small file of
  * yours. The post is still in the room and still lists you in `to` (you are told about it, below).
  * You hear about held posts in ONE line, at whichever comes first:
  *   - your next `idle` report (the turn ended): the board types the line then, one turn for all of
@@ -23,9 +24,14 @@
  * you (the card's third point).
  *
  * Left exactly as before: the person's posts (to the room or to you), any post that @-names you, and
- * every agent whose latest report is not a fresh `working` (idle, needs_you, blocked, stopped, never
+ * every agent whose latest report is neither a fresh `working` nor `idle` (needs_you, blocked, stopped, never
  * reported, or a `working` older than the board's own decay window, status.REPORT_WORKING_DECAY_MS).
- * So a runner that does not report is never held, and a report that went stale falls back to typing.
+ * An idle member hears about held posts on its next typed arrival (named, the person, or a reply to its own post) or
+ * at the end of its next turn: it is woken only when something is asked of it.
+ * So a runner that does not report is never held, and a stale `working` report falls back to typing. A hook's `idle`
+ * does not go stale (an idle member may wait for days), so one known residual: a member whose reporting breaks AFTER
+ * its last idle (its hook turned off, a bridge losing its path) keeps holding un-addressed posts while it works. Nothing
+ * is lost (the room keeps every post, and the next typed arrival carries the line); stated, not fixed (#4624 review 2).
  *
  * Brake: AGENT_WORKFORCE_ROOM_HOLD_OFF=1 types every post as before, including past the #4588 quota gate for room
  * posts (engine/messages.js typeInto). Posts held before the brake is turned on are told only by the next typed
@@ -81,6 +87,19 @@ function workingNow(readReport, name, now, decayMs) {
   return age >= 0 && age <= decayMs;
 }
 
+/* #4624 follow-up (0.7.15 diagnostic, H7): the member's latest report is an `idle` written by its own turn-end hook
+   (by 'auto'), at any age: its last turn ended and it is waiting. Typing a colleague's un-addressed post there starts a
+   turn that ends in "not addressed to me". Only a hook's idle (review 1): it shows this runner's hook reports a turn's
+   end, so the idle flush normally tells the member when its next turn ends, whatever woke it (a turn that errors or
+   is interrupted may end without one; the posts then wait for the next). An idle the agent wrote itself shows nothing
+   of the kind, so its posts are typed as before. An agent can write `report idle --auto` itself; that only affects
+   what it is told. */
+function idleNow(readReport, name) {
+  let rep;
+  try { rep = readReport(name); } catch { return false; }
+  return !!(rep && rep.found === true && rep.state === 'idle' && rep.by === 'auto');
+}
+
 /* Whether this post is held for this member instead of typed. Pure apart from the injected read. */
 function shouldHold({ name, operator, mentioned, answersAuthor, reachable, readReport, now, decayMs, env }) {
   if (off(env)) return false;
@@ -88,7 +107,7 @@ function shouldHold({ name, operator, mentioned, answersAuthor, reachable, readR
   if (mentioned && typeof mentioned.has === 'function' && mentioned.has(name)) return false;
   if (answersAuthor === name) return false;
   if (reachable !== true) return false;
-  return workingNow(readReport, name, now, decayMs);
+  return workingNow(readReport, name, now, decayMs) || idleNow(readReport, name);
 }
 
 /* Null-prototype, so a project id such as "__proto__" is an own key like any other. */
@@ -192,7 +211,8 @@ function clauseFor(projectId, shown, ids) {
       + asked.slice(-SHOWN).join(', ') + (k > SHOWN ? ' and ' + (k - SHOWN) + ' earlier' : '') + '). Read them with: kosmos room '
       + projectId + ' and answer one with: kosmos post --in-reply-to <its id> ' + projectId + ']';
   }
-  return '[While you were working, ' + n + ' room post' + (n === 1 ? '' : 's') + ' not addressed to you arrived in project '
+  // Neutral since the H7 follow-up: posts are held for a working member AND an idle one.
+  return '[Since you last heard from this room, ' + n + ' room post' + (n === 1 ? '' : 's') + ' not addressed to you arrived in project '
     + shown + ' (' + named + '). Nothing is asked of you; read them with: kosmos room ' + projectId + ']';
 }
 
@@ -233,6 +253,10 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       const name = String(card.sessionName);
       if (!heldProjects(name).length) continue;
       if (workingNow(readReport, name, now, decayMs)) continue;
+      /* #4624 follow-up (review 1/2): an idle member holding only posts that ask nothing of it waits for its next wake,
+         as on every other runner; this minute retry is for posts the quota held that name it. That includes posts held
+         while it worked whose turn-end line the quota refused: since the follow-up they wait for the next wake too. */
+      if (idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => plainId(x) !== x))) continue;
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */
       if (require('./chat').addressable(name, roster).ok !== true) continue;
