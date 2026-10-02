@@ -105,12 +105,14 @@ test('#5062: the triager files, links or skips a group; each once; a closed card
   const o = opts('e', { fetchFn: s.fetchFn });
   const r = await t.read({ ...o, gh: fakeGh().gh });
   const [a, b, c] = pendingIds(r);
-  const g = fakeGh({ states: { 9001: 'CLOSED', 4242: 'CLOSED' } });
+  const states = { 9001: 'CLOSED', 4242: 'OPEN' };
+  const g = fakeGh({ states });
   assert.equal(t.file(a, { ...o, gh: g.gh }), 9001);
   assert.equal(g.created().length, 1);
   assert.equal(g.created()[0].body, r.state.groups[a].draft.body, 'what was filed is not the draft the person read');
   assert.throws(() => t.file(a, { ...o, gh: g.gh }), /already filed \(#9001\)/, 'a group was filed twice');
-  t.dup(b, '4242', o);
+  assert.equal(t.dup(b, '4242', { ...o, gh: g.gh }), false, 'an open card was taken for a closed one');
+  states[4242] = 'CLOSED';   // fixed later
   t.skip(c, o);
   const r2 = await t.read({ ...o, gh: g.gh });
   assert.equal(pendingIds(r2).length, 0);
@@ -141,4 +143,63 @@ test('#5062: the scrub replaces whole names only, case-insensitively; the CLI re
   assert.equal(t.scrub("Ana said ana's board froze; banana stays", ['Ana']), "an agent said an agent's board froze; banana stays");
   await assert.rejects(t.main(['--bogus']), /unknown option --bogus/);
   await assert.rejects(t.main(['file']), /usage/);
+});
+
+
+test('#5062 review 4: a second verb refuses while one holds the lock; a corrupt state file stops the run', async () => {
+  const s = site([post('l1', 'Board idle', 'x', 'A1')]);
+  const o = opts('l', { fetchFn: s.fetchFn });
+  await t.read({ ...o, gh: fakeGh().gh });
+  fs.mkdirSync(o.state + '.lock');   // a run in progress
+  assert.throws(() => t.skip('g1', o), /another triage run holds/);
+  await assert.rejects(t.read({ ...o, gh: fakeGh().gh }), /another triage run holds/);
+  fs.rmdirSync(o.state + '.lock');
+  t.skip('g1', o);
+  fs.writeFileSync(o.state, '{"seen": {"l1": tru');   // truncated
+  await assert.rejects(t.read({ ...o, gh: fakeGh().gh }), /not valid JSON/, 'a corrupt state file was silently started over');
+});
+
+test('#5062 review 4: home folders, bare domain paths, secrets, IPs and owner/repo#refs leave the draft', () => {
+  const out = t.scrub('at /Users/jsmith/work/x.js and C:\\Users\\Maria Lopez\\AppData and /home/bob/.config; '
+    + 'see github.com/jsmith/repo, key sk-ant-api03-AbCdEf123456 and ghp_abcdefghijklmnop, host 10.0.3.44, acme/kosmos#4', []);
+  assert.doesNotMatch(out, /jsmith|Maria|Lopez|bob|sk-ant|ghp_|10\.0\.3\.44|acme\/kosmos#4/, out);
+  assert.match(out, /\/Users\/\[user\]/); assert.match(out, /\[secret removed\]/); assert.match(out, /issue 4/);
+});
+
+test('#5062 review 4: linking to an already-closed card is flagged, never "fixed"; a failed lookup is said, not a zero', async () => {
+  const s = site([post('c1', 'Board idle', 'x', 'A1')]);
+  const o = opts('c2', { fetchFn: s.fetchFn });
+  await t.read({ ...o, gh: fakeGh().gh });
+  assert.equal(t.dup('g1', '5029', { ...o, gh: fakeGh({ states: { 5029: 'CLOSED' } }).gh }), true);
+  const r = await t.read({ ...o, gh: fakeGh({ states: { 5029: 'CLOSED' } }).gh });
+  assert.equal(r.replyDue.length, 0, 'a link to an already-closed card asked for a "fixed" reply');
+  assert.match(r.digest, /Linked to a card that was already closed[\s\S]*g1: #5029/);
+  // A filed card whose state cannot be read is counted and said.
+  const s2 = site([post('d1', 'Font small', 'y', 'B1')]);
+  const o2 = opts('d2', { fetchFn: s2.fetchFn });
+  await t.read({ ...o2, gh: fakeGh().gh });
+  t.file('g1', { ...o2, gh: fakeGh().gh });
+  const broken = (args) => (args[0] === 'issue' && args[1] === 'view' ? { status: 1, stdout: '', stderr: 'boom' } : fakeGh().gh(args));
+  const r2 = await t.read({ ...o2, gh: broken });
+  assert.equal(r2.lookupFailed, 1);
+  assert.match(r2.digest, /1 card state lookup\(s\) failed/);
+});
+
+test('#5062 review 4: a gh failure puts the group back to pending; a run that died mid-filing refuses a blind retry', async () => {
+  const s = site([post('f9', 'Board idle', 'x', 'A1')]);
+  const o = opts('fz', { fetchFn: s.fetchFn });
+  await t.read({ ...o, gh: fakeGh().gh });
+  const fails = (args) => (args[1] === 'create' ? { status: 1, stdout: '', stderr: 'boom' } : fakeGh().gh(args));
+  assert.throws(() => t.file('g1', { ...o, gh: fails }), /gh issue create failed/);
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1.status, 'pending', 'a failed create left the group stuck');
+  // The mark is on disk WHILE the card is being made, so a run that dies right then leaves "filing" behind.
+  let during = null;
+  const peeks = (args) => { if (args[1] === 'create') during = JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1.status; return fakeGh().gh(args); };
+  const lockDir = o.state + '.lock';
+  t.file('g1', { ...o, gh: peeks });
+  assert.equal(during, 'filing', 'the group was not marked filing before the card was made');
+  assert.equal(fs.existsSync(lockDir), false, 'the lock was left behind');
+  const st = JSON.parse(fs.readFileSync(o.state, 'utf8')); st.groups.g1.status = 'filing'; fs.writeFileSync(o.state, JSON.stringify(st));
+  assert.throws(() => t.file('g1', { ...o, gh: fakeGh().gh }), /was being filed when a run stopped/);
+  await assert.rejects(t.main(['read', '--title', 'x', '--state', o.state]), /--title is only for file/);
 });
