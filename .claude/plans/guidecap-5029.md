@@ -36,7 +36,7 @@ does not hand back until something else changes the screen (pre-existing for the
 
 ## Validation
 - Pre-fix commit 2d6b30a4b: the test reds on the no-credits arm (idle).
-- Mutants: marker without "you've" -> reds on the one-line promo arm by name; guideFailure without RATE_LIMITED -> reds "the Guide would stay silent".
+- Mutants: guideFailure without RATE_LIMITED -> reds "the Guide would stay silent". The marker-without-"you've" mutant reds on the one-line promo by name ONLY SINCE ROUND 3: from round 2 to round 3 every control lacked a column-0 footer, so limitMarkersFor dropped the marker and the controls could not fail (earlier version of this line claimed otherwise; corrected).
 - engine/status*.test.js + engine/setup-assistant*.test.js: 502/502 at 826e44e27.
 - Full suite: PENDING.
 
@@ -45,4 +45,5 @@ does not hand back until something else changes the screen (pre-existing for the
   SHOULD-FIX 2 REJECTED: create.js CLAUDE_CAPACITY, see Decided (both outcomes of a miss allow the create; its input is unobserved). NIT 4 DEFERRED: on an unobserved modal shape with no row between, the evidence would carry "What do you want to do?" on; changing messageAt's sentence-end rule touches every evidence line.
   Residual, stated in the code: an indented second paragraph of agent prose opening with exactly "You've hit your ... limit" still matches.
 - Round 2 (sonnet, blind): 0 BLOCKER. SHOULD-FIX taken: a healthy agent that CATS a capture prints the vendor row under ⎿, same shape. The marker now counts only with Claude Code's turn footer at column 0 within two rows (limitMarkersFor), observed on all four screens; a tool result's rows are indented. I first wrote "no ● row after it" and REJECTED it myself before testing: Irma's real capped pane has Claude Code's survey as a ● row after the limit. Arms: CATTED (healthy, footer copied indented) and WITH_SURVEY (capped). Mutants: no gating, and an indent-tolerant footer, both red on CATTED by name. NIT 2 taken (doc lists the residuals). NIT 3 (framed vendor line reads idle) recorded as a residual; unobserved. NIT 4 covered by CATTED.
-- Round 3: PENDING.
+- Round 3 (opus, blind): 0 BLOCKER. SF1 taken: since round 2 the PROMO/PROMO_ONE_LINE/ASKING/EXPLAINING controls could not fail (no footer -> marker dropped before the regex mattered). Each now carries a column-0 '✻ Worked for 4s · done 9:01 AM' row after its limit row. Measured 10:4x on 31c9d4982: mutant /hit your .{0,40}limit/i reds the test on the one-line promo by name; standalone, the mutant reads ASKING and EXPLAINING (with footer) rate_limited and ASKING without a footer needs_you (the old blind spot, shown); restored: needs_you / idle. SF2 taken: the doc's 'a tool result cannot have the footer' was false (a turn ending on a tool call puts the real footer at col 0 under it); comment corrected, listed as a third residual, no code change. NIT3 taken: load-time throw if HIT_YOUR_LIMIT is undefined.
+- Round 4: PENDING.
