@@ -224,6 +224,15 @@ test('ownership ends when the creator\'s identity ends: a later agent of the cre
   assert.match(r.text, NOT_YOURS);
 });
 
+test('the target\'s own creation revokes its name just before the birth is written: an end at the birth\'s exact time is that, not a removal', async () => {
+  const t = new Date(Date.now() + 5000).toISOString();
+  const asked = new Date(Date.now() + 4000).toISOString();
+  fs.mkdirSync(path.dirname(sendertoken.endedLogFile()), { recursive: true });
+  fs.appendFileSync(sendertoken.endedLogFile(), JSON.stringify({ name: 'tie-kid', at: t }) + '\n');   // the same millisecond as the birth
+  born('Tie Kid', 'pm-agent', { at: t, askedAt: asked });
+  assert.ok(reachedEngine(await remove('tie-kid', asAgent())), 'the creation\'s own revoke, in the birth\'s millisecond, ended ownership');
+});
+
 test('an end BEFORE the birth, or another agent\'s, does not end ownership', async () => {
   sendertoken.revoke('early-kid');
   sendertoken.revoke('pm-agent-other');
