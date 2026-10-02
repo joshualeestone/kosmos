@@ -33,9 +33,10 @@ drew round the 16px-radius card (Josh's screenshot, 2026-10-01 22:17).
   guard ran=60, forced=10, outlived=4.
 
 ## Evidence
-- On the branch base (check copied into a detached worktree, re-measured after the last arm was
-  added): 16 FAIL. The 10 forced click arms, the 2 forced outlive arms (chromium), and the 4
-  scripted-click-after-typing arms (both engines). The keyboard ring arms pass there (the #350 ring).
+- On the branch base (check copied into a detached worktree, at 457e3ea92, the commit that added the
+  held-key arm): 20 FAIL. The 10 forced click arms, the 2 forced outlive arms (chromium), the 4
+  scripted-click-after-typing arms and the 4 held-key arms (both engines). The keyboard ring arms
+  pass there (the #350 ring).
 - With the change: 157 PASS lines, rc 0.
 - Controls, each measured red in exactly its arms: pointerdown keeping the class (outlive arms); a
   ring regardless of input (click, forced and scripted arms); no keyup clear (after-typing arms); no window-blur clear (held-key arms); a
