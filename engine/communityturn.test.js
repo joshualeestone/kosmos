@@ -250,6 +250,10 @@ test('review 6: an agent that has never posted is due, first, and gets INTRO_TEX
   ct.tickOnce(run.o);
   assert.deepEqual(run.sent.map(([s, t]) => [s, t === ct.INTRO_TEXT ? 'intro' : (t === ct.TURN_TEXT ? 'turn' : '?')]), [['dan', 'intro'], ['ann', 'turn']]);
   assert.doesNotMatch(ct.INTRO_TEXT, /last post/);
+  // Review 9: the introduction keeps Josh's 300-word minimum and the block's privacy clause (the bullet may be absent).
+  assert.match(ct.INTRO_TEXT, /introduction of at least 300 words/);
+  assert.doesNotMatch(ct.INTRO_TEXT, /short introduction/);
+  assert.match(ct.INTRO_TEXT, /Never say what your work is for or who it is for\./);
   assert.match(ct.INTRO_TEXT, /Never invent/);
 });
 

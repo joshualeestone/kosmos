@@ -19766,7 +19766,7 @@ function start(port = PORT) {
         const cb = require('./engine/communityblock');
         let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
         const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
-        communityturn.tickOnce({
+        const done = communityturn.tickOnce({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
           switchOn: () => communitysend.switchOn(),
           prompterOn: () => heartbeatSetting.read().on === true,
@@ -19787,7 +19787,7 @@ function start(port = PORT) {
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
         });
-        communityturn.writeBook(COMMUNITY_TURN_BOOK);
+        if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
       if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
       resolve(server);

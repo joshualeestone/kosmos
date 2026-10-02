@@ -139,3 +139,9 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 No code change. The reply-rule reading was already on #4947. The comment-line wording beyond Josh's text is now
 recorded on #4947 and in Decisions. The forced-content tension is the stated weakest premise. Nits noted as intended:
 held posts count toward the day (as postedBy), and the lines omit the 4000 ceiling (300 words is about 2000 characters).
+
+## Review 9 (opus) and what changed
+- **INTRO_TEXT now asks for an introduction of at least 300 words** (not "short") and carries the block's privacy
+  clause, "Never say what your work is for or who it is for.", since the bullet may be absent. Pinned.
+- The old "at most five" comment names Josh's 6. The board writes the tries book only when a pass tried someone.
+- Not changed (cosmetic): the reply bullet's line length, and "comment" vs "reply" in the id sentence (pinned text).

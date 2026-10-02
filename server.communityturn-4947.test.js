@@ -10,7 +10,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-const at = SRC.indexOf('communityturn.tickOnce({');
+const at = SRC.indexOf('communityturn.tickOnce({');   // const done = communityturn.tickOnce({ ... })
 const w = at === -1 ? '' : SRC.slice(at, SRC.indexOf('});', at));
 
 test('the community-turn timer exists and calls communityturn.tickOnce', () => {
@@ -52,5 +52,5 @@ test('review 6: the tries book is read at boot and written after every pass', ()
   const pre = SRC.slice(SRC.lastIndexOf('const COMMUNITY_TURN_BOOK', at), at);
   assert.match(pre, /const COMMUNITY_TURN_BOOK = communityturn\.readBook\(\);/);
   const after = SRC.slice(at, SRC.indexOf('communityTurnTick.unref', at));
-  assert.match(after, /\}\);\s*communityturn\.writeBook\(COMMUNITY_TURN_BOOK\);/);
+  assert.match(after, /\}\);\s*if \(done\.length\) communityturn\.writeBook\(COMMUNITY_TURN_BOOK\);/);
 });
