@@ -729,6 +729,22 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     });
     await phone.waitForFunction(() => !VOICE.btn);
     kept.after = await phone.evaluate(() => { const h = document.querySelector('#nt-modal .voice-who-dlg'); const t = h ? h.textContent : null; document.getElementById('nt-voice-msg').textContent = ''; document.getElementById('nt-modal').hidden = true; return t; });
+    // P11c (round 15): a start that fails in the same tap, in a dialog whose line is taken, leaves the hidden status empty
+    // (its fill is pending when the failure clears it, and must not land after).
+    const failed = await phone.evaluate(async () => {
+      const m = document.getElementById('nt-modal'); m.hidden = false;
+      m.querySelectorAll('.voice-who-dlg').forEach((h) => h.remove());
+      document.getElementById('nt-voice-msg').textContent = 'Could not create the task.';
+      window.__recThrow = true;   // start() throws after "Starting" was said: the fill is pending when the failure clears it
+      try { document.querySelector('.fieldmic[data-voice-for="nt-detail"]').click(); } finally { window.__recThrow = false; }
+      await new Promise((r) => setTimeout(r, 50));
+      const h = m.querySelector('.voice-who-dlg');
+      const r = { hidden: h ? h.textContent : null, btn: !!VOICE.btn, line: document.getElementById('nt-voice-msg').textContent };
+      document.getElementById('nt-voice-msg').textContent = ''; m.hidden = true;
+      return r;
+    });
+    chk(!failed.btn && !/hears this audio/.test(failed.hidden || ''),
+      'P11c a start that fails in a dialog with a taken line leaves no who-hears status behind (the error itself is said in the line, as any refusal is)', JSON.stringify(failed));
     chk(kept.line === 'Could not create the task.' && /Apple hears this audio/.test(kept.hidden || '') && kept.inDialog && kept.after === '',
       'P11b a dialog line holding the page\'s message is kept; a hidden status inside the dialog says who hears, then empties', JSON.stringify(kept));
     chk(/^Starting.*Apple hears this audio/.test(dlg) && /^Listening.*Apple hears this audio/.test(inDlg.line) && /Apple hears this audio/.test(inDlg.who) && inDlg.ended === '' && !/hears this audio/.test(dmLine),

@@ -37,6 +37,8 @@ Known defects, chosen and pinned (P2d, P2f): under Android's repeat pattern a on
 ("call call the client"); a result said again word for word as the first thing after a list restart is taken as sent
 back and lost. Third premise: that an unfocused box given a selection does not open the iPhone keyboard (P2 measures
 it in Chromium only).
+A no-speech after words were heard says nothing on the Mac app too, not only on Android (the same voiceOnEvent): on the
+Mac the words are also already in the box, so "Nothing was heard." was as wrong there; a slice 1 change, deliberate.
 
 ## Tests
 docs/browser-checks/render-voice-4409.js, on an emulated iPhone (touch, coarse pointer, an iPhone user agent, no
@@ -187,4 +189,11 @@ press stops through voiceStop and marks the stop.
   or final, cleared at start); with no words it still says "Nothing was heard." (check P8c, both arms). Each fix removed
   reddens only its own check. LEFT NITs: the 300 s cap ends without saying why (an end with the words kept, as at any
   stop); the 17:16 stamps (checked in round 13).
+- Round 15 (opus): W1 (a pending fill reviving the dialog's hidden status after a start fails): MEASURED NOT REACHABLE
+  on that path: the failure's own clear goes through voiceWho('', btn), whose dialog arm sets the pending text to ''
+  before the fill runs; check P11c (start() throws in a dialog with a taken line) passes with and without the change.
+  Kept the defensive change anyway (the button-less clear now empties the pending text too) and P11c as the guard of
+  the scenario. DOCUMENTED W2: the no-speech change reaches the Mac app too, deliberately (weakest premise). NIT taken:
+  heard is declared in VOICE. LEFT NITs: a source-shape test in web.voice-4409.test.js (the browser checks prove the
+  behaviour); the voicePhoneWho comment's EU wording.
 

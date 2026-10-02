@@ -60166,7 +60166,7 @@ function repaintReactions(box, list) {
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, dlgSaid: '', stopping: false };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, heard: false, dlgSaid: '', stopping: false };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -60438,7 +60438,7 @@ let VOICE_WHO_FOLLOW = false;
 /* The hidden status a dialog mic speaks through when its visible line is taken (voiceWho). Made empty and filled a moment
    later: a live region born with its text is not announced. With no dialog, every one is emptied. */
 function voiceWhoHidden(dlg, line) {
-  if (!dlg) { document.querySelectorAll('.voice-who-dlg').forEach((h) => { h.textContent = ''; }); return; }
+  if (!dlg) { document.querySelectorAll('.voice-who-dlg').forEach((h) => { h.dataset.want = ''; h.textContent = ''; }); return; }   // want too: a fill still pending must not revive it
   let h = dlg.querySelector('.voice-who-dlg');
   const fresh = !h;
   if (fresh) {
