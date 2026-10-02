@@ -60490,6 +60490,9 @@ function voiceToggle(btn) {
   const h = voiceBridge();
   if (!h || !btn) return;
   if (VOICE.btn === btn) {   // the second press: stop, keep the words
+    /* A press while already Finishing (a phone waiting up to 5 s for the last words) ends listening now: the person has
+       asked twice, and the bar must not keep saying audio is being turned into words. The words in the box stay. */
+    if (VOICE.stopping) { voiceCancel(); return; }
     voiceStop(h);
     return;
   }

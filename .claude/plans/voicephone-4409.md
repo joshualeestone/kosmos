@@ -246,4 +246,12 @@ press stops through voiceStop and marks the stop.
   left out the WebKit stand-in, so even the control had no mic; the control caught it.) NIT taken: "this device's
   Settings app" (an iPad is not a phone). LEFT NITs: touch-action is unchecked (cosmetic); listening comes only from
   onstart (the who-hears wording stays true while it says Starting).
+- Round 24 (sonnet): FIXED W2: a press while Finishing (a phone waiting up to 5 s for the last words) did nothing, so
+  the bar kept saying audio was being heard after the person asked twice; it now ends listening at once, keeping the
+  words (P13b; the change removed reddens P13b). PINNED W1: a dialog closed mid-listen and opened again has an empty
+  hidden status (P11d; removing the clear reddens P11b, P11c and P11d). The harness stubs setInterval, so the 500 ms
+  watch never ticks on this page: P11d runs one tick of its condition by hand, and says so (my first P11d failed on
+  exactly that, which is how I found it). W3 is the weakest premise (iOS error codes unmeasured) (DUPLICATE). LEFT
+  NITs: who-hears recomputed per paint (the gate is cached; a late change is implausible); review-round numbers in
+  comments; the cap stop's Finishing; no-on-device is Mac-only (the phone never emits it); touch-action's reason.
 

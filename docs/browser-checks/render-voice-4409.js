@@ -788,6 +788,26 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     });
     await phone.waitForFunction(() => !VOICE.btn);
     kept.after = await phone.evaluate(() => { const h = document.querySelector('#nt-modal .voice-who-dlg'); const t = h ? h.textContent : null; document.getElementById('nt-voice-msg').textContent = ''; document.getElementById('nt-modal').hidden = true; return t; });
+    // P11d (round 24): a dialog closed mid-listen (its line taken, so the hidden status speaks) leaves the hidden status
+    // empty when it opens again.
+    const reopen = await phone.evaluate(async () => {
+      const m = document.getElementById('nt-modal'); m.hidden = false;
+      document.getElementById('nt-voice-msg').textContent = 'Could not create the task.';
+      document.querySelector('.fieldmic[data-voice-for="nt-detail"]').click();
+      await new Promise((r) => setTimeout(r, 60));
+      const h = m.querySelector('.voice-who-dlg'); const during = h ? h.textContent : null;
+      const shownAtStart = document.getElementById('nt-detail').getClientRects().length > 0;
+      m.hidden = true;   // closed mid-listen
+      /* This page stubs setInterval (the harness's clock), so the 500 ms watch never ticks here; run one tick of it by
+         hand, the same condition voiceSpeakWatch checks: the box is no longer shown, so listening is cancelled. */
+      if (VOICE.btn && VOICE.box && voiceWhere(VOICE.box) !== VOICE.where) voiceCancel();
+      await new Promise((r) => setTimeout(r, 30));
+      m.hidden = false;
+      const after = h ? h.textContent : null, btn = !!VOICE.btn;
+      document.getElementById('nt-voice-msg').textContent = ''; m.hidden = true;
+      return { during, after, btn, shownAtStart };
+    });
+    chk(reopen.shownAtStart && /hears this audio/.test(reopen.during || '') && reopen.after === '' && !reopen.btn, 'P11d a dialog closed mid-listen and opened again has an empty hidden status', JSON.stringify(reopen));
     // P11c (round 15): a start that fails in the same tap, in a dialog whose line is taken, leaves the hidden status empty
     // (its fill is pending when the failure clears it, and must not land after).
     const failed = await phone.evaluate(async () => {
@@ -827,6 +847,20 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false', null, { timeout: 8000 }).catch(() => {});
     const ended = await phone.evaluate(() => ({ btn: !!VOICE.btn, bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
     ended.line = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    // P13b (round 24): a press while Finishing ends listening at once, and the bar goes; the words in the box stay.
+    await phone.evaluate(() => { window.__recNoEnd = false; document.getElementById('d-say-msg').textContent = ''; document.getElementById('d-say').value = 'kept words'; });
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    await phone.evaluate(() => { window.__recNoEnd = true; });
+    await phone.tap('#d-mic');
+    const finishing = await phone.evaluate(() => /^Finishing/.test(document.getElementById('voice-who').textContent));
+    const t0 = Date.now();
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => !VOICE.btn, null, { timeout: 2000 }).catch(() => {});
+    const again = await phone.evaluate(() => ({ btn: !!VOICE.btn, who: document.getElementById('voice-who').textContent, box: document.getElementById('d-say').value }));
+    again.ms = Date.now() - t0;
+    await phone.evaluate(() => { window.__recNoEnd = false; document.getElementById('d-say').value = ''; });
+    chk(finishing && !again.btn && again.who === '' && again.box === 'kept words' && again.ms < 2000, 'P13b a press while Finishing ends listening at once and clears the bar, keeping the words', JSON.stringify({ finishing, again }));
     await phone.evaluate(() => { window.__recNoEnd = false; document.getElementById('d-say-msg').textContent = ''; });
     chk(held && !ended.btn && !ended.bar && /last words may not have come back/.test(ended.line), 'P13 a stop with no end after it still ends listening after a wait, the bar goes, and it says the last words may be missing', JSON.stringify({ held, ended }));
     /* P14: the composer row still fits a phone with the mic in it: nothing overflows, and the mic is on screen. This is
