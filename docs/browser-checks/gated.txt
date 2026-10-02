@@ -193,6 +193,7 @@ render-restart-kloader-2831
 render-restart-screen-4343
 render-restarting-2019
 render-restore-dircheck-2615
+render-restore-refused-4976
 render-richtext-2067
 render-richtext-room-2239
 render-room-busy-scope-2882
