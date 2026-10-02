@@ -31,6 +31,7 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 - Iteration 2: the test now runs from an empty dir, so the relative real scripts its cases name (`bash tools/test-install.sh`) cannot run if a refusal lapsed. Left as found: `_qh_take`'s stale-lock takeover can let two waiters in when the lock's holder died holding it (both read the dead pid; the second's `rm -rf` removes the first's new lock). It is #4911's lock, already in the live copy; this branch pins the wrapper rather than redesigning it. Logged on #4977 as a follow-up.
 - Iteration 3: the wrapper's comments said the guards are read from a checkout at origin/main; they are read from whatever checkout QUEUED_HEAVY_LIB names, and nothing updates it (reworded).
 - Iteration 4: an arm for a lib checkout without cut-guard.sh (exit 3, nothing runs); `bash -n` of both scripts in `test:shell`; the plan's cleanup line says what the trap stops. Left as found: the test writes the machine-claim line in the lib's format by hand; if that format changes the hold arms go red, not green.
+- Iteration 5: this validation section still read 76 after the 77th arm (updated); the header named a run-tests.sh line number, now the function.
 
 ## Decisions
 - The repo copy keeps reading the guards from ONE main checkout, not the worktree it runs from: every worktree reading its own branch's lib is how several lib generations end up in one queue (item 1's cause).
@@ -39,6 +40,6 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 
 ## Validation
 - `bash tools/test-queued-heavy-4977.sh`: 76 OK, 0 BAD, three runs in a row after review 4 (about 80 s each), no sleeps or temp files left behind.
-- After the rebase onto main (head 07e44b907, and again at 967b33f52 after the empty-dir change): 76 OK, 0 BAD. Mutant: the side turn's temp files made in /tmp instead of TMPDIR turns the fixture arm red (75 OK, 1 BAD).
+- After the rebase onto main: 76 OK, 0 BAD at 07e44b907 and 967b33f52. At e905768da (the missing-lib arm added): 77 OK, 0 BAD; tools.shell-shard-4317, tools.every-test-runs, no-name-refs-3071, no-brand-refs-1881, fixture-discipline and tools.heavy-gate-3805 pass, run from the worktree root. Mutant: the side turn's temp files made in /tmp instead of TMPDIR turns the fixture arm red (75 OK, 1 BAD).
 - Mutant: removing the wrapper's scan for suite-like commands turns it red (light runs of browser-checks.sh and `yarn test` forms got side turns).
 - no-name-refs-3071, no-brand-refs-1881, fixture-discipline, tools.heavy-gate-3805, tools.shell-shard-4317, tools.every-test-runs: pass.

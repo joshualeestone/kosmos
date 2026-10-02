@@ -3,7 +3,7 @@
 # Run a heavy one-off (a browser-check proof, a pre-push cargo test) as a REAL TURN in the same FIFO queue the
 # suites use (Splinter 2026-09-30 02:10), instead of squeezing it in beside someone's suite:
 #   1. wait with kosmos_wait_until_clear --suite-queue, so it holds a queue place and goes when no suite, harness
-#      or machine claim is live and no earlier waiter is ahead (run-tests.sh's own check, ~line 224);
+#      or machine claim is live and no earlier waiter is ahead (run-tests.sh's own check, _rt_box_clear);
 #   2. take kosmos_claim_machine for the run, so a waiting suite (which asks kosmos_refuse_if_machine_claimed on
 #      every poll) does not start beside it;
 #   3. keep that claim alive while the command runs (renewed every 10 minutes), then release it, whatever the
