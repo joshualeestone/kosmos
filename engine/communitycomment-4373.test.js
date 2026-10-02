@@ -255,6 +255,8 @@ test('#4953 a per-minute limiter 429 on a comment is a short pause, not the dail
   const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
   assert.equal(keys.limo && keys.limo.commentRetryAt, undefined, 'the limiter\'s 429 was written as the daily cap');
   assert.equal(cs.commentStatuses()[r.id].state, 'pending');
+  await cs.sweep();                          // inside the minute: paused, not sent again
+  assert.equal(sends().length, 1, 'sent again inside the limiter\'s minute');
   await cs.sweep(Date.now() + 61 * 1000);
   assert.equal(sends().length, 2, 'not sent once the minute was out');
 });

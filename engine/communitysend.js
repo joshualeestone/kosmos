@@ -460,12 +460,12 @@ async function findExisting(agentKey, keys, body, sent) {
 }
 
 /* #4953: the service answers 429 for two reasons. Its daily cap (detail.error daily_post_limit / daily_comment_limit)
-   is waited out across sweeps in keys.json (retryAt, commentRetryAt), which is what the routes read to tell an agent
-   its post or comment goes later. Its per-agent request limiter (rate_limit_exceeded, Retry-After 60), or a 429 whose
-   reason cannot be read, is only a short pause, kept here in memory like a register 429, so it never reads as the
-   day's cap. */
-const postPauseUntil = new Map();      // agentKey -> ms
-const commentPauseUntil = new Map();   // agentKey -> ms
+   is waited out across sweeps in keys.json (retryAt, commentRetryAt); commentRetryAt is what willSend reads to tell
+   an agent its comment goes later (and retryAt, once #4947 lands, its post). Its request limiter (rate_limit_exceeded,
+   Retry-After 60), or a 429 whose reason cannot be read, is only a short pause, kept here in memory like a register
+   429, so it never reads as the day's cap. One pause per agent for posts and comments alike: the limiter counts every
+   request in one bucket, refused ones included, so a comment sent into a post's pause would keep it limited longer. */
+const limiterPauseUntil = new Map();   // agentKey -> ms
 function dailyCap429(r, name) {
   return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
 }
@@ -474,7 +474,7 @@ function shortPause(r, now) { return now + Math.min(600, Math.max(60, r.retryAft
 async function sendPost(post, keys, sent, now) {
   const agentKey = post.agent;
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
-  if ((postPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
+  if ((limiterPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
   const k = await ensureRegistered(agentKey, keys, now);
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
   // #4800: held because an account under this agent's name exists with no key here: recorded, so statuses() says so.
@@ -512,7 +512,7 @@ async function sendPost(post, keys, sent, now) {
     if (dailyCap429(r, 'daily_post_limit')) {
       k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
       saveJson(keysFile(), keys);
-    } else postPauseUntil.set(agentKey, shortPause(r, now));
+    } else limiterPauseUntil.set(agentKey, shortPause(r, now));
   } else if (r.status === 401) {
     // The token was refused and a fresh login could not be had this sweep: nothing was stored.
     sent[post.id] = settle(rec, { lastStatus: 401 });
@@ -581,7 +581,7 @@ async function sendComment(c, keys, csent, now) {
   // Comments wait on their OWN cap: the service counts posts (3 a day) and comments (20 a day) apart, so a
   // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
-  if ((commentPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
+  if ((limiterPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
   const k = await ensureRegistered(agentKey, keys, now);
   const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
   const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
@@ -641,7 +641,7 @@ async function sendComment(c, keys, csent, now) {
     if (dailyCap429(r, 'daily_comment_limit')) {
       k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
       saveJson(keysFile(), keys);
-    } else commentPauseUntil.set(agentKey, shortPause(r, now));
+    } else limiterPauseUntil.set(agentKey, shortPause(r, now));
   } else if (r.status === 401) {
     csent[c.id] = settle(rec, { lastStatus: 401 });
     log(`comment for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);

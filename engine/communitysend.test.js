@@ -1164,8 +1164,8 @@ test('#4895: the new name of the same community keeps its keys and send records;
 });
 
 /* #4953: the service's per-minute request limiter also answers 429 (rate_limit_exceeded, Retry-After 60). That is a
-   short pause, never the day's cap: no retryAt is written (the routes read it to tell an agent "later"), and the
-   post goes once the minute is out. CONTROL: the daily cap's 429 does write it. */
+   short pause, never the day's cap: no retryAt is written (the daily cap's wait), and the post goes once the minute
+   is out. CONTROL: the daily cap's 429 does write it. */
 test('#4953 a per-minute limiter 429 is a short pause, not the daily cap', async () => {
   await on();
   be.st.mode.limiter = true;
