@@ -24,6 +24,7 @@ test.after(() => fs.rmSync(SB, { recursive: true, force: true }));
 
 function run(script) {
   const r = spawnSync('bash', [script, 'version'], { env: { ...process.env, KOSMOS_HOME: HOME_, HOME: SB }, encoding: 'utf8' });
+  if (typeof r.status !== 'number') throw new Error('kosmos version gave no exit code: ' + (r.error ? r.error.message : r.signal));   // #3628
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 
