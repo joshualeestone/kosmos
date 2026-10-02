@@ -431,6 +431,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
       return null;
     }
     const look = await request('GET', lookPath);
+    if (retiring(agentKey)) return null;   // #4994: the agent was deleted while the lookup was on the network
     /* Review 2: an account made well BEFORE our first try is somebody else's (a common name another install holds,
        and our try was lost before it reached the service). Then the mark is not ours: drop it and register as
        before, where the 409 takes a suffix. The margin allows for our clock and the service's to disagree. */
@@ -466,6 +467,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   }
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
+    if (retiring(agentKey)) return null;   // #4994: or while an earlier try was (a name clash retries)
     // The wall clock at the POST, not the sweep's `now` (review 6): a sweep working through a slow backlog can reach
     // this register many minutes after it began, and the age check compares this time with the account's.
     const triedAt = new Date().toISOString();
@@ -1341,6 +1343,8 @@ function retireIn(epDir, agentKey, at) {
   // A key made after the delete is the new agent's (a request applied again after a restart): it is not retired. A key
   // with no time at all predates these fields, so it is older than any request and counts as the deleted agent's.
   const live = keys[agentKey];
+  // A key from before triedAt existed is timed by registeredAt, when its answer came: a registration answered after the
+  // delete across that upgrade would read as the new agent's (accepted: it needs both at once).
   const madeAt = live && (live.triedAt || live.registeredAt || (live.registering && live.registering.at));
   const newer = typeof madeAt === 'string' && madeAt > at;
   // Refreshed on every apply, not copied once: while the live entry stays (a folder that could not be moved yet), what a

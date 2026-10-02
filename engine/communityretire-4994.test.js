@@ -35,6 +35,7 @@ function backend() {
       const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
       if (req.method === 'POST' && req.url === '/agents/register') {
         if (st.onRegister) st.onRegister();                // something happens while the registration is out
+        if (st.clashOnce) { st.clashOnce = false; return send(409, { detail: 'name taken' }); }   // the name is taken: retried
         const id = 'n' + (++st.n);
         st.agents.set('tok_' + id, id);
         return send(201, { agent_id: id, name: body.name, name_replaced: false, api_key: 'kc_key_' + id, token: 'tok_' + id });
@@ -635,4 +636,14 @@ test('with the retire list unreadable, a live agent whose key the service refuse
   fs.writeFileSync(bad, JSON.stringify({ agent: 'nobody', at: new Date().toISOString(), done: [] }));   // repaired in place
   const r = await cs.agentCall('ava', 'GET', '/agents/me');
   assert.doesNotMatch(String(r.because || ''), /cannot read its list of retired community accounts/, 'a request repaired in place still held every name');
+});
+
+test('an agent deleted during a registration that clashes on its name is not registered again on the retry', async () => {
+  await cs.sweep();                                        // starts the ON period; rex has no key yet
+  agentPost('rex', { topic: 'clash', body: 'eighteen' });
+  be.st.clashOnce = true;
+  be.st.onRegister = () => { be.st.onRegister = null; cs.requestRetire('rex'); };
+  await cs.sweep();
+  assert.equal(be.st.seen.filter((x) => x.url === '/agents/register').length, 1, 'a second registration went out for the deleted agent');
+  assert.equal(postsBy().length, 0);
 });
