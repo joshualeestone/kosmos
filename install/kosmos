@@ -1551,6 +1551,8 @@ cmd_update() {
   fi
   _node="$(kosmos_engine_node)" || { printf 'unknown\tKosmos could not find its own runtime\n'; exit 1; }
   _said="$("$_node" "$(kosmos_engine_module update-ifnewer).js" 2>/dev/null)" || _rc=$?
+  # Tab is whitespace to read, so empty fields collapse and shift the rest: no field may be empty.
+  # Today none can be (a version, on|off|unreadable, a URL, a base, and two channel words).
   IFS="$(printf '\t')" read -r kind v consent setup base pointer channel <<EOF
 $_said
 EOF
@@ -1570,7 +1572,9 @@ EOF
   printf '%s\n' "$started" > "$LOG_DIR/install.started" 2>/dev/null || true
   # The URL is a value, never part of the command text, as in beginInstall. pipefail is on, so a
   # download that fails is a failure here even when sh, given nothing, exits 0.
-  if curl -fsSL "$setup" 2>>"$LOG_DIR/install.log" \
+  # Bounded, so a stalled download ends the run (and the app's wait) rather than holding them for good;
+  # a slow one that keeps moving is not cut off. The installer's own downloads are its own business.
+  if curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 "$setup" 2>>"$LOG_DIR/install.log" \
      | KOSMOS_RELEASE_BASE="$base" KOSMOS_UPDATE_CHANNEL="$pointer" KOSMOS_SOURCE_CHANNEL="$channel" sh >>"$LOG_DIR/install.log" 2>&1; then
     code=0
   else

@@ -54,7 +54,7 @@ test('#4382: switching back to run agents stops the looks; the board looks again
 });
 
 test('#4382: an update counts as a stop of ours, so Run agents cannot start a board in the middle of it', () => {
-  const look = body('private func lookForUpdate(install: Bool)');
+  const look = body('private func lookForUpdate(install: Bool, retry: Bool = false)');
   assert.match(look, /guard computerMode == \.connect, let home = modeHome else \{ return \}/);
   assert.match(look, /guard !updateLookInFlight else/, 'two looks can run two installers at once');
   const took = look.indexOf('stopsInFlight += 1');
@@ -77,14 +77,18 @@ test('#4382: what each answer does: offer, retry, relaunch, or nothing', () => {
   assert.ok(done.indexOf('case .updated(let v):\n') !== -1, 'no branch for an install nobody asked for');
   assert.match(unasked, /^case \.updated\(let v\):\n(\s+\/\/.*\n)*\s+showInstalledOffer\(v\)\n\s+case /, 'an install nobody asked for does something other than offer the restart');
   assert.equal((done.match(/relaunchAfterUpdate\(/g) || []).length, 1, 'a second path restarts the app from a look');
-  assert.match(done, /case \.current, \.board, \.unknown:\n(\s+\/\/.*\n)*\s+if let v = installedUpdate \{ showInstalledOffer\(v\) \} else \{ showUpdateOffer\(nil\) \}/,
+  assert.match(done, /case \.current, \.board, \.unknown, \.refused:\n(\s+\/\/.*\n)*\s+if let v = installedUpdate \{ showInstalledOffer\(v\) \} else \{ showUpdateOffer\(nil\) \}/,
     'a later look hides the restart an installed update is waiting for');
   // Review 3: a look that could not reach the host is tried again within the hour, not tomorrow.
-  assert.match(done, /if case \.unknown = answer \{ retryUpdateLookSoon\(\) \}/);
+  // Once: the retry's own unknown is not retried, and a refusal (not a connect computer, or an agent) never is.
+  assert.match(done, /if case \.unknown = answer, !updateLookIsRetry \{ retryUpdateLookSoon\(\) \}/);
+  assert.match(done, /case \.current, \.board, \.unknown, \.refused:/);
+  assert.match(body('private func lookForUpdate(install: Bool, retry: Bool = false)'), /updateLookInFlight = true\n\s+updateLookIsRetry = retry\n/);
   assert.match(SRC, /static let updateRetryAfterUnknown: TimeInterval = 60 \* 60\n/);
   const retry = body('private func retryUpdateLookSoon()');
   assert.match(retry, /guard updateRetry == nil else \{ return \}/, 'retries stack');
   assert.match(retry, /asyncAfter\(deadline: \.now\(\) \+ Self\.updateRetryAfterUnknown, execute: work\)/);
+  assert.match(retry, /self\?\.lookForUpdate\(install: false, retry: true\)/, 'the retry is not marked as one, so it retries itself hourly');
   const start = body('private func startUpdateLooks()');
   assert.match(start, /NSWorkspace\.didWakeNotification/, 'a Mac that slept through its daily look waits another day');
   assert.match(start, /Date\(\)\.timeIntervalSince\(last\) < Self\.updateLookInterval \{ return \}/, 'every wake looks, not only an overdue one');
@@ -111,7 +115,7 @@ test('#4382: the offer is native (menu item and a bar under the title bar), neve
   assert.match(bar, /window\.addTitlebarAccessoryViewController\(bar\)/);
   // The app only READS notification settings (#3996's badge) and never asks for permission or posts one.
   assert.doesNotMatch(SRC, /requestAuthorization\(options:|UNUserNotificationCenter\.current\(\)\.add\(|NSUserNotification/, 'the app asks for notification permission, which it never does');
-  for (const sig of ['private func lookForUpdate(install: Bool)', 'private func updateLookDone(_ answer: UpdateAnswer, asked: Bool)', 'private func relaunchAfterUpdate(to v: String)',
+  for (const sig of ['private func lookForUpdate(install: Bool, retry: Bool = false)', 'private func updateLookDone(_ answer: UpdateAnswer, asked: Bool)', 'private func relaunchAfterUpdate(to v: String)',
     'private func showInstalledOffer(_ v: String)', 'private func retryUpdateLookSoon()', 'private func startUpdateLooks()']) {
     assert.doesNotMatch(body(sig), /UNUserNotification|NSUserNotification|evaluateJavaScript/, sig + ' notifies or reaches into the page');
   }
