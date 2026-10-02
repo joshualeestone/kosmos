@@ -3416,13 +3416,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the match here the right column would sit 6px above the avatar/name. */
 #panel-detail .dsecs { padding-top: 6px; }
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
-/* #2916 group-reveal shows two sibling .dsec cards at once (Model+Memory,
-   Instructions+Skills, which are DOM-adjacent). .dsec only spaces its OWN
-   children, so two visible siblings would render flush. Add separation only
-   when a .dsec directly follows another VISIBLE .dsec: the :not([hidden]) on
-   the left side means a lone section (its preceding sibling hidden) gets no
-   stray top margin, so single-section pills are unaffected. */
-.dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
+/* #2916 group-reveal shows several .dsec cards at once. .dsec only spaces its
+   OWN children, so two visible sections would render flush. Separate any
+   visible .dsec that has an earlier VISIBLE sibling; the first one shown gets
+   no top margin, so single-section pills are unaffected. #4961: `~`, not `+`.
+   A group's sections are not always DOM-adjacent (AI Settings shows Memory
+   then Terminal, with Profile, Instructions and Skills hidden between them),
+   and `+` left Fresh start flush against the terminal card. */
+.dsec:not([hidden]) ~ .dsec:not([hidden]) { margin-top: 24px; }
 /* #4961: detailGo and settingsGo move focus INTO a section, so a keyboard user's next Tab lands
    inside. The ring that marks where they landed (#350) is drawn only when that move followed a
    key press (`kbd-landed`, set from DSEC_KEYBOARD), never after a pointer press. Keyed on
