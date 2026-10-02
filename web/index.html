@@ -39504,9 +39504,9 @@ document.getElementById('detail-back').addEventListener('click', () => {
 });
 
 /* #4885: an agent's picture travels with it to the Kosmos+ community, which takes a still PNG, JPEG or WebP of at most
-   60,000 bytes with each side from 16 to 2,048 px (kosmos-community app/avatars.py). A still PNG or WebP that already
-   meets all of that is kept exactly as chosen. Anything else (a big photo, a GIF, an animated picture, a tiny or huge
-   one, and every JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is
+   60,000 bytes with each side from 16 to 2,048 px (kosmos-community app/avatars.py). A still PNG that already meets
+   all of that is kept exactly as chosen. Anything else (a big photo, a GIF, an animated picture, a tiny or huge one,
+   every WebP, and every JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is
    redrawn: longest side at most 512 px, short side at least 16 px (padded, never stretched), as WebP, then PNG (both
    keep transparency, and a picture with transparency tries every size in them first), then JPEG on white, stepping
    down until it fits. Every agent picture the person chooses comes through here. Never throws: a picture that
@@ -39516,6 +39516,8 @@ const PICTURE_MAX_BYTES = 60000;
 const PICTURE_MIN_SIDE = 16;
 const PICTURE_MAX_SIDE = 2048;
 let PICTURE_WEBP = null;   // whether this browser can write WebP (WebKit cannot); asked once
+// Every blob fitPicture vouches for (kept or redrawn to fit); one it returns unchanged after failing is not in here.
+const PICTURE_FITS = new WeakSet();
 /* Whether EXIF data (a TIFF header and its first directory) carries an Orientation other than 1, upright. */
 function pictureTurned(exif) {
   if (exif.length < 8) return false;
@@ -39573,9 +39575,15 @@ async function fitPicture(blob) {
   let bmp = null;
   try {
     if (!blob) return blob;
-    bmp = await createImageBitmap(blob);
+    bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
     const sidesOk = (w, h) => Math.min(w, h) >= PICTURE_MIN_SIDE && Math.max(w, h) <= PICTURE_MAX_SIDE;
-    if (blob.size <= PICTURE_MAX_BYTES && sidesOk(bmp.width, bmp.height) && pictureStill(new Uint8Array(await blob.arrayBuffer()))) return blob;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    // Only a still PNG is kept as chosen: a WebP is always redrawn, so the community's WebP checks only ever see this
+    // browser's own encoder output.
+    if (blob.size <= PICTURE_MAX_BYTES && sidesOk(bmp.width, bmp.height) && bytes[0] === 0x89 && pictureStill(bytes)) {
+      PICTURE_FITS.add(blob);
+      return blob;
+    }
     if (PICTURE_WEBP === null) {
       const probe = document.createElement('canvas');
       probe.width = probe.height = 1;
@@ -39619,7 +39627,7 @@ async function fitPicture(blob) {
       for (const q of type === 'image/png' ? [undefined] : [0.86, 0.72]) {
         const out = await new Promise((r) => cv.toBlob(r, type, q));
         // A browser that cannot write a type hands back a PNG instead; only a blob of the asked-for type counts.
-        if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) return out;
+        if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) { PICTURE_FITS.add(out); return out; }
       }
     }
     return blob;
@@ -39649,8 +39657,8 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
     // Say what to do, never surface an exception name.
     if (!res.ok) throw new Error(out.error || 'that did not work');
     // #4885: a picture that could not be fitted is kept as chosen, but the community will not take it.
-    msg.textContent = pic === f && f.size > PICTURE_MAX_BYTES
-      ? 'Saved. It is too big to go to the community; choose a smaller picture to share it there.' : 'Saved.';
+    msg.textContent = PICTURE_FITS.has(pic) ? 'Saved.'
+      : 'Saved. Kosmos could not fit it for the community; choose a PNG, JPEG or WebP to share it there.';
     await tick();
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.

@@ -4,7 +4,11 @@
  *   - Settings > Community says the picture goes with the agent, and what stays up while switched off;
  *   - every path that stores a picture passes it through fitPicture first (the canvas work itself is
  *     docs/browser-checks/render-picture-fit-4885.js, in a real browser);
- *   - a picture the board can no longer take down (picturesStuck) is said in Settings, and nothing is said otherwise.
+ *   - a picture the board can no longer take down (picturesStuck) is said in Settings, and nothing is said otherwise;
+ *   - pictures saved earlier that cannot go as they are (picturesUnsendable) are counted in Settings, which re-reads
+ *     both counts each time its Automation section opens;
+ *   - the agent page says when a chosen picture could not be fitted for the community;
+ *   - pictureStill reads the bytes the way the community does.
  *
  *   node --test web.community-picture-4885.test.js
  */
@@ -138,6 +142,9 @@ test('#4885: Settings re-reads the picture counts each time its Automation secti
   assert.match(HTML, /if \(section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING\) refreshIndustry\(\);/);
 });
 
-test('#4885: the agent page says when a chosen picture is too big to go to the community', () => {
-  assert.match(HTML, /msg\.textContent = pic === f && f\.size > PICTURE_MAX_BYTES\s*\? 'Saved\. It is too big to go to the community; choose a smaller picture to share it there\.' : 'Saved\.';/);
+test('#4885: the agent page says when a chosen picture could not be fitted for the community', () => {
+  assert.match(HTML, /msg\.textContent = PICTURE_FITS\.has\(pic\) \? 'Saved\.'\s*: 'Saved\. Kosmos could not fit it for the community; choose a PNG, JPEG or WebP to share it there\.';/);
+  // fitPicture vouches for what it returns kept or redrawn, and only that.
+  const fit = lift('fitPicture');
+  assert.equal((fit.match(/PICTURE_FITS\.add\(/g) || []).length, 2, 'fitPicture vouches for something other than a kept or redrawn picture');
 });

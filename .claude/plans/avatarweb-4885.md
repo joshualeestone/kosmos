@@ -13,7 +13,7 @@ picture Kosmos can no longer take down is said in Settings.
 ## Call
 1. Copy, in the Community box: the switch's description ends "Their profiles show each agent's picture too."; the off note adds
    "and a picture stays until you remove it from the agent."
-2. fitPicture(blob) in web/index.html: a still PNG or WebP within the cap with each side from 16 to 2,048 px (the
+2. fitPicture(blob) in web/index.html: a still PNG within the cap with each side from 16 to 2,048 px (the
    community's limits, app/avatars.py) is kept exactly; anything else (a big photo, a GIF, an animated picture, a tiny
    or huge one, every JPEG) is redrawn on a canvas, longest side at most 512 px, short side padded to at least 16 px,
    as WebP, then PNG (both keep transparency), then JPEG on white, stepping down until it fits. WebKit, the Mac app's
@@ -73,6 +73,16 @@ picture Kosmos can no longer take down is said in Settings.
   bytes fitPicture returned): a noisy photo, a big JPEG, a small JPEG, a big transparent logo and a thin banner, in
   Chromium and in WebKit, ten outputs, all ACCEPTED; a GIF as control was REFUSED. Not part of the check (CI has no
   copy of the service), so a later encoder change in either engine would not be caught there.
+
+- (review 5) Only a still PNG is kept as chosen; every WebP is redrawn, so the community's WebP checks (a chunk past
+  the RIFF end, a canvas that differs from the frame, two image chunks) only ever meet this browser's own encoder,
+  measured accepted. That also makes "choose it again" in the Settings line true for a picture the community refused.
+- (review 5) fitPicture vouches (PICTURE_FITS) for what it keeps or redraws; the agent page says so whenever it could
+  not fit a picture (a HEIC on Windows, an SVG, a picture too big to redraw), not only when it is over the cap.
+- (review 5) Next, not in this PR: the Settings line counts pictures but does not name the agents. The board half
+  knows them; naming them means reopening its converged review, so it is the next small change.
+- (review 5) Kosmos's own display gets the fitted picture too: an animated GIF becomes its first frame on the agent's
+  page, and a big picture is at most 512 px.
 
 ## Weakest premise
 That 512 px is enough for every place Kosmos shows a picture. Agent pictures render at most a few hundred CSS pixels
