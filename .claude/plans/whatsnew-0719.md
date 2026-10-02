@@ -31,3 +31,4 @@ Line 1 is written from the branch before review. The fast-update path merges #50
   conversation, not all of it." FIXED W (release entry): "most of the computer's attention" overstated (71% is the
   board process's CPU); now "could keep Kosmos itself too busy to answer." LEFT NITs: title kept; the entry's opening
   needs widening if #5053 or #4947 slice 2 joins; the ~30-agent profile check on the card is not run (re-check at merge).
+- Round 2 (sonnet, against MERGED #5054 19aa2a1f5): CONVERGED. Line 1 and the entry still true (merged fix = branch plus byte-exact offset and row guards). #4947 slice 2 and #5053 did not merge before #5054: OUT (Splinter 14:35).
