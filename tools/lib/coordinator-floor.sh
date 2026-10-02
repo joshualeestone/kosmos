@@ -31,7 +31,8 @@
 #
 # Usage: source (after connector-provenance.sh), then
 #   coordinator_floor_check <connector-bin> <relay-checkout> <floor-file>
-# Env: KOSMOS_COORDINATOR_URL (default https://login.kosmosplus.com, engine/remote.js DEFAULT_COORDINATOR,
+# Env: KOSMOS_COORDINATOR_URL (deliberately not an install's AGENT_WORKFORCE_TUNNEL_COORDINATOR override: the cut asks the
+# coordinator installs use by default; default https://login.kosmosplus.com, engine/remote.js DEFAULT_COORDINATOR,
 # the address installs talk to). Returns 0 or says why, 1.
 # The relay checkout must already be fetched (connector_currency_check, step 1d, does that).
 

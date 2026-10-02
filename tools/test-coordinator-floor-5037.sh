@@ -67,8 +67,8 @@ coordinator "${OLD:0:8}"
 if KOSMOS_ALLOW_COORDINATOR_BEHIND=1 KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err"; then
   grep -q "ON PURPOSE" "$T/err" && grep -q "signs the account" "$T/err" && ok "KOSMOS_ALLOW_COORDINATOR_BEHIND=1 proceeds and names what it skips" || bad "override passed silently: $(cat "$T/err")"
 else bad "the override still refused: $(cat "$T/err")"; fi
-KOSMOS_ALLOW_COORDINATOR_BEHIND=yes KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err" && ! behind \
-  && bad "an override other than exactly 1 was honoured" || ok "only KOSMOS_ALLOW_COORDINATOR_BEHIND=1 overrides"
+KOSMOS_ALLOW_COORDINATOR_BEHIND=yes KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err"; rc=$?
+[ "$rc" = 1 ] && behind && ok "only KOSMOS_ALLOW_COORDINATOR_BEHIND=1 overrides (=yes refuses on the behind arm)" || bad "=yes: rc=$rc, not the behind refusal: $(cat "$T/err")"
 
 # 6. the committed floor file and the release.sh wiring
 REAL_FLOOR="$(grep -v '^#' tools/coordinator-floor | awk 'NF{print $1}')"
