@@ -8105,7 +8105,15 @@ const server = http.createServer(async (req, res) => {
     const r = communityindustry.read();
     let unreachable = 0;
     try { unreachable = communitysend.industryUnreachable(); } catch { unreachable = null; }   // cannot tell: promise nothing
-    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable };
+    /* #4885: agents whose community picture Kosmos can no longer take down (the community shut them out). Read here
+       because Settings reads this route at page load and each time its Automation section opens. 0 on a board whose send layer has no pictures;
+       null when it cannot tell, as `unreachable` beside it. */
+    let picturesStuck = 0;
+    try { picturesStuck = typeof communitysend.pictureUnreachable === 'function' ? communitysend.pictureUnreachable() : 0; } catch { picturesStuck = null; }
+    // #4885: pictures saved before Kosmos fitted them that cannot go as they are (too big, not a still picture, refused).
+    let picturesUnsendable = 0;
+    try { picturesUnsendable = typeof communitysend.pictureUnsendable === 'function' ? communitysend.pictureUnsendable() : 0; } catch { picturesUnsendable = null; }
+    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck, picturesUnsendable };
   };
   if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, industryBody()); }

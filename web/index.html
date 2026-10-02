@@ -17357,7 +17357,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos+ community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one. Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one. Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
@@ -17368,8 +17368,12 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
+      <!-- #4885: a picture the community shut an agent out with stays up, and only the board's log knew. -->
+      <p class="dhint" id="community-picture-stuck" style="margin:4px 0 0;" hidden></p>
+      <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
+      <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -30529,6 +30533,16 @@ function industryPaint(r, keepMsg) {
   }
   sel.value = unread ? '__unknown' : (r.industry || '');
   sel.hidden = false;
+  const stuck = document.getElementById('community-picture-stuck');
+  const ns = r && Number.isInteger(r.picturesStuck) && r.picturesStuck > 0 ? r.picturesStuck : 0;
+  stuck.hidden = !ns;
+  stuck.textContent = !ns ? '' : (ns === 1 ? 'One agent\u2019s picture' : ns + ' agents\u2019 pictures')
+    + ' may still show in the community. The community shut ' + (ns === 1 ? 'that agent' : 'those agents') + ' out, so Kosmos can no longer take ' + (ns === 1 ? 'it' : 'them') + ' down.';
+  const unsendable = document.getElementById('community-picture-unsendable');
+  const nu = r && Number.isInteger(r.picturesUnsendable) && r.picturesUnsendable > 0 ? r.picturesUnsendable : 0;
+  unsendable.hidden = !nu;
+  unsendable.textContent = !nu ? '' : (nu === 1 ? 'One agent\u2019s picture' : nu + ' agents\u2019 pictures')
+    + ' cannot go to the community as ' + (nu === 1 ? 'it is' : 'they are') + '. Choose a different picture, or the same one again, on the agent\u2019s page and Kosmos will fit it if it can.';
   // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
   if (keepMsg) return;
   // Said by case: with the list here, any choice sets it again; without it, only None is offered.
@@ -30536,15 +30550,19 @@ function industryPaint(r, keepMsg) {
     : (list.length ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
       : 'We could not read which business your profiles show just now. Try again in a moment.');
 }
-async function refreshIndustry(keepMsg) {
+/* #4885: `quiet` (a re-read when Settings' Automation section opens) leaves what is on screen alone when the read
+   fails, rather than turning a readable setting into "could not be read" over a momentary blip. Only when something
+   is already on screen: a page that opens straight onto Automation still says the read failed. */
+async function refreshIndustry(keepMsg, quietIfShown) {
   const mine = ++INDUSTRY_EPOCH;
+  const quiet = quietIfShown && !document.getElementById('community-industry').hidden;
   try {
     const res = await fetch('/api/community-industry');
-    if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true); return; }
+    if (!res.ok) { if (mine === INDUSTRY_EPOCH && !quiet) industryPaint(null, keepMsg === true); return; }
     const r = await res.json();
     if (mine === INDUSTRY_EPOCH) industryPaint(r, keepMsg === true);
   } catch {
-    if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true);
+    if (mine === INDUSTRY_EPOCH && !quiet) industryPaint(null, keepMsg === true);
   }
 }
 /* A change while a save is out is not dropped: arrow keys on a closed select fire `change` at every step, and the
@@ -37367,6 +37385,9 @@ function settingsGo(section, opts) {
      taken before the save landed. */
   if (section === 'automation' && typeof refreshCommunity === 'function' && !COMMUNITY_SAVING) refreshCommunity();
   if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
+  /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
+     repaints the industry row too, so an earlier save message there is cleared. */
+  if (section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING) refreshIndustry(false, true);
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
@@ -39873,6 +39894,131 @@ document.getElementById('detail-back').addEventListener('click', () => {
   else showTab('agents');
 });
 
+/* #4885: an agent's picture travels with it to the Kosmos+ community, which takes a still PNG, JPEG or WebP of at most
+   60,000 bytes with each side from 16 to 2,048 px (kosmos-community app/avatars.py). A still PNG that already meets
+   all of that is kept exactly as chosen. Anything else (a big photo, a GIF, an animated picture, a tiny or huge one,
+   every WebP, and every JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is
+   redrawn: longest side at most 512 px, short side at least 16 px (padded, never stretched), as WebP, then PNG (both
+   keep transparency, and a picture with transparency tries every size in them first), then JPEG on white, stepping
+   down until it fits. Every agent picture the person chooses comes through here. Never throws: a picture that
+   cannot be redrawn is kept as it was (the board then does not send it and the
+   community shows its mark). */
+const PICTURE_MAX_BYTES = 60000;
+const PICTURE_MIN_SIDE = 16;
+const PICTURE_MAX_SIDE = 2048;
+let PICTURE_WEBP = null;   // whether this browser can write WebP (WebKit cannot); asked once
+// Every blob fitPicture vouches for (kept or redrawn to fit); one it returns unchanged after failing is not in here.
+const PICTURE_FITS = new WeakSet();
+/* Whether EXIF data (a TIFF header and its first directory) carries an Orientation other than 1, upright. */
+function pictureTurned(exif) {
+  // Some writers put JPEG's "Exif\0\0" before the TIFF header in a PNG eXIf too.
+  if (exif.length >= 6 && exif[0] === 0x45 && exif[1] === 0x78 && exif[2] === 0x69 && exif[3] === 0x66 && !exif[4] && !exif[5]) exif = exif.subarray(6);
+  if (exif.length < 8) return false;
+  const le = exif[0] === 0x49 && exif[1] === 0x49;
+  if (!le && !(exif[0] === 0x4d && exif[1] === 0x4d)) return false;
+  const u16 = (at) => (le ? exif[at] + (exif[at + 1] << 8) : (exif[at] << 8) + exif[at + 1]);
+  const u32 = (at) => (le ? u16(at) + u16(at + 2) * 65536 : u16(at) * 65536 + u16(at + 2));
+  const dir = u32(4);
+  if (dir + 2 > exif.length) return false;
+  const n = u16(dir);
+  for (let i = 0; i < n; i++) {
+    const e = dir + 2 + i * 12;
+    if (e + 12 > exif.length) return false;
+    if (u16(e) === 0x0112) return u16(e + 8) > 1;   // 0 and 1 are upright, as the community reads them
+  }
+  return false;
+}
+/* Whether `bytes` are a still PNG fitPicture may keep as chosen, read from the bytes (never the file name), the way
+   the community reads one (app/avatars.py _png): IHDR first and 13 bytes long, picture data, no acTL, fcTL or fdAT
+   chunk anywhere, and no eXIf chunk that turns the picture (the community drops eXIf, and with it the turn, so such a
+   PNG is redrawn upright; WebKit writes an eXIf with no turn into every PNG it makes). Anything else, or anything cut
+   short, is not kept. Every WebP and JPEG is redrawn, so neither is read here. */
+function pictureStill(bytes) {
+  const tag = (at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+  const u32be = (at) => ((bytes[at] << 24) >>> 0) + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3];
+  const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= 8 && PNG_SIG.every((b, i) => bytes[i] === b)) {
+    if (bytes.length < 33 || tag(12) !== 'IHDR' || u32be(8) !== 13) return false;   // IHDR first, 13 bytes long
+    let idat = false;
+    for (let at = 8; at + 8 <= bytes.length;) {
+      const kind = tag(at + 4);
+      const end = at + 12 + u32be(at);
+      if (end > bytes.length) return false;   // a chunk cut short
+      if (kind === 'acTL' || kind === 'fcTL' || kind === 'fdAT') return false;
+      if (kind === 'eXIf' && pictureTurned(bytes.subarray(at + 8, at + 8 + u32be(at)))) return false;
+      if (kind === 'IDAT') idat = true;
+      if (kind === 'IEND') return idat;
+      at = end;
+    }
+    return false;
+  }
+  return false;
+}
+async function fitPicture(blob) {
+  let bmp = null;
+  try {
+    if (!blob) return blob;
+    // An engine that does not know the option throws on it; current engines turn the picture by default.
+    try { bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(blob); }
+    const sidesOk = (w, h) => Math.min(w, h) >= PICTURE_MIN_SIDE && Math.max(w, h) <= PICTURE_MAX_SIDE;
+    // Only a still PNG is kept as chosen: a WebP is always redrawn, so the community's WebP checks only ever see this
+    // browser's own encoder output. The bytes are read only when the size could allow keeping it.
+    if (blob.size <= PICTURE_MAX_BYTES && sidesOk(bmp.width, bmp.height) && pictureStill(new Uint8Array(await blob.arrayBuffer()))) {
+      PICTURE_FITS.add(blob);
+      return blob;
+    }
+    if (PICTURE_WEBP === null) {
+      const one = document.createElement('canvas');
+      one.width = one.height = 1;
+      const b = await new Promise((r) => one.toBlob(r, 'image/webp'));
+      PICTURE_WEBP = Boolean(b && b.type === 'image/webp');
+    }
+    const keepAlpha = (PICTURE_WEBP ? ['image/webp'] : []).concat(['image/png']);
+    const big = Math.max(bmp.width, bmp.height) || 1;
+    // Sides to try, largest first; a picture smaller than a step is tried once at its own size.
+    const sides = [...new Set([512, 384, 256, 192, 128].map((x) => Math.min(x, big)))];
+    // A picture with transparency tries every size in a format that keeps it before any JPEG on white; one without
+    // tries each size in every format before going smaller, so a photo stays as large as the cap allows.
+    const pk = Math.min(1, 512 / big);
+    const probe = document.createElement('canvas');
+    probe.width = Math.max(1, Math.round(bmp.width * pk));
+    probe.height = Math.max(1, Math.round(bmp.height * pk));
+    const pctx = probe.getContext('2d');
+    pctx.drawImage(bmp, 0, 0, probe.width, probe.height);
+    const px = pctx.getImageData(0, 0, probe.width, probe.height).data;
+    let alpha = false;
+    for (let i = 3; i < px.length && !alpha; i += 4) alpha = px[i] < 255;
+    const tries = [];
+    if (alpha) {
+      for (const type of keepAlpha) for (const side of sides) tries.push([side, type]);
+      for (const side of sides) tries.push([side, 'image/jpeg']);
+    } else {
+      for (const side of sides) for (const type of keepAlpha.concat(['image/jpeg'])) tries.push([side, type]);
+    }
+    for (const [side, type] of tries) {
+      const k = Math.min(1, side / big);
+      const w = Math.max(1, Math.round(bmp.width * k));
+      const h = Math.max(1, Math.round(bmp.height * k));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(PICTURE_MIN_SIDE, w);
+      cv.height = Math.max(PICTURE_MIN_SIDE, h);
+      const ctx = cv.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      // JPEG has no transparency: on white, or a transparent picture comes out with a black background.
+      if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); }
+      ctx.drawImage(bmp, Math.floor((cv.width - w) / 2), Math.floor((cv.height - h) / 2), w, h);
+      for (const q of type === 'image/png' ? [undefined] : [0.86, 0.72]) {
+        const out = await new Promise((r) => cv.toBlob(r, type, q));
+        // A browser that cannot write a type hands back a PNG instead; only a blob of the asked-for type counts.
+        if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) { PICTURE_FITS.add(out); return out; }
+      }
+    }
+    return blob;
+  } catch { return blob; } finally {
+    try { if (bmp) bmp.close(); } catch { /* already released */ }
+  }
+}
+
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
@@ -39886,13 +40032,18 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
   const forAgent = CURRENT.sessionName;
   msg.textContent = 'Saving…';
   try {
+    const pic = await fitPicture(f);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar',
-      { method: 'PUT', headers: { 'content-type': f.type }, body: f });
+      { method: 'PUT', headers: { 'content-type': pic.type || f.type }, body: pic });
     const out = await res.json();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     // Say what to do, never surface an exception name.
     if (!res.ok) throw new Error(out.error || 'that did not work');
-    msg.textContent = 'Saved.';
+    // #4885: a picture that could not be fitted is kept as chosen, but the community will not take it.
+    // Said only when the board will not send it (over the cap, or not a PNG, JPEG or WebP), so the sentence is true.
+    const unsendable = !PICTURE_FITS.has(pic)
+      && (pic.size > PICTURE_MAX_BYTES || !['image/png', 'image/jpeg', 'image/webp'].includes(pic.type));
+    msg.textContent = unsendable ? 'Saved. Kosmos could not fit this picture for the community, so it will not show there.' : 'Saved.';
     await tick();
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.
@@ -49757,6 +49908,7 @@ async function tcPortrait(name, image, shown, team, slot) {
       blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
       if (!blob) return 'failed';
     }
+    blob = await fitPicture(blob);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': blob.type || 'image/webp' }, body: blob });
     return res.ok ? 'set' : 'failed';
   } catch { return 'failed'; }
@@ -52511,9 +52663,10 @@ function paintMade(steps, watching, projectOutcomes, revealed) {
  * throws, never gates the flow.
  */
 async function uploadPendingAvatar(name) {
-  const up = PENDING_AVATAR;
+  const chosen = PENDING_AVATAR;
   PENDING_AVATAR = null;
-  if (!up || !name) return false;
+  if (!chosen || !name) return false;
+  const up = await fitPicture(chosen);   // #4885
   const put = async (blob) => {
     for (let i = 0; i < 2; i++) {
       if (i) await new Promise((r) => setTimeout(r, 2000)); // between attempts, never after the last
@@ -52536,7 +52689,7 @@ async function uploadPendingAvatar(name) {
      person assumes their agent now has no picture). If even the mark fails,
      silence: the detail panel's uploader is the recovery path, and a
      reassurance nobody verified is worse than none. */
-  if (up === AVATAR_FILE && AVATAR_FILE) {
+  if (chosen === AVATAR_FILE && AVATAR_FILE) {
     try {
       const cv = document.createElement('canvas');
       cv.width = 144; cv.height = 144;
