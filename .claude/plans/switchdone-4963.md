@@ -12,9 +12,11 @@ switch use this path.
 ## Change (web/index.html)
 1. While waking, the dialog shows no button. `autoHelloOnSwitchRestart`'s finish shows Done, gold, focused, whichever
    way the wait ends (placed hello, or the manual line).
-2. Never a trap (#1313): Escape closes the dialog once a restart is waking (the switch has happened; the wake goes on
-   without the dialog), and if the helper never reports, Close returns after RESTART_READY_WINDOW_MS + 30 s. The
-   timer is keyed to the opening (`back.__openGen`) so it cannot act on a later opening.
+2. Never a trap (#1313): once a restart is waking, Escape or a tap on the backdrop (a phone has no Escape) closes the
+   dialog (the switch has happened; the wake goes on without it). If the helper never reports, Close returns
+   RESTART_READY_WINDOW_MS + 30 s after the waking render: a bound past the readiness window, not a guaranteed upper
+   bound on the helper (its fetches have no timeout; a late finish still turns Close into gold Done). The timer is
+   keyed to the opening (`back.__openGen`) so it cannot act on a later opening.
 
 ## Closing early never breaks the switch (card item 2)
 Read from source, not reproduced: `autoHelloAfterRestart` runs independently of the dialog; closing only hides it,
@@ -30,11 +32,14 @@ change removes the press. Weakest premise: if the "weird state" came from someth
 So the change dialog was the only place with a button during work in progress.
 
 ## Validation
-- web.change-dialog-exit-1313.test.js: two new #4963 tests (no button while waking + Escape closes; the fallback
-  returns Close, not Done, with mock timers). Negative control: both fail on origin/main's page.
+- web.change-dialog-exit-1313.test.js: four new #4963 tests, all on mock timers: no button while waking + Escape
+  closes; a backdrop tap closes (an inside tap does not); a non-waking dialog does not close on a backdrop tap
+  (control); the fallback returns Close, not Done. Negative control: the waking tests fail on origin/main's page.
 - web.change-dialog.test.js: the real model switch now asserts no button while waking.
 - render-autohello-switch-2716: the dialog starts hidden while waking; Done appears on both finishes; a dialog
   closed mid-wait gets no button back.
-- render-model-change: on a real restart, no Done while waking, then waits for it.
+- render-model-restart-interstitial: the model and provider waking lines now assert no button.
+- render-model-change: waits for the button to appear rather than clicking at once (its fixture does not reach the
+  waking state, so it asserts nothing about it).
 - Queued on Agent1s: render-autohello-switch-2716, render-model-change, render-model-restart-interstitial,
   render-autohello-2686. Full suite before merge.

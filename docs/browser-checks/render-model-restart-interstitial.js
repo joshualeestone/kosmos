@@ -204,7 +204,7 @@ function check(name, pass, detail) {
     };
     await sleep(400); // past the 300ms hold
     const reducedText = msg.textContent;
-    const modelDone = /^Restarted on Claude\. Waking them…$/.test(reducedText) && keep.textContent === 'Done';
+    const modelDone = /^Restarted on Claude\. Waking them…$/.test(reducedText) && keep.hidden === true;   // #4963: no button while waking
     /* #4008 (Josh): the waiting line carries OUR loader, the Sweep dots (.spin.spin-sweep, eight <i>),
        decorative to a screen reader, and not the .kspin mark; Done stays plain until the wake finishes. */
     const wsp = msg.querySelector('.spin.spin-sweep');
@@ -243,7 +243,7 @@ function check(name, pass, detail) {
     };
     await sleep(400); // past the 300ms hold
     const providerReducedText = msg.textContent;
-    const providerDone = /^Restarted on OpenAI\. Waking them…$/.test(providerReducedText) && keep.textContent === 'Done';
+    const providerDone = /^Restarted on OpenAI\. Waking them…$/.test(providerReducedText) && keep.hidden === true;   // #4963
     if (!back.hidden) keep.click();
 
     // 6. THE PROVIDER FLOW, ANTHROPIC ARM: the switch names ONE vocabulary end to end. CURRENT
@@ -278,7 +278,7 @@ function check(name, pass, detail) {
     const providerAnthReducedText = msg.textContent;
     // The whole dialog speaks "Anthropic", never "Claude": consistent last-screen vocabulary.
     const providerAnthConsistent = /^Restarted on Anthropic\. Waking them…$/.test(providerAnthReducedText)
-      && !/on Claude/i.test(providerAnthReducedText) && keep.textContent === 'Done';
+      && !/on Claude/i.test(providerAnthReducedText) && keep.hidden === true;   // #4963
     if (!back.hidden) keep.click();
 
     return { wakeSpin, holdFloor, cycleMs, detachedPainted, modelCanvasDetachedAfter, busyShown, stillHeld, rendered, failFast, plainWorking, curAfterSet, modelBusy, reducedText, modelDone,
@@ -305,13 +305,13 @@ function check(name, pass, detail) {
     r.modelBusy && r.modelBusy.restarting && r.modelBusy.hasLoaderCanvas && r.modelBusy.loaderPainted && r.modelBusy.noReducedYet, JSON.stringify(r.modelBusy));
   check('#2692: the small pulsing .kspin mark Josh flagged is GONE from the restart interstitial',
     r.modelBusy && r.modelBusy.noPulsingIcon, JSON.stringify(r.modelBusy));
-  check('MODEL: after the hold the dialog reduces to "Restarted on <provider>. Waking them..." (#2716: the app sends the hello)',
+  check('MODEL: after the hold the dialog reduces to "Restarted on <provider>. Waking them..." (#2716: the app sends the hello), with no button while waking (#4963)',
     r.modelDone, JSON.stringify((r.reducedText || '').slice(0, 90)));
   check('#4008 MODEL: "Waking them..." carries the Sweep loader (eight dots, hidden from screen readers, not the .kspin mark), and Done is not gold yet',
     r.wakeSpin && r.wakeSpin.sweep && r.wakeSpin.dots === 8 && r.wakeSpin.hidden && r.wakeSpin.noKspin && r.wakeSpin.doneNotGoldYet, JSON.stringify(r.wakeSpin));
   check('PROVIDER: the provider switch shows the branded K-loader "Setting up OpenAI" interstitial (canvas present and painting, pulsing .kspin gone), not plain "Working…"',
     r.providerBusy && r.providerBusy.settingUp && r.providerBusy.hasLoaderCanvas && r.providerBusy.loaderPainted && r.providerBusy.noPulsingIcon && r.providerBusy.noReducedYet, JSON.stringify(r.providerBusy));
-  check('PROVIDER: after the hold the provider dialog reduces to "Restarted on OpenAI. Waking them..."',
+  check('PROVIDER: after the hold the provider dialog reduces to "Restarted on OpenAI. Waking them...", with no button while waking (#4963)',
     r.providerDone, JSON.stringify((r.providerReducedText || '').slice(0, 90)));
   check('PROVIDER (Anthropic arm): the branded-loader interstitial says "Setting up Anthropic" (not "Setting up Claude"), canvas painting, pulsing .kspin gone',
     r.providerAnthBusy && r.providerAnthBusy.settingUp && r.providerAnthBusy.hasLoaderCanvas && r.providerAnthBusy.loaderPainted && r.providerAnthBusy.noPulsingIcon && r.providerAnthBusy.notClaudeSetup, JSON.stringify(r.providerAnthBusy));
