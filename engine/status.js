@@ -2401,11 +2401,96 @@ const ASKING_GENERIC = 'it is asking you something';
  * A missed limit is #880's regression and is worse than a rare false pause, so
  * the remaining false positive is LEFT IN and recorded rather than traded for
  * one. Narrowing these two needs a SECOND observed screen, not a cleverer regex.
+ *
+ * 🛑 #5029, OBSERVED 2026-10-02 on three capped panes and the modal menu:
+ *
+ *   You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
+ *
+ * "hit your" is not "reached your", so a pane WITHOUT the /usage-credits line
+ * (one of the three, and the modal) read idle, and the Guide's hosted fallback
+ * (#3660) never switched on. The marker needs the "you've": the #966 promo
+ * says "If you hit your limit" on a healthy agent and must stay calm. It
+ * allows any word before "limit" for the same reason as its sibling: one plan
+ * tier said "weekly", and another may say "session" or "5-hour".
+ *
+ * ⚠️ ANCHORED, UNLIKE ITS TWO SIBLINGS, because "you've hit your rate limit"
+ * is ordinary English and this array outranks needs_you: unanchored, an agent
+ * ASKING "Looks like you've hit your GitHub API rate limit. Want me to wait?"
+ * read rate_limited and its question was hidden, and a healthy Guide
+ * EXPLAINING limits switched itself to the backup (review round 1). Every
+ * observed vendor row starts with the sentence, after only spaces or the
+ * tool-output glyph ⎿ (the 2026-08-21 screens had no ⎿, so it is optional);
+ * agent prose starts with ●. Case-sensitive like /usage-credits: the vendor
+ * capitalises it. (The curly ’ is ASSUMED, not observed: every capture has '.) And it counts only with Claude Code's turn footer at column
+ * 0 as the first column-0 row after it, within six rows (limitMarkersFor,
+ * below), which a tool result that prints the same sentence mid-turn does not
+ * have (review rounds 2 and 7).
+ *
+ * Still read wrong, stated rather than guessed at: an agent's indented SECOND
+ * paragraph opening with exactly this sentence AND followed by a footer; a
+ * vendor line drawn inside a frame (│ You've...), which reads idle; and a turn
+ * that ENDS on a tool call whose result's last row is this sentence: the real
+ * footer then lands at column 0 under the tool result and the pane reads
+ * rate_limited (review round 3); and a /usage-credits line wrapped onto two
+ * rows, which pushes the footer out of the two-row window: the pane still
+ * reads rate_limited through /usage-credits, but the evidence loses the reset
+ * time (capture-pane -J joins it in practice; review round 4); and a capped
+ * pane with Claude Code's showTurnDuration setting OFF, which draws no footer
+ * at all and reads idle (review round 5); an agent's WRAPPED prose whose
+ * continuation row opens with the sentence (Claude Code hard-breaks its own
+ * text, which -J does not rejoin), followed by a footer, which reads
+ * rate_limited; and a pane that RECOVERED (the reset passed, the person
+ * typed on) while the old vendor row is still in the tail, which stays
+ * rate_limited and hides a later question until it scrolls out: #5031 retires
+ * a vendor row whose own reset time has passed (both review round 6).
+ * Requiring "· resets" would close the prose shape, and is NOT done: Claude
+ * Code 2.1.287 also composes reset-less lines ("You've hit your monthly spend
+ * limit."), so it would miss a capped pane. "fast limit" is excluded: Fast mode
+ * falls back to normal speed, so that agent is not capped. None has been observed on a live pane;
+ * narrowing or widening needs another observed screen.
  */
 const RATE_LIMIT_MARKERS = [
   /reached your .{0,40}limit/i,   // observed 2026-08-21
   /\/usage-credits\b/,            // observed 2026-08-21
+  /^[\s⎿]*You['’]ve hit your (?!fast limit).{0,40}limit/, // observed 2026-10-02 (#5029); anchored, see above
 ];
+
+/* #5029 review 2: the 2026-10-02 sentence sits under ⎿, and so does every tool result, so a healthy agent that
+   cats a capture of a capped pane prints exactly the vendor's row. What separates them is the next rows. On all four
+   observed screens the vendor line (and its optional /usage-credits line) is followed by Claude Code's own turn footer
+   AT COLUMN 0, "✻ Cooked for 0s · done 10:35 PM"; inside a tool result every row is indented, a copied footer too.
+   NOT airtight: a turn that ends right after such a tool result puts the REAL footer at column 0 under it, and that
+   pane reads rate_limited (the third residual in the doc above, review round 3).
+   So that one marker counts only when the FIRST non-blank column-0 row after it is such a footer, within six rows.
+   Review round 7: Claude Code 2.1.287 draws up to five rows of its own between the limit line and the footer, all
+   indented in the same ⎿ column (a note, "Press ⏎ to continue after reset", "✓ checkpointed — see <path>" and its
+   "/rewind" line, then the upsell such as "/upgrade to increase your usage limit."), so a two-row window left those
+   capped panes idle. Six = those five + the footer; the cap keeps the residuals above from reaching deep into a long
+   indented tool result. NOT "no ● row after it": Claude
+   Code's own session survey ("● How is Claude doing this session?") followed the limit on one real capped pane.
+   Only that marker: the two 2026-08-21 markers keep their accepted behaviour. Found by its text because the array
+   must stay a literal (status.pane-states-1889.test.js lifts it from the source). */
+const HIT_YOUR_LIMIT = RATE_LIMIT_MARKERS.find((re) => re.source.includes('hit your'));
+// Fail at load, not on every classify: a reworded marker would leave this undefined and TypeError each pane read.
+if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LIMIT_MARKERS (#5029); update HIT_YOUR_LIMIT');
+/* What Claude Code draws in the turn-footer slot (read from its own render code, 2.1.287, review round 5):
+   "✻ <Verb> for <duration>", then optionally " · done <clock>" and further " · " parts (so the clock is NOT required:
+   "✻ Cooked for 12s" is a real footer); or, when background agents or workflows are still pending, the
+   "✻ Waiting for N background agent(s) ... to finish" row IN THE SAME SLOT, so a capped agent with a pending
+   background agent shows that row instead. Taking the waiting row adds no new false positive: a healthy agent only
+   gets a column-0 row under a tool result when its turn ends, which is the turn-ends-on-a-tool-call residual above.
+   What it must NOT take is the mid-turn spinner, which also uses the ✻ frame ("✻ Improvising… (35s · thought for 8s)"):
+   a healthy agent that cats a capture mid-turn has that spinner right under the tool result. */
+const TURN_FOOTER = /^✻ (?:\S+ for \d[\d.dhms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
+function limitMarkersFor(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n');
+  const vendor = rows.some((row, i) => {
+    if (!HIT_YOUR_LIMIT.test(row)) return false;
+    const next = rows.slice(i + 1, i + 7).find((r) => /^\S/.test(r));
+    return next !== undefined && TURN_FOOTER.test(next);
+  });
+  return vendor ? RATE_LIMIT_MARKERS : RATE_LIMIT_MARKERS.filter((re) => re !== HIT_YOUR_LIMIT);
+}
 
 /**
  * #874. Captured from a live pane, 2026-08-25, an agent whose account's
@@ -3557,12 +3642,14 @@ function messageAt(text, markers) {
   const CONTINUES = /^[A-Za-z0-9/]/;
   for (let i = 0; i < rows.length; i += 1) {
     if (!markers.some((re) => re.test(rows[i]))) continue;
-    let out = rows[i].replace(/^[\s>│├└─*❯›]+/, '').trim();
+    /* ⎿ here and NOT in matchedLine's copy, on purpose (#5029): this one writes a person-facing line, and Claude
+       Code prints its limit message under its tool-output glyph. matchedLine's result only answers yes or no. */
+    let out = rows[i].replace(/^[\s>│├└─*❯›⎿]+/, '').trim();
     if (!out) continue;
     for (let extra = 0; extra < 2 && !ENDS.test(out); extra += 1) {
       const next = rows[i + 1 + extra];
       if (next === undefined) break;
-      const line = next.replace(/^[\s>│├└─*❯›]+/, '').trim();
+      const line = next.replace(/^[\s>│├└─*❯›⎿]+/, '').trim();
       if (!line || !CONTINUES.test(line)) break;
       out += ' ' + line;
     }
@@ -4261,7 +4348,8 @@ function classify(pane, paneText) {
 
   const tail = paneText.split('\n').slice(-25).join('\n');
 
-  const limitLine = matchedLine(tail, RATE_LIMIT_MARKERS);
+  const limitMarkers = limitMarkersFor(tail);
+  const limitLine = matchedLine(tail, limitMarkers);
   if (limitLine !== null) {
     /**
      * 🔑 THE LINE ITSELF RIDES ALONG, and it is the difference between a claim
@@ -4286,7 +4374,7 @@ function classify(pane, paneText) {
       because: 'its screen mentions a usage limit',
       /* The whole message, not its first line (#1248). See `messageAt`: the
          vendor's second remedy lives on the line after the marker. */
-      evidence: messageAt(tail, RATE_LIMIT_MARKERS),
+      evidence: messageAt(tail, limitMarkers),
     };
   }
   /**
