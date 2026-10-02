@@ -97,7 +97,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 
    ```sh
    git -C "$HOME/work/chaoskosmos-site" diff --quiet -- dist/latest.json setup setup.sha256 \
-     || git -C "$HOME/work/chaoskosmos-site" commit -- dist/latest.json setup setup.sha256 -m "promote <V> to prod"
+     || git -C "$HOME/work/chaoskosmos-site" commit -m "promote <V> to prod" -- dist/latest.json setup setup.sha256
    git -C "$HOME/work/chaoskosmos-site" push origin HEAD:refs/heads/main   # a deploy serves committed HEAD
    bash tools/deploy-site.sh --promote
    ```
@@ -143,7 +143,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    bash <<'DEPLOY'
    set -eu
    S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce
-   git -C "$S" diff --quiet -- dist/latest.json setup setup.sha256 || git -C "$S" commit -- dist/latest.json setup setup.sha256 -m "promote <V> to prod"   # skip commit on a re-run where it is already committed; #5032: the installer pair rides with the pointer
+   git -C "$S" diff --quiet -- dist/latest.json setup setup.sha256 || git -C "$S" commit -m "promote <V> to prod" -- dist/latest.json setup setup.sha256   # skip commit on a re-run where it is already committed; #5032: the installer pair rides with the pointer
    git -C "$S" push origin HEAD:refs/heads/main   # a failed push must NOT proceed to a deploy (set -e stops here)
    . "$R/tools/lib/site-deploy.sh"; . "$R/tools/lib/pkg-inputs.sh"
    EXPORT=$(mktemp -d); trap 'rm -rf "$EXPORT"' EXIT   # removed on ANY exit: success, a guard, or a failed deploy
