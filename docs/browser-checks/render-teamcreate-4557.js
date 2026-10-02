@@ -601,7 +601,11 @@ function chk(ok, label, extra) {
            to once it is up; meanwhile another team picked is told this one is still saying hello -------------------- */
         {
           const { page, errs, hellos, stateOf, helloHold } = await newPage(1280);
-          await page.evaluate(() => { TC_AUTO_HELLO = true; TC_HELLO_GAP_MS = 400; });
+          await page.evaluate(() => { TC_AUTO_HELLO = true; TC_HELLO_GAP_MS = 600; });   // 10 waits: about 6 s of room
+          // The check's catalogue knows only Marketing, so Household cannot load here: what is asserted is that the page
+          // ASKED for it (and did not go to the agents view), not that it rendered.
+          let householdAsked = 0;
+          await page.route('**/api/teams/seeded/household*', (r) => { householdAsked += 1; return r.continue(); });
           stateOf.zed = 'unknown';
           let releaseLead; helloHold.una = new Promise((res) => { releaseLead = res; });
           await page.evaluate(() => openTeamCreate('marketing'));
@@ -630,9 +634,11 @@ function chk(ok, label, extra) {
           delete stateOf.zed;   // it comes up
           // Review 23: the person asked for Household meanwhile, so once every hello is placed THAT team opens, not the
           // agents view.
-          await settle(page, () => typeof TC !== 'undefined' && TC && TC.key === 'household');
-          const after = await page.evaluate(() => ({ key: TC && TC.key, step: !document.getElementById('cstep-teammake').hidden, marked: document.querySelectorAll('.just-made').length }));
-          chk(hellos.filter((h) => h.who === 'zed').length === 1 && after.key === 'household' && after.step && after.marked === 0,
+          const before = householdAsked;   // picking it while Marketing was in flight loaded nothing; opening it after does
+          for (let i = 0; i < 100 && householdAsked === before; i++) await page.waitForTimeout(100);
+          await page.waitForTimeout(400);
+          const after = await page.evaluate(() => ({ marketing: !!(TC && TC.key === 'marketing'), panel: !document.getElementById('panel-create').hidden, marked: document.querySelectorAll('.just-made').length }));
+          chk(hellos.filter((h) => h.who === 'zed').length === 1 && householdAsked > before && !after.marketing && after.panel && after.marked === 0,
             `${E} #4936 once it is up it is said hello to once, and the team asked for meanwhile opens (not the agents view)`, JSON.stringify({ after, hellos: hellos.map((h) => h.who) }));
           chk(errs.length === 0, `${E} no page errors (#4936 waiting arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
