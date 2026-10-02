@@ -13,7 +13,9 @@
  *
  * The harness below is render-dm-send-shows-now's, which this extends.
  *
- * Its original header, kept for the harness's sake:
+ * Its original header follows, kept for the harness's sake. The "Run:" line inside it is that file's,
+ * not this one's.
+ *
  * send-lag (Josh, Windows 0.7.02): "when I type a message, it is sitting forever
  * before it posts to my dialog". The DM thread drew the person's own message only
  * after the POST had answered AND the thread had been read again, so on a slow
@@ -115,6 +117,7 @@ function readThread(page, words) {
       for (const k of Object.keys(TALK_PENDING)) delete TALK_PENDING[k];
       for (const k of Object.keys(TALK_DRAFTS)) delete TALK_DRAFTS[k];
       for (const k of Object.keys(DM_REPLY)) delete DM_REPLY[k];
+      TALK_QUERY = '';
       CURRENT = { sessionName: 'april', name: 'April' };
       document.getElementById('d-say').value = '';
       document.getElementById('d-say-msg').textContent = '';
@@ -136,7 +139,8 @@ function readThread(page, words) {
       const a = r.getBoundingClientRect(); const t = th.getBoundingClientRect();
       return { top: Math.round((a.top - t.top + th.scrollTop) * 10) / 10, height: Math.round(a.height * 10) / 10,
         pending: r.classList.contains('dm-pending'), copies: rows.length, scrollTop: th.scrollTop,
-        head: Boolean(r.querySelector('.msg-replyto, .vh')) };
+        head: Boolean(r.querySelector('.msg-replyto, .vh')),
+        shownHead: (() => { const h = r.querySelector('.msg-replyto'); return Boolean(h && h.getBoundingClientRect().height > 0); })() };
     }, words);
     const box = () => page.evaluate(() => document.getElementById('d-say').value);
     const line = () => page.evaluate(() => document.getElementById('d-say-msg').textContent);
@@ -241,6 +245,59 @@ function readThread(page, words) {
     chk(rBefore && rBefore.head && rAfter && rAfter.head, 'the pending reply carries its header, as the kept one does', JSON.stringify({ rBefore, rAfter }));
     chk(rBefore && rAfter && !rAfter.pending && Math.abs(rAfter.top - rBefore.top) <= 1 && Math.abs(rAfter.height - rBefore.height) <= 1,
       'a reply swaps in place too', JSON.stringify({ rBefore, rAfter }));
+
+    /* 11. A search is filtering the thread, so no bubble is drawn: the box keeps the words, or they would
+       be on screen nowhere for the whole flight. */
+    await reset(BASE);
+    await page.evaluate(() => { TALK_QUERY = 'zzz-no-match'; });
+    const searching = await press('while searching');
+    chk(searching.bubbles === 0 && searching.box === 'while searching', 'no bubble while a search filters the thread, so the box keeps the words', JSON.stringify(searching));
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => window.__post.reject(new TypeError('Failed to fetch')));
+    await page.waitForTimeout(300);
+    chk((await box()) === 'while searching', 'and still holds them, once, after the send fails', JSON.stringify(await box()));
+
+    /* 12. Sent before this agent's first thread read landed: nothing to draw the bubble from, so the box
+       keeps the words. */
+    await reset(BASE);
+    const early = await page.evaluate(() => {
+      CURRENT = { sessionName: 'nils', name: 'Nils' };   // the thread still holds april's last read
+      const s = document.getElementById('d-say'); s.value = 'too early'; sendTalk('too early');
+      return { box: s.value, bubbles: [...document.querySelectorAll('#d-dmthread .dm-pending')].length };
+    });
+    chk(early.bubbles === 0 && early.box === 'too early', 'no thread read yet: no bubble, and the box keeps the words', JSON.stringify(early));
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => window.__post.reject(new TypeError('Failed to fetch')));
+    await page.waitForTimeout(300);
+
+    /* 13. A reply to an OLDER message draws a visible header, the case where the swap can actually move. */
+    const TWO = Object.assign({}, BASE, { messages: [
+      { from: 'april', at: new Date(Date.now() - 120000).toISOString(), text: 'the older question?' },
+      { from: 'april', at: new Date(Date.now() - 60000).toISOString(), text: 'and a newer note.' },
+    ] });
+    await reset(TWO);
+    await page.evaluate((a) => dmReplyStart(a), TWO.messages[0].at);
+    await press('answering the older one');
+    await page.waitForFunction(() => window.__post !== null);
+    const nBefore = await rowRect('answering the older one');
+    await page.evaluate((fx) => { window.__fx = fx; window.__post.resolve({ delivery: { state: 'placed', paneState: 'idle' }, recorded: true, recordedBecause: null }); },
+      keptWith(TWO, { at: new Date().toISOString(), text: 'answering the older one', replyTo: TWO.messages[0].at, delivery: { state: 'placed', paneState: 'idle' } }));
+    await page.waitForTimeout(400);
+    const nAfter = await rowRect('answering the older one');
+    console.log('  older-reply pending ' + JSON.stringify(nBefore) + '  kept ' + JSON.stringify(nAfter));
+    chk(nBefore && nBefore.shownHead && nAfter && nAfter.shownHead, 'a reply to an older message shows its header on the bubble and on the kept row', JSON.stringify({ nBefore, nAfter }));
+    chk(nBefore && nAfter && !nAfter.pending && Math.abs(nAfter.top - nBefore.top) <= 1 && Math.abs(nAfter.height - nBefore.height) <= 1,
+      'and swaps in place with the header drawn', JSON.stringify({ nBefore, nAfter }));
+
+    /* 14. could_not, though the board kept a record of the attempt: the words still go back for the retry
+       (this arm never emptied the box before #4944). */
+    await reset(BASE);
+    await press('refused but recorded');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate((fx) => { window.__fx = fx; window.__post.resolve({ delivery: { state: 'could_not', because: 'April is not running' }, recorded: true, recordedBecause: null }); },
+      keptWith(BASE, { at: new Date().toISOString(), text: 'refused but recorded', delivery: { state: 'could_not', because: 'April is not running' } }));
+    await page.waitForTimeout(300);
+    chk((await box()) === 'refused but recorded', 'could not deliver, though recorded: the words are back in the box for the retry', JSON.stringify(await box()));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

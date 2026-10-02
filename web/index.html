@@ -35747,7 +35747,7 @@ async function sendTalk(text, attachment) {
      * #4944 (Josh, 0.7.16): "as soon as i hit POST, it shows in both places for a second and then shifts
      * around". The box kept the words until the POST answered, so for the whole flight they were in the
      * thread AND in the box, and then the box emptied under them. The box empties in the same frame the
-     * bubble is drawn. Only when it holds exactly what this send took: an attachment-only send carries
+     * bubble is drawn, and only if a bubble was drawn. Only when it holds exactly what this send took: an attachment-only send carries
      * the files' names, which were never in the box. The parked draft goes too, or the repaint at the
      * end of the flight would put the words straight back.
      *
@@ -35755,10 +35755,16 @@ async function sendTalk(text, attachment) {
      * verdict that used to leave them in the box puts them back (`restoreUnsent`, below), so the box is
      * still their only copy whenever we did not keep the message and cannot say it arrived.
      */
-    tookBox = say.value.trim() === text;
-    if (tookBox) { say.value = ''; pjGrowComposer(say); }
-    if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
     talkPaintPending(sentName, name);
+    /* Only once the bubble is really on screen. A search filtering the thread draws no bubble, and nor
+       does a send made before this agent's first thread read has landed; emptying the box then would
+       show the words nowhere for the whole flight. In those two cases the box keeps them as before. */
+    const drawn = !!document.querySelector('#d-dmthread .dm-pending');
+    tookBox = drawn && say.value.trim() === text;
+    if (tookBox) {
+      say.value = ''; pjGrowComposer(say);
+      if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
+    }
     /* #4639: after the drawn bubble, so it is the row they land on. */
     jumpToOwnSend(document.getElementById('d-dmthread'), TALK_QUERY);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
@@ -35836,7 +35842,10 @@ async function sendTalk(text, attachment) {
         + (inThread ? ' Your message is kept above.'
           : inBox ? ' Your message is back in the box below.' : ' Your message is shown above, marked not sent.');
     } else {
-      /* #4944: nothing was typed, so the words go back into the box for the retry. */
+      /* #4944: nothing was typed, so the words go back into the box for the retry. Even when the board
+         kept a record of the attempt: before #4944 this arm never emptied the box, so the retry copy is
+         what it always offered. The catch below differs because a recorded send there is one the board
+         answered as kept, not one it refused. */
       restoreUnsent();
       /* Nothing was typed, so the text is back in the box in front of them and
          no time phrase rides this line: "could not deliver just now" reads as
@@ -35866,6 +35875,12 @@ async function sendTalk(text, attachment) {
     TALK_SENDING = false;
     TALK_FLIGHT = null;
     DM_REPLY_SENDING = null;   // #4256
+    /* #4944: the quiet announcer said "Sending…"; the verdict line, or silence on success, replaces it.
+       After dmReplyAnnounce's own 30 ms delay, so a send answered faster than that is cleared too. */
+    setTimeout(() => {
+      const quiet = document.getElementById('d-reply-say');
+      if (quiet && quiet.textContent === 'Sending…') quiet.textContent = '';
+    }, 40);
     // The repaint is about the takeoff agent too: with the flight moved, the
     // open page belongs to somebody else and its own poll is already painting
     // it. The record is the account of what happened, visible when that agent
