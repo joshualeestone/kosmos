@@ -98,7 +98,12 @@ function makeDom() {
     return node;
   }
 
+  /* kosmos#4812: a body whose classList the page reads (consolidated vs tab layout). Only the three calls used. */
+  const bodyClasses = new Set();
+  const body = create('body');
+  body.classList = { contains: (c) => bodyClasses.has(c), add: (c) => { bodyClasses.add(c); }, remove: (c) => { bodyClasses.delete(c); } };
   const document = {
+    body,
     createElement: create,
     getElementById: (id) => byId[id] || null,
     get activeElement() { return focused; },

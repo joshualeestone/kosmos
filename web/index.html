@@ -27764,8 +27764,8 @@ function oaGroup(c, seen, now) {
   }
   return g;
 }
-/* The grid is on screen: neither it nor anything holding it is hidden (the consolidated view hides its panel, not
-   the grid). Nothing is read from the other computers while it is not. */
+/* An agents view (the grid, or the List view's #alist) is on screen: neither it nor anything holding it is hidden
+   (the consolidated view hides its panel, not the grid). Nothing is read from the other computers while none is. */
 function oaGridShown(grid) {
   return !!grid && !grid.closest('[hidden]');
 }
@@ -27773,7 +27773,11 @@ function oaGridShown(grid) {
    the list, and null when neither is (the org chart, another tab). On a phone the list is the only one (#4823: no grid
    view there), so a grid-only section never showed through Kosmos+ on a phone, the case this card is mostly for. */
 function oaHost() {
-  for (const id of ['grid', 'alist']) {
+  /* In the consolidated layout #alist is the left RAIL of agents, shown on every tab, not the List view: counting it
+     would pull the section out of #panel-cons-agents into the page and read the other computers on every tab (review
+     1's W1 again). There the grid is the only agents view, so only it counts. */
+  const ids = document.body.classList.contains('consolidated') ? ['grid'] : ['grid', 'alist'];
+  for (const id of ids) {
     const el = document.getElementById(id);
     if (oaGridShown(el)) return el;
   }
