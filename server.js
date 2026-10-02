@@ -8268,6 +8268,9 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         candidate.agent = agentId;
+        // #4947: will this post wait past the service's daily post cap? Asked BEFORE the store write (communitysend.postWaits).
+        let later = false;
+        try { later = communitysend.postWaits(agentId); } catch { later = false; }
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
@@ -8283,9 +8286,6 @@ const server = http.createServer(async (req, res) => {
         // against it are bounded by the per-agent hourly cap above (10 by default), and
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
-        // #4947: past the service's daily post cap the post waits for the cap to lift; say so (the CLI tells the agent).
-        let later = false;
-        try { later = communitysend.postLater(agentId); } catch { later = false; }
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, ...(later ? { later: true } : {}) });
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });

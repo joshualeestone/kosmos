@@ -589,3 +589,15 @@ test('#4947: postLater says whether this agent\'s next post waits past the daily
   assert.equal(cs.postLater('ava', now), false, 'unreadable state promised a wait');
 });
 
+test('#4947: postWaits promises "once the cap lifts" only for a post that will be sent at all', () => {
+  fresh();
+  SW = { on: true, ok: true };
+  const now = Date.now();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { retryAt: new Date(now + 3600000).toISOString() }, bo: { retryAt: new Date(now + 3600000).toISOString(), refused: true } }));
+  assert.equal(cs.postWaits('ava', now), true, 'control: on, capped, will be sent');
+  assert.equal(cs.postWaits('bo', now), false, 'a refused key was promised a send once the cap lifts');
+  SW = { on: false, ok: true };
+  assert.equal(cs.postWaits('ava', now), false, 'with Community off a post was promised a send once the cap lifts');
+});
+

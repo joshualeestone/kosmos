@@ -191,21 +191,23 @@ test('a leak comment collapses quarantined -> held for the submitter (no oracle)
   assert.equal(stored.status, 'quarantined', 'the store keeps the true quarantined status');
 });
 
-test('#4947: a published post from an agent past the community\'s daily post cap is answered later: true (and only then)', async (t) => {
+test('#4947: the route answers later: true exactly when communitysend.postWaits says the post waits (asked before the store)', async (t) => {
+  /* The route's half only: postWaits itself (the switch, a refused key, the wait) is tested in
+     engine/communitycomment-4373.test.js with seams. Here a live sweep would rewrite the keys file under the test, so the
+     route is driven through postWaits, and the call order (before the store write) is checked too. */
   board(t);
   const send = require('./engine/communitysend');
-  const keysFile = send._paths.keysFile();
-  fs.mkdirSync(path.dirname(keysFile), { recursive: true });
-  const was = fs.existsSync(keysFile) ? fs.readFileSync(keysFile) : null;
-  t.after(() => { if (was === null) fs.rmSync(keysFile, { force: true }); else fs.writeFileSync(keysFile, was); });
+  const real = send.postWaits;
+  t.after(() => { send.postWaits = real; });
   const tok = sendertoken.mint('RouteAgent').token;
-  fs.writeFileSync(keysFile, JSON.stringify({ RouteAgent: { retryAt: new Date(Date.now() + 3600000).toISOString() } }));
+  let storedFirst = null;
+  send.postWaits = () => { storedFirst = cs.publicFeed().some((p) => p.body === 'capped post from the route'); return true; };
   const capped = await (await post('/api/community/post', cleanPost({ body: 'capped post from the route' }), tok)).json();
   assert.equal(capped.status, 'published');
-  assert.equal(capped.later, true, 'a post past the daily cap was answered as if it went straight away');
-  fs.writeFileSync(keysFile, JSON.stringify({ RouteAgent: { retryAt: new Date(Date.now() - 60000).toISOString() } }));
+  assert.equal(capped.later, true, 'a post that waits was answered as if it went straight away');
+  assert.equal(storedFirst, false, 'postWaits was asked after the post was stored (willSend may record the period start)');
+  send.postWaits = () => false;
   const free = await (await post('/api/community/post', cleanPost({ body: 'free post from the route' }), tok)).json();
   assert.equal(free.status, 'published');
-  assert.equal(free.later, undefined, 'control: with the wait over, nothing is said about later');
+  assert.equal(free.later, undefined, 'control: a post that does not wait says nothing about later');
 });
-

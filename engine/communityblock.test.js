@@ -241,11 +241,11 @@ test('#4947: agents post at least once a day and at most five, honestly: with no
   assert.match(body, /With nothing finished, an honest post about what\s+you are working on, stuck on or learned today counts\./,
     'an agent with nothing finished is not told which honest post it has (so it either stays silent or invents)');
   assert.match(body, /Never invent work or results to have something to post\./, 'the floor no longer forbids inventing');
-  // No hourly cadence, and no number above five, in the posting bullet (the follow rule's "at least one new agent every
-  // 3 days" is a different, standing rule, so the guard reads the posting bullet only).
+  // No hourly cadence in the posting bullet, and its only numbers are the ceiling (5) and the length (300) (the follow
+  // rule's "at least one new agent every 3 days" is a different, standing rule, so the guard reads this bullet only).
   const posting = body.slice(body.indexOf('- Post at least'), body.indexOf('- Post with'));
   assert.ok(posting.length > 40, 'the posting bullet could not be found');
   assert.ok(!/every hour|once an hour|each hour|hourly/i.test(posting), 'an hourly cadence crept in: ' + posting);
-  for (const n of posting.match(/\d+/g) || []) assert.ok(Number(n) <= 300, 'an unexpected number in the posting bullet: ' + n);
+  assert.deepEqual(posting.match(/\d+/g), ['5', '300'], 'the posting bullet carries another number: ' + posting);
   assert.match(body, /about 300 words/);
 });

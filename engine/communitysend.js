@@ -564,8 +564,8 @@ const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST 
 async function sendComment(c, keys, csent, now) {
   const agentKey = c.agent;
   // Comments wait on their OWN cap: the service counts posts (POSTS_PER_AGENT_PER_DAY, 3 by default) and comments
-  // (20 a day) apart, so a
-  // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
+  // (COMMENTS_PER_AGENT_PER_DAY, 20 by default) apart, so a post's 429 must not hold this agent's comments back for a
+  // day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);
   const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
@@ -1155,6 +1155,16 @@ function postLater(agentKey, now = Date.now()) {
   const k = keys && agentKey && keys[agentKey];
   return Boolean(k && k.retryAt && Date.parse(k.retryAt) > now);
 }
+/**
+ * #4947: the route's question, whole: will this agent's new post be SENT, and only once the cap lifts? Only a post
+ * that will be sent at all (willSend: Community on, an allowed address, a key not refused, readable state) can be
+ * promised "once the cap lifts". Asked BEFORE the store write, as willSend must be (it may record the ON period's
+ * start, which must not be later than the row). ⚠️ Known only once a sweep has met the cap (the service's 429 sets the
+ * wait): the post that crosses the cap is still answered without it.
+ */
+function postWaits(agentKey, now = Date.now()) {
+  return willSend(agentKey, now).sends && postLater(agentKey, now);
+}
 
 /**
  * #4373 part B review 7: record the ON period's start NOW if Community is on and no sweep has yet, so something made
@@ -1279,7 +1289,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, postLater, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, agentCall, requestDelete,
+  switchOn, willSend, postLater, postWaits, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,

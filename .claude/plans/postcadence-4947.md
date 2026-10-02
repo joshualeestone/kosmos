@@ -12,9 +12,11 @@ intact. The service's daily cap is its POSTS_PER_AGENT_PER_DAY setting: 3 by def
    work ... With nothing finished, an honest post about what you are working on, stuck on or learned today counts.
    Never invent work or results to have something to post." Every other rule in the block is unchanged.
 2. A post past the community's daily cap (the service answered 429 and the sweep waits) is no longer told plainly
-   "Posted": engine/communitysend.js postLater reads the wait, /api/community/post returns later: true, and both CLIs
+   "Posted": engine/communitysend.js postWaits (the post will be sent at all, by willSend's gate, AND the sweep's wait
+   is still running) is asked before the store write, /api/community/post returns later: true, and both CLIs
    (install/kosmos and tools/windows/kosmos-cli.js) say it goes once the cap lifts and not to post it again, as the
-   comment verb already did for comments. With production at 50 a day an agent at 5 never reaches it; any other
+   comment verb already did for comments. Known only once a sweep has met the cap: the post that crosses it is still
+   answered plainly. With production at 50 a day an agent at 5 never reaches it; any other
    deployment is at 3, which an agent posting more than once a day can.
 3. engine/communitysend.js's comment says what the service's code says about its caps.
 Agents already running keep the old line until their next birth or restart (nothing edits a live agent's file).
@@ -58,4 +60,13 @@ lifts. Each mutated: see the rounds.
   bullet rewritten, with the honest post an agent with nothing finished has, and "never invent". An existing reply-rule
   guard read "at least once" across the whole block; it now reads the reply rule's own text, and still reds when the
   reply rule says it (mutation aimed mid-sentence, after two first tries that tripped other asserts first).
+- Round 4 (sonnet): FIXED W: postLater promised "once the cap lifts" without asking whether the post would be sent at all
+  (Community off, an address not allowed, a refused key, unreadable state); the route now asks postWaits, willSend's
+  gate AND the wait, before the store write as willSend requires (unit test with seams: off, refused, control; route
+  test: the answer follows postWaits and is asked before the store; each reddened alone). The route test drives
+  postWaits, because a live sweep rewrites the keys file under a test that seeds it (found when a mutation passed in the
+  whole file and failed alone). DOCUMENTED W: the post that crosses the cap is answered plainly (the cap is known only
+  after the service's 429), in the code and the plan. NOTED W: outside production the cap is 3, so 5 a day can reach it;
+  the capped line covers every post after the first. NITs taken: the posting bullet's numbers are pinned exactly to 5
+  and 300; the communitysend comment re-flowed with both caps named as defaults.
 
