@@ -125,3 +125,8 @@ OA_SEEN forgets computers off the list; fake-dom refuses focus when disabled, on
 hidden ancestor (and says what it does not model); a test renamed; the source-regex check replaced by driven
 tests. Unit 26/26 (+3 sibling fake-dom suites green); 6 more sabotages RED (one by exit code: a timed-out test is
 counted "cancelled", not "fail", so read the rc, not the fail line).
+
+### Review 6 (opus, blind, 2026-10-01 21:40): 0 blockers, 0 warnings, 5 nits, all taken
+A read that lands after a refresh dropped its computer is not kept (tested, sabotage red by rc); each group paints
+as its own read lands; the rebuild comment says a same-address rename is a per-group change; fake-dom says it does
+not model detached nodes; a dead stub removed. Unit 27/27.
