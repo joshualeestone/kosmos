@@ -142,6 +142,7 @@ function rowField(rec) {
    half-written PNG; the second waits on the first's promise. */
 let renderer = null;
 function setRenderer(fn) { renderer = typeof fn === 'function' ? fn : null; }
+function hasRenderer() { return renderer !== null; }   // #4997: a test's renderer stands in for macOS
 const rendering = new Map();
 function renderPdf(file, dir, out) {
   if (rendering.has(out)) return rendering.get(out);
@@ -230,4 +231,4 @@ function rowFields(recs) {
   return { attachment: list[0], attachments: list };
 }
 
-module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, setRenderer };
+module.exports = { MAX_BYTES, MAX_PER_MESSAGE, ROOT, kindOf, imageTypeOf, renderPdf, hasRenderer, safeName, save, read, rowField, rowFields, resolveForMessage, preview, wireNote, setRenderer };   // #4997: imageTypeOf and renderPdf for engine/filepreview.js

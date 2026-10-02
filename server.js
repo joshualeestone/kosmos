@@ -1229,6 +1229,7 @@ const chat = require('./engine/chat');
 const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
+const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
 // #3485: the community feed's board->feed choke (feedguard scrub -> trust -> store).
 // The ONE primitive both the agent/board routes below and the community-site routes
 // call, so no content of any origin reaches communitystore un-scrubbed.
@@ -3714,6 +3715,49 @@ function statusForSibling(json) {
   });
 }
 
+/* #4997: the full-page preview for a file in a Files list (an agent's Files folder, a project's folder). The file is
+   named by its LISTED name in ?name= (or the body, for the reveal) and resolved by projects.resolveListedFile in its
+   `listed` mode (openFile's gates plus the list's own rules, which openFile does not apply); no path is taken from the request. GET preview / download answer the bytes (nosniff, a sandbox
+   CSP, a download as an attachment, and only a picture or a PDF), refused cross-site. POST reveal-file
+   selects the file in Finder. Returns true when it answered. */
+function listedFileVerb(req, res, verb, folder, where, opts) {
+  if (verb === 'reveal-file') {
+    if (req.method !== 'POST') return false;
+    readBody(req)
+      .then((buf) => {
+        let named;
+        try { named = JSON.parse(buf.toString('utf8') || '{}').name; }
+        catch { sendJson(res, 400, { ok: false, because: 'we could not read that' }); return; }
+        const shown = filepreview.reveal(folder, named, where, opts);
+        if (shown && shown.ok) { sendJson(res, 200, { ok: true }); return; }
+        sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'Finder did not open' });
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return true;
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  const refusedRead = crossSiteRead(req);
+  if (refusedRead) { sendJson(res, 403, { ok: false, because: refusedRead }); return true; }
+  let named = '';
+  try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
+  const sandbox = "default-src 'none'; sandbox";
+  if (verb === 'download') {
+    const got = filepreview.download(folder, named, where, opts);
+    if (!got.ok) { sendJson(res, 404, { ok: false, because: got.because }); return true; }
+    res.writeHead(200, {
+      'content-type': 'application/octet-stream', 'content-length': got.bytes.length, 'x-content-type-options': 'nosniff',
+      'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(got.name).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()), 'content-security-policy': sandbox,
+    });
+    res.end(req.method === 'HEAD' ? undefined : got.bytes);
+    return true;
+  }
+  filepreview.preview(folder, named, where, opts).then((pv) => {
+    if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
+    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox });
+    res.end(req.method === 'HEAD' ? undefined : pv.bytes);
+  }).catch(() => sendJson(res, 404, { ok: false, because: 'this computer could not draw that file' }));
+  return true;
+}
 function crossSiteRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   if (site && site !== 'same-origin' && site !== 'none') {
@@ -6094,9 +6138,10 @@ const server = http.createServer(async (req, res) => {
      Direct Message. The folder is dmfiles.filesDir(name) (Renet's module, item 3), read through
      the same engine functions as a project's documents: listFiles (top level only here, via
      maxDepth 0, no scratch names (isScratchName), no symlinks, newest first, a stamp), openFile (a bare name or, since
-     #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
+     #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows), and (#4997) preview,
+     download and reveal-file for the full-page preview (listedFileVerb: only a file the flat list would show). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
-  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal))?$/);
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file))?$/);
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
@@ -6137,6 +6182,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ...listed, folder });
       return;
     }
+    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: 0 })) return;   // flat, as the list
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -6173,7 +6219,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       return;
     }
-    sendJson(res, 405, { ok: false, because: verb ? 'use POST for that' : 'the Files list is read-only; use open or reveal' });
+    sendJson(res, 405, { ok: false, because: verb ? ((verb === 'preview' || verb === 'download') ? 'use GET for that' : 'use POST for that') : 'the Files list is read-only; use open or reveal' });
     return;
   }
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
@@ -16982,6 +17028,21 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #4997: a project's listed file for the full-page preview (file-preview, file-download) and Finder (reveal-file),
+     through open-file's gates plus the list's own rules (listedFileVerb, resolveListedFile's `listed` mode). */
+  const pjListed = pathname.match(/^\/api\/project\/([^/]+)\/(file-preview|file-download|reveal-file)$/);
+  if (pjListed) {
+    const id = decodeSegment(pjListed[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let record;
+    try { record = projects.readAll().find((x) => x.id === id) || null; }
+    catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your projects right now') }); return; }
+    if (!record) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+    const verb = { 'file-preview': 'preview', 'file-download': 'download', 'reveal-file': 'reveal-file' }[pjListed[2]];
+    if (listedFileVerb(req, res, verb, record.folder, 'this project')) return;
+    sendJson(res, 405, { ok: false, because: verb === 'reveal-file' ? 'use POST for that' : 'use GET for that' });   // as the agent route says
+    return;
+  }
   const openOne = pathname.match(/^\/api\/project\/([^/]+)\/open-file$/);
   if (openOne && req.method === 'POST') {
     const id = decodeSegment(openOne[1]);
