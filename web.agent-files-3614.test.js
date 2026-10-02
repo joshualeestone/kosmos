@@ -218,7 +218,7 @@ test('#3757: the Files screen lists them all, with Open in Finder, and says what
   assert.doesNotMatch(side, /d-files-finder/, 'Open in Finder is still in the sidebar');
   const screen = PAGE.slice(PAGE.indexOf('id="d-sec-files"'), PAGE.indexOf('</section>', PAGE.indexOf('id="d-sec-files"')));
   assert.match(screen, /id="d-files-finder"/, 'Open in Finder is not on the Files screen');
-  assert.match(SCRIPT, /getElementById\('d-files-all'\)\.addEventListener\('click', \((?:e)?\) => \{\s*if \(!CURRENT\) return;\s*detailGo\('files'(?:, \{ keyboard: e\.detail === 0 \})?\);/, 'View All does not open the Files screen');
+  assert.match(SCRIPT, /getElementById\('d-files-all'\)\.addEventListener\('click', \(\) => \{\s*if \(!CURRENT\) return;\s*detailGo\('files'\);/, 'View All does not open the Files screen');
 });
 
 test('#3757: a showing Files screen follows every change, an emptied folder included; a hidden one is not fetched', async () => {

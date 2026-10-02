@@ -3423,12 +3423,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the left side means a lone section (its preceding sibling hidden) gets no
    stray top margin, so single-section pills are unaffected. */
 .dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
-/* #4961: a nav pill moves focus INTO its section (detailGo on an agent's page, settingsGo in
-   Settings), so a keyboard user's next Tab lands inside. The ring that marks where they landed
-   (#350) is drawn only when the pill was pressed from the keyboard (`kbd-landed`, set by those
-   two functions), never on a click. Keyed on :focus-visible it drew a black stroke round the
-   16px-radius card after a CLICK in the Mac app: Safari does not focus a clicked button, so the
-   focus moved next can match :focus-visible there. */
+/* #4961: detailGo and settingsGo move focus INTO a section, so a keyboard user's next Tab lands
+   inside. The ring that marks where they landed (#350) is drawn only when that move followed a
+   key press (`kbd-landed`, set from DSEC_KEYBOARD), never after a pointer press. Keyed on
+   :focus-visible it drew a black stroke round the 16px-radius card after a CLICK in the Mac app:
+   Safari does not focus a clicked button, so the focus moved next can match :focus-visible. */
 .dsec:focus { outline: none; }
 .dsec.kbd-landed:focus { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
@@ -36227,13 +36226,13 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   // Only on the agent it was for: the person may have switched agents while this was in flight.
   if (msg && CURRENT && CURRENT.sessionName === who) msg.textContent = say;
 });
-document.getElementById('d-files-all') && document.getElementById('d-files-all').addEventListener('click', (e) => {
+document.getElementById('d-files-all') && document.getElementById('d-files-all').addEventListener('click', () => {
   if (!CURRENT) return;
-  detailGo('files', { keyboard: e.detail === 0 });   // #4961: the landing ring is keyboard-only
+  detailGo('files');
 });
-document.getElementById('d-files-back') && document.getElementById('d-files-back').addEventListener('click', (e) => {
+document.getElementById('d-files-back') && document.getElementById('d-files-back').addEventListener('click', () => {
   if (!CURRENT) return;
-  detailGo('talk', { keyboard: e.detail === 0 });
+  detailGo('talk');
 });
 document.getElementById('d-files-finder') && document.getElementById('d-files-finder').addEventListener('click', async () => {
   if (!CURRENT) return;
@@ -36962,6 +36961,17 @@ function detailSectionGroup(section) {
    drops its scrollTop, so "came back to where I was reading" has to be kept
    here; null means nobody has left Talk for this agent yet. */
 let TALK_SCROLL = null;
+/* #4961: which kind of input moved focus into a section, for the landing ring (.dsec.kbd-landed).
+   A key press without a modifier means keyboard; any pointer press means pointer and drops every
+   landing ring, so a click (on a pill, or back on the section itself) never shows one. */
+let DSEC_KEYBOARD = false;
+document.addEventListener('keydown', (e) => {
+  if (!e.metaKey && !e.ctrlKey && !e.altKey) DSEC_KEYBOARD = true;
+}, true);
+document.addEventListener('pointerdown', () => {
+  DSEC_KEYBOARD = false;
+  document.querySelectorAll('.dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
+}, true);
 function detailGo(section, opts) {
   if (!DETAIL_SECTIONS.includes(section)) section = 'talk';
   /* #4433: Swarm Settings exists only on a swarm's page (the box is shown by swarmPagePaint). */
@@ -37008,7 +37018,7 @@ function detailGo(section, opts) {
      that. */
   if (target && !(opts && opts.focus === false)) {
     document.querySelectorAll('#panel-detail .dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
-    if (opts && opts.keyboard) target.classList.add('kbd-landed');   // #4961: the landing ring is keyboard-only
+    if (DSEC_KEYBOARD) target.classList.add('kbd-landed');   // #4961: the landing ring is keyboard-only
     target.focus();
   }
   /* ⚠️ A PAINT THAT MEASURES LAYOUT CANNOT DO IT INTO A HIDDEN SECTION.
@@ -37116,14 +37126,7 @@ function detailGo(section, opts) {
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
-  /* #4961: a click from Enter or Space carries detail 0; a pointer click carries its click count. */
-  detailGo(b.dataset.go, { keyboard: e.detail === 0 });   // the Skills lazy-load lives in detailGo, beside the group reveal (#4550)
-});
-/* #4961: the landing ring belongs to the keyboard press that moved focus in. Once focus leaves the
-   section (a Tab inside, a click elsewhere), drop it, so a later click on the section's own
-   background refocuses it without a ring. Covers Settings' sections too. */
-document.addEventListener('focusout', (e) => {
-  if (e.target && e.target.classList && e.target.classList.contains('kbd-landed')) e.target.classList.remove('kbd-landed');
+  detailGo(b.dataset.go);   // the Skills lazy-load lives in detailGo, beside the group reveal (#4550)
 });
 /* kosmos#1918: wire the agent page's "Sign in again" affordance ONCE (paintDetail
    only toggles its visibility). It opens Settings -> Accounts, the existing re-auth
@@ -37143,7 +37146,7 @@ document.addEventListener('focusout', (e) => {
    needs to act on. */
 (() => {
   const rb = document.getElementById('d-reauth');
-  if (rb) rb.addEventListener('click', (e) => { showTab('settings'); settingsOpen('accounts', { keyboard: e.detail === 0 }); });
+  if (rb) rb.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts'); });
 })();
 /* Settings has the same shape: seven sections, one on screen, the nav says
    which. No arrival work here (nothing in Settings measures layout or
@@ -37199,7 +37202,7 @@ function settingsGo(section, opts) {
   });
   if (target && !(opts && opts.focus === false)) {
     document.querySelectorAll('#panel-settings .dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
-    if (opts && opts.keyboard) target.classList.add('kbd-landed');   // #4961: the landing ring is keyboard-only
+    if (DSEC_KEYBOARD) target.classList.add('kbd-landed');   // #4961: the landing ring is keyboard-only
     target.focus();
   }
   /* Plus paints on arrival immediately (its truth is a fetch, not the
@@ -37855,7 +37858,7 @@ function settingsOpen(sec, opts) {
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
-  settingsOpen(b.dataset.go, { keyboard: e.detail === 0 });   // #4961: see detailGo's nav handler
+  settingsOpen(b.dataset.go);
 });
 
 /* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
@@ -38458,7 +38461,7 @@ async function paintConnLive() {
     const go = document.createElement('button');
     go.type = 'button'; go.className = 'linkish';
     go.textContent = 'see them on the Accounts tab';
-    go.addEventListener('click', (e) => settingsGo('accounts', { keyboard: e.detail === 0 }));
+    go.addEventListener('click', () => settingsGo('accounts'));
     el.append(go, document.createTextNode('.'));
   } catch {
     // Could-not-check is not the same claim as nothing-connected.
@@ -71863,7 +71866,7 @@ function asbSayNotMade(made) {
     go.className = 'linkish';
     go.id = 'asb-row-models';
     go.textContent = 'Open AI Models';
-    go.addEventListener('click', (e) => settingsGo('accounts', { keyboard: e.detail === 0 }));
+    go.addEventListener('click', () => settingsGo('accounts'));
     m.append(' ', go);
   }
 }
