@@ -202,6 +202,20 @@ grep -q "content=\"$_ver\"" "$STAGE/app/web/index.html" || {
   echo "the version was not baked into the page" >&2; exit 1; }
 echo "==> baked version $_ver into the page"
 
+# #4928: the What's new highlights must be for THIS version, as the Mac cut requires (release.sh step
+# 1b-ii, #3955). The board shows web/whats-new.json only for the version it is running, so a Windows
+# build on another number than the file's (or the file's "also" list) shipped with no "Kosmos has been
+# updated" window at all. Same opt-out as the Mac cut: KOSMOS_CUT_NO_WHATS_NEW=1 for a hotfix with
+# nothing to announce.
+if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
+  echo "==> KOSMOS_CUT_NO_WHATS_NEW=1: the highlights check is not enforced for $_ver"
+else
+  command -v node >/dev/null 2>&1 || {
+    echo "node is needed to check the What's new highlights for $_ver (#4928); install it, or set KOSMOS_CUT_NO_WHATS_NEW=1" >&2; exit 1; }
+  node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json" || {
+    echo "the Windows build stops: web/whats-new.json is not for $_ver. Add \"$_ver\" to its \"also\" list when this is the same release as the Mac's, or set KOSMOS_CUT_NO_WHATS_NEW=1 (#4928)" >&2; exit 1; }
+fi
+
 # ---- the runtime -----------------------------------------------------------
 # ⚠️ CHECKSUM-VERIFIED AGAINST nodejs.org's OWN SHASUMS, and the build DIES on a
 # mismatch. An unsigned installer is already asking somebody to click through a

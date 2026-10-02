@@ -37,7 +37,10 @@ improvement it gained would have died with the session that wrote it.
    (`tools/whats-new-check.js` says why). **A hotfix with nothing to announce:**
    `KOSMOS_CUT_NO_WHATS_NEW=1 yarn release X.Y.Z`, and that release shows no
    "Kosmos has been updated" window. The check runs again on the frozen tree (`2b-ii`), since the
-   shared checkout can move during a cut.
+   shared checkout can move during a cut. **A Windows build checks the same file for its own
+   version (#4928)**, so when Windows is cut on another number for the same release, add that
+   number to the file's `"also"` list (`{"version":"0.7.16","also":["0.7.13"],...}`) and both
+   platforms show the window; `KOSMOS_CUT_NO_WHATS_NEW=1` skips it there too.
 
    **Then, still in step 1, test-sign with the cut's own identity (#3579; the cut
    labels it `1c`)**, before anything is bumped or built. Step 4 signs Developer

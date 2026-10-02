@@ -8,6 +8,10 @@
  *
  *   {"version":"0.6.98","highlights":[{"icon":"spark","title":"...","line":"..."}]}
  *
+ * #4928: a platform cut on another number from the same work (Windows on 0.7.13 while the Mac is on
+ * 0.7.16) is named in an optional "also": ["0.7.13"], so the same highlights show on both. Without it
+ * the file is for one number only, and the other platform's people saw no window at all.
+ *
  * One definition of "a file the window can show", used twice: by the board (read, below, which
  * serves nothing it cannot draw) and by the cut (tools/whats-new-check.js, which refuses a cut
  * whose file is not for the version being cut).
@@ -33,7 +37,13 @@ function problems(obj, version) {
   const out = [];
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return ['it is not a JSON object'];
   if (typeof obj.version !== 'string' || !VERSION_RE.test(obj.version)) out.push('its "version" is not a version like 0.6.98');
-  else if (version && obj.version !== version) out.push('it is for ' + obj.version + ', not ' + version);
+  const also = obj.also === undefined ? [] : obj.also;
+  if (!Array.isArray(also) || also.some((v) => typeof v !== 'string' || !VERSION_RE.test(v))) {
+    out.push('its "also" is not a list of versions like 0.6.98');
+  } else if (version && typeof obj.version === 'string' && VERSION_RE.test(obj.version)
+      && obj.version !== version && !also.includes(version)) {
+    out.push('it is for ' + [obj.version, ...also].join(' and ') + ', not ' + version);
+  }
   const h = obj.highlights;
   if (!Array.isArray(h) || h.length < 1) { out.push('it has no highlights (1 to ' + MAX_HIGHLIGHTS + ')'); return out; }
   if (h.length > MAX_HIGHLIGHTS) out.push('it has ' + h.length + ' highlights; the window shows at most ' + MAX_HIGHLIGHTS);

@@ -89,3 +89,11 @@ test('#3955 round 13: a check that cannot run is not "not ready": a broken engin
     assert.match(r.stderr, /could not run/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#4928: the Windows build runs the same highlights check for its own version, with the same opt-out', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'tools', 'build-kosmos-windows.sh'), 'utf8');
+  const at = src.indexOf('node "$REPO/tools/whats-new-check.js" "$_ver" "$STAGE/app/web/whats-new.json"');
+  assert.ok(at > 0, 'the Windows build does not check the highlights for the version it bakes');
+  assert.ok(src.indexOf('baked version $_ver into the page') < at, 'the check runs before the version is known');
+  assert.match(src.slice(0, at), /KOSMOS_CUT_NO_WHATS_NEW:-\}" = "1"/, 'the hotfix opt-out is not honoured');
+});
