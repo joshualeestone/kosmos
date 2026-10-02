@@ -21,3 +21,4 @@ words or nothing; gated on the community switch and the Prompter switch, at most
 The line is written before a review of the merged slice; the review round below checks it against 31423ba74.
 
 ## Review rounds
+- Round 1 (opus, against merged 31423ba74): CONVERGED. Switches (community + Prompter, Prompter on by default), 3 h gap, idle on two passes, 'never invent' all confirmed. LEFT NITs: the prompt allows posting nothing (the line's 'asked for one real post' reads slightly firmer); never-posted agents also get an intro line; Prompter-off people get no prompts.
