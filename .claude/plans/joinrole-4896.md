@@ -62,3 +62,17 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
 ## Validation (fix)
 - engine/connect-onefolder-4896.test.js 5/5; against origin/main's discover.js 4 red, CONTROL green.
 - engine/connect-agent.test.js and projects.member-roles-4896.test.js green alongside (17/17).
+
+## Review 2 (23:06 CDT): 0 BLOCKER, 1 SHOULD-FIX, NITs
+- SHOULD-FIX taken: a REMOVED agent's profile outlives the removal (remove.js does not clear dir), so its folder was
+  refused under any new name, naming an agent that is gone. folderTakenBy now skips names remove.hidesCard says are
+  gone (the board's own test). Test: connect, mark removed, the same folder connects under a new name and the found
+  list offers it again. Red on the previous commit.
+- NIT taken: paths compared via path.resolve, so /x/F/ and /x/F are one folder (tested).
+- NIT checked: the refusal is rendered with textContent (web/index.html, the found list's Add), so the display name
+  in it cannot inject markup.
+- NIT accepted, stated: alreadyIn now reads every profile per candidate folder: O(folders x agents) small JSON reads,
+  roughly 10,000 for 200 folders x 50 agents per scan. Fine at today's sizes; hoist into a per-scan map if a scan is
+  ever measured slow.
+- NIT accepted: register.known() filters names through NAME_RE; writeProfile never writes a name that fails it.
+- NIT accepted: the unreadable-profiles arm self-skips when run as root (it cannot make the dir unreadable there).

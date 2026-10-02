@@ -1602,11 +1602,21 @@ function scan(opts) {
 function folderTakenBy(dir, name, { store }) {
   const listed = require('./register').known();
   if (!listed.ok) return { ok: false, other: null };
+  /* Review 2: a REMOVED agent's profile outlives the removal (remove.js does not clear `dir`), so without this a
+     folder whose agent was removed could never be added again under a new name, and the refusal would name an agent
+     that is gone. Gone means the board's own test (remove.hidesCard), the one every card surface asks. */
+  let gone = new Set();
+  try {
+    const removal = require('./remove');
+    gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
+  } catch { gone = new Set(); }
+  /* Review 2: one spelling per folder, so `/x/F/` and `/x/F` are the same folder. */
+  const same = (a) => typeof a === 'string' && a !== '' && path.resolve(a) === path.resolve(dir);
   for (const other of listed.names) {
-    if (other === name) continue;
+    if (other === name || gone.has(other)) continue;
     let p = null;
     try { p = store.readProfile(other); } catch { p = null; }
-    if (p && p.dir === dir) return { ok: true, other: (typeof p.displayName === 'string' && p.displayName.trim()) || other };
+    if (p && same(p.dir)) return { ok: true, other: (typeof p.displayName === 'string' && p.displayName.trim()) || other };
   }
   return { ok: true, other: null };
 }

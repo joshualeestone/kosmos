@@ -79,6 +79,22 @@ test('#4896: the found list counts a folder recorded under ANY name as already i
   assert.equal(discover.alreadyIn(dir, []), true, 'a folder recorded under a typed name is still offered');
 });
 
+/* Review 2: a removed agent's profile outlives the removal, so its folder must be free for a new name. Written as the
+   real removed list remove.js reads (removed.json under the store root), in the shape hidesCard reads. */
+test('#4896: a REMOVED agent does not hold its folder; a different spelling of a live one still does', () => {
+  const dir = folder('You are **Ivy**, an analyst.\n');
+  assert.equal(discover.connect(dir, { name: 'ivy1' }).ok, true);
+  const trailing = discover.connect(dir + '/', { name: 'ivy2' });
+  assert.match(String(trailing.because || ''), /already connected as Ivy/, 'a trailing slash slipped past the check');
+  const file = path.join(store.ROOT, 'removed.json');
+  fs.writeFileSync(file, JSON.stringify([{ name: 'ivy1', removedAt: new Date().toISOString(), stopped: true }]));
+  try {
+    assert.equal(discover.alreadyIn(dir, []), false, 'a removed agent\'s folder is still hidden from the found list');
+    const again = discover.connect(dir, { name: 'ivy3' });
+    assert.equal(again.ok, true, 'a removed agent still holds its folder: ' + again.because);
+  } finally { fs.rmSync(file, { force: true }); }
+});
+
 test('#4896: profiles that cannot be read refuse the connect rather than add blind', () => {
   const dir = folder('You are **Hal**, a researcher.\n');
   const profiles = store.PROFILES;
