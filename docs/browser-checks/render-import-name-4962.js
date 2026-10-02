@@ -68,7 +68,10 @@ const PARSE = {
     const browser = await engine.launch({ headless: process.env.HEADED === '0' });
     const chk = (ok, label, extra) => chkAll(ok, ENGINE + ' ' + label, extra);
     const fresh = async (opts) => {
-      const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 } }, opts || {}));
+      /* serviceWorkers: 'block' (as render-member-ring-3991 and five other checks do): the page registers a service
+         worker, and in WebKit the worker's fetch of /api/scan-import bypasses page.route, so the real (empty) scan came
+         back and the found rows never appeared. Measured 08:06 with a probe: the scan answered importable: []. */
+      const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' }, opts || {}));
       const page = await ctx.newPage();
       const creates = [];
       await page.route('**/api/scan-import', (r) => r.fulfill({ json: SCAN }));
