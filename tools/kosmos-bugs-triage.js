@@ -82,8 +82,9 @@ function scrub(text, names) {
   t = t.replace(/<!--[\s\S]*?-->/g, '[comment-removed]');
   /* Review 4: a home folder names its user ("/Users/jsmith/x", "C:\\Users\\Maria Lopez\\x", "/home/bob/x"). */
   t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/gi, '$1[user]');
-  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+(?: [^\\\s]+)?(?=\\)/gi, '$1[user]');   // "C:\\Users\\Maria Lopez\\x": one or two words, up to the next \\
-  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+/gi, '$1[user]');
+  /* Review 9: "\\+" so a JSON-escaped path ("C:\\\\Users\\\\bob\\\\x", pasted from a log) is caught too; it leaked whole. */
+  t = t.replace(/([A-Za-z]:\\+Users\\+)[^\\\s]+(?: [^\\\s]+)?(?=\\)/gi, '$1[user]');   // "C:\\Users\\Maria Lopez\\x": one or two words, up to the next \\
+  t = t.replace(/([A-Za-z]:\\+Users\\+)[^\\\s]+/gi, '$1[user]');
   t = t.replace(/(?<![\p{L}\p{N}])~[\p{L}_][\p{L}\p{N}_.-]*/gu, '~[user]');   // ~jsmith/notes, (~jsmith), "~jsmith/x" (review 6)
   /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
   t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret-removed]');
@@ -390,7 +391,10 @@ function dup(id, card, opts = {}) {
     const state = loadState(o.state);
     const g = pendingGroup(state, id, true);
     /* Review 4: a fresh report on a card that is ALREADY closed is more likely the bug coming back than a fix. */
-    const linkedWhileClosed = cardState(n, { repo: o.repo, gh: o.gh || ghRun }) === 'CLOSED';
+    const cs = cardState(n, { repo: o.repo, gh: o.gh || ghRun });
+    /* Review 9: a mistyped number (or a failed gh) used to settle the group on a card that does not exist, for good. */
+    if (cs === null) throw new Error(`no card #${n} found (or gh failed); nothing recorded`);
+    const linkedWhileClosed = cs === 'CLOSED';
     Object.assign(g, { status: 'dup', card: n, linkedWhileClosed, at: new Date().toISOString() });
     saveState(o.state, state);
     return linkedWhileClosed;
@@ -410,7 +414,7 @@ function replied(postId, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
   return withLock(o.state, () => {
     const state = loadState(o.state);
-    if (!Object.values(state.groups).some((g) => g.posts.some((p) => p.id === postId))) throw new Error(`no post ${postId} in any group`);
+    if (!Object.values(state.groups).some((g) => g.posts.some((p) => String(p.id) === String(postId)))) throw new Error(`no post ${postId} in any group`);
     state.replied[postId] = new Date().toISOString();
     saveState(o.state, state);
   });
