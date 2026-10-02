@@ -196,7 +196,7 @@ test('#4356: Settings (the other computer\'s, on a connect computer) is hidden w
 test('#4356: Run agents refuses until every stop of ours has finished; a count, so overlapping stops cannot clear each other', () => {
   assert.match(SRC, /private var stopsInFlight = 0/);
   assert.equal((SRC.match(/stopsInFlight \+= 1/g) || []).length, (SRC.match(/stopsInFlight -= 1/g) || []).length, 'a stop that raises the count and never lowers it (or the reverse)');
-  assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard stopsInFlight == 0 else \{/);
+  assert.match(body('@objc func runAgentsHere(_ sender: Any?)'), /guard stopsInFlight == 0(, !installing)? else \{/);   // #4382 adds an install under way
   const relaunch = body('private func stopBoardIfRunning()');
   assert.match(relaunch, /stopsInFlight \+= 1/, 'the launch-time stop can race Run agents');
   assert.match(relaunch, /self\?\.stopsInFlight -= 1/);
