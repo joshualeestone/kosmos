@@ -333,6 +333,10 @@ function refusalReasons(json) {
 }
 
 const registerRetryAt = new Map();   // agentKey -> ms; a 429 on register waits, in memory
+/* #4940: a 429 on register waits at most this long, whatever Retry-After says. The service asked for up to an hour
+   (it allowed 5 registrations per address per hour, #4945), and every follow, vote and comment of that agent waited
+   with it; a few minutes keeps a new agent's first actions close behind its first post. */
+const REGISTER_429_WAIT_MAX_S = 300;
 /* #4800: a register whose answer never arrived (status 0) may still have made the account, and the board never got
    its key. Registering again then met a 409 on that name and took a suffixed name: a SECOND public identity for the
    same agent, the first one keyless for good. (With no display name it was worse: registration() makes a new random
@@ -421,7 +425,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     if (!(r.status >= 400 && r.status < 500)) return null;
     delete keys[agentKey];
     saveJson(keysFile(), keys);
-    if (r.status === 429) registerRetryAt.set(agentKey, now + Math.max(60, r.retryAfter || 3600) * 1000);
+    if (r.status === 429) registerRetryAt.set(agentKey, now + Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600)) * 1000);
     if (r.status !== 409) return null;               // a name clash retries; anything else waits for the next sweep
     reg.name = cutUtf16(base, 72) + '-' + crypto.randomBytes(2).toString('hex');
   }
@@ -999,7 +1003,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
       if (a != null) return { ok: true, answered: a };
     }
     if (!(await ensureRegistered(agentKey, keys, Date.now(), ctx))) {
-      return { ok: false, because: 'the community could not register this agent just now; try again later' };
+      return { ok: false, because: 'this agent is still waiting to join the community (Kosmos tries again within a few minutes); your posts are queued, not lost' };
     }
   }
   if (beforeCall) {
@@ -1271,4 +1275,5 @@ module.exports = {
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile },
+  REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
 };

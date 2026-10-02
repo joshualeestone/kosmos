@@ -571,3 +571,17 @@ test('review 9: recordPeriodStart records nothing for an address the sweep will 
   } finally { process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; }
   assert.equal(cs.recordPeriodStart(), true, 'control: the loopback address records a start');
 });
+
+test('#4940: a register 429 asking for an hour waits at most five minutes, so the agent\'s comment goes soon after', async () => {
+  await on();
+  comment('ava', 'Joining in.');
+  cs.setSender(async (url, init) => (String(url).endsWith('/agents/register')
+    ? { status: 429, ok: false, headers: new Headers({ 'retry-after': '3600' }), text: async () => '{}', json: async () => ({}) }
+    : fetch(url, init)));
+  const before = Date.now();
+  await cs.sweep();
+  const at = cs._registerRetryAt('ava');
+  assert.ok(at, 'the 429 was not recorded as a wait');
+  assert.ok(at - before <= cs.REGISTER_429_WAIT_MAX_S * 1000 + 5000, 'the wait followed the hour asked: ' + (at - before) + ' ms');
+  assert.ok(at - before >= 59 * 1000, 'CONTROL: it still waits (at least a minute), never a busy loop');
+});
