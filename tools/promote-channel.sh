@@ -389,8 +389,25 @@ if ! cmp -s "$SNAP" "$PTMP" || [ "$(read_pointer_field "$PTMP" "$ARTIFACT_FIELD"
 fi
 mv "$PTMP" "$SITE/dist/$PROD_NAME" || { echo "promote-channel: could not write $PROD_NAME" >&2; exit 1; }
 PTMP=""
-# #5032: the staging installer onto /setup (checked before any write, above), RIGHT AFTER the pointer, so a later
-# failure (the alias) never leaves the pointer promoted with /setup not yet copied. Temp + rename, as the
+# #3940: the prod pointer now names this build, so from here on the promote has HAPPENED even if a
+# later step (the read-back, the alias) fails and exits. Log it now, not at the end: a promote
+# refused BEFORE this line leaves nothing, one that changed prod always leaves its line.
+if [ "$FAMILY" != win ] && [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
+  PLUS_HOME="${HOME:-}"
+  PLUS_LOG_DIR="${KOSMOS_PLUS_VERIFY_DIR:-${PLUS_HOME:+$PLUS_HOME/.local/state/kosmos/release-verify}}"
+  PLUS_LOG="${PLUS_LOG_DIR:+$PLUS_LOG_DIR/promote-plus-unverified.log}"
+  PLUS_HOST="$(hostname -s 2>/dev/null)"; [ -n "$PLUS_HOST" ] || PLUS_HOST=unknown
+  if [ -n "$PLUS_LOG" ] && mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
+     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tforce=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$FORCE" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
+    echo "promote-channel: recorded in $PLUS_LOG (on this machine, $PLUS_HOST)" >&2
+  else
+    echo "promote-channel: WARNING could not append to ${PLUS_LOG:-the unverified-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the promote happened and this output is the only record." >&2
+  fi
+fi
+# #5032: the staging installer onto /setup (checked before any write, above), right after the pointer
+# and its #3940 log line (so a failure here is still logged), and before the alias, so an alias failure never leaves
+# the pointer promoted with /setup not yet copied. Temp + rename, as the
 # pointer: /setup is what every prod install and update runs, so a cut-off copy must never be served.
 if [ -n "$SETUP_STAGING" ]; then
   for _f in setup setup.sha256; do
@@ -409,22 +426,6 @@ elif [ "$FAMILY" = mac ]; then
   # nothing says the staging installer belongs to this build.
   if [ -f "$SITE/setup-staging" ] && ! cmp -s "$SITE/setup-staging" "$SITE/setup"; then
     echo "promote-channel: WARNING setup-staging differs from /setup and the promoted pointer names no installer, so prod now serves $V beside the OLDER /setup. If $V was cut with setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand and commit them with $PROD_NAME." >&2
-  fi
-fi
-# #3940: the prod pointer now names this build, so from here on the promote has HAPPENED even if a
-# later step (the read-back, the alias) fails and exits. Log it now, not at the end: a promote
-# refused BEFORE this line leaves nothing, one that changed prod always leaves its line.
-if [ "$FAMILY" != win ] && [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
-  PLUS_HOME="${HOME:-}"
-  PLUS_LOG_DIR="${KOSMOS_PLUS_VERIFY_DIR:-${PLUS_HOME:+$PLUS_HOME/.local/state/kosmos/release-verify}}"
-  PLUS_LOG="${PLUS_LOG_DIR:+$PLUS_LOG_DIR/promote-plus-unverified.log}"
-  PLUS_HOST="$(hostname -s 2>/dev/null)"; [ -n "$PLUS_HOST" ] || PLUS_HOST=unknown
-  if [ -n "$PLUS_LOG" ] && mkdir -p "$PLUS_LOG_DIR" 2>/dev/null \
-     && { printf '%s\thost=%s\tversion=%s\tsha256=%s\tforce=%s\tfirst Kosmos+ sign-in NOT verified; promoted per #3940 (Josh 2026-09-26)\treason=%s\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUS_HOST" "$(printf '%s' "$V" | tr '\t\n' '  ')" "$(printf '%s' "$SHA" | tr '\t\n' '  ')" "$FORCE" "$PLUS_REASON" >> "$PLUS_LOG"; } 2>/dev/null; then
-    echo "promote-channel: recorded in $PLUS_LOG (on this machine, $PLUS_HOST)" >&2
-  else
-    echo "promote-channel: WARNING could not append to ${PLUS_LOG:-the unverified-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the promote happened and this output is the only record." >&2
   fi
 fi
 # Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.

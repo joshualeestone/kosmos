@@ -84,6 +84,8 @@ for f in setup setup.sha256 setup-staging setup-staging.sha256 index.html vercel
 [ -n "${LATE_ON_DEPLOY:-}" ] && mv "$LIVE_DIR/dist/$LATE_ON_DEPLOY" "$LIVE_DIR/dist/$LATE_ON_DEPLOY.late"
 # #5032: a site-root file served with different bytes than the export held.
 [ -n "${MANGLE_ROOT_ON_DEPLOY:-}" ] && printf ' ' >> "$LIVE_DIR/$MANGLE_ROOT_ON_DEPLOY"
+# #5032: a served sidecar whose FIRST field names other bytes (an appended byte would land after the newline).
+[ -n "${LIE_SIDECAR_ON_DEPLOY:-}" ] && printf '%064d  setup\n' 0 > "$LIVE_DIR/$LIE_SIDECAR_ON_DEPLOY"
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -425,7 +427,13 @@ read -r S24 L24 <<<"$(make_scenario)"; with_setup "$S24" "NEW-INSTALLER"
 printf 'NEXT-STAGING-INSTALLER\n' > "$S24/setup-staging"; ( cd "$S24" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 git -C "$S24" add setup-staging setup-staging.sha256 && git -C "$S24" commit -q -m "staging installer"
 out="$(MANGLE_ROOT_ON_DEPLOY=setup-staging PATH="$BIN:$PATH" LIVE_DIR="$L24" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S24" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
-{ [ "$RC" = 1 ] && has "$out" "does NOT match its served /setup-staging.sha256"; } && pass "#5032: a served /setup-staging pair that does not agree is refused at the edge" || bad "#5032 setup-staging mangled (rc=$RC) out=$out"
+{ [ "$RC" = 1 ] && has "$out" "is not the committed setup-staging"; } && pass "#5032: a served /setup-staging that is not the committed one is refused at the edge" || bad "#5032 setup-staging mangled (rc=$RC) out=$out"
+# 26) the served script is the committed one, but its served sidecar names other bytes: refused at the edge.
+read -r S26 L26 <<<"$(make_scenario)"; with_setup "$S26" "NEW-INSTALLER"
+printf 'NEXT-STAGING-INSTALLER\n' > "$S26/setup-staging"; ( cd "$S26" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+git -C "$S26" add setup-staging setup-staging.sha256 && git -C "$S26" commit -q -m "staging installer"
+out="$(LIE_SIDECAR_ON_DEPLOY=setup-staging.sha256 PATH="$BIN:$PATH" LIVE_DIR="$L26" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S26" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "does NOT match its served /setup-staging.sha256"; } && pass "#5032: a served /setup-staging.sha256 that names other bytes is refused at the edge" || bad "#5032 lying staging sidecar (rc=$RC) out=$out"
 # 25) a pointer naming an installer over a commit with no setup.sha256: refused before anything is served.
 read -r S25 L25 <<<"$(make_scenario)"; with_setup "$S25" "NEW-INSTALLER"; git -C "$S25" rm -q setup.sha256 && git -C "$S25" commit -q -m "no sidecar"
 run_deploy "$S25" "$L25" --promote
