@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.." || exit 1
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/coordinator-floor.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 export KOSMOS_COORDINATOR_RETRIES=0   # the file:// "unreadable" arms would otherwise sleep through retries
+unset KOSMOS_ALLOW_COORDINATOR_BEHIND   # an operator's own override must never steer an arm; the override arms set it inline
 g(){ git -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
 
 # The relay history: OLD (before the change), FLOOR (the coordinator-first change), NEWER (after it).

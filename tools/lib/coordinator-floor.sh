@@ -49,7 +49,7 @@ coordinator_floor_check() {
   local floor="${3:?coordinator_floor_check needs the floor file}"
   local url="${KOSMOS_COORDINATOR_URL:-https://login.kosmosplus.com}"
   url="${url%/}"
-  local built line sha why meta build build_full needed="" behind=""
+  local built line sha why meta build build_full anc _why needed="" behind=""
   [ -r "$floor" ] || { echo "coordinator_floor: cannot read $floor; refused." >&2; return 1; }
   _connector_provenance_check "$bin" || return 1
   built="$CONNECTOR_COMMIT"
@@ -77,7 +77,8 @@ coordinator_floor_check() {
   command -v node >/dev/null 2>&1 || { echo "coordinator_floor: node is not on PATH, so /v1/meta cannot be parsed; refused (release.sh needs node anyway)." >&2; return 1; }
   local curl_err; curl_err="$(mktemp "${TMPDIR:-/tmp}/coordfloor-curl.XXXXXX")" || curl_err=/dev/null
   meta="$(curl -fsS -m 15 --retry "${KOSMOS_COORDINATOR_RETRIES:-2}" --retry-delay 2 --retry-all-errors "$url/v1/meta" 2>"$curl_err")" || {
-    echo "coordinator_floor: could not read $url/v1/meta ($(tail -1 "$curl_err" 2>/dev/null)), so whether the coordinator carries what this connector needs is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand (the override does not cover this)." >&2
+    _why="$(tail -1 "$curl_err" 2>/dev/null)"
+    echo "coordinator_floor: could not read $url/v1/meta${_why:+ ($_why)}, so whether the coordinator carries what this connector needs is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand (the override does not cover this)." >&2
     [ "$curl_err" = /dev/null ] || rm -f "$curl_err"; return 1; }
   [ "$curl_err" = /dev/null ] || rm -f "$curl_err"
   # Parsed as JSON (node, which release.sh already needs), the top-level "build" only; then held to its shapes.
@@ -96,6 +97,9 @@ coordinator_floor_check() {
     return 1
   fi
   case "$build" in *-dirty) echo "coordinator_floor: the coordinator reports a DIRTY build ($build), so what it carries is unknown; redeploy it from a clean relay main at or above the floor. Refused." >&2; return 1 ;; esac
+  # A shallow relay checkout can answer "not an ancestor" for history it does not hold: an unknown, not "behind".
+  [ "$(git -C "$relay" rev-parse --is-shallow-repository 2>/dev/null)" != true ] \
+    || { echo "coordinator_floor: $relay is a SHALLOW clone, so ancestry against the coordinator's build is unknown; unshallow it (git -C $relay fetch --unshallow origin) and retry. Refused." >&2; return 1; }
   build_full="$(git -C "$relay" rev-parse -q --verify "${build}^{commit}" 2>/dev/null)" || {
     if [ "$(git -C "$relay" rev-parse --disambiguate="$build" 2>/dev/null | wc -l | tr -d ' ')" -gt 1 ]; then
       echo "coordinator_floor: the coordinator's build $build is an AMBIGUOUS short id in $relay; refused (look it up by hand)." >&2
@@ -106,7 +110,14 @@ coordinator_floor_check() {
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     sha="${line%% *}"
-    git -C "$relay" merge-base --is-ancestor "$sha" "$build_full" 2>/dev/null || behind="${behind}  ${line}"$'\n'
+    # Only exit 1 means "not contained" (known behind, which the override can waive). A git error (128) is an
+    # unknown, refused outright, like every other unknown.
+    git -C "$relay" merge-base --is-ancestor "$sha" "$build_full" 2>/dev/null; anc=$?
+    case "$anc" in
+      0) ;;
+      1) behind="${behind}  ${line}"$'\n' ;;
+      *) echo "coordinator_floor: could not tell whether build $build contains $sha (git exit $anc); refused." >&2; return 1 ;;
+    esac
   done <<EOF_NEEDED
 $needed
 EOF_NEEDED
