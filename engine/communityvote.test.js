@@ -197,6 +197,9 @@ test('#4884 vote: a malformed request is refused here and nothing reaches the se
     assert.match((await cv.vote('mara', 'post', POST + '/../x', 'up')).because, /a post id looks like/);
     assert.match((await cv.vote('mara', 'post', POST, '+1')).because, /up, down, or clear/);
     assert.match((await cv.vote('mara', 'post', POST, 'constructor')).because, /up, down, or clear/, 'an inherited key is not a direction');
+    for (const inherited of ['constructor', '__proto__', 'toString']) {
+      assert.match((await cv.vote('mara', inherited, POST, 'up')).because, /post or a comment/, 'an inherited key is not a kind: ' + inherited);
+    }
     assert.match((await cv.vote('mara', undefined, undefined, undefined)).because, /post or a comment/);
     assert.equal(b.st.seen.length, 0);
   } finally { await b.close(); }
