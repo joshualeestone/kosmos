@@ -285,7 +285,8 @@ async function paintRoom(page) {
         // MEASUREMENT (#4601): is something still SCROLLING when the right-click lands? Record scrollY, and every scrolling
         // element, from now; then wait until nothing has scrolled for 400ms before the click.
         await page.evaluate(() => { window.__sc = []; const t0 = performance.now(); window.__t0 = t0;
-          document.addEventListener('scroll', (e) => window.__sc.push([Math.round(performance.now() - t0), e.target === document ? 'document' : (e.target.id || e.target.className || e.target.tagName), Math.round(scrollY)]), true); });
+          document.addEventListener('scroll', (e) => window.__sc.push([Math.round(performance.now() - t0), e.target === document ? 'document' : (e.target.id || e.target.className || e.target.tagName), Math.round(scrollY), 'active=' + (document.activeElement && (document.activeElement.id || document.activeElement.tagName))]), true);
+          document.addEventListener('focusin', (e) => window.__sc.push([Math.round(performance.now() - t0), 'FOCUSIN', e.target.id || e.target.tagName, Math.round(scrollY)]), true); });
         const settle = await page.evaluate(async () => { const start = performance.now(); let last = window.__sc.length, quietSince = performance.now();
           while (performance.now() - start < 5000) { await new Promise((r) => setTimeout(r, 50)); if (window.__sc.length !== last) { last = window.__sc.length; quietSince = performance.now(); } else if (performance.now() - quietSince >= 400) break; }
           return { waited: Math.round(performance.now() - start), before: window.__sc.slice(0, 12), count: window.__sc.length }; });
