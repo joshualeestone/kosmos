@@ -213,7 +213,9 @@ test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUN
     assert.match(script, /ApplicationFrameWindow/, 'it looks for the frame that hosts Settings');
     assert.match(script, /EnumChildWindows/, 'it matches the frame by its Settings-owned child');
     /* Restoring an already-open window un-maximizes it; only a minimized one is restored. */
-    assert.match(script, /IsIconic\(\$h\)\)\{ \[void\]\[KWin\.Native\]::ShowWindowAsync\(\$h,9\)/, 'only a minimized Settings is restored');
+    const restoreLines = script.split('\n').filter((l) => /ShowWindowAsync\(\s*\$h/.test(l));
+    assert.equal(restoreLines.length, 1, 'one restore call');
+    assert.match(restoreLines[0], /IsIconic/, 'only a minimized Settings is restored');
 
     /* When the page itself does not open, the window is not raised: nothing is there to raise. */
     calls.length = 0;
