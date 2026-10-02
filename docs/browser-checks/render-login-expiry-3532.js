@@ -140,19 +140,26 @@ const CASES = [
     // (whose header is position: static, so the stack competes with the page's own sticky layers). Consolidated is
     // the board's real layout, read from GET /api/style (stubbed in this page only, as mobile-shots does), not a
     // page-side toggle, so its panes are really there under the notice.
+    // Sampled over a 5x3 grid across the notice, not its centre alone: in consolidated the centre can land in a gap of
+    // the body grid, where nothing could cover the notice and "on top" would pass for no reason.
     const onTop = () => pg.evaluate(() => {
       const n = document.querySelector('#login-adv-slot .login-adv');
       const r = n.getBoundingClientRect();
-      const x = r.left + r.width / 2, y = r.top + r.height / 2;
-      const hit = document.elementFromPoint(x, y);
-      // CONTROL: with the stack hidden, the same point is real page content, so "on top" can fail.
+      const pts = [];
+      for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) for (const fy of [0.25, 0.5, 0.75]) pts.push([r.left + r.width * fx, r.top + r.height * fy]);
+      const hits = pts.map(([x, y]) => document.elementFromPoint(x, y));
+      // CONTROL: with the stack hidden, at least one sampled point is real page content, so "on top" can fail there.
       const stack = document.getElementById('topnotes');
       stack.style.visibility = 'hidden';
-      const under = document.elementFromPoint(x, y);
+      const unders = pts.map(([x, y]) => document.elementFromPoint(x, y));
       stack.style.visibility = '';
+      const isContent = (el) => !!el && el !== document.body && el !== document.documentElement;
       const name = (el) => (el ? (el.id || String(el.className || '') || el.tagName) : null);
-      return { onTop: !!hit && n.contains(hit), hit: name(hit), layout: document.documentElement.getAttribute('data-layout'),
-        underIsContent: !!under && under !== document.body && under !== document.documentElement, under: name(under) };
+      const live = pts.map((_, i) => i).filter((i) => isContent(unders[i]));
+      const lost = live.filter((i) => !(hits[i] && n.contains(hits[i])));
+      return { onTop: live.length > 0 && lost.length === 0, layout: document.documentElement.getAttribute('data-layout'),
+        underIsContent: live.length > 0, contentPoints: live.length + '/' + pts.length,
+        under: [...new Set(live.map((i) => name(unders[i])))], lostTo: lost.map((i) => name(hits[i])) };
     });
     // Over New agent never: the left column's primary action stays clickable (the reason the stack is centred).
     const clearOfNew = await pg.evaluate(() => {
