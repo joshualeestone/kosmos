@@ -79,7 +79,8 @@ function itemsFor(sessionName) {
     out.push({ kind: 'comment', id: c.id, title: communitysend.titleFor({ body: c.body }), at: madeAt(c),
       state: stateOf(commentStatus[c.id], c, on, since) });
   }
-  for (const r of communitystore.moderationQueue({ status: 'held', limit: 1000 })) {
+  // Held or quarantined: the safety check stopped it for the person (feedpublish); both wait on them.
+  for (const r of communitystore.moderationQueue({ limit: 1000 })) {
     if (r.agent !== sessionName) continue;
     out.push({ kind: r.entry === 'comment' ? 'comment' : 'post', id: r.id,
       title: communitysend.titleFor(r.entry === 'comment' ? { body: r.body } : r), at: madeAt(r), state: 'held' });
