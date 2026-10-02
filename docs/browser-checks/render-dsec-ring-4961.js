@@ -20,7 +20,7 @@
  * Then the ring must not outlive the press: land on AI Settings from the keyboard, Tab inside, then
  * click the Model section's own heading (focus returns to the section): the kbd-landed class is gone,
  * no outline, and on chromium none with :focus-visible forced either. And a scripted .click() on a
- * pill after that (no key press, as a harness or an assistive tool sends) lands without the ring.
+ * pill after that pointer press lands without the ring.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dsec-ring-4961.js
  */
