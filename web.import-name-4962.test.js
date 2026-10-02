@@ -537,3 +537,51 @@ test('review 10: a retry after a name refusal starts unflagged, and a copy addin
   assert.match(slice('addImportedInPlace'), /field\.disabled = true; field\.removeAttribute\('aria-invalid'\); if \(field\.classList\) field\.classList\.remove\('bad'\);/);
 });
 
+test('review 11: a NAMED row refused about its name gives keyboard focus back (it has no Name field to take it)', async () => {
+  const r = rig({ withField: false, parsed: { ok: true, name: 'Don', displayName: 'Don', instructions: 'x', provider: 'anthropic' }, created: { ok: false, field: 'name', error: 'An agent named Don already exists.' } });
+  const page = r.d.create('body');
+  // As a browser does: disabling the focused button drops focus to the page.
+  let dis = false;
+  Object.defineProperty(r.btn, 'disabled', { get() { return dis; }, set(v) { dis = v; if (v && r.d.focused() === r.btn) page.focus(); } });
+  r.btn.focus();
+  await r.add('/Users/p/Downloads/don.md', r.btn, r.row);
+  assert.equal(r.said.textContent, 'An agent named Don already exists.');
+  assert.equal(r.d.focused(), r.btn, 'focus is back on the row, not left on the page');
+});
+
+test('review 11: a stale attempt that fails late does not undo a newer attempt on the same row', async () => {
+  const t = makeDom();
+  const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');
+  const field = t.create('input'); field.className = 'tk-inp fr-importinput'; field.value = 'Pip';
+  const btn = t.create('button'); btn.className = 'btn uprime fr-importgo'; btn.textContent = 'Add to Kosmos';
+  const said = t.create('p'); said.className = 'fr-importsaid';
+  row.append(field, btn, said);
+  const noop = { add() {}, remove() {} };
+  row.classList = noop; btn.classList = noop;
+  t.add('import-found').appendChild(row);
+  const held = [];
+  const fetchImpl = async (url, opts) => {
+    if (/agent-import-file/.test(url)) return { ok: true, json: async () => PARSED_NAMELESS };
+    return new Promise((resolve) => held.push(resolve));
+  };
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importRowsSync') + '\n'
+    + slice('addImportedInPlace') + '\nreturn { add: addImportedInPlace, map: IMPORT_ADDS };')(t.document, fetchImpl);
+  const a = api.add('/p/pip.md', btn, row);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(held.length, 1, 'CONTROL: attempt A is waiting on its create');
+  api.map.delete('/p/pip.md');                 // a later visit dropped A as stuck (over a minute)
+  btn.disabled = false; field.disabled = false;
+  await new Promise((r) => setTimeout(r, 2));  // B gets a later start time than A
+  const b = api.add('/p/pip.md', btn, row);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(held.length, 2, 'attempt B is waiting on its create');
+  held[0]({ ok: true, json: async () => ({ ok: false, error: 'network went away' }) });   // A fails late
+  await a;
+  assert.equal((api.map.get('/p/pip.md') || {}).state, 'adding', 'B still owns the row');
+  assert.notEqual(btn.textContent, 'Add to Kosmos', 'the row is not offered again while B is in flight');
+  held[1]({ ok: true, json: async () => CREATED });
+  await b;
+  assert.equal((api.map.get('/p/pip.md') || {}).state, 'added');
+});
+

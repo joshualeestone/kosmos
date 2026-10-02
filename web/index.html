@@ -52928,26 +52928,24 @@ function importRowsSync(file, msg, aboutName, pressed) {
   }
   let focusedOne = !!pressed && rows.includes(pressed);
   for (const row of rows) {
-    {
-      if (row === pressed) continue;
-      if (IMPORT_ADDS.has(file)) { importRowApply(row); continue; }
-      /* The add failed: a copy redrawn meanwhile goes back to ready AND carries the reason (review 3), since
-         the pressed row may no longer be on screen to show it. */
-      const go = row.querySelector('.fr-importgo');
-      const field = row.querySelector('.fr-importinput');
-      const said = row.querySelector('.fr-importsaid');
-      if (go && go.textContent !== 'Add to Kosmos') { go.disabled = false; go.textContent = 'Add to Kosmos'; }
-      if (said && msg) said.textContent = msg;
-      if (field) {
-        field.disabled = false;
-        if (aboutName) {
-          field.setAttribute('aria-invalid', 'true');
-          if (field.classList) field.classList.add('bad');   // the flagged border goes with the attribute (#2606)
-          if (!focusedOne && !(row.closest && row.closest('[hidden]'))) { field.focus(); focusedOne = true; }
-        } else {
-          field.removeAttribute('aria-invalid');
-          if (field.classList) field.classList.remove('bad');
-        }
+    if (row === pressed) continue;
+    if (IMPORT_ADDS.has(file)) { importRowApply(row); continue; }
+    /* The add failed: a copy redrawn meanwhile goes back to ready AND carries the reason (review 3), since
+       the pressed row may no longer be on screen to show it. */
+    const go = row.querySelector('.fr-importgo');
+    const field = row.querySelector('.fr-importinput');
+    const said = row.querySelector('.fr-importsaid');
+    if (go && go.textContent !== 'Add to Kosmos') { go.disabled = false; go.textContent = 'Add to Kosmos'; }
+    if (said && msg) said.textContent = msg;
+    if (field) {
+      field.disabled = false;
+      if (aboutName) {
+        field.setAttribute('aria-invalid', 'true');
+        if (field.classList) field.classList.add('bad');   // the flagged border goes with the attribute (#2606)
+        if (!focusedOne && !(row.closest && row.closest('[hidden]'))) { field.focus(); focusedOne = true; }
+      } else {
+        field.removeAttribute('aria-invalid');
+        if (field.classList) field.classList.remove('bad');
       }
     }
   }
@@ -53047,7 +53045,12 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      marks it invalid and puts the cursor back in it, the reason read with it through aria-describedby;
      a missing account, a file that is not an agent, or a network failure is not the name's fault
      (review 2). */
+  /* Review 11: each attempt has a token (its start time). A stale attempt (dropped after a minute so the row could be
+     pressed again) that settles late must not touch a newer attempt's state or offer the row a second time. */
+  let attemptAt = 0;
+  const current = () => (IMPORT_ADDS.get(file) || {}).at === attemptAt;
   const fail = (msg, aboutName) => {
+    if (!current()) return;
     IMPORT_ADDS.delete(file);
     btn.disabled = false; btn.textContent = was;
     if (said) said.textContent = msg;
@@ -53056,10 +53059,12 @@ async function addImportedInPlace(file, btn, row, viaKey) {
       if (aboutName) { field.setAttribute('aria-invalid', 'true'); if (field.classList) field.classList.add('bad'); field.focus(); }
       else { field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
     }
-    if (!aboutName && hadInRow && typeof had.focus === 'function') had.focus();
+    // Review 11: give focus back unless the Name field just took it (a named row has no field to take it).
+    if (!(aboutName && field) && hadInRow && typeof had.focus === 'function') had.focus();
     importRowsSync(file, msg, aboutName, row);
   };
-  IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: Date.now() });
+  attemptAt = Date.now();
+  IMPORT_ADDS.set(file, { state: 'adding', name: typed, at: attemptAt });
   // Review 10: a new attempt starts unflagged (a retry after a refusal must not stay red while it is adding).
   if (field) { field.disabled = true; field.removeAttribute('aria-invalid'); if (field.classList) field.classList.remove('bad'); }
   btn.disabled = true;
@@ -53170,6 +53175,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
     field.removeAttribute('aria-invalid');
     if (field.classList) field.classList.remove('bad');
   }
+  if (!current()) return;   // review 11: a newer attempt owns the row now
   IMPORT_ADDS.set(file, { state: 'added', name: typed || name });
   importRowsSync(file);
   if (viaKey && hadInRow && row && row.parentElement) {

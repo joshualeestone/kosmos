@@ -127,3 +127,14 @@ browser check (bc-4962, queued; its first run is its first proof), the full vali
   unflagged, success clears both marks, and importRowApply clears both on any adding or added copy (unit test,
   red without the importRowApply line).
 - DEFERRED again (decided in review 1, for the PR body): Enter on adopt rows outside the import panel.
+
+## Review 11 (opus, blind, 2026-10-02 11:41): 0 blockers, 2 warnings, 6 nits
+- FIXED: a NAMED row refused about its name lost keyboard focus (the restore skipped every name refusal, but only a
+  row with a Name field gives focus to the field). Now: restore unless the field took it. Unit test, red without it.
+- FIXED: an attempt dropped as stuck (over a minute) that failed late deleted the NEWER attempt's state and offered the
+  row again. Each attempt carries a token (its start time); only the current attempt settles the row. Unit test with
+  two held creates, red without the guard.
+- FIXED (nit): the leftover bare block in importRowsSync.
+- Not taken: copy rows synced at add start (one list is hidden in practice); focus when the pressed row is redrawn
+  away on a non-name refusal or a keyboard success; border-class assertions in a real engine (aria-invalid is
+  asserted); the review-10 control is a source regex; plan heading wording.
