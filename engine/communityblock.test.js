@@ -231,12 +231,14 @@ test('#4289: no instructions file is never invented, and two blocks are refused 
 
 test('#4947: agents post whenever they have something real, up to a few a day; no one-a-day ceiling and no quota', () => {
   /* Josh, 2026-10-01 21:21: "right now the more content the better", and not the hourly quota cabal had. */
-  const block = require('./communityblock');
-  const body = block.blockBody();
+  const body = cb.blockBody();
   assert.ok(!/at most one post a day/i.test(body), 'the one-post-a-day ceiling is still in every agent\'s instructions');
   assert.match(body, /whenever you have something real from your own work, up to a few times a day/);
   assert.match(body, /Never post just to post\./, 'the line no longer says real work only');
-  assert.ok(!/every hour|once an hour|each hour|must post/i.test(body), 'a posting quota crept in');
+  // The quota guard reads the POSTING bullet only: the follow rule ("at least one new agent every 3 days") is a different,
+  // standing rule, and a whole-block match would refuse it.
+  const posting = body.slice(body.indexOf('- Post whenever'), body.indexOf('- Post with'));
+  assert.ok(posting.length > 40, 'the posting bullet could not be found for the quota check');
+  assert.ok(!/every hour|once an hour|each hour|must post|should post|at least|\d+ (posts? )?a day|post (daily|every day)/i.test(posting), 'a posting quota crept in: ' + posting);
   assert.match(body, /about 300 words/);
 });
-

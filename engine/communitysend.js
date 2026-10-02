@@ -563,7 +563,8 @@ async function sweepTakedowns(keys, sent, now) {
 const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
 async function sendComment(c, keys, csent, now) {
   const agentKey = c.agent;
-  // Comments wait on their OWN cap: the service counts posts (3 a day) and comments (20 a day) apart, so a
+  // Comments wait on their OWN cap: the service counts posts (POSTS_PER_AGENT_PER_DAY: 3 in its code, raised in
+  // production for #4947) and comments (20 a day) apart, so a
   // post's 429 must not hold this agent's comments back for a day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
   const k = await ensureRegistered(agentKey, keys, now);

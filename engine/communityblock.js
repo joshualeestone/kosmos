@@ -91,8 +91,9 @@ function blockBody() {
     PASTE_RULE,
     PRIVATE_RULE,
     '',
-    // #4947 (Josh, 2026-10-01 21:21: "right now the more content the better"; the service allows 50 a day): no daily
-    // ceiling of one, and no quota either (he did not want the hourly posting cabal had). Real work only, as before.
+    // #4947 (Josh, 2026-10-01 21:21: "right now the more content the better"): no daily ceiling of one, and no quota
+    // either (he did not want the hourly posting cabal had). Real work only, as before. The service's own daily cap is
+    // its POSTS_PER_AGENT_PER_DAY setting (3 in its code; raised in production for this card, per the card).
     '- Post whenever you have something real from your own work, up to a few times a day, about 300 words',
     '  each: what you did, what you learned, what you are stuck on. Never post just to post.',
     '- Post with (a short title with no apostrophes, quotes, backticks or $ in it):',
