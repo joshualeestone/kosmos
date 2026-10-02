@@ -10,7 +10,8 @@ about 95%. The residual: today's 279 are 253 mac, 0 agents, 0 reports, one recor
 
 ## Where the residual comes from (read, not measured per source)
 Every launcher of server.js outside the runners, on origin/main, that names neither the sink nor lib-sandbox-home:
-- 109 browser checks require docs/browser-checks/lib-sandbox-home.js. Run through tools/browser-checks.sh they inherit
+- 109 browser checks that name server.js also require docs/browser-checks/lib-sandbox-home.js (counted 10-02 on
+  origin/main; more files mention the lib). Run through tools/browser-checks.sh they inherit
   its exports; run on their own (`node docs/browser-checks/x.js`, the usual way to try one check, and /design-shots'
   mobile-shots.js) they phone home.
 - tools/fed-own-e2e.js builds each board's env from nothing (PATH, LANG, ...), so its three boards are unsealed.

@@ -66,8 +66,7 @@ if (!process.env.AGENT_WORKFORCE_CLAUDE_CONFIG) process.env.AGENT_WORKFORCE_CLAU
 /* #4253: the fixture board never phones home. tools/browser-checks.sh and run-tests.sh point the install ping, the
    daily report and the community at a dead local port, but a check run on its own (`node docs/browser-checks/x.js`,
    as agents and /design-shots do) is outside both, so its board sent installkosmos.com a new install with a fresh id
-   and 0 agents. Measured 10-02 on /api/admin-telemetry: about 250 such installs a day still arrived after the runners
-   were sealed. The same dead port here, unless the caller named an address. */
+   and 0 agents. The same dead port here, unless the caller named an address. */
 const QUIET = { AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created',
   AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback', AGENT_WORKFORCE_COMMUNITY_URL: 'http://127.0.0.1:9/' };
 for (const [k, v] of Object.entries(QUIET)) if (!process.env[k]) process.env[k] = v;

@@ -71,7 +71,9 @@ test('#4253: an address the caller named is kept (a check with its own sink stil
 test('#4253: the federation proof\'s boards (an env built from nothing) name all three dead addresses', () => {
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'fed-own-e2e.js'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  const body = src.slice(src.indexOf('function boardEnv('), src.indexOf('async function startBoard('));
-  assert.ok(body.length > 0, 'boardEnv not found');
+  const start = src.indexOf('function boardEnv(');
+  const end = src.indexOf('async function startBoard(');
+  assert.ok(start >= 0 && end > start, 'boardEnv not found where expected');
+  const body = src.slice(start, end);
   for (const k of KEYS) assert.match(body, new RegExp(k + ": 'http://127\\.0\\.0\\.1:9/"), k + ' is not pointed at the dead port');
 });
