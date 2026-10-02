@@ -87,6 +87,12 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       const resp = await route.fetch({ url: 'http://127.0.0.1:' + port + u.pathname + u.search });
       return route.fulfill({ response: resp });
     });
+    /* First run is over in this sandbox. Without this the board's welcome overlay (#firstrun) opens
+       asynchronously after load (firstRunBoot), after settle() has looked, and covers the page: the
+       first real click (#oa-only) then timed out in both engines while every read-only check passed.
+       Registered after the laptop route so it wins for that origin (Playwright tries the newest
+       route first), and it covers the Mac's own window too. */
+    await ctx.route('**/api/first-run', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ done: true }) }));
     /* The relay has no OPTIONS answer for the sibling route: a preflight meets the gate with no CORS pair
        (kosmos-relay docs/relay-request-auth.md). So a read that needs one must FAIL here too, as it would live. */
     const preflight = (route) => route.request().method() === 'OPTIONS' && (preflights.push(route.request().url()), route.fulfill({ status: 403, body: 'gate' }));
