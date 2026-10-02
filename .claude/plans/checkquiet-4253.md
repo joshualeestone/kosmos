@@ -15,6 +15,9 @@ Every launcher of server.js outside the runners, on origin/main, that names neit
   its exports; run on their own (`node docs/browser-checks/x.js`, the usual way to try one check, and /design-shots'
   mobile-shots.js) they phone home.
 - tools/fed-own-e2e.js builds each board's env from nothing (PATH, LANG, ...), so its three boards are unsealed.
+- NOT covered: 27 checks that do not require the lib and whose headers tell the reader to start the board by hand
+  (`AGENT_WORKFORCE_DATA=/tmp/x PORT=... node server.js &`). A board started that way is a plain server.js, which
+  is the product, so it still phones home. browser-checks.sh boots those with its exports; only the hand recipe leaks.
 - engine/, install/, deploy/ name server.js but are the product: the real install ping stays (Josh 09-14, #3038).
 
 ## Change

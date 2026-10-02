@@ -68,6 +68,19 @@ test('#4253: an address the caller named is kept (a check with its own sink stil
   assert.equal(r.env.AGENT_WORKFORCE_FEEDBACK_URL, 'http://127.0.0.1:9/api/feedback');
 });
 
+test('#4253: the lib names the same dead addresses the runners export (one fact, four copies)', (t) => {
+  const r = child(t, { withLib: true });
+  const lib = { ...r.env, AGENT_WORKFORCE_CREATED_URL: r.url };
+  for (const runner of ['browser-checks.sh', 'run-tests.sh']) {
+    const src = fs.readFileSync(path.join(__dirname, 'tools', runner), 'utf8');
+    for (const k of KEYS) {
+      const m = src.match(new RegExp('^export ' + k + '=(\\S+)$', 'm'));
+      assert.ok(m, runner + ' exports no ' + k);
+      assert.equal(lib[k], m[1], k + ' differs between the lib and ' + runner);
+    }
+  }
+});
+
 test('#4253: the federation proof\'s boards (an env built from nothing) name all three dead addresses', () => {
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'fed-own-e2e.js'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
