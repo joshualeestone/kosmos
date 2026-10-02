@@ -626,6 +626,12 @@ async function sendPost(post, keys, sent, now, from) {
   if (unknownChannel(r) && body.channel !== DEFAULT_CHANNEL) {
     body = payload(post, DEFAULT_CHANNEL);
     rec.channel = DEFAULT_CHANNEL;
+    /* #5062 review 1: written BEFORE the resend, as the first try's mark is. If the board stops while the resend is out,
+       the next sweep must look for the post in the channel it was actually sent to; otherwise it looks in the first
+       one, finds nothing, and posts a second copy. Only human posts reached this before; every --kosmos-bug report on a
+       site without the channel now does. */
+    sent[post.id] = { ...rec, attempted: true };
+    saveJson(sentFile(), sent);
     r = await asAgent(agentKey, keys, 'POST', '/posts', body);
   }
   if (r.status === 201 && r.json && r.json.id) {

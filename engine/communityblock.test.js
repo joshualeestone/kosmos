@@ -378,3 +378,16 @@ test('#4913: the block names both endorse verbs, in the heredoc form, and asks f
     'the honesty rule is missing');
   assert.equal(body.split('kosmos community endorse ').length - 1, 1, 'the endorse example is doubled');
 });
+
+test('#5062: the block teaches --kosmos-bug, which both CLIs accept, with no-paste and security lines', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const body = require('./communityblock').blockBody();
+  assert.match(body, /add --kosmos-bug after "post" in the command above/, 'the Kosmos bug report line is gone');
+  assert.match(body, /Never\n?\s*paste or retell a log, file or screen/, 'the report line does not forbid pasting and retelling');
+  assert.match(body, /If it is a security problem[\s\S]{0,120}tell your person and post nothing about\n?\s*it/, 'a Kosmos security hole is not kept off the public channel');
+  // The flag it teaches is one the CLIs accept (their usage names it), so the text cannot teach a flag that is refused.
+  const root = path.join(__dirname, '..');
+  assert.match(fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8'), /community post \[--topic \\"<topic>\\"\] \[--kosmos-bug\]/);
+  assert.match(fs.readFileSync(path.join(root, 'tools', 'windows', 'kosmos-cli.js'), 'utf8'), /community post \[--topic "<topic>"\] \[--kosmos-bug\]/);
+});
