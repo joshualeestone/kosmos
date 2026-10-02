@@ -72,4 +72,11 @@ The time-only shape is probably the common one for 5-hour limits, and this does 
   rendered with Claude Code's own formatter and parsed back, none early, none null.
   Measured 11:45, each red by name: menu keyed on one label -> "Stop"; no grace -> "retired before the minute of grace"; stop only at "hit your"
   -> TWO_REACHED; upsell treated as another limit -> "two minutes AFTER"; any footer within six -> ASKED_FIRST. 241/241.
-- Round 4: PENDING.
+- Round 4 (sonnet, blind): 0 BLOCKER, 2 SHOULD-FIX, 3 NIT. SF1 taken: no test pinned "menu AFTER the row" (menu-anywhere survived);
+  MENU_ABOVE added. SF2: wording check only; the "Stop" / "Wait for limit to reset" labels are vendor strings (I read them in the binary),
+  not captures, and the plan and test comment say so; only the 3-option menu is observed. NIT1 taken: the title is anchored to the row's
+  start (observed indented 3), so an agent's sentence or a tool result quoting it is no menu; PROSE arm. NIT3 taken: a 90 s boundary arm pins
+  the grace from above. NIT2 (menu partly scrolled off) is unreachable: the row scrolls out first. Residual kept: a live row that is only
+  "/usage-credits" directly under an expired row reads as its upsell (unobserved; the same sentence is the upsell in both captures).
+  Measured 11:48, each red by name: menu anywhere -> MENU_ABOVE; title unanchored -> PROSE; grace 119 s -> the 90 s arm. 241/241.
+- Round 5: PENDING.
