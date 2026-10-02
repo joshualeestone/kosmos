@@ -127,7 +127,7 @@ const RELPORT = freePort();
     const txt = (await p.locator('.uchip').innerText()).replace(/\s+/g, ' ').trim();
     if (txt !== 'An update is available Update') die('chip text wrong: ' + txt);
 
-    // In the flow beside the mark; the checks below prove no overlap with the header controls either way.
+    // #5018: floating over the page under the header; the checks below prove no overlap with New agent either way.
     // #3051: the agent-status stamp (#checked) moved off the header row into the user
     // menu, so it is no longer a header-row peer the toast could collide with or re-space;
     // it is dropped from this check's geometry set (measuring a hidden element is vacuous).
@@ -138,31 +138,26 @@ const RELPORT = freePort();
     const overlap = (a, c) => a && c && a.x < c.x + c.width && c.x < a.x + a.width && a.y < c.y + c.height && c.y < a.y + a.height;
     if (overlap(boxes.toast, boxes.newagent)) die('toast overlaps the New agent button');
 
-    // The drawn placement (#47, pack 2e4e100): the notice lives INSIDE the
-    // header's left group, in line beside the mark, not floating anywhere.
-    // Without this pin, the clear-of-controls checks pass any placement.
+    // The placement since #5018 (Josh: "i would much rather they appear over the content"): the notice lives in
+    // the floating stack under the header's left edge, below the header, and the header keeps its height. Without
+    // this pin, the clear-of-controls checks pass any placement. (2026-08-17 to #5018 it sat inline beside the mark.)
+    const headH = () => p.evaluate(() => document.querySelector('.apphead header').getBoundingClientRect().height);
     const placement = await p.evaluate(() => {
       const t = document.querySelector('.uchip');
-      const k = document.getElementById('klink');
-      const inLeft = !!t.closest('.headleft');
+      const hb = document.querySelector('.apphead header').getBoundingClientRect();
+      const k = document.getElementById('klink').getBoundingClientRect();
       const tb = t.getBoundingClientRect();
-      const kb = k.getBoundingClientRect();
-      return { inLeft, rightOfMark: tb.left >= kb.right,
-               sameBand: Math.abs((tb.top + tb.height / 2) - (kb.top + kb.height / 2)) < kb.height,
-               staticPos: getComputedStyle(t).position === 'static' };
+      return { inStack: !!t.closest('#topnotes'), belowHeader: tb.top >= hb.bottom, underMark: Math.abs(tb.left - k.left) < 2 };
     });
-    if (!placement.inLeft || !placement.rightOfMark || !placement.sameBand || !placement.staticPos) {
-      die('desktop: the notice is not inline beside the mark ' + JSON.stringify(placement));
+    if (!placement.inStack || !placement.belowHeader || !placement.underMark) {
+      die('desktop: the notice does not float under the header at the mark ' + JSON.stringify(placement));
     }
 
-    // The old absolute comment's warning, mechanized: a child in the flow
-    // must not re-space the row. Measured 2026-08-17: zero x-shift on the
-    // right group; the header grows 8px taller, the trade the pack's own
-    // mobile comment blesses ("the header grows when an update is waiting"
-    // over anything unclickable). Pin the x-shift at zero.
+    // A floating notice must not re-space anything: New agent stays where it is and the header keeps its height.
     const withToast = await p.evaluate(() => ({
       newagent: Math.round(document.getElementById('new-agent').getBoundingClientRect().x),
     }));
+    withToast.headH = await headH();
     // display:none, not an innerHTML round trip: rebuilding the markup from
     // a string would strip the buttons' listeners and kill the Install step
     // this drive runs later.
@@ -170,8 +165,9 @@ const RELPORT = freePort();
     const sansToast = await p.evaluate(() => ({
       newagent: Math.round(document.getElementById('new-agent').getBoundingClientRect().x),
     }));
+    sansToast.headH = await headH();
     await p.evaluate(() => { document.getElementById('utoast-slot').style.display = ''; });
-    if (withToast.newagent !== sansToast.newagent) {
+    if (withToast.newagent !== sansToast.newagent || withToast.headH !== sansToast.headH) {
       die('the notice re-spaces the header row: ' + JSON.stringify({ withToast, sansToast }));
     }
     await p.screenshot({ path: path.join(OUT, 'update-toast.png') });

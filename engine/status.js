@@ -7698,9 +7698,18 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
       const nameOf = opts.displayName || ((n) => { try { return readIdentity(n).displayName || n; } catch { return n; } });
       const emailOf = opts.emailOf || ((ccd) => {
         try {
-          const dir = ccd ? ccd : require('node:path').join(accounts.homeDir(), '.claude');
-          const id = accounts.identityOf(dir);
-          return id && typeof id.email === 'string' && id.email ? id.email : null;
+          const nodePath = require('node:path');
+          const set = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
+          /* Unset or empty: the default account's record (~/.claude.json, accounts.identityOf). Set to any value,
+             even ~/.claude itself: Claude Code reads <that folder>/.claude.json, the same set-vs-unset split as the
+             keychain entry (loginexpiry.serviceNameFor), so that file is read directly. */
+          if (!set) {
+            const id = accounts.identityOf(nodePath.join(accounts.homeDir(), '.claude'));
+            return id && typeof id.email === 'string' && id.email ? id.email : null;
+          }
+          const acct = JSON.parse(fs.readFileSync(nodePath.join(set, '.claude.json'), 'utf8')).oauthAccount;
+          const email = acct && (typeof acct.emailAddress === 'string' ? acct.emailAddress : acct.email);
+          return typeof email === 'string' && email ? email : null;
         } catch { return null; }
       });
       return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })

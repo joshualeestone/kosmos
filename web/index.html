@@ -1238,8 +1238,8 @@ html { scroll-padding-top: 132px; }
 .apphead .topnotes > div > * { pointer-events: auto; }
 /* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
    page, where the sticky project rail (z-index 4) comes later and would paint over it. Above the rail, below the
-   header menus (40). */
-html[data-layout="consolidated"] body.consolidated > .apphead .topnotes { z-index: 30; }
+   reaction picker (20) and the header menus (40). */
+html[data-layout="consolidated"] body.consolidated > .apphead .topnotes { z-index: 10; }
 .utoast .ux { flex: 0 0 auto; width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 7px; cursor: pointer;
   background: none; color: var(--label-2); font-size: 1.125rem; line-height: 1; }
 .utoast .ux:hover { background: var(--bg); color: var(--label); }
@@ -4802,10 +4802,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
       /* #2282: the consolidated-only notice-slot bottom-margins are GONE. They existed
          for the OLD collapsed-header design, where a shown update/offline notice was the
          only visible header content and its margin separated it from the board. The
-         header is now a real bar with its own border-bottom, and the notices ride inside
-         it exactly as they do in the tab view -- so a consolidated-only bottom margin
-         made a shown notice the tallest item in the header's flex row, growing and
-         misaligning the bar. Dropping them keeps the notices consistent across views
+         header is now a real bar with its own border-bottom, and (until #5018 floated them
+         over the page) the notices rode inside it as they do in the tab view -- so a
+         consolidated-only bottom margin made a shown notice the tallest item in the
+         header's flex row, growing and misaligning the bar. Dropping them keeps the notices consistent across views
          (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
          :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
   /* 🔑 `margin: 0` IS WHY THERE IS NO GREY BAND (kosmos#1303 A, HISTORY -- since
@@ -11320,16 +11320,9 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
     </div>
-    <!-- ⚠️ THE UPDATE NOTICE SITS BESIDE THE MARK, Josh 2026-08-17: "make
-         that appear to the right of the icon in the upper left corner...
-         so that it is right in line with everything else." It used to be
-         absolutely positioned over the header, which is why it once covered
-         the agent-status stamp and needed an 8px nudge. Inline is the
-         structural fix rather than a better offset: an element in the flow
-         CANNOT overlap anything, so the whole class of bug stops being
-         possible instead of being avoided by a number (the pack's own
-         reasoning, drawn 2e4e100). Renders only when a newer version is
-         published; role=status per the pack. -->
+    <!-- HISTORY: from 2026-08-17 (Josh, pack 2e4e100) to #5018 the update notice sat in the flow beside the mark,
+         because an earlier absolute float covered the agent-status stamp. The current placement is the next
+         comment. The update chip renders only when a newer version is published; role=status per the pack. -->
     <!-- #5018 (Josh, 2026-10-02): "i hate that these push the navigation down.. i would much rather they appear over
          the content". The four notice slots float together just under the header, over the page, so the header
          never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the float sits
@@ -21019,8 +21012,10 @@ function paintLoginAdvisories(advs) {
   slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
     loginAdvDismiss(btn.getAttribute('data-adv-key'));
     paintLoginAdvisories(advs);
-    // Keyboard focus stays on the notices while any is left, then goes to the K mark, the first control in the header.
-    const next = slot.querySelector('.ux') || document.querySelector('.apphead .klink');
+    // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
+    // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
+    const next = slot.querySelector('.ux')
+      || ['.apphead .klink', '.kplus-bar-menu', '#h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }));
 }

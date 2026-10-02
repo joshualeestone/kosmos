@@ -124,3 +124,22 @@ test('#5018: each advisory names the provider, the account email and the agents 
   assert.ok(one.names.includes('Roo Lane'));
   assert.deepEqual(two.names, ['cleo'], 'no display name: the system name, never blank');
 });
+
+test('#5018: the email comes from the config file the agent reads: unset reads ~/.claude.json, set reads <dir>/.claude.json', () => {
+  const now = 1_000_000_000_000;
+  const write = (file, email) => { fs.mkdirSync(nodePath.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify({ oauthAccount: { emailAddress: email } })); };
+  write(nodePath.join(SANDBOX, '.claude.json'), 'default@example.com');
+  write(nodePath.join(SANDBOX, '.claude', '.claude.json'), 'explicit@example.com');
+  const panes = [paneOf({ session: 'roo-discord', pane: '0.0' }), paneOf({ session: 'pixel-discord', pane: '0.1' }),
+    paneOf({ session: 'cleo-discord', pane: '0.2' })];
+  // roo: CCD unset; pixel: CCD set explicitly to ~/.claude (a different credential, #2129); cleo: a folder with no record.
+  const ccdByName = { roo: null, pixel: nodePath.join(SANDBOX, '.claude'), cleo: nodePath.join(SANDBOX, 'nowhere') };
+  const readCcd = (a) => ccdByName[a.name];
+  const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
+  const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, cache: { at: 0, value: [] } });
+  const by = (n) => out.find((a) => a.agents.includes(n));
+  assert.equal(out.length, 3, JSON.stringify(out));
+  assert.equal(by('roo').email, 'default@example.com');
+  assert.equal(by('pixel').email, 'explicit@example.com', 'an explicit ~/.claude read the default record');
+  assert.equal(by('cleo').email, null, 'no record: no email, never a guess');
+});

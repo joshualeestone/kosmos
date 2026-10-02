@@ -144,10 +144,20 @@ const CASES = [
         document.body.classList.toggle('consolidated', cons);
         const n = document.querySelector('#login-adv-slot .login-adv');
         const r = n.getBoundingClientRect();
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return { onTop: !!hit && n.contains(hit), hit: hit ? (hit.id || hit.className || hit.tagName) : null };
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        // CONTROL: with the stack hidden, the same point is real page content, so "on top" can fail.
+        const stack = document.getElementById('topnotes');
+        stack.style.visibility = 'hidden';
+        const under = document.elementFromPoint(x, y);
+        stack.style.visibility = '';
+        const name = (el) => (el ? (el.id || String(el.className || '') || el.tagName) : null);
+        return { onTop: !!hit && n.contains(hit), hit: name(hit),
+          underIsContent: !!under && under !== document.body && under !== document.documentElement, under: name(under) };
       }, cons);
-      chk(top.onTop, '5018: the notice is on top of the page (' + (cons ? 'consolidated' : 'tab view') + ')', JSON.stringify(top));
+      const where = cons ? 'consolidated' : 'tab view';
+      chk(top.underIsContent, '5018: CONTROL: page content sits under the notice (' + where + ')', JSON.stringify(top));
+      chk(top.onTop, '5018: the notice is on top of the page (' + where + ')', JSON.stringify(top));
     }
     // The X hides it, and it stays hidden across a reload while nothing changes.
     await pg.click('#login-adv-slot .login-adv .ux').catch((e) => errs.push('click: ' + e.message));
