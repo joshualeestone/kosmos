@@ -17,7 +17,7 @@
  *    again on the lead releases them;
  *  - two seats with one name, or a name already taken on this computer (an agent's folder exists), are
  *    refused BEFORE anything is made, project included;
- *  - #4936: once every member runs, Kosmos says hello to each (lead first); placed rows read Started, a not-placed
+ *  - #4936: once every member runs, Kosmos says hello to each (lead first); placed rows read Said hello, a not-placed
  *    one is retried then offers Try again and the step stays with Go to your team; all placed, it goes to the
  *    agents view with the new members' cards marked. TC_AUTO_HELLO is off in arms that are not about it.
  *  - round 1: Try again during a run is made by the one run (nobody posted twice), focus stays on the
@@ -334,7 +334,7 @@ function chk(ok, label, extra) {
           helloFail.add('ana');   // #4936: Ana's hello will not be placed, so the step must stay and offer a retry
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Leo Two');
           await page.click('#tc-list li[data-slot="content"] .tc-retry');
-          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Started|Could not say hello)$/.test(s.textContent)));
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Said hello|Could not say hello)$/.test(s.textContent)));
           const r2 = await rows(page);
           chk(posted.length === 4 && posted[3].name === 'Leo Two' && posted[3].reportsTo === 'maya-okafor' && posted[3].projects[0] === pid,
             `${E} Try again makes only that one, with its new name, the lead and the project`, JSON.stringify(posted.slice(3)));
@@ -342,7 +342,7 @@ function chk(ok, label, extra) {
             `${E} #4936 once all are running, Kosmos says "hello" to each itself, the lead first`, JSON.stringify(hellos));
           chk(hellos.filter((h) => h.who === 'ana').length === 3 && hellos.filter((h) => h.who === 'leo-two').length === 1,
             `${E} #4936 a hello that is not placed is tried three times; a placed one once`, JSON.stringify(hellos.map((h) => h.who)));
-          chk(r2.map((r) => r.state).join() === 'Started,Started,Could not say hello' && r2[2].retry,
+          chk(r2.map((r) => r.state).join() === 'Said hello,Said hello,Could not say hello' && r2[2].retry,
             `${E} #4936 each row says whether its member started; the one that did not has Try again`, JSON.stringify(r2.map((r) => [r.state, r.retry])));
           const stay = await page.evaluate(() => ({ note: document.getElementById('tc-note').textContent, step: TC !== null && !document.getElementById('panel-create').hidden,
             go: (document.getElementById('tc-hello') || { textContent: null }).textContent, shown: !(document.getElementById('tc-hello') || { hidden: true }).hidden }));
@@ -407,9 +407,9 @@ function chk(ok, label, extra) {
           chk(hellos.map((h) => h.who).join() === 'mia,lou,ari' || (hellos[0] && hellos[0].who === 'mia' && hellos.length === 3),
             `${E} #4936 the lead is said hello to first, then the others, once each`, JSON.stringify(hellos.map((h) => h.who)));
           chk(!auto.panel && auto.marked.join() === 'ari,lou,mia', `${E} #4936 all placed: the step leaves for the agents view on its own, the new members marked`, JSON.stringify(auto));
-          await settle(page, () => /Your team is started\./.test((document.getElementById('tc-done-live') || { textContent: '' }).textContent));
+          await settle(page, () => /Kosmos said hello to your team\./.test((document.getElementById('tc-done-live') || { textContent: '' }).textContent));
           const said = await page.evaluate(() => { const l = document.getElementById('tc-done-live'); return l ? [l.textContent, l.getAttribute('aria-live')] : null; });
-          chk(said && said[0] === 'Your team is started. The new agents are marked on your board.' && said[1] === 'polite',
+          chk(said && said[0] === 'Kosmos said hello to your team. The new agents are marked on your board.' && said[1] === 'polite',
             `${E} #4936 a screen reader is told the team started and where the members are`, JSON.stringify(said));
           chk(errs.length === 0, `${E} no page errors (#4936 all-placed arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});

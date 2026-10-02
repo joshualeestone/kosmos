@@ -48492,7 +48492,7 @@ function tcPaint() {
     st.textContent = ({ ready: '', waiting: 'Waiting', held: 'Waiting for the lead', creating: 'Making…',
       made: made + (m.portrait === 'failed' ? ' (picture not set)' : ''), failed: 'Not made' })[m.state] || '';
     // #4936: once it is running, Kosmos says hello to it; the row says where that is.
-    if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', started: 'Started', failed: 'Could not say hello', unsure: 'Hello not confirmed' })[m.hello] || st.textContent;
+    if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', started: 'Said hello', failed: 'Could not say hello', unsure: 'Hello not confirmed' })[m.hello] || st.textContent;
     row.append(seat, input, st);
     if (m.renamedFrom) {
       const note = document.createElement('p'); note.className = 'tc-why';
@@ -48581,7 +48581,8 @@ function tcPaint() {
     const sentN = TC.members.filter((m) => m.hello === 'started').length;
     const notN = TC.members.filter((m) => m.hello === 'failed' || m.hello === 'unsure').length;
     const look = warned ? (n === 1 ? ' It has' : ' ' + warned + (warned === 1 ? ' of them has' : ' of them have')) + ' something to look at, on its row.' : '';
-    if (sentN === n) note = (n === 1 ? 'Your agent is started.' : 'Your team is started.') + look;
+    // "Said hello", not "started": placed means the hello reached the agent; its first turn is measured live (0.7.17).
+    if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look;
     else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
       : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at its row.') + look;
     else note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : 'each of them') + ' so ' + (n === 1 ? 'it starts' : 'they start') + '…' + look;
@@ -48615,13 +48616,14 @@ async function tcHelloSend(name) {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'hello' }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) return 'failed';
+    if (!res.ok) return res.status >= 500 ? 'unsure' : 'failed';   // a 5xx may have placed it already
     const state = out && out.delivery && out.delivery.state;
     return state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure');
   } catch { return 'unsure'; }   // the request may have reached the board
 }
 async function tcHelloOne(m, gen) {
-  if (!m || !m.made || !m.made.name) return;
+  if (!m) return;
+  if (!m.made || !m.made.name) { m.hello = 'failed'; tcPaint(); return; }   // nothing to greet: said, never stuck
   m.hello = 'sending'; tcPaint();
   let got = 'failed';
   for (let i = 0; i < TC_HELLO_TRIES && got === 'failed'; i++) {
@@ -48685,7 +48687,9 @@ function tcGoToTeam(auto) {
       if (live && !first && el.offsetParent) {
         first = el;
         el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        el.tabIndex = -1; el.focus({ preventScroll: true });   // focus leaves the hidden step for the first new member
+        // Focus leaves the hidden step for the first new member, unless the person has already moved it elsewhere.
+        const at = document.activeElement;
+        if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { el.tabIndex = -1; el.focus({ preventScroll: true }); }
       }
     }
     if (live) setTimeout(mark, 500);
@@ -48695,8 +48699,81 @@ function tcGoToTeam(auto) {
   let live = document.getElementById('tc-done-live');
   if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
   live.textContent = '';
-  setTimeout(() => { live.textContent = (names.length === 1 ? 'Your agent is started.' : 'Your team is started.') + ' The new ' + (names.length === 1 ? 'agent is' : 'agents are') + ' marked on your board.'; }, 100);
+  setTimeout(() => { live.textContent = 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. It is' : 'team. The new agents are') + ' marked on your board.'; }, 100);
 }
+/* The lead as the list marks it ("leads the team"), and the name it was made under. */
+function tcLead() {
+  return (TC && (TC.members.find((m) => m.slot === TC.leadSlot) || TC.members[0])) || null;
+}
+function tcLeadShown() {
+  const lead = tcLead();
+  return (lead && lead.made && (lead.made.shownAs || lead.made.name)) || '';
+}
+
+/* What to say for a caught error: a fetch that never reached the board throws the browser's own words
+   ("Failed to fetch", "Load failed"), which are not ours to show. */
+function tcSay(err, fallback) {
+  // Only the fetch failures (Chrome, Safari, Firefox wordings): any other TypeError is a page bug and stays visible.
+  if (err instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(String(err.message))) return 'Kosmos could not be reached. Try again in a moment.';
+  // Round 30: every refusal on this step reads as a sentence (Mona's review), the server's own words included.
+  return pjSentence((err && err.message) ? String(err.message) : fallback);
+}
+
+function tcNames() {
+  const names = {};
+  for (const m of TC.members) names[m.slot] = (m.made && m.made.shownAs) || m.name.trim();
+  return names;
+}
+
+/* #4719: the provider and account for every member, and the ONE rule for when that choice is fixed:
+   while a click or a run is in progress, or once any member exists or may exist (a create whose answer
+   was lost). Its teammates must run on the same account, and a run must not change under itself. While
+   it is not fixed (before the first press, after a press refused before anything was made, after a run
+   whose lead was refused) the menus are open and the next run reads them. */
+function tcMemberExists() {
+  return Boolean(TC && Array.isArray(TC.members) && TC.members.some((m) => m && (m.made || m.maybeMade || m.state === 'made')));
+}
+function tcChoiceFixed() {
+  return Boolean(TC && (TC.busy || TC.running || tcMemberExists()));
+}
+/* The remembered choice (TC.model) is used only once a member exists: it is what that member was made on.
+   Before that the menus are the truth, and they are locked for the length of a click or a run, so
+   reading them again inside one run gives the same answer. Nothing else has to keep TC.model fresh
+   (review round 8: a settle or a late account list that changed a menu left a stale one behind). */
+function tcModel() {
+  if (TC && TC.model && tcMemberExists()) return TC.model;
+  const p = document.getElementById('tc-provider');
+  const a = document.getElementById('tc-account');
+  const provider = p ? String(p.value || '') : '';
+  const account = a ? String(a.value || '') : '';
+  const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
+  if (TC) TC.model = m;   // what the members made from here on are made on
+  return m;
+}
+async function tcSpecs(project, check) {
+  const res = await fetch('/api/teams/seeded/' + encodeURIComponent(TC.key) + '/specs', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ names: tcNames(), project: project || null, ...tcModel(), ...(check ? { check: true } : {}) }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || !Array.isArray(body.specs)) throw new Error((body && body.error) || 'Kosmos could not prepare the team');
+  return body.specs;
+}
+
+/* Back steps away. A live team (started, or being started) is KEPT and resumed when the person comes back
+   (round 3: resetting it here left an empty project behind, or dropped rows and the watcher). */
+/* Back is the Team path's pick screen (#4556), where this step was opened from. */
+document.getElementById('tc-back').addEventListener('click', () => {
+  if (tcLive()) { chooseCreatePath('team'); return; }
+  TC_GEN += 1; TC = null; chooseCreatePath('team');
+});
+
+document.getElementById('tc-tell').addEventListener('change', (e) => {
+  const tellBox = document.getElementById('create-tell');
+  if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
+});
+
+/* Straight to the lead, the way the single create's Say Hello goes straight to its agent (openDetail). */
 document.getElementById('tc-hello').addEventListener('click', () => {
   if (!tcFinished()) return;
   tcGoToTeam(false);   // #4936 "Go to your team": the team on the agents view, not into one agent's page
