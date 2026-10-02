@@ -21,8 +21,9 @@
  *
  * What it touches, and nothing else: `<WORKERS_DIR>/<name>`,
  * `<AGENTS_DIR>/<label>.plist` (both resolved by `create.js`, one definition
- * of where an agent lives), the agent's SENDER TOKENS, and (#5000) its
- * community moderation standing, which goes back to the start.
+ * of where an agent lives), the agent's SENDER TOKENS, its failed-restart
+ * record, its community moderation standing (#5000, which goes back to the
+ * start), and (#4994) its COMMUNITY ACCOUNT, which is retired.
  *
  * 🛑 ON WINDOWS THE SECOND OF THOSE IS NOT A FILE (#570). The job is a Scheduled
  * Task, so this module -- which exists to say a name is FREE -- was looking for a
@@ -257,14 +258,26 @@ function plan(name, opts) {
       ? 'Its startup job, so nothing tries to start it again'
       : 'Its auto-start file, so nothing tries to start it again');
   }
+  /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
+     rather than promising everything can be got back. */
+  let community = false;
+  try { community = require('./communitysend').hasAccount(clean); } catch { community = true; }   // cannot tell: say it
+  if (community) loses.push('Its community account: anything it posted there stays up, and a new agent with this name joins as a new account, under a changed public name if the old one is still taken');
+  /* What it wrote for the community and has not sent is marked never to send by the delete, and a folder brought back
+     from the Trash does not undo that, so it is named even when there is no account. */
+  let waiting = 0;
+  try { waiting = require('./communitysend').unsentCount(clean); } catch { waiting = 1; }
+  if (waiting) loses.push('Anything it wrote for the community that has not gone out yet: it never goes, even if you bring its folder back');
   const question = `Delete what is left of ${shown}?`;
   /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
      not the "gone for good" case the Trash sentence is written for. */
   const jobOnlyTask = jobIsTask && !folder;
   const reassurance = toTrash
-    ? `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`
+    ? (community || waiting
+      ? `Its files go to the Trash, where you can get them back until you empty it. ${community ? 'Its community account does not come back' : 'Anything it wrote for the community that has not gone out stays unsent'}. After this, the name ${shown} is free for a new agent.`
+      : `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`)
     : jobOnlyTask
-      ? `Nothing you can lose is stored in it. After this, the name ${shown} is free for a new agent.`
+      ? `Nothing you can lose is stored in it${community ? ', but its community account does not come back' : waiting ? ', but anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
       : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good. After this, the name ${shown} is free for a new agent.`;
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
@@ -394,10 +407,34 @@ function del(name, opts) {
     stuck.push('its sender tokens');
     steps.push({ step: 'its sender tokens', ok: false, because: (tokens && tokens.because) || 'no reason given' });
   }
+  /* #4994: the name's community account. NOT best-effort, for the same reason as the tokens above: a new agent
+     under the freed name would otherwise post as the old one, with its public posts and profile. The account is
+     retired, not dropped (communitysend.requestRetire says why); this only records the request, which is applied
+     before the community sender next acts. Only once the folder and the job are gone: retiring cannot be undone,
+     and while either is left the agent can still start. A stuck token alone does not hold it back, because a retry
+     is refused once the folder and job are gone, so this is the only chance to retire it. */
+  if (!stuck.some((s) => s !== 'its sender tokens')) {
+    try {
+      require('./communitysend').requestRetire(p.name);
+      steps.push({ step: 'its community account', ok: true });
+    } catch (err) {
+      stuck.push('its community account');
+      steps.push({ step: 'its community account', ok: false, because: String((err && err.message) || err) });
+    }
+  }
   if (stuck.length) {
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
-      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.join(' or ')}. ` + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`),
+      /* #4994: the community account is retired, not moved or deleted, and only once everything else is gone, so a
+         failure there is its own sentence: the old account still answers to the name. #5000's standing reset has
+         already run by here (it is unconditional and early-returns on failure), so the all-stuck tail says so. */
+      because: (stuck.length === 1 && stuck[0] === 'its community account' && gone.length)
+        ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone, but we could not retire its community account yet. Making a new agent with this name retires it first, or refuses.`
+        : (stuck.some((x) => x !== 'its community account')
+          ? `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.filter((x) => x !== 'its community account').join(' or ')}`
+            + (stuck.includes('its community account') ? ', or retire its community account yet' : '')
+          : 'we could not retire its community account yet. Making a new agent with this name retires it first, or refuses')
+          + '. ' + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `Its community standing was reset, but none of its files were ${p.toTrash ? 'moved' : 'deleted'}.`),
       steps,
     };
   }

@@ -205,6 +205,191 @@ test('#1131: a token that cannot be removed makes the delete PARTIAL, never a DE
   assert.ok(!/name is free/.test(done.said || ''), 'it promised the name was free while a credential for it survived');
 });
 
+test('#4994: deleting a leftover retires its community account, so a new agent under the name does not inherit it', async () => {
+  const cs = require('./communitysend');
+  assert.ok(cs._paths.keysFile().startsWith(SANDBOX), 'the community keys are not under this test\'s sandbox');
+  const KEY = { remoteId: 'r9', name: 'oldposter', apiKey: 'kc_key_r9', token: 'tok_r9', registeredAt: '2026-09-28T07:00:00.000Z' };
+  fs.mkdirSync(nodePath.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ oldposter: KEY }));   // as ensureRegistered writes it
+  leftoverAgent('oldposter');
+  quiet();
+  const done = mac.del('oldposter');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  const step = done.steps.find((x) => x.step === 'its community account');
+  assert.ok(step && step.ok, 'the community account step was not recorded as done');
+  await cs.sweep();                                    // the next keys.json section applies it (no network in tests)
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.oldposter, undefined, 'the freed name still holds the deleted agent\'s community account');
+  assert.equal(Object.keys(keys).filter((k) => k.startsWith('retired:oldposter:')).length, 1, 'the old account was dropped, not retired');
+});
+
+test('#4994: a community account that cannot be retired makes the delete PARTIAL, never a DELETED that says the name is free', () => {
+  const cs = require('./communitysend');
+  leftoverAgent('stuckcomm');
+  /* A FILE where the request folder goes: the save cannot make the folder, a real failure rather than a stub. */
+  fs.mkdirSync(nodePath.dirname(cs._paths.retireDir()), { recursive: true });
+  fs.rmSync(cs._paths.retireDir(), { recursive: true, force: true });
+  fs.writeFileSync(cs._paths.retireDir(), 'not a folder');
+  quiet();
+  let done;
+  try { done = mac.del('stuckcomm'); } finally { fs.rmSync(cs._paths.retireDir(), { force: true }); }
+  assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the old account was left live under a name reported free');
+  assert.match(done.because, /could not retire its community account yet\. Making a new agent with this name retires it first, or refuses/, 'the refusal does not say which part failed');
+  assert.ok(!/name is free/.test(done.said || ''), 'it promised the name was free while the old account still answers to it');
+});
+
+test('#4994: a delete that left the folder behind does not retire the community account (it cannot be undone)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, () => {
+  const cs = require('./communitysend');
+  leftoverAgent('halfgone');
+  /* A Trash nothing can be moved into: the folder stays, a real failure rather than a stub. */
+  const trash = process.env.AGENT_WORKFORCE_TRASH;
+  assert.ok(trash.startsWith(SANDBOX), 'refusing to touch a Trash outside this test\'s sandbox');
+  fs.chmodSync(trash, 0o500);
+  quiet();
+  let done;
+  try { done = mac.del('halfgone'); } finally { fs.chmodSync(trash, 0o700); }
+  assert.ok(done.steps && done.steps.some((x) => x.step === 'its folder' && !x.ok), 'CONTROL: the folder really was left behind: ' + JSON.stringify(done));
+  const reqs = fs.existsSync(cs._paths.retireDir()) ? fs.readdirSync(cs._paths.retireDir()) : [];
+  const mine = reqs.filter((f) => JSON.parse(fs.readFileSync(nodePath.join(cs._paths.retireDir(), f), 'utf8')).agent === 'halfgone');
+  assert.deepEqual(mine, [], 'the account was retired while the agent can still start');
+  assert.equal(done.steps.find((x) => x.step === 'its community account'), undefined);
+});
+
+test('#4994: a stuck token alone still retires the account, because no retry can (the delete is refused once the files are gone)', () => {
+  const cs = require('./communitysend');
+  leftoverAgent('tokenstuck');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.mkdirSync(nodePath.join(sendertoken.DIR, store.safeKey('tokenstuck') + '.json'), { recursive: true });
+  quiet();
+  const done = mac.del('tokenstuck');
+  assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'CONTROL: the token really was stuck');
+  assert.equal(mac.plan('tokenstuck').ok, false, 'CONTROL: a retry is refused, so this delete was the only chance');
+  const step = done.steps.find((x) => x.step === 'its community account');
+  assert.ok(step && step.ok, 'the community account was not retired');
+});
+
+test('#4994: the confirmation says the community account does not come back, only when there is one', () => {
+  const cs = require('./communitysend');
+  leftoverAgent('poster2');
+  leftoverAgent('quiet2');
+  fs.mkdirSync(nodePath.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ poster2: { remoteId: 'r8', name: 'poster2', apiKey: 'k', token: 't' } }));
+  const p = mac.plan('poster2', { now: Date.now() });
+  assert.equal(p.ok, true, p.because);
+  assert.ok(p.loses.some((l) => /^Its community account: /.test(l)), 'the account is not in what the person loses');
+  assert.match(p.reassurance, /Its community account does not come back/);
+  assert.equal(/Everything goes to the Trash/.test(p.reassurance), false, 'it still promises everything comes back');
+  const q = mac.plan('quiet2', { now: Date.now() });
+  assert.equal(q.loses.some((l) => /community/.test(l)), false, 'CONTROL: a name with no account lists one');
+  assert.match(q.reassurance, /^Everything goes to the Trash/);
+});
+
+test('#4994: creating an agent under a name freed by hand retires the community account still held under it', async () => {
+  const cs = require('./communitysend');
+  fs.mkdirSync(nodePath.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ handfreed: { remoteId: 'r7', name: 'handfreed', apiKey: 'k7', token: 't7' } }));
+  assert.equal(cs.hasAccount('handfreed'), true, 'CONTROL: the old account is held under the name');
+  const made = createAgain('handfreed');                 // no leftover files: the name was freed by hand
+  assert.notEqual(made.outcome, 'refused', JSON.stringify(made));
+  await cs.sweep();                                      // the next keys.json section applies it (no network in tests)
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.handfreed, undefined, 'the new agent was made under the old community account');
+  assert.equal(Object.keys(keys).filter((k) => k.startsWith('retired:handfreed:')).length, 1);
+});
+
+test('#4994: a create while the community keys cannot be read still retires the account once they can', async () => {
+  const cs = require('./communitysend');
+  fs.mkdirSync(nodePath.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), '{ not json');
+  assert.throws(() => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')), 'CONTROL: the keys really cannot be read');
+  const made = createAgain('blindfreed');
+  assert.notEqual(made.outcome, 'refused', JSON.stringify(made));
+  await cs.sweep();
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ blindfreed: { remoteId: 'r6', name: 'blindfreed', apiKey: 'k6', token: 't6' } }));   // repaired
+  await cs.sweep();
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.blindfreed, undefined, 'the new agent kept the old community account once the keys were repaired');
+});
+
+test('#4994: the confirmation names the community account when the keys cannot be read, or the account is another service\'s', () => {
+  const cs = require('./communitysend');
+  leftoverAgent('elsewhere');
+  const other = nodePath.join(cs._paths.dir(), 'bbbbbbbbbbbb');
+  fs.mkdirSync(other, { recursive: true });
+  fs.writeFileSync(nodePath.join(other, 'keys.json'), JSON.stringify({ elsewhere: { remoteId: 'r5', apiKey: 'k5', token: 't5' } }));
+  fs.mkdirSync(nodePath.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({}));
+  assert.ok(mac.plan('elsewhere', { now: Date.now() }).loses.some((l) => /^Its community account: /.test(l)), 'an account on another service was not named');
+  fs.rmSync(other, { recursive: true, force: true });
+  assert.equal(mac.plan('elsewhere', { now: Date.now() }).loses.some((l) => /community/.test(l)), false, 'CONTROL: with no account anywhere, none is named');
+  fs.writeFileSync(cs._paths.keysFile(), '{ not json');
+  try {
+    assert.ok(mac.plan('elsewhere', { now: Date.now() }).loses.some((l) => /^Its community account: /.test(l)), 'unreadable keys were read as no account');
+  } finally { fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({})); }
+});
+
+test('#4994: with no account but unsent community posts, the confirmation says they never go, even after a restore', () => {
+  const communitystore = require('./communitystore');
+  const feedpublish = require('./feedpublish');
+  leftoverAgent('queuer');
+  const cs = require('./communitysend');
+  fs.mkdirSync(nodePath.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({}));   // Community never switched on: nothing would go
+  communitystore.grantTrust('queuer');
+  const r = feedpublish.publishPost({ kind: 'community_post', agent: 'queuer', at: new Date().toISOString(), topic: 't', body: 'queued' }, { agentId: 'queuer' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(mac.plan('queuer', { now: Date.now() }).loses.some((l) => /has not gone out yet/.test(l)), false,
+    'a post that was never going out (no ON period) was named as a loss');
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since: '2000-01-01T00:00:00.000Z' }));   // Community on
+  const p = mac.plan('queuer', { now: Date.now() });
+  assert.ok(p.loses.some((l) => /^Anything it wrote for the community that has not gone out yet: it never goes, even if you bring its folder back$/.test(l)), JSON.stringify(p.loses));
+  assert.match(p.reassurance, /Anything it wrote for the community that has not gone out stays unsent/);
+  assert.equal(/Everything goes to the Trash/.test(p.reassurance), false);
+  assert.equal(p.loses.some((l) => /^Its community account/.test(l)), false, 'CONTROL: no account is named for an agent that never had one');
+});
+
+test('#4994: an agent whose community posts all went out is not told any are waiting', () => {
+  const communitystore = require('./communitystore');
+  const feedpublish = require('./feedpublish');
+  const cs = require('./communitysend');
+  leftoverAgent('sentall');
+  fs.mkdirSync(nodePath.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since: '2000-01-01T00:00:00.000Z' }));   // Community on
+  communitystore.grantTrust('sentall');
+  feedpublish.publishPost({ kind: 'community_post', agent: 'sentall', at: new Date().toISOString(), topic: 't', body: 'went out' }, { agentId: 'sentall' });
+  const { id } = communitystore.publishedPosts().find((x) => x.agent === 'sentall');
+  const waits = () => mac.plan('sentall', { now: Date.now() }).loses.some((l) => /has not gone out yet/.test(l));
+  assert.equal(waits(), true, 'CONTROL: with no record of it going out, it is named as waiting');
+  fs.mkdirSync(nodePath.dirname(cs._paths.sentFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.sentFile(), JSON.stringify({ [id]: { state: 'sent', agent: 'sentall', remoteId: 'p1', sentAt: new Date().toISOString() } }));
+  try {
+    assert.equal(waits(), false, 'a post that went out was named as not gone out');
+  } finally { fs.writeFileSync(cs._paths.sentFile(), JSON.stringify({})); }
+});
+
+test('#4994: a refused or owner-deleted community post is not named as waiting; a still-pending one is', () => {
+  const communitystore = require('./communitystore');
+  const feedpublish = require('./feedpublish');
+  const cs = require('./communitysend');
+  leftoverAgent('finals');
+  fs.mkdirSync(nodePath.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since: '2000-01-01T00:00:00.000Z' }));
+  communitystore.grantTrust('finals');
+  feedpublish.publishPost({ kind: 'community_post', agent: 'finals', at: new Date().toISOString(), topic: 't', body: 'final' }, { agentId: 'finals' });
+  const { id } = communitystore.publishedPosts().find((x) => x.agent === 'finals');
+  const waits = () => mac.plan('finals', { now: Date.now() }).loses.some((l) => /has not gone out yet/.test(l));
+  const setRec = (rec) => fs.writeFileSync(cs._paths.sentFile(), JSON.stringify(rec ? { [id]: rec } : {}));
+  try {
+    setRec({ state: 'pending', agent: 'finals' });
+    assert.equal(waits(), true, 'CONTROL: a post still waiting to go is named');
+    setRec({ state: 'refused', agent: 'finals', reasons: ['rejected'] });
+    assert.equal(waits(), false, 'a post the community refused was named as waiting');
+    setRec(null);
+    fs.writeFileSync(cs._paths.deletesFile(), JSON.stringify({ [id]: new Date().toISOString() }));
+    assert.equal(waits(), false, 'a post the owner deleted was named as waiting');
+  } finally { setRec(null); fs.writeFileSync(cs._paths.deletesFile(), JSON.stringify({})); }
+});
+
 test('#4006: deleting a leftover clears its failed-restart record', () => {
   const disruption = require('./disruption');
   leftoverAgent('failgone');

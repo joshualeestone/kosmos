@@ -4694,6 +4694,26 @@ function createAgentInner(opts) {
       steps,
     };
   }
+  /* #4994: the same for the name's community account. A name freed by any route other than a clean delete-leftover
+     (files removed by hand, a delete whose retirement could not be recorded) still holds the old agent's account, and a
+     new agent would post as it. REFUSES like the tokens above, for the same reason.
+
+     Asked always, not only when this service's keys show an account: those keys can be unreadable, the account can be
+     another service's, and an agent that never got a key can still leave unsent posts. For a name with no history it
+     changes nothing, though it still writes and removes one request file.
+
+     It runs before gates below that can still refuse, deliberately, as the token revoke does: every check above has
+     found the name free (a folder alone or a job alone is refused, not only both), so the old account belongs to nobody
+     on this board whether or not this create goes on. */
+  try {
+    require('./communitysend').requestRetire(name);
+  } catch {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not record that any community account left by an earlier ${shown} is retired, so we will not make a new agent that could post as the old one`,
+      steps,
+    };
+  }
 
   /**
    * ⚠️ The two programs this agent is made of have to EXIST.
