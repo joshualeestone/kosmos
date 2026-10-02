@@ -15,28 +15,30 @@ stopped board still reads as stopped, never as "another app".
 - curl 8.7.1 says only "Couldn't connect to server" (exit 7) for every connect failure; its verbose line names the
   errno ("connect to 127.0.0.1 port 9 ... failed: Connection refused").
 
-## Change (install/kosmos)
-- With a proxy set, one direct probe of the board (curl --noproxy '*', -v, 1 s connect, 3 s total). Connected, or
-  refused (nothing listening: loopback works, the board is down), keeps the exemption as before. Anything else
-  (not permitted, a timeout) leaves loopback to the proxy and takes 127.0.0.1/localhost back OUT of NO_PROXY and
-  no_proxy, since an exemption inherited from the board's own start would still bypass the only working route.
-  The rest of the caller's list is kept. No proxy set: no probe, no change.
+## Change (install/kosmos), as rebuilt after review 1
+- The #4466 exemption and its export are UNCHANGED (the board and every agent inherit it as before).
+- kosmos_loopback_route: before this run's first call to the board (kosmos_curl and the two health reads), and only
+  when a proxy curl uses for http:// is set (http_proxy, all_proxy, ALL_PROXY), one direct probe (1 s to connect, 2 s
+  in all, curl -v, LC_ALL=C), memoised for the run:
+  - "Connected to": direct (a busy board connects and then waits; review 1 found the first version read it as blocked);
+  - refused: one request through the proxy; only a Kosmos health body ("app":"kosmos") picks the proxy (a network
+    namespace whose loopback is its own), so the empty answer of #4466's proxy keeps direct (the board is down);
+  - anything else (not permitted, a connect timeout): the proxy.
+- The proxy route is PER CALL: curl --noproxy '' (measured: it overrides NO_PROXY and uses the proxy), on the CLI's
+  own three curls. Nothing in the environment is rewritten (review 1: a stripped list would have reached every agent).
 - KOSMOS_LOOPBACK_PROBE_URL: a test seam for the probe target.
 
 ## Decisions
-- Once per CLI run, not per request: one wrapper and two raw curls would each need the fallback; a 1 s probe only
-  happens when a proxy is set.
-- Rejected: per-request "direct, then proxy on failure": a stopped board fails direct too and would then read the
-  proxy's empty page as "another app" (the #4466 bug).
-- Weakest premise: telling "refused" apart rests on curl's verbose wording ("Connection refused"); a curl that
-  words it otherwise would read a stopped board as blocked and ask the proxy, which is the #4466 symptom, only when
-  a proxy is set and the board is down. The stopped-board test pins this on the curl that ships with macOS.
+- Lazy and per call. Rejected after review 1: a top-level probe on every verb (help and report paid it) and stripping
+  NO_PROXY (exported to agents, and missed forms curl still honours).
+- Weakest premise: the classification reads curl's verbose wording ("Connected to", "refused"), pinned on macOS curl
+  8.7.1 by the tests; a curl that words it otherwise falls to "blocked" (the proxy), which is only wrong when a proxy
+  is set and the board is reachable directly.
 - Not changed: the Windows CLI (node's http does not read proxy variables) and the agent bridges (node).
 
 ## Validation
-cli.busy-health-4466.test.js: the #4466 arm (proxy answers empty, direct works) unchanged; a blocked arm (probe aimed
-at a listener that never answers, a proxy that really forwards, the board's exemption inherited): status running
-through the proxy and NO_PROXY left with only the caller's entry; a stopped board with a proxy set says not running
-and never asks the proxy. Reverting the probe, the strip, or the refused rule each fails a test (measured). Every test
-that runs install/kosmos (60 files, 1032, 0 failed) and its shell tests (test-install.sh skips without dist/, as on
-main).
+cli.busy-health-4466.test.js: the #4466 arm unchanged; blocked (status and a post both through a forwarding proxy, the
+exported exemption untouched); busy (direct, the proxy never asked); network namespace (refused, the proxy forwards to
+the board: the proxy); stopped (refused, the proxy answers empty: direct, "not running"). Reverting the connected
+rule, the proxied check either way, or the route on the health read or on kosmos_curl each fails a test (measured).
+Every test that runs install/kosmos (60 files, 1034, 0 failed) and its shell tests.
