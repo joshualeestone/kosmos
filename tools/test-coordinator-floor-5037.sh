@@ -59,6 +59,15 @@ run && bad "a meta that is not JSON was waved on" || { grep -q "not with JSON" "
 rm -rf "$T/coord"; mkdir -p "$T/coord/v1"; printf '{"domain":"x"}' > "$T/coord/v1/meta"
 run && bad "a meta with no build was waved on" || { grep -q "names no build" "$T/err" && ok "a meta with no build refuses" || bad "wrong refusal for no build: $(cat "$T/err")"; }
 coordinator deadbeef0; run && bad "a build the relay does not have was waved on" || { grep -q "deployed from a branch" "$T/err" && ok "a build the relay checkout does not have refuses, naming the branch-deploy case" || bad "wrong refusal for an unknown build: $(cat "$T/err")"; }
+rm -rf "$T/coord"; mkdir -p "$T/coord/v1"; printf '{"build":"V1.2-release"}' > "$T/coord/v1/meta"
+run && bad "a malformed build was waved on" || { grep -q "not a commit id ('V1.2-release')" "$T/err" && ok "a malformed build refuses, naming the value" || bad "wrong refusal for a malformed build: $(cat "$T/err")"; }
+# A floor file with a CRLF, a tab separator and an indented comment is still read (CONTROL: an at-floor coordinator passes it).
+printf '  # indented comment\r\n%s\tthe coordinator signs the account (test)\r\n' "$FLOOR" > "$T/floor-crlf"
+coordinator "${OLD:0:8}"
+KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor-crlf" 2>"$T/err" && bad "a CRLF/tab floor line was not read (the behind coordinator passed)" || { behind && ok "a floor line with CRLF and a tab is read (behind refuses on it)" || bad "wrong refusal on the CRLF floor: $(cat "$T/err")"; }
+coordinator "${FLOOR:0:8}"
+KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor-crlf" 2>"$T/err" && ok "CONTROL: the same CRLF floor passes an at-floor coordinator" || bad "CRLF floor refused an at-floor coordinator: $(cat "$T/err")"
+KOSMOS_COORDINATOR_RETRIES=two KOSMOS_COORDINATOR_URL="file://$T/coord" coordinator_floor_check "$T/kosmos-tunnel" "$T/relay" "$T/floor" 2>"$T/err" && bad "a non-numeric retries value was used" || { grep -q "must be a number" "$T/err" && ok "a non-numeric KOSMOS_COORDINATOR_RETRIES refuses, said as such" || bad "wrong refusal for bad retries: $(cat "$T/err")"; }
 coordinator unknown; run && bad "an unstamped (unknown) build was waved on" || { grep -q "UNSTAMPED" "$T/err" && ok "an unstamped coordinator build refuses, said as unstamped" || bad "wrong refusal for an unknown build word: $(cat "$T/err")"; }
 coordinator "${NEWER:0:8}-dirty"; run && bad "a dirty coordinator build was waved on" || { grep -q "DIRTY build" "$T/err" && ok "a dirty coordinator build refuses, said as dirty" || bad "wrong refusal for a dirty build: $(cat "$T/err")"; }
 coordinator "$NEWER"; printf '%s why\n' "0123456789012345678901234567890123456789" > "$T/floor2"

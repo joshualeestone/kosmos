@@ -2,8 +2,10 @@
 # contains them too. release.sh step 1d2 (tools/lib/coordinator-floor.sh) refuses a cut whose
 # connector contains a line's commit while the coordinator's /v1/meta build does not.
 # One per line: <full relay commit sha> <why>. Lines starting with # are comments.
-# Name the EARLIEST relay main commit that carries the CONNECTOR-side half of the change: a connector older than
-# the line is waved through, so naming a later commit would let a connector built in between ship unasked.
+# Name the EARLIEST commit that carries the CONNECTOR-side half of the change: a connector that is a strict ancestor
+# of the line is waved through, so naming a later commit would let a connector built in between ship unasked.
+# For a squash or rebase merge that is the commit on main. For a MERGE commit, name the BRANCH commit that introduced
+# the connector-side half, NEVER the merge commit: every branch commit is a strict ancestor of the merge.
 # Remove a line only once no coordinator below it can ever serve again (#4869 step 2: never roll back
 # below 534f36980).
 534f36980f2f364b178193eb54958329d3daf6d5 #4869: the coordinator signs the account a computer's gate binds to; a connector with it and an older coordinator admits nobody after a re-setup
