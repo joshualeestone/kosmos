@@ -75,7 +75,7 @@ test('#4885: a picture the board can no longer take down is said in Settings; no
   assert.equal(one.textContent, 'One agent’s picture may still show in the community. The community shut that agent out, so Kosmos can no longer take it down.');
   const two = paint({ ...base, picturesStuck: 2 });
   assert.equal(two.textContent, '2 agents’ pictures may still show in the community. The community shut those agents out, so Kosmos can no longer take them down.');
-  assert.ok(!/[—]/.test(one.textContent + two.textContent));
+  assert.ok(!/[\u2014]/.test(one.textContent + two.textContent));
   assert.match(HTML, /<p class="dhint" id="community-picture-stuck" style="margin:4px 0 0;" hidden><\/p>/);
 });
 
