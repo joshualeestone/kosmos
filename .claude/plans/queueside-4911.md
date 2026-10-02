@@ -205,6 +205,17 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   Playwright with system Chrome or a custom browsers path is not seen (the "no Playwright browser" check is literal);
   a renewal overwrites a foreign live claim (older than this card; a cut overwriting a queued turn is that path).
   Dry run 55/55.
+- Round 13 (Sonnet + Opus, blind; BOTH reproduced the same should-fix): round 12's oldest-first fallback was itself a
+  second rule against a #4609 reader, so a pre-#4609, a #4609 and a current waiter could circle (A on B and C, B on
+  C, C on B). With three generations live, NO single rule agrees with both older readers, so the claim "one total
+  order" is withdrawn. Now: while a pre-#4609 waiter is live, another waiter is ahead of this one only when it is
+  ahead by BOTH older rules (oldest-first and #4609's rank). A mutual wait needs each to name the other, and an older
+  reader that names this one has, by its own rule, this one ahead, which "both" cannot contradict. The cost is the
+  other direction (two waiters each reading themselves first), which the claim and the live-suite checks serialise.
+  Opus's variant ("ahead = merely older" for a pre-#4609 waiter) has its own 3-cycle; it is mix 3. Tested with three
+  LIVE waiters per mix, each on its own lib generation (pre-#4609 704ffeb4c, #4911's base, this branch): mixes 1-3
+  move; mix 1 deadlocks on round 12's lib. test-cut-guard.sh pins both arms of the rule. Nits: npm `sit` and
+  `clean-install-test`; a nested run's command gets the same clean environment as an ordinary turn's.
 - WEAKEST PREMISE, added round 11 (Opus): the aging is OFF while any waiter from a lib older than #4911 is live (every
   reader then uses the older rule, which is what prevents the three-waiter circle). A run-tests.sh from any branch not
   yet rebased past this merge writes such a marker, so the 367-minute light wait is fixed only as branches rebase

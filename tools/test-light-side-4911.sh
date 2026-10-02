@@ -466,4 +466,40 @@ else
   touch "$T/stop3"; wait "$W_A" "$W_B" "$W_C" 2>/dev/null
 fi
 
+# Review 12/13: THREE lib generations at once, each waiter a live process on its OWN lib: pre-#4609 (4-line marker,
+# oldest-first), #4609 (5-line, light ahead, starving heavy first), this one. No single rule agrees with both older
+# readers, so this lib counts another as ahead only when BOTH older rules do; the property is that the queue never
+# stands still: in every mix at least one waiter sees nobody ahead. Mix 1 is Sonnet's (round 13), mix 2 Opus's (round 12).
+git -C "$HERE/.." show '704ffeb4c4dd53e68cba5c0a751cf2ef75f997ab:tools/lib/cut-guard.sh' > "$T/pre4609-lib.sh" 2>/dev/null
+if ! grep -q 'kosmos_mark_suite_waiting' "$T/pre4609-lib.sh" || grep -q '_kosmos_queue_rank' "$T/pre4609-lib.sh" || ! grep -q '_kosmos_queue_rank' "$T/old-lib.sh"; then
+  echo "SKIP  the three-generation arms: this clone lacks a lib generation (pre-#4609 704ffeb4c4dd53e68cba5c0a751cf2ef75f997ab or #4911's base)"
+else
+  gen3() { # <mix name> then triples: <name> <lib> <class> <age seconds>
+    local mix="$1"; shift
+    local M4="$T/m4-$mix"; mkdir -p "$M4"; rm -f "$T"/go4 "$T"/stop4 "$T"/ahead4.*
+    local names="" pids=""
+    while [ $# -ge 4 ]; do
+      local nm="$1" lib="$2" cls="$3" age="$4"; shift 4
+      KOSMOS_RUN_MARKER_DIR="$M4" KOSMOS_QUEUE_CLASS="$cls" bash -c '. "$1"; kosmos_mark_suite_waiting "$2"
+        until [ -e "$3/go4" ]; do sleep 0.1; done
+        _kosmos_suite_waiters_ahead > "$3/ahead4.$4"; echo done >> "$3/ahead4.$4.ok"
+        until [ -e "$3/stop4" ]; do sleep 0.1; done' _ "$lib" "$((NOW - age))" "$T" "$nm" </dev/null >/dev/null 2>&1 &
+      pids="$pids $!"; names="$names $nm"
+    done
+    local want; want=$(echo $names | wc -w | tr -d ' ')
+    for _ in $(seq 1 50); do [ "$(ls "$M4" | grep -c '^suitewait\.[0-9]*$')" = "$want" ] && break; sleep 0.1; done
+    touch "$T/go4"
+    for _ in $(seq 1 100); do local all=1; for nm in $names; do [ -e "$T/ahead4.$nm.ok" ] || all=0; done; [ "$all" = 1 ] && break; sleep 0.1; done
+    local free=0 seen=""; for nm in $names; do [ -e "$T/ahead4.$nm.ok" ] || seen="$seen $nm:NO-ANSWER"; [ -s "$T/ahead4.$nm" ] || free=$((free + 1)); seen="$seen $nm:[$(tr '\n' ' ' < "$T/ahead4.$nm" 2>/dev/null)]"; done
+    { [ "$free" -ge 1 ] && ! has "$seen" NO-ANSWER; } && pass "three lib generations, $mix: the queue moves (a waiter sees nobody ahead)" \
+      || fail "three lib generations, $mix: everyone waits on someone ($seen)"
+    touch "$T/stop4"; wait $pids 2>/dev/null
+  }
+  gen3 mix1 P "$T/pre4609-lib.sh" heavy 50  Q "$T/old-lib.sh" heavy 200  N "$HERE/lib/cut-guard.sh" light 100
+  gen3 mix2 X "$HERE/lib/cut-guard.sh" light 4000  P "$T/pre4609-lib.sh" heavy 3000  Q "$T/old-lib.sh" heavy 3500
+  # Mix 3: the cycle "ahead = merely older" would make for an older pre-#4609 waiter (Y waits on N by #4609's rank, X on
+  # Y by age, and N on X by age); requiring #4609's rank too lets N go.
+  gen3 mix3 Y "$T/old-lib.sh" heavy 200  X "$T/pre4609-lib.sh" heavy 150  N "$HERE/lib/cut-guard.sh" light 100
+fi
+
 echo "light side turn: $fails failures"; [ "$fails" -eq 0 ]

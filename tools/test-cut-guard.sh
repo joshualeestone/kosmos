@@ -689,14 +689,19 @@ out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 out="$(KOSMOS_QUEUE_STARVE_S=4000 kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#4609 CONTROL: under a longer starve line the same heavy waiter does not" \
   || fail "#4609 CONTROL: KOSMOS_QUEUE_STARVE_S did not move the starve line (rc=$rc, $out)"
-# #4911 review 12: a marker with NO class line is a lib from before #4609, whose reader orders strictly oldest-first.
-# While one is live every reader here uses that rule too, so the two agree: the light run waits for the OLDER one
-# (before, each named itself first). CONTROL: the same waiter as a #4609 heavy marker lets the light run go (above).
+# #4911 reviews 12 and 13: a marker with NO class line is a lib from before #4609 (oldest-first). While one is live,
+# another waiter is ahead of this one only when it is ahead by BOTH older rules (oldest-first and #4609's rank), so no
+# two waiters can each name the other (tools/test-light-side-4911.sh runs three generations live). An older pre-#4609
+# waiter that #4609's rank puts BEHIND a light run is not ahead of it; the same waiter starving (past the line) is.
 lwait $((NOW - 60))
 KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
-{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4911 with a pre-#4609 waiter live, order is oldest-first for everyone (a light run waits for it)" \
-  || fail "#4911 a light run went ahead of a pre-#4609 waiter, which reads itself first (rc=$rc, $out)"
+[ "$rc" -eq 0 ] && pass "#4911 with a pre-#4609 waiter live: an older one that #4609's rank puts behind a light run is not ahead" \
+  || fail "#4911 a pre-#4609 waiter behind by #4609's rank was counted ahead (rc=$rc, $out)"
+lwait $((NOW - 3000))
+out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && has_pid "$out" "$wp"; } && pass "#4911 CONTROL: the same pre-#4609 waiter, starving, is ahead by both rules" \
+  || fail "#4911 CONTROL: a starving older pre-#4609 waiter was not ahead (rc=$rc, $out)"
 lwait $((NOW - 60)) light                             # two light runs: oldest first between them
 KOSMOS_QUEUE_CLASS=light kosmos_mark_suite_waiting $((NOW - 30))
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?

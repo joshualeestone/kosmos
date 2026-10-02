@@ -719,22 +719,25 @@ _kosmos_suite_waiters_ahead() {
   # pass uses that older rule, so every reader, old lib or new, reads one order. Switching rule per pair was not
   # enough: a new light, a new heavy and an old heavy, all starving, could each name another as ahead in a circle and
   # wait on an idle box until the bound (reproduced). One rule for all is one total order: rank, queue time, pid.
-  # legacy 2 (a pre-#4609 waiter is live): oldest-first for everyone, every rank 0, the one rule all three generations
-  # share (review 12: a #4609 rank against a pre-#4609 reader's oldest-first made two waiters each name the other).
+  # legacy 2 (a pre-#4609 waiter is live): no single rule agrees with both older readers (review 13: oldest-first,
+  # tried in round 12, made a #4609 reader and this one name each other). So another waiter is ahead of this one only
+  # when it is ahead by BOTH older rules (oldest-first, and #4609's rank). Two waiters can then never each name the
+  # other: an older reader that names this one has, by its own rule, this one ahead, which this reader's "both" test
+  # then cannot contradict. The cost is the other direction, two waiters each reading themselves first, which the
+  # claim and the live-suite checks already serialise.
   if [ -n "$mine_ts" ]; then
-    if [ "$legacy" = 2 ]; then mine_rank=0
-    elif [ "$legacy" = 1 ]; then mine_rank="$(_kosmos_queue_rank_legacy "$mine_ts" "$mine_cls" "$now")"
+    if [ "$legacy" = 1 ] || [ "$legacy" = 2 ]; then mine_rank="$(_kosmos_queue_rank_legacy "$mine_ts" "$mine_cls" "$now")"
     else mine_rank="$(_kosmos_queue_rank "$mine_ts" "$mine_cls" "$now")"; fi
   fi
   printf '%s' "$seen" | while read -r pid ts cls; do
     [ -n "$pid" ] || continue
     if [ -z "$mine_ts" ]; then echo "$pid"; continue; fi
-    if [ "$legacy" = 2 ]; then rank=0
-    elif [ "$legacy" = 1 ]; then rank="$(_kosmos_queue_rank_legacy "$ts" "$cls" "$now")"
+    if [ "$legacy" = 1 ] || [ "$legacy" = 2 ]; then rank="$(_kosmos_queue_rank_legacy "$ts" "$cls" "$now")"
     else rank="$(_kosmos_queue_rank "$ts" "$cls" "$now")"; fi
-    if [ "$rank" -lt "$mine_rank" ] || { [ "$rank" -eq "$mine_rank" ] && { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; }; }; then
-      echo "$pid"
-    fi
+    older=0; { [ "$ts" -lt "$mine_ts" ] || { [ "$ts" -eq "$mine_ts" ] && [ "$pid" -lt "$mine_pid" ]; }; } && older=1
+    ahead_by_rank=0; { [ "$rank" -lt "$mine_rank" ] || { [ "$rank" -eq "$mine_rank" ] && [ "$older" = 1 ]; }; } && ahead_by_rank=1
+    if [ "$legacy" = 2 ]; then [ "$ahead_by_rank" = 1 ] && [ "$older" = 1 ] && echo "$pid"
+    elif [ "$ahead_by_rank" = 1 ]; then echo "$pid"; fi
   done
   return 0
 }
