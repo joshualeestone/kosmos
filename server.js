@@ -19751,6 +19751,10 @@ function start(port = PORT) {
       try { setupAssistant.refreshGuideRole(); } catch { /* best-effort */ }
       /* #3769: an existing guide gets the secrets section and its folder's deny rules, once, at start. */
       try { setupAssistant.refreshGuideGuards(); } catch { /* best-effort */ }
+      /* #4491: a token-only agent (agent-token-only.json, slice 9) gets its board.token deny + sandbox guard
+         once at start, so a pilot listed before this shipped is guarded without a re-create; warns if the
+         root-owned managed belt is absent. */
+      try { setupAssistant.refreshTokenOnlyGuards(); } catch { /* best-effort */ }
       /* #3769: the keys this board holds, so the guide's words are masked by value too (engine/knownsecrets.js).
          Loaded now and every five minutes, so a key pasted later is known within that time. */
       const loadKnownSecrets = () => {
