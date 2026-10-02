@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: agyscreens-4960
-diff_hash: f3f0e75d5c576eed01e2fa6cee5960f22b686e02133747617491516f1d0cf091
+diff_hash: 422933eceded0b4b0b247abea98d2f4a4c2cbcd1970cf858f9dbf542610dd677
 validation: after the rebase onto origin/main (head 0f137c5df): every web.* test, the agy/antigravity/runner tests, engine agy/signin tests (incl. the real-tmux run against the fake agy drawing the measured terms) and the file-scanning guards, run from the worktree root (343 files, 2716 run, 0 failed); both browser-check gates rc 0; each review rule removed once fails its test (measured: Done only on a frame showing the box, half-drawn first frame, never-drawn box goes stuck, late poll, plain-words link). docs/browser-checks/render-settings-agy-3874.js extended to walk the terms step; its run is queued on Agent1s (machine reserved) and its screenshot goes on the PR before merge
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
-timestamp: 2026-10-02T04:25:11Z
+timestamp: 2026-10-02T06:13:02Z
 iterations: 3
 converged: true
 ---
@@ -32,3 +32,5 @@ converged: true
 
 #### Iteration 3 (opus)
 - NO BLOCKER/WARNING. [NIT] plain-words link untested -> FIXED (test); [NIT] the link fallback cannot tell "not drawn" from "refused" -> ACCEPTED (it keeps an allowed Google link)
+
+Post-convergence (seen in the 00:37 screenshot): the terms status line no longer repeats the row below it, and the programmatically focused intro shows no outline. Web tests 40/40; the browser check re-runs on Agent1s for the new screenshot.
