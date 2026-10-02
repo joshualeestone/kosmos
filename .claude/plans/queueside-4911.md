@@ -323,3 +323,18 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
 - NIT (kept, stated): kill -9 of the wrapper leaves its command to the capper's cap, unclaimed.
 - NIT (kept, stated): npx/bunx/make test and wrapper scripts are not read by _qh_scan; run-tests.sh refuses visibly.
 - 92/92 in tools/test-light-side-4911.sh.
+
+## Round 18 (Opus, blind): 0 blockers, 3 warnings, 3 nits. (It also independently found the two races Sonnet r18 found.)
+- WARNING (reproduced) FIXED (wrapper, temp + mv): a side command that traps TERM and exits 0 after a yield or cap read
+  as a pass (round 16's "keeps rc 0" rule). Now the capper records a stop only if it signalled a live group, and a
+  recorded stop is 75 whatever the command exits with. Dry arm; BAD against the pre-fix wrapper, OK after.
+- WARNING (reproduced) FIXED (wrapper): a SIGKILLed wrapper left its side command running, unclaimed, to the cap. The
+  capper now watches the wrapper's pid and stops the command (and its detached descendants) when it is gone; _qh_end
+  kills the capper LAST, after the group stop and _qh_kill_desc. Dry arm; BAD against the pre-fix wrapper, OK after.
+- WARNING (kept, rollout note, same as r17): aging is off while any older-generation marker is live.
+- NIT FIXED (wrapper): _qh_scan reads `node --run=x` and npm-cli.js / npx-cli.js / pnpm.cjs run by node.
+- NIT FIXED (test): the intruder's exclusion of the side command's DESCENDANTS was never exercised (only the root). Two
+  arms (a marked browser run and a Playwright browser, both by a child of the side command; CONTROLS against an
+  unrelated root yield). Perturbed each of the two sites separately: both killed.
+- NIT (kept, stated in r18 Sonnet entry): the moved-aside window in the stale-claim cleanup; the intruder heals it.
+- Dry harness on the final wrapper: 73/73. Lib test: 96/96.

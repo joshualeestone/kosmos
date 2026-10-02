@@ -288,6 +288,25 @@ rm -f "$M/browser.$ORPHAN"; printf 'mine\n%s\n' "$(ps -ww -o command= -p "$R")" 
 out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R")"; rc=$?
 [ "$rc" -eq 1 ] && pass "intruder check: its OWN marked browser run -> stay" || fail "intruder check yielded to its own marked run (rc=$rc, $out)"
 rm -f "$M/browser.$R"; kill "$R" 2>/dev/null; wait "$R" 2>/dev/null
+# Round 18 (Opus): the exclusion must cover a DESCENDANT, not only the root (a side turn's Playwright browser is its
+# grandchild). R2 is a side command with a child; the child's marked run is its own; CONTROL: the same run against an
+# unrelated root yields.
+bash -c 'sleep 60 </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & R2=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do KID="$(pgrep -P "$R2" | head -1)"; [ -n "$KID" ] && break; sleep 0.1; done
+printf 'mine\n%s\n' "$(ps -ww -o command= -p "$KID")" > "$M/browser.$KID"
+out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R2")"; rc=$?
+{ [ -n "$KID" ] && [ "$rc" -eq 1 ]; } && pass "intruder check: a marked browser run by a DESCENDANT of the side command -> stay" || fail "intruder check yielded to its own descendant's run (kid=$KID rc=$rc, $out)"
+sleep 60 </dev/null >/dev/null 2>&1 & R3=$!
+out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$R3")"; rc=$?
+[ "$rc" -eq 0 ] && pass "CONTROL: the same run against an unrelated side command -> yield" || fail "CONTROL: a run that is not this side command's did not yield (rc=$rc, $out)"
+rm -f "$M/browser.$KID"
+# The same, through the Playwright browser list (the other place the exclusion is asked).
+probe pw-kid "printf '%s /x/ms-playwright/chromium-1/chrome\\n' $KID"
+out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/pw-kid" kosmos_light_side_intruder "$R2")"; rc=$?
+[ "$rc" -eq 1 ] && pass "intruder check: a Playwright browser that is a DESCENDANT of the side command -> stay" || fail "intruder check yielded to its own descendant's browser (rc=$rc, $out)"
+out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/pw-kid" kosmos_light_side_intruder "$R3")"; rc=$?
+[ "$rc" -eq 0 ] && pass "CONTROL: that browser against an unrelated side command -> yield" || fail "CONTROL: the browser was not seen (dropped as a fixture?) (rc=$rc, $out)"
+kill "$KID" "$R2" "$R3" 2>/dev/null; wait "$R2" "$R3" 2>/dev/null
 
 # Review 7: the REAL Playwright matcher (every other arm goes through KOSMOS_PW_PROBE). A stand-in executable at a
 # browser path is listed; one at a WebKit XPC helper path is not (launchd parents those, so they would never read as
