@@ -159,6 +159,16 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
     const was = [project.name, tasks.map((t) => t.projectName)];
     project.name = LONG; tasks.forEach((t) => { t.projectName = LONG; });
     try {
+      /* 700: above the phone breakpoint the head is a row again, and a long name wraps in the title's own box. */
+      {
+        const tv = await boot('tabs', 700);
+        await tv.page.evaluate(() => openProjectTasks('p1'));
+        await tv.page.waitForTimeout(800);
+        const d = await tv.page.evaluate(() => { const t = document.getElementById('tsk-title'), r = t.getBoundingClientRect(), c = document.getElementById('tsk-back').getBoundingClientRect(), n = document.getElementById('tsk-new').getBoundingClientRect();
+          return { h: Math.round(r.height), lh: parseFloat(getComputedStyle(t).lineHeight), gap: Math.round(r.left - c.right), newRight: n.left >= r.right, inView: n.right <= innerWidth + 1 }; });
+        say('#5053 long name at 700: the chevron, the title and "+ New task" share the row; wrapped lines do not touch', d.gap >= 0 && d.gap <= 24 && d.newRight && d.inView && d.lh >= 27.6, JSON.stringify(d));
+        await tv.ctx.close();
+      }
       for (const width of [390, 360]) {
         const tv = await boot('tabs', width);
         await tv.page.evaluate(() => openProjectTasks('p1'));
@@ -216,6 +226,8 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
     } else {
       /* #5053: desktop is unchanged: "+ New task" stays on the title's row, right of it. */
       say('#5053 tab view 1280: "+ New task" stays on the title\'s row, right of it (desktop unchanged)', nb.sameLine && nb.rightOfTitle, JSON.stringify(nb));
+      const hh = await tv.page.evaluate(() => Math.round(document.querySelector('#panel-tasks .tsk-head').getBoundingClientRect().height));
+      say('#5053 tab view 1280: the head is still one button tall (the title\'s line-height did not grow it)', hh <= 36, String(hh));
     }
     await tv.page.click('#tsk-back');
     await tv.page.waitForTimeout(800);

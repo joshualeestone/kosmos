@@ -42,3 +42,12 @@ Only one other head uses `.sub-back`: #pj-docs-view .pjtitle, a grid with the ch
    (align-self: start) and the 4px chevron-top assertion.
 CONVENTIONs taken: the plan rewritten for the new design; the stale "may wrap" comment. NIT taken: mobile-shots says
 "built-in seed". Left: the loose "(right of or below)" arm stays (the per-width rules are stricter).
+
+### Iteration 2 (sonnet, blind): 0 blockers, 1 low warning. Taken.
+1. Above 40rem a long title now wraps in its own box (it used to drop to the next line), still at 20px lines, so
+   wrapped lines touched at 641-800px or in the narrower consolidated column. Fixed: line-height 1.2 on the title at
+   every width. Measured that desktop is not taller: a new 1280 rule (head at most 36px, one button tall) passes on
+   the fix and on main. A 700px long-name arm asserts the shared row and untouched lines. Check: 46/0.
+Verified by the reviewer: no other rule overrides the grid or placements (the touch min-height on #tsk-new is
+compatible); the hidden chevron leaves the title unindented; render-tasks-view-3559's 16-32px gap stays in band.
+Left: the loose long-name "(right of or below)" arm; a future third child would auto-place into row 3.
