@@ -2722,9 +2722,24 @@ _kosmos_put_board_back() {
     printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
   fi
 }
+# #5033: the three refusals at the pause (our board would not pause, another Kosmos on the port, another app on the
+# port) die BEFORE the put-back is armed, because starting our board there would collide. But our own `kosmos stop`
+# had already written board.stopped, and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once
+# the port was free the board still stayed off. So: on a failed exit, a board.stopped that OUR stop wrote (the board
+# was meant to run, no marker before the run) is taken away, and nothing is started; whatever normally runs the board
+# brings it back once the port is free. Disarmed where the put-back takes over, which handles the marker itself.
+_kosmos_marker_ours=no
+_kosmos_clear_own_marker() {
+  [ "$_kosmos_marker_ours" = yes ] || return 0
+  _kosmos_marker_ours=no
+  # As the put-back does: a computer switched to connect elsewhere during the run keeps its board off.
+  _kosmos_board_decide 2>/dev/null || true
+  [ "${_kosmos_board_off:-no}" = yes ] && return 0
+  rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
+}
 _kosmos_on_exit() {
   _kosmos_exit_rc=$?
-  if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; fi
+  if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; _kosmos_clear_own_marker || true; fi
 }
 trap '_kosmos_on_exit' EXIT
 # Review 2: a hang-up (the Terminal window closed during the download) or a TERM ran the EXIT trap with status 0, so the
@@ -2744,6 +2759,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     _kosmos_was_running=yes
   fi
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
+  _kosmos_marker_ours="$_kosmos_was_running"   # #5033: a refusal below takes back the marker this stop wrote
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.
@@ -2836,6 +2852,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # used to leave the board off with board.stopped written. Not armed on the three dies above: our board still running,
   # another install's board, or another app on the port (starting ours there would collide).
   _kosmos_paused_board="$_kosmos_was_running"
+  _kosmos_marker_ours=no   # #5033: from here the put-back owns the marker (it keeps it when the mode says off)
   # ⚠️ GONE BY PORT, not merely quiet over HTTP: a listener that stopped
   # answering the probe (mid-shutdown, wedged, or simply not speaking
   # HTTP) still holds the port, and the final start would then find a

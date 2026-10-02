@@ -263,6 +263,87 @@ run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 exit 0'
 if answers "$P"; then fail "a run that exited 0 started the board from the exit trap"; else pass "a run that succeeds does not use the put-back"; fi
 
+# ---- #5033: a refusal at the pause takes back the marker our own stop wrote, and starts nothing ----------------------
+MARKSET="$(awk '/^  _kosmos_marker_ours="\$_kosmos_was_running"   # #5033/{print; exit}' "$SETUP")"
+case "$MARKSET" in *'_kosmos_marker_ours="$_kosmos_was_running"'*) : ;;
+  *) echo "FAIL: could not extract the #5033 marker line (anchor drift?)" >&2; exit 1 ;; esac
+MARKOFF="$(awk '/^  _kosmos_marker_ours=no   # #5033/{print; exit}' "$SETUP")"
+case "$MARKOFF" in *"_kosmos_marker_ours=no"*) : ;;
+  *) echo "FAIL: could not extract the #5033 disarm line (anchor drift?)" >&2; exit 1 ;; esac
+L_STOP=$(ln '  "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true')
+L_MSET=$(ln '  _kosmos_marker_ours="$_kosmos_was_running"')
+L_MOFF=$(ln '  _kosmos_marker_ours=no   # #5033')
+if [ -n "$L_STOP" ] && [ -n "$L_MSET" ] && [ -n "$L_MOFF" ] \
+   && [ "$L_STOP" -lt "$L_MSET" ] && [ "$L_MSET" -lt "$L_OURS" ] && [ "$L_MSET" -lt "$L_APP" ] \
+   && [ "$L_ARM" -lt "$L_MOFF" ] && [ "$L_MOFF" -lt "$L_SURV" ]; then
+  pass "#5033: the marker is taken back from right after our stop until the put-back is armed"
+else
+  fail "#5033: marker lines in the wrong place (stop $L_STOP, set $L_MSET, ours $L_OURS, app $L_APP, arm $L_ARM, off $L_MOFF, survivor $L_SURV)"
+fi
+APPDIE="$(awk '/die "Another app on this computer is using port \$PORT, which Kosmos needs/{sub(/^ */, ""); print; exit}' "$SETUP")"
+case "$APPDIE" in die*) : ;; *) echo "FAIL: could not extract the another-app die (anchor drift?)" >&2; exit 1 ;; esac
+
+# other_app <port> <dir> -> a stand-in for another app holding the port (not Kosmos-shaped), pid in <dir>/other.pid.
+other_app() {
+  mkdir -p "$2/other"; printf '<html>SomethingElse</html>\n' > "$2/other/index.html"
+  python3 -m http.server "$1" --bind 127.0.0.1 --directory "$2/other" >/dev/null 2>&1 &
+  echo $! > "$2/other.pid"
+  i=0; while [ $i -lt 50 ] && ! answers "$1"; do sleep 0.1; i=$((i + 1)); done
+}
+
+stop_other() { _op="$(cat "$1/other.pid")"; kill "$_op" 2>/dev/null; wait "$_op" 2>/dev/null; }
+
+# 5. The board was meant to run, another app holds the port, the update refuses there: board.stopped is gone, our
+#    board was not started, and the other app still holds the port.
+P=$(free_port); H=$(home otherapp); export PORT=$P
+other_app "$P" "$H"
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$MARKSET"'
+'"$APPDIE"
+if [ ! -e "$H/board.stopped" ]; then pass "#5033: the another-app refusal takes back the board.stopped our stop wrote"; else fail "#5033: the another-app refusal left board.stopped behind"; fi
+if [ ! -e "$H/board.pid" ]; then pass "#5033: and starts nothing (the port is not ours)"; else fail "#5033: the refusal started our board over another app's port"; fi
+if grep -q "Another app on this computer is using port" "$H/err"; then pass "#5033: and the refusal still says why"; else fail "#5033: the refusal sentence is missing: $(cat "$H/err")"; fi
+stop_other "$H"
+
+# 5b. CONTROL: the person had stopped the board before the run: the same refusal keeps their board.stopped.
+P=$(free_port); H=$(home otherappstopped); export PORT=$P
+: > "$H/board.stopped"
+other_app "$P" "$H"
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$MARKSET"'
+'"$APPDIE"
+if [ -e "$H/board.stopped" ]; then pass "#5033 control: a board the person stopped keeps its marker through the refusal"; else fail "#5033: the person's own board.stopped was removed"; fi
+stop_other "$H"
+
+# 5c. CONTROL: past the arming point the put-back owns the marker. A computer switched to connect during the run
+#     keeps board.stopped after a later failure (without the disarm, the take-back would remove it).
+P=$(free_port); H=$(home armedconnect); export PORT=$P
+"$H/bin/kosmos" start
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$MARKSET"'
+'"$PAUSED"'
+'"$MARKOFF"'
+printf connect > "$KOSMOS_HOME/mode"
+exit 1'
+if [ -e "$H/board.stopped" ] && ! answers "$P"; then pass "#5033 control: past the arming point a connect computer keeps its marker"; else fail "#5033: the take-back removed the marker of a computer switched to connect"; fi
+
+# 5d. CONTROL: the take-back also reads the mode again: switched to connect before the refusal, the marker stays.
+P=$(free_port); H=$(home otherappconnect); export PORT=$P
+other_app "$P" "$H"
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$MARKSET"'
+printf connect > "$KOSMOS_HOME/mode"
+'"$APPDIE"
+if [ -e "$H/board.stopped" ]; then pass "#5033 control: a computer switched to connect keeps its marker through the refusal"; else fail "#5033: the take-back ignored a switch to connect"; fi
+stop_other "$H"
+
+# 5e. CONTROL: a run that exits 0 after the stop takes nothing back (only a failure does).
+P=$(free_port); H=$(home markok); export PORT=$P
+run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+'"$MARKSET"'
+exit 0'
+if [ -e "$H/board.stopped" ]; then pass "#5033 control: a run that exits 0 keeps the marker"; else fail "#5033: an exit 0 took the marker back"; fi
+
 echo "---"
 echo "update put-back (#4818): $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
