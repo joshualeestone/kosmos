@@ -51,8 +51,8 @@
  * names that key alike ("Pete" and "pete") share one list, as they share one report; an agent renamed
  * while it holds posts loses the line (the posts are still in the room). Removal forgets the list
  * (forget, called by engine/remove.js). Taking it off one project, or removing the project, drops that project's
- * list only (forgetProject, #5034, called through server.js clearLeftovers). A held post still counts toward the room's arrival budget,
- * which errs toward the valve closing sooner, never later.
+ * list only (forgetProject, #5034, called through server.js clearLeftovers). A held post still counts toward the
+ * room's arrival budget, which errs toward the valve closing sooner, never later.
  */
 
 const fs = require('node:fs');
