@@ -383,6 +383,10 @@ test('review 5: after Enter in the field, a refusal not about the name gives foc
   const r = rig({ withField: true, parsed: { ...PARSED_NAMELESS, provider: 'openai' },
     created: { ok: false, httpOk: false, because: 'connect an OpenAI account first' } });
   r.field.value = 'Pip';
+  // As a browser does (the fake DOM does not): disabling the focused field drops focus to the page.
+  const page = r.d.create('div'); page.tabIndex = -1;
+  let dis = false;
+  Object.defineProperty(r.field, 'disabled', { get() { return dis; }, set(v) { dis = v; if (v && r.d.focused() === r.field) page.focus(); } });
   r.field.focus();                                    // the person pressed Enter in the field
   await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
   assert.equal(r.d.focused(), r.field, 'not left on the page');
