@@ -1948,10 +1948,11 @@ function questionIn(text, runner) {
   }
   /* #5051: Claude Code's safeguards model-switch menu matches none of the markers (its question is wrapped prose in a
      frame), so it was invisible here while the board named it (#5039, the same live-menu rule). When it is the live
-     menu below any marker match, the region starts at its "Model switch" title, so the person reads the question and
-     both choices. Its options are not on consecutive lines, so optionsIn draws no buttons for it. */
+     menu, the region starts at its "Model switch" title and runs to the end of the screen, so the person reads the
+     question and both choices (and any line below it). No "below a marker" condition: a non-numbered marker line under
+     the menu would otherwise start the region mid-menu (review round 1). optionsIn refuses it, so no buttons. */
   const sg = status.safeguardsMenuAt(whole);
-  if (sg && sg.at > at) {
+  if (sg) {
     let title = -1;
     for (let i = sg.at - 1; i >= Math.max(0, sg.at - 16); i -= 1) if (/Model switch\s*$/.test(lines[i])) { title = i; break; }
     return { text: lines.slice(title >= 0 ? title : Math.max(0, sg.at - 10)).join('\n').replace(/\s+$/, '') };
@@ -2133,6 +2134,9 @@ function questionAbove(questionText) {
 }
 
 function optionsIn(questionText) {
+  /* #5051: never buttons for Claude Code's safeguards model-switch menu. Option 1 switches models and saves that choice
+     in the agent's Claude settings; the person types it. Enforced here, not left to that menu's layout (review round 1). */
+  if (status.safeguardsMenuAt(String(questionText == null ? '' : questionText))) return null;
   const whole = String(questionText == null ? '' : questionText);
   if (!whole.trim()) return null;
   const found = [];

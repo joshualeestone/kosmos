@@ -2530,6 +2530,27 @@ test('the raw window is NOT served from this route, so engineering mode has noth
   }
 });
 
+test('#5051: a button press that lands on the safeguards model-switch menu is refused; a typed answer is not', async () => {
+  reset();
+  /* The menu's rows as captured on Angel's pane (2026-10-02 ~11:07). Option 1 switches models and saves that in the
+     agent's Claude settings, so a stale button's "1" must never reach it. */
+  const SG = ' ☐ Model switch\n\n│ Opus 5.5\'s safeguards flagged this session. Switch to Opus 4.8 and keep going?\n\n'
+    + '❯ 1. Switch automatically\n     Continue on Opus 4.8 now, and switch without asking from now on\n'
+    + '  2. Stay on Opus 5.5\n     Stop here without switching, and ask me each time a message is flagged\n';
+  await withAgent(fleet.agent('zeta', { state: 'needs_you' }), [said(SG), said(), said()], async ({ calls }) => {
+    const res = await post('/api/agent/zeta/thread', { text: '1', chose: 'Yes' });
+    assert.equal(res.status, 409, 'a stale button press reached the safeguards menu: ' + res.body);
+    assert.match(json(res).error, /changed on its screen/);
+    assert.equal(calls.sends().length, 0, 'and nothing was typed into the pane');
+  });
+  reset();
+  // The control: the person typing their own answer (no button) is not refused.
+  await withAgent(fleet.agent('zeta', { state: 'needs_you' }), [said(SG), said(), said()], async () => {
+    const res = await post('/api/agent/zeta/thread', { text: '2' });
+    assert.notEqual(res.status, 409, 'a typed answer to the safeguards menu was refused: ' + res.body);
+  });
+});
+
 test('a button the visible screen contradicts is refused, and nothing is typed', async () => {
   reset();
   // ⚠️ `chose` is the one half of the pair the server does not derive: the
