@@ -126,7 +126,7 @@ function readThread(page, words) {
     await page.waitForTimeout(400);
     const kept = await readThread(page, 'second try');
     console.log('  once kept: ' + JSON.stringify(kept));
-    chk(kept.copies === 1 && !kept.pending && kept.pill !== 'Sending…', 'once kept, the thread shows the kept row and no second copy', JSON.stringify(kept));
+    chk(kept.copies === 1 && !kept.pending && kept.slot !== 'Sending…', 'once kept, the thread shows the kept row and no second copy', JSON.stringify(kept));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
