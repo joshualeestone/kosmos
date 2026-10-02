@@ -1946,6 +1946,16 @@ function questionIn(text, runner) {
        must be findable too. */
     if (status.ALL_NEEDS_YOU_MARKERS.some((re) => re.test(lines[i]))) at = i;
   }
+  /* #5051: Claude Code's safeguards model-switch menu matches none of the markers (its question is wrapped prose in a
+     frame), so it was invisible here while the board named it (#5039, the same live-menu rule). When it is the live
+     menu below any marker match, the region starts at its "Model switch" title, so the person reads the question and
+     both choices. Its options are not on consecutive lines, so optionsIn draws no buttons for it. */
+  const sg = status.safeguardsMenuAt(whole);
+  if (sg && sg.at > at) {
+    let title = -1;
+    for (let i = sg.at - 1; i >= Math.max(0, sg.at - 16); i -= 1) if (/Model switch\s*$/.test(lines[i])) { title = i; break; }
+    return { text: lines.slice(title >= 0 ? title : Math.max(0, sg.at - 10)).join('\n').replace(/\s+$/, '') };
+  }
   if (at < 0) return null;
   // A few lines of run-up, because a Claude permission prompt states what it is
   // asking about above the line that matches.

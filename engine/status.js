@@ -2324,15 +2324,23 @@ const ASKING_GENERIC = 'it is asking you something';
    prose, or an old answered menu, above a live permission prompt are not this (review round 1). When it is live it
    carries evidence, so it leads over an agent's own standing question (the agent really is stopped on it). Kosmos
    never presses it: the choice is the person's (#5039). */
-function safeguardsMenu(tail) {
-  const rows = String(tail == null ? '' : tail).split('\n').map((r) => r.replace(/^[\s│❯›>]+/, '').trimEnd());
+/* The live safeguards menu's "1. Switch automatically" row (its index in text.split('\n')) and the model it would
+   leave, or null. ONE rule, shared by safeguardsMenu (the board's reason) and chat.questionIn (#5051: where the
+   detail page finds the question), so the two cannot disagree about which menu is live. */
+function safeguardsMenuAt(text) {
+  const rows = String(text == null ? '' : text).split('\n').map((r) => r.replace(/^[\s│❯›>]+/, '').trimEnd());
   const first = rows.findIndex((r) => /^1\. Switch automatically$/.test(r));
   if (first < 0) return null;
   const lastOne = rows.reduce((at, r, i) => (/^1\.\s/.test(r) ? i : at), -1);
   if (lastOne !== first) return null;
   const stay = rows.slice(first + 1, first + 4).map((r) => /^2\. Stay on (\S.{0,40})$/.exec(r)).find(Boolean);
   if (!stay) return null;
-  const model = stay[1];
+  return { at: first, model: stay[1] };
+}
+function safeguardsMenu(tail) {
+  const live = safeguardsMenuAt(tail);
+  if (!live) return null;
+  const model = live.model;
   return {
     because: `${model}'s safeguards stopped it, and it is asking whether to switch models automatically or stay on ${model}`,
     evidence: `1. Switch automatically / 2. Stay on ${model}`,
@@ -8764,7 +8772,7 @@ module.exports = {
   /* #2456: the placeholder `because` string, so the routes can tell a real
      reported question from the board's generic "asking" and never render the
      placeholder as if the agent had said it. */
-  ASKING_GENERIC,
+  ASKING_GENERIC, safeguardsMenuAt,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
