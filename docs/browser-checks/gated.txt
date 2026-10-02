@@ -209,6 +209,7 @@ render-talk
 render-talk-anchor-1926
 render-talk-fill-2622
 render-talk-search
+render-taskhover-4880
 render-tasks
 render-tasks-view-3559
 render-teamcreate-4557

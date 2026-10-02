@@ -1142,3 +1142,22 @@ test('#4800 review 6: a sweep that reaches the register long after it began stil
   assert.equal(registers().length, 1, 'our own account was taken for somebody else\'s');
   assert.equal(cs.statuses()[r.id].agentNameUnclaimed, true);
 });
+
+test('#4895: the new name of the same community keeps its keys and send records; another server does not', () => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.installkosmos.com';
+    const old = cs._paths.endpointDir();
+    delete process.env.AGENT_WORKFORCE_COMMUNITY_URL;   // the default, community.kosmosplus.com
+    assert.equal(cs._paths.endpointDir(), old, 'moving to community.kosmosplus.com would re-register every agent and post everything again');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.kosmosplus.com/';
+    assert.equal(cs._paths.endpointDir(), old, 'a trailing slash is the same service');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://Community.KosmosPlus.com';
+    assert.equal(cs._paths.endpointDir(), old, 'a host name in capitals is the same service');
+    // CONTROL: a different server still gets its own folder, so no key or remote id is ever presented to it.
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.example.com';
+    assert.notEqual(cs._paths.endpointDir(), old);
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
+  }
+});

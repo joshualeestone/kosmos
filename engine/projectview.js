@@ -128,6 +128,10 @@ function overviewOf(p, roster, o) {
       name: m.name,
       sessionName: m.sessionName,
       role: m.role || null,
+      /* #4896: the role as the board says it (roles.roleTitle), worked out HERE, in the board, which holds the
+         same downloaded catalogue the page learns its titles from. The CLI only prints it: requiring roles.js in
+         the CLI would read the store there and can print a catalogue line on stderr (review 1). */
+      roleTitle: m.role ? require('./roles').roleTitle(m.role) : null,
       state: m.present && m.tied ? m.state : 'unknown',
       present: Boolean(m.present),
       family: m.tied ? familyOf(m.runner) : null,
@@ -275,7 +279,10 @@ function renderShow(payload) {
     const sum = (SUMMARY_WORDS[m.summary && m.summary.state] || SUMMARY_WORDS.unreadable)(m.summary || {});
     /* Round 2: when the board could not read its agents, "not running" would be a claim nobody checked. */
     const where = payload.agentsUnreadable ? 'state unknown' : (m.present ? one(m.state).replace(/_/g, ' ') : 'not running');
-    out.push('  ' + one(m.name) + (m.role ? ', ' + one(m.role) : '') + '  | ' + fam + '  | ' + where
+    /* #4896: the board's own spelling of the role (overviewOf's roleTitle); an older board sends none, and then
+       the role is printed as it is stored, as before. */
+    const role = m.roleTitle || m.role || '';
+    out.push('  ' + one(m.name) + (role ? ', ' + one(role) : '') + '  | ' + fam + '  | ' + where
       + '  | summary: ' + sum);
   }
   return out;

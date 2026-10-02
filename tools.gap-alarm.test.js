@@ -274,35 +274,46 @@ test('main\'s hours run from when work LANDED on main: a merge commit\'s older s
   assert.ok(!v.reasons.includes('main-hours'), 'a merge that landed an hour ago alarmed on its side branch\'s age: ' + JSON.stringify(v));
 });
 
-test('claude-msg exit 8 (#1909) is told-but-uncertain: it counts as posted and the card says "may not have gone", never "did not go"', () => {
+test('claude-msg exit 7 is told-but-uncertain: it counts as posted and the card says "may not have gone", never "did not go"', () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
-  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.busyMsg.bin, GAP_ALARM_GH_CMD: s.failGh.bin,
+  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.unpaintedMsg.bin, GAP_ALARM_GH_CMD: s.failGh.bin,
     GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 60 * H) };
   const r = run([], env);
-  assert.match(r.err, /may not have gone: claude-msg exit 8/);
+  assert.match(r.err, /may not have gone: claude-msg exit 7: the message is in the pane's composer/);
   assert.doesNotMatch(r.err, /pane message .* did not go/);
   assert.match(r.err, /the #1050 comment did not go: claude-msg: no tmux here/, 'gh\'s own stderr line is what the log says');
-  // Counted as told FOR THE PANE: the next hour does not message the pane again...
-  const before = s.busyMsg.read();
+  // Counted as told FOR THE PANE: the next hour does not message the pane again (it would paste the message twice)...
+  const before = s.unpaintedMsg.read();
   const ghBefore = s.failGh.read();
   run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + H) }));
-  assert.equal(s.busyMsg.read(), before, 'an exit-8 post was treated as not told and repeated an hour later');
+  assert.equal(s.unpaintedMsg.read(), before, 'an exit-7 post was treated as not told and repeated an hour later');
   // ...but the card keeps its own clock: its failed comment is retried once its backoff has passed
   // (review 4, per-channel clocks; review 5, the 3 h backoff).
   run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 3 * H) }));
-  assert.equal(s.busyMsg.read(), before, 'the told pane was messaged again');
-  assert.ok(s.failGh.read().length > ghBefore.length, 'the pane\'s exit 8 suppressed the retry of a card comment that really failed');
+  assert.equal(s.unpaintedMsg.read(), before, 'the told pane was messaged again');
+  assert.ok(s.failGh.read().length > ghBefore.length, 'the pane\'s exit 7 suppressed the retry of a card comment that really failed');
   // With a working gh, the card carries the uncertainty.
   const s2 = stubs();
   run([], Object.assign({}, env, { GAP_ALARM_STATE: s2.state, GAP_ALARM_GH_CMD: s2.gh.bin }));
-  assert.match(s2.gh.read(), /may not have gone: claude-msg exit 8/);
-  // Exit 7 (delivered, pane did not repaint) is the same class (review 5).
-  const s3 = stubs();
-  const r7 = run([], Object.assign({}, env, { GAP_ALARM_STATE: s3.state, GAP_ALARM_MSG_CMD: s3.unpaintedMsg.bin, GAP_ALARM_GH_CMD: s3.gh.bin }));
-  assert.match(r7.err, /may not have gone: claude-msg exit 7/);
-  assert.match(s3.gh.read(), /may not have gone: claude-msg exit 7/);
-  assert.equal(JSON.parse(fs.readFileSync(s3.state, 'utf8')).pane.key, 'alarm:staging-hours', 'exit 7 did not count as told for the pane');
+  assert.match(s2.gh.read(), /may not have gone: claude-msg exit 7/);
+  assert.equal(JSON.parse(fs.readFileSync(s2.state, 'utf8')).pane.key, 'alarm:staging-hours', 'exit 7 did not count as told for the pane');
+});
+
+test('claude-msg exit 8 (a possible loss, #4898) is a failure: the card says "did not go" and the pane is tried again after the backoff', () => {
+  const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
+  const s = stubs();
+  const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.busyMsg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
+    GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 60 * H) };
+  const r = run([], env);
+  assert.match(r.err, /the pane message to .* did not go/);
+  assert.match(s.gh.read(), /did not go: claude-msg exit 8, it may not have landed/);
+  const tries = () => (s.busyMsg.read().match(/\n--\n/g) || []).length;
+  assert.equal(tries(), 1);
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + H) }));
+  assert.equal(tries(), 1, 'CONTROL: not retried inside the backoff');
+  run([], Object.assign({}, env, { GAP_ALARM_NOW: String(NOW + 3 * H) }));
+  assert.equal(tries(), 2, 'an exit-8 pane was counted as told and never tried again');
 });
 
 test('a state file from before per-channel clocks is read as both channels: no repost on the first run after an upgrade', () => {
@@ -330,7 +341,8 @@ test('a state that cannot be recorded is said, is not fatal, and leaves no temp 
   fs.mkdirSync(statePathDir); fs.writeFileSync(path.join(statePathDir, 'x'), 'x');
   // Review 11: a state it cannot keep posts only in the first hour of the UTC day, so run in that hour.
   const DAY0 = NOW - (NOW % 86400) + 60;
-  const r = run([], { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: statePathDir, GAP_ALARM_MSG_CMD: s.busyMsg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
+  // An exit-7 pane (told but unconfirmed, #4898), so the log line's "(unconfirmed)" is still checked.
+  const r = run([], { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: statePathDir, GAP_ALARM_MSG_CMD: s.unpaintedMsg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
     GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, DAY0 - 60 * H), GAP_ALARM_NOW: String(DAY0) });
   assert.equal(r.code, 1, 'an unrecordable state crashed the run: ' + r.err);
   assert.match(r.err, /posted, but could not record it/);

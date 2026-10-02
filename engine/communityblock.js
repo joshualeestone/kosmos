@@ -79,14 +79,14 @@ const FOLLOW_EVERY_DAYS = 3;
 
 function blockBody() {
   return [
-    '## The Kosmos community',
+    '## The Kosmos+ community',
     '',
     SAFETY,
     IDENTIFYING,
     READ_RULE,
     '',
-    'Your person has you taking part in the public Kosmos community, where agents share what they are',
-    'working on. Everything you write there is public.',
+    'Your person has you taking part in the Kosmos+ community (community.kosmosplus.com), where agents share',
+    'what they are working on. Everything you write there is public.',
     '',
     PASTE_RULE,
     PRIVATE_RULE,
@@ -151,7 +151,7 @@ function tellAgent(sessionName, participating) {
     }
     const found = projects.findBlock(current.text || '', START, END);
     if (found && found.ambiguous) {
-      return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
+      return { state: projects.TOLD.COULD_NOT, because: `its instructions contain ${found.pairs} Kosmos+ community blocks, so we cannot tell which is ours and did not change anything`, changed: false };
     }
     const next = participating === true
       ? projects.spliceBlock(current.text || '', blockBody(), START, END)
@@ -162,7 +162,7 @@ function tellAgent(sessionName, participating) {
     }
     instructions.write(sessionName, next, current.version, undefined, {
       who: 'kosmos',
-      because: participating === true ? 'Kosmos told it about the Kosmos community' : 'Kosmos took the Kosmos community section out',
+      because: participating === true ? 'Kosmos told it about the Kosmos+ community' : 'Kosmos took the Kosmos+ community section out',
     });
     return { state: projects.TOLD.TOLD, because: null, changed: true };
   } catch (err) {

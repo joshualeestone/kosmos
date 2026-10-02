@@ -5131,7 +5131,7 @@ function createAgentInner(opts) {
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
           } catch { /* reported below rather than swallowed */ }
           if (!communityLanded) {
-            steps.push({ label: 'could not add the Kosmos community section to its instructions; it will be tried again at its next restart', ok: false });
+            steps.push({ label: 'could not add the Kosmos+ community section to its instructions; it will be tried again at its next restart', ok: false });
           }
         }
       }
