@@ -30,7 +30,10 @@ combination no channel tests. setup.sh had 36 commits in September.
   Every deploy also edge-checks the /setup-staging pair when the commit carries one.
 - engine/update.js `setupUrl()`: `/setup-staging` when `installPointer()` is staging.
 - Docs: releasing.md, staging-channel.md (promote step, commit line, fresh install), phone-push-go-live.md.
-- Site half (chaoskosmos-site branch setupstaging-5032): vercel.json headers for the new pair. Merges first.
+- Site half (chaoskosmos-site branch setupstaging-5032): vercel.json headers for the new pair. Merges first,
+  and release.sh step 1f (before the bump) refuses a staging cut while the site's vercel.json lacks them.
+- release_site_restore keeps an untracked setup-staging pair origin/main already holds (a cut that died after
+  7b's push and before its deploy); it removes only one committed nowhere.
 
 ## Tests
 - tools/test-setup-staging-5032.sh (new, in test:shell): channel selection evaluated; the release.sh
@@ -60,6 +63,9 @@ That no installer change must reach prod boxes before their app update. The esca
 prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
 
 ## Residuals
+- Rollback to a pointer from BEFORE #5032 (no setup_sha256): unchecked, so after the first #5032 promote it
+  would serve the old build beside the newer /setup. Restore that pointer's installer by hand too (the setup
+  pair committed with it); docs/staging-channel.md step 5 and the cut hand-off say so (review 4).
 - First cuts after this lands: staging boxes still on a pre-#5032 build update with /setup (prod's
   installer) until they run a build carrying the new setupUrl, so for those cuts only FRESH staging
   installs (from /setup-staging) exercise the installer the promote will put on /setup.

@@ -18,7 +18,8 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-sitepush-test.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
-# The release paths, exactly as release.sh builds $_site_paths for a staging cut.
+# The release paths as release.sh builds $_site_paths for a PROD cut (a staging cut names setup-staging and its
+# .sha256 instead, #5032; the race this test covers does not depend on the name).
 PATHS="dist/latest-staging.json dist/kosmos-9.9.9-arm64.manifest.json setup setup.sha256 versions.html"
 MSG="9.9.9: the staging pointer, installer and versions entry"
 VER="9.9.9"
