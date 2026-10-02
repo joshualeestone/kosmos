@@ -53,6 +53,8 @@ coordinator "${FLOOR:0:8}"; run && ok "CONTROL: the same branch connector passes
 # 4. fails closed: no meta, no build in it, a build the relay does not have, a floor commit it does not have
 connector "$NEWER"
 coordinator none; run && bad "an unreadable /v1/meta was waved on" || { grep -q "UNKNOWN" "$T/err" && ok "an unreadable /v1/meta refuses (unknown is not assumed)" || bad "wrong refusal for no meta: $(cat "$T/err")"; }
+rm -rf "$T/coord"; mkdir -p "$T/coord/v1"; printf '<html>gateway</html>' > "$T/coord/v1/meta"
+run && bad "a meta that is not JSON was waved on" || { grep -q "not with JSON" "$T/err" && ok "a meta that is not JSON refuses, said as not JSON" || bad "wrong refusal for non-JSON meta: $(cat "$T/err")"; }
 rm -rf "$T/coord"; mkdir -p "$T/coord/v1"; printf '{"domain":"x"}' > "$T/coord/v1/meta"
 run && bad "a meta with no build was waved on" || { grep -q "names no build" "$T/err" && ok "a meta with no build refuses" || bad "wrong refusal for no build: $(cat "$T/err")"; }
 coordinator deadbeef0; run && bad "a build the relay does not have was waved on" || { grep -q "deployed from a branch" "$T/err" && ok "a build the relay checkout does not have refuses, naming the branch-deploy case" || bad "wrong refusal for an unknown build: $(cat "$T/err")"; }

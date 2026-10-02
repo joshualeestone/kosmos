@@ -46,5 +46,7 @@ build), it does not pass.
   in kosmos-relay's deploy-coordinator.sh.
 - The override covers a coordinator known to be behind, never an unknown one (stated in the lib and in the
   refusal text).
-- /v1/meta is read with two retries and parsed as JSON (review 6): a blip or a field reordering cannot refuse or
-  mis-read a correct cut.
+- /v1/meta is read with two retries of any failure (--retry-all-errors, DNS and refused connections included)
+  and parsed as JSON. A failure lasting past the retries still refuses (fail closed; rerun the cut).
+- A coordinator deployed from the pre-squash branch carries #4869 by content but is refused even with that branch
+  fetched (the squash commit is never its ancestor); it needs the override. Intended, by the by-ancestry choice.
