@@ -28,6 +28,7 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 - 5: the main-turn renewer had the same zombie gap (it could renew the machine claim for hours): now `_qh_wrapper_gone` too; `LC_ALL=C` on its kill (as the lib's `_kosmos_pid_gone`); the b arm fails fast. **Left for item 1 (after #4911 merges):** the lib's own liveness check (`cut-guard.sh`, `kill -0`) still reads a zombie wrapper's claim as live until it is reaped (bounded by the claim's expiry); the wrapper's comment says so.
 - 6: NO NEW ISSUES (one nit taken: wait for the f arm's wrapper). Converged before the rebase.
 - After the rebase (new loop, iteration 1): the temp-file cleanup arm could pass if the files were never made (the fixture arm now requires them in this test's TMPDIR); the header said the live copy is installed from this file (it is not; reworded); this plan's base and validation lines were stale.
+- Iteration 2: the test now runs from an empty dir, so the relative real scripts its cases name (`bash tools/test-install.sh`) cannot run if a refusal lapsed. Left as found: `_qh_take`'s stale-lock takeover can let two waiters in when the lock's holder died holding it (both read the dead pid; the second's `rm -rf` removes the first's new lock). It is #4911's lock, already in the live copy; this branch pins the wrapper rather than redesigning it. Logged on #4977 as a follow-up.
 
 ## Decisions
 - The repo copy keeps reading the guards from ONE main checkout, not the worktree it runs from: every worktree reading its own branch's lib is how several lib generations end up in one queue (item 1's cause).
@@ -36,6 +37,6 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
 
 ## Validation
 - `bash tools/test-queued-heavy-4977.sh`: 76 OK, 0 BAD, three runs in a row after review 4 (about 80 s each), no sleeps or temp files left behind.
-- After the rebase onto main (head 07e44b907): 76 OK, 0 BAD. Mutant: the side turn's temp files made in /tmp instead of TMPDIR turns the fixture arm red (75 OK, 1 BAD).
+- After the rebase onto main (head 07e44b907, and again at 967b33f52 after the empty-dir change): 76 OK, 0 BAD. Mutant: the side turn's temp files made in /tmp instead of TMPDIR turns the fixture arm red (75 OK, 1 BAD).
 - Mutant: removing the wrapper's scan for suite-like commands turns it red (light runs of browser-checks.sh and `yarn test` forms got side turns).
 - no-name-refs-3071, no-brand-refs-1881, fixture-discipline, tools.heavy-gate-3805, tools.shell-shard-4317, tools.every-test-runs: pass.
