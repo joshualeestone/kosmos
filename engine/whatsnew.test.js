@@ -92,3 +92,12 @@ test('#3955 round 12: a highlights file that cannot be shown leaves one log line
     assert.equal(said.length, 1, 'a missing file (no highlights this release) was logged');
   } finally { console.warn = warn; whatsnew.setFileForTests(null); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#4928: the highlights show for any version in "also" (a platform cut on another number), and only those', () => {
+  const obj = Object.assign({}, GOOD, { also: ['0.6.95'] });
+  assert.deepEqual(whatsnew.problems(obj, '0.6.98'), [], 'the main version still shows');
+  assert.deepEqual(whatsnew.problems(obj, '0.6.95'), [], 'the also version shows');
+  assert.match(whatsnew.problems(obj, '0.6.97').join(' '), /it is for 0\.6\.98 and 0\.6\.95, not 0\.6\.97/, 'CONTROL: another version still does not');
+  assert.match(whatsnew.problems(Object.assign({}, GOOD, { also: '0.6.95' }), '0.6.98').join(' '), /"also" is not a list/);
+  assert.match(whatsnew.problems(Object.assign({}, GOOD, { also: ['v0.6.95'] }), '0.6.98').join(' '), /"also" is not a list/);
+});

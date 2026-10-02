@@ -89,3 +89,39 @@ test('#3955 round 13: a check that cannot run is not "not ready": a broken engin
     assert.match(r.stderr, /could not run/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+/* #4928: the Windows build's highlights check, RUN (its block cut from the build script and given a staged file),
+   so the cases that matter are behaviour, not text: a version the file is for passes, one it is not for stops the
+   build with the "also" fix, a check that cannot run stops with its own words, and the opt-out never runs it. */
+test('#4928: the Windows build stops on highlights that are not for its version, and the opt-out skips the check', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { spawnSync } = require('node:child_process');
+  const src = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-windows.sh'), 'utf8');
+  const from = src.indexOf('# #4928: the What');
+  assert.ok(from > 0, 'the block is not in the build script');
+  const block = src.slice(from, src.indexOf('\nfi\n', from) + 4);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wn-winbuild-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'app', 'web'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'app', 'web', 'whats-new.json'), JSON.stringify({
+      version: '0.7.16', also: ['0.7.13'], highlights: [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }] }));
+    // Under the build script's own settings (set -euo pipefail), so a form that would abort there is caught.
+    const run = (ver, env = {}, repo = __dirname) => spawnSync('bash', ['-euo', 'pipefail', '-c', block], {
+      encoding: 'utf8', env: Object.assign({}, process.env, { REPO: repo, STAGE: dir, _ver: ver }, env) });
+    assert.equal(run('0.7.16').status, 0, 'the main version did not pass');
+    assert.equal(run('0.7.13').status, 0, 'a version in "also" did not pass');
+    const no = run('0.7.17');
+    assert.equal(no.status, 1, 'a version the file is not for did not stop the build');
+    assert.match(no.stderr, /add "0\.7\.17" to its "also" list and COMMIT it/);
+    const off = run('0.7.17', { KOSMOS_CUT_NO_WHATS_NEW: '1' });
+    assert.equal(off.status, 0, 'the opt-out did not skip the check');
+    assert.match(off.stdout, /not enforced for 0\.7\.17/);
+    // A check that cannot run (its script missing) is said as such, not as "add it to also".
+    const broken = run('0.7.16', {}, dir);
+    assert.equal(broken.status, 1);
+    assert.match(broken.stderr, /could not run/);
+    assert.doesNotMatch(broken.stderr, /"also" list/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
