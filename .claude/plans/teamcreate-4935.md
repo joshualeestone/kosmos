@@ -117,6 +117,13 @@ statuses change, and Project/Model look locked while making.
 - A fixed one-line model menu is not dimmed (it is a sentence, as on the single create); the wait's comment names
   the test that shortens it; the browser-check README row names the #4935 arm.
 
+## Review 12 changes
+- A failed OpenAI models request (not only a timeout) is worded as "could not reach". Tested.
+- The model comment says Claude's default is chosen and sent like a pick; only an empty value sends none.
+- Deferred, verified: "Try again could be clickable mid-run through the loading loop". Nothing on this step
+  disabled Try again before this branch; the loop only holds it while a list loads, and tcRetry's own guards (a
+  failed row only, made by the one run) are unchanged.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 
