@@ -133,6 +133,13 @@ statuses change, and Project/Model look locked while making.
 - Deferred: the merge with April's teamhello-4936 (line 1 of render-teamcreate-4557.js conflicts; she was told the
   specifics at 21:2x, and whoever merges second unions it).
 
+## Review 14 changes
+- tcFillProvider calls tcSyncModel once the fill is done, so the model menu is released there too, not only by the
+  next tcPaint (the fill disabled it with provider and account).
+- The disabled-look comment names the filling state as well.
+- Deferred: "on Claude the default is sent explicitly, so members are pinned to it". Deliberate: the single create
+  sends its selected model the same way, and Josh asked to set one model for every agent; each can be changed later.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 
