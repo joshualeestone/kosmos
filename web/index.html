@@ -27661,13 +27661,20 @@ async function oaReadOne(c) {
     if (ac) opts.signal = ac.signal;
     const res = await fetch('https://' + c.address + '/api/status', opts);
     let body = null;
-    try { body = await res.json(); } catch { body = null; }
+    /* Only a body that is not JSON (a gate's sign-in page) counts as no status. A body cut off by this page's own
+       time limit or a dropped connection is no answer at all: thrown on, so it reads as unreachable and the last good
+       list is kept, not as "not let in", which would erase it and ask the person to sign in for nothing. */
+    try { body = await res.json(); } catch (e) {
+      if ((ac && ac.signal.aborted) || !(e instanceof SyntaxError)) throw e;
+      body = null;
+    }
     state = oaClassify(res.status, body);
     if (state === 'ok') agents = oaAgentsOf(body);
   } catch {
     /* No answer the page may read. A computer the board's last probe (up to a minute old) said is up most likely
        answered and did not let this page read it (an older connector without the sibling answer does exactly that). */
-    state = c.online === true ? 'blocked' : 'out';
+    state = (ac && ac.signal.aborted) ? 'out'   // this page's own time limit: slow, not a refusal
+      : (c.online === true ? 'blocked' : 'out');
   } finally { if (cut) clearTimeout(cut); }
   /* Not kept if a refresh took this computer off the account's list while the read ran: one added back later must
      start as new, not as what this read saw. */
@@ -27684,7 +27691,8 @@ function oaNote(c, seen, now) {
   if (st === 'ok') return '';
   if (st === 'notin') return 'This browser is not let in on ' + c.name + ' yet. Open it to sign in.';
   const kept = seen && seen.agents ? ' Showing what this page last read.' : '';
-  if (st === 'blocked') return c.name + ' is online but did not let this page read its agents.' + kept;
+  const when = kept && last ? ' This page last read it ' + last + '.' : '';
+  if (st === 'blocked') return c.name + ' is online but did not let this page read its agents.' + kept + when;
   return 'Not connected' + (last ? ', this page last read it ' + last : '') + '.' + kept;
 }
 /* An agents list this page read, but longer ago than two rounds (the section was off screen meanwhile): shown greyed
