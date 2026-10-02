@@ -246,10 +246,13 @@ if command -v codesign >/dev/null 2>&1; then
 fi
 "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" 61 </dev/null >/dev/null 2>&1 & PB=$!
 "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" 62 </dev/null >/dev/null 2>&1 & PX=$!
-sh -c "exec sleep 63 # $PWD_/chromium_headless_shell-9/ mentioned" </dev/null >/dev/null 2>&1 & PM=$!
+# No exec: the path must stay on this process's command line (an exec'd sleep drops it, and the arm passed whatever
+# the matcher did; review 8 restored the loose match and this stayed green).
+sh -c 'sleep 63; :' "$PWD_/chromium_headless_shell-9/mentioned" </dev/null >/dev/null 2>&1 & PM=$!
 sleep 0.3; seen="$(_kosmos_playwright_browsers | awk '{print $1}')"
 # Every stand-in must be ALIVE, or a "left out" arm passes because the process is gone (the first draft did).
 for p in "$PB" "$PX" "$PM"; do kill -0 "$p" 2>/dev/null || fail "the real-matcher fixture: stand-in $p is not running"; done
+case "$(ps -ww -o command= -p "$PM")" in *ms-playwright/*) ;; *) fail "the real-matcher fixture: the mention is not on its command line" ;; esac
 { printf '%s\n' "$seen" | grep -qx "$PB"; } && pass "the real matcher lists a browser executable under ms-playwright" || fail "the real matcher missed a browser executable ($seen)"
 { ! printf '%s\n' "$seen" | grep -qx "$PX"; } && pass "the real matcher leaves out a WebKit XPC helper" || fail "the real matcher listed a WebKit XPC helper"
 { ! printf '%s\n' "$seen" | grep -qx "$PM"; } && pass "the real matcher leaves out a command that only mentions the folder" || fail "the real matcher listed a mention"

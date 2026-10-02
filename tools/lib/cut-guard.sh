@@ -1250,6 +1250,7 @@ kosmos_light_side_clear() {
   if [ -n "${KOSMOS_PW_PROBE:-}" ]; then pw="$("$KOSMOS_PW_PROBE" 2>/dev/null)"; pwrc=$?
   else pw="$(_kosmos_playwright_browsers)"; pwrc=$?; fi
   if [ "$pwrc" -ge 2 ]; then echo "could not tell whether a Playwright browser is running; no side turn for $what." >&2; return 1; fi
+  [ -n "$pw" ] && pw="$(printf '%s\n' "$pw" | _kosmos_drop_test_fixtures || true)"   # review 8: a suite's stand-in is not a browser
   if [ -n "$pw" ]; then echo "a Playwright browser is running ($(printf '%s\n' "$pw" | head -1 | cut -c1-80)); no side turn beside it." >&2; return 1; fi
   lc="$(_kosmos_load_and_cores)"; load="${lc%% *}"; cores="${lc##* }"
   maxl="${KOSMOS_SIDE_MAX_LOAD:-}"
@@ -1342,6 +1343,7 @@ kosmos_light_side_intruder() {
   if [ -n "${KOSMOS_PW_PROBE:-}" ]; then l="$("$KOSMOS_PW_PROBE" 2>/dev/null)"; rc=$?
   else l="$(_kosmos_playwright_browsers)"; rc=$?; fi
   [ "$rc" -ge 2 ] && { echo "could not tell whether a Playwright browser is live"; return 0; }
+  [ -n "$l" ] && l="$(printf '%s\n' "$l" | _kosmos_drop_test_fixtures || true)"   # review 8: a suite's stand-in is not a browser
   lines="$lines
 $l"
   while IFS= read -r l; do

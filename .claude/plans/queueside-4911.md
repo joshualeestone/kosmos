@@ -126,6 +126,19 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   its own process group, so the cap's group kill reaches it only through Playwright's own handling (the yield and
   cap stop the node command; the browser exits with it). The dry harness now uses per-run sleep lengths (a
   reviewer's concurrent copy answered for mine once).
+- Round 8 (Sonnet + Opus, blind): no blocker. Fixed: (1) the real-matcher "mention" arm could not fail (an exec'd
+  stand-in drops the path from its command line; a restored loose match stayed green): the stand-in no longer execs,
+  the arm asserts the path is on its command line, and the loose match now turns it red; (2) test:* package scripts,
+  `npm t`, pnpm, and the release scripts (`yarn release` runs a cut) take an ordinary turn (dry run 31/31); (3) the
+  Playwright list drops test fixtures as the browser-run list does, so this file's own stand-in, run inside a heavy
+  holder's suite, cannot make a side turn yield. Opus (2) was a real, PRE-EXISTING gap, filed as kosmos#4929:
+  run-tests.sh always runs the whole suite (its arguments only add node --test flags), so the only way to run one
+  file, the light lane's way since #4609, is a bare node --test that skips run-tests.sh's dead-port install URLs,
+  fake CLIs and guards. The side turn's refusal text no longer recommends that; it points at #4929. Not taken:
+  a side-capable waiter started with stricter per-run settings (KOSMOS_SIDE_MAX_LOAD, KOSMOS_SIDE_MIN_HOLD_S) holds
+  the side lane shut while it waits (those are test seams, not settings anyone queues with); a take that keeps
+  losing restarts its wait's bound each time (it can only keep losing to a side claim it cannot write: a broken
+  marker dir, which breaks the main lane too).
 - KNOWN LIMIT, measured 19:35: an agent's long-lived Playwright browser (one had run 5 h 50 min) is a Playwright
   browser, so it holds side turns off while it runs. That is the safe direction; it means the side lane opens less
   often than the load figures alone suggest. The before/after measurement shows how much.

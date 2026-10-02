@@ -244,7 +244,7 @@ _rt_box_clear() {
 # #4911: inside a light run's SIDE turn (queued-heavy.sh --light beside a heavy run), refuse at once. Queued here it
 # would wait behind the heavy holder's claim while holding the side claim, which holds that holder's page layer too.
 if command -v kosmos_holds_light_side >/dev/null 2>&1 && kosmos_holds_light_side; then
-  echo "this test run is inside a light run's side turn (#4911). A side turn runs its test files directly (node --test <file>); a full suite takes an ordinary turn (queued-heavy.sh without --light)." >&2
+  echo "this test run is inside a light run's side turn (#4911). run-tests.sh always runs the whole suite (its arguments only add node --test flags), so it takes an ordinary turn: queued-heavy.sh without --light. (A guarded way to run one file is #4929.)" >&2
   exit 2
 fi
 if command -v kosmos_wait_until_clear >/dev/null 2>&1 && ! kosmos_holds_machine_claim; then
