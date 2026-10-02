@@ -2421,7 +2421,7 @@ const ASKING_GENERIC = 'it is asking you something';
  * observed vendor row starts with the sentence, after only spaces or the
  * tool-output glyph ⎿ (the 2026-08-21 screens had no ⎿, so it is optional);
  * agent prose starts with ●. Case-sensitive like /usage-credits: the vendor
- * capitalises it. And it counts only with Claude Code's turn footer at column
+ * capitalises it. (The curly ’ is ASSUMED, not observed: every capture has '.) And it counts only with Claude Code's turn footer at column
  * 0 within two rows after it (limitMarkersFor, below), which a tool result
  * that prints the same sentence mid-turn does not have (review round 2).
  *
@@ -2433,7 +2433,9 @@ const ASKING_GENERIC = 'it is asking you something';
  * rate_limited (review round 3); and a /usage-credits line wrapped onto two
  * rows, which pushes the footer out of the two-row window: the pane still
  * reads rate_limited through /usage-credits, but the evidence loses the reset
- * time (capture-pane -J joins it in practice; review round 4). None has been observed on a live pane;
+ * time (capture-pane -J joins it in practice; review round 4); and a capped
+ * pane with Claude Code's showTurnDuration setting OFF, which draws no footer
+ * at all and reads idle (review round 5). None has been observed on a live pane;
  * narrowing or widening needs another observed screen.
  */
 const RATE_LIMIT_MARKERS = [
@@ -2455,9 +2457,15 @@ const RATE_LIMIT_MARKERS = [
 const HIT_YOUR_LIMIT = RATE_LIMIT_MARKERS.find((re) => re.source.includes('hit your'));
 // Fail at load, not on every classify: a reworded marker would leave this undefined and TypeError each pane read.
 if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LIMIT_MARKERS (#5029); update HIT_YOUR_LIMIT');
-/* Review round 4: every observed footer is "✻ <Verb> for <duration> · done <clock>". The looser /^✻ \S.* for \d/ also took
-   "✻ Waiting for 1 background agent to finish", a live row on a healthy agent, as a footer. */
-const TURN_FOOTER = /^✻ \S+ for \d[\dhms ]* · done \d/;
+/* What Claude Code draws in the turn-footer slot (read from its own render code, 2.1.287, review round 5):
+   "✻ <Verb> for <duration>", then optionally " · done <clock>" and further " · " parts (so the clock is NOT required:
+   "✻ Cooked for 12s" is a real footer); or, when background agents or workflows are still pending, the
+   "✻ Waiting for N background agent(s) ... to finish" row IN THE SAME SLOT, so a capped agent with a pending
+   background agent shows that row instead. Taking the waiting row adds no new false positive: a healthy agent only
+   gets a column-0 row under a tool result when its turn ends, which is the turn-ends-on-a-tool-call residual above.
+   What it must NOT take is the mid-turn spinner, which also uses the ✻ frame ("✻ Improvising… (35s · thought for 8s)"):
+   a healthy agent that cats a capture mid-turn has that spinner right under the tool result. */
+const TURN_FOOTER = /^✻ (?:\S+ for \d[\dhms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
 function limitMarkersFor(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
   const vendor = rows.some((row, i) => HIT_YOUR_LIMIT.test(row) && rows.slice(i + 1, i + 3).some((next) => TURN_FOOTER.test(next)));

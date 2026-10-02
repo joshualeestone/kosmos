@@ -4160,7 +4160,8 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
      Review round 3: since round 2 the marker counts only with a column-0 turn footer within two rows, so a
      control WITHOUT one stays calm whatever the regex says and cannot fail. Each control below carries a real
      footer right after its limit row, so the anchoring alone is what keeps it calm: the mutant
-     /hit your .{0,40}limit/i reds the one-line promo, ASKING and EXPLAINING (recorded in the plan). */
+     /hit your .{0,40}limit/i reds the one-line promo, ASKING and EXPLAINING (recorded in the plan). The anchor itself is pinned by
+     CAPITAL_PROSE below: these lowercase controls are kept calm by case as well. */
   const DONE = '✻ Worked for 4s · done 9:01 AM\n';
   const PROMO = 'Fable 5 is now a standard part of your Max plan\n'
     + 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit\n'
@@ -4186,9 +4187,9 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
     + '     ✻ Sautéed for 0s · done 10:35 PM\n'
     + '● That is the capped screen; the marker is the fix.\n' + STATUS;
   assert.notEqual(classify(pane, CATTED).state, STATE.RATE_LIMITED, 'a healthy agent that read a capture reads as capped');
-  /* Review round 4: the footer must come AFTER the vendor row and within two rows, and must be a finished-turn footer.
-     Each arm is a healthy agent that catted a capture with a column-0 ✻ row nearby; a gate that accepts a footer
-     anywhere, a wider window, or any ✻ row reads it as capped. */
+  /* Review round 4: the footer must come AFTER the vendor row and within two rows. Each arm is a healthy agent that
+     catted a capture with a column-0 ✻ footer nearby; a gate that accepts a footer anywhere, or a wider window, reads
+     it as capped. */
   const EARLIER_FOOTER = '✻ Worked for 4s · done 9:01 AM\n● Bash(cat x)\n'
     + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
     + '     more\n● done\n' + STATUS;
@@ -4197,10 +4198,26 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
     + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
     + '     more\n     more\n● done\n✻ Worked for 4s · done 9:01 AM\n' + STATUS;
   assert.notEqual(classify(pane, LATER_FOOTER).state, STATE.RATE_LIMITED, 'a footer four rows later counted');
-  const BACKGROUND_WAIT = '● Bash(cat x)\n'
+  /* Review round 5: the mid-turn spinner uses the ✻ frame too, and sits right under a tool result while the turn runs.
+     Spinner text as observed in this repo's fixtures ("Improvising… (35s · ↓ 1.5k tokens · thought for 8s)"). A gate
+     that takes any ✻ row reads a healthy agent mid-turn as capped. */
+  const SPINNER = '● Bash(cat x)\n'
     + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
-    + '✻ Waiting for 1 background agent to finish\n' + STATUS;
-  assert.notEqual(classify(pane, BACKGROUND_WAIT).state, STATE.RATE_LIMITED, 'a live background-agent wait row counted as a turn footer');
+    + '✻ Improvising… (35s · ↓ 1.5k tokens · thought for 8s)\n' + STATUS;
+  assert.notEqual(classify(pane, SPINNER).state, STATE.RATE_LIMITED, 'the mid-turn spinner counted as a turn footer');
+  /* Review round 5: Claude Code's own footer slot. The clock is optional ("✻ Cooked for 12s", the shape in
+     status.pane-states-1889's binary-derived screen), and with a background agent pending the slot holds the waiting
+     row instead. Both are a capped pane, and must not read idle. Both shapes are vendor render code, not a capture. */
+  for (const [label, footer] of [['a footer with no clock', '✻ Cooked for 12s'], ['the background-agent waiting row', '✻ Waiting for 1 background agent to finish']]) {
+    const capped = '> hello\n'
+      + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n" + footer + '\n' + STATUS;
+    assert.equal(classify(pane, capped).state, STATE.RATE_LIMITED, label + ': a capped Claude Code reads ' + classify(pane, capped).state);
+  }
+  /* Review round 5: the ANCHOR, pinned. ASKING and EXPLAINING say "you've" in lowercase, so case-sensitivity alone kept
+     them calm and an unanchored marker passed every test. An agent's own capitalised sentence, with a real footer: */
+  const CAPITAL_PROSE = '● You\'ve hit your GitHub API rate limit. Want me to wait for it to reset?\n' + DONE + '\n'
+    + ' Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  assert.equal(classify(pane, CAPITAL_PROSE).state, STATE.NEEDS_YOU, 'an agent asking about a limit, capitalised, had its question hidden');
   /* Case-sensitive, as the doc says: the vendor capitalises it; an agent's lowercase line under a real footer must not count. */
   const LOWERCASE = "  ⎿  you've hit your weekly limit, so I'll pause here\n✻ Worked for 4s · done 9:01 AM\n" + STATUS;
   assert.notEqual(classify(pane, LOWERCASE).state, STATE.RATE_LIMITED, 'the marker is not case-sensitive');
