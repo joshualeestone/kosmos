@@ -511,3 +511,20 @@ test('read: a runaway list from another computer is cut to the first OA_MAX_AGEN
   const r = await api.oaReadOne(LIST.computers[1]);
   assert.equal(r.agents.length, 500);
 });
+
+test('read: a body cut off mid-read is unreachable (list kept), only a non-JSON body is the gate', async () => {
+  const cut = load(async () => ({ status: 200, json: async () => { const e = new Error('aborted'); e.name = 'AbortError'; throw e; } }));
+  cut.api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a' }], at: 5 });
+  const r = await cut.api.oaReadOne(LIST.computers[1]);
+  assert.notEqual(r.state, 'notin', 'never a sign-in prompt for a cut-off read');
+  assert.deepEqual(r.agents, [{ sessionName: 'a' }], 'the last good list is kept');
+  const gate = load(async () => ({ status: 200, json: async () => JSON.parse('<html>sign in</html>') }));
+  assert.equal((await gate.api.oaReadOne(LIST.computers[1])).state, 'notin', 'control: a gate page that is not JSON');
+});
+
+test('note: a greyed list from a refusing computer says when this page last read it', () => {
+  const { api } = load();
+  const now = 10 * 3600 * 1000;
+  assert.equal(api.oaNote(LIST.computers[1], { state: 'blocked', agents: [{}], at: now - 3 * 3600 * 1000 }, now),
+    'agent1s is online but did not let this page read its agents. Showing what this page last read. This page last read it 3 hours ago.');
+});
