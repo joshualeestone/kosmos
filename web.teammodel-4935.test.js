@@ -98,11 +98,13 @@ function paintWorld({ models = [], openai = null, rolesBody = null } = {}) {
     get innerHTML() { return this._html; } };
   const row = { hidden: false };
   const why = { textContent: '', hidden: true };
-  const els = { 'tc-model': sel, 'tc-model-row': row, 'tc-model-why': why };
+  const go = { disabled: false };
+  const retry = { disabled: false };
+  const els = { 'tc-model': sel, 'tc-model-row': row, 'tc-model-why': why, 'tc-go': go };
   const fetched = [];
   let paints = 0;
   const ctx = {
-    document: { getElementById: (id) => els[id] || null },
+    document: { getElementById: (id) => els[id] || null, querySelectorAll: (q) => (q === '#tc-list .tc-retry' ? [retry] : []) },
     CREATE_MODELS: models, TC: {}, TC_FILLING: 0, tcChoiceFixed: () => false, tcPaint: () => { paints += 1; },
     esc: (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
     vendorPicksModel: (p) => ['google', 'xai', 'antigravity', 'meta'].includes(p),
@@ -112,7 +114,7 @@ function paintWorld({ models = [], openai = null, rolesBody = null } = {}) {
       return Promise.resolve({ ok: !!body, json: () => Promise.resolve(body) }); },
   };
   vm.runInNewContext('let TC_MODEL_GEN = 0;\n' + lift('tcPaintModel') + '\nthis.paint = tcPaintModel;', ctx);
-  return { ctx, sel, row, why, fetched, paints: () => paints };
+  return { ctx, sel, row, why, go, retry, fetched, paints: () => paints };
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -123,6 +125,7 @@ test('#4935 Claude: the engine\'s list on its default, ready to press', () => {
   assert.equal(w.sel.value, 'sonnet');
   assert.equal(w.sel.dataset.loading, '');
   assert.equal(w.row.hidden, false);
+  assert.equal(w.go.disabled, false, 'a list already held does not touch Create');
 });
 
 test('#4935 a vendor that picks its own model: row hidden, no value, the reason said', () => {
@@ -140,6 +143,8 @@ test('#4935 OpenAI: loading holds Create, then the account\'s models (escaped) a
   w.ctx.paint('openai', '/acct/o');
   assert.equal(w.sel.dataset.loading, '1', 'loading must hold Create down');
   assert.equal(w.sel.disabled, true);
+  assert.equal(w.go.disabled, true, 'Create is held the moment the load starts, not on the next repaint');
+  assert.equal(w.retry.disabled, true, 'and so is Try again');
   await tick(); await tick(); await tick();
   assert.equal(w.sel.dataset.loading, '');
   assert.equal(w.sel.options.length, 3, w.sel.innerHTML);
@@ -164,6 +169,7 @@ test('#4935 roles not read yet: loading holds Create, then the plain /api/roles 
   const w = paintWorld({ rolesBody: { models: [{ key: 'sonnet', label: 'Sonnet', default: true }] } });
   w.ctx.paint('anthropic', '');
   assert.equal(w.sel.dataset.loading, '1');
+  assert.equal(w.go.disabled, true);
   await tick(); await tick(); await tick();
   assert.equal(w.fetched[0], '/api/roles', 'the catalogue read (?catalogue=1) is the role picker\'s alone');
   assert.equal(w.sel.value, 'sonnet');

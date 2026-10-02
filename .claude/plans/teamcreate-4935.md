@@ -57,6 +57,14 @@ statuses change, and Project/Model look locked while making.
   It explains the model in a sentence; the team label already says each agent can change it later, and adding
   it means a second caller of paintModelWhy with its own ids. Would change my mind: Josh asking for it.
 
+## Review 4 changes
+- The hold is set where loading starts (tcPaintModel's show): Create and Try again are disabled at that moment,
+  whatever started the load (first paint, a provider/account change, a late account list). The Create click
+  handler also refuses while loading. tcPaint offers them again when the list lands. Unit test asserts the
+  hold at load start; control: removing it fails 2.
+- The late-account callback runs tcSyncModel, so the model list follows a provider/account it changed.
+- A new team clears the model menu's loading/fixed flags too.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 
