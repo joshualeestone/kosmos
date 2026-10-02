@@ -520,9 +520,10 @@ function isVersionWall(got) {
    own value, so the two disagree and nothing is replaced.
    🔄 KOSMOS'S OWN tmux IS ALWAYS A CANDIDATE (<KOSMOS_HOME>/tmux/bin/tmux), so the board follows a server back to it
    whichever tmux it started on.
-   🔢 THE ORDER is the known places, then Kosmos's own, then the launcher's pick: the supervisor tries the same order
-   (then its PATH tmux), so when two binaries can read the server both sides take the same one.
-   📍 ONLY THE LOOK (tmuxPanes) triggers it. The other readers (list-sessions, display-message, capture-pane) use
+   🔢 THE ORDER is the known places, then Kosmos's own, then the launcher's pick; the supervisor tries the known places
+   and Kosmos's own in the same order (then its PATH tmux). Either side lands on a tmux that can read the server.
+   📍 ONLY THE LOOK (tmuxPanes) triggers it. The other readers and writers (list-sessions, display-message,
+   capture-pane, and remove.js, chat.js and messages.js) use
    whatever AGENT_WORKFORCE_TMUX_BIN holds, and meet the wall until the next look switches it; the look is polled
    constantly, so that window is short.
    ⏳ A SEARCH THAT FOUND NOTHING WAITS A MINUTE before it runs again: each candidate is a process, and a lasting wall
@@ -567,6 +568,18 @@ function launcherTmux() {
   if (!pick) return null;
   try { return fs.statSync(pick).isFile() ? pick : null; } catch { return null; }
 }
+/* The one switch, for both ways tmuxRepick switches. First on PATH, once, so a bare `tmux` agrees; a board that switches
+   back and forth must not grow PATH without end. ⚠️ It moves the WHOLE directory ahead (with Homebrew's: its node, git and
+   the rest) for processes spawned after the switch, as install/kosmos does at launch when a system tmux wins. */
+function tmuxSwitchTo(c, said) {
+  process.env.AGENT_WORKFORCE_TMUX_BIN = c;
+  TMUX_SWITCHED_TO = c;
+  TMUX_REPICK_MISSED_AT = 0;
+  TMUX_LAST_SEARCH = 'none';
+  const dirs = String(process.env.PATH || '').split(path.delimiter).filter((d) => d && d !== path.dirname(c));
+  process.env.PATH = [path.dirname(c)].concat(dirs).join(path.delimiter);
+  try { console.error('[status] #2955: ' + said); } catch { /* no console */ }
+}
 function tmuxRepick() {
   if (!launcherPick()) { TMUX_LAST_SEARCH = 'not-allowed'; return false; }
   if (TMUX_REPICK_MISSED_AT && Date.now() - TMUX_REPICK_MISSED_AT < TMUX_REPICK_WAIT_MS) { TMUX_LAST_SEARCH = 'waiting'; return false; }
@@ -587,16 +600,7 @@ function tmuxRepick() {
     try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
     const tried = shDetail(c, ['list-sessions'], 2000);   // a probe, on a board request path: 2 s, not the 5 s a look gets
     if (tried.ran && tried.status === 0) {
-      process.env.AGENT_WORKFORCE_TMUX_BIN = c;
-      TMUX_SWITCHED_TO = c;
-      TMUX_REPICK_MISSED_AT = 0;
-      TMUX_LAST_SEARCH = 'none';
-      /* First on PATH, once, so a bare `tmux` agrees; a board that switches back and forth must not grow PATH without
-         end. ⚠️ It moves the WHOLE directory ahead (with Homebrew's: its node, git and the rest) for processes spawned
-         after the switch, as install/kosmos does at launch when a system tmux wins. */
-      const dirs = String(process.env.PATH || '').split(path.delimiter).filter((d) => d && d !== path.dirname(c));
-      process.env.PATH = [path.dirname(c)].concat(dirs).join(path.delimiter);
-      try { console.error(`[status] #2955: this computer's tmux server belongs to a different version than ${current}; reading through ${c}, which can`); } catch { /* no console */ }
+      tmuxSwitchTo(c, `this computer's tmux server belongs to a different version than ${current}; reading through ${c}, which can`);
       return true;
     }
   }
@@ -606,13 +610,7 @@ function tmuxRepick() {
     const own = ownTmux();
     try {
       if (fs.statSync(own).isFile()) {
-        process.env.AGENT_WORKFORCE_TMUX_BIN = own;
-        TMUX_SWITCHED_TO = own;
-        TMUX_REPICK_MISSED_AT = 0;
-        TMUX_LAST_SEARCH = 'none';
-        const dirs = String(process.env.PATH || '').split(path.delimiter).filter((d) => d && d !== path.dirname(own));
-        process.env.PATH = [path.dirname(own)].concat(dirs).join(path.delimiter);
-        try { console.error(`[status] #2955: ${current} is gone and no server is running; using Kosmos's own tmux, ${own}`); } catch { /* no console */ }
+        tmuxSwitchTo(own, `${current} is gone and no server is running; using Kosmos's own tmux, ${own}`);
         return true;
       }
     } catch { /* no own tmux either */ }

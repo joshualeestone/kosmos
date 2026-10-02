@@ -100,7 +100,7 @@ _kosmos_supervisor_tmux() {
     *) return 0 ;;
   esac
   # Kosmos's own tmux is always a candidate, so a job baked with another tmux follows a server back to it. The copy
-  # that runs lives in Application Support/Kosmos/bin with nothing else (see resolve_token_engine): the app is found
+  # that runs lives in Application Support/Kosmos/bin with no app beside it (see resolve_token_engine): the app is found
   # through the engine-path pointer the board writes beside it (<KOSMOS_HOME>/app/engine), and the bundle is
   # <KOSMOS_HOME>/tmux/bin/tmux. In a checkout or the bundle, beside this script's app. KOSMOS_TMUX_OWN: harness only.
   _own="${KOSMOS_TMUX_OWN-}"
@@ -116,7 +116,7 @@ _kosmos_supervisor_tmux() {
     if [ -n "$_ownd" ]; then _own="$_ownd/tmux"; else _own=""; fi
   fi
   # The board's order (engine/status.js tmuxRepick): the known places, then Kosmos's own; then this job's PATH
-  # tmux last (usually one of those again). When two can read the server, both sides take the same one.
+  # tmux last (usually one of those again). Either side lands on a tmux that can read the server.
   for _cand in ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own" "$(command -v tmux 2>/dev/null || true)"; do
     [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
     case "$_tried" in *" $_cand "*) continue ;; esac   # once per path (command -v usually repeats a known place)
@@ -1313,9 +1313,11 @@ done
 # its reports are refused until its next launch (review of #4530, B1). tmux answers 1
 # for "no such session" and for "no server" (measured); anything else is not an answer.
 # Two answers of 1, a couple of seconds apart, or nothing is retired.
-# #2955: the version wall is not an answer either. If this run's tmux can no longer read the server (a newer tmux
-# took it while the agent ran), has-session says 1 with the wall's words, and two of those would retire a LIVE agent's
-# token. _kosmos_session_answer reports "wall" instead, so nothing is retired; the next launch asks afresh.
+# #2955: the version wall is not an answer either. Usually it means the old server (and this agent with it) died and a
+# newer tmux started the next one: keeping the token then costs nothing, and the next launch retires it. The one case
+# where the agent is still alive is a socket file unlinked under a running server (a /tmp cleaner) and a newer server
+# started at the same path; two wall answers there would retire a LIVE agent's token. So _kosmos_session_answer
+# reports "wall", never 1, and nothing is retired on it.
 _kosmos_session_answer() {
   local _s _r=0
   _s="$("$TMUX_BIN" has-session -t "$TARGET" 2>&1 >/dev/null)" || _r=$?

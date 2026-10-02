@@ -67,7 +67,10 @@ is measured on one pair (Homebrew 3.6a and the bundled 3.5a); the code does not 
 candidate is asked each time). A search blocks the board's request path: the failing look's 5 s plus up to 2 s per
 candidate, a minute apart while nothing can read the server. The board switches
 again each time the owner changes (one log line and one PATH entry each time); only a search that found nothing is
-damped.
+damped. One rare way to run an agent twice: a socket file unlinked under a running server
+(a /tmp cleaner) and a newer server started at the same path; a supervisor that restarts then switches to the new
+server, cannot see the agent still running on the orphaned one, and starts a second copy. Before this change that
+supervisor failed at the wall every 30 s instead.
 
 ## Tests
 engine/status.test.js: the switch (env and PATH), an explicit choice never replaced, nothing that cannot list taken,
@@ -199,4 +202,10 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   the mid-life PATH move (round 6, decided). NITs: the supervisor's candidates differ from the board's only in the
   last one (PATH tmux vs the launcher's pick), now said; LEFT: path-string dedupe in the supervisor (one extra probe
   on a symlinked bundle).
+- Round 15 (opus): DOCUMENTED W: the end-of-run comment overstated when a wall means a live agent (only a socket
+  unlinked under a running server); the comment names the dead-server case, and the plan's weakest premise names the
+  rare twin this design adds in the unlinked-socket case. FIXED W: "both sides take the same one" promised more than
+  the code (the last candidates differ; dedupe differs); both comments now say either side lands on a tmux that can
+  read the server. NITs taken: one switch helper (tmuxSwitchTo) for both switches; the comments name every reader that
+  follows the switch at call time, and say "no app beside it" for the Application Support copy.
 
