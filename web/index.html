@@ -53206,6 +53206,11 @@ async function addImportedInPlace(file, btn, row) {
     return;
   }
   const was = btn.textContent;
+  /* Where the keyboard was when the add began (the field, after Enter, or the button). Disabling it drops
+     focus to the page, so it is given back on a refusal, and moved on to the next row on success
+     (review 5): this list is pressed down, add after add. */
+  const had = document.activeElement;
+  const hadInRow = !!(had && had.closest && had.closest('.fr-importrow') === row);
   /* A refusal re-enables the Name field. Only a refusal ABOUT THE NAME (the engine says field:'name')
      marks it invalid and puts the cursor back in it, the reason read with it through aria-describedby;
      a missing account, a file that is not an agent, or a network failure is not the name's fault
@@ -53219,6 +53224,7 @@ async function addImportedInPlace(file, btn, row) {
       if (aboutName) { field.setAttribute('aria-invalid', 'true'); field.focus(); }
       else field.removeAttribute('aria-invalid');
     }
+    if (!aboutName && hadInRow && typeof had.focus === 'function') had.focus();
     importRowsSync(file, msg, aboutName);
   };
   IMPORT_ADDS.set(file, { state: 'adding', name: typed });
@@ -53332,6 +53338,12 @@ async function addImportedInPlace(file, btn, row) {
   }
   IMPORT_ADDS.set(file, { state: 'added', name: typed || name });
   importRowsSync(file);
+  if (hadInRow && row && row.parentElement) {
+    const rows = Array.from(row.parentElement.children).filter((r) => r && r.className && String(r.className).split(/\s+/).includes('fr-importrow'));
+    const next = rows[rows.indexOf(row) + 1];
+    const to = next && (next.querySelector('.fr-importinput') || next.querySelector('.fr-importgo'));
+    if (to && !to.disabled && typeof to.focus === 'function') to.focus();
+  }
   /* #2419: NO Undo on an import row, deliberately (Josh's spec for this screen is add +
      a green check: "add, add, add"). The sibling found/scan rows offer Undo, but their
      Add is a CONNECT (discover.disconnect puts the folder back); an imported agent is a

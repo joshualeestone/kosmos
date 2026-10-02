@@ -378,3 +378,27 @@ test('review 4: an added row\'s name is not put back into a fresh field on the n
   const api = new Function('document', slice('importNamesKept') + '\nreturn { importNamesKept };')(t.document);
   assert.equal(api.importNamesKept(box).size, 0);
 });
+
+test('review 5: after Enter in the field, a refusal not about the name gives focus back to the field', async () => {
+  const r = rig({ withField: true, parsed: { ...PARSED_NAMELESS, provider: 'openai' },
+    created: { ok: false, httpOk: false, because: 'connect an OpenAI account first' } });
+  r.field.value = 'Pip';
+  r.field.focus();                                    // the person pressed Enter in the field
+  await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
+  assert.equal(r.d.focused(), r.field, 'not left on the page');
+  assert.equal(r.field.getAttribute('aria-invalid'), null, 'and still not called invalid');
+});
+
+test('review 5: after a successful add from the keyboard, focus moves to the next row', async () => {
+  const r = rig({ withField: true, parsed: PARSED_NAMELESS, created: CREATED });
+  const box = r.d.create('div');
+  box.appendChild(r.row); r.row.parentElement = box;
+  const next = r.d.create('div'); next.className = 'fr-importrow';
+  const nextGo = r.d.create('button'); nextGo.className = 'btn uprime fr-importgo';
+  next.appendChild(nextGo); box.appendChild(next);
+  r.field.value = 'Pip';
+  r.field.focus();
+  await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
+  assert.equal(r.btn.textContent, 'Added to Kosmos', 'control: it was added');
+  assert.equal(r.d.focused(), nextGo, 'the next row is where the keyboard goes');
+});
