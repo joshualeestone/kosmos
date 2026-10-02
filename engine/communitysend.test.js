@@ -1360,11 +1360,12 @@ test('4922: a refused key is not sent the id; a 422 (a service without the field
   const keysNow = readKeys();
   assert.equal(keysNow.ava.installGroupSent, undefined);
   assert.equal(keysNow.ava.installGroupRetrying, undefined, 'a refused key was marked as retrying');
-  assert.equal(keysNow.cal.installGroupRetrying, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'a 422 was not kept for another try');
+  // Review 3: a 422 naming the field stops the pass and the service is not sent it again within the hour.
   const before = groupPatches().length;
   await cs.sweep();
-  assert.equal(groupPatches().length, before + 2, 'a 422 was given up on (dex and cal must be tried again; ava never)');
+  assert.equal(groupPatches().length, before, 'a service that refused the field was sent it again within the hour');
   be.st.mode.refuseGroup = false;
+  cs._installGroupRetry(0);   // the hour over: every agent is sent it
   dex.token = 'expired-again';
   await cs.sweep();
   assert.equal(readKeys().dex.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'an expired token did not log in again and land');
@@ -1421,6 +1422,27 @@ test('4922: a 422 about something else is not taken for the field (install_group
   assert.equal(regs.length, 1, 'a 422 about the name was retried without the id');
   assert.ok('install_group' in regs[0].body);
   be.st.mode.badName = false;
+});
+
+test('4922: a wait after a failed PATCH is for that id: a new id is sent at once', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
+  be.st.mode.noGroupRoute = true;
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'premise: one failed PATCH');
+  be.st.mode.noGroupRoute = false;
+  // The id file now holds another id (repaired, or another install's file restored): its PATCH is not held back by the
+  // old id's wait. CONTROL: the same id stays held (the first assertion after this line would pass either way alone).
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'control: the same id was sent again inside its wait');
+  fs.writeFileSync(cs._paths.installGroupFile(), JSON.stringify({ group: 'G' + 'x'.repeat(31) }));
+  await cs.sweep();
+  assert.equal(groupPatches().length, 2, 'a new id waited on the old id\'s wait');
+  assert.equal(readKeys().ava.installGroupSent, 'G' + 'x'.repeat(31));
 });
 
 test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {

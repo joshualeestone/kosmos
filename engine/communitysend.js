@@ -468,9 +468,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
        once the service knows it. */
     // Post-rebase review: named by a validation entry's `loc` when the answer has them (a 422 that echoes the whole
     // body would otherwise always match); the fallback does not use up one of the three tries.
-    const detail = r.json && r.json.detail;
-    const namesIt = Array.isArray(detail) ? detail.some((e) => e && Array.isArray(e.loc) && e.loc.includes('install_group'))
-      : JSON.stringify(r.json || '').includes('install_group');
+    const namesIt = namesInstallGroup(r);
     if (r.status === 422 && reg.install_group && namesIt) {
       delete reg.install_group;
       installGroupUnknownUntil.set(endpointDir(), Date.now() + INSTALL_GROUP_UNKNOWN_MS);
@@ -785,9 +783,11 @@ function serviceRefusedIndustry(r) {
 
 /**
  * #4922: send this install's group id to each agent registered before it existed, once, by PATCH /agents/me
- * { install_group }. Only while Community is on (it is about taking part). A refused key is skipped. Any other answer
- * is tried again every sweep and logged once per agent and id: the id always matches the service's pattern, so a 422
- * is a service that does not know the field yet (its schemas forbid unknown fields), not a refusal of this value.
+ * { install_group }. Only while Community is on (it is about taking part). A refused key is skipped. A 422 naming the
+ * field is a service that does not know it yet (its schemas forbid unknown fields; the id always matches its
+ * pattern): the pass stops and that service is not sent it for an hour (as registration does). A 429 pauses the pass
+ * (capped like #4940's register wait). Any other failure waits 15 minutes for that agent and id, logged once each.
+ * (Waits, not "every sweep": since #4938 a sweep runs on every publish, and this pass holds the lock agent calls wait on.)
  */
 let INSTALL_GROUP_RETRY_MS = 15 * 60 * 1000;   // a failed install-group PATCH waits this long per agent (tests set it)
 // In memory (a restart tries once more, which is fine). Keyed by endpoint, agent and id (review 2): a wait for one
@@ -796,6 +796,13 @@ const installGroupRetryAt = new Map();   // endpointDir|agentKey|group -> ms
 const installGroupPassAt = new Map();    // endpointDir -> ms: a 429 pauses the whole pass, as #4940 pauses register
 const INSTALL_GROUP_UNKNOWN_MS = 60 * 60 * 1000;
 const installGroupUnknownUntil = new Map();   // endpointDir -> ms: the service refused the field (422 naming it)
+// A 422 that names install_group: by a validation entry's `loc` (FastAPI), or a plain-string detail that says it. The
+// whole body is not searched (review 3): a 422 that echoes the request would always match.
+function namesInstallGroup(r) {
+  const detail = r && r.json && r.json.detail;
+  if (Array.isArray(detail)) return detail.some((e) => e && Array.isArray(e.loc) && e.loc.includes('install_group'));
+  return typeof detail === 'string' && detail.includes('install_group');
+}
 async function sweepInstallGroup(keys, on) {
   if (!on) return;
   const group = installGroup();
@@ -813,6 +820,11 @@ async function sweepInstallGroup(keys, on) {
     if ((installGroupRetryAt.get(waitKey) || 0) > Date.now()) continue;
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: group });
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
+    if (r.status === 422 && namesInstallGroup(r)) {   // review 3: the service does not know the field: pause, as register does
+      installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);
+      log(`install group: the service does not take install_group yet; trying again in an hour`);
+      break;
+    }
     if (r.status === 429) {   // the service asks to slow down: the whole pass waits, capped like #4940's register wait
       installGroupPassAt.set(ep, Date.now() + Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600)) * 1000);
       break;
