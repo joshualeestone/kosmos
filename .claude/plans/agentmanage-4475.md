@@ -20,8 +20,8 @@ and cannot force a removal; the person (the board token) removes any agent exact
     line wins) is `created`, carries `createdByName` equal to the caller's token name exactly, a time and the time
     the creator asked (`askedAt`); and neither identity has ended since (`sendertoken.endedSince`): the target after
     its birth (strictly, since its own creation revokes its name just before the birth is written), the creator at or
-    after it asked. A key-only or twin token is refused, and so is a name a token already stood for when it was made
-    (`tookTokens`).
+    after it asked. A key-only or twin token is refused; so is a name a token already stood for when it was made
+    (`tookTokens`), and a target whose key holds a token of another name now (`sendertoken.keyHoldsOthers`).
   - POST /api/team stamps `askedAt` when the request arrives and, on the agent path, reads the caller's exact token
     name; it passes both to the team.
 - `engine/sendertoken.js`: a history of ended identities, `ended-agents.jsonl` (append-only: name and time), written
@@ -32,7 +32,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - `engine/team.js` sets `createdByName` and `askedAt` on every member: the asking agent's token name and its request
   time when an agent (not the setup guide) asked on a named token, else null, so a member cannot set them.
   `engine/create.js` records them on the birth.
-- Tests: `server.agent-remove-4475.test.js` (28); `engine/remove.test.js` (a real removal ends the identity in the
+- Tests: `server.agent-remove-4475.test.js` (31); `engine/remove.test.js` (a real removal ends the identity in the
   history and a restore does not erase it); `engine/delete-leftover.test.js` (deleting a stopped, never-removed
   agent's leftovers ends it too); `server.team-agent-token-1279.test.js` (the agent path records the exact token name
   and askedAt for a creator whose sessionName differs; the board-token path records none; END TO END: an agent makes
@@ -66,6 +66,10 @@ and cannot force a removal; the person (the board token) removes any agent exact
   tokens (a pre-existing gap in create, review 11). This change would have turned that into a removal of the remote
   agent's name; `tookTokens` refuses it. Rejected for this card: making create refuse such a name, a change to
   create's own behaviour that belongs on its own card.
+- Removal revokes the whole key (#4844), so removing a made "drkip" would also end a remote "Dr.Kip" issued later
+  under the same key. A token-only removal is refused while the key holds a token of any other name (review 12).
+- History times are compared as strings, which is right only in toISOString's fixed form; a line or a birth time in
+  any other form refuses.
 - A remote token the person issues again under a name (POST /api/agent-token) mints without revoking, so it carries
   that name's identity on: a remote creator re-issued its name keeps what it made. That is the person's act and is
   taken as the same identity.
@@ -92,12 +96,13 @@ and cannot force a removal; the person (the board token) removes any agent exact
   name (adopt mints without revoking), is not seen.
 
 ## Validation
-- `server.agent-remove-4475.test.js` 29/29, `server.team-agent-token-1279.test.js` 23/23, `engine/remove.test.js` 93/93,
+- `server.agent-remove-4475.test.js` 31/31, `server.team-agent-token-1279.test.js` 23/23, `engine/remove.test.js` 93/93,
   `engine/delete-leftover.test.js` 15/15, `engine/team.newrole-4474.test.js` 22/22,
   `server.agent-token-gate-4491.test.js` 25/25, `server.agent-token-sender-570.test.js` 7/7.
 - Mutants, each failing only its own cases: revoke not writing the history (the delete-leftover and end-to-end tests),
   the creator checked from the birth instead of askedAt, the target check removed, the creator check removed, an
   unreadable history read as none, the target's end counted at the birth's exact time, the removal route ignoring
-  `tookTokens`, create not recording it, plus (re-run on this code at
+  `tookTokens`, create not recording it, the shared-key check removed, a malformed history time skipped, a malformed
+  birth time accepted, plus (re-run on this code at
   b54ebe022) the createdByName presence check, the key-only refusal, the board-name check, a slug comparison of the
   creator, and the team route recording the sessionName in place of the token name.

@@ -292,8 +292,10 @@ test('removing a name whose key also holds another name\'s token is refused (rev
 
 test('a history line whose time is not in toISOString form is read as an end (it cannot be ordered)', async () => {
   fs.mkdirSync(path.dirname(sendertoken.endedLogFile()), { recursive: true });
-  fs.appendFileSync(sendertoken.endedLogFile(), JSON.stringify({ name: 'odd-time-kid', at: 'yesterday' }) + '\n');
   born('Odd Time Kid', 'pm-agent');
+  // A LATER time written with a space: as a string it sorts before the birth's 'T' form, so a plain compare misses it.
+  const later = new Date(Date.now() + 60000).toISOString().replace('T', ' ');
+  fs.appendFileSync(sendertoken.endedLogFile(), JSON.stringify({ name: 'odd-time-kid', at: later }) + '\n');
   const r = await remove('odd-time-kid', asAgent());
   assert.equal(r.code, 403, 'a line it could not order was read as no end: ' + r.text.slice(0, 160));
   born('Odd Birth Kid', 'pm-agent', { at: '2026-10-02 18:00' });
