@@ -1507,8 +1507,8 @@ if ! release_versions_entry_present "$SITE" "$SITE_SHA" "$V"; then
 fi
 # Best-effort: bring the shared checkout back toward clean + current. The release
 # files are safely on origin/main now, so discard our working-tree copies of the
-# STRICTLY cut-owned artifacts (the channel pointer, the manifest, setup,
-# setup.sha256) -- those are generated only by the cut, so discarding them cannot
+# STRICTLY cut-owned artifacts (the channel pointer, the manifest, the channel's
+# installer pair $SETUP_FILE and $SETUP_FILE.sha256) -- those are generated only by the cut, so discarding them cannot
 # lose anyone's work -- then fast-forward local main to the pushed tip. NEVER abort
 # the cut on a cleanup miss: the release is already pushed and step 8 deploys from
 # SITE_SHA.
