@@ -320,7 +320,9 @@ release_site_restore() {
   # the remove arm just below, because `git checkout` cannot restore a file with no committed copy.
   # #5032: and the staging installer pair, which a staging cut writes in place of the /setup pair (the script
   # too: promote-channel.sh refuses a modified one).
-  for f in dist/latest.json dist/latest-staging.json setup.sha256 setup-staging setup-staging.sha256; do
+  # setup itself too (it used to put back only the sidecar): with #5032's setup_sha256 a committed setup and its
+  # sidecar that disagree make every deploy refuse.
+  for f in dist/latest.json dist/latest-staging.json setup setup.sha256 setup-staging setup-staging.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
       if ! git -C "$site" diff --quiet -- "$f"; then
         git -C "$site" checkout -q -- "$f" && echo "   put back: $f (the cut had changed it; the site checkout no longer claims $v)"

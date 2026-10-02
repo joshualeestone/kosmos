@@ -65,6 +65,9 @@ That no installer change must reach prod boxes before their app update. The esca
 prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
 
 ## Residuals
+- `curl .../setup-staging | sh` WITHOUT `KOSMOS_UPDATE_CHANNEL=staging` on the sh installs the prod tarball with the
+  staging installer. setup.sh cannot tell which URL served it; every doc and the hand-off put the variable on the
+  sh, and update.js passes it.
 - install/kosmos's "Reinstalling fixes this: curl .../setup | sh" hints send a staging box to the prod installer
   (as before this card; a staging box should use /setup-staging with KOSMOS_UPDATE_CHANNEL=staging).
 - promote writes latest.json before the /setup pair. A filesystem failure between them leaves a half-promote that
