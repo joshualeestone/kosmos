@@ -34,6 +34,9 @@ function agentDir(name) { return path.join(SANDBOX, 'workers', name); }
 function readSettings(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')); }
 function tokenAbs() { return path.join(store.ROOT, TOKEN_FILE); }
 function ruleAbs(p) { return '//' + String(p).replace(/^\/+/, ''); }
+// The sandbox filesystem block realOr's its paths (symlink correctness, e.g. /var -> /private/var on
+// macOS), so sandbox assertions must compare against resolved paths, not the raw ones.
+function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
 
 test('writes the board.token Read deny and the settings Edit denies (own + shared ~/.claude)', () => {
   const dir = agentDir('pilot-a');
@@ -65,9 +68,48 @@ test('on darwin the sandbox block is enabled, cannot be self-disabled, keeps loo
   assert.equal(sb.autoAllowBashIfSandboxed, true);
   assert.equal(sb.allowUnsandboxedCommands, false, 'without this a refused command is re-run with dangerouslyDisableSandbox');
   assert.equal(sb.network.allowLocalBinding, true, 'the loopback board must stay reachable');
-  assert.ok(sb.filesystem.denyRead.includes(tokenAbs()), 'board.token not in sandbox denyRead');
-  assert.ok(sb.filesystem.denyWrite.includes(path.join(dir, '.claude')), 'own .claude not in denyWrite (shell printf > settings.json)');
-  assert.ok(sb.filesystem.denyWrite.includes(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude')), 'shared ~/.claude not in denyWrite');
+  assert.ok(sb.filesystem.denyRead.includes(realOr(tokenAbs())), 'board.token not in sandbox denyRead');
+  // The agent's OWN .claude is denied at DIR level (safe: no runtime state there).
+  assert.ok(sb.filesystem.denyWrite.includes(realOr(path.join(dir, '.claude'))), 'own .claude not in denyWrite (shell printf > settings.json)');
+  // The config HOME ~/.claude is denied at FILE level only (W4: the whole dir holds Claude Code's own
+  // runtime state, so a dir-level denyWrite there would break normal operation).
+  const homeClaude = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  assert.ok(sb.filesystem.denyWrite.includes(realOr(path.join(homeClaude, 'settings.json'))), '~/.claude/settings.json not in denyWrite');
+  assert.ok(sb.filesystem.denyWrite.includes(realOr(path.join(homeClaude, 'settings.local.json'))), '~/.claude/settings.local.json not in denyWrite');
+  assert.ok(!sb.filesystem.denyWrite.includes(realOr(homeClaude)), 'the whole ~/.claude was denyWritten (would break Claude Code runtime state) — W4');
+});
+
+test('covers board.token in a legacy root and the default-world base (concrete), not just the current store', () => {
+  const dir = agentDir('pilot-roots');
+  const legacy = path.join(SANDBOX, 'legacy-support', 'Kosmos');
+  const worldBase = path.join(SANDBOX, 'world-base');
+  setup.guardTokenOnlyFolder(dir, 'pilot-roots', { ...DEPS, legacyRoots: [legacy], worldsBase: worldBase });
+  const deny = readSettings(dir).permissions.deny;
+  assert.ok(deny.includes(`Read(${ruleAbs(path.join(legacy, TOKEN_FILE))})`), 'the legacy root board.token is not denied');
+  assert.ok(deny.includes(`Read(${ruleAbs(path.join(worldBase, TOKEN_FILE))})`), 'the default-world base board.token is not denied');
+});
+
+test('covers the ~/.claude-* account config variants with an Edit glob (CLAUDE_CONFIG_DIR)', () => {
+  const dir = agentDir('pilot-account');
+  setup.guardTokenOnlyFolder(dir, 'pilot-account', DEPS);
+  const deny = readSettings(dir).permissions.deny;
+  const star = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude-*');
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(star, 'settings.json'))})`), 'the ~/.claude-* settings.json Edit glob is missing (hole 2)');
+  assert.ok(deny.includes(`Edit(${ruleAbs(path.join(star, 'settings.local.json'))})`), 'the ~/.claude-* settings.local.json Edit glob is missing');
+});
+
+test('preserves pre-existing sandbox.filesystem and sandbox.network entries on merge', () => {
+  const dir = agentDir('pilot-sbmerge');
+  const file = path.join(dir, '.claude', 'settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ sandbox: { network: { allowUnixSockets: ['/tmp/x.sock'] }, filesystem: { denyRead: ['/some/other/secret'], denyWrite: ['/some/other/dir'] } } }) + '\n');
+  setup.guardTokenOnlyFolder(dir, 'pilot-sbmerge', DEPS);
+  const sb = readSettings(dir).sandbox;
+  assert.deepEqual(sb.network.allowUnixSockets, ['/tmp/x.sock'], 'a pre-existing network key was dropped');
+  assert.equal(sb.network.allowLocalBinding, true, 'allowLocalBinding was not added alongside');
+  assert.ok(sb.filesystem.denyRead.includes('/some/other/secret'), 'a pre-existing denyRead entry was dropped');
+  assert.ok(sb.filesystem.denyWrite.includes('/some/other/dir'), 'a pre-existing denyWrite entry was dropped');
+  assert.ok(sb.filesystem.denyRead.includes(realOr(tokenAbs())), 'the token denyRead was not added alongside');
 });
 
 test('off darwin, no sandbox block is written (it is Seatbelt-specific)', () => {
