@@ -39,6 +39,7 @@ reported 592c8dc1, a relay main commit); if a deploy ever stamps something else,
 build), it does not pass.
 
 ## Residual
+- The shallow-clone and git-exit-128 refusals are untested (worded refusals; a fixture for 128 needs a corrupt repo).
 - The ambiguous-short-id refusal is untested (a fixture needs two objects sharing a 7-hex prefix); it only words a refusal.
 - Mac cut only: the Windows lane (build-kosmos-windows.sh stages kosmos-tunnel.exe with a .commit) does not
   run release.sh and does not ask the coordinator. Step 1d has the same gap.

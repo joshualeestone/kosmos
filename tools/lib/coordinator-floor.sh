@@ -64,12 +64,16 @@ coordinator_floor_check() {
       || { echo "coordinator_floor: the floor names $sha, which is not in $relay (fetch it); refused." >&2; return 1; }
     # Provably older (a strict ancestor of the floor commit, on the same line) is the only case not asked about.
     if [ "$(git -C "$relay" rev-parse "${built}^{commit}")" != "$(git -C "$relay" rev-parse "${sha}^{commit}")" ] \
-       && git -C "$relay" merge-base --is-ancestor "$built" "$sha" 2>/dev/null; then
+       && { git -C "$relay" merge-base --is-ancestor "$built" "$sha" 2>/dev/null; anc=$?; [ "$anc" -le 1 ] \
+            || echo "coordinator_floor: git could not compare the connector with $sha (exit $anc); asking the coordinator" >&2; [ "$anc" = 0 ]; }; then
       continue
     fi
     needed="${needed}${sha} ${why}"$'\n'
   done < "$floor"
-  [ -n "$needed" ] || return 0   # the connector carries no floor change: nothing to ask the coordinator
+  if [ -z "$needed" ]; then
+    echo "coordinator_floor: the connector (${built:0:12}) is older than every floor line; the coordinator was not asked" >&2
+    return 0
+  fi
   # Two retries of ANY failure (DNS and refused connections included, which plain --retry skips): one network
   # blip must not refuse a cut the override cannot rescue. curl 7.71+ (both cut Macs: 8.7.1).
   # KOSMOS_COORDINATOR_RETRIES (default 2) exists for the tests, whose file:// "unreadable" arms would otherwise sleep.
@@ -100,7 +104,8 @@ coordinator_floor_check() {
   # A shallow relay checkout can answer "not an ancestor" for history it does not hold: an unknown, not "behind".
   [ "$(git -C "$relay" rev-parse --is-shallow-repository 2>/dev/null)" != true ] \
     || { echo "coordinator_floor: $relay is a SHALLOW clone, so ancestry against the coordinator's build is unknown; unshallow it (git -C $relay fetch --unshallow origin) and retry. Refused." >&2; return 1; }
-  build_full="$(git -C "$relay" rev-parse -q --verify "${build}^{commit}" 2>/dev/null)" || {
+  build_full="$(git -C "$relay" rev-parse -q --verify "${build}^{commit}" 2>/dev/null)" && case "$build_full" in "$build"*) ;; *) build_full="" ;; esac
+  [ -n "$build_full" ] || {
     if [ "$(git -C "$relay" rev-parse --disambiguate="$build" 2>/dev/null | wc -l | tr -d ' ')" -gt 1 ]; then
       echo "coordinator_floor: the coordinator's build $build is an AMBIGUOUS short id in $relay; refused (look it up by hand)." >&2
     else
@@ -121,7 +126,10 @@ coordinator_floor_check() {
   done <<EOF_NEEDED
 $needed
 EOF_NEEDED
-  [ -n "$behind" ] || return 0
+  if [ -z "$behind" ]; then
+    echo "coordinator_floor: the coordinator ($url, build $build) carries what the connector (${built:0:12}) needs" >&2
+    return 0
+  fi
   if [ "${KOSMOS_ALLOW_COORDINATOR_BEHIND:-}" = 1 ]; then
     echo "coordinator_floor: KOSMOS_ALLOW_COORDINATOR_BEHIND=1, so shipping a connector built from ${built:0:12} ON PURPOSE while the coordinator ($build) lacks:" >&2
     printf '%s' "$behind" >&2
