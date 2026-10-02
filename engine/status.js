@@ -2518,6 +2518,46 @@ function limitMarkersFor(tail) {
   return vendor ? RATE_LIMIT_MARKERS : RATE_LIMIT_MARKERS.filter((re) => re !== HIT_YOUR_LIMIT);
 }
 
+/* #5031: when a Claude limit's own line says it has reset. Observed 2026-10-02 (#5029):
+     You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
+   The time is wall-clock in the IANA zone the line names, with no year. Returns epoch ms, or null for anything else
+   (a time with no date, a zone this runtime does not know, no reset at all): null keeps the card capped, which is
+   what it did before, so an unparsed wording can only fail toward Paused, never toward a false "answering again".
+   The year is the one that puts the reset nearest to now, so a December reset read in January lands right. */
+const LIMIT_RESET = /\bresets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}) at (\d{1,2})(?::(\d{2}))?(am|pm) \(([A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+)\)/;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function zoneOffsetMs(zone, ms) {
+  const at = Math.floor(ms / 1000) * 1000;
+  const p = {};
+  for (const part of new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric',
+    day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(new Date(at))) p[part.type] = part.value;
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - at;
+}
+function limitResetAt(line, nowMs) {
+  const m = LIMIT_RESET.exec(String(line == null ? '' : line));
+  if (!m) return null;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const month = MONTHS.indexOf(m[1]);
+  const day = Number(m[2]);
+  const hour12 = Number(m[3]);
+  const minute = m[4] === undefined ? 0 : Number(m[4]);
+  if (day < 1 || day > 31 || hour12 < 1 || hour12 > 12 || minute > 59) return null;
+  const hour = (hour12 % 12) + (m[5] === 'pm' ? 12 : 0);
+  let best = null;
+  try {
+    const year = new Date(now).getUTCFullYear();
+    for (const y of [year - 1, year, year + 1]) {
+      const wall = Date.UTC(y, month, day, hour, minute);
+      if (new Date(wall).getUTCDate() !== day) continue;   // Feb 30 and the like
+      /* Twice: the offset AT the instant, not at the wall time read as UTC (they differ near a DST change). */
+      let at = wall - zoneOffsetMs(m[6], wall);
+      at = wall - zoneOffsetMs(m[6], at);
+      if (best === null || Math.abs(at - now) < Math.abs(best - now)) best = at;
+    }
+  } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
+  return best;
+}
+
 /**
  * #874. Captured from a live pane, 2026-08-25, an agent whose account's
  * bearer token had been revoked or expired:
@@ -6910,6 +6950,19 @@ function quotaPauseUntil(reported, nowMs) {
 
 // #4588 part 3: not pure for an Antigravity quota report: it also reads agyquota's pool memory (see the quota block).
 function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity) {
+  /* #5031: a Claude usage limit whose own line says it has reset is over. Nothing else clears it: the limit line stays
+     on the screen until the agent is given a new turn, and the Guide's bubble, on Kosmos's backup while its Guide is
+     capped (#3660), never gives it one, so the card read capped and the bubble never handed back. Turned into the
+     idle reading here, the one place with a clock, so every rule below sees an agent that is simply waiting. Only a
+     reset this can read and that has passed: anything else stays capped, as before. */
+  if (scraped && scraped.state === STATE.RATE_LIMITED && scraped.confidence === CONFIDENCE.SCRAPED) {
+    const resetAt = limitResetAt(scraped.evidence, nowMs);
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    if (resetAt !== null && now >= resetAt) {
+      scraped = { ...scraped, state: STATE.IDLE,
+        because: 'its usage limit reset at ' + require('./quotawords').quotaResetWords(resetAt, now) + ' and it has not been given anything since' };
+    }
+  }
   /* #1930: a live-HEALTHY account means a scraped auth_failed is STALE, whether or not the
      agent has reported. Handle it HERE, above the no-report early return below, so a
      never-reported agent -- one that hit a 401 on launch and sits idle at a prompt after an
@@ -8648,7 +8701,7 @@ module.exports = {
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an
