@@ -10,8 +10,13 @@
  *   F2  a GIF comes back as WebP or JPEG (the community takes no GIF);
  *   F3  a picture that already fits is returned untouched, the very same object;
  *   F4  something that is not a picture is returned as it was, and nothing throws;
- *   F5  a JPEG that already fits is still redrawn (a phone photo's rotation tag is refused by the community, and a
- *       redraw applies it and leaves no tag), and comes back within the cap.
+ *   F5  a JPEG that already fits is still redrawn, and comes back within the cap;
+ *   F6  a transparent picture over the cap never gets a black background: transparent where it can be kept within
+ *       the cap, else on white (WebKit cannot write WebP, and a JPEG once turned every transparent pixel black);
+ *   F6b a transparent logo too big to keep (2,500 px) stays transparent in every engine;
+ *   F7  a phone JPEG with a rotation tag (EXIF Orientation 6) comes back upright, its sides swapped;
+ *   F8  a thin banner is padded to the community's 16 px minimum, never squeezed under it;
+ *   and every picture that comes back (F1, F2, F5 to F8) has each side from 16 to 2,048 px.
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
  *   ENGINES=chromium,webkit HEADED=0 NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-picture-fit-4885.js
@@ -82,24 +87,80 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
         const junk = new Blob(['not a picture at all'.repeat(5000)], { type: 'image/png' });
         let junkOut = null; let threw = false;
         try { junkOut = await window.fitPicture(junk); } catch { threw = true; }
+        // F6: a transparent picture over the cap (an opaque disc on a transparent square, with noise in the disc).
+        const tc = document.createElement('canvas');
+        tc.width = 800; tc.height = 800;
+        const tctx = tc.getContext('2d');
+        const timg = tctx.createImageData(800, 800);
+        for (let y = 0; y < 800; y++) for (let x = 0; x < 800; x++) {
+          const i = (y * 800 + x) * 4;
+          if ((x - 400) ** 2 + (y - 400) ** 2 < 300 ** 2) {
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            timg.data[i] = seed & 255; timg.data[i + 1] = (seed >> 8) & 255; timg.data[i + 2] = 90; timg.data[i + 3] = 255;
+          }
+        }
+        tctx.putImageData(timg, 0, 0);
+        const trans = await new Promise((res) => tc.toBlob(res, 'image/png'));
+        const transOut = await window.fitPicture(trans);
+        const corner = async (b) => {
+          const i = await createImageBitmap(b);
+          const c = document.createElement('canvas'); c.width = i.width; c.height = i.height;
+          const x = c.getContext('2d'); x.drawImage(i, 0, 0);
+          return Array.from(x.getImageData(1, 1, 1, 1).data);
+        };
+        // F6b: a flat transparent logo with a side over 2,048 px, so it must be redrawn.
+        const lc = document.createElement('canvas');
+        lc.width = 2500; lc.height = 2500;
+        const lctx = lc.getContext('2d');
+        lctx.fillStyle = '#2a6'; lctx.beginPath(); lctx.arc(1250, 1250, 900, 0, Math.PI * 2); lctx.fill();
+        const logo = await new Promise((res) => lc.toBlob(res, 'image/png'));
+        const logoOut = await window.fitPicture(logo);
+        // F7: a 200 x 100 JPEG with an EXIF Orientation 6 segment spliced in after its start marker.
+        const wide = document.createElement('canvas');
+        wide.width = 200; wide.height = 100;
+        wide.getContext('2d').fillRect(0, 0, 100, 100);
+        const plain = new Uint8Array(await (await new Promise((res) => wide.toBlob(res, 'image/jpeg', 0.9))).arrayBuffer());
+        const exif = [0xff, 0xe1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08,
+          0x00, 0x01, 0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        const rotated = new Blob([plain.subarray(0, 2), new Uint8Array(exif), plain.subarray(2)], { type: 'image/jpeg' });
+        const rotOut = await window.fitPicture(rotated);
+        // F8: a thin banner.
+        const thin = document.createElement('canvas');
+        thin.width = 3000; thin.height = 20;
+        thin.getContext('2d').fillRect(0, 0, 3000, 20);
+        const banner = await new Promise((res) => thin.toBlob(res, 'image/png'));
+        const thinOut = await window.fitPicture(banner);
         // F5: a small JPEG.
         const jpg = await new Promise((res) => small.toBlob(res, 'image/jpeg', 0.9));
         const jpgOut = await window.fitPicture(jpg);
         return {
+          logoType: logoOut.type, logoSize: logoOut.size, logoSame: logoOut === logo, logoCorner: await corner(logoOut),
+          transIn: trans.size, transType: transOut.type, transSize: transOut.size, transCorner: await corner(transOut),
+          rotDims: await decode(rotOut), thinDims: await decode(thinOut), thinSame: thinOut === banner,
+          sides: await Promise.all([fit, gifOut, jpgOut, transOut, logoOut, rotOut, thinOut].map(decode)),
           jpgIn: jpg.type + ' ' + jpg.size, jpgRedrawn: jpgOut !== jpg, jpgType: jpgOut.type, jpgSize: jpgOut.size,
           bigSize: big.size, fitType: fit.type, fitSize: fit.size, fitDims,
           gifType: gifOut.type, gifSize: gifOut.size, okSize: ok.size, same, junkSame: junkOut === junk, threw,
         };
       }, GIF_B64);
       say(r.bigSize > 60000, engine + ' F1 control: the source photo really is over the cap', r.bigSize + ' bytes');
-      say(['image/webp', 'image/jpeg'].includes(r.fitType), engine + ' F1: a big photo comes back as WebP or JPEG', r.fitType);
+      say(['image/webp', 'image/png', 'image/jpeg'].includes(r.fitType), engine + ' F1: a big photo comes back as WebP, PNG or JPEG', r.fitType);
       say(r.fitSize <= 60000, engine + ' F1: and at most 60,000 bytes', r.fitSize + ' bytes');
       say(Math.max(r.fitDims.w, r.fitDims.h) <= 512 && r.fitDims.w > 0, engine + ' F1: longest side at most 512 px, and it decodes', r.fitDims.w + 'x' + r.fitDims.h);
       say(Math.abs(r.fitDims.w / r.fitDims.h - 2000 / 1500) < 0.02, engine + ' F1: the shape is kept', r.fitDims.w + 'x' + r.fitDims.h);
-      say(['image/webp', 'image/jpeg'].includes(r.gifType) && r.gifSize <= 60000, engine + ' F2: a GIF comes back as WebP or JPEG', r.gifType + ' ' + r.gifSize);
+      say(['image/webp', 'image/png', 'image/jpeg'].includes(r.gifType) && r.gifSize <= 60000, engine + ' F2: a GIF comes back as WebP, PNG or JPEG', r.gifType + ' ' + r.gifSize);
       say(r.okSize <= 60000 && r.same, engine + ' F3: a picture that fits is returned untouched', r.okSize + ' bytes');
       say(r.junkSame && !r.threw, engine + ' F4: something that is not a picture is returned as it was, without throwing');
-      say(r.jpgRedrawn && ['image/webp', 'image/jpeg'].includes(r.jpgType) && r.jpgSize <= 60000, engine + ' F5: a JPEG that fits is still redrawn', r.jpgIn + ' -> ' + r.jpgType + ' ' + r.jpgSize);
+      say(r.jpgRedrawn && ['image/webp', 'image/png', 'image/jpeg'].includes(r.jpgType) && r.jpgSize <= 60000, engine + ' F5: a JPEG that fits is still redrawn', r.jpgIn + ' -> ' + r.jpgType + ' ' + r.jpgSize);
+      say(r.transIn > 60000, engine + ' F6 control: the transparent source really is over the cap', r.transIn + ' bytes');
+      say(r.transSize <= 60000, engine + ' F6: a transparent picture comes back within the cap', r.transType + ' ' + r.transSize);
+      const [cr, cg, cb, ca] = r.transCorner;
+      say(ca === 0 || (cr === 255 && cg === 255 && cb === 255), engine + ' F6: its transparent corner is transparent, or white, never black', JSON.stringify(r.transCorner));
+      say(r.logoCorner[3] === 0 && r.logoSize <= 60000 && !r.logoSame, engine + ' F6b: a transparent logo too big to keep stays transparent', r.logoType + ' ' + r.logoSize + ' ' + JSON.stringify(r.logoCorner));
+      say(r.rotDims.w === 100 && r.rotDims.h === 200, engine + ' F7: a phone JPEG with a rotation tag comes back upright', r.rotDims.w + 'x' + r.rotDims.h);
+      say(!r.thinSame && Math.min(r.thinDims.w, r.thinDims.h) >= 16, engine + ' F8: a thin banner is padded to at least 16 px', r.thinDims.w + 'x' + r.thinDims.h);
+      const badSide = r.sides.filter((d) => Math.min(d.w, d.h) < 16 || Math.max(d.w, d.h) > 2048);
+      say(badSide.length === 0, engine + ': every picture that comes back is 16 to 2,048 px on each side', JSON.stringify(r.sides));
       say(errors.length === 0, engine + ': no page errors', errors.join(' | '));
     } catch (e) {
       say(false, engine + ': ran to the end', String(e && e.message).split('\n')[0]);

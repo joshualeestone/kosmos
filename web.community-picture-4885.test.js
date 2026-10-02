@@ -34,7 +34,7 @@ test('#4885: every path that stores an agent\'s picture passes it through fitPic
   assert.match(HTML, /const pic = await fitPicture\(f\);[^\n]*\n\s*const res = await fetch\('\/api\/agent\/' \+ encodeURIComponent\(forAgent\) \+ '\/avatar',\n\s*\{ method: 'PUT', headers: \{ 'content-type': pic\.type \|\| f\.type \}, body: pic \}\);/);
   assert.match(HTML, /const up = await fitPicture\(chosen\);/);
   assert.match(HTML, /blob = await fitPicture\(blob\);[^\n]*\n\s*const res = await fetch\('\/api\/agent\/' \+ encodeURIComponent\(name\) \+ '\/avatar', \{ method: 'PUT'/);
-  // A PUT of an agent's avatar anywhere else would store a picture the community may not take.
+  // A tripwire, not a proof: it counts PUTs written in this one form, so a fourth written the same way trips it.
   const puts = HTML.match(/'\/api\/agent\/' \+ encodeURIComponent\([a-zA-Z]+\) \+ '\/avatar',\s*\{\s*method: 'PUT'/g) || [];
   assert.equal(puts.length, 3, 'a new place stores an agent\'s picture without fitPicture: ' + puts.length);
 });
@@ -48,7 +48,8 @@ test('#4885: the create flow clears its pending picture before it waits, and sti
 /* industryPaint with a stand-in document: only the elements it touches. */
 function paint(r) {
   const els = {};
-  const el = (id) => (els[id] = els[id] || { id, hidden: true, textContent: '', value: '', children: [], appendChild(c) { this.children.push(c); } });
+  // Each element starts SHOWN with old text, so a paint that never hides or clears the line cannot pass.
+  const el = (id) => (els[id] = els[id] || { id, hidden: false, textContent: 'stale', value: '', children: [], appendChild(c) { this.children.push(c); } });
   const document = { getElementById: el, createElement: () => ({}) };
   const INDUSTRY_NONE_LABEL = 'None';
   const INDUSTRY_UNKNOWN_LABEL = 'Unknown';
@@ -59,10 +60,12 @@ function paint(r) {
 
 test('#4885: a picture the board can no longer take down is said in Settings; none, or a board that does not say, says nothing', () => {
   const base = { ok: true, industry: null, industries: [] };
-  assert.equal(paint({ ...base, picturesStuck: 0 }).hidden, true);
-  assert.equal(paint(base).hidden, true, 'a board with no pictures field drew the line');
-  assert.equal(paint(null).hidden, true);
-  assert.equal(paint({ ...base, picturesStuck: '2' }).hidden, true, 'a count that is not a number drew the line');
+  for (const [r, why] of [[{ ...base, picturesStuck: 0 }, 'zero'], [base, 'no pictures field'], [null, 'an unreadable answer'],
+    [{ ...base, picturesStuck: null }, 'cannot tell'], [{ ...base, picturesStuck: '2' }, 'a count that is not a number']]) {
+    const line = paint(r);
+    assert.equal(line.hidden, true, why + ': the line stayed shown');
+    assert.equal(line.textContent, '', why + ': the old words stayed');
+  }
   const one = paint({ ...base, picturesStuck: 1 });
   assert.equal(one.hidden, false);
   assert.equal(one.textContent, 'One agent’s picture may still show in the community. The community shut that agent out, so Kosmos can no longer take it down.');

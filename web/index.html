@@ -39494,35 +39494,64 @@ document.getElementById('detail-back').addEventListener('click', () => {
   else showTab('agents');
 });
 
-/* #4885: an agent's picture travels with it to the Kosmos+ community, which takes a PNG, JPEG or WebP of at most
-   60,000 bytes. A PNG or WebP that already fits is kept exactly as chosen; any other (a big photo, a GIF, and every
-   JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is redrawn here,
-   longest side at most 512 px, as WebP (JPEG where the browser cannot write WebP), smaller until it fits. Every
-   picture Kosmos stores comes through here, so the board only ever has pictures it can send. Never throws: when a
-   picture cannot be redrawn, the original is kept (the board then sends nothing and the community shows its mark). */
+/* #4885: an agent's picture travels with it to the Kosmos+ community, which takes a still PNG, JPEG or WebP of at most
+   60,000 bytes with each side from 16 to 2,048 px (kosmos-community app/avatars.py). A still PNG or WebP that already
+   meets all of that is kept exactly as chosen. Anything else (a big photo, a GIF, an animated picture, a tiny or huge
+   one, and every JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is
+   redrawn: longest side at most 512 px, short side at least 16 px (padded, never stretched), as WebP, then PNG (both
+   keep transparency), then JPEG on white, stepping down until it fits. Every picture the person chooses comes through
+   here. Never throws: a picture that cannot be redrawn is kept as it was (the board then does not send it and the
+   community shows its mark). */
 const PICTURE_MAX_BYTES = 60000;
+const PICTURE_MIN_SIDE = 16;
+const PICTURE_MAX_SIDE = 2048;
+let PICTURE_WEBP = null;   // whether this browser can write WebP (WebKit cannot); asked once
+function pictureAnimated(bytes) {
+  // An animated PNG has an acTL chunk, an animated WebP an ANIM chunk; either near the start of the file.
+  const head = String.fromCharCode.apply(null, bytes.subarray(0, Math.min(bytes.length, 4096)));
+  return head.includes('acTL') || head.includes('ANIM');
+}
 async function fitPicture(blob) {
+  let bmp = null;
   try {
     if (!blob) return blob;
-    if (blob.size <= PICTURE_MAX_BYTES && (blob.type === 'image/png' || blob.type === 'image/webp')) return blob;
-    const bmp = await createImageBitmap(blob);
+    bmp = await createImageBitmap(blob);
+    const sidesOk = (w, h) => Math.min(w, h) >= PICTURE_MIN_SIDE && Math.max(w, h) <= PICTURE_MAX_SIDE;
+    if (blob.size <= PICTURE_MAX_BYTES && (blob.type === 'image/png' || blob.type === 'image/webp')
+        && sidesOk(bmp.width, bmp.height) && !pictureAnimated(new Uint8Array(await blob.arrayBuffer()))) return blob;
+    if (PICTURE_WEBP === null) {
+      const probe = document.createElement('canvas');
+      probe.width = probe.height = 1;
+      const b = await new Promise((r) => probe.toBlob(r, 'image/webp'));
+      PICTURE_WEBP = Boolean(b && b.type === 'image/webp');
+    }
+    const types = (PICTURE_WEBP ? ['image/webp'] : []).concat(['image/png', 'image/jpeg']);
     const big = Math.max(bmp.width, bmp.height) || 1;
     for (const side of [512, 384, 256, 192, 128]) {
       const k = Math.min(1, side / big);
+      const w = Math.max(1, Math.round(bmp.width * k));
+      const h = Math.max(1, Math.round(bmp.height * k));
       const cv = document.createElement('canvas');
-      cv.width = Math.max(1, Math.round(bmp.width * k));
-      cv.height = Math.max(1, Math.round(bmp.height * k));
-      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
-      for (const q of [0.86, 0.72]) {
-        for (const type of ['image/webp', 'image/jpeg']) {
+      cv.width = Math.max(PICTURE_MIN_SIDE, w);
+      cv.height = Math.max(PICTURE_MIN_SIDE, h);
+      const ctx = cv.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      for (const type of types) {
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        // JPEG has no transparency: on white, or a transparent picture comes out with a black background.
+        if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); }
+        ctx.drawImage(bmp, Math.floor((cv.width - w) / 2), Math.floor((cv.height - h) / 2), w, h);
+        for (const q of type === 'image/png' ? [undefined] : [0.86, 0.72]) {
           const out = await new Promise((r) => cv.toBlob(r, type, q));
-          // A browser that cannot write WebP hands back a PNG instead; only a blob of the asked-for type counts.
+          // A browser that cannot write a type hands back a PNG instead; only a blob of the asked-for type counts.
           if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) return out;
         }
       }
     }
     return blob;
-  } catch { return blob; }
+  } catch { return blob; } finally {
+    try { if (bmp) bmp.close(); } catch { /* already released */ }
+  }
 }
 
 document.getElementById('d-file').addEventListener('change', async (e) => {
