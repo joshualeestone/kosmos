@@ -21,11 +21,15 @@ pills).
 - Making the whole left column sticky: identity + nav + files is taller than a laptop window.
 
 ## Evidence
-- On main: AI Settings at 450 and 600px overlap on chromium and webkit (4 FAIL); Talk does not.
-- With the change: all pass. render-agent-nav, render-talk-fill-2622, render-agent-files-3614,
-  render-dm-chatfirst-718, render-settings-nav also pass on this branch.
+- On the branch base (check copied into a detached worktree): 8 FAIL. AI Settings at 450 and 600px
+  (page scroll) and Talk at 200px and the column's end (520px-tall window, column scroll only), on
+  chromium and webkit. Talk at 1200x800 did not overlap: the column scrolls only 56px there, short of
+  the nav's stick point, so the check uses a shorter window.
+- With the change: all pass (33 PASS lines). render-agent-nav, render-talk-fill-2622,
+  render-agent-files-3614, render-dm-chatfirst-718, render-settings-nav also pass on this branch.
 
 ## Weakest premise
 That nobody needs the pills to stay on screen halfway down a long AI Settings page. That includes a
-pill's needs-you dot (`.snav .dot`), which now scrolls away with it. Scrolling up reaches them; if that proves annoying, the next step is a sticky nav with the Files card moved out of
+pill's needs-you dot (`.snav .dot`), which now scrolls away with it, and in Talk the pills now scroll
+away inside the column's own scroll box instead of pinning there. Scrolling up reaches them; if that proves annoying, the next step is a sticky nav with the Files card moved out of
 its column, not a sticky nav over it.

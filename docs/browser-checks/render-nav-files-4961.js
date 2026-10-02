@@ -8,12 +8,11 @@
  * the sticky app header.
  *
  * Boots a sandboxed board with one agent that has saved files (so the Files card shows). On chromium
- * and webkit: on AI Settings, scrolls the page to several offsets, and in the Talk view scrolls the
- * left column's own scroll box; at every offset the nav and the Files card must not overlap. The
- * Talk offsets did not overlap on main either: they guard against a regression there, and only the
- * AI Settings offsets tell the old page from the new.
- * Controls: the Files card is showing, and each scroll actually moved the card (so an unscrolled page
- * cannot pass by never testing the overlap).
+ * and webkit: on AI Settings, scrolls the page to several offsets, and in the Talk view (a 520px-tall
+ * window, so the column scrolls far enough for a sticky nav to stick) scrolls only the left column's
+ * own scroll box; at every offset the nav and the Files card must not overlap.
+ * Controls: the Files card is showing, each scroll actually moved the card, and in Talk the column
+ * itself scrolled while the page did not (so an unscrolled view cannot pass by never testing it).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-nav-files-4961.js
  */
@@ -86,17 +85,21 @@ const overlap = (a, b) => a.top < b.bottom && b.top < a.bottom && a.bottom > a.t
           ran += 1;
         }
 
-        /* Talk: the left column is its own scroll box on a wide window. */
+        /* Talk: the left column is its own scroll box on a wide window. A short window, so the column
+           scrolls far enough for a sticky nav to stick; only the column scrolls, never the page. */
         await page.evaluate(() => window.scrollTo(0, 0));
+        await page.setViewportSize({ width: 1200, height: 520 });
         await page.locator('#d-nav button[data-go="talk"]').click();
         await page.waitForTimeout(300);
         const t0 = await read(page);
-        for (const y of [150, 300]) {
-          const moved = await page.evaluate((y) => { const c = document.querySelector('#panel-detail .dleft'); c.scrollTop = y; window.scrollTo(0, y); return c.scrollTop + window.scrollY; }, y);
+        for (const y of [100, 200, 'end']) {
+          const at = y === 'end' ? 'to the end' : y + 'px';
+          const pos = await page.evaluate((y) => { const c = document.querySelector('#panel-detail .dleft'); c.scrollTop = y === 'end' ? c.scrollHeight : y; return { col: c.scrollTop, page: window.scrollY }; }, y);
           await page.waitForTimeout(120);
           const r = await read(page);
-          chk(moved > 0 && r.files && r.files.top !== t0.files.top, `${engineName} Talk, scrolled ${y}px: control: the Files card moved`, JSON.stringify({ moved, r }));
-          chk(r.files && !overlap(r.nav, r.files), `${engineName} Talk, scrolled ${y}px: the pills do not sit on the Files card`, JSON.stringify(r));
+          chk(pos.col > 0 && pos.page === 0 && r.files && r.files.top !== t0.files.top,
+            `${engineName} Talk, column scrolled ${at}: control: the column itself scrolled and the Files card moved`, JSON.stringify({ pos, r }));
+          chk(r.files && !overlap(r.nav, r.files), `${engineName} Talk, column scrolled ${at}: the pills do not sit on the Files card`, JSON.stringify(r));
           ran += 1;
         }
         chk(errs.length === 0, `${engineName}: no page errors`, errs.join(' | '));
@@ -108,7 +111,7 @@ const overlap = (a, b) => a.top < b.bottom && b.top < a.bottom && a.bottom > a.t
     server.close();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
-  chk(ran === 12, 'precondition: both engines, every scroll offset ran', String(ran));
+  chk(ran === 14, 'precondition: both engines, every scroll offset ran', String(ran));
   console.log(fail.length ? `${fail.length} check(s) FAILED` : 'all checks passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(2); });
