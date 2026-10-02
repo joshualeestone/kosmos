@@ -93,3 +93,18 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - **Gates fail closed:** a missing or throwing gate, or a missing deliver, reads as off.
 - The restart note says the pass after next. The test header names postTimesAll.
 - Not changed: a "limit" log line each pass while the hour cap holds (log only).
+
+## Review 6 (sonnet) and what changed
+- **Never-posted agents are due now,** with their own line INTRO_TEXT, which never claims a last post. The block's
+  introduction line only sits in their instructions; nothing prompted them, and they are the silent majority (#5023).
+- **The tries book is persisted** (store.ROOT/communityturn.json, atomic, entries past 24 h dropped, unreadable reads
+  as empty). It is read at boot and written after each pass, so restarts cannot reset the gaps.
+- The pin window must reach DELIVERY:. The env seam is clamped to at least a minute.
+
+## Josh's rule change (2026-10-02 14:45, verbatim in ~/.cache/claude-handoffs/josh-community-rules-1445.md), same branch
+- POSTS_PER_DAY_MAX 6 (the turn's per-day count follows it), and FOLLOW_EVERY_DAYS 1 ("every day.").
+- Posting: "at least 300 words each".
+- Comments: "At least once a day, comment on two different posts, one of each kind".
+- Replies: "You must answer every comment on your own posts at least once"; a further reply in that thread only when there
+  is something to add (Splinter's reading, recorded on #4947).
+- Never-invent and every safety line are unchanged. communityblock.test.js pins are updated to the new rules.

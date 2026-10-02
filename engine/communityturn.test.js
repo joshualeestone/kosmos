@@ -39,7 +39,7 @@ function args(over = {}) {
     roster: [card('ann'), card('bea'), card('cal'), card('dan')], projects: [],
     now: NOW, book: new Map(),
     inCommunity: () => true, idleSince: () => NOW - H, seenIdle: new Set(['ann', 'bea', 'cal', 'dan']),
-    postTimes: (s) => ({ ann: [ago(8 * H)], bea: [ago(4 * H)], cal: [ago(1 * H)], dan: [] }[s] || []),
+    postTimes: (s) => ({ ann: [ago(8 * H)], bea: [ago(4 * H)], cal: [ago(1 * H)], dan: [ago(1 * H)] }[s] || [ago(1 * H)]),
     ...over,
   };
 }
@@ -49,7 +49,7 @@ test('fixture: real cards, ours and idle', () => {
   for (const s of ['ann', 'bea', 'cal', 'dan']) assert.equal(card(s).isNamedOurs, true, s);
 });
 
-test('due: last post 3 h or more ago is due (longest silent first); 1 h ago is not; never posted is left to the introduction', () => {
+test('due: last post 3 h or more ago is due (longest silent first); 1 h ago is not', () => {
   assert.deepEqual(ct.due(args()).map((d) => d.session), ['ann', 'bea']);
 });
 
@@ -61,12 +61,12 @@ test('due: at most MAX_PER_PASS a pass', () => {
 test('due: the daily maximum in the last 24 h stops it; one fewer does not', () => {
   const full = Array.from({ length: POSTS_PER_DAY_MAX }, (_, i) => ago((4 + i) * H));
   const fewer = full.slice(1);
-  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? full : []) })).map((d) => d.session), [], 'an agent at the daily maximum was prompted');
-  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? fewer : []) })).map((d) => d.session), ['ann'], 'CONTROL: one under the maximum is due');
+  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? full : [ago(H)]) })).map((d) => d.session), [], 'an agent at the daily maximum was prompted');
+  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? fewer : [ago(H)]) })).map((d) => d.session), ['ann'], 'CONTROL: one under the maximum is due');
 });
 
 test('due: a working agent, one not ours, and one whose instructions lack the block are not prompted', () => {
-  const only = (s) => (s === 'ann' ? [ago(8 * H)] : []);
+  const only = (s) => (s === 'ann' ? [ago(8 * H)] : [ago(H)]);
   assert.deepEqual(ct.due(args({ postTimes: only, roster: [card('ann', { state: 'working' })] })), []);
   assert.deepEqual(ct.due(args({ postTimes: only, roster: [card('ann', { isNamedOurs: false })] })), []);
   assert.deepEqual(ct.due(args({ postTimes: only, inCommunity: () => false })), []);
@@ -240,4 +240,27 @@ test('review 5: a missing gate or deliver reads as off, never on', () => {
     delete run.o[drop];
     assert.deepEqual(ct.tickOnce(run.o), [], drop + ' missing was read as on');
   }
+});
+
+test('review 6: an agent that has never posted is due, first, and gets INTRO_TEXT (which claims no last post)', () => {
+  const posts = (s) => ({ ann: [ago(8 * H)], dan: [] }[s] || [ago(H)]);
+  assert.deepEqual(ct.due(args({ postTimes: posts })).map((d) => [d.session, d.first]), [['dan', true], ['ann', false]]);
+  const run = tickArgs({ roster: () => [card('ann'), card('dan')], idleSeen: new Set(['ann', 'dan']), postTimes: posts });
+  ct.tickOnce(run.o);
+  assert.deepEqual(run.sent.map(([s, t]) => [s, t === ct.INTRO_TEXT ? 'intro' : (t === ct.TURN_TEXT ? 'turn' : '?')]), [['dan', 'intro'], ['ann', 'turn']]);
+  assert.doesNotMatch(ct.INTRO_TEXT, /last post/);
+  assert.match(ct.INTRO_TEXT, /Never invent/);
+});
+
+test('review 6: the tries book is kept on disk; an odd or unreadable file reads as empty; entries past 24 h are dropped', () => {
+  const file = ct.bookFile();
+  assert.ok(path.resolve(file).startsWith(path.resolve(SANDBOX) + path.sep), file);
+  fs.rmSync(file, { force: true });
+  assert.equal(ct.readBook().size, 0, 'no file yet');
+  assert.equal(ct.writeBook(new Map([['ann', [NOW - 2 * H, NOW - 30 * H]], ['old', [NOW - 40 * H]]]), NOW), true);
+  assert.deepEqual([...ct.readBook()], [['ann', [NOW - 2 * H]]]);
+  fs.writeFileSync(file, '[1,2,3]');
+  assert.equal(ct.readBook().size, 0);
+  fs.writeFileSync(file, '{not json');
+  assert.equal(ct.readBook().size, 0);
 });

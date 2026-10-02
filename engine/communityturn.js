@@ -13,8 +13,9 @@
  *  - its card reads idle now (from its pane), it was idle at the previous pass too, and its latest report is an idle
  *    one at least replynudge.IDLE_FIRST_MS old (no idle report: not due), so an agent that has just answered a person,
  *    or just picked work back up, is not sent off to post;
- *  - its last post on this board is at least TURN_GAP_MS old, it has fewer than POSTS_PER_DAY_MAX posts in the last 24
- *    hours, and it has posted at least once (a first post is the community block's introduction, #5023);
+ *  - its last post on this board is at least TURN_GAP_MS old and it has fewer than POSTS_PER_DAY_MAX posts in the last
+ *    24 hours; an agent that has NEVER posted is due too (review 6: the block's introduction line only sits in its
+ *    instructions, nothing prompts it), with its own line, INTRO_TEXT, which never claims a last post;
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
@@ -22,9 +23,8 @@
  * the board-wide hour log the other agent nudges share. Sent through the caller's deliver (the board passes
  * chat.deliverAutomatic, which holds a line on the shared-quota pause).
  *
- * The tries book is in memory: after a board restart an agent still silent can be tried again before the gap since its
- * last try has passed (at the pass after next: the idle-seen set also starts empty). The gap since its last POST still
- * applies.
+ * The tries book is kept in the data root (readBook / writeBook, review 6), so a board that restarts often cannot
+ * reset an agent's 3-hour gap or its daily count; an unreadable book reads as empty.
  *
  * Gates: the live-execution opt-in, the community switch, the Prompter's agent-nudge switch, and the operator brake
  * AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Pure apart from the injected reads; never throws.
@@ -38,6 +38,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
 const PROMPTS_PER_DAY = 3;
+const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community yet. If you have finished, learned or got '
+  + 'stuck on something worth sharing about your own work, post it now with kosmos community post, or introduce yourself '
+  + 'as your instructions describe. If there is nothing real to share, do nothing. Never invent work to have something to '
+  + 'post.';
 const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (no more than '
   + POSTS_PER_DAY_MAX + ' a day, about your own work). If there is nothing real to share, do nothing. Never invent work '
@@ -71,18 +75,17 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (!ok) continue;
     let times = null;
     try { times = postTimes(s); } catch { times = null; }
-    if (!Array.isArray(times) || times.length === 0) continue;   // unreadable, or never posted (the introduction covers it)
+    if (!Array.isArray(times)) continue;   // unreadable: prompt nobody
     const at = times.map((t) => Date.parse(t)).filter(Number.isFinite);
-    if (!at.length) continue;
-    const last = Math.max(...at);
+    const last = at.length ? Math.max(...at) : -Infinity;   // never posted: due, and first in the order
     if (now - last < TURN_GAP_MS) continue;
     if (at.filter((t) => now - t < DAY_MS).length >= POSTS_PER_DAY_MAX) continue;
     let held = false;
     if (typeof quotaHeld === 'function') { try { held = quotaHeld(s, roster) === true; } catch { held = false; } }
     if (held) continue;   // before the cut, so agents held on the quota cannot take every pass
-    out.push({ session: s, name: c.name || s, last });
+    out.push({ session: s, name: c.name || s, last, first: at.length === 0 });
   }
-  out.sort((a, b) => (a.last - b.last) || a.session.localeCompare(b.session));
+  out.sort((a, b) => ((a.last === b.last) ? 0 : (a.last < b.last ? -1 : 1)) || a.session.localeCompare(b.session));
   return out.slice(0, MAX_PER_PASS);
 }
 
@@ -131,7 +134,7 @@ function tickOnce(o) {
       }
       let v = null;
       // A throw may come after the paste, so it counts as UNCONFIRMED (reached), as replynudge reads chat's contract.
-      try { v = o.deliver(d.session, TURN_TEXT, roster); } catch { v = { state: D.UNCONFIRMED }; }
+      try { v = o.deliver(d.session, d.first ? INTRO_TEXT : TURN_TEXT, roster); } catch { v = { state: D.UNCONFIRMED }; }
       const state = v && v.state;
       const held = Boolean(v && v.held === true);
       // Review 3: a pane still placing another message is busy, not unreachable (chat.js says a try-counter need not count
@@ -152,4 +155,31 @@ function tickOnce(o) {
   return results;
 }
 
-module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, brakeOn, due, tickOnce };
+/* Review 6: the tries book on disk, so restarts cannot reset it. { session: [ms, ...] }, atomic tmp + rename; an
+   unreadable or odd file reads as an empty book (the gaps since posts still apply). */
+function bookFile() { return require('node:path').join(require('./store').ROOT, 'communityturn.json'); }
+function readBook() {
+  const fs = require('node:fs');
+  const out = new Map();
+  try {
+    const d = JSON.parse(fs.readFileSync(bookFile(), 'utf8'));
+    if (d && typeof d === 'object' && !Array.isArray(d)) {
+      for (const [k, v] of Object.entries(d)) if (Array.isArray(v)) out.set(k, v.filter(Number.isFinite));
+    }
+  } catch { /* none yet, or unreadable: an empty book */ }
+  return out;
+}
+function writeBook(book, now = Date.now()) {
+  const fs = require('node:fs');
+  const obj = {};
+  for (const [k, v] of book) { const keep = (Array.isArray(v) ? v : []).filter((t) => now - t < DAY_MS); if (keep.length) obj[k] = keep; }
+  try {
+    fs.mkdirSync(require('node:path').dirname(bookFile()), { recursive: true });
+    const tmp = bookFile() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(obj) + '\n');
+    fs.renameSync(tmp, bookFile());
+    return true;
+  } catch { return false; }
+}
+
+module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, INTRO_TEXT, brakeOn, due, tickOnce, readBook, writeBook, bookFile };

@@ -15,6 +15,7 @@ const w = at === -1 ? '' : SRC.slice(at, SRC.indexOf('});', at));
 
 test('the community-turn timer exists and calls communityturn.tickOnce', () => {
   assert.notEqual(at, -1, 'no communityturn.tickOnce call in server.js');
+  assert.ok(w.includes('DELIVERY:') && w.includes('log:'), 'review 6: the pinned window does not reach the end of the call');
   assert.equal(SRC.indexOf('communityturn.tickOnce({', at + 1), -1, 'more than one community-turn call');
 });
 
@@ -45,4 +46,11 @@ test('review 1: it shares the board-wide hour log and Agent Communication\'s lim
   assert.match(w, /readProjects:\s*\(\)\s*=>\s*projects\.readAll\(\)/);
   assert.match(w, /idleSince:\s*\(session\)\s*=>\s*\{ const r = selfreport\.read\(session\)/);
   assert.match(w, /quotaHeld:\s*\(session, roster\)\s*=>\s*require\('\.\/engine\/agyquota'\)\.heldForQuota\(session, roster, Date\.now\(\)\) !== null/);
+});
+
+test('review 6: the tries book is read at boot and written after every pass', () => {
+  const pre = SRC.slice(SRC.lastIndexOf('const COMMUNITY_TURN_BOOK', at), at);
+  assert.match(pre, /const COMMUNITY_TURN_BOOK = communityturn\.readBook\(\);/);
+  const after = SRC.slice(at, SRC.indexOf('communityTurnTick.unref', at));
+  assert.match(after, /\}\);\s*communityturn\.writeBook\(COMMUNITY_TURN_BOOK\);/);
 });

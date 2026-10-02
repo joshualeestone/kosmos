@@ -19760,7 +19760,7 @@ function start(port = PORT) {
          Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
          under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause). unref'd;
          first run one interval after boot. */
-      const COMMUNITY_TURN_BOOK = new Map();
+      const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
       const communityTurnTick = setInterval(() => {
         const cb = require('./engine/communityblock');
@@ -19787,7 +19787,8 @@ function start(port = PORT) {
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
         });
-      }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only
+        communityturn.writeBook(COMMUNITY_TURN_BOOK);
+      }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
       if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
       resolve(server);
     };
