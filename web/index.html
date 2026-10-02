@@ -49000,7 +49000,8 @@ function tcPaint() {
 /* #4936: say hello to every member, the lead first, then the rest together: the same request the agent's page sends
    (POST .../thread {text: "hello"}). The answer's delivery state decides the row (engine/chat.js DELIVERY):
    placed = started; could_not (or a refusal) = not sent, tried twice more a few seconds apart (a member just seen
-   running may still be starting up), then Try again; anything else (unconfirmed, no answer) may have reached it, so it
+   running may still be starting up), then Try again (a could_not HELD on the shared quota, #4959, is not tried again
+   before the reset: Try again at once); anything else (unconfirmed, no answer) may have reached it, so it
    is not sent again and the row says to look. */
 const TC_HELLO_TRIES = 3;
 let TC_AUTO_HELLO = true;     // a browser check whose arm is not about #4936 turns it off
@@ -49019,6 +49020,12 @@ async function tcHelloSend(name) {
        delivery, so it and every other status may have placed it already and are never re-sent. */
     if (!r.ok) return { got: (r.status === 404 || r.status === 409) ? 'failed' : 'unsure', why: r.because };
     const state = r.delivery && r.delivery.state;
+    /* #4959 (merged in): the hello is automatic, so while this machine's shared Google quota is out the server holds
+       it: a could_not with held:true, nothing typed. Another try cannot land before the reset, so it is not retried
+       (stop), and the row says the restart wake's own sentence (wakeHeldLine) rather than the server's raw one. */
+    if (state === 'could_not' && r.delivery.held === true) {
+      return { got: 'failed', why: wakeHeldLine('', r.delivery).trim(), stop: true };
+    }
     // Review 13 (over review 12): a could_not's words are the sentence the agent's own chat page shows the person (a
     // dialog to answer in its terminal, a paused swarm), so the row says them too, not a generic "try again".
     return { got: state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure'), why: state === 'could_not' ? r.because : null };
@@ -49084,7 +49091,9 @@ async function tcHelloOne(m, gen) {
     if (held) { m.hello = 'failed'; m.helloWhy = held.text; tcPaint(); return; }
     if (m.hello === 'waiting') { m.hello = 'sending'; tcPaint(); }
     sends++;
-    ({ got, why } = await tcHelloSend(m.made.name));
+    let stop = false;
+    ({ got, why, stop } = await tcHelloSend(m.made.name));
+    if (stop) break;   // #4959: held on the shared quota; Try again stays on the row for after the reset
   }
   if (gen !== TC_GEN || !TC) return;
   m.hello = got;

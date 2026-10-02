@@ -216,13 +216,19 @@ function chk(ok, label, extra) {
           const helloUnsure = new Set();   // names whose hello comes back unconfirmed (it may have arrived)
           const helloStatus = {};   // name -> an HTTP status its hello is refused with (a 4xx before delivery, a 5xx)
           const helloHang = new Set();   // names whose hello the board takes and never answers
+          const helloHeld = new Set();   // #4959: names whose hello the server holds on the shared quota (could_not, held:true)
           await page.route('**/api/agent/*/thread', async (r) => {
             if (r.request().method() !== 'POST') return r.continue();
             const who = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
-            hellos.push({ who, text: (JSON.parse(r.request().postData() || '{}')).text });
+            const sentBody = JSON.parse(r.request().postData() || '{}');
+            hellos.push({ who, text: sentBody.text, automatic: sentBody.automatic });   // #4959: the hello must go as automatic
             if (helloHold[who]) await helloHold[who];
             if (helloHang.has(who)) return;   // never answered: the page must give up on its own
             if (helloStatus[who]) return r.fulfill({ status: helloStatus[who], json: { error: 'refused here' } });
+            if (helloHeld.has(who)) {
+              return r.fulfill({ status: 200, json: { ok: true, recorded: false, delivery: { state: 'could_not', held: true,
+                heldUntil: new Date(Date.now() + 40 * 60e3).toISOString(), because: "held: this machine's Google account's shared Antigravity quota is out" } } });
+            }
             const state = helloFail.has(who) ? 'could_not' : (helloUnsure.has(who) ? 'unconfirmed' : 'placed');
             return r.fulfill({ status: 200, json: { ok: true, delivery: { state } } });
           });
@@ -230,7 +236,7 @@ function chk(ok, label, extra) {
           await clearFirstRun(page);
           // #4936: off unless an arm is about it (the others settle on rows reading Running); fast retries, a long mark.
           await page.evaluate(() => { TC_AUTO_HELLO = false; TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold, helloUnsure, helloStatus, helloHang, pictureFail, stateOf, pictureHold };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloHeld, helloFail, helloHold, helloUnsure, helloStatus, helloHang, pictureFail, stateOf, pictureHold };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -296,7 +302,7 @@ function chk(ok, label, extra) {
 
         /* --- the step, the happy path with one failure and its retry --------------------------- */
         {
-          const { page, errs, posted, script, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail } = await newPage(1280);
+          const { page, errs, posted, script, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHeld } = await newPage(1280);
           await page.evaluate(() => { TC_AUTO_HELLO = true; });   // #4936 is this arm's subject
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
@@ -358,7 +364,7 @@ function chk(ok, label, extra) {
           const r2 = await rows(page);
           chk(posted.length === 4 && posted[3].name === 'Leo Two' && posted[3].reportsTo === 'maya-okafor' && posted[3].projects[0] === pid,
             `${E} Try again makes only that one, with its new name, the lead and the project`, JSON.stringify(posted.slice(3)));
-          chk(hellos.length >= 3 && hellos[0].who === 'maya-okafor' && hellos.every((h) => h.text === 'hello'),
+          chk(hellos.length >= 3 && hellos[0].who === 'maya-okafor' && hellos.every((h) => h.text === 'hello' && h.automatic === true),
             `${E} #4936 once all are running, Kosmos says "hello" to each itself, the lead first`, JSON.stringify(hellos));
           chk(hellos.filter((h) => h.who === 'ana').length === 3 && hellos.filter((h) => h.who === 'leo-two').length === 1,
             `${E} #4936 a hello that is not placed is tried three times; a placed one once`, JSON.stringify(hellos.map((h) => h.who)));
@@ -394,6 +400,19 @@ function chk(ok, label, extra) {
           chk(await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden), `${E} #4936 a Try again that fails again keeps the step`);
           chk(await page.evaluate(() => (document.activeElement || {}).matches && document.activeElement.matches('#tc-list li[data-slot="social"] .tc-retry')),
             `${E} #4936 after a Try again fails again, focus is on the new Try again, not dropped on the row`, await page.evaluate(() => (document.activeElement || {}).outerHTML || '').then((h) => h.slice(0, 120)));
+          /* #4959: Try again while the shared quota is out: the server holds the hello (could_not, held). Tried ONCE (another
+             try cannot land before the reset), the row says the quota sentence and keeps Try again, and the step stays. */
+          helloFail.delete('ana'); helloHeld.add('ana');
+          await page.focus('#tc-list li[data-slot="social"] .tc-retry'); await page.keyboard.press('Enter');
+          for (let i = 0; i < 40 && hellos.filter((h) => h.who === 'ana').length < 7; i++) await page.waitForTimeout(100);
+          await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
+          await page.waitForTimeout(400);   // TC_HELLO_GAP_MS is 50 here: a second try would have gone by now
+          const heldRow = (await rows(page))[2];
+          chk(hellos.filter((h) => h.who === 'ana').length === 7, `${E} #4959 a hello held on the shared quota is tried once, not three times`, String(hellos.filter((h) => h.who === 'ana').length));
+          chk(heldRow.state === 'Could not say hello' && heldRow.retry && /shared Google quota is out until .+, so Kosmos sent nothing\./.test(heldRow.why) && !/T\d\d:\d\d:\d\d/.test(heldRow.why),
+            `${E} #4959 a held hello's row says the quota is out until a local time, keeps Try again`, JSON.stringify(heldRow));
+          chk(await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden), `${E} #4959 a held hello keeps the step`);
+          helloHeld.delete('ana'); helloFail.add('ana');   // the arms below expect Ana's hello refused as before
           /* Review 5: Back, then the same team again: a member not said hello to keeps the team, so it is resumed with
              its rows and Try again, not dropped for a new team. */
           await page.click('#tc-back');
