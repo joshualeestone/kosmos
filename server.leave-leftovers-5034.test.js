@@ -74,7 +74,12 @@ test('#5034 a question the agent raised about the project it leaves is cleared, 
   const now = selfreport.read('leaver');
   assert.equal(now.state, 'idle');
   assert.equal(now.by, 'operator');
-  assert.equal(now.because, 'taken off the project ' + p.name + ' by the person, so the needs_you report about it is no longer waiting on anyone');
+  assert.equal(now.project, null, 'the left project is still carried forward (review 3)');
+  // And the next report that names no project (an automatic permission wait) is not tied to the project it left.
+  assert.equal(selfreport.record('leaver', { state: 'needs_you', auto: true, because: 'permission to run Bash' }).recorded, true);
+  assert.equal(selfreport.read('leaver').project, null);
+  assert.equal(selfreport.record('leaver', { state: 'idle', by: 'operator', because: 'test reset' }).recorded, true);
+  assert.equal(now.because, 'taken off the project ' + p.name + ' by the person, so its question about it is no longer waiting on anyone');
   assert.ok(!projects.readAll().find((x) => x.id === p.id).agents.includes('leaver'), 'the leave did not land');
   /* The part is still the leaver's (removal does not unassign), and the card is no longer a decision, read against
      the SAME needs_you screen as the before-control (review 1: a different screen proved neither half). */
@@ -96,6 +101,8 @@ test('#5034 a departed holder still asking about the project (raised again, or n
   const board = fleet.install([fleet.agent('asker', { state: 'needs_you' })]);
   try {
     const row = await taskRow(p.id, 'Old card');
+    // Control (review 3): the old rule, with no members, WOULD count this departed holder.
+    assert.equal(tasks.waitingOnPerson(row, board.agents), true, 'fixture: the card would not be red even without the filter');
     assert.equal(row.waitingOnPerson, false, JSON.stringify(row));
     assert.notEqual(row.state, 'decision');
   } finally { board.restore(); }
@@ -192,7 +199,7 @@ test('#5034 removing a whole project clears its members\' questions about it and
   const now = selfreport.read('orphan');
   assert.equal(now.state, 'idle');
   assert.equal(now.by, 'operator');
-  assert.equal(now.because, 'the project ' + p.name + ' was removed, so the blocked report about it is no longer waiting on anyone');
+  assert.equal(now.because, 'the project ' + p.name + ' was removed, so what it was blocked on there is no longer waiting on anyone');
   assert.deepEqual(roomhold.heldIn('orphan', p.id), []);
   assert.deepEqual(roomhold.heldIn('orphan', q.id), ['m401']);
 });
@@ -203,5 +210,28 @@ test('#5034 a leave not made from the screen says so in the clear (review 2)', a
   assert.equal(selfreport.record('byproc', { state: 'needs_you', project: p.id, because: 'which branch?' }).recorded, true);
   const res = await fetch(`${base}/api/project/${encodeURIComponent(p.id)}/agent/byproc`, { method: 'DELETE' });
   assert.equal(res.status, 200, await res.text().catch(() => ''));
-  assert.equal(selfreport.read('byproc').because, 'taken off the project ' + p.name + ' (not from the screen), so the needs_you report about it is no longer waiting on anyone');
+  assert.equal(selfreport.read('byproc').because, 'taken off the project ' + p.name + ' (not from the screen), so its question about it is no longer waiting on anyone');
+});
+
+test('#5034 a registry holding an id twice checks tasks against every record\'s members (review 3)', async () => {
+  const p = project('Twin');
+  projects.addAgent(p.id, 'twinask', null);
+  tasks.create(p.id, { sentence: 'Twin task', who: 'twinask' });
+  const stored = projects.readAll();
+  const rec = stored.find((x) => x.id === p.id);
+  // The task lives on the FIRST record; its holder is a member only of the first; a second record with the same id
+  // and no members comes after it (the last one would win a plain Map).
+  rec.agents = ['twinask'];
+  projects.writeAll([...stored, { ...rec, agents: [], tasks: [] }]);
+  assert.equal(projects.readAll().filter((x) => x.id === p.id).length, 2, 'fixture: the id is not stored twice');
+  assert.equal(selfreport.record('twinask', { state: 'needs_you', project: p.id, because: 'which twin?' }).recorded, true);
+  const board = fleet.install([fleet.agent('twinask', { state: 'needs_you' })]);
+  try {
+    const row = await taskRow(p.id, 'Twin task');
+    assert.ok(row, 'fixture: the task is not listed');
+    assert.equal(row.waitingOnPerson, true, 'a current member was dropped because another record with its id has none');
+  } finally {
+    board.restore();
+    projects.writeAll(projects.readAll().filter((x) => !(x.id === p.id && (x.agents || []).length === 0)));
+  }
 });

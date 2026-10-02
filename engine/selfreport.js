@@ -289,6 +289,10 @@ function record(sessionName, entry) {
        says. A needs_you that names one lights that project alone; one that
        names none lights no project and is read on the Agents page. */
     project: capped(entry.project, CAPS.project),
+    /* #5034 review 3: the project this line says the agent LEFT. read() stops carrying that project forward from here,
+       so a later report naming none (an automatic permission wait) is not tied to a project the agent is no longer
+       on. Written only by server.js clearLeftovers; null on every other line. */
+    left: capped(entry.left, CAPS.project),
     /* #4569 fix 4: a busy Muse agent's queue, { n, yours } (whole numbers, yours <= n), on a working report only.
        The Muse front sends it; any agent's own report could too, but it is checked here, the page builds its line
        from these two numbers and fixed words only (no agent text reaches it), and it shows on the reporter's own
@@ -430,6 +434,8 @@ function read(sessionName) {
     if (row.state === 'stopped' || row.state === 'started') { project = null; final = null; }
     { const f = finalOf(row.state, row.final); if (f) final = f; }
     // read AFTER the clear, so `started --project X` starts the run on X.
+    // #5034: a line saying the agent left the carried project ends the carry (before this line's own project).
+    if (typeof row.left === 'string' && row.left && row.left === project) project = null;
     if (typeof row.project === 'string' && row.project) project = row.project;
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };

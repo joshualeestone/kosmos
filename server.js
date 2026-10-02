@@ -2857,8 +2857,10 @@ function clearLeftovers(name, projectId, why) {
     const rep = selfreport.read(name);
     if (rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state) && rep.project === projectId
       && rep.projectInferred !== true && !selfreport.isAutoPermissionWait(rep)) {
-      const kept = selfreport.record(name, { state: 'idle', by: 'operator',
-        because: why + ', so the ' + rep.state + ' report about it is no longer waiting on anyone' });
+      /* `left` ends the carried project (review 3), so the agent's next report naming none is not tied to it. */
+      const kept = selfreport.record(name, { state: 'idle', by: 'operator', left: projectId,
+        because: why + ', so ' + (rep.state === 'blocked' ? 'what it was blocked on there' : 'its question about it')
+          + ' is no longer waiting on anyone' });
       out.reportCleared = kept.recorded === true;
     }
   } catch { /* the report stays as it was; the person's clear still works */ }
@@ -16028,7 +16030,13 @@ const server = http.createServer(async (req, res) => {
       }
       for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
     }
-    const membersOf = new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x.agents || []]));
+    /* Every record with the id, merged (review 3): a registry holding an id twice must not check one record's tasks
+       against the other's members (the same rule as the token read above). */
+    const membersOf = new Map();
+    for (const x of everyProject || []) {
+      if (!x || !x.id) continue;
+      membersOf.set(x.id, [...new Set([...(membersOf.get(x.id) || []), ...(x.agents || [])])]);
+    }
     const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
       /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
