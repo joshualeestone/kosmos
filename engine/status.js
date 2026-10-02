@@ -2422,13 +2422,16 @@ const ASKING_GENERIC = 'it is asking you something';
  * tool-output glyph ⎿ (the 2026-08-21 screens had no ⎿, so it is optional);
  * agent prose starts with ●. Case-sensitive like /usage-credits: the vendor
  * capitalises it. And it counts only with Claude Code's turn footer at column
- * 0 right after it (limitMarkersFor, below), which a tool result that prints
- * the same sentence cannot have (review round 2).
+ * 0 within two rows after it (limitMarkersFor, below), which a tool result
+ * that prints the same sentence mid-turn does not have (review round 2).
  *
  * Still read wrong, stated rather than guessed at: an agent's indented SECOND
- * paragraph opening with exactly this sentence AND followed by a footer; and a
- * vendor line drawn inside a frame (│ You've...), which reads idle. Neither has
- * been observed; narrowing or widening needs another observed screen.
+ * paragraph opening with exactly this sentence AND followed by a footer; a
+ * vendor line drawn inside a frame (│ You've...), which reads idle; and a turn
+ * that ENDS on a tool call whose result's last row is this sentence: the real
+ * footer then lands at column 0 under the tool result and the pane reads
+ * rate_limited (review round 3). None has been observed on a live pane;
+ * narrowing or widening needs another observed screen.
  */
 const RATE_LIMIT_MARKERS = [
   /reached your .{0,40}limit/i,   // observed 2026-08-21
@@ -2440,11 +2443,15 @@ const RATE_LIMIT_MARKERS = [
    cats a capture of a capped pane prints exactly the vendor's row. What separates them is the next rows. On all four
    observed screens the vendor line (and its optional /usage-credits line) is followed by Claude Code's own turn footer
    AT COLUMN 0, "✻ Cooked for 0s · done 10:35 PM"; inside a tool result every row is indented, a copied footer too.
+   NOT airtight: a turn that ends right after such a tool result puts the REAL footer at column 0 under it, and that
+   pane reads rate_limited (the third residual in the doc above, review round 3).
    So that one marker counts only with such a footer within two rows of a match. NOT "no ● row after it": Claude
    Code's own session survey ("● How is Claude doing this session?") followed the limit on one real capped pane.
    Only that marker: the two 2026-08-21 markers keep their accepted behaviour. Found by its text because the array
    must stay a literal (status.pane-states-1889.test.js lifts it from the source). */
 const HIT_YOUR_LIMIT = RATE_LIMIT_MARKERS.find((re) => re.source.includes('hit your'));
+// Fail at load, not on every classify: a reworded marker would leave this undefined and TypeError each pane read.
+if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LIMIT_MARKERS (#5029); update HIT_YOUR_LIMIT');
 const TURN_FOOTER = /^✻ \S.* for \d/;
 function limitMarkersFor(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');

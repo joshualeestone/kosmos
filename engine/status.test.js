@@ -4156,23 +4156,28 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
 
   /* 🔑 THE CONTROLS. The 2026-08-26 promo says "If you hit your limit" about a
      FEATURE on a healthy agent and must stay calm (#966), and an agent merely
-     talking about limits in prose must not pause. */
+     talking about limits in prose must not pause.
+     Review round 3: since round 2 the marker counts only with a column-0 turn footer within two rows, so a
+     control WITHOUT one stays calm whatever the regex says and cannot fail. Each control below carries a real
+     footer right after its limit row, so the anchoring alone is what keeps it calm: the mutant
+     /hit your .{0,40}limit/i reds the one-line promo, ASKING and EXPLAINING (recorded in the plan). */
+  const DONE = '✻ Worked for 4s · done 9:01 AM\n';
   const PROMO = 'Fable 5 is now a standard part of your Max plan\n'
     + 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit\n'
-    + 'your limit, you can continue on Fable 5 with usage credits...\n\n> ready\n';
+    + 'your limit, you can continue on Fable 5 with usage credits...\n' + DONE + '\n> ready\n';
   assert.notEqual(classify(pane, PROMO).state, STATE.RATE_LIMITED, 'the promo banner is pausing a healthy agent');
   /* The wrapped PROMO above cannot fail against a marker that drops the
      "you've": no single row holds "hit your ... limit". capture-pane -J
      (#1234) delivers the banner as ONE logical line, so pin that shape too. */
-  const PROMO_ONE_LINE = 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit your limit, you can continue on Fable 5 with usage credits.\n\n> ready\n';
+  const PROMO_ONE_LINE = 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit your limit, you can continue on Fable 5 with usage credits.\n' + DONE + '\n> ready\n';
   assert.notEqual(classify(pane, PROMO_ONE_LINE).state, STATE.RATE_LIMITED, 'the one-line promo banner is pausing a healthy agent');
   /* Review round 1: an agent ASKING about some other limit, and a healthy Guide EXPLAINING the Claude one, both in
      its own prose (●). Unanchored, the marker read both as capped: the question was hidden behind Paused, and the
      Guide switched itself to the backup. The question must still surface as needs_you. */
-  const ASKING = '● Looks like you\'ve hit your GitHub API rate limit. Want me to wait for it to reset?\n\n'
+  const ASKING = '● Looks like you\'ve hit your GitHub API rate limit. Want me to wait for it to reset?\n' + DONE + '\n'
     + ' Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
   assert.equal(classify(pane, ASKING).state, STATE.NEEDS_YOU, 'an agent asking about a limit had its question hidden');
-  const EXPLAINING = '● If you\'ve hit your weekly limit, Kosmos switches the Guide to its hosted backup until it resets.\n\n> ready\n';
+  const EXPLAINING = '● If you\'ve hit your weekly limit, Kosmos switches the Guide to its hosted backup until it resets.\n' + DONE + '\n> ready\n';
   assert.notEqual(classify(pane, EXPLAINING).state, STATE.RATE_LIMITED, 'a healthy Guide explaining limits reads as capped');
   /* Review round 2: a healthy agent that CATS a capture of a capped pane prints the vendor's row under ⎿, the same
      shape as the real one. Its copied footer is indented inside the tool result; the real footer is at column 0. */
