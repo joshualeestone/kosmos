@@ -461,6 +461,7 @@ test('#4468: one pane serialises async deliveries and refuses a synchronous swee
     const sweep = chat.deliver('casey', 'sweep', board.agents);
     assert.equal(sweep.state, chat.DELIVERY.COULD_NOT);
     assert.match(sweep.because, /another message is still being placed/);
+    assert.equal(sweep.busy, true, '#4951: the being-placed refusal says the pane was busy');
     assert.equal(tmux.setBuffers().length, 1, 'the queued delivery pasted before the first Enter');
 
     releases.shift()();

@@ -571,3 +571,31 @@ test('review 9: recordPeriodStart records nothing for an address the sweep will 
   } finally { process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; }
   assert.equal(cs.recordPeriodStart(), true, 'control: the loopback address records a start');
 });
+
+test('#4940: a register 429 asking for an hour waits at most five minutes, so the agent\'s comment goes soon after', async () => {
+  await on();
+  comment('ava', 'Joining in.');
+  cs.setSender(async (url, init) => (String(url).endsWith('/agents/register')
+    ? { status: 429, ok: false, headers: new Headers({ 'retry-after': '3600' }), text: async () => '{}', json: async () => ({}) }
+    : fetch(url, init)));
+  const before = Date.now();
+  await cs.sweep();
+  const at = cs._registerRetryAt('ava');
+  assert.ok(at, 'the 429 was not recorded as a wait');
+  assert.ok(at - before <= cs.REGISTER_429_WAIT_MAX_S * 1000 + 5000, 'the wait followed the hour asked: ' + (at - before) + ' ms');
+  assert.ok(at - before >= 59 * 1000, 'CONTROL: it still waits (at least a minute), never a busy loop');
+  // Review 1: what the agent is told while it waits is true, says to run it again, and ends with no period (the CLI adds one).
+  const r = await cs.agentCall('ava', 'POST', '/agents/by-name/x/follow', {});
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then \(its posts and comments are queued, not lost\)$/);
+});
+
+test('#4940 review 2: a registration that fails with no wait set (a server error) says it is tried on the next pass', async () => {
+  await on();
+  cs.setSender(async (url, init) => (String(url).endsWith('/agents/register')
+    ? { status: 500, ok: false, headers: new Headers(), text: async () => '{}', json: async () => ({}) }
+    : fetch(url, init)));
+  const r = await cs.agentCall('zed', 'POST', '/agents/by-name/x/follow', {});
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes \(its posts and comments are queued, not lost\)$/);
+});

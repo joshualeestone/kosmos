@@ -70,6 +70,76 @@ SESSION="${1:?an agent name is required}"
 WORKDIR="${2:?a working directory is required}"
 CLAUDE="${3:?the path to claude is required}"
 TMUX_BIN="${4:?the path to tmux is required}"
+# 🔑 #2955: IF A DIFFERENT tmux OWNS THE SERVER, USE THE ONE THAT CAN READ IT. Two tmux versions cannot share a socket:
+# the older client answers "server exited unexpectedly" (tmux 3.5a) or "protocol version mismatch" and sees nothing.
+# Measured on Agent1s, 2026-10-01 13:42: the fleet's Homebrew 3.6a owned the socket and Kosmos's bundled 3.5a could
+# read no agent. This job's tmux path was baked into its plist when the agent was made, and plists are never rewritten,
+# so the choice is made here, each time the job starts, by asking: the first tmux that can LIST the live server wins.
+# The board makes the same choice the same way (engine/status.js, tmuxRepick), so both land on one tmux per socket.
+# With no server, or any other answer, nothing has been established and the baked path stays, which keeps Kosmos's
+# own agents on the tmux Kosmos ships (a `brew upgrade` cannot pull it out from under them).
+_kosmos_supervisor_tmux() {
+  local _said _cand _own _ownd _gone="" _tried=" "
+  # A bare name (no slash) is a PATH lookup, not a missing file.
+  case "$TMUX_BIN" in */*) ;; *) _cand="$(command -v "$TMUX_BIN" 2>/dev/null || true)"; [ -n "$_cand" ] && TMUX_BIN="$_cand" ;; esac
+  # ⚠️ No probe here has a timeout (bash 3.2 and macOS ship no `timeout`), like every other tmux call in this script; a
+  # server that hangs stalls this job at start as it would at its first has-session.
+  if [ -f "$TMUX_BIN" ] && [ -x "$TMUX_BIN" ]; then
+    _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
+  else
+    _gone=1; _said="protocol version mismatch"   # the baked tmux is gone (a removed Homebrew): look for another
+  fi
+  case "$_said" in
+    *"protocol version mismatch"*) ;;
+    # The bundled 3.5a says these same words with NO server at all (it spawns one that exits at once). Only with a
+    # socket on disk are they the wall, as in engine/status.js tmuxSaidNoServer, so a clean Mac searches for nothing at
+    # every agent start. One difference: status.js reads an unreadable socket directory as "could not check", while
+    # [ -e ] reads it as absent; and only the default socket is looked at, so a server on another socket (-L, or a
+    # $TMUX of its own) starts no search either. Both mean no search and the baked path stays, the conservative side.
+    *"server exited unexpectedly"*) [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ] || return 0 ;;
+    *) return 0 ;;
+  esac
+  # Kosmos's own tmux is always a candidate, so a job baked with another tmux follows a server back to it. The copy
+  # that runs lives in Application Support/Kosmos/bin with no app beside it (see resolve_token_engine): the app is found
+  # through the engine-path pointer the board writes beside it (<KOSMOS_HOME>/app/engine), and the bundle is
+  # <KOSMOS_HOME>/tmux/bin/tmux. In a checkout or the bundle, beside this script's app. KOSMOS_TMUX_OWN: harness only.
+  _own="${KOSMOS_TMUX_OWN-}"
+  if [ -z "$_own" ]; then
+    local _ptr _engdir=""
+    _ptr="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/engine-path"   # the same spelling resolve_token_engine uses
+    if [ -f "$_ptr" ]; then IFS= read -r _engdir < "$_ptr" || true; fi
+    # No pointer: the copy in the bundle (<KOSMOS_HOME>/app/bin) is two directories below <KOSMOS_HOME>/tmux; anywhere
+    # else this names nothing and no own candidate is tried.
+    if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="$(dirname "$0")/../../tmux/bin/tmux"; fi
+    # Normalized, so the equality below recognises it as the baked path and PATH never gets a ../.. entry.
+    _ownd="$(cd "${_own%/*}" 2>/dev/null && pwd)" || _ownd=""
+    if [ -n "$_ownd" ]; then _own="$_ownd/tmux"; else _own=""; fi
+  fi
+  # The board's order (engine/status.js tmuxRepick): the known places, then Kosmos's own; then this job's PATH
+  # tmux last (usually one of those again). Either side lands on a tmux that can read the server.
+  for _cand in ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own" "$(command -v tmux 2>/dev/null || true)"; do
+    [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
+    case "$_tried" in *" $_cand "*) continue ;; esac   # once per path (command -v usually repeats a known place)
+    _tried="$_tried$_cand "
+    if "$_cand" list-sessions >/dev/null 2>&1; then
+      if [ -n "$_gone" ]; then say "$SESSION: $TMUX_BIN is gone; using $_cand, which can read this computer's tmux server (#2955)"
+      else say "$SESSION: this computer's tmux server belongs to a different version than $TMUX_BIN; using $_cand, which can read it (#2955)"; fi
+      TMUX_BIN="$_cand"
+      # This supervisor's own later bare tmux and node lookups (and a pane's PATH only when the server's own PATH cannot
+      # be read: the -e PATH below is built from the server's). It moves the whole directory ahead, Homebrew's node and
+      # the rest included, as install/kosmos does at launch when a system tmux wins.
+      PATH="${_cand%/*}:$PATH"; export PATH
+      return 0
+    fi
+  done
+  # A baked tmux that is gone, and no server for any candidate to list (the usual case at boot): Kosmos's own runs it.
+  if [ -n "$_gone" ] && [ -n "$_own" ] && [ -f "$_own" ] && [ -x "$_own" ]; then
+    say "$SESSION: $TMUX_BIN is gone; using Kosmos's own tmux, $_own (#2955)"
+    TMUX_BIN="$_own"
+    PATH="${_own%/*}:$PATH"; export PATH
+  fi
+  return 0
+}
 LOG="${5:-}"
 # The model this agent runs on, optional and NEW as of the create-agent
 # branch (2026-08-16). Empty means claude's own default. Existing plists
@@ -148,6 +218,7 @@ waited=0
 # escalation, which nothing should do outside a test of the quiet arm.
 POLL_SECS="${AGENT_WORKFORCE_WAIT_POLL_SECS:-5}"
 ESCALATE_SECS="${AGENT_WORKFORCE_WAIT_ESCALATE_SECS:-600}"
+_kosmos_supervisor_tmux   # #2955: before the first look, so every look below reads the live server
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   if [ "$("$TMUX_BIN" show-options -t "$SESSION" -v @kosmos_agent 2>/dev/null)" = "$SESSION" ]; then
     # Ours -- but do not throw away a HEALTHY one. This file can be run by hand,
@@ -332,7 +403,8 @@ twin_session_may_live() {
   if [ -n "${KOSMOS_WORLD:-}" ]; then _tw="+$KOSMOS_WORLD"; fi
   _tt="$_tb$_tw"; [ "$SESSION" = "$_tt" ] && _tt="$_tb-discord$_tw"
   _tl="$("$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null)" || { unset _tb _tw _tt _tl; return 0; }
-  printf '%s\n' "$_tl" | awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }'; _twrc=$?
+  # awk's own exit IS the answer here (found or not); a here-string, not a pipe, so the #632 hook reads it as that.
+  awk -v n="$_tt" '$0 == n { f = 1 } END { exit f ? 0 : 1 }' <<<"$_tl"; _twrc=$?
   unset _tb _tw _tt _tl
   return $_twrc
 }
@@ -1242,12 +1314,29 @@ done
 # its reports are refused until its next launch (review of #4530, B1). tmux answers 1
 # for "no such session" and for "no server" (measured); anything else is not an answer.
 # Two answers of 1, a couple of seconds apart, or nothing is retired.
+# #2955: the version wall is not an answer either. Usually it means the old server (and this agent with it) died and a
+# newer tmux started the next one: keeping the token then costs nothing, and the next launch retires it. The one case
+# where the agent is still alive is a socket file unlinked under a running server (a /tmp cleaner) and a newer server
+# started at the same path; two wall answers there would retire a LIVE agent's token. So _kosmos_session_answer
+# reports "wall", never 1, and nothing is retired on it.
+_kosmos_session_answer() {
+  local _s _r=0
+  _s="$("$TMUX_BIN" has-session -t "$TARGET" 2>&1 >/dev/null)" || _r=$?
+  case "$_s" in
+    *"protocol version mismatch"*) echo wall; return 0 ;;
+    *"server exited unexpectedly"*)   # the wall only with a socket on disk (else 3.5a's serverless voice: no server).
+      # This job's sessions are always on the default socket under its TMUX_TMPDIR (launchd gives it no $TMUX, and
+      # nothing here passes -L), so that one path is the whole question.
+      if [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ]; then echo wall; return 0; fi ;;
+  esac
+  echo "$_r"
+}
 _gone=0
-"$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; _rc=$?
-if [ "$_rc" -eq 1 ]; then
+_rc="$(_kosmos_session_answer)"
+if [ "$_rc" = 1 ]; then
   sleep 2
-  "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; _rc=$?
-  [ "$_rc" -eq 1 ] && _gone=1
+  _rc="$(_kosmos_session_answer)"
+  [ "$_rc" = 1 ] && _gone=1
 fi
 if [ "$_gone" = 1 ]; then
   retire_run_token

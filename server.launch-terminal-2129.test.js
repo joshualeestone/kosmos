@@ -115,6 +115,21 @@ test('a live agent: opens Terminal attached to its session, command is shell-quo
     'the tmux binary is not present or not single-quoted: ' + script);
 });
 
+test('#2955: Terminal attaches with the tmux whose version matches the server (status.attachTmux), given the agent\'s baked one', async () => {
+  lastRun = null;
+  const name = 'lt-switched';
+  born(name);
+  const real = status.attachTmux;
+  let given;
+  status.attachTmux = (baked) => { given = baked; return '/k/matching/tmux'; };   // a newer tmux cannot attach to an older server
+  try {
+    const r = await launch(name);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(given, TMUX_BIN, 'attachTmux was not given the agent\'s baked tmux to prefer');
+    assert.ok(lastRun.args[1].includes("exec '/k/matching/tmux'"), 'Terminal did not attach with the version-matched tmux: ' + lastRun.args[1]);
+  } finally { status.attachTmux = real; }
+});
+
 test('a stopped agent: refuses, and NO terminal is opened', async () => {
   lastRun = null;
   /* An agent with a job but NO live pane. Clear the pane file so paneRoster

@@ -20,6 +20,10 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setTmuxCandidates: 'engine/status.js (#2955): a test seam, the list of tmux binaries tmuxRepick asks at the version wall; engine/status.test.js sets it so its fakes are asked instead of the real Homebrew paths.',
+  setOwnTmux: 'engine/status.js (#2955): a test seam, Kosmos\'s own tmux path, which status.js derives from where it is installed (pinned by its own test); engine/status.test.js points it at a fake.',
+  setLauncherTmux: 'engine/status.js (#2955): a test seam, the launcher pick that status.js otherwise reads once at module load; engine/status.test.js sets it because a loaded module cannot re-read its environment.',
+  _registerRetryAt: 'engine/communitysend.js (#4940): a read-only view of the register 429 wait (registerRetryAt stays private), so the five-minute cap is measured by engine/communitycomment-4373.test.js rather than inferred. A test seam, as _paths is.',
   isCodexHookEvidence: 'test-only by design (#4589): pins a Codex card\'s evidence to the hooks dialog\'s rows; NO production code keys on it, because the delivery floor reads the screen fresh (its comment in engine/status.js says so)',
   setRunner: 'test seam: injects the tmux runner',
   _setNofollowForTest: 'test seam (#1777 item 3): engine/instructions.js drops O_NOFOLLOW to simulate win32, so a Mac can see the refuseSymlinkTarget hand check doing the work on the CLAUDE.md.previous backup. With the kernel flag present, deleting that check is silent.',
@@ -136,6 +140,7 @@ const EXCUSED = {
   // future regression that dropped the real caller either. What protects it is the
   // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
   // already reachable via server.js's failed-store cleanup.)
+  _nextIdForTests: 'test seam (#4888): engine/messages.js says which id the NEXT post will get (the larger of the log\'s highest and the in-memory high mark, +1), so a test that predicts ids does not have to re-derive the minting rule; a refused send now burns its id, which broke tests that counted. Production mints through mintId and never calls it.',
 };
 
 const engineDir = path.join(__dirname, 'engine');

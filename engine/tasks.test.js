@@ -261,10 +261,14 @@ test('the managed block teaches the join: tasks listed in the matching spelling,
   /* #3951: the only way a task reaches "Built but waiting" is an agent running this, so the block teaches it. */
   assert.match(body, /task built <project-id> <task-number> "what is left"/, 'the built command is not taught (#3951)');
   assert.match(body, /Closing the task clears the mark/);
+  /* #4771: a pause the person asks for in the room reaches the Prompter only through this verb, so it is taught. */
+  assert.match(body, /project pause <project-id>/, 'the pause command is not taught (#4771)');
+  assert.match(body, /by your person: do not resume it yourself/);
   // One-arg compatibility: no session name, no task lines, no trailer.
   const bare = projects.blockBody([stored]);
   assert.ok(!/task 1 of /.test(bare) && !/task <number>/.test(bare), 'task lines appear with no agent to scope them');
   assert.ok(!/task built/.test(bare), 'the built line appears with no tasks to apply it to');
+  assert.ok(!/project pause/.test(bare), 'the pause line appears with no agent to teach');
 });
 
 test('a task records who added it, while the answer is still free', () => {

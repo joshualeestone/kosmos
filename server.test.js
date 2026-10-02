@@ -14165,6 +14165,39 @@ test('#3955: /api/whats-new serves the release highlights only when web/whats-ne
   assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'a file the window cannot draw was served');
 });
 
+test('#4928: a platform number in "also" shows the highlights once; the same words are not opened again under another number', async (t) => {
+  const whatsnew = require('./engine/whatsnew');
+  const os2 = require('node:os');
+  const fs2 = require('node:fs');
+  const store2 = require('./engine/store');
+  const dir = fs2.mkdtempSync(nodePath.join(os2.tmpdir(), 'wn-also-'));
+  const file = nodePath.join(dir, 'whats-new.json');
+  const seenFile = nodePath.join(store2.ROOT, 'seen-version.json');
+  let before = null;
+  try { before = fs2.readFileSync(seenFile, 'utf8'); } catch { before = null; }
+  whatsnew.setFileForTests(file);
+  t.after(() => {
+    whatsnew.setFileForTests(null);
+    fs2.rmSync(dir, { recursive: true, force: true });
+    if (before === null) fs2.rmSync(seenFile, { force: true }); else fs2.writeFileSync(seenFile, before);
+  });
+  const current = JSON.parse((await req('/api/whats-new')).body).current;
+  const h = [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }];
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.9', also: [current], highlights: h }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'a version in "also" was shown nothing');
+  const r = await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.9', 'which highlights were dismissed was not recorded');
+  assert.equal(JSON.parse((await req('/api/whats-new')).body).highlights, null, 'the same words were offered again after they were dismissed');
+  // A dismissal on a version with no highlights keeps which words were last dismissed.
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.7', highlights: h }));
+  await req('/api/whats-new/seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: current }) });
+  assert.equal(JSON.parse(fs2.readFileSync(seenFile, 'utf8')).highlightsFor, '0.0.9', 'a version with no highlights erased the record');
+  // CONTROL: new words (another main version) are offered.
+  fs2.writeFileSync(file, JSON.stringify({ version: '0.0.8', also: [current], highlights: h }));
+  assert.deepEqual(JSON.parse((await req('/api/whats-new')).body).highlights, h, 'new highlights were held back');
+});
+
 /* ------------------------------------------------------------------------- *
  * #539: the working rules, consented. The GET plans, only the click writes,
  * and a fleet click never overrides a per-agent Not now.
