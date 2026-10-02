@@ -145,3 +145,17 @@ browser check (bc-4962, queued; its first run is its first proof), the full vali
 - FIXED (wording): viaKey (detail 0) also covers voice control and screen-reader activation; the comment says so and
   that it is deliberate (they act as keys here).
 - DEFERRED again: adopt-row Enter scope (PR body). Nits not taken (regex-over-source tests, a corner-case guard).
+
+## Review 13 (opus, blind, 2026-10-02 12:01): 0 blockers, 0 warnings, 3 nits. CONVERGED.
+NIT taken (a9af7bbe): two comments the change made untrue (the nameless-add guard in addImportedInPlace; the
+frEnterSubmit docblock). LEFT: a double press on two visible copies of one row can lose the first add's success and
+show a duplicate-name refusal; one of the two lists is hidden in practice, so low likelihood.
+
+## Review 14 (sonnet, blind, 2026-10-02 12:35, the comment fix): CONVERGED; both new comments true against the code.
+LEFT NITs: line ~68624 says "the document handler below" (it is above, at importNameEnter); "plus importNameEnter's
+defaultPrevented check" overstates its role for these two fields (the early return alone keeps them apart).
+
+## Validation (a9af7bbe4, 2026-10-02 13:36)
+Full validation PASSED: node 14259 tests, 14037 pass, 0 fail, 222 skipped; test:shell done; build ok; subdir audit
+rc 0. The "shell-shard 1/1: FAILED (exit 3)" lines in that log are fixture output from the shard runner's own test
+("stops at the first failure, with its exit status"), not the real shell run.
