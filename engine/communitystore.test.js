@@ -313,7 +313,7 @@ test('#5000: forgetTrust puts the deleted name back at the start and leaves ever
   assert.equal(rec.trust, 'untrusted');
   assert.equal(rec.approved_count, 0);
   assert.equal(typeof rec.forgottenAt, 'string');
-  assert.equal(cs.trustState('Gone5000'), 'untrusted', 'a new agent under the freed name starts trusted');
+  assert.equal(cs.trustState('Gone5000'), 'untrusted', 'a new agent under the freed name inherited the deleted one\'s trust');
   assert.equal(cs.trustState('Stays5000'), 'trusted', 'forgetting one name changed another agent\'s standing');
 });
 

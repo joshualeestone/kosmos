@@ -295,4 +295,7 @@ test('#5000: a folder that cannot be moved still leaves the name reset, because 
   assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'control: the folder was meant to be stuck');
   assert.ok(done.steps.some((x) => x.step === 'its community standing' && x.ok), 'the standing step did not run');
   assert.equal(cs.trustState('halfgone'), 'untrusted', 'a partial delete left the standing in place');
+  /* The sentence the person reads: true about what happened, and no card number in it. */
+  assert.match(done.because, /Nothing was moved\. Its standing in the community was reset/, done.because);
+  assert.ok(!/#\d/.test(done.because), 'a card number reached the person: ' + done.because);
 });

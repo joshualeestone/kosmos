@@ -328,7 +328,7 @@ function del(name, opts) {
   } catch (err) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: 'we could not reset its standing in the community, so nothing was deleted. Try again.',
+      because: 'we could not reset its standing in the community, so nothing was deleted.',
       steps: [{ step: 'its community standing', ok: false, because: String((err && err.message) || err) }],
     };
   }
@@ -397,7 +397,7 @@ function del(name, opts) {
   if (stuck.length) {
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
-      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.join(' or ')}. ` + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : 'Its files were not touched; only its standing in the community was reset (#5000: that runs first).'),
+      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.join(' or ')}. ` + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `Nothing was ${p.toTrash ? 'moved' : 'deleted'}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`),
       steps,
     };
   }

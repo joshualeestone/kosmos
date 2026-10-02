@@ -52,3 +52,11 @@ no reset in del (4).
   NOT fixed in this branch: filed as its own card (the folder move is the real harm and belongs in plan()).
 - C the case test passed vacuously on a case-sensitive disk -> skips with a reason there.
 - N grant then release of an old post was untested -> added; keepForgotten sabotage still red.
+
+## Review 3 (blind, whole diff): 0 blockers, 1 warning, 2 nits; all taken
+- W the late-refusal sentence said "only its standing was reset" (tokens, removed-record and restart record also clear
+  by then) and showed "(#5000 ...)" to the person -> "Nothing was moved/deleted. Its standing in the community was
+  reset, so a new agent with this name starts at the beginning." The halfgone test now asserts it and that no card
+  number reaches the person (sabotage red).
+- N "Try again" on a failed reset promised a retry that may fail the same way -> dropped.
+- N inverted assertion message in communitystore.test.js -> fixed.
