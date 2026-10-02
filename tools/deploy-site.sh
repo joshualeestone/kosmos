@@ -1144,6 +1144,9 @@ _svsetup_got=$(shasum -a 256 < "$_svsetup" | awk '{print $1}'); rm -f "$_svsetup
 _svsetup_sum=$(mktemp "${TMPDIR:-/tmp}/deploy-site-setupsum.XXXXXX")
 curl -fsSL -H 'Cache-Control: no-cache' "$HOST/setup.sha256" -o "$_svsetup_sum" || { echo "deploy-site: could not fetch the served /setup.sha256 after deploy -- refusing (the .pkg postinstall REFUSES the install when this sidecar is unreachable, so a client would hit the same failure)."; rm -f "$_svsetup_sum"; exit 1; }
 _svsetup_want=$(awk '{print $1; exit}' "$_svsetup_sum"); rm -f "$_svsetup_sum"
+# #5032: and when the committed pointer names its installer, the SERVED /setup is that installer (a stale but
+# self-consistent edge pair would pass the agreement check below).
+[ -z "${CSETUP:-}" ] || [ "$_svsetup_got" = "$CSETUP" ] || { echo "deploy-site: the served /setup (sha $_svsetup_got) is not the installer the committed latest.json names ($CSETUP) -- refusing to certify; purge+warm the edge for /setup and re-check (#5032)."; exit 1; }
 [ -n "$_svsetup_want" ] && [ "$_svsetup_want" = "$_svsetup_got" ] || { echo "deploy-site: the served /setup (sha $_svsetup_got) does NOT match its served /setup.sha256 (${_svsetup_want:-<none>}) -- refusing to certify. This is exactly what makes the .pkg postinstall refuse with \"installation failed\" (#1666/#2511): a half-published or half-warmed-CDN state where a client can fetch a mismatched (setup, setup.sha256) pair. Re-run the deploy and/or purge+warm the edge for /setup and /setup.sha256."; exit 1; }
 
 # #5032: the staging installer pair, the same edge check, when the deployed site carries one (a staging
