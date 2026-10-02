@@ -255,14 +255,16 @@ function loadPaint() {
     const STATE_COPY = { working: { label: 'Working' }, idle: { label: 'Idle' } };
     const AGENT_SORT = 'name';
     function sortAgents(list) { return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))); }
-    let OA_BUSY = false, OA_WAS_SHOWN = false, OA_PAINTED = [];
+    let OA_BUSY = false, OA_WAS_SHOWN = false, OA_PAINTED = [], OA_TIMER = 1;
     let OA_COMPUTERS = null;
     function oaRound() {}
     ${SRC}
     ${slice('oaThisOnly')}
     ${slice('oaReplaceGroup')}
+    ${slice('oaFocusSaved')}
+    ${slice('oaFocusBack')}
     ${slice('oaPaint')}
-    return { oaPaint, OA_SEEN, set computers(v) { OA_COMPUTERS = v; }, set busy(v) { OA_BUSY = v; } };
+    return { oaPaint, OA_SEEN, set computers(v) { OA_COMPUTERS = v; }, set busy(v) { OA_BUSY = v; }, set timer(v) { OA_TIMER = v; } };
   `)(t.document, { hostname: 'laptop.kosmosplus.com', protocol: 'https:' }, (fn) => timers.push(fn), { now: () => clock.now });
   return { api, d: t, grid, groups: t.document.getElementById('oa-groups'), timers, clock };
 }
@@ -322,4 +324,61 @@ test('paint: coming back on screen asks for a read at once, even before the comp
   assert.equal(timers.length, 1, 'a read is started on return, with no computers list yet');
   api.oaPaint();
   assert.equal(timers.length, 1, 'once, not on every paint');
+});
+
+test('paint: focus on a card that goes stale falls back to the group, never to the page', () => {
+  const { api, d, groups, clock } = loadPaint();
+  api.computers = LIST;
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'Ann', state: 'idle' }], at: 1000000 });
+  api.oaPaint();
+  groups.children[0].querySelector('.oa-card').focus();
+  assert.equal(d.focused().tagName, 'A', 'control: on the live link');
+  clock.now += 60000;   // past OA_STALE_MS: the cards become greyed divs
+  api.oaPaint();
+  assert.equal(groups.children[0].querySelector('.oa-card').tagName, 'DIV', 'control: the card can no longer take focus');
+  assert.equal(d.focused() && d.focused().tagName, 'A', 'the Open link takes it (still shown for a stale list)');
+  assert.equal(d.focused().className, 'oa-open');
+});
+
+test('paint: focus on Open for a computer that goes offline lands on its group', () => {
+  const { api, d, groups } = loadPaint();
+  api.computers = LIST;
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [], at: 1000000 });
+  api.oaPaint();
+  groups.children[0].querySelector('.oa-open').focus();
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'out', agents: null, at: null });
+  api.oaPaint();
+  assert.equal(groups.children[0].querySelectorAll('.oa-open').length, 0, 'control: no Open link for an offline computer');
+  assert.equal(d.focused(), groups.children[0], 'the group itself');
+});
+
+test('paint: a computer added rebuilds every group, and focus follows its computer', () => {
+  const { api, d, groups } = loadPaint();
+  api.computers = LIST;
+  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'p', name: 'P', state: 'idle' }], at: 1000000 });
+  api.oaPaint();
+  groups.children[1].querySelector('.oa-card').focus();
+  api.computers = { ...LIST, computers: [...LIST.computers, { name: 'zed', address: 'zed.kosmosplus.com', this: false, online: true }] };
+  api.oaPaint();
+  assert.equal(groups.children.length, 3, 'control: rebuilt with the new computer');
+  const f = d.focused();
+  assert.equal(f && f.dataset.session, 'p', 'back on P');
+  assert.equal(f.closest('.oa-group'), groups.children[1]);
+});
+
+test('paint: no read on return while a round runs, or before oaStart', () => {
+  const a = loadPaint();
+  a.grid.hidden = true; a.api.oaPaint(); a.api.busy = true; a.grid.hidden = false; a.api.oaPaint();
+  assert.equal(a.timers.length, 0, 'a round already running will paint it');
+  const b = loadPaint();
+  b.api.timer = null; b.grid.hidden = true; b.api.oaPaint(); b.grid.hidden = false; b.api.oaPaint();
+  assert.equal(b.timers.length, 0, 'oaStart has not run (first run): nothing is read');
+});
+
+test('stale line: a list refreshed by the last round is never stale', () => {
+  const cut = Number(/OA_READ_LIMIT_MS = (\d+)/.exec(PAGE)[1]);
+  const tick = Number(/OA_STATUS_EVERY_MS = (\d+)/.exec(PAGE)[1]);
+  const stale = Number(/OA_STALE_MS = (\d+)/.exec(PAGE)[1]);
+  assert.ok(stale > tick + cut, 'OA_STALE_MS ' + stale + ' must exceed a round (' + tick + ') plus a read cut (' + cut + ')');
+  assert.ok(/if \(OA_COMPUTERS\) await Promise\.all\(\[refresh, readAll\(\)\]\)/.test(PAGE), 'the reads run beside the computers refresh, not behind it');
 });

@@ -23,6 +23,8 @@ function makeDom() {
     return false;
   }
 
+  function dropFocusIn(n) { for (let f = focused; f; f = f.parent) if (f === n) { focused = null; return; } }
+
   function create(tag) {
     const node = {
       tagName: String(tag).toUpperCase(),
@@ -42,9 +44,15 @@ function makeDom() {
       listeners: {},
       ownText: '',
       get textContent() { return this.ownText + this.children.map((c) => c.textContent).join(''); },
-      set textContent(v) { this.ownText = String(v); this.children = []; },
+      set textContent(v) { for (const c of this.children) dropFocusIn(c); this.ownText = String(v); this.children = []; },
       appendChild(c) { c.parent = this; this.children.push(c); return c; },
-      replaceWith(n) { const p = this.parent; if (!p) return; const i = p.children.indexOf(this); n.parent = p; p.children[i] = n; this.parent = null; },
+      replaceWith(n) {
+        const p = this.parent; if (!p) return;
+        const i = p.children.indexOf(this); if (i < 0) return;
+        if (n.parent) { const j = n.parent.children.indexOf(n); if (j >= 0) n.parent.children.splice(j, 1); }
+        n.parent = p; p.children[i] = n; this.parent = null;
+        dropFocusIn(this);   // as a browser does: a removed node's focus goes to the body
+      },
       append(...cs) { for (const c of cs) this.appendChild(c); },
       setAttribute(k, v) { this.attrs[k] = String(v); },
       getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
@@ -59,7 +67,8 @@ function makeDom() {
         if (this.tagName === 'INPUT' && this.type === 'checkbox') { this.checked = !this.checked; this.dispatch('change'); return; }
         this.dispatch('click');
       },
-      focus() { focused = this; },
+      // Only what a browser lets take focus: a link, a form control, or anything given a tabIndex.
+      focus() { if (['A', 'INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(this.tagName) || typeof this.tabIndex === 'number') focused = this; },
       select() {},
       querySelectorAll(sel) {
         const out = [];
