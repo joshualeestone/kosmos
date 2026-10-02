@@ -53,9 +53,20 @@ fi
 # and without what belongs to the whole suite: the queue WAIT (a light queue turn already holds its place; the release
 # claim and install-harness refusals are still asked, once), the coverage count, the shell part and the branch's
 # browser-check gates. A bare `node --test <file>` skips all of it. Other suites' "is a suite live" checks still see
-# a --only run as one (it is run-tests.sh), so they wait for it or refuse: the safe direction.
+# a --only run as one (it is run-tests.sh), so they wait for it or refuse: the safe direction. A --only run itself
+# does NOT wait for or refuse a live suite (no queue wait, above): it is meant for inside a light queue turn.
 KOSMOS_ONLY=0
 KOSMOS_ONLY_FILES=()
+# --only counts only as the FIRST argument. Anywhere else node --test would take it as its own option and run the
+# whole suite, so it refuses instead.
+if [ "${1:-}" != --only ]; then
+  for _only_f in "$@"; do
+    if [ "$_only_f" = --only ]; then
+      echo "run-tests: --only must come first (tools/run-tests.sh --only <file>...); refusing rather than running the whole suite" >&2
+      exit 2
+    fi
+  done
+fi
 if [ "${1:-}" = --only ]; then
   shift
   if [ "$KOSMOS_TEST_PART" != all ] || [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
@@ -76,7 +87,9 @@ if [ "${1:-}" = --only ]; then
       echo "run-tests: no test file '$_only_f' (a relative path is read from the repo root)" >&2
       exit 2
     fi
-    KOSMOS_ONLY_FILES+=("$_only_f")
+    _only_dup=0
+    for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
+    [ "$_only_dup" = 1 ] || KOSMOS_ONLY_FILES+=("$_only_f")   # a file named twice runs once
   done
   set --
   KOSMOS_ONLY=1

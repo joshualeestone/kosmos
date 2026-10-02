@@ -28,6 +28,7 @@ const { spawnSync } = require('node:child_process');
 const RUNNER = path.join(__dirname, 'tools', 'run-tests.sh');
 /* Read, never run, to see whether this runner knows --only: running one that does not starts the whole suite. */
 const KNOWS_ONLY = /\[ "\$\{1:-\}" = --only \]/.test(require('node:fs').readFileSync(RUNNER, 'utf8'));
+const KNOWS_MISPLACED = /--only must come first/.test(require('node:fs').readFileSync(RUNNER, 'utf8'));
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'only-4929-'));
 /* Under the suite (yarn test, CI, --only itself) this process already has what run-tests.sh exports, and CI's node job
    sets KOSMOS_TEST_PART. Every run below starts from an environment with none of that, so each assertion can only
@@ -122,6 +123,12 @@ test('--only runs the named file with the suite\'s environment and guards', () =
   assert.match(r.out, /tests 1\b/, 'more than the named file ran');
 });
 
+test('--only runs a file named twice once', () => {
+  const r = run(['--only', PROBE, PROBE]);
+  assert.equal(r.code, 0, r.out.slice(-1500));
+  assert.match(r.out, /tests 1\b/, 'the file ran twice');
+});
+
 test('--only passes a red file\'s failure on', () => {
   const r = run(['--only', RED]);
   assert.notEqual(r.code, 0, 'a failing file came back green');
@@ -136,8 +143,12 @@ test('--only refuses, before anything runs: no files, an option, a non-test file
     [['--only', PROBE, path.join(DIR, 'missing.test.js')], {}, /no test file/],
     [['--only', PROBE], { KOSMOS_TEST_PART: 'node', KOSMOS_TEST_PART_LOCAL: '1' }, /does not take KOSMOS_TEST_PART/],
     [['--only', PROBE], { KOSMOS_SHELL_SHARD: '1/2' }, /does not take KOSMOS_TEST_PART or KOSMOS_SHELL_SHARD/],
+    // Not first, node --test would take --only as its own option and run the whole suite.
+    [[PROBE, '--only'], {}, /--only must come first/],
   ]) {
     assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
+    // A misplaced --only on a runner that does not refuse it would run the whole suite: read before running that arm.
+    if (args[0] !== '--only') assert.ok(KNOWS_MISPLACED, 'tools/run-tests.sh does not refuse a misplaced --only: not running it');
     const e = cleanEnv(env);
     const r = runRunner(args, e, 60000);
     const out = (r.stdout || '') + (r.stderr || '');
@@ -187,7 +198,7 @@ test('--only asks the install harness once: a live one refuses it; the override 
 
 test('the runner\'s text keeps --only out of the whole suite\'s parts (coverage count, shell part, both gates)', () => {
   const src = fs.readFileSync(RUNNER, 'utf8');
-  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n(?:  .*\n){0,8}  KOSMOS_TEST_FILES=\("\$\{KOSMOS_ONLY_FILES\[@\]\}"\)/, 'the coverage count is no longer skipped for --only');
+  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n[\s\S]{0,800}?\n  KOSMOS_TEST_FILES=\("\$\{KOSMOS_ONLY_FILES\[@\]\}"\)/, 'the coverage count is no longer skipped for --only');
   // An empty --only list must stop before the node line too: bash 5 expands it to nothing and node runs every file.
   assert.match(src, /if \[ "\$\{#KOSMOS_ONLY_FILES\[@\]\}" -eq 0 \]; then\n.*\n    exit 2\n  fi\n  KOSMOS_TEST_FILES=/, 'the second stop for an empty --only list is gone');
   assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n  :   # #4929: --only runs named node files; the shell part is the whole suite's\nelif \[ "\$NODE_STATUS" -eq 0 \]/, 'the shell part is no longer skipped for --only');
