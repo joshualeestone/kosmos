@@ -301,17 +301,18 @@ async function readPipedMessage(ctx, verb, usage) {
 
 /* #2909: a piped message may have no other copy, so a failure after the read keeps it in a
    private file and names the path. */
-function keepPipedCopy(ctx, text) {
+function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may have arrived, as install/kosmos's _keep_piped maybe
   const os = require('os');
   let dir = '';
   try {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-unsent-'));
     const file = path.join(dir, 'message.txt');
     fs.writeFileSync(file, text, { mode: 0o600 });
-    ctx.err('The piped message was not sent; it is saved at ' + file);
+    ctx.err(maybe ? 'The piped message may not have been sent; a copy is saved at ' + file + '. Check before sending it again.'
+      : 'The piped message was not sent; it is saved at ' + file);
   } catch (e) {
     if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ } }
-    ctx.err('The piped message was not sent, and we could not save a copy of it.');
+    ctx.err('The piped message ' + (maybe ? 'may not have been sent' : 'was not sent') + ', and we could not save a copy of it.');
   }
 }
 
@@ -508,17 +509,27 @@ async function verbPost(ctx, args) {
   const d = (r.json && r.json.delivery) || {};
   if (d.state === 'placed') { ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.')); return 0; }
   if (d.state === 'unconfirmed') return maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
-  ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
+  if (d.code === 'room_held') {
+    /* #4934: the loop guard. A LIVE post it refuses is not kept and never delivered later; an agent that read "not sent"
+       and sent it by direct message as well, then posted it again once the room opened, reached people twice. After the
+       cut-reply retry the first try may already be in the room, so that case says check first. */
+    ctx.err(retried
+      ? 'Not posted this time: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Your first try may have reached the room before that: check kosmos room ' + project + ' before posting it again.'
+      : 'Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Nothing was sent to anyone, and Kosmos does not keep it or send it later.');
+    ctx.err('Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour.');
+  } else ctx.err('Not posted: ' + (clause(d.because) || 'we could not tell why') + '.');
   /* #2710 parity with install/kosmos: HAND THE TEXT BACK on every refusal, not only a #3224
      which-room hold, or a post refused by the loop guard is lost with the agent's scrollback. A
      piped message goes to its private file instead (keepPiped, below). */
   if (!fromStdin) {
     ctx.err(d.code === 'which_room'
       ? 'Your message was not sent, so here it is to send again:'
-      : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
+      : d.code === 'room_held' ? 'Here it is to keep:'   // #4934: the two lines above already say it was not sent
+        : 'Your message was not sent, so here it is to keep and re-post when the room is ready:');
     ctx.err(text);
   }
-  keepPiped();
+  // #4934: after the cut-reply retry the first try may be in the room, so a piped copy says "may not have been sent".
+  if (retried) { if (fromStdin) keepPipedCopy(ctx, text, true); } else keepPiped();
   return 1;
 }
 
