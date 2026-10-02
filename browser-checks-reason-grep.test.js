@@ -458,6 +458,7 @@ const SITE_COUNTS = {
   'render-restart-kloader-2831.js': [1, 1],
   'render-restart-screen-4343.js': [3, 2],
   'render-restore-dircheck-2615.js': [1, 1],
+  'render-restore-refused-4976.js': [2, 1],
   'render-richtext-room-2239.js': [1, 0],
   'render-role-limit.js': [1, 0],
   'render-role-order.js': [1, 0],
