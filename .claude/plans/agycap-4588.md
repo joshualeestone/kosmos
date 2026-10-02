@@ -152,3 +152,17 @@ happen while the person is messaging all of them directly.
 - **W3:** a comment on why the resume sweep's head-of-line stop is safe with a single cap count.
 - Deferred, already recorded: reserving a working target (review 5); the defensive cap branches in wakeHeldLine and
   recordedBecause (review 4); the source pin for the throw path (review 4).
+
+## Review 7 (opus) and what changed
+- **BLOCKER, a stale clock deleted fresh reservations:** startedRecently dropped any reservation dated after the
+  caller's `now`. The room-hold flush and the auto-retell read `now` once per tick and deliver agent after agent, so the
+  second agent's check deleted the first one's fresh reservation and let it through. A reservation ahead of `now` now
+  stays active; only one past a whole window ahead is dropped.
+- **Tests:**
+  - a reservation made after the caller's `now` still holds the next agent, with controls for one implausibly far
+    ahead and one lapsed
+  - autoretell's sweep, through the real heldForAgy with the tick's single clock, holds the second member at cap 1
+    (the earlier test stubbed ready)
+
+  Putting the old clause back reds both.
+- The room-hold capOn rule respects the quota-hold brake.

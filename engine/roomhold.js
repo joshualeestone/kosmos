@@ -283,7 +283,7 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
          while a cap is set, including one held because its member was working: it is told at the next minute the
          member is idle and let through, rather than at its next wake. */
       let capOn = false;
-      try { capOn = Number(require('./agycap-setting').read().maxWorking) > 0; } catch { capOn = false; }
+      try { capOn = !require('./agyquota').quotaHoldOff(env || process.env) && Number(require('./agycap-setting').read().maxWorking) > 0; } catch { capOn = false; }   // the brake lifts the cap here too
       if (!capOn && idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => plainId(x) !== x))) continue;
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */

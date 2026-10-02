@@ -135,7 +135,10 @@ const CAP_STARTS = new Map();   // session name -> when its automatic line was l
 function startedRecently(name, now) {
   const at = CAP_STARTS.get(name);
   if (at === undefined) return false;
-  if (now - at >= CAP_START_MS || at > now) { CAP_STARTS.delete(name); return false; }
+  /* Review 7: a reservation dated AFTER `now` is still active. A sweep reads `now` once and delivers agent after agent,
+     each reserving at a fresh clock, so a later check with the tick's `now` must still see the earlier reservations.
+     Only one implausibly far ahead (past a whole window) is dropped. */
+  if (now - at >= CAP_START_MS || at > now + CAP_START_MS) { CAP_STARTS.delete(name); return false; }
   return true;
 }
 function busyAgy(c, now) {

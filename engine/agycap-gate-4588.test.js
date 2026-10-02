@@ -147,3 +147,38 @@ test('review 3: nothing is reserved under the quota-hold brake', () => {
   assert.deepEqual(q.noteCapStart('agy-a', r, NOW, cap(1), NOENV), { name: 'agy-a', at: NOW }, 'CONTROL: without the brake it reserves');
   q.CAP_STARTS.clear();
 });
+
+test('review 7: a reservation made AFTER the caller\'s now (a sweep that read its clock once) still holds the next agent', () => {
+  q.CAP_STARTS.clear();
+  const r = world({ 'agy-a': 'idle', 'agy-b': 'idle', 'agy-c': 'idle', 'claude-x': 'idle' });
+  // The tick read NOW; the first agent's delivery reserved two seconds later.
+  assert.deepEqual(q.noteCapStart('agy-a', r, NOW + 2000, cap(1), NOENV), { name: 'agy-a', at: NOW + 2000 });
+  assert.equal(q.heldForAgy('agy-b', r, NOW, q.newPoolMemo(), NOENV, cap(1)), NOW + q.CAP_RECHECK_MS, 'the second agent got through on the tick\'s stale clock');
+  assert.equal(q.CAP_STARTS.has('agy-a'), true, 'the stale-clock check deleted the first agent\'s fresh reservation');
+  assert.equal(q.heldForCap('agy-b', r, NOW + 2500, cap(1), NOENV), NOW + 2500 + q.CAP_RECHECK_MS, 'the fresh-clock gate no longer sees it');
+  // CONTROL: one dated past a whole window ahead is implausible and dropped; one a window old has lapsed.
+  q.CAP_STARTS.set('agy-a', NOW + q.CAP_START_MS + 1);
+  assert.equal(q.heldForCap('agy-b', r, NOW, cap(1), NOENV), null);
+  q.CAP_STARTS.set('agy-a', NOW - q.CAP_START_MS);
+  assert.equal(q.heldForCap('agy-b', r, NOW, cap(1), NOENV), null);
+  q.CAP_STARTS.clear();
+});
+
+test('review 7: autoretell\'s re-check through the REAL heldForAgy, with the tick\'s one clock, holds the second member at cap 1', () => {
+  q.CAP_STARTS.clear();
+  const autoretell = require('./autoretell');
+  const r = world({ 'agy-a': 'idle', 'agy-b': 'idle', 'agy-c': 'idle', 'claude-x': 'idle' });
+  const T0 = NOW;
+  const couldNot = { state: autoretell.COULD_NOT, because: 'no instructions file yet', at: new Date(T0).toISOString() };
+  const tickNow = T0 + 1000 + autoretell.SETTLE_MS;   // read ONCE, as server.js's autoretellTick does
+  let clock = tickNow;
+  const memo = q.newPoolMemo();
+  const ready = (name) => q.heldForAgy(name, r, tickNow, memo, NOENV, cap(1)) === null;
+  const sent = [];
+  const retell = (name) => { clock += 2000; sent.push(name); q.noteCapStart(name, r, clock, cap(1), NOENV); return { told: { state: 'told' } }; };
+  const w = { projects: [{ id: 'p1', agents: ['agy-a', 'agy-b'], told: { 'agy-a': couldNot, 'agy-b': couldNot } }], mtimeOf: () => T0 + 1000, now: tickNow, acted: new Map() };
+  autoretell.sweepOnce({ ...w, ready, retell });
+  assert.deepEqual(sent, ['agy-a'], 'the second member was retold although the first one\'s reservation fills the cap');
+  assert.equal(w.acted.has('agy-b'), false, 'the held member\'s retell was spent');
+  q.CAP_STARTS.clear();
+});
