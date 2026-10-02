@@ -4895,18 +4895,15 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      bar now carries real content (the K mark, the Kosmos switcher on the left, the
      appearance + view-toggle controls on the right) flush to the top with no empty
      margin, which is exactly what Mona's mock (the design owner's call, Josh's newer
-     ask) puts there. The center TABS stay hidden in this view (consolidated is one
-     screen, not separate tab screens) -- matching the mock's 2-column consolidated
-     header (left cluster + right cluster).
-     #4345 (Josh, 2026-09-28 09:21): the tabs come back. Agents, Projects and Tasks stay in
+     ask) puts there.
+     #4345 (Josh, 2026-09-28 09:21): the center tabs, hidden in this view until then, come back. Agents, Projects and Tasks stay in
      the top nav here and load into the display column (openConsolidatedAgents /
      openConsolidatedTasks; Projects returns the column to the board), so there is always
      a visible way back. Only the h1 stays hidden. */
   html[data-layout="consolidated"] body.consolidated > .apphead header {
-    /* kosmos#2624: top-aligned, see the .apphead block near the top. The tab view's grid and gap (1fr auto 1fr, 24px),
-       not flex space-between, so the center tabs sit on the same pixels in both views whatever the Kosmos name's width
-       (render-tophead-stable-2624, its long-name arm). */
-    display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 24px;
+    /* kosmos#2624: no display, columns or gap here. The header keeps the tab view's own (.apphead header, near the
+       top), so the center tabs sit on the same pixels in both views whatever the Kosmos name's width
+       (render-tophead-stable-2624, its long-name arm). This rule used flex space-between and moved them. */
     padding: 8px var(--space-8); min-height: 0; margin: 0;
     background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
   html[data-layout="consolidated"] body.consolidated > .apphead h1 { display: none; }
