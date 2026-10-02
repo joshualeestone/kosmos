@@ -3348,6 +3348,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    large default box; since #4550 the pack (.dnav-pack) is a PAIR, Profile and AI Settings side by
    side (see the .dnav-pack rule below). */
 #d-nav.dnav-boxed { gap: 10px; }
+/* #4961: the agent page's nav scrolls with its column. `.snav` is sticky (#350, when the nav was
+   alone in its column); here the Files card (#3614) sits below it in the same column, so a sticky
+   nav slid over the card's header on a scroll, and its 16px top tucked it under the app header.
+   Settings keeps the sticky .snav: nothing sits below #s-nav. */
+#d-nav { position: static; }
 /* #3500 follow-up (Josh, 2026-09-24): icon over label, centred, in every box (was icon
    beside a left-aligned label). Stacking gives the label the whole tile width back, which is
    what makes the 2x2 pack below fit without the label wrapping. */
