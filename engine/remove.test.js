@@ -2879,15 +2879,17 @@ test('#4964: a burst of restarts waits at most the burst allowance; the rest end
 });
 
 test('#4964: a board whose commands are not real (dry run, no runner) does not wait for an unload', () => {
+  /* No pane: the restart goes straight to the relaunch (a dry-run board cannot close a window, so an agent with one
+     never reaches it). This is the browser checks' Restart on a stopped agent (render-start-agent-3410). */
   const name = madeAgent('unloaddry');
-  boardShows(name, name);
   remove.setRunner(null);   // dry run: every print answers "loaded"
   const was = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
   delete process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
   try {
     const t0 = Date.now();
-    mac.restart(name, 'provider');
+    const out = mac.restart(name, 'restart', { startIfDead: true });
     assert.ok(Date.now() - t0 < 3000, `a dry-run restart froze the board for ${Date.now() - t0} ms`);
+    assert.ok(out.steps.some((st) => st.label === 'asked it to start again now'), `precondition: the restart never reached the relaunch: ${out.because}`);
   } finally {
     if (was !== undefined) process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = was;
     status.setPaneSource(null);
