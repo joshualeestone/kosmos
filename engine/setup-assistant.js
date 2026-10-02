@@ -512,6 +512,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      (KOSMOS_AGENT_TOKEN, minted by the supervisor before launch), never from this folder; another agent's token read
      from it would let this agent act as that agent, including removing the agents that one made. */
   const senderTokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
+  /* And the supervisor's launch hand-off, where each agent's token waits in a file until its pane starts (written
+     under AGENT_WORKFORCE_DATA, the data root's parent, or the app folder). The pane entry reads it before this
+     agent's sandbox exists. NOT closed here: another agent's token in its process environment (`ps -E` as the same
+     Mac user), and typing into another agent's tmux pane. */
+  const appRoot = deps.appRoot || path.resolve(__dirname, '..');
+  const launchSecretDirs = [...new Set([...tokenRoots.map((r) => path.join(path.dirname(r), 'launch-secrets')), path.join(appRoot, 'launch-secrets')])];
   /* #4475: and the records the board trusts about who made and who ended which agent, written only by the board and
      the supervisor (outside this sandbox): a token-only agent that could write them could forge a birth naming itself
      the creator, erase an ended identity, list itself token-only or not, or plant a token for another name. */
@@ -527,11 +533,12 @@ function tokenOnlySettingsRules(dir, deps = {}) {
     ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
     ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
     ...senderTokenDirs.map((p) => `Read(${ruleAbs(p)}/**)`),
+    ...launchSecretDirs.map((p) => `Read(${ruleAbs(p)}/**)`),
     ...senderTokenDirs.map((p) => `Edit(${ruleAbs(p)}/**)`),
     ...trustedFiles.map((p) => `Edit(${ruleAbs(p)})`),
     ...editTargets.map((t) => `Edit(${ruleAbs(t.f)})`),
   ];
-  return { deny, settingsDir, tokenPaths, tokenTmps, senderTokenDirs, trustedFiles, settingsFiles };
+  return { deny, settingsDir, tokenPaths, tokenTmps, senderTokenDirs, launchSecretDirs, trustedFiles, settingsFiles };
 }
 
 /*
@@ -585,7 +592,7 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       // yet, so use realOrLeaf (resolves the existing parent, keeps the absent leaf) rather than realOr,
       // which would leave a symlinked parent un-followed. The agent's own .claude was just mkdir'd, so
       // realOr resolves it directly.
-      const denyReadPaths = [...rules.tokenPaths, ...rules.senderTokenDirs].map(realOrLeaf);
+      const denyReadPaths = [...rules.tokenPaths, ...rules.senderTokenDirs, ...rules.launchSecretDirs].map(realOrLeaf);
       const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOrLeaf), ...rules.senderTokenDirs.map(realOrLeaf), ...rules.trustedFiles.map(realOrLeaf)];
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,

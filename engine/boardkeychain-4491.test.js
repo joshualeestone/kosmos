@@ -275,6 +275,17 @@ test('#4475: the records the board trusts, and the sender-token folder, are writ
   assert.equal(sendertoken.tokenOnlyFile(), path.join(store.ROOT, 'agent-token-only.json'));
 });
 
+test('#4475: the supervisor\'s launch hand-off folders are Read-denied (beside the data root, and in the app folder)', () => {
+  const dir = agentDir('pilot-launch');
+  const app = path.join(SANDBOX, 'app');
+  setup.guardTokenOnlyFolder(dir, 'pilot-launch', { ...DEPS, appRoot: app });
+  const s = readSettings(dir);
+  for (const p of [path.join(path.dirname(store.ROOT), 'launch-secrets'), path.join(app, 'launch-secrets')]) {
+    assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(p)}/**)`), 'a waiting launch token is readable at ' + p);
+    assert.ok(s.sandbox.filesystem.denyRead.includes(realOrLeaf(p)), p + ' is not in sandbox denyRead');
+  }
+});
+
 test('realOrLeaf: resolves an existing leaf (incl a symlink), a symlinked parent of an absent leaf, and an all-missing path', () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'realorleaf-'));
   // existing symlink leaf -> target: resolves to the target

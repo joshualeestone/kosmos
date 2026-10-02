@@ -66,7 +66,7 @@ function agentToken(name) {
 function born(name, createdBy, extra = {}) {
   fs.mkdirSync(path.dirname(create.createdLogFile()), { recursive: true });
   const now = new Date().toISOString();
-  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ at: now, askedAt: now, name, outcome: 'created', createdBy: store.safeKey(createdBy), createdByName: createdBy, ...extra }) + '\n');
+  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ at: now, askedAt: now, name, slug: create.slugFor(name), outcome: 'created', createdBy: store.safeKey(createdBy), createdByName: createdBy, ...extra }) + '\n');
 }
 async function remove(name, headers, query = '') {
   const res = await fetch(`${base}/api/agent/${encodeURIComponent(name)}/removal${query}`, { method: 'DELETE', redirect: 'manual', headers });
@@ -108,7 +108,9 @@ test('the creator is matched by its exact token name: a name with a period, and 
 
 test('a different agent whose name folds to the same slug or key is not the creator', async () => {
   born('Kip Kid Two', 'Dr. Kip');
-  for (const other of ['dr-kip', 'drkip', 'DR. KIP']) {
+  // dr-kip is on its own key, so only the exact-name comparison can refuse it (a name on Dr. Kip's key, such as
+  // drkip, would make the caller a twin and be refused for that instead).
+  for (const other of ['dr-kip']) {
     const t = { token: agentToken(other) };
     const r = await remove('kip-kid-two', { 'x-kosmos-agent-token': t.token });
     assert.equal(r.code, 403, `${other} removed an agent Dr. Kip made: ${r.text.slice(0, 160)}`);
@@ -300,6 +302,13 @@ test('a history line whose time is not in toISOString form is read as an end (it
   assert.equal(r.code, 403, 'a line it could not order was read as no end: ' + r.text.slice(0, 160));
   born('Odd Birth Kid', 'pm-agent', { at: '2026-10-02 18:00' });
   assert.equal((await remove('odd-birth-kid', asAgent())).code, 403, 'a birth time it could not order was accepted');
+});
+
+test('a birth with no recorded board name (before #4475\'s slug field) is not honoured', async () => {
+  born('Old Format Kid', 'pm-agent', { slug: undefined });
+  const r = await remove('old-format-kid', asAgent());
+  assert.equal(r.code, 403);
+  assert.match(r.text, NOT_YOURS);
 });
 
 test('a token-only agent may not force a removal, even of its own creation', async () => {

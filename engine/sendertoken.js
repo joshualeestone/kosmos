@@ -255,7 +255,8 @@ function othersTokens(held, sessionName) {
    created ends at the first line for either name after it was made. NOT covered, because these mint without
    revoking: a name freed by deleting an agent's files by hand, outside Kosmos, and then adopted; and a remote token
    the person issues again under a name (POST /api/agent-token), which carries that name's identity on, so a remote
-   creator re-issued its name keeps what it made. */
+   creator re-issued its name keeps what it made. The births it is compared with record the board name each create
+   acted on (`slug`), so a name here and a birth there are the same spelling. */
 function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 function noteEnded(sessionName) {
   try {

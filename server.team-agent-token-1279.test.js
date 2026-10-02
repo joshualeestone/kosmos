@@ -341,6 +341,43 @@ test('#4475 END TO END: an agent that makes a member under a live remote agent\'
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
+test('#4475 END TO END: a member name padded past the birth log\'s cut does not make its creator the owner of a shorter name', async () => {
+  create.setClaudeProbe(LIVE);
+  const tok = sendertoken.mint('padpm').token;
+  liveness.seen('padpm');
+  const board = fleet.install([]);
+  const del = async (name) => (await fetch(`${base}/api/agent/${name}/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': tok } })).status;
+  try {
+    const padded = 'Padhelper' + ' '.repeat(200) + 'Zed';
+    const made = await postTeam({ purpose: 'agent builds a team', members: [{ name: padded, role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const b = create.createdLog().filter((e) => e && e.createdByName === 'padpm').pop();
+    assert.ok(b && b.outcome === 'created', 'CONTROL: the padded member was not created: ' + JSON.stringify(made.json));
+    assert.equal(create.slugFor(b.name), 'padhelper', 'CONTROL: the cut typed name no longer slugs to the shorter name, so this test proves nothing');
+    assert.notEqual(b.slug, 'padhelper', 'the birth recorded the cut name\'s slug, not the one create acted on');
+    assert.equal(await del('padhelper'), 403, 'the creator could remove a shorter name its padded member\'s cut name slugs to');
+    assert.notEqual(await del(b.slug), 403, 'CONTROL: the creator could not remove the member it actually made (' + b.slug + ')');
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
+test('#4475 END TO END: a typed name whose key differs from its board name still records that a token stood for the board name', async () => {
+  create.setClaudeProbe(LIVE);
+  sendertoken.mint('remote-w');         // a live remote agent on the board name the create will act on
+  liveness.seen('remote-w');
+  const tok = sendertoken.mint('takerpm2').token;
+  liveness.seen('takerpm2');
+  const board = fleet.install([]);
+  try {
+    const made = await postTeam({ purpose: 'agent builds a team', members: [{ name: 'Remote W', role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const b = birthOf('Remote W');
+    assert.ok(b && b.slug === 'remote-w', 'CONTROL: the member was not made as remote-w: ' + JSON.stringify(b));
+    assert.equal(b.tookTokens, true, 'the token on the board name was missed because the typed name\'s key was checked');
+    const res = await fetch(`${base}/api/agent/remote-w/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': tok } });
+    assert.equal(res.status, 403);
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
 test('AUTH: the BOARD token drives the operator path (createdBy = body.creator)', async () => {
   create.setClaudeProbe(LIVE);
   const board = fleet.install([]);

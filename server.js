@@ -2591,8 +2591,10 @@ function activeAgentsCreatedBy(creator) {
   return n;
 }
 
-/* #4475: the newest `created` or `partial` birth line for the agent `name`, by slug, or null when the birth log has
-   none. tokenOnlyMayRemove refuses any birth that is not `created`, so a newer partial line ends the older one. */
+/* #4475: the newest `created` or `partial` birth line for the agent `name`, or null when the birth log has none. A
+   line is matched by the board name its create acted on (`slug`, recorded since #4475), else by the slug of its typed
+   name. tokenOnlyMayRemove refuses any birth that is not `created` or has no `slug`, so a newer partial line, or an
+   older-format one, ends the older one. */
 function agentBirthOf(name) {
   let want; try { want = create.slugFor(name); } catch { return null; }
   if (!want) return null;
@@ -2602,7 +2604,8 @@ function agentBirthOf(name) {
   let newest = null;
   for (const b of births) {
     if (!b || (b.outcome !== 'created' && b.outcome !== 'partial') || !b.name) continue;
-    let slug; try { slug = create.slugFor(b.name); } catch { slug = String(b.name); }
+    let slug = (typeof b.slug === 'string' && b.slug) ? b.slug : null;
+    if (!slug) { try { slug = create.slugFor(b.name); } catch { slug = String(b.name); } }
     if (slug === want) newest = b;
   }
   return newest;
@@ -2628,6 +2631,7 @@ function tokenOnlyMayRemove(caller, target) {
   if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return false;
   const birth = agentBirthOf(target);
   if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return false;
+  if (birth.slug !== target) return false;   // the create acted on exactly this board name (not a cut typed name)
   if (birth.createdByName !== caller.name || birth.tookTokens === true) return false;
   if (sendertoken.keyHoldsOthers(target)) return false;
   if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return false;
