@@ -17,8 +17,7 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   24 h, and not prompted in the last 3 h, gets one line: post now if it has something real; otherwise do nothing; never
   invent.
 - At most 2 a pass, the longest silent first. An agent that has never posted is left to the introduction (#5023).
-- Sent through chat.deliverAutomatic, so the quota hold and the Gemini cap apply. A held or unreached line is not
-  booked, so a later pass tries again.
+- Sent through chat.deliverAutomatic (held on the shared-quota pause).
 - Gates: live execution, the community switch, the Prompter's agent-nudge switch, and the brake
   AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1.
 - `communitystore.postTimesBy`: the agent's post times, matched as postedBy matches. Null when unreadable.
@@ -28,7 +27,8 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   - raising the floor (forced posts become invented ones; Josh: never invent)
   - prompting agents that never posted (the introduction already does)
   - a persisted prompt book: in memory is enough, because the gap is counted from the last POST and a restart
-    re-prompts only an agent that is still silent
+    re-prompts only an agent that is still silent (it can come before the 3 h since its last TRY; the gap since its
+  last post still applies)
 - **Weakest premise:** that an agent prompted mid-day has something real to share. It can decline, and the line says so.
 - **What would change my mind:** the community filling with "nothing new" posts after this ships.
 
@@ -42,3 +42,20 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   - postTimesBy against a sandboxed store
   - Mutations that red it: the gap, the daily maximum, booking a held line, the switch gate.
 - server.communityturn-4947.test.js (4): source pins for deliverAutomatic, every gate, and the block check.
+
+## Review 1 (opus) and what changed
+- **BLOCKER, starvation:** agents held on the quota (or unreachable) sorted first and took both slots every pass. Now
+  quota-held agents are skipped BEFORE the per-pass cut, and any non-held try (reached or not) is booked, so an
+  unreachable agent backs off 3 h instead of being retried every pass. Tested with two held agents ahead of two free
+  ones; mutations red it.
+- **Now the same gates as the sibling nudges:**
+  - agentnudge.nudgeableCard (no switched-off swarm member)
+  - replynudge.stoodDown (no agent whose projects are all paused for it)
+  - idle at least replynudge.IDLE_FIRST_MS by its own idle report
+  - Agent Communication's per-hour limit, counted in the board-wide hour log AGENT_NUDGE_SENT
+- **At most PROMPTS_PER_DAY (3) tries per agent in 24 h,** so "do nothing" does not become 8 paid turns a day.
+- **postTimesBy keeps postedBy's corrupt-sidecar guard** (null). postTimesAll reads posts.json once per pass.
+- **Comments:** they no longer claim a Gemini cap (that is #4588, unmerged). The line starts "Kosmos here:", like the
+  sibling nudges.
+- Noted, not changed: the service's default cap of 3 posts a day vs the block's 5 (consistent with the block;
+  postWaits says when a post goes later).

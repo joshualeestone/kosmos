@@ -36,7 +36,7 @@ const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not'
 
 function args(over = {}) {
   return {
-    roster: [card('ann'), card('bea'), card('cal'), card('dan')],
+    roster: [card('ann'), card('bea'), card('cal'), card('dan')], projects: [],
     now: NOW, book: new Map(),
     inCommunity: () => true,
     postTimes: (s) => ({ ann: [ago(8 * H)], bea: [ago(4 * H)], cal: [ago(1 * H)], dan: [] }[s] || []),
@@ -79,18 +79,39 @@ test('due: an unreadable post store (null) or a throwing read prompts nobody', (
   assert.deepEqual(ct.due(args({ inCommunity: () => { throw new Error('boom'); } })), []);
 });
 
-test('due: prompted less than 3 h ago is not prompted again; 3 h ago is', () => {
-  const book = new Map([['ann', NOW - 2 * H]]);
+test('due: tried less than 3 h ago is not tried again; 3 h ago is; PROMPTS_PER_DAY tries in 24 h stop it', () => {
+  const book = new Map([['ann', [NOW - 2 * H]]]);
   assert.deepEqual(ct.due(args({ book })).map((d) => d.session), ['bea']);
-  book.set('ann', NOW - 3 * H);
+  book.set('ann', [NOW - 3 * H]);
   assert.deepEqual(ct.due(args({ book })).map((d) => d.session), ['ann', 'bea']);
+  book.set('ann', Array.from({ length: ct.PROMPTS_PER_DAY }, (_, i) => NOW - (4 + 4 * i) * H));
+  assert.deepEqual(ct.due(args({ book })).map((d) => d.session), ['bea'], 'tried past the daily limit');
+});
+
+test('due: just idle (under replynudge.IDLE_FIRST_MS by its own idle report) is not due; idle long enough is', () => {
+  const { IDLE_FIRST_MS } = require('./replynudge');
+  assert.deepEqual(ct.due(args({ idleSince: (s) => (s === 'ann' ? NOW - 60e3 : NOW - IDLE_FIRST_MS) })).map((d) => d.session), ['bea']);
+});
+
+test('due: a stood-down agent (every project paused for it) is not due', () => {
+  const projects = [{ id: 'p', agents: ['ann'], paused: true, status: 'paused' }];
+  const P = require('./projects');
+  assert.equal(P.isPaused(projects[0]), true, 'fixture: the project does not read as paused');
+  assert.deepEqual(ct.due(args({ projects })).map((d) => d.session), ['bea']);
+});
+
+test('review 1 (a blocker): agents held on the quota are skipped BEFORE the per-pass cut, so they cannot take every pass', () => {
+  const held = new Set(['ann', 'bea']);
+  const r = ct.due(args({ postTimes: (s) => ({ ann: [ago(9 * H)], bea: [ago(8 * H)], cal: [ago(5 * H)], dan: [ago(4 * H)] }[s]), quotaHeld: (s) => held.has(s) }));
+  assert.deepEqual(r.map((d) => d.session), ['cal', 'dan']);
 });
 
 function tickArgs(over = {}) {
   const sent = [];
   return { sent, o: {
     allowed: () => true, env: {}, switchOn: () => true, prompterOn: () => true,
-    roster: () => [card('ann'), card('bea')], now: NOW, book: new Map(),
+    roster: () => [card('ann'), card('bea')], readProjects: () => [], now: NOW, book: new Map(), sent: [],
+    readLimit: () => ({ on: true, perHour: 20 }),
     inCommunity: () => true, postTimes: () => [ago(6 * H)],
     deliver: (s, text) => { sent.push([s, text]); return { state: D.PLACED }; }, DELIVERY: D,
     ...over,
@@ -113,13 +134,32 @@ test('tickOnce gates: live execution off, the brake, the community switch off, t
   }
 });
 
-test('tickOnce: a held line and an unreached one are not booked, so a later pass tries again', () => {
-  for (const verdict of [{ state: D.COULD_NOT, held: true }, { state: D.COULD_NOT }]) {
-    const { o } = tickArgs({ roster: () => [card('ann')], deliver: () => verdict });
-    const r = ct.tickOnce(o);
-    assert.equal(r[0].act, verdict.held ? 'held' : 'not-reached');
-    assert.equal(o.book.has('ann'), false);
-  }
+test('tickOnce: a held line is not booked (tried again later); an unreached one IS booked, so it backs off rather than take every pass', () => {
+  const heldRun = tickArgs({ roster: () => [card('ann')], deliver: () => ({ state: D.COULD_NOT, held: true }) });
+  assert.equal(ct.tickOnce(heldRun.o)[0].act, 'held');
+  assert.equal(heldRun.o.book.has('ann'), false);
+  const lost = tickArgs({ roster: () => [card('ann')], deliver: () => ({ state: D.COULD_NOT }) });
+  assert.equal(ct.tickOnce(lost.o)[0].act, 'not-reached');
+  assert.deepEqual(lost.o.book.get('ann'), [NOW]);
+  assert.deepEqual(lost.o.sent, [], 'an unreached line was counted in the hour log');
+});
+
+test('tickOnce: Agent Communication\'s per-hour limit, counted in the shared hour log, stops the pass; a reached line is logged', () => {
+  const full = tickArgs({ sent: Array.from({ length: 20 }, () => NOW - 60e3) });
+  const r = ct.tickOnce(full.o);
+  assert.deepEqual(r.map((x) => x.act), ['limit']);
+  assert.deepEqual(full.sent, [], 'a line went past the hour\'s limit');
+  const ok = tickArgs();
+  ct.tickOnce(ok.o);
+  assert.deepEqual(ok.o.sent, [NOW, NOW], 'reached lines are counted in the shared hour log');
+  const off = tickArgs({ sent: Array.from({ length: 20 }, () => NOW - 60e3), readLimit: () => ({ on: false, perHour: 20 }) });
+  assert.equal(ct.tickOnce(off.o).filter((x) => x.act === 'prompted').length, 2, 'CONTROL: with the limit off, nothing stops it');
+});
+
+test('tickOnce: no projects read (cannot tell a stood-down agent) prompts nobody', () => {
+  const { sent, o } = tickArgs({ readProjects: () => null });
+  assert.deepEqual(ct.tickOnce(o), []);
+  assert.deepEqual(sent, []);
 });
 
 test('the line asks for a real post, names the daily maximum, and says to do nothing rather than invent', () => {
@@ -139,6 +179,12 @@ test('communitystore.postTimesBy: this agent\'s posts in any status, case-insens
   store.insertPost({ status: 'published', agent: 'bea', body: 'other' });
   store.insertPost({ status: 'published', agent: 'ann', author: { type: 'user', name: 'ann' }, body: 'a person' });
   assert.deepEqual(store.postTimesBy('ann').sort(), [a.receivedAt, b.receivedAt].sort());
+  // postedBy's guard: a corrupt-* sidecar means earlier posts are elsewhere, so no count is given.
+  fs.writeFileSync(path.join(dir, 'posts.json.corrupt-1'), '[]');
+  assert.equal(store.postTimesBy('ann'), null, 'a count from the fresh file alone was given beside a corrupt sidecar');
+  assert.equal(store.postTimesAll(), null);
+  fs.rmSync(path.join(dir, 'posts.json.corrupt-1'));
+  assert.equal(store.postTimesAll().get('bea').length, 1, 'CONTROL: without the sidecar the store reads');
   fs.writeFileSync(path.join(dir, 'posts.json'), '{not json');
   assert.equal(store.postTimesBy('ann'), null);
 });

@@ -19757,23 +19757,29 @@ function start(port = PORT) {
       /* #4947 slice 2: the community turn. An idle agent in the community whose last post is 3 h old, with fewer than
          the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
          gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
-         Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Sent through
-         deliverAutomatic, so the quota hold and the Gemini cap apply. unref'd; first run one interval after boot. */
+         Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
+         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause). unref'd;
+         first run one interval after boot. */
       const COMMUNITY_TURN_BOOK = new Map();
       const communityTurnTick = setInterval(() => {
         const cb = require('./engine/communityblock');
+        const postsNow = require('./engine/communitystore').postTimesAll();   // one read of posts.json a pass
         communityturn.tickOnce({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
           switchOn: () => communitysend.switchOn(),
           prompterOn: () => heartbeatSetting.read().on === true,
-          roster: () => safeRoster(),
+          roster: () => safeRoster(), readProjects: () => projects.readAll(),
+          readLimit: () => limits.read(),
+          sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
+          idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
           inCommunity: (session) => {
             const cur = instructions.read(session);
             if (!cur || !cur.exists) return false;
             const f = projects.findBlock(cur.text || '', cb.START, cb.END);
             return Boolean(f) && f.ambiguous !== true;
           },
-          postTimes: (session) => require('./engine/communitystore').postTimesBy(session),
+          postTimes: (session) => (postsNow === null ? null : (postsNow.get(String(session).trim().toLowerCase()) || [])),
           book: COMMUNITY_TURN_BOOK,
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,

@@ -476,29 +476,41 @@ function postedBy(agentKey) {
   return false;
 }
 
-/* #4947 slice 2: when this agent's posts on this board were received (ISO strings, any status), matched exactly as
-   postedBy matches: the trust key the post carries (`agent`), else its agent author name, case-insensitively, agent posts
-   only. [] when it has none; null when the file cannot be read (the caller then does nothing). Read directly, never
-   through loadJson, so asking never quarantines the file. */
-function postTimesBy(agentKey) {
-  const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
-  if (!want) return null;
+/* #4947 slice 2: every agent's post times on this board, ONE read: a Map of lower-cased agent key -> ISO receivedAt
+   strings (any status), keyed exactly as postedBy matches (the trust key the post carries, `agent`, else its agent
+   author name; agent posts only). null when the file cannot be read or a posts.json.corrupt-* sidecar sits beside it
+   (postedBy's guard: the earlier posts are in the sidecar, so a count from the fresh file would be too low). */
+function postTimesAll() {
   let posts;
   try {
     posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
   } catch (e) {
     if (!e || e.code !== 'ENOENT') return null;
-    return [];
+    posts = [];
   }
   if (!Array.isArray(posts)) return null;
-  const out = [];
+  try {
+    const base = path.basename(postsFile()) + '.corrupt-';
+    if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
+  } catch { /* no folder at all: nothing was ever posted */ }
+  const out = new Map();
   for (const p of posts) {
-    if (!p || typeof p !== 'object' || (p.author && p.author.type === 'user')) continue;
-    const who = typeof p.agent === 'string' && p.agent ? p.agent
-      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '');
-    if (who.trim().toLowerCase() === want && typeof p.receivedAt === 'string') out.push(p.receivedAt);
+    if (!p || typeof p !== 'object' || (p.author && p.author.type === 'user') || typeof p.receivedAt !== 'string') continue;
+    const who = (typeof p.agent === 'string' && p.agent ? p.agent
+      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '')).trim().toLowerCase();
+    if (!who) continue;
+    if (!out.has(who)) out.set(who, []);
+    out.get(who).push(p.receivedAt);
   }
   return out;
+}
+
+/* One agent's post times from postTimesAll: [] when it has none, null when the store cannot be read. */
+function postTimesBy(agentKey) {
+  const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
+  if (!want) return null;
+  const all = postTimesAll();
+  return all === null ? null : (all.get(want) || []);
 }
 
 // #4287: a post's status and author type, or null when there is no such post.
@@ -722,7 +734,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
-  postedBy, postTimesBy,
+  postedBy, postTimesBy, postTimesAll,
   postMeta,
   // trust
   trustState,

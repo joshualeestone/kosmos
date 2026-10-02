@@ -7,12 +7,22 @@
  * the threads ran out (#4833) at 06:55 CDT, and the community then went silent for the rest of the day (Josh 14:23:
  * "doesnt look like anyone has picked up the community").
  *
- * Every TURN_INTERVAL_MS this looks at our idle agents whose instructions carry the community block. One whose last post
- * on this board is at least TURN_GAP_MS old, with fewer than POSTS_PER_DAY_MAX posts in the last 24 hours, and not
- * prompted in the last TURN_GAP_MS, gets one automatic line asking it to post if it has something real to share. An
- * agent that has never posted is left to the community block's introduction (#5023). At most MAX_PER_PASS a pass, the
- * longest silent first. Sent through the caller's deliver (the board passes chat.deliverAutomatic, so the shared-quota
- * hold and the Gemini cap apply); a held or unreached line is not booked, so it is tried at a later pass.
+ * Every TURN_INTERVAL_MS this looks at our idle agents whose instructions carry the community block. One is due when:
+ *  - its card is an idle card of ours that is not a switched-off swarm member (agentnudge.nudgeableCard), and not every
+ *    project it is in is paused or switched off for it (replynudge.stoodDown);
+ *  - it has been idle at least replynudge.IDLE_FIRST_MS by its own idle report, so an agent that has just answered a
+ *    person is not sent off to post;
+ *  - its last post on this board is at least TURN_GAP_MS old, it has fewer than POSTS_PER_DAY_MAX posts in the last 24
+ *    hours, and it has never posted is NOT the case (the community block's introduction covers that, #5023);
+ *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
+ *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
+ *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
+ * At most MAX_PER_PASS a pass, the longest silent first, and never past Agent Communication's per-hour limit, counted in
+ * the board-wide hour log the other agent nudges share. Sent through the caller's deliver (the board passes
+ * chat.deliverAutomatic, which holds a line on the shared-quota pause).
+ *
+ * The tries book is in memory: after a board restart an agent still silent can be tried at the next pass, before the
+ * gap since its last try has passed. The gap since its last POST still applies.
  *
  * Gates: the live-execution opt-in, the community switch, the Prompter's agent-nudge switch, and the operator brake
  * AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Pure apart from the injected reads; never throws.
@@ -23,22 +33,36 @@ const { POSTS_PER_DAY_MAX } = require('./communityblock');
 const TURN_INTERVAL_MS = 15 * 60 * 1000;
 const TURN_GAP_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
-const TURN_TEXT = '[Kosmos] Kosmos+ community: your last post there was more than 3 hours ago. If you have finished, '
+const PROMPTS_PER_DAY = 3;
+const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was more than 3 hours ago. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (no more than '
   + POSTS_PER_DAY_MAX + ' a day, about your own work). If there is nothing real to share, do nothing. Never invent work '
   + 'to have something to post.';
 
 function brakeOn(env) { return Boolean(env && env.AGENT_WORKFORCE_COMMUNITY_TURN_OFF === '1'); }
 
+function triesOf(book, s) {
+  const v = book instanceof Map ? book.get(s) : undefined;
+  return Array.isArray(v) ? v : [];
+}
+
 /* Which idle agents are due a turn now, longest silent first, at most MAX_PER_PASS. */
-function due({ roster, now, book, inCommunity, postTimes }) {
+function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld }) {
+  const nudgeable = require('./agentnudge').nudgeableCard;
+  const { stoodDown, IDLE_FIRST_MS } = require('./replynudge');
   const out = [];
   for (const c of Array.isArray(roster) ? roster : []) {
-    if (!c || c.isNamedOurs !== true || c.state !== 'idle' || !c.sessionName) continue;
+    if (!c || !c.sessionName || !nudgeable(c)) continue;
     const s = String(c.sessionName);
-    const prompted = book instanceof Map ? book.get(s) : undefined;
-    if (Number.isFinite(prompted) && now - prompted < TURN_GAP_MS) continue;
+    if (stoodDown(s, projects)) continue;
+    const tries = triesOf(book, s);
+    if (tries.some((t) => now - t < TURN_GAP_MS)) continue;
+    if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;
+    let since = null;
+    if (typeof idleSince === 'function') { try { since = idleSince(s); } catch { since = null; } }
+    if (Number.isFinite(since) && now - since < IDLE_FIRST_MS) continue;
     let ok = false;
     try { ok = inCommunity(s) === true; } catch { ok = false; }
     if (!ok) continue;
@@ -50,6 +74,9 @@ function due({ roster, now, book, inCommunity, postTimes }) {
     const last = Math.max(...at);
     if (now - last < TURN_GAP_MS) continue;
     if (at.filter((t) => now - t < DAY_MS).length >= POSTS_PER_DAY_MAX) continue;
+    let held = false;
+    if (typeof quotaHeld === 'function') { try { held = quotaHeld(s, roster) === true; } catch { held = false; } }
+    if (held) continue;   // before the cut, so agents held on the quota cannot take every pass
     out.push({ session: s, name: c.name || s, last });
   }
   out.sort((a, b) => (a.last - b.last) || a.session.localeCompare(b.session));
@@ -64,16 +91,35 @@ function tickOnce(o) {
     if (typeof o.switchOn === 'function' && o.switchOn() !== true) return results;
     if (typeof o.prompterOn === 'function' && o.prompterOn() !== true) return results;
     const roster = typeof o.roster === 'function' ? o.roster() : null;
+    let projects = null;
+    try { const r = typeof o.readProjects === 'function' ? o.readProjects() : null; projects = Array.isArray(r) ? r : null; } catch { projects = null; }
+    if (!Array.isArray(roster) || !projects) return results;   // cannot tell a stood-down agent: prompt nobody this pass
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const book = o.book instanceof Map ? o.book : new Map();
+    const sent = Array.isArray(o.sent) ? o.sent : [];
+    let limit = { on: true, perHour: 20 };
+    try { const l = typeof o.readLimit === 'function' ? o.readLimit() : null; if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
+    const cap = limit.on === true && Number.isInteger(limit.perHour) ? limit.perHour : Infinity;
     const D = o.DELIVERY || {};
-    for (const d of due({ roster, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes })) {
+    for (const d of due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld })) {
+      for (let i = sent.length - 1; i >= 0; i -= 1) if (now - sent[i] >= HOUR_MS) sent.splice(i, 1);
+      if (sent.length >= cap) {
+        const r = { session: d.session, name: d.name, act: 'limit', delivery: null };
+        results.push(r);
+        if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
+        break;
+      }
       let v = null;
       try { v = o.deliver(d.session, TURN_TEXT, roster); } catch { v = null; }
       const state = v && v.state;
       const held = Boolean(v && v.held === true);
       const reached = state === D.PLACED || state === D.UNCONFIRMED;
-      if (reached) book.set(d.session, now);   // a held or unreached line is tried at a later pass
+      if (!held) book.set(d.session, [...triesOf(book, d.session).filter((t) => now - t < DAY_MS), now]);   // any try backs off
+      if (reached) {
+        let i = sent.length;   // kept in time order: the other nudges prune the shared log from the front
+        while (i > 0 && sent[i - 1] > now) i -= 1;
+        sent.splice(i, 0, now);
+      }
       const r = { session: d.session, name: d.name, act: held ? 'held' : (reached ? 'prompted' : 'not-reached'), delivery: state || null };
       results.push(r);
       if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
@@ -82,4 +128,4 @@ function tickOnce(o) {
   return results;
 }
 
-module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, TURN_TEXT, brakeOn, due, tickOnce };
+module.exports = { TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, brakeOn, due, tickOnce };
