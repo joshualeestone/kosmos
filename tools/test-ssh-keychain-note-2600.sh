@@ -29,6 +29,7 @@ stub() {  # <name> <exit code | hang>
 out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$(stub s36 36)")"
 case "$out" in *"$SAID"*) pass "rc 36 (no interaction allowed: the SSH case) gives the note" ;; *) fail "no note on rc 36: $out" ;; esac
 case "$out" in *'kosmos restart'*'on the Mac itself'*) pass "and names the fix: kosmos restart on the Mac itself" ;; *) fail "the note does not name the fix: $out" ;; esac
+case "$out" in *'SSH session is the usual reason'*) case "$out" in *'Tell the person who runs this computer'*) fail "a person got the agent's wording: $out" ;; *) pass "a person gets the person's wording, not the agent's" ;; esac ;; *) fail "the person's wording is missing: $out" ;; esac
 case "$out" in *'rc=0'*) pass "and goes ahead (advice, never a refusal)" ;; *) fail "the note did not return 0: $out" ;; esac
 [ "$(cat "$T/s36.args" 2>/dev/null)" = "show-keychain-info" ] && pass "it asks exactly 'security show-keychain-info' (the default keychain, the one claude reads)" \
   || fail "the probe was asked: '$(cat "$T/s36.args" 2>/dev/null)'"
@@ -41,6 +42,8 @@ t0=$(date +%s); out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$(stub shan
 case "$out" in *"$SAID"*) fail "a hung probe gave the note" ;; *) pass "a probe that hangs (a dialog nobody answers) says nothing" ;; esac
 [ $((t1 - t0)) -le 6 ] && pass "and is cut within the 3 s bound (took $((t1 - t0)) s)" || fail "a hung probe held the start for $((t1 - t0)) s"
 case "$out" in *[Aa]larm*) fail "the cut printed the shell's signal report to the terminal: $out" ;; *) pass "and the cut prints nothing (no Alarm clock line)" ;; esac
+# Covers the OUTCOME (no note), not the command -v guard alone: perl's failed exec also exits 0, so the guard is a
+# belt, and either way a missing security says nothing.
 out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$T/no-such-security")"
 case "$out" in *"$SAID"*) fail "a missing security gave the note" ;; *) pass "no security binary: no note" ;; esac
 out="$(note KOSMOS_UNAME=Darwin KOSMOS_SECURITY_BIN="$(stub s36b 36)" KOSMOS_NO_KEYCHAIN_NOTE=1)"

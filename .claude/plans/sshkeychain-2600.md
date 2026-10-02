@@ -65,3 +65,8 @@ Test: 17 arms. (Found by me while editing: a comment placed after `||` swallowed
 The 3 s cut no longer prints bash's "Alarm clock" line (braces around the probe; the hang arm now captures stderr and
 fails on it); the block moved above agent_board_guard's doc comment it had split from its function; the board's env -u
 lists scrub KOSMOS_NO_KEYCHAIN_NOTE like KOSMOS_RECLAIM_BUSY; the Change section describes the shipped probe.
+
+## Review 4 (opus, blind, whole diff, 2026-10-02 01:48): 0 blockers, 0 warnings, 3 nits, all taken. CONVERGED.
+A person's wording is asserted (and the agent's absent); `[ -x /usr/bin/perl ]` guards the cut (a missing perl gives no
+note, the safe side); the missing-security arm says it covers the outcome, not the guard. Converged at iteration 4.
+Next: full validation, proof, PR, merge.
