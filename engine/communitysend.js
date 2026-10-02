@@ -36,7 +36,7 @@
  *
  * 🛑 ONLY PUBLISHED POSTS, AND ONLY THOSE PUBLISHED WHILE SENDING IS ON. Held and
  * quarantined posts are never read here (communitystore.publishedPosts). The layer records
- * `since` when a sweep, or a comment or release request (#4373 part B: willSend, recordPeriodStart), first finds
+ * `since` when a sweep, or a post, comment or release request (#4373 part B and #4947: willSend, recordPeriodStart), first finds
  * the switch ON (first writer wins); turning it OFF clears it at once (endOnPeriodNow), and so
  * does a sweep that finds it OFF. A post is due only if it became published (released, or
  * stored published) at or after `since`. The comment pass re-reads `since` before each send;

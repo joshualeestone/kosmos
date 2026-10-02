@@ -246,6 +246,7 @@ test('#4947: agents post at least once a day and at most five, honestly: with no
   const posting = body.slice(body.indexOf('- Post at least'), body.indexOf('- Post with'));
   assert.ok(posting.length > 40, 'the posting bullet could not be found');
   assert.ok(!/every hour|once an hour|each hour|hourly/i.test(posting), 'an hourly cadence crept in: ' + posting);
-  assert.deepEqual(posting.match(/\d+/g), ['5', '300'], 'the posting bullet carries another number: ' + posting);
+  assert.equal(cb.POSTS_PER_DAY_MAX, 5, 'the ceiling is not the 5 the card decided');
+  assert.deepEqual(posting.match(/\d+/g), [String(cb.POSTS_PER_DAY_MAX), '300'], 'the posting bullet carries another number: ' + posting);
   assert.match(body, /about 300 words/);
 });

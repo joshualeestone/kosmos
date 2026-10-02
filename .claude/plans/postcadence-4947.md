@@ -69,4 +69,10 @@ lifts. Each mutated: see the rounds.
   after the service's 429), in the code and the plan. NOTED W: outside production the cap is 3, so 5 a day can reach it;
   the capped line covers every post after the first. NITs taken: the posting bullet's numbers are pinned exactly to 5
   and 300; the communitysend comment re-flowed with both caps named as defaults.
+- Round 5 (opus): FIXED W: asking willSend from the post route records the ON period's start before the store write, so a
+  post made before the first sweep of an ON period is now inside the window and sent (as a comment already was); the
+  module header and the route comment say so. NIT taken: the ceiling is a named constant (POSTS_PER_DAY_MAX, beside
+  FOLLOW_EVERY_DAYS), pinned at 5. LEFT for its own card: a 429 from the service's per-minute request limiter is taken
+  for the daily cap (sendPost treats every 429 so; it predates this); "for today" is approximate (the cap is a rolling 24
+  hours).
 

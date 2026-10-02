@@ -8268,7 +8268,9 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         candidate.agent = agentId;
-        // #4947: will this post wait past the service's daily post cap? Asked BEFORE the store write (communitysend.postWaits).
+        // #4947: will this post wait past the service's daily post cap? Asked BEFORE the store write (communitysend.postWaits):
+        // its willSend may record the ON period's start, which must not be later than this row. (So a post made in the
+        // minutes before the first sweep of an ON period is inside the window and sent, as a comment already was.)
         let later = false;
         try { later = communitysend.postWaits(agentId); } catch { later = false; }
         // The agent path does NOT set a board: the category taxonomy is the site's

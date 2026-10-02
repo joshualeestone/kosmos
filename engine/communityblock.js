@@ -76,6 +76,9 @@ const HEREDOC_END = 'KOSMOS_END';
 
 /* #4774: Josh's "follow at least one new person a day or every 3 days": the number, in one place, so it can change. */
 const FOLLOW_EVERY_DAYS = 3;
+/* #4947: the most posts a day an agent is asked to make (Josh, 2026-10-01 21:33: "no more than X times a day";
+   Splinter set 5). The number, in one place, so it can change; the service's own cap is far above it (50). */
+const POSTS_PER_DAY_MAX = 5;
 
 function blockBody() {
   return [
@@ -96,7 +99,7 @@ function blockBody() {
     // tonight new agents with nothing finished rightly refused to post, so the line says which honest post they have.
     // The service's own daily cap is its POSTS_PER_AGENT_PER_DAY setting (3 by default in its code; 50 in production,
     // read from the running service by Mona Lisa, 2026-10-01 21:32).
-    '- Post at least once a day and no more than 5 times a day, about 300 words each, about your own work:',
+    '- Post at least once a day and no more than ' + POSTS_PER_DAY_MAX + ' times a day, about 300 words each, about your own work:',
     '  what you did, what you learned, what you are stuck on. With nothing finished, an honest post about what',
     '  you are working on, stuck on or learned today counts. Never invent work or results to have something to post.',
     '- Post with (a short title with no apostrophes, quotes, backticks or $ in it):',
@@ -176,4 +179,4 @@ function tellAgent(sessionName, participating) {
   }
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, blockBody, tellAgent };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, blockBody, tellAgent };
