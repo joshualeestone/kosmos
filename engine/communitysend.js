@@ -784,16 +784,17 @@ function serviceRefusedIndustry(r) {
 
 /**
  * #4922: send this install's group id to each agent registered before it existed, once, by PATCH /agents/me
- * { install_group }. Only while Community is on (it is about taking part). A refused key is skipped. An unknown-field
- * refusal naming it (400 unknown_fields) is a service that does not know it yet: the pass stops and that service is
- * not sent it for an hour (as registration does). A rejected value is not that (the id always matches the pattern). A 429 pauses the pass
- * (capped like #4940's register wait). Any other failure waits 15 minutes for that agent and id, logged once each.
- * (Waits, not "every sweep": since #4938 a sweep runs on every publish, and this pass holds the lock agent calls wait on.)
+ * { install_group }. Only while Community is on (it is about taking part). A refused key and a REMOVED agent are
+ * skipped (the removed list read fail-closed). What the service answers, and what the pass then does:
+ *   204                                   sent; recorded on the agent's key
+ *   400 unknown_fields naming it, 404/405 a service that does not take it: left alone for an hour (as registration)
+ *   429                                   the pass pauses, capped like #4940's register wait
+ *   no answer, 5xx, an unclearable 401   the service, not the agent: the pass pauses 15 minutes
+ *   anything else (a bad-value 400/422)   every agent sends the same id, so the pass pauses 15 minutes
+ * (Pauses, not "every sweep": since #4938 a sweep runs on every publish, and this pass holds the lock agent calls wait
+ * on.) Pauses are kept per endpoint, in memory (a restart tries once more, which is fine).
  */
-let INSTALL_GROUP_RETRY_MS = 15 * 60 * 1000;   // a failed install-group PATCH waits this long per agent (tests set it)
-// In memory (a restart tries once more, which is fine). Keyed by endpoint, agent and id (#4922): a wait for one
-// service or one id must not hold back another.
-const installGroupRetryAt = new Map();   // endpointDir|agentKey|group -> ms
+let INSTALL_GROUP_RETRY_MS = 15 * 60 * 1000;   // how long the pass pauses after a failure (tests set it)
 const installGroupPassAt = new Map();    // endpointDir -> ms: a 429 pauses the whole pass, as #4940 pauses register
 const INSTALL_GROUP_UNKNOWN_MS = 60 * 60 * 1000;
 const installGroupUnknownUntil = new Map();   // endpointDir -> ms: the service refused the field as unknown
@@ -816,15 +817,23 @@ async function sweepInstallGroup(keys, on) {
   if (!group) return;
   const ep = endpointDir();
   if ((installGroupPassAt.get(ep) || 0) > Date.now() || (installGroupUnknownUntil.get(ep) || 0) > Date.now()) return;
+  /* #4922 review 7: an agent the person REMOVED keeps its community key (remove is not delete), and grouping it would
+     publicly list it beside their current agents. The fleet's acting check, which fails CLOSED: with the removed list
+     unreadable nothing is sent this sweep. */
+  let removed;
+  try { removed = require('./remove').removedNames(); } catch { removed = { ok: false, names: [] }; }
+  if (!removed.ok) return;
+  const clean = require('./create').cleanName;
+  const removedSet = new Set(removed.names.map((n) => clean(n)));
   const until = Date.now() + INSTALL_GROUP_PASS_MS;
   for (const agentKey of Object.keys(keys)) {
     if (!switchOn() || Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
     if (!k || !k.apiKey || k.refused || k.installGroupSent === group) continue;
+    if (removedSet.has(clean(agentKey))) continue;   // removed: never linked to the person's other agents
     // #4922: since #4938 a sweep starts on every publish, so a failed PATCH is not tried again before
     // INSTALL_GROUP_RETRY_MS (this pass holds the same lock agent calls wait on).
-    const waitKey = ep + '|' + agentKey + '|' + group;
-    if ((installGroupRetryAt.get(waitKey) || 0) > Date.now()) continue;
+
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: group });
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
     if (namesInstallGroup(r)) {   // #4922: the service does not know the field: pause, as register does
@@ -836,10 +845,11 @@ async function sweepInstallGroup(keys, on) {
     // 401 when the login gets no answer): the service, not this agent; the whole pass pauses.
     if (!r.status || r.status >= 500 || r.status === 401) {
       installGroupPassAt.set(ep, Date.now() + INSTALL_GROUP_RETRY_MS);
+      log(`install group: the service answered ${r.status || 'nothing'}; the pass waits ${Math.round(INSTALL_GROUP_RETRY_MS / 60000)} min`);
       break;
     }
-    // #4922 review 6: no such route (an older service with the register field but no PATCH /agents/me): like a service
-    // that does not know the field, left alone for an hour rather than asked again for every agent.
+    // #4922 review 6/7: no such route (a service from before #4370, whose register also refuses the field): like a
+    // service that does not know the field, left alone for an hour rather than asked again for every agent.
     if (r.status === 404 || r.status === 405) {
       installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);
       log(`install group: the service has no PATCH /agents/me (${r.status}); trying again in an hour`);
@@ -854,12 +864,15 @@ async function sweepInstallGroup(keys, on) {
       delete k.installGroupRetrying;
       saveJson(keysFile(), keys);
     } else {
-      installGroupRetryAt.set(waitKey, Date.now() + INSTALL_GROUP_RETRY_MS);
+      // #4922 review 7: every agent sends the same id, so a refusal of it (400 invalid_input, 413, a value 422) hits
+      // them all: the whole pass waits, not just this agent.
+      installGroupPassAt.set(ep, Date.now() + INSTALL_GROUP_RETRY_MS);
       if (k.installGroupRetrying !== group) {
         k.installGroupRetrying = group;
         saveJson(keysFile(), keys);
         log(`install group for ${agentKey}: got ${r.status}; trying again in ${INSTALL_GROUP_RETRY_MS >= 60000 ? Math.round(INSTALL_GROUP_RETRY_MS / 60000) + ' min' : Math.round(INSTALL_GROUP_RETRY_MS / 1000) + ' s'}, until it lands`);
       }
+      break;
     }
   }
 }
@@ -1438,5 +1451,5 @@ module.exports = {
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
-  _installGroupRetry: (ms) => { installGroupRetryAt.clear(); installGroupPassAt.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
+  _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };

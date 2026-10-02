@@ -59,6 +59,7 @@ function backend() {
         return a ? send(200, { name: a.name, bio: a.bio || null, registered_at: a.registeredAt || null, counts: {} }) : send(404, { detail: 'agent not found' });
       }
       if (req.method === 'POST' && req.url === '/agents/login') {
+        if (st.mode.loginDown) return send(503, { detail: 'unavailable' });
         const a = [...st.agents.values()].find((x) => x.name === body.name && x.key === body.api_key && x.active);
         if (!a) return send(401, { detail: 'wrong name or key' });
         a.token = 'tok_' + a.id + '_' + (++st.n);
@@ -87,7 +88,10 @@ function backend() {
       if (req.method === 'PATCH' && req.url === '/agents/me' && body && 'install_group' in body) {
         if (!a) return send(401, { detail: 'invalid or expired token' });
         if (st.mode.noGroupRoute) return send(404, { detail: 'not found' });
-        if (st.mode.groupForbid) return send(403, { detail: 'not allowed for this agent' });   // one agent's failure
+        if (st.mode.groupHang) return;   // never answers
+        if (st.mode.groupUnauth) return send(401, { detail: 'invalid or expired token' });
+        if (st.mode.groupNoMethod) return send(405, { detail: 'Method Not Allowed' });
+        if (st.mode.groupBadBody) return send(400, { error: 'invalid_input' });   // as update_me refuses a value
         if (st.mode.slowDown) return send(429, { detail: 'slow down' }, { 'retry-after': '60' });
         if (st.mode.groupDown) return send(503, { detail: 'unavailable' });
         if (st.mode.refuseGroup) return send(400, { error: 'unknown_fields', fields: ['install_group'] });
@@ -1280,18 +1284,18 @@ test('4922: a missing route (404) leaves the service alone for the hour, then la
   assert.equal(readKeys().dex.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
 });
 
-test('4922: a failed PATCH waits before it is tried again (a sweep runs on every publish since #4938)', async () => {
+test('4922: a refused id (it hits every agent, they all send the same one) pauses the pass (a sweep runs on every publish since #4938)', async () => {
   cs._installGroupRetry(60 * 60 * 1000);
   await on();
   store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
   agentPost('ava', { topic: 'One', body: 'First note.' });
   await cs.sweep();
   const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
-  be.st.mode.groupForbid = true;
+  be.st.mode.groupBadBody = true;
   await cs.sweep(); await cs.sweep(); await cs.sweep();
   assert.equal(groupPatches().length, 1, 'a failed PATCH was sent again before its wait ran out');
   assert.equal(readKeys().ava.installGroupRetrying, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'the retry mark is not tied to the id');
-  be.st.mode.groupForbid = false;
+  be.st.mode.groupBadBody = false;
   cs._installGroupRetry(0);   // the wait over (the map is cleared with it)
   await cs.sweep();
   assert.equal(groupPatches().length, 2, 'not tried again once the wait was over');
@@ -1364,7 +1368,7 @@ test('4922: a refused key is not sent the id; a service without the field is pau
   const keysNow = readKeys();
   assert.equal(keysNow.ava.installGroupSent, undefined);
   assert.equal(keysNow.ava.installGroupRetrying, undefined, 'a refused key was marked as retrying');
-  // Review 3: a 422 naming the field stops the pass and the service is not sent it again within the hour.
+  // A refusal of the field as unknown stops the pass and the service is not sent it again within the hour.
   const before = groupPatches().length;
   await cs.sweep();
   assert.equal(groupPatches().length, before, 'a service that refused the field was sent it again within the hour');
@@ -1404,7 +1408,7 @@ test('4922: a service that does not know install_group still lets agents registe
   assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
 });
 
-test('4922: the 422 fallback does not use up a register try (a 422, then two name clashes, still registers)', async () => {
+test('4922: the unknown-field fallback does not use up a register try (a refusal, then two name clashes, still registers)', async () => {
   await on();
   be.st.mode.refuseGroup = true;
   be.st.mode.clash = 2;   // two 409s after the 422
@@ -1412,7 +1416,7 @@ test('4922: the 422 fallback does not use up a register try (a 422, then two nam
   agentPost('ava', { topic: 'One', body: 'First note.' });
   await cs.sweep();
   const regs = be.st.seen.filter((x) => x.url === '/agents/register');
-  assert.equal(regs.length, 4, 'expected 422, 409, 409, then 201: ' + regs.length);
+  assert.equal(regs.length, 4, 'expected 400 unknown_fields, 409, 409, then 201: ' + regs.length);
   assert.ok(readKeys().ava && readKeys().ava.apiKey, 'the fallback used up a try and the agent was not registered');
 });
 
@@ -1426,27 +1430,6 @@ test('4922: a refusal about another field is not taken for this one (install_gro
   assert.equal(regs.length, 1, 'a 422 about the name was retried without the id');
   assert.ok('install_group' in regs[0].body);
   be.st.mode.badName = false;
-});
-
-test('4922: a wait after a failed PATCH is for that id: a new id is sent at once', async () => {
-  cs._installGroupRetry(60 * 60 * 1000);
-  await on();
-  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
-  agentPost('ava', { topic: 'One', body: 'First note.' });
-  await cs.sweep();
-  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
-  be.st.mode.groupForbid = true;
-  await cs.sweep();
-  assert.equal(groupPatches().length, 1, 'premise: one failed PATCH');
-  be.st.mode.groupForbid = false;
-  // The id file now holds another id (repaired, or another install's file restored): its PATCH is not held back by the
-  // old id's wait. CONTROL: the same id stays held (the first assertion after this line would pass either way alone).
-  await cs.sweep();
-  assert.equal(groupPatches().length, 1, 'control: the same id was sent again inside its wait');
-  fs.writeFileSync(cs._paths.installGroupFile(), JSON.stringify({ group: 'G' + 'x'.repeat(31) }));
-  await cs.sweep();
-  assert.equal(groupPatches().length, 2, 'a new id waited on the old id\'s wait');
-  assert.equal(readKeys().ava.installGroupSent, 'G' + 'x'.repeat(31));
 });
 
 test('4922: a server error or no answer pauses the whole pass (the service, not the agent)', async () => {
@@ -1483,6 +1466,72 @@ test('4922: what counts as "the service does not know install_group" (its real a
   assert.equal(n({ status: 422, json: { detail: 'bad install_group' } }), false, 'a plain-string detail is never searched');
   assert.equal(n({ status: 422, json: { detail: [{ loc: ['body', 'install_group'], msg: 'x' }] } }), false, 'no type: not counted');
   assert.equal(n({ status: 0, json: null }), false);
+});
+
+const twoAgents = async () => {
+  for (const n of ['ava', 'dex']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; delete k.dex.installGroupSent; writeKeys(k);
+};
+
+test('4922: no answer pauses the whole pass', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on(); await twoAgents();
+  be.st.mode.groupHang = true; cs.setTimeoutMs(150);
+  try {
+    await cs.sweep();
+    assert.equal(groupPatches().length, 1, 'with no answer every agent was tried');
+    assert.equal(readKeys().ava.installGroupRetrying, undefined, 'no answer was put on the agent, not the service');
+    await cs.sweep();
+    assert.equal(groupPatches().length, 1, 'the pass did not pause after no answer');
+  } finally { be.st.mode.groupHang = false; cs.setTimeoutMs(2000); }
+});
+
+test('4922: a 401 that logging in again cannot clear pauses the pass; the agent is not marked refused', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on(); await twoAgents();
+  be.st.mode.groupUnauth = true; be.st.mode.loginDown = true;
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'every agent was tried though the login could not be reached');
+  assert.equal(readKeys().ava.refused, undefined, 'a login that got no answer marked the agent refused');
+  assert.equal(readKeys().ava.installGroupRetrying, undefined, 'an unclearable 401 was put on the agent, not the service');
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'the pass did not pause');
+  be.st.mode.groupUnauth = false; be.st.mode.loginDown = false;
+});
+
+test('4922: a key refused during the pass skips that agent only; the others are sent it', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on(); await twoAgents();
+  for (const a of be.st.agents.values()) if (a.name === 'AVA') a.active = false;   // ava deactivated: its login is refused
+  const ava = [...be.st.agents.values()].find((a) => a.name === 'AVA');
+  ava.token = 'gone';
+  await cs.sweep();
+  const keys = readKeys();
+  assert.equal(keys.ava.refused, true, 'premise: ava\'s key was refused');
+  assert.equal(keys.dex.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'one refused key paused the pass for the others');
+});
+
+test('4922: a 405 (no PATCH route) leaves the service alone for the hour', async () => {
+  await on(); await twoAgents();
+  be.st.mode.groupNoMethod = true;
+  await cs.sweep(); await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a service with no such method was asked again');
+  be.st.mode.groupNoMethod = false;
+});
+
+test('4922: a REMOVED agent is never sent the id; an unreadable removed list sends nothing', async () => {
+  await on(); await twoAgents();
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  fs.writeFileSync(removedFile, '{not json');
+  await cs.sweep();
+  assert.equal(groupPatches().length, 0, 'sent with the removed list unreadable (it must fail closed)');
+  fs.writeFileSync(removedFile, JSON.stringify([{ name: 'dex' }]));
+  await cs.sweep();
+  const keys = readKeys();
+  assert.ok(keys.ava.installGroupSent, 'a current agent was not sent it');
+  assert.equal(keys.dex.installGroupSent, undefined, 'a removed agent was linked to the person\'s other agents');
+  fs.rmSync(removedFile, { force: true });
 });
 
 test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {
