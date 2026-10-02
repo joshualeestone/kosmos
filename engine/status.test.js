@@ -4284,9 +4284,9 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   assert.deepEqual(guideFailure({ ...before, runner: 'claude' }), { problem: STATE.RATE_LIMITED, runner: 'claude' });
   /* After the reset the pane reads exactly as the same screen with no limit line on it ever did (here unknown: an
      at-rest Claude Code with nothing reported), not some relabel of the capped reading. */
-  const after = read(SCREEN, RESET + 60 * 1000);
-  const clean = reconcile({ found: false }, classify(pane, '> hello\n✻ Sautéed for 0s · done 10:35 PM\n' + STATUS), RESET + 60 * 1000);
-  assert.equal(after.state, clean.state, 'a minute AFTER the reset the card reads ' + after.state + ', not as the clean screen (' + clean.state + ')');
+  const after = read(SCREEN, RESET + 2 * 60 * 1000);
+  const clean = reconcile({ found: false }, classify(pane, '> hello\n✻ Sautéed for 0s · done 10:35 PM\n' + STATUS), RESET + 2 * 60 * 1000);
+  assert.equal(after.state, clean.state, 'two minutes AFTER the reset the card reads ' + after.state + ', not as the clean screen (' + clean.state + ')');
   assert.notEqual(after.state, STATE.RATE_LIMITED);
   assert.equal(guideFailure({ ...after, runner: 'claude' }), null, 'past the reset the bubble stays on the backup');
   assert.doesNotMatch(String(after.evidence || ''), /hit your/, 'an idle card still quotes the old limit line');
@@ -4309,6 +4309,12 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
     + '   ❯ 1. Stop and wait for limit to reset\n     2. Wait here, then continue automatically at Oct 5 at 12am\n'
     + '     3. Switch to usage credits\n   Enter to confirm · Esc to cancel\n';
   assert.equal(read(MENU, RESET + 3600000).state, STATE.RATE_LIMITED, 'the limit menu past the reset handed the bubble back');
+  /* Review round 3: the same menu with the two other option-1 labels Claude Code 2.1.287 draws under that title
+     (vendor strings, not captures): "Stop" (usage-based billing) and the spend-limit menu's "Wait for limit to reset". */
+  for (const first of ['Stop', 'Wait for limit to reset']) {
+    const other = MENU.replace('Stop and wait for limit to reset', first);
+    assert.equal(read(other, RESET + 3600000).state, STATE.RATE_LIMITED, 'the menu with "' + first + '" handed the bubble back');
+  }
 
   /* SHOULD-FIX 1 (#5029 round 6's recovered pane): reset passed, the person typed on, the agent asks a question. The
      question must surface; before #5031 the old line hid it as capped, and round 1's relabel hid it as idle. */
@@ -4319,6 +4325,12 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   const TWO = '> hi\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
     + "  ⎿  You've hit your session limit · resets Oct 12 at 12am (America/Chicago)\n" + '✻ Cooked for 0s · done 10:35 PM\n' + STATUS;
   assert.equal(read(TWO, RESET + 3600000).state, STATE.RATE_LIMITED, 'an expired limit row took a live one under the same footer');
+  /* Review round 3: the same, with the live row in the 2026-08-21 wording. */
+  const TWO_REACHED = '> hi\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + "     You've reached your Opus limit.\n" + '✻ Cooked for 0s · done 10:35 PM\n' + STATUS;
+  assert.equal(read(TWO_REACHED, RESET + 3600000).state, STATE.RATE_LIMITED, 'an expired limit row took a live "reached your" row');
+  /* Review round 3: the printed reset drops seconds; within a minute of it the pane stays capped. */
+  assert.equal(read(SCREEN, RESET + 30 * 1000).state, STATE.RATE_LIMITED, 'retired before the minute of grace');
 
   /* Controls: limit lines with no reset this can place stay capped however late it is (the old behaviour). */
   for (const line of ["You've hit your weekly limit · resets 3pm (America/Chicago)",
@@ -4330,6 +4342,11 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   const CATTED = '● Bash(cat x)\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
     + '      Do you want to proceed?\n● done\n' + STATUS;
   assert.equal(retire(CATTED, RESET + 3600000), CATTED, 'rows outside a vendor limit block were removed');
+  /* Review round 3: the gate is the FIRST column-0 row, not any footer within six rows. Here the agent's own question
+     (column 0) comes before a footer; nothing may be removed, least of all the question. */
+  const ASKED_FIRST = '● Bash(cat x)\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '● Should I delete build?\n✻ Cooked for 3s · done 9:01 AM\n' + STATUS;
+  assert.equal(retire(ASKED_FIRST, RESET + 3600000), ASKED_FIRST, 'a looser gate removed the agent\'s own question');
 });
 
 test('#5031: snapshot() reads the screen with an expired limit block taken out (the wiring, end to end)', () => {
