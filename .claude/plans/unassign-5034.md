@@ -57,7 +57,7 @@ Second: `by: 'operator'` on an agent-made removal is not literally a person. Acc
 
 ## Tests
 
-`server.leave-leftovers-5034.test.js` (11; 1-7 first, 8-11 from reviews): the clear and the card leaving decision (with a before-control that the
+`server.leave-leftovers-5034.test.js` (12; 1-7 first, 8-12 from reviews): the clear and the card leaving decision (with a before-control that the
 card WAS a decision); a departed holder raising the question again does not re-red the card; controls that must NOT
 clear (another project's question, an automatic wait); held posts dropped for this project and kept for another; a
 repeat leave touches nothing; engine rule unchanged with no members.
@@ -94,3 +94,10 @@ Wider run: 205 files touching roomhold / waitingOnPerson / selfreport / member r
   data; the members filter keeps cards right). N4 test 2 now has a before-control (old rule counts the holder).
 - ALL SABOTAGES RE-RUN on d65f53f81: A -> #1 #3 #4 #5 #8 #10; B -> #2; C -> #5 #9; D -> #3; E -> #4; F -> #8;
   G -> #9; H (left handling gone) -> #1; I (last-record-wins map) -> #11.
+- Review 4 (sonnet, blind): 0 B, 2 W, 2 N. W1 a leave over a WORKING or IDLE report naming the project writes
+  nothing, so that carry survives -> ACCEPTED RESIDUAL, documented in read(): ending it would mean re-writing the
+  state, which refreshes `at` (a stale report made to look fresh, the lie the decay rule catches); the card and the
+  project page stay right through the members filter, only the agent's own row may attribute a later automatic
+  prompt to the old project. W2 a re-join does not bring an ended carry back until the agent names the project ->
+  ACCEPTED RESIDUAL (errs toward a missed light, as `started` already does), documented. N1 security comment
+  tidied. N2 /api/report must not copy `left` -> FORGERY GUARD test 12; sabotage J (route copies body.left) -> #12 red.
