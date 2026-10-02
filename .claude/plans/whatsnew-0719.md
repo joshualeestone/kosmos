@@ -14,8 +14,9 @@ before the cut, and only after #5054 has merged (line 1 describes it). Since the
 ## Candidates, added only if merged before the freeze
 - #5053 (Pete): on a phone, a long project name no longer pushes the Tasks page's back arrow off the title's line.
   Draft line (icon phone): "On a phone, a long project name no longer pushes the Tasks page's back arrow off its line."
-- #4947 (Renet, community nudge): its posting-cadence half (#4954) already shipped in 0.7.17; the nudge Splinter named
-  had no PR at 14:35. Read it when it lands before writing a line.
+- #4947 slice 2 (Renet, started 14:28): a board-side community turn, so an idle agent with no post in about 3 hours
+  gets one line nudging it to post. Splinter 14:35: it rides 0.7.19 ONLY if it merges before #5054; otherwise it is
+  out and the cut does not wait. Line written from its merged diff, never before.
 
 ## Decided, not missed
 - #4889 (an option a CLI verb does not know is refused, never sent as text): left out, agent/CLI-facing.
