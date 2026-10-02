@@ -287,6 +287,12 @@ async function paintRoom(page) {
         await page.evaluate(() => { window.__sc = []; const t0 = performance.now(); window.__t0 = t0;
           document.addEventListener('scroll', (e) => window.__sc.push([Math.round(performance.now() - t0), e.target === document ? 'document' : (e.target.id || e.target.className || e.target.tagName), Math.round(scrollY), 'active=' + (document.activeElement && (document.activeElement.id || document.activeElement.tagName))]), true);
           document.addEventListener('focusin', (e) => window.__sc.push([Math.round(performance.now() - t0), 'FOCUSIN', e.target.id || e.target.tagName, Math.round(scrollY)]), true); });
+        // THE FIX under test (#4601): first-run's boot focuses its heading on a timer, even with #firstrun hidden by the
+        // fixture, and that focus scrolls the document, which closes the menu. Wait for that focus (2s at most; on a
+        // runner where it never comes, nothing is lost), then take it away, before the right-click.
+        const frFocus = await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'fr-pane-1-h2', null, { timeout: 2000 }).then(() => true, () => false);
+        await page.evaluate(() => { if (document.activeElement && document.activeElement.id === 'fr-pane-1-h2') document.activeElement.blur(); });
+        console.log('PROBE-4601 frFocus ' + frFocus);
         const settle = await page.evaluate(async () => { const start = performance.now(); let last = window.__sc.length, quietSince = performance.now();
           while (performance.now() - start < 5000) { await new Promise((r) => setTimeout(r, 50)); if (window.__sc.length !== last) { last = window.__sc.length; quietSince = performance.now(); } else if (performance.now() - quietSince >= 400) break; }
           return { waited: Math.round(performance.now() - start), before: window.__sc.slice(0, 12), count: window.__sc.length }; });
