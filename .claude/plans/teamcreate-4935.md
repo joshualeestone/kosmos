@@ -65,6 +65,13 @@ statuses change, and Project/Model look locked while making.
 - The late-account callback runs tcSyncModel, so the model list follows a provider/account it changed.
 - A new team clears the model menu's loading/fixed flags too.
 
+## Review 5 changes
+- Accessibility: the Model heading is a span naming the group (as on the single create) and the provider menu is
+  aria-label "Provider", so a screen reader no longer hears two menus both called "Model".
+- #4709's Project-label margin rule removed (the .field spacing replaces it); a failed roles read lets the next
+  paint try again (TC_MODEL_FOR cleared); on a phone the wrapped buttons stay right-aligned; the disabled-look
+  comment names every state it covers.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 

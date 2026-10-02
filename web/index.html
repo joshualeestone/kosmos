@@ -8367,9 +8367,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .tc-state.failed { color: var(--danger); }
 .tc-why { grid-column: 1 / -1; margin: 0; color: var(--danger); }
 .tc-retry { grid-column: 1 / -1; justify-self: start; }
-/* Mona's design review of #4709: the Project label had no gap and read as part of the member box above it; it gets
-   the space a field label has on the rest of the sheet. And "(leads the team)" stays on one line. */
-#cstep-teammake .flabel[for="tc-project"] { margin-top: var(--space-6); }
+/* "(leads the team)" stays on one line. (#4709's Project-label gap is now the .field spacing below, #4935.) */
 .tc-leads { white-space: nowrap; }
 @media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
 /* #4935 (Josh, 0.7.16: "Some of the styling just doesn't feel like the Create an Agent styling" and "some of
@@ -8378,7 +8376,6 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    a label sits 6px over its control, the menus are 18rem, the Model block steps the same way, and the
    footer is its one row. The member box sits 16px under the purpose line, the fields' own spacing below it. */
 #cstep-teammake .field { border-top: 0; padding-top: 0; margin-top: var(--space-7); }
-#cstep-teammake .flabel[for="tc-project"] { margin-top: 0; }
 #team-seeded-pick .flabel, #cstep-teammake .flabel { margin-bottom: var(--space-3); }
 #cstep-teammake #tc-project, #cstep-teammake #tc-provider, #cstep-teammake #tc-account,
 #cstep-teammake #tc-model { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
@@ -8390,7 +8387,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-teammake .sfoot { justify-content: space-between; align-items: center; gap: var(--space-6); margin-top: var(--space-7); }
 .tc-btns { display: flex; gap: var(--space-4); flex: 0 0 auto; }
 /* A phone has no room for the box and two buttons on one line: the buttons go under the box. */
-@media (max-width: 560px) { #cstep-teammake .sfoot { flex-wrap: wrap; } }
+@media (max-width: 560px) { #cstep-teammake .sfoot { flex-wrap: wrap; } #cstep-teammake .tc-btns { margin-left: auto; } }
 /* "On the team selection can we make the dropdown about half as wide?": the single create's 18rem, which is
    about half this column, in place of .nak-team-opt's full width. */
 #cstep-team #team-seeded { width: 18rem; max-width: 100%; }
@@ -8403,8 +8400,8 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   justify-content: flex-end; gap: var(--space-3); }
 #cstep-teammake .tc-state .spin { flex: none; }
 @media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
-/* Item 8: while the team is being made, the Project and Model menus are fixed (tcPaint disables them); they
-   say so by looking it, not only by refusing a click. */
+/* Item 8: a menu that cannot be chosen says so by looking it, not only by refusing a click: while the team is made
+   (tcPaint disables them), and a model menu that is fixed (the vendor picks, nothing to list) or still loading. */
 #cstep-teammake select:disabled { opacity: .55; cursor: default; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
@@ -14774,9 +14771,9 @@ window.kosmosMeasureScrollbarWidth();
          (fillCreateAccounts fills both; the account row shows only at two or more accounts, #2097).
          #4935: and ONE model, the list the single-agent form offers for that provider (tcPaintModel). -->
     <div class="field" id="tc-model-field">
-      <label class="flabel" for="tc-provider" id="tc-model-lab">Model <span class="flabel-soft">(for every agent in the team; you can change each later)</span></label>
+      <span class="flabel" id="tc-model-lab">Model <span class="flabel-soft">(for every agent in the team; you can change each later)</span></span>
       <div class="msteps" role="group" aria-labelledby="tc-model-lab">
-        <div class="frow"><select id="tc-provider"></select></div>
+        <div class="frow"><select id="tc-provider" aria-label="Provider"></select></div>
         <div class="mstep">
           <div class="frow" id="tc-account-row" hidden><select id="tc-account" aria-label="Account"></select></div>
           <div class="mstep">
@@ -48716,7 +48713,7 @@ function tcPaintModel(pv, ac) {
       if (gen !== TC_MODEL_GEN) return;
       if (!CREATE_MODELS.length && body && Array.isArray(body.models)) CREATE_MODELS = body.models;
       if (CREATE_MODELS.length) claude();
-      else show('<option value="" selected>Kosmos\'s default model</option>', true, '', false);
+      else { show('<option value="" selected>Kosmos\'s default model</option>', true, '', false); TC_MODEL_FOR = null; }   // the next paint tries again
       if (TC) tcPaint();   // Create is offered again
     });
 }
