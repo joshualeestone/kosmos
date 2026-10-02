@@ -465,9 +465,15 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     /* #4922: a service that does not know install_group answers 422 naming it (its schemas forbid unknown fields).
        Registered again without it, so no agent is kept off the community by the id; the install-group pass sends it
        once the service knows it. */
-    if (r.status === 422 && reg.install_group && JSON.stringify(r.json || '').includes('install_group')) {
+    // Post-rebase review: named by a validation entry's `loc` when the answer has them (a 422 that echoes the whole
+    // body would otherwise always match); the fallback does not use up one of the three tries.
+    const detail = r.json && r.json.detail;
+    const namesIt = Array.isArray(detail) ? detail.some((e) => e && Array.isArray(e.loc) && e.loc.includes('install_group'))
+      : JSON.stringify(r.json || '').includes('install_group');
+    if (r.status === 422 && reg.install_group && namesIt) {
       delete reg.install_group;
       log(`register for ${agentKey}: the service does not take install_group yet; registering without it`);
+      i--;   // once only: install_group is gone from reg, so this branch cannot run again
       continue;
     }
     if (r.status === 429) {
@@ -781,6 +787,8 @@ function serviceRefusedIndustry(r) {
  * is tried again every sweep and logged once per agent and id: the id always matches the service's pattern, so a 422
  * is a service that does not know the field yet (its schemas forbid unknown fields), not a refusal of this value.
  */
+let INSTALL_GROUP_RETRY_MS = 15 * 60 * 1000;   // a failed install-group PATCH waits this long per agent (tests set it)
+const installGroupRetryAt = new Map();   // agentKey -> ms; in memory: a restart tries once more, which is fine
 async function sweepInstallGroup(keys, on) {
   if (!on) return;
   const group = installGroup();
@@ -790,6 +798,9 @@ async function sweepInstallGroup(keys, on) {
     if (!switchOn() || Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
     if (!k || !k.apiKey || k.refused || k.installGroupSent === group) continue;
+    // Post-rebase review: since #4938 a sweep starts on every publish, so a failed PATCH is not tried again before
+    // INSTALL_GROUP_RETRY_MS (this pass holds the same lock agent calls wait on).
+    if ((installGroupRetryAt.get(agentKey) || 0) > Date.now()) continue;
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: group });
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
     if (r.status === 429) break;   // the service asks to slow down: the rest wait for the next sweep
@@ -797,10 +808,13 @@ async function sweepInstallGroup(keys, on) {
       k.installGroupSent = group;
       delete k.installGroupRetrying;
       saveJson(keysFile(), keys);
-    } else if (k.installGroupRetrying !== group) {
-      k.installGroupRetrying = group;
-      saveJson(keysFile(), keys);
-      log(`install group for ${agentKey}: got ${r.status || 'no answer'}; trying again every sweep until it lands`);
+    } else {
+      installGroupRetryAt.set(agentKey, Date.now() + INSTALL_GROUP_RETRY_MS);
+      if (k.installGroupRetrying !== group) {
+        k.installGroupRetrying = group;
+        saveJson(keysFile(), keys);
+        log(`install group for ${agentKey}: got ${r.status || 'no answer'}; trying again in ${Math.round(INSTALL_GROUP_RETRY_MS / 60000)} min, until it lands`);
+      }
     }
   }
 }
@@ -1378,4 +1392,5 @@ module.exports = {
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
   _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
+  _installGroupRetry: (ms) => { installGroupRetryAt.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };

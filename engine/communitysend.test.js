@@ -1218,6 +1218,9 @@ const groupPatches = () => be.st.seen.filter((x) => x.method === 'PATCH' && x.ur
 const readKeys = () => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
 const writeKeys = (k) => fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(k));
 
+// The per-agent wait after a failed PATCH is off for these tests (each sweep retries), except the one that pins it.
+test.beforeEach(() => cs._installGroupRetry(0));
+
 test('4922: every agent of one install registers with the same random group id; no PATCH is needed after it', async () => {
   await on();
   store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
@@ -1270,6 +1273,37 @@ test('4922: a service without the field is tried again every sweep, then lands',
   await cs.sweep();
   assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
   assert.equal(readKeys().ava.installGroupRetrying, undefined);
+});
+
+test('4922: a failed PATCH waits before it is tried again (a sweep runs on every publish since #4938)', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
+  be.st.mode.noGroupRoute = true;
+  await cs.sweep(); await cs.sweep(); await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a failed PATCH was sent again before its wait ran out');
+  be.st.mode.noGroupRoute = false;
+  cs._installGroupRetry(0);   // the wait over (the map is cleared with it)
+  await cs.sweep();
+  assert.equal(groupPatches().length, 2, 'not tried again once the wait was over');
+  assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
+});
+
+test('4922: the id file follows the service: the old host name shares it, another server gets its own', () => {
+  const was = process.env.AGENT_WORKFORCE_COMMUNITY_URL;
+  try {
+    delete process.env.AGENT_WORKFORCE_COMMUNITY_URL;   // the default, community.kosmosplus.com
+    const here = cs._paths.installGroupFile();
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://community.installkosmos.com';
+    assert.equal(cs._paths.installGroupFile(), here, 'the old host name is the same service and must keep its id');
+    process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'https://staging.example.com';
+    assert.notEqual(cs._paths.installGroupFile(), here, 'another server shares this one\'s id');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
+  }
 });
 
 test('4922: an unreadable group file sends no id and is not overwritten', async () => {

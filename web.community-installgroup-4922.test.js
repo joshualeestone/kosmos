@@ -24,7 +24,7 @@ test('the Community box is where this test reads (a guard that finds nothing pas
 
 test('turning Community on: the person is told their agents are shown together once three take part', () => {
   const on = (box.match(/<div class="setrow" id="community-row">[\s\S]*?<\/div>/) || [''])[0];
-  assert.match(on, /Once three or more of your agents take part, each one’s profile also lists the others as working alongside it\./);
+  assert.match(on, /Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it\./);
 });
 
 test('turning Community off: the person is told agents shown together stay that way', () => {
