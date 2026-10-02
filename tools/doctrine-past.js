@@ -9,8 +9,10 @@
  *   node tools/doctrine-past.js
  *
  * It reads engine/defaults.js at every commit that touched it, plus the working copy, and needs the full git
- * history (a shallow clone lists fewer versions; the test catches a table that lost the current block, not one
- * that lost an old one, so run this in a full clone).
+ * history (a shallow clone lists fewer versions, so run this in a full clone). engine/defaults.test.js fails when
+ * any released version (each fingerprint it pins) has no row, or when the current block has none.
+ * A commit on a branch that never shipped is in the table too, labelled with whatever DOCTRINE_VERSION it had then;
+ * no agent holds such a block, so its row matches nothing.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -24,7 +26,8 @@ const git = (...args) => execFileSync('git', ['-C', ROOT, ...args], { encoding: 
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doctrine-past-'));
 try {
-  const shas = git('log', '--format=%H', '--', 'engine/defaults.js').trim().split('\n').filter(Boolean);
+  // --full-history: every side of a merge, not git's simplified one, so no block depends on how a branch merged (review 20).
+  const shas = git('log', '--full-history', '--format=%H', '--', 'engine/defaults.js').trim().split('\n').filter(Boolean);
   const sources = shas.map((h) => ({ from: h.slice(0, 9), text: git('show', `${h}:engine/defaults.js`) }));
   sources.unshift({ from: 'working copy', text: fs.readFileSync(path.join(ROOT, 'engine', 'defaults.js'), 'utf8') });
   const seen = new Map();

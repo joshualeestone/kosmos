@@ -41,6 +41,14 @@ test('the doctrine version and the block text move together', () => {
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
     `the block's text changed but DOCTRINE_VERSION did not: bump it, log it, and pin the new fingerprint '${print}'`);
+  /* #4890 review 20: every pinned (released) version has its exact block in engine/doctrine-past.js, so an agent holding
+     an unedited copy of it is offered the current rules. A row with the version number is not enough: an unreleased
+     interim block from a branch can carry the same number. */
+  const past = require('./doctrine-past');
+  for (const [v, prefix] of Object.entries(PINNED)) {
+    assert.ok(past.some((r) => r.version === Number(v) && r.sha256.startsWith(prefix)),
+      `released doctrine v${v} (${prefix}) has no row in engine/doctrine-past.js: run node tools/doctrine-past.js`);
+  }
 });
 
 /**

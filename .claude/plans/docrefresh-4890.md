@@ -167,4 +167,11 @@ reads the span; #1672 stubs `doctrine.atBirth` (throwing it reds 8 of 214).
   merge was committed (run before it, HEAD's history lacked main's v22 and the table had no v22 row): 30 blocks, v20
   to v23 present; the extra rows are this branch's unreleased earlier blocks (no agent holds them, so they match
   nothing). defaults, doctrine, doctrine-4890 and doctrine-consent tests green. One review round on the merged tree next.
+- Round 20 (opus, after the merge with main): FIXED W: a released version could drop out of doctrine-past.js silently
+  (v21 has main's row and two unreleased rows from this branch, and the guard only asked that SOME row carry 21);
+  engine/defaults.test.js now asserts every pinned fingerprint has its own row (with main's v21 row deleted it goes
+  red naming v21 2211bf1f791a9399). NITs taken: git log --full-history in the generator (table byte-identical after
+  regenerating; my first edit put the comment mid-expression and crashed the generator, caught because the table
+  could not have been "unchanged" from a run that printed a stack); the generator's header says what the test catches
+  and that interim branch rows carry their then-current number.
 
