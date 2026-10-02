@@ -43,6 +43,7 @@ function backend() {
       if (req.method === 'POST' && req.url === '/agents/register') {
         if (st.mode.refuseGroup && 'install_group' in body) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] });
         if (st.mode.badName) return send(422, { detail: [{ loc: ['body', 'name'], msg: 'bad name', type: 'value_error' }] });
+        if (st.mode.badGroupValue && 'install_group' in body) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: "String should match pattern '^[A-Za-z0-9_-]{16,64}$'", type: 'string_pattern_mismatch' }] });
         if (st.mode.clash > 0) { st.mode.clash -= 1; return send(409, { detail: 'that name is taken' }); }
         if ([...st.agents.values()].some((a) => a.name.toLowerCase() === body.name.toLowerCase())) return send(409, { detail: 'that name is taken' });
         const id = 'a' + (++st.n);
@@ -86,6 +87,7 @@ function backend() {
         if (!a) return send(401, { detail: 'invalid or expired token' });
         if (st.mode.noGroupRoute) return send(404, { detail: 'not found' });
         if (st.mode.slowDown) return send(429, { detail: 'slow down' }, { 'retry-after': '60' });
+        if (st.mode.groupDown) return send(503, { detail: 'unavailable' });
         if (st.mode.refuseGroup) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] });
         if (typeof body.install_group !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(body.install_group)) return send(422, { detail: 'bad install_group' });
         a.installGroup = body.install_group;
@@ -1443,6 +1445,31 @@ test('4922: a wait after a failed PATCH is for that id: a new id is sent at once
   await cs.sweep();
   assert.equal(groupPatches().length, 2, 'a new id waited on the old id\'s wait');
   assert.equal(readKeys().ava.installGroupSent, 'G' + 'x'.repeat(31));
+});
+
+test('4922: a server error or no answer pauses the whole pass (the service, not the agent)', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on();
+  for (const n of ['ava', 'dex', 'cal']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent; writeKeys(k);
+  be.st.mode.groupDown = true;
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'a 503 did not stop the pass: every agent was tried against a down service');
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'the pass did not pause after a 503');
+  be.st.mode.groupDown = false;
+});
+
+test('4922: a 422 that rejects the VALUE is not taken for a service without the field (the id is not dropped)', async () => {
+  await on();
+  be.st.mode.badGroupValue = true;
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+  assert.equal(regs.length, 1, 'a value rejection was retried without the id, as if the service lacked the field');
+  be.st.mode.badGroupValue = false;
 });
 
 test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {
