@@ -192,6 +192,16 @@ test('#1131: an agent that never had a token deletes cleanly, and the step is no
   assert.equal(step.ok, true, 'an agent with no token was reported as a token failure');
 });
 
+test('#4475: deleting a stopped agent\'s leftovers (never removed) ends its identity in the history, so an agent that made it no longer owns the name', () => {
+  leftoverAgent('freed-name');
+  quiet();
+  const before = new Date(Date.now() - 1000).toISOString();
+  assert.equal(sendertoken.endedSince(['freed-name'], before), false, 'CONTROL: the history already named it');
+  const done = mac.del('freed-name');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  assert.equal(sendertoken.endedSince(['freed-name'], before), true, 'deleting the leftovers freed the name without ending its identity in the history');
+});
+
 test('#1131: a token that cannot be removed makes the delete PARTIAL, never a DELETED that says the name is free', () => {
   leftoverAgent('stuckcred');
   /* A directory where the token file goes: `unlink` refuses it, which is a

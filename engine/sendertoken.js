@@ -236,6 +236,42 @@ function othersTokens(held, sessionName) {
   return (t) => { const n = tokenName(t, key); return n !== null && n !== String(sessionName); };
 }
 
+/* #4475: the history of agents whose identity ended, appended and never rewritten: the name and when. `revoke` is
+   where it is written, because every path that ends an agent revokes it first (remove, deleting what is left of
+   it, and create, which revokes a name before making a new agent of it); a restart retires one run and does not
+   come here. The removal route reads it so an agent's ownership of an agent it created ends the first time either
+   name's identity ends: a later agent under either name is then never the one the ownership was about. */
+function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
+function noteEnded(sessionName) {
+  try {
+    fs.mkdirSync(path.dirname(endedLogFile()), { recursive: true });
+    fs.appendFileSync(endedLogFile(), JSON.stringify({ name: String(sessionName), at: new Date().toISOString() }) + '\n', 'utf8');
+    return true;
+  } catch (e) {
+    console.error('#4475: could not add ' + sessionName + ' to the history of ended agents (' + ((e && e.message) || 'threw') + ')');
+    return false;
+  }
+}
+/* Did an agent whose name matches any of `names` (by slug, both sides) end AFTER `sinceIso` (or at it, when
+   `inclusive`)? true, false, or null when the history cannot be read (a missing file is none). Loose on purpose: a
+   caller uses true to REFUSE, so matching more names only refuses more. Lines that do not parse are skipped. */
+function endedSince(names, sinceIso, opts = {}) {
+  const create = require('./create');   // lazy: create.js requires this file
+  const slug = (n) => { try { return create.slugFor(n); } catch { return null; } };
+  const want = new Set((names || []).map(slug).filter(Boolean));
+  const since = String(sinceIso);
+  let raw;
+  try { raw = fs.readFileSync(endedLogFile(), 'utf8'); } catch (e) { return (e && e.code === 'ENOENT') ? false : null; }
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    let r; try { r = JSON.parse(line); } catch { continue; }
+    if (!r || typeof r.name !== 'string' || typeof r.at !== 'string') continue;
+    if (!want.has(slug(r.name))) continue;
+    if (r.at > since || (opts.inclusive === true && r.at === since)) return true;
+  }
+  return false;
+}
+
 /** Drop EVERY token for an agent. A deleted or recreated agent stops speaking.
  *  #1782: under the lock, so a straggler `mint` cannot land its write between the
  *  read and this unlink and resurrect a token the recreate meant to erase -
@@ -243,6 +279,7 @@ function othersTokens(held, sessionName) {
  *  #4844: deliberately WHOLE-KEY, also taking another name's tokens under the same key; see othersTokens for why a
  *  narrowed revoke is unsafe. */
 function revoke(sessionName) {
+  noteEnded(sessionName);   // #4475: first, so a revoke that fails below still ends ownership (the refusing direction)
   let held;
   try { held = withSessionLock(sessionName, () => revokeUnlocked(sessionName)); }
   catch { return { ok: false, because: 'we could not remove that agent\'s tokens' }; }
@@ -561,4 +598,4 @@ function tokenOnlyFor(name) {
 }
 
 module.exports = {
-  mint, revoke, retire, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE };
+  mint, revoke, retire, endedSince, endedLogFile, retireLauncher, live, keys, resolve, resolveName, tokenOnlyFor, tokenOnlyList, tokenOnlyFile, CLASH, DIR, MAX_LIVE };

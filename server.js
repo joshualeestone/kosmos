@@ -2611,23 +2611,27 @@ function agentBirthOf(name) {
 }
 /* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
    Only when all of these hold, else refused:
-   - the target's newest birth is `created` and carries `createdByName`: the exact token name of the agent that asked
-     for it through POST /api/team (engine/team.js records it only for an agent that is not the setup guide). The
-     person's paths record none, so a fixed creator word they write ("operator", "kosmos") never makes an agent its
-     owner;
+   - the target's newest birth is `created` and carries `createdByName` and `askedAt`: the exact token name of the
+     agent that asked for it through POST /api/team, and when it asked (engine/team.js records them only for an agent
+     that is not the setup guide). The person's paths record neither, so a fixed creator word they write ("operator",
+     "kosmos") never makes an agent its owner;
    - the caller's token carries its name, and it is `createdByName` exactly;
-   - neither the target nor the creator has been removed since that birth (engine/remove.js removedSince, the removal
-     history). A name is only freed for reuse by a removal, so a later agent under either name is never the one the
-     birth is about. The agent profile id does not show this: it survives a removal and is carried to a new agent of
-     the same name. Ownership does not come back on restore; the person can remove a restored agent. */
+   - neither identity has ended since (sendertoken.endedSince: the history `revoke` writes, which every path that
+     ends an agent goes through: removing it, deleting what is left of it, and creating an agent of that name). The
+     target from after its birth (its own creation revokes its name just before the birth is written); the creator
+     from the moment it asked, so a creator removed while its request ran is caught. A later agent under either name
+     is then never the one the birth is about. The agent profile id does not show this: it survives a removal and
+     is carried to a new agent of the same name. Ownership does not come back on restore. */
 function tokenOnlyMayRemove(caller, target) {
   if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return false;
   const birth = agentBirthOf(target);
   if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return false;
-  if (birth.createdByName !== caller.name || typeof birth.at !== 'string' || !birth.at) return false;
+  if (birth.createdByName !== caller.name) return false;
+  if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return false;
   let creatorKey; try { creatorKey = store.safeKey(caller.name); } catch { creatorKey = null; }
-  const gone = removal.removedSince([target, caller.name, creatorKey].filter(Boolean), birth.at);
-  return gone === false;
+  const targetGone = sendertoken.endedSince([target], birth.at);
+  const creatorGone = sendertoken.endedSince([caller.name, creatorKey].filter(Boolean), birth.askedAt, { inclusive: true });
+  return targetGone === false && creatorGone === false;
 }
 
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
@@ -3959,8 +3963,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    hold the person's credential for its everyday verbs, and a request carrying only an agent
    token is that agent, never the person. Person-only routes (restarting or reconfiguring agents, settings,
    POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board
-   token. Removing an agent is in the patterns (#4475), narrowed in its handler to the caller's own creations. The header only, never `token` in the body:
-   this gate runs before the body is read, and the handlers resolve the header first (presentedAgentToken), so both see the same
+   token. Removing an agent is in the patterns (#4475), narrowed in its handler to the caller's own creations.
+   The header only, never `token` in the body: this gate runs before the body is read, and the handlers resolve the header first (presentedAgentToken), so both see the same
    caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
    does not see it: what stops an internet caller there is the tunnel itself, which forwards only
@@ -7186,6 +7190,7 @@ const server = http.createServer(async (req, res) => {
            its pane-fallback (the thing report/reply's denyPaneFallback guards) is
            structurally unreachable on this path -- which is why this call does not
            pass denyPaneFallback (it would be inert). */
+        const askedAt = new Date().toISOString();   // #4475: when the request arrived, before any work (recorded on births)
         const presented = presentedAgentToken(req, body);
         let effectiveCreator;
         let callerKind;
@@ -7403,6 +7408,7 @@ const server = http.createServer(async (req, res) => {
           fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
           fromGuide,
           creatorTokenName,   // #4475: recorded on each birth (createdByName) for an agent that is not the guide
+          askedAt,            // #4475: recorded beside it (askedAt)
         };
         let result;
         if (callerKind === 'agent') {

@@ -70,37 +70,6 @@ const OUTCOME = { REMOVED: 'removed', RESTORED: 'restored', RESTARTED: 'restarte
  */
 const REMOVED_FILENAME = 'removed.json';
 const REMOVED_FILE = path.join(store.ROOT, REMOVED_FILENAME);
-/* #4475: every removal, appended and never rewritten: the name and when. The removed list above is STATE (restore takes
-   a row off it, so it cannot say whether a name was ever removed); this is HISTORY. The removal route reads it so an
-   agent's ownership of an agent it created ends the first time either is removed: a name is only freed for reuse
-   after a removal, so a later agent of that name is never the old one. */
-const REMOVALS_LOG = path.join(store.ROOT, 'removals.jsonl');
-function noteRemoval(clean) {
-  try {
-    fs.mkdirSync(path.dirname(REMOVALS_LOG), { recursive: true });
-    fs.appendFileSync(REMOVALS_LOG, JSON.stringify({ name: String(clean), at: new Date().toISOString() }) + '\n', 'utf8');
-    return true;
-  } catch (e) {
-    console.error('#4475: removed ' + clean + ' but could not add it to the removal history (' + ((e && e.message) || 'threw') + ')');
-    return false;
-  }
-}
-/* Was an agent whose name matches any of `names` (compared by slug, both sides) removed at or after `sinceIso`? true,
-   false, or null when the history cannot be read (a missing file is no removals). Loose on purpose: a caller uses a
-   true to REFUSE, so matching more names only refuses more. Lines that do not parse are skipped. */
-function removedSince(names, sinceIso) {
-  const slug = (n) => { try { return require('./create').slugFor(n); } catch { return null; } };
-  const want = new Set((names || []).map(slug).filter(Boolean));
-  let raw;
-  try { raw = fs.readFileSync(REMOVALS_LOG, 'utf8'); } catch (e) { return (e && e.code === 'ENOENT') ? false : null; }
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    let r; try { r = JSON.parse(line); } catch { continue; }
-    if (!r || typeof r.name !== 'string' || typeof r.at !== 'string') continue;
-    if (want.has(slug(r.name)) && r.at >= String(sinceIso)) return true;
-  }
-  return false;
-}
 
 /* ── the runner seam ─────────────────────────────────────────────────────── */
 
@@ -798,7 +767,6 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
      failure is LOGGED distinctly (the posture sendertoken itself uses for its
      #1916 fail-opens), giving an operator the one line that says the token
      outlived the removal. */
-  noteRemoval(clean);   // #4475: before the UNREADABLE refusal below, like the revoke: a half-removal still ends ownership
   let revoked;
   /* #4006: and its disruption record, so a failed restart does not outlive the agent onto a new one of that name. */
   try { disruption.clear(clean); } catch { /* best-effort, like the revoke */ }
@@ -2273,9 +2241,6 @@ function forget(name) {
 
 module.exports = {
   plan,
-  removedSince,   // #4475: the removal history, read by the removal route's ownership check
-  noteRemoval,    // #4475: its one writer (recordRemoval calls it); exported for tests
-  REMOVALS_LOG,
   restart,
   unsafeToActOn,
   isHidden,

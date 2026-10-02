@@ -298,6 +298,29 @@ test('#4475: the birth records the creator\'s EXACT token name, not its lossy se
     assert.ok(b, 'no birth record');
     assert.equal(b.createdBy, store.safeKey('Dr. Pm'), 'CONTROL: createdBy is the lossy key, so the next line can tell them apart');
     assert.equal(b.createdByName, 'Dr. Pm', 'the birth recorded the sessionName, not the token name');
+    assert.ok(typeof b.askedAt === 'string' && b.askedAt <= b.at, 'the birth has no time the creator asked, or one after the birth: ' + b.askedAt);
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
+test('#4475 END TO END: an agent removes what it made with its own token; once its identity ends, a later agent of its name cannot', async () => {
+  create.setClaudeProbe(LIVE);
+  const tok = sendertoken.mint('chainpm').token;
+  liveness.seen('chainpm');
+  const board = fleet.install([]);
+  const del = async (name, token) => {
+    const res = await fetch(`${base}/api/agent/${name}/removal`, { method: 'DELETE', headers: { 'x-kosmos-agent-token': token } });
+    let json = null; try { json = await res.json(); } catch { json = null; }
+    return { status: res.status, json };
+  };
+  try {
+    const made = await postTeam({ purpose: 'agent builds a team', members: [{ name: 'chainkid', role: 'pm' }, { name: 'chainkidtwo', role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const ok = await del('chainkid', tok);
+    assert.ok(ok.json && typeof ok.json.outcome === 'string', 'its own creation did not reach the removal engine: ' + JSON.stringify(ok));
+    sendertoken.revoke('chainpm');   // what removing chainpm, deleting its leftovers, or making a new chainpm all call
+    const tok2 = sendertoken.mint('chainpm').token;
+    const no = await del('chainkidtwo', tok2);
+    assert.equal(no.status, 403, 'a later agent named chainpm removed the old one\'s creation: ' + JSON.stringify(no.json));
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
