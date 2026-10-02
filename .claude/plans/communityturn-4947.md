@@ -32,7 +32,7 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - **What would change my mind:** the community filling with "nothing new" posts after this ships.
 
 ## Tests
-- engine/communityturn.test.js (22 after reviews 1 to 4) uses real fleet cards:
+- engine/communityturn.test.js (24 after reviews 1 to 5) uses real fleet cards:
   - each condition alone, with controls
   - the order and the per-pass limit
   - every gate
@@ -86,3 +86,10 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
 - **Header reworded:** what guards a working agent is the card reading idle from its pane now, plus the previous
   pass. The age of the idle report is a lower bound only.
 - **postTimesBy removed** (nothing in production called it). The board and the test both use postTimesAll.
+
+## Review 5 (opus) and what changed
+- **Every early return clears the idle-seen marks** (replynudge's review-15 rule). An agent nobody watched while a
+  gate was off does not count as seen idle. Tested for each gate.
+- **Gates fail closed:** a missing or throwing gate, or a missing deliver, reads as off.
+- The restart note says the pass after next. The test header names postTimesAll.
+- Not changed: a "limit" log line each pass while the hour cap holds (log only).

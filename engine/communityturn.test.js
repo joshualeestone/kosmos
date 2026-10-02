@@ -1,6 +1,6 @@
 'use strict';
 /* #4947 slice 2: the community turn. Real cards from the real producer (fleet + status.snapshot()), never hand-built
- * (fixture-discipline.test.js); every read is injected, and communitystore.postTimesBy runs against a sandboxed data
+ * (fixture-discipline.test.js); every read is injected, and communitystore.postTimesAll runs against a sandboxed data
  * root.
  *
  *   node --test engine/communityturn.test.js
@@ -222,4 +222,22 @@ test('review 4: an agent is due only if it was idle at the previous pass too; th
   assert.deepEqual(ct.tickOnce(first.o), [], 'an agent seen idle for the first time was prompted');
   assert.deepEqual([...first.o.idleSeen].sort(), ['ann', 'bea'], 'this pass\'s idle cards were not kept for the next');
   assert.equal(ct.tickOnce(first.o).length, 2, 'CONTROL: idle at the previous pass too, they are prompted');
+});
+
+test('review 5: a pass with a gate off clears the idle-seen marks, so the next pass with the gate on prompts nobody yet', () => {
+  for (const over of [{ switchOn: () => false }, { prompterOn: () => false }, { allowed: () => false }, { readProjects: () => null }]) {
+    const run = tickArgs({ idleSeen: new Set(['ann', 'bea']) });
+    const gateOff = { ...run.o, ...over };
+    assert.deepEqual(ct.tickOnce(gateOff), []);
+    assert.equal(run.o.idleSeen.size, 0, 'a gate-off pass kept stale idle marks: ' + Object.keys(over));
+    assert.deepEqual(ct.tickOnce(run.o), [], 'an agent nobody watched while the gate was off counted as seen idle');
+  }
+});
+
+test('review 5: a missing gate or deliver reads as off, never on', () => {
+  for (const drop of ['switchOn', 'prompterOn', 'allowed', 'deliver']) {
+    const run = tickArgs();
+    delete run.o[drop];
+    assert.deepEqual(ct.tickOnce(run.o), [], drop + ' missing was read as on');
+  }
 });

@@ -22,8 +22,9 @@
  * the board-wide hour log the other agent nudges share. Sent through the caller's deliver (the board passes
  * chat.deliverAutomatic, which holds a line on the shared-quota pause).
  *
- * The tries book is in memory: after a board restart an agent still silent can be tried at the next pass, before the
- * gap since its last try has passed. The gap since its last POST still applies.
+ * The tries book is in memory: after a board restart an agent still silent can be tried again before the gap since its
+ * last try has passed (at the pass after next: the idle-seen set also starts empty). The gap since its last POST still
+ * applies.
  *
  * Gates: the live-execution opt-in, the community switch, the Prompter's agent-nudge switch, and the operator brake
  * AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Pure apart from the injected reads; never throws.
@@ -89,18 +90,22 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
    Moving the delivery to an async sender needs that guard first (both passes could book the same agent). */
 function tickOnce(o) {
   const results = [];
+  /* Review 5: while a gate is off nothing is watched, so the idle-seen marks are not trusted after it (replynudge's
+     review 15): every early return clears them. */
+  const off = () => { if (o && o.idleSeen instanceof Set) o.idleSeen.clear(); return results; };
+  // A gate passes only when it is a function that answers true: a missing or throwing one reads as off.
+  const on = (f) => { if (typeof f !== 'function') return false; try { return f() === true; } catch { return false; } };
   try {
-    if (!o || typeof o.allowed !== 'function') return results;
+    if (!o || typeof o.deliver !== 'function') return off();
     const env = o.env === undefined ? process.env : o.env;
     // The agent-nudge gate the sibling nudges share (live execution and AGENT_WORKFORCE_AGENT_NUDGE_OFF), then this one's own brake.
-    let allowed = false; try { allowed = o.allowed() === true; } catch { allowed = false; }
-    if (!require('./agentnudge').nudgeEnabled(allowed, env) || brakeOn(env)) return results;
-    if (typeof o.switchOn === 'function' && o.switchOn() !== true) return results;
-    if (typeof o.prompterOn === 'function' && o.prompterOn() !== true) return results;
-    const roster = typeof o.roster === 'function' ? o.roster() : null;
+    if (!require('./agentnudge').nudgeEnabled(on(o.allowed), env) || brakeOn(env)) return off();
+    if (!on(o.switchOn) || !on(o.prompterOn)) return off();
+    let roster = null;
+    try { roster = typeof o.roster === 'function' ? o.roster() : null; } catch { roster = null; }
     let projects = null;
     try { const r = typeof o.readProjects === 'function' ? o.readProjects() : null; projects = Array.isArray(r) ? r : null; } catch { projects = null; }
-    if (!Array.isArray(roster) || !projects) return results;   // cannot tell a stood-down agent: prompt nobody this pass
+    if (!Array.isArray(roster) || !projects) return off();   // cannot tell a stood-down agent: prompt nobody this pass
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const book = o.book instanceof Map ? o.book : new Map();
     const sent = Array.isArray(o.sent) ? o.sent : [];
