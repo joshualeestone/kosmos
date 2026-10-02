@@ -1005,7 +1005,7 @@ test('the room valve closes across the whole thread regardless of sender, once, 
       'the room valve does not carry the ruled sentence');
     assert.equal(sent.code, 'room_held', '#4934: the loop guard\'s refusal is not marked, so the CLI cannot say nothing was kept');
     assert.equal(sent.id, null, '#4934: the loop guard kept a copy (the CLI says it does not)');
-    assert.equal(messages.record().rows.filter((m) => m.kind === 'message' && m.text === 'one more').length, 0, '#4934: the refused post was stored');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.text === 'one more').length, 0, '#4934: the refused post was stored');
     assert.equal(tmux.sends().length, 0);
     const valves = messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease');
     assert.equal(valves.length, 1, 'the room valve closing was not logged (or logged per retry)');

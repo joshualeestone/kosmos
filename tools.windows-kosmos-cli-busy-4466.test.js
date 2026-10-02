@@ -81,6 +81,14 @@ test('#4580 Windows: a post whose reply is cut is asked once more too', async ()
   assert.equal(h.calls(), 2);
 });
 
+test('#4934 Windows: a post whose reply is cut and whose retry the loop guard refuses never says "nothing was sent"', async () => {
+  const h = sequence([reset(), '{"delivery":{"state":"could_not","code":"room_held","because":"held","id":null}}']);
+  assert.equal(await cli.main(['post', 'proj', 'draft is in the folder'], h.io), 1, h.err());
+  assert.equal(h.calls(), 2, 'CONTROL: the retry was asked');
+  assert.doesNotMatch(h.err(), /Nothing was sent to anyone/);
+  assert.match(h.err(), /Not posted this time: .*Your first try may have reached the room before that: check kosmos room proj before posting it again\./);
+});
+
 test('#4580 Windows CONTROL: a refused connection is not retried (nothing arrived), and a post timeout is not retried', async () => {
   const r = sequence([refusedErr(), kept]);
   assert.notEqual(await cli.main(['msg', 'mara', 'hi'], r.io), 0);

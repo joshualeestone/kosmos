@@ -86,7 +86,7 @@ test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to
     const TEXT = 'the lease renews monthly unless notice is given';
     const out = await runCli(['post', 'henderson', TEXT], env);
     assert.match(out.stdout, /Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in\. Nothing was sent to anyone, and Kosmos does not keep it or send it later\./);
-    assert.match(out.stdout, /Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it\./);
+    assert.match(out.stdout, /Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour\./);
     assert.doesNotMatch(out.stdout, /bring you in/, 'the person-facing sentence reached the agent');
     assert.match(out.stdout, /Here it is to keep:\n *the lease renews monthly/);
     assert.equal(out.code, 1);

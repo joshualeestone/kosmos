@@ -218,7 +218,7 @@ test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept 
   const r = await run(['post', 'proj-1', 'a long substantive update'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.' } } }));
   assert.equal(r.code, 1);
   assert.match(r.err, /Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in\. Nothing was sent to anyone, and Kosmos does not keep it or send it later\./);
-  assert.match(r.err, /Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it\./);
+  assert.match(r.err, /Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour\./);
   assert.doesNotMatch(r.err, /bring you in/);
   assert.match(r.err, /Here it is to keep:\n *a long substantive update/);
 });

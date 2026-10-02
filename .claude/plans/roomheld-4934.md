@@ -7,7 +7,7 @@ already re-sent it by direct message, so people got it twice.
 ## What the code does (measured on main)
 engine/messages.js sendPost: the room valve returns `could_not` BEFORE the post is given an id or stored; it logs only a
 `valve` notice and one `refused` row per agent ("X tried to post here and Kosmos stopped it"), neither carrying the text.
-Nothing re-sends it: there is no outbox for a refused room post (the CLI's outbox is only for a wrong-world board). So a
+Nothing re-sends a LIVE refused post: the CLI's outbox is only for a wrong-world board (and a post that went there is retried by the outbox drain, through the same guard, without these words). So a
 loop-guard refusal is never "delivered later": what showed later was the agent's own re-post. The card's suggested
 "held" wording would be false (nothing holds it).
 
@@ -29,6 +29,15 @@ it; the text is handed back to keep.
   person's post, or its own retry will land.
 - Weakest premise: that the duplicates came from the agent's re-post rather than some delivery path I did not find. I
   read sendPost's valve branch (returns before the id) and searched for an outbox of refused posts; there is none.
+
+## Review 1 (2 warnings, 2 nits), taken
+- After the CLI's cut-reply retry (#4580) the first try may already be in the room, so a room_held answer to the retry
+  says "Not posted this time ... your first try may have reached the room: check kosmos room <project>" instead of
+  "Nothing was sent" (both CLIs; tests cut the first send and refuse the retry).
+- The engine test's "not stored" filter used the wrong row kind (room posts are kind 'post'), so it could not fail; fixed.
+- "or in about an hour": the valve's window is a rolling hour, so the room also reopens on its own.
+- The "never delivered later" claim is scoped to a LIVE post: a post that first went to the outbox (wrong-world board)
+  is retried by the outbox drain through the same guard, and the agent never sees these words on that path.
 
 ## Validation
 engine/messages.test.js (the valve refusal carries room_held, has no id, and stores no row); cli.room-reopen-2710 and
