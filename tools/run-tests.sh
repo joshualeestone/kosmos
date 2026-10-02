@@ -107,6 +107,7 @@ if [ "${1:-}" = --only ]; then
     # inside this repo goes to node by its repo-relative name (node runs from the repo root), so only that part is
     # checked: a checkout folder such as "kosmos (copy)" does not refuse every file.
     case "$_only_f" in "$_only_repo"/*) _only_f="${_only_f#"$_only_repo"/}" ;; esac
+    case "$_only_f" in -*) _only_f="./$_only_f" ;; esac   # review 17: a repo file named -x.test.js is a file, not an option
     case "$_only_f" in *'['*|*'*'*|*'?'*|*'{'*|*'('*|*'!'*|*'\'*) echo "run-tests: --only cannot take '$_only_f': node --test reads [ * ? { ( ! \\ as a pattern, so it could run nothing" >&2; exit 2 ;; esac
     _only_dup=0
     for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
@@ -453,7 +454,7 @@ fi
 # com.kosmos.agent.* plist into launchd (phantom agents on the board). Snapshot the
 # real set now; the leak check after the suite refuses any created or modified during
 # it. Fail-soft: a snapshot failure leaves an empty baseline, never a false red here.
-. "$(dirname "$0")/lib/launchagent-leak-guard.sh"
+. "$REPO/tools/lib/launchagent-leak-guard.sh"   # $REPO, not $(dirname "$0"): a relative $0 no longer resolves after cd "$REPO" (#4929 review 17)
 # $HOME here, while the #3605 guards use the account home: they agree unless HOME is redirected.
 _la_guard_dir="${HOME}/Library/LaunchAgents"
 _la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_guard_before=""
@@ -463,7 +464,7 @@ _la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_
 # Snapshot the loaded launchd labels now; after the suite, lib/test-leak-guard.sh
 # checks all three, each scoped to THIS run's temp root so a suite running beside
 # another never blames or kills the other's. Only when the per-run root exists.
-. "$(dirname "$0")/lib/test-leak-guard.sh"
+. "$REPO/tools/lib/test-leak-guard.sh"   # $REPO: as above
 _tl_labels_before=""
 if [ "${TMPDIR:-}" = "$KOSMOS_RUN_TMPDIR" ]; then
   _tl_labels_before="$(mktemp "$KOSMOS_RUN_TMPDIR/tl-labels.XXXXXXXXXX")" || _tl_labels_before=""

@@ -154,6 +154,18 @@ test('--only reads a relative name from the runner\'s tree, whatever the caller\
   assert.match(out, /stands down inside its own inner run/);
 });
 
+test('--only works when the runner is called by a relative path from outside the repo (the leak guards load)', () => {
+  assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
+  const above = path.dirname(path.dirname(__dirname));   // two levels up, so the runner's path is relative and has a folder
+  const relRunner = path.relative(above, RUNNER);
+  const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
+  const r = spawnSync('perl', ['-e', GROUP, 'bash', relRunner, '--only', PROBE], { env, encoding: 'utf8', timeout: 120000, cwd: above });
+  const out = (r.stdout || '') + (r.stderr || '');
+  assert.doesNotMatch(out, /No such file or directory/, 'a lib did not load: ' + out.slice(-800));
+  assert.doesNotMatch(out, /LEAK/, 'a false LEAK red: ' + out.slice(-800));
+  assert.equal(r.status, 0, out.slice(-1500));
+});
+
 test('--only passes a red file\'s failure on', () => {
   const r = run(['--only', RED]);
   assert.notEqual(r.code, 0, 'a failing file came back green');
