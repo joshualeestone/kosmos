@@ -2685,11 +2685,26 @@ _kosmos_mode_read() {
 # (the app starts the board and asks at its next launch), so it gets its own words (review round 29).
 _kosmos_off_why() {
   if [ "$_kosmos_mode_word" = connect ]; then printf 'while this computer connects to agents on another computer'
+  elif _kosmos_off_for_foreign; then printf "until you run 'kosmos start' (another Kosmos was using port %s)" "$PORT"
   else printf "until this computer's setup is chosen in the Kosmos app"; fi
+}
+# #4676: the board is off ONLY because the pause left another install's board on the port, and the choice
+# is now run or both (the person chose to run during this update). An unreadable choice keeps its own
+# words: it is off for that reason too, and "run kosmos start" would start a board nobody chose.
+_kosmos_off_for_foreign() {
+  [ "${_kosmos_pause_left_foreign:-no}" = yes ] || return 1
+  case "$_kosmos_mode_word" in run|both) return 0 ;; esac
+  return 1
 }
 _kosmos_board_decide() {
   _kosmos_mode_read
   if _kosmos_mode_keeps_board_off; then _kosmos_board_off=yes; else _kosmos_board_off=no; fi
+  # #4676: the pause left another install's board on the port (a connect computer). If the choice has
+  # become run or both since, this run still starts nothing there: a start would call that board ours
+  # ("already running"), and a busy one would meet the #3079 reclaim under KOSMOS_RECLAIM_BUSY=1, which
+  # kills a same-user Kosmos listener, and another install by the same person is exactly that. The
+  # board stays off (board.stopped) and the lines below say why and what to do.
+  if [ "${_kosmos_pause_left_foreign:-no}" = yes ]; then _kosmos_board_off=yes; fi
 }
 _kosmos_mode_keeps_board_off() {
   [ "$_kosmos_mode_file" = yes ] || return 1
@@ -2740,6 +2755,14 @@ trap 'exit 1' HUP TERM
 # END #4818 put-back
 
 _kosmos_board_decide
+# #4676: set when the pause left ANOTHER install's board on the port (a connect computer, below). The
+# gone-by-port wait then waits only on a listener of ours, and every later start or restart point in this
+# run declines to act on that port, however the choice reads by then (the one exception: a board of OURS
+# found up at the last reading, on a computer chosen to run, is treated as running).
+# ⚠️ THIS RUN ONLY. A computer chosen to run during the update is left with board.stopped while the other
+# board holds the port; the next start (the app's, or 'kosmos start') meets that board as any start does,
+# including the #3079 reclaim of a busy same-user Kosmos. That is #4679, not this card.
+_kosmos_pause_left_foreign=no
 if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOSMOS_HOME/bin/kosmos" ]; then
   if _kosmos_mode_keeps_board_off; then info "making sure Kosmos is paused for the update"; else info "pausing Kosmos for the update"; fi
   # #4818: MEANT to be running before the pause, so a failed run puts it back: no board.stopped and a mode that runs
@@ -2828,6 +2851,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         # computer's only way to update, fail every time on a shared Mac (review round 19).
         if _kosmos_mode_keeps_board_off; then
           info "another Kosmos is answering on port $PORT; it is not this install's, and this install does not start a board here now, so it is left alone"
+          _kosmos_pause_left_foreign=yes
         else
           die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
         fi
@@ -2850,6 +2874,12 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # (the exact after-state found on Josh's machine, 2026-08-24: a board
   # outside launchd's supervision on the prior version). A survivor is
   # named by pid. No lsof on this Mac degrades to the probe above.
+  # #4676: when the pause just left another install's board here on purpose, only a listener that IS
+  # this install's server (the same full-path ps match the pause uses) keeps the update waiting. The
+  # other board is the listener this wait would otherwise find, and telling the person to kill it broke
+  # the promise printed above (a connect computer on a shared Mac could never update). A listener of
+  # ours still counts: the pause's own-board check reads board.pid, so our live board behind a stale
+  # pidfile lands in the carve-out too (the false negative named above), and must not be updated under.
   if command -v lsof >/dev/null 2>&1; then
     # Ten seconds of grace: a node board draining on a busy Mac can hold
     # the listener a few seconds past the stop, and a die here on an
@@ -2862,6 +2892,17 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
     _tries=0; _pids=""
     while [ "$_tries" -lt 10 ]; do
       _pids="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+      if [ "$_kosmos_pause_left_foreign" = yes ]; then
+        _ours=""
+        for _p in $_pids; do
+          case "$(/bin/ps -ww -p "$_p" -o command= 2>/dev/null || true)" in
+            # Anchored on the space before the path (node's argv is `<node> <abs path>`, as install/kosmos
+            # launches it), so another install whose path merely ENDS in ours is not read as ours.
+            *" $KOSMOS_HOME/app/server.js"*) _ours="$_ours $_p" ;;
+          esac
+        done
+        _pids="${_ours# }"
+      fi
       if [ -z "$_pids" ]; then break; fi
       _tries=$((_tries + 1)); sleep 1
     done
@@ -3851,6 +3892,8 @@ if [ "$_kosmos_board_off" = yes ]; then
   : > "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
   if [ "$_kosmos_mode_word" = connect ]; then
     step "This computer connects to agents on another computer, so Kosmos is not started here."
+  elif _kosmos_off_for_foreign; then
+    step "Another Kosmos was using port $PORT when this update started, so this computer's board was not started. Quit that one, then run 'kosmos start'; or run the install line again with KOSMOS_PORT set to a free number."
   else
     step "This computer's setup choice could not be read, so Kosmos is not started here. The Kosmos app will ask again when you open it."
   fi
@@ -4166,7 +4209,7 @@ else
   # Everything else about this install works; the person loses exactly one
   # thing, and the thing they would do instead is the thing they already do.
   info "note: could not write $_board_plist, so Kosmos will not start itself after a restart."
-  [ "$_kosmos_mode_word" = connect ] || info "Opening the Kosmos icon starts it, as it always has."
+  [ "$_kosmos_mode_word" = connect ] || _kosmos_off_for_foreign || info "Opening the Kosmos icon starts it, as it always has."
 fi
 
 # #2955: THE BOARD WATCHDOG login job.
@@ -4323,7 +4366,12 @@ fi
 # next login; stop writes board.stopped. An unreadable one is left as it is: the app started it to
 # ask. The summary below then describes this reading.
 _kosmos_board_decide
-if [ "$_kosmos_mode_word" = connect ] && [ "$BOARD_OURS" = yes ]; then
+if _kosmos_off_for_foreign && [ "$BOARD_OURS" = yes ]; then
+  # #4676: the other board is gone and ours is up (started by hand or by the app during this run), on a
+  # computer chosen to run: nothing is off any more. Lift the marker so launchd supervises it.
+  _kosmos_board_off=no
+  rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
+elif [ "$_kosmos_mode_word" = connect ] && [ "$BOARD_OURS" = yes ]; then
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   if ! curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; then BOARD_OURS=no; fi
 elif [ "$_kosmos_board_off" = no ] && [ "$_kosmos_wrote_marker" = yes ]; then
@@ -4371,6 +4419,10 @@ elif [ "$_kosmos_board_off" = "yes" ]; then
   if [ "$_kosmos_mode_word" = connect ]; then
     printf '\n  Kosmos is installed. No board of this install runs here, on purpose: this computer connects to agents on another computer.\n'
     printf '  Open the Kosmos app from your Applications folder.\n\n'
+  elif _kosmos_off_for_foreign; then
+    # #4676: chosen to run during this update, but another install's board held the port.
+    printf '\n  Kosmos is installed, but its board was not started: another Kosmos on this computer was using port %s when this update started.\n' "$PORT"
+    printf "  Quit that one, then run 'kosmos start'. Or run the install line again with KOSMOS_PORT set to a free number.\n\n"
   else
     printf '\n  Kosmos is installed. No board was started, because this computer'"'"'s setup choice could not be read.\n'
     printf '  Open the Kosmos app from your Applications folder and it will ask how to set up this computer.\n\n'
