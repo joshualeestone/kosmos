@@ -27,6 +27,11 @@ hold, tap and dialog mics, so it merges after it.
 - Slice 1's header comment and its unit test said the page never builds a browser recognizer; both now state the rule
   as it is (phones only, never before the Mac bridge), and the test pins it.
 
+## Decided (round 16)
+- The Kosmos+ privacy line names the phone exception to every reader, including the Mac app (where audio stays on the
+  Mac) and a computer's browser (no mic). Kept: a privacy statement is read before choosing a device, and every word of
+  it is true for every reader; hiding it by device would make the page's privacy promise differ by where it is read.
+
 ## Weakest premise
 That the browser's recognizer works inside the Kosmos+ page on a real iPhone at all (permissions, a page reached
 through the relay, Safari's continuous mode). NOT MEASURED: it needs a real iPhone and a person speaking. The check
@@ -196,4 +201,9 @@ press stops through voiceStop and marks the stop.
   the scenario. DOCUMENTED W2: the no-speech change reaches the Mac app too, deliberately (weakest premise). NIT taken:
   heard is declared in VOICE. LEFT NITs: a source-shape test in web.voice-4409.test.js (the browser checks prove the
   behaviour); the voicePhoneWho comment's EU wording.
+- Round 16 (sonnet): no BLOCKER. W1 (result shapes unmeasured on a device) is the weakest premise (DUPLICATE; the card
+  stays open for a real-device pass). W2 (the privacy line's exception shown to every reader): DECIDED, kept (Decided
+  (round 16)). W3 (the Mac no-speech change) was already decided and not re-reported. LEFT NITs: emit reads the shared
+  id (every handler is guarded by rec !== mine; making it per-session restructures every handler); dlgSaid is global
+  (traced: every stop clears it); long comment lines.
 
