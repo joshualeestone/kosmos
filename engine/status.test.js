@@ -4174,6 +4174,21 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
   assert.equal(classify(pane, ASKING).state, STATE.NEEDS_YOU, 'an agent asking about a limit had its question hidden');
   const EXPLAINING = '● If you\'ve hit your weekly limit, Kosmos switches the Guide to its hosted backup until it resets.\n\n> ready\n';
   assert.notEqual(classify(pane, EXPLAINING).state, STATE.RATE_LIMITED, 'a healthy Guide explaining limits reads as capped');
+  /* Review round 2: a healthy agent that CATS a capture of a capped pane prints the vendor's row under ⎿, the same
+     shape as the real one. Its copied footer is indented inside the tool result; the real footer is at column 0. */
+  const CATTED = '● Bash(cat ~/.cache/claude-handoffs/capped-claude-pane-captures-20261002.txt)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     ✻ Sautéed for 0s · done 10:35 PM\n'
+    + '● That is the capped screen; the marker is the fix.\n' + STATUS;
+  assert.notEqual(classify(pane, CATTED).state, STATE.RATE_LIMITED, 'a healthy agent that read a capture reads as capped');
+  /* And the reason the rule is the footer and not "no ● row after it": on Irma's real capped pane Claude Code's own
+     survey followed the limit as a ● row. Built from two observed pieces (Jennika's no-credits limit, Irma's survey). */
+  const WITH_SURVEY = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Cooked for 0s · done 10:35 PM\n'
+    + '● How is Claude doing this session? (optional)\n'
+    + '  1: Bad    2: Fine   3: Good   0: Dismiss\n' + STATUS;
+  assert.equal(classify(pane, WITH_SURVEY).state, STATE.RATE_LIMITED, 'Claude Code\'s own survey after the limit hid a capped pane');
 });
 
 test('#887: the prompt glyph ❯ (and Codex\'s ›) is stripped from the evidence line', () => {

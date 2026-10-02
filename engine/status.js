@@ -2421,15 +2421,36 @@ const ASKING_GENERIC = 'it is asking you something';
  * observed vendor row starts with the sentence, after only spaces or the
  * tool-output glyph ⎿ (the 2026-08-21 screens had no ⎿, so it is optional);
  * agent prose starts with ●. Case-sensitive like /usage-credits: the vendor
- * capitalises it. What still matches: an agent's indented SECOND paragraph
- * that opens with exactly this sentence. Narrowing that needs another
- * observed screen, the same rule as above.
+ * capitalises it. And it counts only with Claude Code's turn footer at column
+ * 0 right after it (limitMarkersFor, below), which a tool result that prints
+ * the same sentence cannot have (review round 2).
+ *
+ * Still read wrong, stated rather than guessed at: an agent's indented SECOND
+ * paragraph opening with exactly this sentence AND followed by a footer; and a
+ * vendor line drawn inside a frame (│ You've...), which reads idle. Neither has
+ * been observed; narrowing or widening needs another observed screen.
  */
 const RATE_LIMIT_MARKERS = [
   /reached your .{0,40}limit/i,   // observed 2026-08-21
   /\/usage-credits\b/,            // observed 2026-08-21
   /^[\s⎿]*You['’]ve hit your .{0,40}limit/, // observed 2026-10-02 (#5029); anchored, see above
 ];
+
+/* #5029 review 2: the 2026-10-02 sentence sits under ⎿, and so does every tool result, so a healthy agent that
+   cats a capture of a capped pane prints exactly the vendor's row. What separates them is the next rows. On all four
+   observed screens the vendor line (and its optional /usage-credits line) is followed by Claude Code's own turn footer
+   AT COLUMN 0, "✻ Cooked for 0s · done 10:35 PM"; inside a tool result every row is indented, a copied footer too.
+   So that one marker counts only with such a footer within two rows of a match. NOT "no ● row after it": Claude
+   Code's own session survey ("● How is Claude doing this session?") followed the limit on one real capped pane.
+   Only that marker: the two 2026-08-21 markers keep their accepted behaviour. Found by its text because the array
+   must stay a literal (status.pane-states-1889.test.js lifts it from the source). */
+const HIT_YOUR_LIMIT = RATE_LIMIT_MARKERS.find((re) => re.source.includes('hit your'));
+const TURN_FOOTER = /^✻ \S.* for \d/;
+function limitMarkersFor(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n');
+  const vendor = rows.some((row, i) => HIT_YOUR_LIMIT.test(row) && rows.slice(i + 1, i + 3).some((next) => TURN_FOOTER.test(next)));
+  return vendor ? RATE_LIMIT_MARKERS : RATE_LIMIT_MARKERS.filter((re) => re !== HIT_YOUR_LIMIT);
+}
 
 /**
  * #874. Captured from a live pane, 2026-08-25, an agent whose account's
@@ -4287,7 +4308,8 @@ function classify(pane, paneText) {
 
   const tail = paneText.split('\n').slice(-25).join('\n');
 
-  const limitLine = matchedLine(tail, RATE_LIMIT_MARKERS);
+  const limitMarkers = limitMarkersFor(tail);
+  const limitLine = matchedLine(tail, limitMarkers);
   if (limitLine !== null) {
     /**
      * 🔑 THE LINE ITSELF RIDES ALONG, and it is the difference between a claim
@@ -4312,7 +4334,7 @@ function classify(pane, paneText) {
       because: 'its screen mentions a usage limit',
       /* The whole message, not its first line (#1248). See `messageAt`: the
          vendor's second remedy lives on the line after the marker. */
-      evidence: messageAt(tail, RATE_LIMIT_MARKERS),
+      evidence: messageAt(tail, limitMarkers),
     };
   }
   /**
