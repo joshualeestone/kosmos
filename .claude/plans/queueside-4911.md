@@ -224,6 +224,13 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   WAITER OF THIS LIB, computed from the live wait-for graph. CORRECTION to rounds 12-13: "one total order" and "no circle
   across three generations" are withdrawn; the true statement is the one above. Nits: a marker gone between its read
   and its line count is skipped (it was read as pre-#4609 for that pass); yarnpkg; a lost side take clears its cookie.
+- Round 15 (Sonnet, blind): nothing above a nit. CORRECTION again, to round 14's wording: "no cycle through this
+  lib's waiter" holds only when no older pre-#4609/#4609 pair circles; a waiter of this lib can sit BEHIND such a pair
+  (that pair is the cycle), bounded by the queue's wait bound like everyone behind it. The true statement: this lib
+  never CREATES a cycle (every cycle needs that older pair). Nit taken: the marker's line count is read once.
+  Round 15 (Opus, blind): no blocker; should-fix fixed: mix 2 named this lib's waiter X, and the cycle check looks only
+  at N*, so that arm could never fail: renamed (red now, with mix 4, when the "older" half is dropped). Nits: the line
+  count (above); a take that loses at the claim itself also clears its cookie.
 - WEAKEST PREMISE, added round 11 (Opus): the aging is OFF while any waiter from a lib older than #4911 is live (every
   reader then uses the older rule, which is what prevents the three-waiter circle). A run-tests.sh from any branch not
   yet rebased past this merge writes such a marker, so the 367-minute light wait is fixed only as branches rebase

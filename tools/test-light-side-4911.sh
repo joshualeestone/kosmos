@@ -468,9 +468,10 @@ fi
 
 # Review 12/13: THREE lib generations at once, each waiter a live process on its OWN lib: pre-#4609 (4-line marker,
 # oldest-first), #4609 (5-line, light ahead, starving heavy first), this one. No single rule agrees with both older
-# readers, so this lib counts another as ahead only when BOTH older rules do. THE PROPERTY (review 14): no wait cycle
-# passes through a waiter on THIS lib. A pre-#4609 and a #4609 waiter can still circle each other, on main today, and
-# no rule here can break that; so "someone is free" is not claimed, only that this lib never joins or makes a circle.
+# readers, so this lib counts another as ahead only when BOTH older rules do. THE PROPERTY: this lib never CREATES a
+# cycle. A pre-#4609 and a #4609 waiter can circle each other (on main today, and no rule here can break that), and a
+# waiter of this lib can then sit BEHIND that pair (review 15), bounded by the queue's wait bound like everyone behind
+# it. These mixes have no such older pair, so in them no cycle passes through this lib's waiter at all.
 # Mix 1 is Sonnet's (round 13), mix 2 Opus's (round 12), mix 3 the "merely older" variant's, mix 4 the "rank only" one.
 git -C "$HERE/.." show '704ffeb4c4dd53e68cba5c0a751cf2ef75f997ab:tools/lib/cut-guard.sh' > "$T/pre4609-lib.sh" 2>/dev/null
 if ! grep -q 'kosmos_mark_suite_waiting' "$T/pre4609-lib.sh" || grep -q '_kosmos_queue_rank' "$T/pre4609-lib.sh" || ! grep -q '_kosmos_queue_rank' "$T/old-lib.sh"; then
@@ -507,7 +508,8 @@ else
     touch "$T/stop4"; wait $pids 2>/dev/null
   }
   gen3 mix1 P "$T/pre4609-lib.sh" heavy 50  Q "$T/old-lib.sh" heavy 200  N "$HERE/lib/cut-guard.sh" light 100
-  gen3 mix2 X "$HERE/lib/cut-guard.sh" light 4000  P "$T/pre4609-lib.sh" heavy 3000  Q "$T/old-lib.sh" heavy 3500
+  # Review 15: this lib's waiter is named N* in EVERY mix (the cycle check looks only at N*; "X" here made the arm blind).
+  gen3 mix2 N "$HERE/lib/cut-guard.sh" light 4000  P "$T/pre4609-lib.sh" heavy 3000  Q "$T/old-lib.sh" heavy 3500
   # Mix 3: the cycle "ahead = merely older" would make for an older pre-#4609 waiter (Y waits on N by #4609's rank, X on
   # Y by age, and N on X by age); requiring #4609's rank too lets N go.
   gen3 mix3 Y "$T/old-lib.sh" heavy 200  X "$T/pre4609-lib.sh" heavy 150  N "$HERE/lib/cut-guard.sh" light 100

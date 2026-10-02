@@ -677,7 +677,7 @@ _kosmos_queue_rank_legacy() {
 # them before this run holds a marker). The refusal below and the #4574 bound both read this, so they agree on "ahead".
 # Ahead means first by rank (_kosmos_queue_rank), then by queue time, then by pid.
 _kosmos_suite_waiters_ahead() {
-  local dir f pid mine_ts mine_pid ts cls rank mine_rank mine_cls now legacy=0 seen=""
+  local dir f pid mine_ts mine_pid ts cls rank mine_rank mine_cls now legacy=0 seen="" lines
   dir="$(_kosmos_marker_dir)"; [ -d "$dir" ] || return 0
   # A caller that already read this run's queue time passes it (the bound, review 23), so there is no gap between a
   # check that the marker exists and this read; otherwise it is read here.
@@ -707,10 +707,11 @@ _kosmos_suite_waiters_ahead() {
     case "$cls" in ''|*[!a-z]*) cls=heavy ;; esac
     # Review 12: a marker of 4 lines or fewer is a lib from before #4609, which orders strictly oldest-first; one of 5
     # lines is #4609's (light ahead, starving heavy first). The oldest generation live decides the rule for everyone.
-    case "$(sed -n '$=' "$f" 2>/dev/null)" in
+    lines="$(sed -n '$=' "$f" 2>/dev/null)"   # review 15: read once (a marker can go between two reads)
+    case "$lines" in
       ''|*[!0-9]*) continue ;;   # review 14: gone between its read and this count (it is leaving to start): not a waiter
-      *) if [ "$(sed -n '$=' "$f" 2>/dev/null)" -le 4 ]; then legacy=2
-         elif [ "$(sed -n '$=' "$f" 2>/dev/null)" -lt 6 ] && [ "$legacy" != 2 ]; then legacy=1; fi ;;
+      *) if [ "$lines" -le 4 ]; then legacy=2
+         elif [ "$lines" -lt 6 ] && [ "$legacy" != 2 ]; then legacy=1; fi ;;
     esac
     seen="$seen$pid $ts $cls
 "
@@ -1350,7 +1351,7 @@ kosmos_light_side_clear() {
 kosmos_light_side_take() {
   local what="${1:-this run}" minutes="${2:-15}"
   kosmos_light_side_clear "$what" >/dev/null 2>&1 || return 1
-  kosmos_claim_light_side "$minutes" || return 1
+  kosmos_claim_light_side "$minutes" || { unset KOSMOS_LIGHT_SIDE_COOKIE; return 1; }   # review 15: either loss clears it
   # Review 3: a cut, an install harness and a page layer MARK themselves and then look for a side claim; this side
   # looked first and claimed second, so one could slip into the gap. Claimed now, it asks again: anything that marked
   # before the claim is seen here, and anything after it sees the claim. Either way one of the two waits.
