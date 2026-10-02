@@ -522,7 +522,7 @@ function chk(ok, label, extra) {
         {
           const { page, errs, hellos, pictureFail } = await newPage(1280);
           await page.evaluate(() => { TC_AUTO_HELLO = true; });
-          pictureFail.add('lu');
+          pictureFail.add('lu'); pictureFail.add('jo');   // the lead's too: its row has the longest seat ("leads the team")
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
@@ -541,9 +541,11 @@ function chk(ok, label, extra) {
           /* Review 10: on a phone the longer hello states fit: nothing scrolls sideways and the status stays inside its row. */
           await page.setViewportSize({ width: 390, height: 844 });
           await page.waitForTimeout(200);
-          const narrow = await page.evaluate(() => { const st = document.querySelector('#tc-list li[data-slot="content"] .tc-state'); const li = st.closest('li');
-            const a = st.getBoundingClientRect(), b = li.getBoundingClientRect(); return { fits: document.documentElement.scrollWidth <= innerWidth, inside: a.right <= b.right + 1 && a.left >= b.left - 1 }; });
-          chk(narrow.fits && narrow.inside, `${E} #4936 at phone width the hello state fits its row and nothing scrolls sideways`, JSON.stringify(narrow));
+          const narrow = await page.evaluate(() => { const li = document.querySelector('#tc-list li[data-slot="lead"]'); const st = li.querySelector('.tc-state'); const seat = li.querySelector('.tc-seat');
+            const a = st.getBoundingClientRect(), b = li.getBoundingClientRect(), c = seat.getBoundingClientRect();
+            return { fits: document.documentElement.scrollWidth <= innerWidth, inside: a.right <= b.right + 1 && a.left >= b.left - 1, apart: c.right <= a.left + 1, state: st.textContent }; });
+          chk(narrow.fits && narrow.inside && narrow.apart && narrow.state === 'Said hello (picture not set)',
+            `${E} #4936 at phone width the lead's long hello state and its "leads the team" seat do not overlap, and nothing scrolls sideways`, JSON.stringify(narrow));
           await page.setViewportSize({ width: 1280, height: 900 });
           await page.click('#tc-hello');
           await settle(page, () => TC === null && document.querySelectorAll('.just-made').length >= 3);
@@ -569,7 +571,7 @@ function chk(ok, label, extra) {
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Said hello|Could not say hello)$/.test(s.textContent)));
           const q = await rows(page);
           const sentQ = (n) => hellos.filter((h) => h.who === n).length;
-          chk(q[1].state === 'Could not say hello' && q[1].retry && /asking something on its page/.test(q[1].why) && sentQ('ned') === 0,
+          chk(q[1].state === 'Could not say hello' && q[1].retry && /waiting on something on its page/.test(q[1].why) && sentQ('ned') === 0,
             `${E} #4936 a member asking something is not typed into: its row says why, with Try again`, JSON.stringify([q[1], sentQ('ned')]));
           chk(q[2].state === 'Could not say hello' && q[2].retry && /refused here/i.test(q[2].why) && sentQ('oz') === 3,
             `${E} #4936 a 409 is tried three times and the row says the server's reason`, JSON.stringify([q[2], sentQ('oz')]));

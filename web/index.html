@@ -8373,7 +8373,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .tc-leads { white-space: nowrap; }
 @media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
 /* #4936 review 10: the hello states are longer ("Said hello (picture not set)"); on a phone they may wrap. */
-@media (max-width: 560px) { .tc-state { white-space: normal; text-align: right; } }
+@media (max-width: 560px) { .tc-state { white-space: normal; text-align: right; } .tc-leads { white-space: normal; } }
 .tc-why.plain { color: var(--label-2); }   /* #4936: advice that is not a failure (an unconfirmed hello) */
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
@@ -48651,12 +48651,23 @@ async function tcHelloSend(name) {
 }
 /* Review 9: the board's own state for the member, read fresh: a reason not to type into it, or null. A read that
    fails says nothing, and the hello goes ahead (the server still refuses a held agent before any keystroke). */
+/* Review 11: one board read shared by every hello within a second (a team greets its members at once, and each read is
+   a full snapshot of the board). Review 10: bounded at 5 s; a read that hangs or fails says nothing. */
+let TC_STATUS_READ = null;
+function tcStatusAgents() {
+  if (TC_STATUS_READ && Date.now() - TC_STATUS_READ.at < 1000) return TC_STATUS_READ.p;
+  const p = (async () => {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 5000) : null;
+    try { const res = await fetch('/api/status', { cache: 'no-store', signal: ctl ? ctl.signal : undefined }); return res.ok ? ((await res.json()).agents || []) : null; }
+    catch { return null; } finally { if (timer) clearTimeout(timer); }
+  })();
+  TC_STATUS_READ = { at: Date.now(), p };
+  return p;
+}
 async function tcHelloHeld(name) {
-  let a = null;
-  // Review 10: bounded, like the hello itself: a read that hangs says nothing, and the hello goes ahead.
-  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-  const timer = ctl ? setTimeout(() => ctl.abort(), 5000) : null;
-  try { const res = await fetch('/api/status', { cache: 'no-store', signal: ctl ? ctl.signal : undefined }); if (res.ok) a = ((await res.json()).agents || []).find((x) => x.sessionName === name) || null; } catch { return null; } finally { if (timer) clearTimeout(timer); }
+  const agents = await tcStatusAgents();
+  const a = (agents || []).find((x) => x.sessionName === name) || null;
   if (!a) return null;
   if (a.state === 'needs_you') return 'It is waiting on something on its page, so Kosmos did not type into it. See to it there, then Try again.';
   if (a.state === 'auth_failed') return 'Its sign-in failed, so Kosmos did not say hello. Fix it on its page, then Try again.';
@@ -48670,14 +48681,15 @@ async function tcHelloOne(m, gen) {
   m.hello = 'sending'; m.helloWhy = null; tcPaint();
   /* Review 9: "the board can see it" is not "it can take a message". A member asking something (needs_you: Enter
      would pick an option), signed out, at its limit, or not up is not typed into: its row says why, with Try again. */
-  const held = await tcHelloHeld(m.made.name);
-  if (gen !== TC_GEN || !TC) return;
-  if (held) { m.hello = 'failed'; m.helloWhy = held; tcPaint(); return; }
+  // Review 11: asked before EVERY try, not only the first: a member can draw a question between two tries.
   let got = 'failed';
   let why = null;
   for (let i = 0; i < TC_HELLO_TRIES && got === 'failed'; i++) {
     if (i) await new Promise((r) => setTimeout(r, TC_HELLO_GAP_MS));
     if (gen !== TC_GEN) return;
+    const held = await tcHelloHeld(m.made.name);
+    if (gen !== TC_GEN || !TC) return;
+    if (held) { m.hello = 'failed'; m.helloWhy = held; tcPaint(); return; }
     ({ got, why } = await tcHelloSend(m.made.name));
   }
   if (gen !== TC_GEN || !TC) return;
@@ -48690,9 +48702,11 @@ async function tcSayHello() {
   TC.helloStarted = true; TC.greeting = true;
   const gen = TC_GEN;
   const lead = tcLead();
-  await tcHelloOne(lead, gen);
+  // Review 11: a throw must not leave the team "still saying hello" for good, blocking every other team.
+  const settle = (m) => tcHelloOne(m, gen).catch(() => { if (m && m.hello === 'sending') m.hello = 'unsure'; });
+  await settle(lead);
   if (gen !== TC_GEN || !TC) return;
-  await Promise.all(TC.members.filter((m) => m !== lead).map((m) => tcHelloOne(m, gen)));
+  await Promise.all(TC.members.filter((m) => m !== lead).map(settle));
   if (gen !== TC_GEN || !TC) return;
   TC.greeting = TC.members.some((m) => m.hello === 'sending');   // a Try again pressed meanwhile may still be going
   if (TC.members.every((m) => m.hello === 'started')) tcLeaveWhenSettled(gen);
@@ -48772,12 +48786,17 @@ function tcGoToTeam(auto) {
   if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
   live.textContent = '';
   let where = names.length === 1 ? 'It is marked on your board.' : 'The new agents are marked on your board.';
-  setTimeout(() => {
-    // Review 8: say they are marked only if a card for them is on the screen to mark.
-    if (!(sel && document.querySelector(sel))) where = (names.length === 1 ? 'Look for it on your board.' : 'Look for them on your board.');
+  // Review 8/11: say they are marked only if a card for them is on the screen; the view may draw its cards a moment
+  // after it opens, so look for up to 1.5 s before saying "look for them".
+  let looks = 0;
+  const say = () => {
+    const shown = sel && [...document.querySelectorAll(sel)].some((e) => e.offsetParent);
+    if (!shown && ++looks < 7) { setTimeout(say, 250); return; }
+    if (!shown) where = (names.length === 1 ? 'Look for it on your board.' : 'Look for them on your board.');
     live.textContent = notSaid === 0 ? 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. ' : 'team. ') + where
       : (names.length === 1 ? 'Your agent' : (notSaid === 1 ? '1 of them' : notSaid + ' of them')) + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;
-  }, 100);
+  };
+  setTimeout(say, 100);
 }
 /* The lead as the list marks it ("leads the team"). */
 function tcLead() {
