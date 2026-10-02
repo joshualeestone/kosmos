@@ -53262,6 +53262,19 @@ function wakeHeldLine(manualText, delivery) {
    msg); `saidText` / `manualText` are that site's own phrasings so the sentence
    fits where it lands. Fire-and-forget from the caller -- it resolves the notice
    on its own, exactly as watchForAgent's post-create work does. */
+/* #4936: the wake hello request for the team step (tcHelloSend): the same request sendWakeHello makes inline (#4959
+   keeps that inline copy, which its tests lift alone), with an abort signal and the server's reason. Resolves { ok, status, delivery, because } (delivery null when the answer had none); throws only when the board was not reached. */
+async function postWakeHello(name, signal) {
+  const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+    method: 'POST',
+    signal,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'hello', automatic: true }),   // #4959: held while the shared quota is out (a held hello is could_not)
+  });
+  const out = await res.json().catch(() => null);
+  const because = (out && ((out.delivery && out.delivery.because) || out.error)) || null;   // #4936: said on the row
+  return { ok: res.ok, status: res.status, delivery: (out && out.delivery) || null, because: typeof because === 'string' ? because : null };
+}
 /* Send the wake 'hello' to an agent ALREADY confirmed ready, and report the
    outcome. Factored (#3410) so the two callers share one copy rather than two
    byte-similar ones (CLAUDE.md conv #5, the codebase's most-shipped defect): here
@@ -53279,19 +53292,6 @@ function wakeHeldLine(manualText, delivery) {
    deliverPickup instead, so the fresh session is pointed at its handoff rather
    than merely greeted -- one function, one 'placed'-only success rule, two
    messages. Existing callers omit it and get the 'hello' behaviour unchanged. */
-/* #4936: the wake hello request for the team step (tcHelloSend): the same request sendWakeHello makes inline (#4959
-   keeps that inline copy, which its tests lift alone), with an abort signal and the server's reason. Resolves { ok, status, delivery } (delivery null when the answer had none); throws only when the board was not reached. */
-async function postWakeHello(name, signal) {
-  const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
-    method: 'POST',
-    signal,
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text: 'hello', automatic: true }),   // #4959: held while the shared quota is out (a held hello is could_not)
-  });
-  const out = await res.json().catch(() => null);
-  const because = (out && ((out.delivery && out.delivery.because) || out.error)) || null;   // #4936: said on the row
-  return { ok: res.ok, status: res.status, delivery: (out && out.delivery) || null, because: typeof because === 'string' ? because : null };
-}
 async function sendWakeHello(name, token, report, saidText, manualText, deliver) {
   try {
     const delivery = deliver
