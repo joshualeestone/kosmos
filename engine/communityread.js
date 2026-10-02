@@ -303,6 +303,12 @@ function seenFile(sessionName) {
   return path.join(store.ROOT, 'communityread', 'replies-seen', h + '.json');
 }
 const validAt = (v) => Number.isFinite(v) && v > 0 && v < 8.64e15;
+/* #4951 review 5 (Sonnet): what the agent's read marks were when its replies were counted. The nudge compares it again
+   just before typing; a changed stamp means the agent read its replies meanwhile, so the count is stale and it is not told. */
+function marksStamp(sessionName, marks) {
+  try { return JSON.stringify(marks || readMarks(sessionName)); } catch { return null; }
+}
+
 function readMarks(sessionName) {
   try {
     const j = JSON.parse(fs.readFileSync(seenFile(sessionName), 'utf8'));
@@ -356,16 +362,185 @@ function afterMark(x, mark, firstLook) {
 }
 /* Review 5: one --replies read at a time PER BOARD. Each is up to 40 unauthenticated service requests, and the service
    allows 200 a minute per address, so several agents reading at once could spend the board's whole budget. */
-let replyReadRunning = false;
+let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's read --replies) or 'fresh' (#4951's count)
+/* #4951 (review 1, Opus): an agent's own read WAITS for the nudge's count rather than being refused: the agent it has
+   just told reads at once, and a refusal there left the reply unanswered (the nudge does not repeat). Review 14: it
+   waits for ANOTHER agent's own read too (READ_WAIT_MS, shorter), rather than the #4833 review-5 refusal; one after
+   another costs the service no more than refuse-and-retry. Review 2 (Opus): both bounds keep a wait plus the read's own
+   two rounds well under the CLI's 30 s (a read that outwaited its caller still ran and moved the marks, so the agent saw
+   "could not reach" and then nothing new); the nudge also spaces its lines (replynudge.TYPE_GAP_MS). */
+const FRESH_WAIT_MS = 20 * 1000;
+const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (two 8 s rounds at most), see readReplies
+let replyReadWaiting = 0;   // own reads waiting for the lock: the count steps aside, and does not start, while there is one
+let replyReadSession = null;   // review 12: whose own read holds the lock
+const readingSessions = new Map();   // review 15: session -> own reads asked and not finished (waiting or running)
 
-async function readReplies(sessionName, opts = {}) {
+async function readReplies(sessionName, opts) {
+  opts = opts && typeof opts === 'object' ? opts : {};
+  // Review 16 (Opus): counted HERE, so the finally below never takes off a count that was not added (an early return).
+  readingSessions.set(sessionName, (readingSessions.get(sessionName) || 0) + 1);
+  try { return await readRepliesLocked(sessionName, opts); } finally {
+    const n = (readingSessions.get(sessionName) || 0) - 1;
+    if (n > 0) readingSessions.set(sessionName, n); else readingSessions.delete(sessionName);
+  }
+}
+async function readRepliesLocked(sessionName, opts) {
   if (!communitysend.switchOn()) {
     return { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
   }
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
+  const t0 = Date.now();
+  const waitUntil = t0 + (Number.isFinite(opts.freshWaitMs) ? opts.freshWaitMs : FRESH_WAIT_MS);
+  /* #4951 review 14 (Opus): another agent's own read is waited for too (the nudge tells agents one after another, and a
+     refused read left the replies it was told about unanswered). Bounded shorter (READ_WAIT_MS), so a wait plus this
+     read's own two rounds stays inside the CLI's 30 s. One after another costs the service no more than refuse-and-retry. */
+  const readWaitUntil = Math.min(waitUntil, t0 + (Number.isFinite(opts.readWaitMs) ? opts.readWaitMs : READ_WAIT_MS));
+  replyReadWaiting += 1;   // review 15: the session counts as reading from entry (readReplies), waiting included
+  try {
+    while ((replyReadRunning === 'fresh' && Date.now() < waitUntil) || (replyReadRunning === 'read' && Date.now() < readWaitUntil)) await new Promise((res) => setTimeout(res, 100));
+  } finally { replyReadWaiting -= 1; }
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board; try again in a moment' };
-  replyReadRunning = true;
-  try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; }
+  replyReadRunning = 'read';
+  replyReadSession = sessionName;
+  try { return await repliesFor(sessionName, opts); } finally { replyReadRunning = false; replyReadSession = null; }
+}
+/* #4951 review 12 (Opus): this agent's own read is running now (its marks are not written until it ends). Review 15
+   (Sonnet): or WAITING for the lock (up to READ_WAIT_MS / FRESH_WAIT_MS), from the moment the read was asked. */
+function readingNow(sessionName) { return (replyReadRunning === 'read' && replyReadSession === sessionName) || (readingSessions.get(sessionName) || 0) > 0; }
+
+/* ===== #4951: which COMMENTS on this agent's own posts it owes an answer and has not read yet, for the reply nudge. =====
+   The agent's own read's set (the same posts, marks, own-name rule, (time, id) order, round 2 and 30-item cap), so the
+   cap falls where the read's does; of that set only comments ON the post are owed (review 14: a reply under a comment is
+   not, communityblock's rule), and one within FIRST_LOOK_EDGE_MS of the 7-day window's edge is not named. Owed comments
+   past the cap come back as `more` (review 16). The posts are read one at a time, paced; it MOVES NO MARK (only the
+   agent's own read does); it shares the one-read-per-board lock and never starts ahead of, and steps aside for, a
+   waiting own read.
+   Returns { ok: true, posts: [{ remoteId, title, ids, more }], asked, marksAt } (ids oldest first), or
+   { ok: false, busy: true, because, stop?, partial?, asked? } (the nudge's pass retries a plain busy, ends on stop, and
+   leaves a partial one to the next pass), or { ok: false, because }. */
+const FRESH_PACE_MS = 1500;   // review 10 (Opus): 40 a minute at most, so two agents' own reads (40 each) always fit in 200
+const NO_ANSWER_STOP = 2;   // review 8 (Opus): this many unanswered requests in a row end the count (one is skipped)
+/* Review 10 (Opus): a post the count cannot read makes the WHOLE count unknown, not just that post: the cap is taken
+   over the posts read, and the agent's read a minute later may reach the skipped post, whose older replies then push
+   counted ones past its 30, and those (recorded as told) are never told again. So a post that cannot be read makes the
+   count `partial` (busy, no retry this pass). Only one that has failed FRESH_DOWN_PASSES passes in a row is skipped,
+   as gone: down that long, it is down for the agent's read too, and it must not hold the agent's nudges forever. */
+const FRESH_DOWN_PASSES = 3;
+const FIRST_LOOK_EDGE_MS = 20 * 60 * 1000;   // review 12/18: longer than a count's age at its line (replynudge.COUNT_MAX_AGE_MS + 5 min, pinned)
+// Review 15 (Sonnet), stated: it covers the count-to-line delay only. An agent that reads hours later can be shown fewer
+// than it was told (the read's own window has passed them); told-but-not-shown, never repeated or lost.
+const postDown = new Map();   // session + '\n' + remoteId -> passes in a row it could not be read
+async function freshReplies(sessionName, opts) {
+  opts = opts && typeof opts === 'object' ? opts : {};   // review 16: a null opts must not throw with the lock held
+  if (!communitysend.switchOn()) return { ok: false, because: 'the Kosmos+ community is switched off on this board' };
+  if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
+  if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };
+  // Review 15 (Sonnet): an agent's own read already waiting goes first (the count would hold it for a whole request).
+  if (replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
+  replyReadRunning = 'fresh';
+  /* Review 1 (Opus): PACED, one request at a time with FRESH_PACE_MS between them, so a pass over the fleet stays far
+     under the service's 200 a minute per address (about 2 a second here, leaving room for the agents' own reads). */
+  const pace = Number.isFinite(opts.paceMs) ? opts.paceMs : FRESH_PACE_MS;
+  let asked = 0;
+  let noAnswer = 0;   // review 8: requests in a row the service did not answer
+  const downKey = (p) => sessionName + '\n' + p.remoteId;
+  // True when this post has now failed FRESH_DOWN_PASSES passes in a row (skip it, as gone); counts this pass's failure.
+  const downOnce = (p) => { const n = (postDown.get(downKey(p)) || 0) + 1; postDown.set(downKey(p), n); return n >= FRESH_DOWN_PASSES; };
+  const unreadable = () => ({ ok: false, busy: true, partial: true, asked, because: 'one of its posts could not be read, so what its read would show is not known this pass' });
+  try {
+    const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+    const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
+    const { posts } = ownPosts(sessionName);
+    if (!posts.length) return { ok: true, posts: [], asked: 0 };
+    const marks = readMarks(sessionName);
+    const me = ownName(sessionName);
+    const titles = postTitles(sessionName);
+    const out = [];
+    for (const p of posts) {
+      /* Review 2: an agent's own read is waiting: let it in. Review 4 (Opus): as BUSY, not a partial ok, or the agent is
+         told about some posts now and the rest in a second line, and a batch given up on comes back under a new key. */
+      if (asked && replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
+      if (asked++ && pace > 0) await new Promise((res) => setTimeout(res, pace));
+      const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
+      /* Review 6 (Opus): a service that refuses (429) ends the count, and the nudge's pass with it (stop): the agents' own
+         reads need that budget more. The next pass tries again. NO_ANSWER_STOP unanswered in a row (review 8) read as the
+         service being down and stop too. One post that cannot be read makes the count partial (review 10, above). */
+      if (t.status === 429) return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' };
+      if (!t.status && ++noAnswer >= NO_ANSWER_STOP) return { ok: false, busy: true, stop: true, because: 'the community service did not answer' };
+      if (t.status) noAnswer = 0;
+      if (t.status === 404 || t.status === 410) { postDown.delete(downKey(p)); continue; }   // gone: the read skips it too
+      const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
+      let comments = null;
+      if (list) { try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { comments = null; } }
+      if (!comments) { if (downOnce(p)) continue; return unreadable(); }
+      /* Review 7 (Sonnet): the agent's own read also reads the unshown replies of the newest REPLY_PAGES_PER_POST comments
+         that have any (its round 2), so the count does too, one page each, paced and stepping aside the same way. Without
+         it a third reply under a comment (past the service's 2-reply preview) was never counted, so never told. */
+      let unread = false;
+      for (const c of comments.filter((x) => x.replyCount > x.replies.length && x.repliesCursor).slice(0, REPLY_PAGES_PER_POST)) {
+        if (replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
+        if (pace > 0) await new Promise((res) => setTimeout(res, pace));
+        asked += 1;
+        const r = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments/' + encodeURIComponent(c.id)
+          + '/replies?limit=20&cursor=' + encodeURIComponent(c.repliesCursor), THREAD_READ_CAP);
+        if (r.status === 429) return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' };
+        /* Review 9/18: round 1 of this post has just answered (the in-a-row count is 0), and a page that fails ends the
+           loop, so an unanswered page can never be the second in a row: it makes the post unread (partial), no stop. */
+        if (!r.status) { unread = true; break; }
+        const more = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
+        if (!more) { unread = true; break; }
+        try { c.replies = c.replies.concat(more.slice(0, 20).map(replyOf).filter(Boolean)); } catch { unread = true; break; }
+      }
+      if (unread) { if (downOnce(p)) continue; return unreadable(); }   // review 10: a post half read, as one not read
+      postDown.delete(downKey(p));
+      const mark = marks[p.remoteId];
+      const fresh = [];
+      for (const c of comments) for (const x of [c, ...c.replies]) {
+        // EXACTLY the read's set (plain firstLook), so the cap below falls where the read's does (review 14).
+        if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) {
+          /* Review 14 (Opus): only a comment ON the post is owed an answer; a reply under a comment is shown by the read
+             with "under comment" and is not (#4833, communityblock's rule), so it is never named or told here.
+             Review 12: one within FIRST_LOOK_EDGE_MS of the window's edge on an unmarked post may be out of the window by
+             the agent's read, so it is not named either (it still takes its place in the cap, as in the read). */
+          fresh.push({ x, owed: x === c, edge: !afterMark(x, mark, firstLook + FIRST_LOOK_EDGE_MS) });
+        }
+      }
+      if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', items: fresh });
+    }
+    /* Review 9 (Sonnet): the agent's own read shows at most REPLIES_SHOWN_MAX, the oldest first across its posts, so the
+       count is capped the same way: the line never names more than the read will show, and the rest (not told yet) are
+       counted on a later pass, once the read has moved past these. */
+    const keep = new Set(out.flatMap((o) => o.items).sort((a, b) => byPos(a.x, b.x)).slice(0, REPLIES_SHOWN_MAX));
+    /* Review 16 (Opus): owed comments PAST the cap (not-owed replies under comments can fill the read's 30) are returned
+       as `more`, never named: the line then says more are waiting and the agent reads again, else an owed comment
+       behind 30 replies was never told and the agent never read past them. */
+    const owedClear = (i) => i.owed && !i.edge;
+    const capped = out.map((o) => ({ remoteId: o.remoteId, title: o.title,
+      ids: o.items.filter((i) => keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id),
+      more: o.items.filter((i) => !keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
+      .filter((o) => o.ids.length || o.more.length);
+    return { ok: true, posts: capped, asked, marksAt: marksStamp(sessionName, marks) };
+  } catch (err) {
+    return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };
+  } finally { replyReadRunning = false; }
+}
+/* #4951: each of this agent's sent posts' title, by service id, from the board's own published post (as communitymine
+   titles its rows). A post whose board copy is gone has no title; the nudge then says "your community post". */
+function postTitles(sessionName) {
+  const out = new Map();
+  try {
+    const sent = loadJsonFile(communitysend._paths.sentFile()) || {};
+    const byBoardId = new Map();
+    for (const [boardId, rec] of Object.entries(sent)) {
+      if (rec && rec.agent === sessionName && UUID_RE.test(String(rec.remoteId || ''))) byBoardId.set(boardId, String(rec.remoteId).toLowerCase());
+    }
+    if (!byBoardId.size) return out;
+    for (const post of require('./communitystore').publishedPosts()) {
+      const rid = post && byBoardId.get(post.id);
+      if (rid) out.set(rid, communitysend.titleFor(post));
+    }
+  } catch { /* no titles: the nudge still names the count */ }
+  return out;
 }
 
 async function repliesFor(sessionName, opts) {
@@ -473,4 +648,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, readReplies, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

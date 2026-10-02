@@ -276,6 +276,10 @@ const oaiStub = require('node:http').createServer((q, r) => {
     for (let i = 0; i < 60 && out === 'Working…'; i += 1) { await page.waitForTimeout(500); out = await page.$eval('#chg-msg', (e) => e.textContent); }
     chk(out.length > 0 && out !== 'Working…', 'the outcome is reported inside the dialog, in a sentence', out.slice(0, 80));
     chk(!(await page.$eval('#chg-modal', (m) => m.hidden)) && (await page.$eval('#chg-keep', (b) => b.textContent)) !== 'Keep it as it is', 'the dialog stays open with a Done/Close rather than vanishing');
+    /* #4963: a restart that is waking the agent shows no button until the wake finishes (or Close once the
+       fallback passes), so wait for it to appear rather than clicking at once. The no-button state itself is
+       asserted in render-model-restart-interstitial and web.change-dialog-exit-1313.test.js. */
+    await page.waitForSelector('#chg-keep', { state: 'visible', timeout: 75000 });
     await page.click('#chg-keep'); await page.waitForTimeout(200);
     chk(await page.$eval('#chg-modal', (m) => m.hidden), 'Done closes it');
   }

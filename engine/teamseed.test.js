@@ -325,3 +325,26 @@ test('#4719 a provider that is not a plain name, or not text at all, is refused 
   // CONTROL: no provider at all (undefined or null) is the default, not a refusal.
   for (const provider of [undefined, null]) assert.equal(teamseed.specs({ team: 'marketing', names: NAMES, provider }, fixture()).ok, true);
 });
+
+/* #4935 (Josh: "default all of them to a single model"): the team's one model rides every member's spec,
+   only when chosen, the same way the provider and account do. */
+test('#4935 a model chosen for the team is on every member\'s spec, and absent when none is chosen', () => {
+  const r = teamseed.specs({ team: 'marketing', names: NAMES, provider: 'anthropic', model: ' opus ' }, fixture());
+  assert.equal(r.ok, true);
+  assert.ok(r.specs.length > 1, 'premise: the team has more than one member');
+  for (const s of r.specs) assert.equal(s.spec.model, 'opus', s.slot);
+  // CONTROL: nothing chosen (absent, null or blank) sends no model, so create uses its own default.
+  for (const req of [{}, { model: null }, { model: '   ' }]) {
+    const n = teamseed.specs({ team: 'marketing', names: NAMES, ...req }, fixture());
+    assert.equal(n.ok, true, JSON.stringify(req));
+    for (const s of n.specs) assert.equal('model' in s.spec, false, JSON.stringify(req));
+  }
+});
+
+test('#4935 a model that is not text is refused before anything is made', () => {
+  for (const model of [5, { a: 1 }, ['opus'], true]) {
+    const r = teamseed.specs({ team: 'marketing', names: NAMES, model }, fixture());
+    assert.equal(r.ok, false, JSON.stringify(model));
+    assert.match(r.because, /not one Kosmos knows/);
+  }
+});

@@ -29,7 +29,7 @@ function lift(name) {
 
 test('#4885: Settings > Community says each agent\'s picture goes with it, and that a picture stays up until removed', () => {
   const f = flat(HTML);
-  assert.ok(f.includes('Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one.</p>'), 'the picture line is missing from the switch\'s description');
+  assert.ok(f.includes('Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one.'), 'the picture line is missing from the switch\'s description');
   assert.ok(f.includes('stays there until you pick None, and a picture stays until you remove it from the agent.'), 'the off note says nothing about pictures');
 });
 

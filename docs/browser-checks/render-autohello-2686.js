@@ -187,6 +187,8 @@ function initStub() {
   check('success: exactly one wake hello is sent', s1.threadCalls === 1, 'calls=' + s1.threadCalls);
   check('success: it POSTs the restarted agent\'s thread', /\/api\/agent\/april\/thread$/.test(s1.threadUrl || ''), s1.threadUrl || '');
   check('success: the wake text is "hello"', s1.helloBody && s1.helloBody.text === 'hello', JSON.stringify(s1.helloBody));
+  // #4959: sent as automatic, so the server holds it while this machine's shared Google quota is out.
+  check('success: the wake hello is sent as automatic (#4959)', s1.helloBody && s1.helloBody.automatic === true, JSON.stringify(s1.helloBody));
   check('success: the notice becomes "said hello"', s1.note === SAID, JSON.stringify(s1.note));
 
   // ---- Arm 2: STAYS RESTARTING. never ready -> NO hello, manual fallback ----
@@ -234,6 +236,19 @@ function initStub() {
     return { line: window.__line };
   });
   check('unconfirmed send: never claims "said hello" when delivery was not placed', s5.line === 'X-manual', JSON.stringify(s5.line));
+
+  // ---- Arm 5b (#4959): the server HELD the automatic hello on the shared quota -> manual ----
+  const s5b = await page.evaluate(async () => {
+    window.__posted = [];
+    window.__readyAfterCalls = 1; window.__statusSinceRestart = 0;   // gap then ready
+    window.__threadResp = { recorded: false, delivery: { state: 'could_not', held: true, heldUntil: new Date(Date.now() + 40 * 60e3).toISOString(), because: 'held: quota out' } };
+    window.__line = '';
+    await autoHelloAfterRestart('april', (t) => { window.__line = t; }, 'H-said', 'H-manual');
+    window.__threadResp = { recorded: true, delivery: { state: 'placed' } };  // restore
+    return { line: window.__line };
+  });
+  check('held on the quota (#4959): never claims "said hello"', !/H-said/.test(s5b.line || ''), JSON.stringify(s5b.line));
+  check('held on the quota (#4959): the manual line, then why, promising nothing', /^H-manual This computer's shared Google quota is out until .+, so Kosmos sent nothing\.$/.test(s5b.line || ''), JSON.stringify(s5b.line));
 
   // ---- Arm 6: the thread POST THROWS (network drop) -> manual, note resolves ----
   // Guards the catch block: a bad supersession check there would return without

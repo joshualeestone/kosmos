@@ -571,3 +571,73 @@ test('review 9: recordPeriodStart records nothing for an address the sweep will 
   } finally { process.env.AGENT_WORKFORCE_COMMUNITY_URL = was; }
   assert.equal(cs.recordPeriodStart(), true, 'control: the loopback address records a start');
 });
+
+test('#4947: postLater says whether this agent\'s next post waits past the daily post cap (and only that agent\'s)', () => {
+  fresh();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  const now = Date.now();
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({
+    ava: { retryAt: new Date(now + 3600000).toISOString() },             // capped for the next hour
+    bo: { retryAt: new Date(now - 60000).toISOString() },                // the wait is over
+    cy: { commentRetryAt: new Date(now + 3600000).toISOString() },       // a COMMENT cap does not hold posts
+  }));
+  assert.equal(cs.postLater('ava', now), true, 'a capped agent\'s post was not said to wait');
+  assert.equal(cs.postLater('bo', now), false);
+  assert.equal(cs.postLater('cy', now), false, 'a comment cap was taken for a post cap');
+  assert.equal(cs.postLater('nobody', now), false);
+  fs.writeFileSync(cs._paths.keysFile(), '{not json');
+  assert.equal(cs.postLater('ava', now), false, 'unreadable state promised a wait');
+});
+
+test('#4947: postWaits promises "once the cap lifts" only for a post that will be sent at all', () => {
+  fresh();
+  SW = { on: true, ok: true };
+  const now = Date.now();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { retryAt: new Date(now + 3600000).toISOString() }, bo: { retryAt: new Date(now + 3600000).toISOString(), refused: true } }));
+  assert.equal(cs.postWaits('ava', now), true, 'control: on, capped, will be sent');
+  assert.equal(cs.postWaits('bo', now), false, 'a refused key was promised a send once the cap lifts');
+  SW = { on: false, ok: true };
+  assert.equal(cs.postWaits('ava', now), false, 'with Community off a post was promised a send once the cap lifts');
+});
+
+test('#4947: asking postWaits (the post route does, before the store) records the ON period\'s start, as a comment\'s willSend does', () => {
+  /* So a post made in the minutes before the first sweep of an ON period is inside the window and sent: a change in what
+     gets sent (written under Decided in the plan), and it holds for a post the safety check holds too (that one is not
+     due until it is released, so the earlier start costs nothing). */
+  fresh();
+  SW = { on: true, ok: true };
+  const stateFile = cs._paths.stateFile();
+  const before = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')).since : undefined;
+  assert.equal(before, undefined, 'fixture: no sweep has recorded the period\'s start yet');
+  cs.postWaits('ava');
+  assert.equal(typeof JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, 'string', 'the post route\'s question did not record the period\'s start');
+});
+
+test('#4940: a register 429 asking for an hour waits at most five minutes, so the agent\'s comment goes soon after', async () => {
+  await on();
+  comment('ava', 'Joining in.');
+  cs.setSender(async (url, init) => (String(url).endsWith('/agents/register')
+    ? { status: 429, ok: false, headers: new Headers({ 'retry-after': '3600' }), text: async () => '{}', json: async () => ({}) }
+    : fetch(url, init)));
+  const before = Date.now();
+  await cs.sweep();
+  const at = cs._registerRetryAt('ava');
+  assert.ok(at, 'the 429 was not recorded as a wait');
+  assert.ok(at - before <= cs.REGISTER_429_WAIT_MAX_S * 1000 + 5000, 'the wait followed the hour asked: ' + (at - before) + ' ms');
+  assert.ok(at - before >= 59 * 1000, 'CONTROL: it still waits (at least a minute), never a busy loop');
+  // Review 1: what the agent is told while it waits is true, says to run it again, and ends with no period (the CLI adds one).
+  const r = await cs.agentCall('ava', 'POST', '/agents/by-name/x/follow', {});
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then \(its posts and comments are queued, not lost\)$/);
+});
+
+test('#4940 review 2: a registration that fails with no wait set (a server error) says it is tried on the next pass', async () => {
+  await on();
+  cs.setSender(async (url, init) => (String(url).endsWith('/agents/register')
+    ? { status: 500, ok: false, headers: new Headers(), text: async () => '{}', json: async () => ({}) }
+    : fetch(url, init)));
+  const r = await cs.agentCall('zed', 'POST', '/agents/by-name/x/follow', {});
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes \(its posts and comments are queued, not lost\)$/);
+});
