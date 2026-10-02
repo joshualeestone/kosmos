@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: docs-chev tsk-back sub-back pj-docs-view tsk-title tsk-new docs-back
+// Browser-check-surface: docs-chev tsk-back tsk-crumb tsk-crumb-open sub-back pj-docs-view tsk-title tsk-new docs-back
 // (#2518) the distinctive web/index.html tokens this check asserts: the round back chevron #4586 puts
 // beside the title of a project's Documents (#docs-chev) and Tasks (#tsk-back) views, the titles it
 // sits against, and #docs-back, which stays hidden in the consolidated view (#3502).
@@ -188,6 +188,19 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
         say(`#5053 long name at ${width}: the wrapped title's lines do not touch (line-height at least 1.15 x its 24px)`, lh >= 27.6, String(lh));
         say(`#5053 long name at ${width}: the chevron stays beside the title, on its first line`, g.display !== 'none' && g.gap >= 0 && g.gap <= 24 && g.overlapY > 10 && Math.abs(t.chevTop - t.titleTop) < 24, JSON.stringify({ g, t }));
         say(`#5053 long name at ${width}: the title stays on screen`, t.right <= t.inner, JSON.stringify(t));
+        /* #5072: when the crumb wraps, its ' · ' must go to the next line WITH Open project, never dangle at the end of
+           the line above. The dot is found as a character, wherever it sits, so the assert reads the same on the old
+           markup (where it fails) and the new. */
+        const cr = await tv.page.evaluate(() => {
+          const box = document.getElementById('tsk-crumb'), first = box.querySelector('[data-proj=""]').getBoundingClientRect(), open = box.querySelector('[data-open-project]').getBoundingClientRect();
+          const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT); let n, dot = null;
+          while ((n = w.nextNode())) { const i = n.data.indexOf('\u00b7'); if (i >= 0) { const rg = document.createRange(); rg.setStart(n, i); rg.setEnd(n, i + 1); dot = rg.getBoundingClientRect(); break; } }
+          const mid = (r) => (r.top + r.bottom) / 2;
+          return { wrapped: open.top >= first.bottom - 1, dotFound: !!dot, dotWithOpen: dot ? Math.abs(mid(dot) - mid(open)) < 8 : false,
+            dot: dot ? [Math.round(dot.left), Math.round(mid(dot))] : null, open: [Math.round(open.left), Math.round(mid(open))], first: [Math.round(first.left), Math.round(mid(first))] };
+        });
+        say(`#5072 long name at ${width}: the crumb wraps (the arm tests something)`, cr.wrapped, JSON.stringify(cr));
+        say(`#5072 long name at ${width}: the crumb's dot is on Open project's line, not dangling above it`, cr.dotFound && cr.dotWithOpen, JSON.stringify(cr));
         const nb = await tv.page.evaluate(() => {
           const n = document.getElementById('tsk-new').getBoundingClientRect(), tr = document.getElementById('tsk-title').getBoundingClientRect();
           return { rightOfTitle: n.left >= tr.right, below: n.top >= tr.bottom - 2, inView: n.right <= window.innerWidth + 1 };
