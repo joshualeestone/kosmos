@@ -27,8 +27,9 @@ cd "$REPO"
 #   all   (the default, and what `yarn test` runs): the node suite, then test:shell, as before;
 #   node  the node suite only;
 #   shell test:shell only, or with KOSMOS_SHELL_SHARD=i/n just shard i of n (tools/shell-shard.js).
-# Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates); --only (#4929,
-# below) is the one run that does not, and it says which.
+# Every part keeps every guard below (coverage, launchd, temp root, leaks, the browser-check gates). --only (#4929,
+# below) keeps the temp root, the --require guards and the leak guards, and skips the queue wait, the coverage count,
+# the shell part and the browser-check gates.
 # A value it does not know refuses HERE, first, before the machine claim, the temp root or any test,
 # rather than running a subset silently. tools.shell-shard-4317.test.js runs each refusal.
 KOSMOS_TEST_PART="${KOSMOS_TEST_PART:-all}"
@@ -434,7 +435,9 @@ if [ "$KOSMOS_TEST_PART" != shell ]; then
 node --test --require "$REPO/test-support/launch-guard.js" --require "$REPO/test-support/tool-guard.js" "${KOSMOS_TEST_FILES[@]}" "$@"
 NODE_STATUS=$?
 fi
-if [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ] && [ "$KOSMOS_ONLY" != 1 ]; then
+if [ "$KOSMOS_ONLY" = 1 ]; then
+  :   # #4929: --only runs named node files; the shell part is the whole suite's
+elif [ "$NODE_STATUS" -eq 0 ] && [ "$KOSMOS_TEST_PART" != node ]; then
   if [ -n "${KOSMOS_SHELL_SHARD:-}" ]; then
     node "$REPO/tools/shell-shard.js" run "${KOSMOS_SHELL_SHARD%/*}" "${KOSMOS_SHELL_SHARD#*/}"
   else

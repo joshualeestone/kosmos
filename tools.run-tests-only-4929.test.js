@@ -168,3 +168,11 @@ test('--only asks the install harness once: a live one refuses it; the override 
   assert.equal(over.code, 0, 'the override did not run it: ' + over.out.slice(-600));
   assert.match(over.out, /ENV \{/);
 });
+
+test('the runner\'s text keeps --only out of the whole suite\'s parts (coverage count, shell part, both gates)', () => {
+  const src = fs.readFileSync(RUNNER, 'utf8');
+  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n  KOSMOS_TEST_FILES=\("\$\{KOSMOS_ONLY_FILES\[@\]\}"\)/, 'the coverage count is no longer skipped for --only');
+  assert.match(src, /if \[ "\$KOSMOS_ONLY" = 1 \]; then\n  :   # #4929: --only runs named node files; the shell part is the whole suite's\nelif \[ "\$NODE_STATUS" -eq 0 \]/, 'the shell part is no longer skipped for --only');
+  assert.equal((src.match(/if \[ "\$NODE_STATUS" -eq 0 \] && \[ "\$KOSMOS_ONLY" != 1 \]; then\n  \( \. "\$\(dirname "\$0"\)\/lib\/browser-check(-surface)?-gate\.sh"/g) || []).length, 2,
+    'a browser-check gate is no longer skipped for --only');
+});
