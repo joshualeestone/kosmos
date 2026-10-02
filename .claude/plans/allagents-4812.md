@@ -153,3 +153,9 @@ an online computer with a TypeError body; the old test only asserted "not notin"
 passed). Nits: the computers route is asked at most once a minute even while no list is known (tested); the
 read-on-return comment no longer claims oaStart waits out first run (it does not; reads under the first-run cover
 show nothing and reach only this account's computers, so no wait was added). Unit 32/32; 2 sabotages red.
+
+### Review 10 (opus, blind, whole diff, 2026-10-01 21:57): 0 blockers, 0 warnings, 1 nit, taken. CONVERGED.
+The 'blocked' words no longer read as a refusal the person can clear by signing in: "is online, but its agents
+cannot be read from here yet. It may need the latest Kosmos." (an older connector is the usual cause). Unit 32/32.
+Loop converged at iteration 10. Remaining before the PR: bc-4812 (browser check + 2 sabotages), full validation,
+proof file; the PR opens only after the relay half (kosmos-relay siblingcors-4812) is merged.

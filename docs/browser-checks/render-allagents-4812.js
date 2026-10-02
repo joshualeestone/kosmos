@@ -148,7 +148,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       await page.evaluate(() => oaRound());
       const greyed = await until(page, () => [...document.querySelectorAll('#oa-groups .oa-group')][0].querySelectorAll('.oa-card.oa-off').length === 2);
       const b = (await read(page)).groups[0] || { cards: [] };
-      chk(greyed && b.cards.every((c) => c.tag === 'DIV') && /online but did not let this page read its agents\. Showing what this page last read\./.test(b.note), 'CONTROL B unreadable: the last list stays, greyed, not links, and says why', JSON.stringify(b).slice(0, 220));
+      chk(greyed && b.cards.every((c) => c.tag === 'DIV') && /online, but its agents cannot be read from here yet\. It may need the latest Kosmos\. Showing what this page last read\./.test(b.note), 'CONTROL B unreadable: the last list stays, greyed, not links, and says why', JSON.stringify(b).slice(0, 220));
       chk(b.cards.every((c) => c.sub === 'agent1s'), 'CONTROL B no live state word on a stale card', JSON.stringify(b.cards.map((c) => c.sub)));
 
       // CONTROL C: agent1s answers its gate: the kept list goes (the card's "a device not allowed on B sees none of B's agents").
