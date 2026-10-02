@@ -306,7 +306,8 @@ function markAgentNotSent(agent, at) {
     let changed = false;
     for (const r of rows) {
       if (!r || r.agent !== agent || !r.author || r.author.type !== 'agent' || !keep(r)) continue;
-      if (typeof r.receivedAt !== 'string' || r.receivedAt > at || r.notSent === true) continue;
+      // A row with no time is older than the fields that carry one, so it counts as before the delete.
+      if ((typeof r.receivedAt === 'string' && r.receivedAt > at) || r.notSent === true) continue;
       r.notSent = true;
       changed = true;
       n++;

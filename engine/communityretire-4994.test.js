@@ -606,3 +606,20 @@ test('no folder counts as done before the store mark lands, not even another ser
   assert.deepEqual(retireFiles(), [], 'the request did not finish once the store could be written');
   assert.equal(communitystore.publishedPosts().find((p) => p.agent === 'rex').notSent, true);
 });
+
+test('a stored post with no time counts as the deleted agent\'s and is marked never to send', async () => {
+  writeJson(cs._paths.keysFile(), { rex: REX_KEY });
+  await cs.sweep();
+  agentPost('rex', { topic: 'no time', body: 'seventeen' });
+  const postsFile = path.join(require('./store').ROOT, 'community', 'posts.json');
+  assert.ok(postsFile.startsWith(SANDBOX), `refusing to edit ${postsFile}`);
+  const rows = JSON.parse(fs.readFileSync(postsFile, 'utf8'));
+  const row = rows.find((p) => p.agent === 'rex');
+  delete row.receivedAt;                                   // a row from before the store kept this field
+  fs.writeFileSync(postsFile, JSON.stringify(rows));
+  cs.requestRetire('rex');
+  await cs.sweep();
+  const after = JSON.parse(fs.readFileSync(postsFile, 'utf8')).find((p) => p.id === row.id);
+  assert.equal(after.notSent, true, 'a post with no time was left sendable after its agent was deleted');
+  assert.equal(postsBy().length, 0);
+});

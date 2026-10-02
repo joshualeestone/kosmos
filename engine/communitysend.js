@@ -1264,9 +1264,8 @@ function failedHere(agentKey) {   // a try has already failed in the current ser
 function retiredKey(agentKey, at) { return `${RETIRED_PREFIX}${agentKey}:${at}`; }
 /* For the delete's confirmation: how many posts and service comments of the agent the sender could still send, so the
    delete keeping them home is a real loss: a held one (releasing it could send it; quarantined ones never go), or a
-   published one inside the
-   current ON period, either with no record or one still waiting, and not deleted by the owner. Read-only; anything
-   unreadable counts as some. */
+   published one inside the current ON period, either with no record or one still waiting, and not deleted by the
+   owner. Read-only; anything unreadable counts as some. */
 function unsentCount(agentKey) {
   try {
     const st = loadJson(stateFile());
@@ -1290,7 +1289,7 @@ function unsentCount(agentKey) {
       + communitystore.serviceComments().filter((c) => mine(c) && due(c, csent, cdeletes)).length;
   } catch { return 1; }
 }
-function retiredName(key) { return String(key).slice(RETIRED_PREFIX.length).split(':')[0]; }   // names hold no colon
+function retiredName(key) { return String(key).slice(RETIRED_PREFIX.length).split(':')[0]; }   // names hold no colon (create.js NAME_RE)
 // Whether the name may hold a community account on any service, for the delete's confirmation. Read-only. Keys that
 // cannot be read count as yes: the confirmation must not promise everything comes back when it cannot tell.
 function hasAccount(agentKey) {
@@ -1350,7 +1349,8 @@ function retireIn(epDir, agentKey, at) {
   let moved = false;
   const ofName = (item) => item && item.agent === agentKey && item.author && item.author.type === 'agent';
   // Both sides are toISOString() output (the store's nowISO, requestRetire), so the strings order as the times do.
-  const before = (item) => typeof item.receivedAt === 'string' && item.receivedAt <= at;
+  // A row with no time counts as before the delete, as markAgentNotSent counts it.
+  const before = (item) => typeof item.receivedAt !== 'string' || item.receivedAt <= at;
   const lists = [
     ['sent.json', () => communitystore.publishedPosts().concat(communitystore.moderationQueue({ kind: 'post', limit: Infinity }))],
     ['comments-sent.json', () => communitystore.serviceComments()],
