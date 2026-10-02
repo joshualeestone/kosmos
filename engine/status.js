@@ -2567,7 +2567,9 @@ function retireResetLimits(text, nowMs) {
     if (footer < 0) return;
     const resetAt = limitResetAt(row, now);
     if (resetAt === null || now < resetAt) return;
-    for (let k = i; k < footer; k++) drop.add(k);
+    /* Up to the footer, or to the NEXT limit row if one shares this footer (review round 2): an expired row must
+       never take a live one with it. That row is judged on its own when the loop reaches it. */
+    for (let k = i; k < footer && (k === i || !HIT_YOUR_LIMIT.test(rows[k])); k++) drop.add(k);
   });
   return drop.size ? rows.filter((_, k) => !drop.has(k)).join('\n') : text;
 }

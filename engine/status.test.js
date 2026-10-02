@@ -4271,7 +4271,10 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   const pane = { session: 'guide', name: 'guide', claim: 'guide', command: '2.1.239', title: '✳ Claude Code' };
   const RULE = '─'.repeat(80) + '\n';
   const STATUS = RULE + '❯ \n' + RULE + '  guide · Opus 4.8 · 7d 100%\n';
-  const OLD = "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n" + '✻ Sautéed for 0s · done 10:35 PM\n';
+  /* As captured on two of the three panes (donnie, irma): the vendor row, its /usage-credits upsell row, the footer.
+     The upsell row is itself a rate-limit marker, so the whole block must go, not only the limit row. */
+  const OLD = "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     /usage-credits to finish what you’re working on.\n' + '✻ Sautéed for 0s · done 10:35 PM\n';
   const SCREEN = '> hello\n' + OLD + STATUS;
   const RESET = Date.UTC(2026, 9, 5, 5, 0);   // Oct 5, 12am in Chicago (CDT, UTC-5)
   const read = (text, at) => reconcile({ found: false }, classify(pane, retire(text, at)), at);
@@ -4312,6 +4315,11 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   const ASKS = '> hello\n' + OLD + '> go on\n● Bash(rm -rf build)\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
   assert.equal(read(ASKS, RESET + 3600000).state, STATE.NEEDS_YOU, 'a recovered pane hid its question');
 
+  /* Review round 2: two limit rows under ONE footer, the expired one first. Its removal must stop at the live row. */
+  const TWO = '> hi\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + "  ⎿  You've hit your session limit · resets Oct 12 at 12am (America/Chicago)\n" + '✻ Cooked for 0s · done 10:35 PM\n' + STATUS;
+  assert.equal(read(TWO, RESET + 3600000).state, STATE.RATE_LIMITED, 'an expired limit row took a live one under the same footer');
+
   /* Controls: limit lines with no reset this can place stay capped however late it is (the old behaviour). */
   for (const line of ["You've hit your weekly limit · resets 3pm (America/Chicago)",
     "You've hit your weekly limit · resets Oct 5 at 12am (Mars/Olympus_Mons)", "You've hit your monthly spend limit."]) {
@@ -4322,6 +4330,30 @@ test('#5031: a Claude limit whose own line says it has reset stops reading cappe
   const CATTED = '● Bash(cat x)\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
     + '      Do you want to proceed?\n● done\n' + STATUS;
   assert.equal(retire(CATTED, RESET + 3600000), CATTED, 'rows outside a vendor limit block were removed');
+});
+
+test('#5031: snapshot() reads the screen with an expired limit block taken out (the wiring, end to end)', () => {
+  /* Review round 2: every other #5031 arm calls retireResetLimits directly, so snapshot() could stop calling it and
+     stay green. This goes through the real snapshot() with the pane seams, on the real clock: an explicit-year reset
+     long past is retired, the same screen with a reset far ahead is not. */
+  const fleet = require('../test-support/fleet');
+  const status = require('./status');
+  const RULE = '─'.repeat(80) + '\n';
+  const screen = (year) => '> hello\n'
+    + `  ⎿  You've hit your weekly limit · resets Oct 5, ${year} at 12am (America/Chicago)\n`
+    + '     /usage-credits to finish what you’re working on.\n✻ Sautéed for 0s · done 10:35 PM\n'
+    + RULE + '❯ \n' + RULE + '  guide · Opus 4.8 · 7d 100%\n';
+  const cardFor = (year) => {
+    status.setPaneSource(() => fleet.line({ session: 'capped5031', command: fleet.CLAUDE_COMMAND }));
+    status.setPaneCapture(() => screen(year));
+    try {
+      const card = status.snapshot().agents.find((a) => a.sessionName === 'capped5031');
+      assert.ok(card, 'the pane drew no card');
+      return card;
+    } finally { status.setPaneSource(null); status.setPaneCapture(null); }
+  };
+  assert.equal(cardFor(2099).state, STATE.RATE_LIMITED, 'a reset far ahead must still read capped (the control)');
+  assert.notEqual(cardFor(2020).state, STATE.RATE_LIMITED, 'snapshot() did not retire a limit whose reset passed long ago');
 });
 
 test('#5031: limitResetAt places the reset Claude Code writes, and nothing it cannot', () => {
