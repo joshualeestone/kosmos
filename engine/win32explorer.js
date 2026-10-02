@@ -317,7 +317,7 @@ const FOREGROUND_SETTINGS_SCRIPT = [
   '    if([KWin.Native]::IsIconic($h)){ [void][KWin.Native]::ShowWindowAsync($h,9) }',
   '    [void][KWin.Native]::SetForegroundWindow($h)',
   '    [void][KWin.Native]::AttachThreadInput($me,$ft,$false)',
-  '    break',
+  '    if([KWin.Native]::GetForegroundWindow() -eq $h){ break }',
   '  }',
   '  Start-Sleep -Milliseconds 120',
   '} while((Get-Date) -lt $deadline)',
@@ -340,6 +340,8 @@ const FOREGROUND_SPAWN_OPTIONS = Object.freeze({ detached: false, stdio: 'ignore
 /** Raise the Settings window; see FOREGROUND_SETTINGS_SCRIPT. Best effort. */
 function foregroundSettings() {
   const exe = powershellPath();
+  /* -WindowStyle Hidden is belt and braces: what actually hides the console is windowsHide
+     in FOREGROUND_SPAWN_OPTIONS (CREATE_NO_WINDOW). */
   const args = ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand',
     Buffer.from(FOREGROUND_SETTINGS_SCRIPT, 'utf16le').toString('base64')];
   if (runner) return runner(exe, args);

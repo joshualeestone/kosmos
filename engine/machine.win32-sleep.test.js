@@ -253,6 +253,22 @@ test('#3324 the foreground helper is launched hidden and NOT detached: a detache
   }
 });
 
+test('#3324 the foreground helper\'s C# compiles under Windows PowerShell, so a typo cannot fail silently', { skip: process.platform !== 'win32' && 'needs powershell.exe' }, () => {
+  /* The helper runs with SilentlyContinue, so an Add-Type that does not compile would
+     leave every later call failing silently: the bug this card fixed, all over again.
+     Compile ONLY the Add-Type block, with errors on, and call FrameOf(0) (no window has
+     pid 0), so nothing is raised. */
+  const script = explorer.FOREGROUND_SETTINGS_SCRIPT;
+  const end = script.indexOf('\n\'@\n');
+  assert.ok(end > 0, 'the script has an Add-Type here-string');
+  const addType = script.slice(script.indexOf('Add-Type'), end + 3);
+  const probe = "$ErrorActionPreference='Stop'\n" + addType + '\n[KWin.Native]::FrameOf(0)';
+  const out = require('node:child_process').execFileSync(explorer.powershellPath(),
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(probe, 'utf16le').toString('base64')],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, windowsHide: true });
+  assert.equal(out.trim(), '0', 'FrameOf compiled and found no window for pid 0');
+});
+
 test('the Kosmos folder row on Windows reports the real folder with backslashes, and from source says so', () => {
   const root = 'C:\\Users\\someone\\AppData\\Local\\Programs\\Kosmos';
   const found = machine.appLocationCheck({ ...WIN, bundleRoot: root });
