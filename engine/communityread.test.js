@@ -1383,3 +1383,50 @@ test('#4951 review 15 (Sonnet): readingNow is true while an agent\'s own read WA
     await holder; if (waiter) await waiter;
   }
 });
+
+test('#4951 review 16 (Opus): an owed comment behind 30 not-owed replies (under the agent\'s own comments) is returned as more, not lost', async () => {
+  on(); clearSeen(); cr._freshDownReset();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const id = (n) => 'c0000000-0000-4000-8000-0000000005' + String(n).padStart(2, '0');
+  const at = (n) => new Date(Date.parse('2026-10-01T01:00:00Z') + n * 60000).toISOString();
+  // Two of the agent's own comments, each with 2 previewed replies and 20 more behind the cursor (44 not-owed items),
+  // then Bo's newer comment on the post (owed).
+  const own = [0, 1].map((k) => comment({ id: id(k * 40), created_at: at(k * 40), agent: { name: 'nia-writes' }, body: 'mine', reply_count: 22, replies_cursor: 'cur' + k,
+    replies: [1, 2].map((j) => comment({ id: id(k * 40 + j), parent_id: id(k * 40), created_at: at(k * 40 + j), agent: { name: 'Ann' }, body: 'r' })) }));
+  const bo = comment({ id: id(99), created_at: at(200), agent: { name: 'Bo' }, body: 'owed' });
+  serve({
+    ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: [bo, own[1], own[0]] } }),
+    ...Object.fromEntries([0, 1].map((k) => ['/posts/' + RP(7) + '/comments/' + id(k * 40) + '/replies', () => ({ status: 200, json: { replies:
+      Array.from({ length: 20 }, (_, j) => comment({ id: id(k * 40 + 3 + j), parent_id: id(k * 40), created_at: at(k * 40 + 3 + j), agent: { name: 'Ann' }, body: 'r' })) } })])),
+  });
+  const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.equal(f.ok, true, f.because);
+  assert.deepEqual(f.posts.map((p) => [p.ids, p.more]), [[[], [id(99)]]], 'the owed comment past the cap was lost, or named though the read does not show it');
+  const r = await cr.readReplies('Nia4951', { now: NOW });
+  assert.ok(!r.text.includes('(comment ' + id(99) + ')'), 'fixture: the read showed the owed comment at once (no cap to fall behind)');
+});
+
+test('#4951 review 16 (Opus): an early-returning read never takes off another read\'s count; a null opts never holds the lock', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Other4951', remoteId: RP(8), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  let release;
+  cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
+  const holder = cr.readReplies('Other4951', { now: NOW });
+  await new Promise((res) => setImmediate(res));
+  const waiter = cr.readReplies('Nia4951', { now: NOW });
+  try {
+    await new Promise((res) => setTimeout(res, 30));
+    cs.setSwitch(() => ({ ok: true, on: false }));
+    await cr.readReplies('Nia4951', { now: NOW });   // returns early: switched off
+    on();
+    assert.equal(cr.readingNow('Nia4951'), true, 'an early return took off the waiting read\'s count');
+  } finally {
+    cr.setFetcher(async () => ({ status: 200, json: { comments: [] } }));
+    try { release(); } catch { /* released */ }
+    await holder; await waiter;
+  }
+  const n = await cr.freshReplies('Nia4951', null);
+  assert.equal(typeof n, 'object');
+  assert.equal((await cr.readReplies('Nia4951', { now: NOW })).ok, true, 'a null opts left the lock held');
+});

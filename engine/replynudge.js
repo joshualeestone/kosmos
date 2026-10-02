@@ -60,6 +60,7 @@ function plainWords(v, cap) {
 /* The line typed into the agent's session. posts: [{ title, ids }] with at least one id in all. */
 function nudgeText(posts) {
   const n = posts.reduce((k, p) => k + p.ids.length, 0);
+  const more = posts.reduce((k, p) => k + (Array.isArray(p.more) ? p.more.length : 0), 0);
   const titled = posts.find((p) => p.title);
   const one = posts.length === 1;
   const where = one
@@ -67,8 +68,15 @@ function nudgeText(posts) {
     : posts.length + ' of your community posts' + (titled ? ", including '" + plainWords(titled.title, TITLE_CAP).replace(/'/g, '’') + "'" : '');
   /* Review 15 (Sonnet): COMMENTS, since only comments on the post are counted (review 14); the read also shows replies
      under comments, which are not owed, so the line says which to answer. */
+  /* Review 16 (Opus): owed comments past the read's 30 are never counted aloud (the read does not show them yet); the
+     line says more are waiting, so the agent reads again until none are shown. */
+  if (!n) {
+    return 'Kosmos here: new comments are waiting on ' + where + '. Read them with kosmos community read --replies, again until it'
+      + ' shows no more, and answer each comment once (a line marked under comment is not owed)';
+  }
   return 'Kosmos here: you have ' + n + ' new ' + (n === 1 ? 'comment' : 'comments') + ' on ' + where
-    + '. Answer each once (a line marked under comment is not owed): kosmos community read --replies';   // no quote marks in a typed line
+    + '. Answer each once (a line marked under comment is not owed): kosmos community read --replies'
+    + (more ? ' (more are waiting past these: read again until it shows no more)' : '');   // no quote marks in a typed line
 }
 
 /* An agent the person has stood down: it is in projects, and every one is paused or switched off for it. */
@@ -91,10 +99,11 @@ function plan(card, fresh, nudged, entry, projects) {
   if (!fresh || fresh.ok !== true) return { act: 'none', because: (fresh && fresh.because) || 'its replies could not be read' };
   const seen = nudged instanceof Set ? nudged : new Set();
   const posts = (Array.isArray(fresh.posts) ? fresh.posts : [])
-    .map((p) => ({ remoteId: p.remoteId, title: p.title || '', ids: (Array.isArray(p.ids) ? p.ids : []).filter((id) => !seen.has(id)) }))
-    .filter((p) => p.ids.length);
-  if (!posts.length) return { act: 'none', because: 'no reply it has not been told about' };
-  const ids = posts.flatMap((p) => p.ids);
+    .map((p) => ({ remoteId: p.remoteId, title: p.title || '', ids: (Array.isArray(p.ids) ? p.ids : []).filter((id) => !seen.has(id)),
+      more: (Array.isArray(p.more) ? p.more : []).filter((id) => !seen.has(id)) }))   // review 16: owed, past the read's cap
+    .filter((p) => p.ids.length || p.more.length);
+  if (!posts.length) return { act: 'none', because: 'no comment it has not been told about' };
+  const ids = posts.flatMap((p) => p.ids.concat(p.more));   // all are recorded as told: the line covers the ones past the cap too
   const key = ids.slice().sort().join(',');
   if (entry && entry.key === key && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) {
     return { act: 'none', because: 'gave up on this batch after ' + MAX_TRIES + ' tries that reached nothing' };
@@ -226,7 +235,7 @@ async function sweepOnce(o) {
           continue;
         }
         const memo = book.get(session);
-        const untold = fresh && fresh.ok === true && Array.isArray(fresh.posts) ? fresh.posts.flatMap((p) => (p.ids || []).filter((id) => !told.has(id))) : [];
+        const untold = fresh && fresh.ok === true && Array.isArray(fresh.posts) ? fresh.posts.flatMap((p) => (p.ids || []).concat(p.more || []).filter((id) => !told.has(id))) : [];
         // Review 3 (Opus): a batch given up on (MAX_TRIES) takes no cap slot either, or it blocks later agents every pass.
         let givenUp = memo && memo.key === untold.slice().sort().join(',') && Number.isInteger(memo.tries) && memo.tries >= MAX_TRIES;
         /* Review 13 (Sonnet): a batch given up on is tried again once GIVE_UP_FOR_MS has passed (a pane unreachable for
@@ -277,6 +286,12 @@ async function sweepOnce(o) {
            not run in sleep) is not typed; the next pass counts afresh. FIRST_LOOK_EDGE_MS assumes this bound. */
         if (Number.isFinite(countedAt) && clock() - countedAt > COUNT_MAX_AGE_MS) { results.push({ session, name: display, act: 'stale-count', because: 'its count is older than ' + Math.round(COUNT_MAX_AGE_MS / 60000) + ' min' }); continue; }
         if (o.idleSeen instanceof Map && !(card && require('./agentnudge').nudgeableCard(card))) o.idleSeen.delete(session);
+        /* Review 16 (Opus): "not just idle" again at the line, not only at the count: a person's turn can start and end in
+           the minutes between them. */
+        if (typeof o.idleSince === 'function') {
+          let since = null; try { since = o.idleSince(session); } catch { since = null; }
+          if (Number.isFinite(since) && clock() - since < IDLE_FIRST_MS) { results.push({ session, name: display, act: 'just-idle', because: 'it finished a turn moments ago' }); continue; }
+        }
         const p = plan(card, fresh, nudged, memo0, projects);
         if (p.act !== 'nudge') continue;
         prune();
@@ -367,10 +382,10 @@ async function tick(o) {
     if (!on) return off();
     let roster = null;
     try { roster = o.roster(); } catch { roster = null; }
-    if (!Array.isArray(roster)) return null;
+    if (!Array.isArray(roster)) return off();
     let projects = null;
     try { const r = o.readProjects(); projects = Array.isArray(r) ? r : null; } catch { projects = null; }
-    if (!projects) return null;   // cannot tell a stood-down agent: nudge nobody this pass
+    if (!projects) return off();   // cannot tell a stood-down agent: nudge nobody this pass
     let limit = { ...(o.limitDefaults || { on: true, perHour: 20 }) };
     try { const l = o.readLimit(); if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
     const gatesOpen = () => {

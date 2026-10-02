@@ -629,3 +629,39 @@ test('#4951 review 15 (Sonnet): idle marks are refreshed for the whole roster ev
   await rn.tick({ allowed: () => true, env: {}, prompterOn: () => false, switchOn: () => true, idleSeen: seen });
   assert.equal(seen.size, 0, 'idle marks survived a gate being off');
 });
+
+test('#4951 review 16 (Opus): owed comments only past the read\'s cap get a line with no count that says to read until none are left; told once', async () => {
+  assert.match(rn.nudgeText([{ title: 'T', ids: [], more: ['b'] }]), /^Kosmos here: new comments are waiting on your community post 'T'\. Read them with kosmos community read --replies, again until it shows no more/);
+  assert.match(rn.nudgeText([{ title: 'T', ids: ['a'], more: ['b'] }]), /you have 1 new comment .* \(more are waiting past these: read again until it shows no more\)$/);
+  assert.ok(!/"/.test(rn.nudgeText([{ title: 'T', ids: [], more: ['b'] }])), 'a quote mark in the typed line');
+  const { o, store, typed } = rig({ fresh: async () => ({ ok: true, posts: [{ remoteId: P1, title: 'T', ids: [], more: ['b9'] }] }) });
+  await rn.sweepOnce(o);
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'a backlog line was not typed, or typed twice');
+  assert.deepEqual([...store.get('kim')], ['b9'], 'the comment past the cap was not recorded as told');
+});
+
+test('#4951 review 16 (Opus): "not just idle" is asked again at the line (a turn can start and end between the count and the line)', async () => {
+  let t0 = Date.now();
+  let idleAt = t0 - rn.IDLE_FIRST_MS - 1000;
+  const { o, typed } = rig({ clock: () => t0, idleSince: () => idleAt, roster: [card('kim'), card('ann')], typeGapMs: 0,
+    fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }) });
+  o.deliver = (s, text) => { typed.push({ s, text }); if (s === 'kim') { t0 += 60000; idleAt = t0 - 2000; } return { state: D.PLACED }; };   // ann finished a turn 2 s ago
+  const r = await rn.sweepOnce(o);
+  assert.deepEqual(typed.map((x) => x.s), ['kim'], 'a line was typed into an agent that went idle moments before');
+  assert.ok(r.results.some((x) => x.session === 'ann' && x.act === 'just-idle'));
+});
+
+test('#4951 review 16 (Opus): fallback: an agent seen working at its line loses its idle mark, so idle again next pass is a first sighting', async () => {
+  const seen = new Map();
+  let state = 'idle';
+  const { o, typed } = rig({ idleSeen: seen, idleSince: () => null });
+  o.rosterNow = () => [card('kim', { state })];
+  await rn.sweepOnce(o);                 // first sighting: marked
+  state = 'working';
+  await rn.sweepOnce(o);                 // counted (marked, idle at count), but working at its line: mark dropped
+  assert.equal(typed.length, 0);
+  state = 'idle';
+  await rn.sweepOnce(o);                 // a first sighting again: nothing typed yet
+  assert.equal(typed.length, 0, 'an agent that worked between passes was typed into on its first idle pass');
+});

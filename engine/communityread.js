@@ -375,7 +375,10 @@ let replyReadWaiting = 0;
 let replyReadSession = null;   // review 12: whose own read holds the lock
 const readingSessions = new Map();   // review 15: session -> own reads asked and not finished (waiting or running)   // reads waiting for the lock: the count steps aside between posts while there is one
 
-async function readReplies(sessionName, opts = {}) {
+async function readReplies(sessionName, opts) {
+  opts = opts && typeof opts === 'object' ? opts : {};
+  // Review 16 (Opus): counted HERE, so the finally below never takes off a count that was not added (an early return).
+  readingSessions.set(sessionName, (readingSessions.get(sessionName) || 0) + 1);
   try { return await readRepliesLocked(sessionName, opts); } finally {
     const n = (readingSessions.get(sessionName) || 0) - 1;
     if (n > 0) readingSessions.set(sessionName, n); else readingSessions.delete(sessionName);
@@ -392,8 +395,7 @@ async function readRepliesLocked(sessionName, opts) {
      refused read left the replies it was told about unanswered). Bounded shorter (READ_WAIT_MS), so a wait plus this
      read's own two rounds stays inside the CLI's 30 s. One after another costs the service no more than refuse-and-retry. */
   const readWaitUntil = Math.min(waitUntil, t0 + (Number.isFinite(opts.readWaitMs) ? opts.readWaitMs : READ_WAIT_MS));
-  replyReadWaiting += 1;
-  readingSessions.set(sessionName, (readingSessions.get(sessionName) || 0) + 1);   // review 15: reading from entry, waiting included
+  replyReadWaiting += 1;   // review 15: the session counts as reading from entry (readReplies), waiting included
   try {
     while ((replyReadRunning === 'fresh' && Date.now() < waitUntil) || (replyReadRunning === 'read' && Date.now() < readWaitUntil)) await new Promise((res) => setTimeout(res, 100));
   } finally { replyReadWaiting -= 1; }
@@ -424,7 +426,8 @@ const FIRST_LOOK_EDGE_MS = 15 * 60 * 1000;   // review 12: longer than a pass's 
 // Review 15 (Sonnet), stated: it covers the count-to-line delay only. An agent that reads hours later can be shown fewer
 // than it was told (the read's own window has passed them); told-but-not-shown, never repeated or lost.
 const postDown = new Map();   // session + '\n' + remoteId -> passes in a row it could not be read
-async function freshReplies(sessionName, opts = {}) {
+async function freshReplies(sessionName, opts) {
+  opts = opts && typeof opts === 'object' ? opts : {};   // review 16: a null opts must not throw with the lock held
   if (!communitysend.switchOn()) return { ok: false, because: 'the Kosmos+ community is switched off on this board' };
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };
@@ -503,9 +506,14 @@ async function freshReplies(sessionName, opts = {}) {
        count is capped the same way: the line never names more than the read will show, and the rest (not told yet) are
        counted on a later pass, once the read has moved past these. */
     const keep = new Set(out.flatMap((o) => o.items).sort((a, b) => byPos(a.x, b.x)).slice(0, REPLIES_SHOWN_MAX));
+    /* Review 16 (Opus): owed comments PAST the cap (not-owed replies under comments can fill the read's 30) are returned
+       as `more`, never named: the line then says more are waiting and the agent reads again, else an owed comment
+       behind 30 replies was never told and the agent never read past them. */
+    const owedClear = (i) => i.owed && !i.edge;
     const capped = out.map((o) => ({ remoteId: o.remoteId, title: o.title,
-      ids: o.items.filter((i) => keep.has(i) && i.owed && !i.edge).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
-      .filter((o) => o.ids.length);
+      ids: o.items.filter((i) => keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id),
+      more: o.items.filter((i) => !keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
+      .filter((o) => o.ids.length || o.more.length);
     return { ok: true, posts: capped, asked, marksAt: marksStamp(sessionName, marks) };
   } catch (err) {
     return { ok: false, because: 'the replies could not be read (' + String((err && err.message) || err) + ')' };

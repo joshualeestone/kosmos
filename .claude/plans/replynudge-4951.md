@@ -251,3 +251,20 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT (stated in the code): FIRST_LOOK_EDGE_MS covers count-to-line delay only; a read hours later can show fewer than
   were told (told-but-not-shown, never repeated or lost).
 - Targeted files: 266/266.
+
+## Review 16 (Opus, blind): 2 BLOCKERS, 1 warning, 3 nits. All reproduced before fixing.
+- BLOCKER FIXED: (review 14's two changes combined) not-owed replies under the agent's own comments could fill the
+  read's 30, pushing an owed comment past the cap: it was never named, so never told, so the agent never read, so the
+  marks never moved: forever on a marked post. Now owed comments past the cap come back as `more`: the line (no count
+  for them, since the read does not show them yet) says they are waiting and to read again until none are shown, and
+  they are recorded as told. Reviewer's fixture as a test (2 own comments with 22 replies each, Bo's newer comment);
+  two mutants killed.
+- BLOCKER FIXED: "not just idle" was asked at count time only; a person's turn can start and end in the minutes before
+  the line. Asked again at the line (o.idleSince). Test + mutant.
+- WARNING FIXED: the line that drops a fallback idle mark when the card is working at its line had no test. Added
+  (working at the line, idle next pass = a first sighting, nothing typed). Mutant killed.
+- NIT FIXED: an early-returning own read took off a count it never added (readingNow false while another read of the
+  same session waited): the count is added in readReplies before anything can return. Test + mutant.
+- NIT FIXED: a null opts no longer throws with the lock held (both readers). Test + mutant.
+- NIT FIXED: the idle marks are cleared when a pass cannot read the roster or projects, like an off gate.
+- Targeted files: 271/271.
