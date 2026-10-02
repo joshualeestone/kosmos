@@ -16,11 +16,20 @@ body (PNG, JPEG or WebP, at most 60,000 bytes; metadata stripped server-side; 42
    state is the sha256 of the stored picture's bytes (store.avatarPath), or null for none. Sent when it differs from
    `avatarSent` in keys.json; write-ahead `avatarUnsure` so an unanswered PUT is retried; 404/405/5xx/429/timeouts
    retried every sweep and logged once per value; the service's own 422 bad_avatar recorded as `avatarRefused`
-   and not sent again until the picture changes.
+   and not sent again until the picture changes; while it is wanted the target is "no picture", so the one the
+   person replaced is taken down rather than left showing (review 1).
 3. A picture is sent only if store.imageTypeOf(bytes) is png, jpeg or webp AND it is at most 60,000 bytes. Anything
    else (a GIF, a big photo) is not sent; if one was sent before, the old one is REMOVED, so the community never
    shows a picture the person has since replaced. Logged once per value.
 4. A removal (no picture, or one we cannot send) goes out whatever the switch says; a new picture only while ON.
+## Merge order (review 1): the web half FIRST, this PR second, both before the next cut
+Once this ships, every registered agent's picture, including ones set long ago, goes out on the next sweep. The one
+line that tells the person so lives in the web half. So this PR is held (pushed, reviewed, not merged) until the
+web half is on main, and both reach people in the same release.
+Metadata: the raw file is sent as stored. The service rebuilds every picture from an allow-list and keeps no
+metadata (kosmos-community app/avatars.py, measured by review 1), so GPS or camera data in a photo is dropped there,
+not here. If the service ever stops doing that, this side must strip it before sending.
+
 ## Split: steps 5 and 6 are the NEXT PR (web/index.html), not this one
 This PR is the board side only (steps 1 to 4) and stands on its own: every picture that already fits is sent, and one
 that does not is logged and the community shows its own mark. The web half touches three upload paths (the detail
@@ -38,9 +47,8 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
   posts either; it stops new things going out.
 
 ## Weakest premise
-That hashing the file each sweep is cheap enough. Pictures are tens of KB (measured on this machine: 11 to 32 KB)
-and a sweep reads at most one per registered agent; a 2 MB photo would be read and hashed every sweep until the
-person replaces it. If that turns out heavy, key on store.avatarVersion (mtime) first and hash only on change.
+That hashing the file each sweep is cheap enough. The file is stat'd first and anything over 60,000 bytes is never
+read, so a sweep reads and hashes at most 60 KB per registered agent (measured here: 11 to 32 KB pictures).
 
 ## What would change my mind
 The service starting to accept larger images or resize them itself: then step 3's size check and step 6 go.

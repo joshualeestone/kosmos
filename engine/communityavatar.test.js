@@ -45,6 +45,12 @@ function backend() {
         st.agents.set(id, a);
         return send(201, { agent_id: id, name: a.name, name_replaced: false, api_key: a.key, token: a.token });
       }
+      if (req.method === 'POST' && req.url === '/agents/login') {
+        const x = [...st.agents.values()].find((y) => y.name === body.name && y.key === body.api_key);
+        if (!x || st.mode.loginRefused) return send(401, { detail: 'wrong name or key' });
+        x.token = 't' + x.id + '_' + (++st.n);
+        return send(200, { token: x.token });
+      }
       const a = [...st.agents.values()].find((x) => 'Bearer ' + x.token === req.headers.authorization);
       if (req.method === 'POST' && req.url === '/posts') {
         if (!a) return send(401, { detail: 'invalid or expired token' });
@@ -211,17 +217,101 @@ test('no usable answer (503, or a route that is not there): tried again next swe
   assert.equal(puts().length, 3, 'sent again after it landed');
 });
 
-test('an answer lost after the picture was stored: the next sweep sends it again rather than trusting nothing changed', async () => {
+test('an answer lost after a picture was stored: going back to the one sent before is sent again, not skipped', async () => {
   await on();
   await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();                                     // A, answered
   be.st.mode = { appliedThen504: true };
+  store.saveAvatar('ava', 'image/png', png(2));
+  await cs.sweep();                                     // B stored by the service, its answer lost
+  be.st.mode = {};
+  store.saveAvatar('ava', 'image/png', png(1));         // the person goes back to A
+  await cs.sweep();
+  assert.equal(puts().length, 3, 'A was skipped as already sent while the community may be showing B');
+  assert.ok(held().raw.equals(png(1)));
+  await cs.sweep();
+  assert.equal(puts().length, 3);
+});
+
+test('a refused replacement takes the earlier picture down, once, and retries the take-down until it lands', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  be.st.mode = { refuse: true };
+  store.saveAvatar('ava', 'image/png', png(2));
+  await cs.sweep();                                     // B refused
+  be.st.mode = { status: 503 };
+  await cs.sweep();                                     // the take-down gets no answer
+  be.st.mode = {};
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(puts().length, 2, 'the refused picture was sent again');
+  assert.equal(held(), null, 'the replaced picture is still showing');
+  assert.equal(deletes().filter((d) => d.method === 'DELETE').length, 2, 'one take-down unanswered, one landed, then nothing');
+});
+
+test('a GIF replacing a picture already sent takes the old one down', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  store.saveAvatar('ava', 'image/gif', GIF);
+  await cs.sweep();
+  assert.equal(deletes().length, 1);
+  assert.equal(held(), null);
+});
+
+test('an expired token: the picture goes again after logging in, with the same bytes and type', async () => {
+  await on();
+  await registered('ava');
+  [...be.st.agents.values()][0].token = 'stale';        // the board's token no longer works
+  store.saveAvatar('ava', 'image/jpeg', JPEG);
+  await cs.sweep();
+  assert.equal(puts().length, 2, 'not one 401 then one re-send');
+  assert.equal(puts()[1].type, 'image/jpeg');
+  assert.ok(puts()[1].raw.equals(JPEG));
+  assert.ok(held() && held().raw.equals(JPEG));
+});
+
+test('a 422 that is not the service refusing the picture is retried, not recorded as refused', async () => {
+  await on();
+  await registered('ava');
+  be.st.mode = { status: 422, json: { detail: [{ msg: 'something in between' }] } };
   store.saveAvatar('ava', 'image/png', png(1));
   await cs.sweep();
   be.st.mode = {};
   await cs.sweep();
   assert.equal(puts().length, 2);
+  assert.ok(held().raw.equals(png(1)));
+});
+
+test('logs: a picture not sent, and a retry, are each said once per value; a shut-out agent\'s removal is said once', async (t) => {
+  const lines = [];
+  const real = console.error;
+  console.error = (m) => { lines.push(String(m)); };
+  t.after(() => { console.error = real; });
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/gif', GIF);
+  await cs.sweep(); await cs.sweep();
+  assert.equal(lines.filter((l) => /picture for ava: not sent \(not a PNG, JPEG or WebP\)/.test(l)).length, 1);
+  store.saveAvatar('ava', 'image/png', png(1));
+  be.st.mode = { status: 503 };
+  await cs.sweep(); await cs.sweep();
+  assert.equal(lines.filter((l) => /picture for ava: no usable answer/.test(l)).length, 1);
+  be.st.mode = {};
   await cs.sweep();
-  assert.equal(puts().length, 2);
+  assert.ok(held());
+  // The service shuts the agent out; the person then removes the picture.
+  const a = [...be.st.agents.values()][0];
+  a.token = 'stale';
+  be.st.mode = { loginRefused: true };
+  store.removeAvatar('ava');
+  await cs.sweep(); await cs.sweep(); await cs.sweep();
+  assert.equal(lines.filter((l) => /picture for ava: the service refused this agent's key/.test(l)).length, 1);
+  assert.ok(held(), 'control: the picture really is still up, so the log line is the only record');
 });
 
 test('an agent with no community account is never sent anything', async () => {
