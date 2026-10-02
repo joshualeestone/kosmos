@@ -91,7 +91,7 @@ test('#4935 tcSyncModel does nothing without an open team step', () => {
 /* Review 2: tcPaintModel's branches, each against a fake document. The OpenAI list comes from the account's own
    models (escaped), the vendors that pick their own model hide the row and send nothing, and while a list is loading
    the menu says so and holds Create down (dataset.loading), so a team is never made on a silent default. */
-function paintWorld({ models = [], openai = null, rolesBody = null } = {}) {
+function paintWorld({ models = [], openai = null, rolesBody = null, waitMs = 0, stuck = false } = {}) {
   const sel = { value: '', disabled: false, dataset: {}, _html: '', options: [],
     set innerHTML(h) { this._html = h; this.options = [...h.matchAll(/<option value="([^"]*)"( selected)?/g)].map((m) => ({ value: m[1], sel: !!m[2] }));
       const pick = this.options.find((o) => o.sel) || this.options[0]; this.value = pick ? pick.value : ''; },
@@ -110,10 +110,11 @@ function paintWorld({ models = [], openai = null, rolesBody = null } = {}) {
     vendorPicksModel: (p) => ['google', 'xai', 'antigravity', 'meta'].includes(p),
     switchKeyedWord: (p) => ({ google: 'Gemini', xai: 'Grok' })[p] || p,
     openaiNoModelsNote: () => 'OpenAI picks its own model.',
-    fetch: (url) => { fetched.push(url); const body = /openai/.test(url) ? openai : rolesBody;
+    setTimeout,
+    fetch: (url) => { fetched.push(url); if (stuck) return new Promise(() => {}); const body = /openai/.test(url) ? openai : rolesBody;
       return Promise.resolve({ ok: !!body, json: () => Promise.resolve(body) }); },
   };
-  vm.runInNewContext('let TC_MODEL_GEN = 0;\n' + lift('tcPaintModel') + '\nthis.paint = tcPaintModel;', ctx);
+  vm.runInNewContext('let TC_MODEL_GEN = 0;\nlet TC_MODEL_WAIT_MS = ' + (waitMs || 8000) + ';\n' + lift('tcPaintModel') + '\nthis.paint = tcPaintModel;', ctx);
   return { ctx, sel, row, why, go, retry, fetched, paints: () => paints };
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -207,7 +208,7 @@ test('#4935 after a failed roles read, the menu repaints once the list is held',
   const painted = [];
   const ctx = { document: { getElementById: (id) => els[id] || null }, tcChoiceFixed: () => false, TC_FILLING: 0, TC: {}, CREATE_MODELS: [],
     tcPaintModel: (pv, ac) => { painted.push(pv + '|' + ac); } };
-  vm.runInNewContext('let TC_MODEL_FOR = "anthropic|";\n' + lift('tcSyncModel') + '\nthis.sync = tcSyncModel; this.fill = (m) => { CREATE_MODELS = m; };', ctx);
+  vm.runInNewContext('let TC_MODEL_FOR = "anthropic|";\n' + lift('tcSyncModel') + '\nthis.sync = tcSyncModel;', ctx);
   ctx.sync();
   assert.equal(painted.length, 0, 'no list yet: no repaint (no loop)');
   ctx.CREATE_MODELS = [{ key: 'sonnet', label: 'Sonnet', default: true }];
@@ -234,4 +235,15 @@ test('#4935 tcSyncModel paints nothing while the provider menus are filling', ()
   ctx.TC_FILLING = 0;   // CONTROL: once filled, it paints
   ctx.sync();
   assert.equal(painted.length, 1);
+});
+
+/* Review 9: a stuck OpenAI models read does not hold Create down for ever: after the wait it reads as "cannot list". */
+test('#4935 a stuck OpenAI models read gives up after the wait and releases Create', async () => {
+  const w = paintWorld({ stuck: true, waitMs: 20 });
+  w.ctx.paint('openai', '/acct/o');
+  assert.equal(w.go.disabled, true, 'premise: held while loading');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(w.sel.dataset.loading, '', 'still loading after the wait');
+  assert.match(w.sel.innerHTML, /OpenAI picks its own model for now/);
+  assert.equal(w.go.disabled, false, 'Create still held after the wait');
 });
