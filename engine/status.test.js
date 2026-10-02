@@ -4107,6 +4107,56 @@ test('#966: the Fable 5 promo banner does not read as a spent limit', () => {
     'the real 2026-08-21 block regression stopped matching');
 });
 
+test('#5039: the safeguards model-switch menu says what it is asking, not only that it is asking', () => {
+  /* VERBATIM FROM ANGEL'S PANE, 2026-10-02 ~11:07 CDT (Splinter's capture, Claude Code 2.1.287, Opus 5.5). That capture
+     dropped blank lines and the menu's border rule; both are put back here where Claude Code draws them (a blank row
+     after the frame, the rule above the menu). Every text row is as captured. The board ALREADY read this as needs_you
+     (measured on main b56e37c30, generic option-menu detection); what was missing is WHAT it asks. */
+  const { ASKING_GENERIC } = require('./status');
+  const pane = { session: 'angel', name: 'angel', claim: 'angel', command: '2.1.287', title: '✳ Claude Code' };
+  const MODAL = [
+    '⏺ Opus 5.5\'s safeguards stopped the response above · continuing once',
+    '  with that noted',
+    '',
+    ' ☐ Model switch',
+    '',
+    '│ Opus 5.5\'s safeguards flagged this session. You may be seeing this for the',
+    '│ first time: Opus 5.5 is more capable and has stronger safeguards as a result,',
+    '│ which can sometimes flag non-cybersecurity work. We\'re improving these',
+    '│ safeguards to reduce the amount of incorrectly flagged messages. Switch to',
+    '│ Opus 4.8 and keep going whenever this happens? You can change this later in',
+    '│ /config.',
+    '',
+    '─'.repeat(80),
+    '❯ 1. Switch automatically',
+    '     Continue on Opus 4.8 now, and switch without asking from now on',
+    '  2. Stay on Opus 5.5',
+    '     Stop here without switching, and ask me each time a message is flagged',
+    '  3. Type something.',
+    '  4. Chat about this',
+    'Enter to select · ↑/↓ to navigate · Esc to cancel',
+    '✻ Waiting for API response · will retry in 2m 40s · check your network',
+  ].join('\n') + '\n';
+  const r = classify(pane, MODAL);
+  assert.equal(r.state, STATE.NEEDS_YOU, 'the safeguards menu reads ' + r.state + ' (the retry row under it must not win)');
+  assert.notEqual(r.because, ASKING_GENERIC, 'the board still says only that it is asking, not what');
+  assert.match(r.because, /safeguards/, 'the reason does not say the safeguards flagged it: ' + r.because);
+  assert.match(r.because, /Opus 5\.5/, 'the reason does not name the model it would leave: ' + r.because);
+  assert.match(r.evidence || '', /Switch automatically/, 'the evidence does not name the choice: ' + r.evidence);
+  assert.doesNotMatch(r.because + ' ' + (r.evidence || ''), /—/, 'an em dash reached a person-facing string');
+
+  /* Controls. Another drawn menu keeps the generic reason; the modal's words in an agent's PROSE, with no menu drawn,
+     are not this modal. */
+  const OTHER = ' Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  assert.equal(classify(pane, OTHER).because, ASKING_GENERIC, 'an ordinary menu lost its generic reason');
+  /* Claude Code 2.1.287 also draws "Switch automatically" then "Ask each time" (a settings choice, vendor strings, not a
+     capture). Same first option, not a safeguards stop: it keeps the generic reason. */
+  const SETTING = ' How should model switches work?\n ❯ 1. Switch automatically\n   2. Ask each time\n';
+  assert.equal(classify(pane, SETTING).because, ASKING_GENERIC, 'a menu whose second option is not "Stay on" was named a safeguards stop');
+  const PROSE = '● The modal offers "1. Switch automatically" and "2. Stay on Opus 5.5"; I picked neither.\n\n> ready\n';
+  assert.notEqual(classify(pane, PROSE).state, STATE.NEEDS_YOU, 'the modal\'s words in prose read as the modal');
+});
+
 test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limited, not idle', () => {
   /**
    * 🛑 VERBATIM FROM THREE CAPPED PANES, 2026-10-02 09:55 CDT (donnie, irma,
