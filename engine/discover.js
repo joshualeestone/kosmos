@@ -1655,7 +1655,7 @@ function folderHolders({ store }) {
     try { p = JSON.parse(fs.readFileSync(path.join(store.PROFILES, f), 'utf8')); } catch { p = null; }
     /* Review 5: a relative recorded dir is not where anybody lives (create.usableRecordedDir rejects it too). */
     if (!p || typeof p.dir !== 'string' || !p.dir || !path.isAbsolute(p.dir)) continue;
-    holders.push({ key: f, canon: canonDir(p.dir), removed: stillThere.has(f),
+    holders.push({ key: f, canon: canonDir(p.dir), removed: stillThere.has(f), name: f.slice(0, -'.json'.length),
       other: (typeof p.displayName === 'string' && p.displayName.trim()) || f.slice(0, -'.json'.length) });
   }
   return { ok: true, holders };
@@ -1671,7 +1671,7 @@ function folderTakenBy(dir, name, { store }) {
   const self = name ? profileKey(name, { store }) : null;
   const want = canonDir(dir);
   const h = got.holders.find((x) => x.key !== self && x.canon === want);
-  if (h) return { ok: true, other: h.other, removed: h.removed };
+  if (h) return { ok: true, other: h.other, name: h.name, removed: h.removed };
   /* Review 6: a name whose OWN profile already records this folder is not asking for anybody else's, whatever the
      folder is called (a slug folder like icecreamkitty recorded by "ice-cream-kitty"). */
   if (self && got.holders.some((x) => x.key === self && x.canon === want)) return { ok: true, other: null };
@@ -1680,7 +1680,10 @@ function folderTakenBy(dir, name, { store }) {
   /* Review 6: compared by FILE key, not by spelling: Bobby and bobby are one agent on a case-folding volume.
      Review 7: a name with no key (safeKey empties it) is a different agent from the asker, never a throw. */
   if (home.name && (!self || profileKey(home.name, { store }) !== self)) {
-    return { ok: true, other: home.name, removed: home.removed, home: true };
+    /* Review 9: the person knows the agent by its display name, not its folder name. */
+    let shownAs = home.name;
+    try { shownAs = (require('./status').readIdentity(home.name) || {}).displayName || home.name; } catch { shownAs = home.name; }
+    return { ok: true, other: shownAs, name: home.name, removed: home.removed, home: true };
   }
   return { ok: true, other: null };
 }

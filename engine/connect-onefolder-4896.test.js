@@ -138,7 +138,7 @@ test('#4896 r3: restoring a removed agent is refused while another name holds it
     assert.equal(discover.connect(dir, { name: 'kit2' }).ok, true, 'fixture: the stopped removal did not free the folder');
     const back = remove.restore('kit1');
     assert.equal(back.outcome, remove.OUTCOME.REFUSED, JSON.stringify(back));
-    assert.match(back.because, /folder is now connected as Kit, and one folder holds one agent/);
+    assert.match(back.because, /folder is now connected as kit2, and one folder holds one agent\. Remove kit2 first to restore Kit\./);
   });
 });
 
@@ -186,8 +186,8 @@ test('#4896 r4: restore names a REMOVED holder that may still be running, and sa
   ], () => {
     const back = remove.restore('mo1');
     assert.equal(back.outcome, remove.OUTCOME.REFUSED, JSON.stringify(back));
-    assert.match(back.because, /was removed but may still be running there, and one folder holds one agent\. Stop Mo first/);
-    assert.doesNotMatch(back.because, /Remove Mo first/, 'it told the person to remove an agent that is already removed');
+    assert.match(back.because, /was removed but may still be running there, and one folder holds one agent\. Stop mo2 first to restore Mo\./);
+    assert.doesNotMatch(back.because, /Remove mo2 first/, 'it told the person to remove an agent that is already removed');
   });
 });
 
@@ -227,7 +227,7 @@ test('#4896 r5: an agent Kosmos CREATED (no recorded folder) holds its home; ano
   assert.equal(create.workerDir('alice5'), home, 'fixture: the created agent does not live in its default home');
   const b = discover.connect(home, { name: 'bob5' });
   assert.equal(b.ok, false, 'a second name was connected to a created agent\'s own folder');
-  assert.match(b.because, /that folder is alice5’s own folder in Kosmos, and one folder holds one agent/);
+  assert.match(b.because, /that folder is Alice’s own folder in Kosmos, and one folder holds one agent/);
   assert.notEqual(create.workerDir('bob5'), home);
   const own = discover.folderTakenBy(home, 'alice5', { store });
   assert.equal(own.other, null, 'CONTROL: the created agent\'s own name is not a second holder of its home');
@@ -311,6 +311,27 @@ test('#4896 r7: a REMOVED created agent\'s home names it as removed', () => {
     assert.equal(b.ok, false);
     assert.match(b.because, /that folder is gil7’s own folder in Kosmos \(an agent you removed\), and one folder holds one agent/);
   });
+});
+
+/* ---- review 9 ---- */
+test('#4896 r9: a restore refusal names the holder by its own agent name when it shows the same display name', () => {
+  const dir = folder('You are **Carl**, a buyer.\n');
+  assert.equal(discover.connect(dir, { name: 'carl9' }).ok, true);
+  withRemoved([{ name: 'carl9', removedAt: new Date().toISOString(), stopped: true }], () => {
+    const dan = discover.connect(dir, { name: 'dan9' });
+    assert.equal(dan.ok, true, dan.because);
+    assert.equal(dan.displayName, 'Carl', 'fixture: the second name does not read the same file');
+    const back = remove.restore('carl9');
+    assert.equal(back.outcome, remove.OUTCOME.REFUSED, JSON.stringify(back));
+    assert.match(back.because, /now connected as dan9, and one folder holds one agent\. Remove dan9 first to restore Carl\./);
+  });
+});
+
+test('#4896 r9: the created-home sentence names the agent as the board shows it', () => {
+  const home = createdAgent('eve9', 'editor');
+  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'You are **Eve**, an editor.\n');
+  const b = discover.connect(home, { name: 'frank9' });
+  assert.match(b.because, /that folder is Eve’s own folder in Kosmos/);
 });
 
 /* ---- review 8 ---- */

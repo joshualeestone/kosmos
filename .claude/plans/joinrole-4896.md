@@ -165,3 +165,16 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
 - folderHolders' comment said a stopped removal frees "its folder"; it frees its RECORDED folder, while a created
   agent's default home stays held (createdHomeOf). Comment corrected.
 - NITs: alreadyIn's two stacked comments merged, the stray blank line removed. The HELD_MEMO note still holds.
+
+## Review 9 (23:41 CDT), end to end through the real server routes: 2 SHOULD-FIX (both restore copy), 1 NIT
+- Measured: 154 test files that require discover/remove/create, each alone: 154 exit 0, 2916 pass, 0 fail.
+- SHOULD-FIX taken: the restore refusal named the holder by its display name, which is usually the restored agent's
+  own (the second name reads the same file): "Remove Carl first to restore Carl." The holder is now named by its own
+  agent name when its display name matches. My r3 and r4 tests had PINNED the bad sentence ("connected as Kit",
+  "Stop Mo first"); corrected to the agent names. New test: the reviewer's exact carl/dan sequence.
+- SHOULD-FIX, routed: the page drops every restore refusal's reason ("Restore failed. Try again."), older than this
+  branch. Filed as kosmos#4976 (claimed), not built here: a web change brings its own browser-check gate, and this
+  card is engine-only.
+- NIT taken: the created-home sentence names the agent as the board shows it (Eve, not eve).
+- Not taken: discover.js sentences use the curly apostrophe like their siblings in that file; remove.js uses straight
+  ones like its own siblings. Each matches its file.

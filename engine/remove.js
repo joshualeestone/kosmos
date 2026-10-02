@@ -1638,6 +1638,10 @@ function restoreInner(name, platform) {
       return { outcome: OUTCOME.REFUSED, because: `we could not check which agents use ${shown}'s folder, so we did not restore it. Try again in a moment.`, steps: [] };
     }
     if (taken.other) {
+      /* Review 9: a second name that took a freed folder reads the SAME instructions file, so its display name is
+         usually this agent's own ("Remove Carl first to restore Carl"). Then it is named by its own agent name. */
+      const same = String(taken.other).trim().toLowerCase() === String(shown).trim().toLowerCase();
+      taken = { ...taken, other: same && taken.name ? taken.name : taken.other };
       /* Review 4: when the holder is itself on the removed list (it may still be running there), "remove it first"
          would be a dead end: it is already removed. Say what is true instead. */
       return { outcome: OUTCOME.REFUSED, because: taken.removed
