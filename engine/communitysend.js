@@ -1223,7 +1223,8 @@ function pendingRetirements() {
     if (e && e.code === 'ENOENT') { retireUnreadable = false; return []; }
     return unreadableRetireDir(e);
   }
-  if (pendingCache.mtimeMs === mtimeMs && pendingCache.dir === retireDir()) { retireUnreadable = pendingCache.unreadable; return pendingCache.list; }
+  // Not cached while a request is unreadable: one repaired in place does not change the folder's mtime.
+  if (pendingCache.mtimeMs === mtimeMs && pendingCache.dir === retireDir() && !pendingCache.unreadable) { retireUnreadable = false; return pendingCache.list; }
   let names;
   try { names = fs.readdirSync(retireDir()); } catch (e) { return unreadableRetireDir(e); }
   reportedCorrupt.delete('retire-dir');   // readable again: a later outage is logged again
@@ -1342,10 +1343,14 @@ function retireIn(epDir, agentKey, at) {
   const live = keys[agentKey];
   const madeAt = live && (live.triedAt || live.registeredAt || (live.registering && live.registering.at));
   const newer = typeof madeAt === 'string' && madeAt > at;
-  // Merged on every apply, not copied once: while the live entry stays (a folder that could not be moved yet), what a
-  // pass changes on it (an install group sent, a token refreshed) must reach the retired entry too, and what a pass set
-  // only on the retired entry (a take-down read time) is kept.
-  if (live && !newer) { keys[to] = { ...(keys[to] || {}), ...live }; saveJson(kf, keys); }
+  // Refreshed on every apply, not copied once: while the live entry stays (a folder that could not be moved yet), what a
+  // pass changes on it (an install group sent or cleared, a token refreshed) must reach the retired entry too.
+  if (live && !newer) {
+    // The live entry wins, deletions included; only a take-down read time the retired copy got alone is kept.
+    const prev = keys[to] || {};
+    const next = { ...live, ...(prev.checkedAt && !live.checkedAt ? { checkedAt: prev.checkedAt } : {}) };
+    if (JSON.stringify(next) !== JSON.stringify(prev)) { keys[to] = next; saveJson(kf, keys); }   // saved only on a change
+  }
   let moved = false;
   const ofName = (item) => item && item.agent === agentKey && item.author && item.author.type === 'agent';
   // Both sides are toISOString() output (the store's nowISO, requestRetire), so the strings order as the times do.
@@ -1540,7 +1545,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };
   // #4994: the name was freed and its old account is not retired yet (a record could not be moved): it acts as nobody.
   // Applied at the start of this section, so a request still pending here is one a record kept from landing.
-  if (retiring(agentKey) && retireUnreadable) return local('Kosmos cannot read its list of retired community accounts, so no agent uses the community until that folder can be read');
+  if (retiring(agentKey) && retireUnreadable) return local('Kosmos cannot read its list of retired community accounts (the folder or a file in it), so no agent uses the community until that is fixed');
   if (retiring(agentKey)) return local('this agent\'s name belonged to a deleted agent whose community account Kosmos cannot retire yet, because one of the board\'s community records cannot be read or saved; this agent cannot use the community until that is fixed');
   const keys = loadJson(keysFile());
   if (!keys) return local('this board\'s community keys cannot be read, so it cannot act as the agent');
@@ -1694,7 +1699,7 @@ function willSend(agentKey, now = Date.now()) {
     || !loadJson(commentDeletesFile())) return no;   // #4801: unreadable, sweepComments sends nothing
   // #4994: while the name is held by a retirement, the key on file is the deleted agent's, not this one's: its refusal
   // and its comment cap say nothing about the new agent.
-  const k = agentKey && !retiring(agentKey) ? keys[agentKey] : null;
+  const k = agentKey && !retiringListed(agentKey) ? keys[agentKey] : null;   // an unreadable list holds, it does not erase
   if (k && k.refused) return no;
   if (!sinceForOnPeriod(st)) return no;
   // #4994: a retirement that already failed on this service holds the name until it is fixed. A "no" is permanent (the
@@ -1715,7 +1720,7 @@ function willSend(agentKey, now = Date.now()) {
 function postLater(agentKey, now = Date.now()) {
   const keys = loadJson(keysFile());
   // #4994: as willSend: while the name is held, the key on file is the deleted agent's, and its cap is not this one's.
-  const k = keys && agentKey && !retiring(agentKey) && keys[agentKey];
+  const k = keys && agentKey && !retiringListed(agentKey) && keys[agentKey];
   return Boolean(k && k.retryAt && Date.parse(k.retryAt) > now);
 }
 /**

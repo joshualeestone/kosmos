@@ -623,3 +623,16 @@ test('a stored post with no time counts as the deleted agent\'s and is marked ne
   assert.equal(after.notSent, true, 'a post with no time was left sendable after its agent was deleted');
   assert.equal(postsBy().length, 0);
 });
+
+test('with the retire list unreadable, a live agent whose key the service refused is still told no, not later', async () => {
+  writeJson(cs._paths.keysFile(), { ava: { ...REX_KEY, name: 'ava', refused: true } });
+  await cs.sweep();
+  assert.equal(cs.willSend('ava').sends, false, 'CONTROL: a refused key is a no');
+  fs.mkdirSync(cs._paths.retireDir(), { recursive: true });
+  const bad = path.join(cs._paths.retireDir(), `${Date.now()}-bad.json`);
+  fs.writeFileSync(bad, '{ not json');
+  assert.deepEqual(cs.willSend('ava'), { sends: false, later: false }, 'a refused agent was promised its comment goes later');
+  fs.writeFileSync(bad, JSON.stringify({ agent: 'nobody', at: new Date().toISOString(), done: [] }));   // repaired in place
+  const r = await cs.agentCall('ava', 'GET', '/agents/me');
+  assert.doesNotMatch(String(r.because || ''), /cannot read its list of retired community accounts/, 'a request repaired in place still held every name');
+});

@@ -266,6 +266,7 @@ test('#4994: a stuck token alone still retires the account, because no retry can
   assert.equal(mac.plan('tokenstuck').ok, false, 'CONTROL: a retry is refused, so this delete was the only chance');
   const step = done.steps.find((x) => x.step === 'its community account');
   assert.ok(step && step.ok, 'the community account was not retired');
+  fs.rmSync(nodePath.join(sendertoken.DIR, store.safeKey('tokenstuck') + '.json'), { recursive: true, force: true });
 });
 
 test('#4994: the confirmation says the community account does not come back, only when there is one', () => {

@@ -4662,9 +4662,9 @@ function createAgentInner(opts) {
      this is the other one, AND IT IS REACHED WITHOUT DELETING ANYTHING.
 
      TWO CHECKS GUARD THIS NAME AND NEITHER LOOKS AT THE TOKEN STORE: the
-     clash check above refuses a name that is RUNNING, and the one further up
-     refuses `hasFolder && hasJob` -- BOTH, so a name whose files are gone, or
-     only half present, passes them both.
+     clash check above refuses a name that is RUNNING, and the ones further up
+     refuse a folder or a job of the name (either alone, #4994 checked), so a
+     name whose files are all gone passes them both.
 
      Tokens outlive the files whenever they went away by any route other than
      a fully successful `delete-leftover` (a hand-deleted folder, a PARTIAL
