@@ -216,14 +216,28 @@ function clauseFor(projectId, shown, ids) {
     + shown + ' (' + named + '). Nothing is asked of you; read them with: kosmos room ' + projectId + ']';
 }
 
+/* #4926: telling a member about a held post is a WAKE (a typed line into an idle agent, which then answers it). A held
+   post that asks nothing of the member and has gone stale (stale(projectId, plainIds) -> Set of stale plain ids: the
+   caller decides, messages.staleHeld says older than HELD_TELL_MAX_MS or the room's loop guard has stopped it since) is
+   dropped rather than told: hours later, or after the room was stopped, it woke agents into one more short reply after
+   the person had asked for quiet. A held post that names the member and asks for an answer is always told. The post
+   itself is in the room either way (kosmos room shows it). Without `stale`, nothing is dropped. */
+function withoutStale(projectId, ids, stale) {
+  if (!ids.length || typeof stale !== 'function') return ids;
+  let gone;
+  try { gone = stale(projectId, ids.map(plainId)); } catch { return ids; }
+  if (!(gone instanceof Set) || !gone.size) return ids;
+  return ids.filter((x) => plainId(x) !== x || !gone.has(x));
+}
+
 /* The turn ended: tell the member, one line per project, about what was held. `deliver` is the board's
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
    COULD_NOT), so a pane that could not take it keeps it for the next arrival. Never throws. */
-async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env }) {
+async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
-    const ids = take(name, projectId);
+    const ids = withoutStale(projectId, take(name, projectId), stale);
     if (!ids.length) continue;
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
@@ -244,7 +258,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env }) {
    each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
    same gated path (a held verdict puts the ids back again). `isAgy` picks the cards; only they are retried here, so a
    #4624 hold for any other runner is exactly as before. Never throws. */
-async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver, shownOf, DELIVERY, env }) {
+async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
@@ -267,7 +281,7 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
          skipped. */
       const agyquota = require('./agyquota');
       if (agyquota.heldForQuota(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;
-      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env })) out.push({ name, ...d });
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }
   return out;
@@ -284,4 +298,4 @@ function toldLine(name, d, after = '') {
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
 }
 
-module.exports = { HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine };

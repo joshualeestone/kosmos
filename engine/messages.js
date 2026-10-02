@@ -971,6 +971,31 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
    (or nobody to deliver to) is placed; anything else is unconfirmed.
    #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
    the folded retry of one (it reports the first copy's outcomes). */
+/* #4926: which of a room's held post ids are too stale to wake a member about (roomhold.withoutStale): the post is older
+   than HELD_TELL_MAX_MS, or the room's loop guard stopped the conversation after it (a 'valve' row with stopped !== false
+   in that project, later than the post). An id not in the record yet (a post still being delivered) is not stale. */
+const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
+function staleHeld(projectId, ids, log, now) {
+  const out = new Set();
+  try {
+    const rows = Array.isArray(log) ? log : readLog();
+    const t = Number.isFinite(now) ? now : Date.now();
+    const want = new Set(ids);
+    let stoppedAt = 0;
+    for (const r of rows) {
+      if (!r || r.project !== projectId) continue;
+      if (r.kind === 'valve' && r.stopped !== false) { const v = Date.parse(r.at); if (Number.isFinite(v) && v > stoppedAt) stoppedAt = v; }
+    }
+    for (const r of rows) {
+      if (!r || r.kind !== 'post' || r.project !== projectId || !want.has(r.id)) continue;
+      const at = Date.parse(r.at);
+      if (!Number.isFinite(at)) continue;
+      if (t - at > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
+    }
+  } catch { /* nothing is dropped */ }
+  return out;
+}
+
 function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
   return states.every((v) => v === chat.DELIVERY.PLACED || v === roomhold.HELD) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
@@ -1974,7 +1999,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       : '';
     /* #4624: posts held for this member in this room while it was working ride on this arrival, as one
        line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
-    const heldIds = roomhold.take(name, projectId);
+    const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log));   // #4926
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     const finish = (sent) => {
       /* #4588 PR B: held on the shared Google quota, nothing typed. The post is kept for this member like a #4624
@@ -2014,6 +2039,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
+  };
+
+  /* #4926: a member whose typing path THREW (not one that answered could_not) is that member's outcome, not the post's.
+     It used to throw the whole post after every other member had been typed into and before the row was written: the
+     sender read "refused", posted again, and with no row the retry was not folded, so every other member got it twice.
+     A throw can come after the paste went in, so it is UNCONFIRMED ("may have reached"), never could_not: the post is
+     recorded, the sender is told not to re-post, and a retry folds into this row. */
+  const typingBroke = (name, err) => {
+    if (outcomes[name] === undefined) { outcomes[name] = chat.DELIVERY.UNCONFIRMED; reached += 1; }
+    try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.message) || err) + '); recorded as unconfirmed\n'); } catch { /* never breaks the post */ }
   };
 
   const finishDeliveries = () => {
@@ -2083,7 +2118,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        and what deliverOne shares (outcomes, spilled, the held posts) is keyed by the member's name. Each
        deliverOne's synchronous part still runs in turn, in the members' order.
        Every delivery is ALLOWED TO FINISH before the answer, so the person is never told "could not post"
-       while members are still being typed at; then the first failure is thrown, as the old loop threw it.
+       while members are still being typed at. A member whose typing threw is that member's unconfirmed outcome
+       (#4926, typingBroke above), so the post is recorded and the sender is never told it failed when it landed.
        One difference, on purpose: the old loop stopped at a failure, so the members after it were never
        tried; now they are.
        ⚠️ ONE MEMBER PER TURN OF THE EVENT LOOP. Each delivery's tmux calls are synchronous (execFileSync), so
@@ -2104,13 +2140,14 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
         runs.push(run);
       }
       const settled = await Promise.allSettled(runs);
-      const failed = settled.find((s) => s.status === 'rejected');
-      if (failed) throw failed.reason;
+      settled.forEach((s, i) => { if (s.status === 'rejected') typingBroke(recipients[i], s.reason); });
       return finishDeliveries();
     })();
     return operator === true ? pending : trackInFlight(postKey, pending);
   }
-  for (const name of recipients) deliverOne(name);
+  for (const name of recipients) {
+    try { deliverOne(name); } catch (err) { typingBroke(name, err); }
+  }
   return finishDeliveries();
 }
 
@@ -2738,6 +2775,7 @@ function projectOfPost(id) {
 }
 
 module.exports = {
+  staleHeld, HELD_TELL_MAX_MS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,
