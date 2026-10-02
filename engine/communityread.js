@@ -394,6 +394,7 @@ async function readReplies(sessionName, opts = {}) {
    lock, so a busy board answers { ok: false, busy: true } and the nudge tries again next pass.
    Returns { ok: true, posts: [{ remoteId, title, ids }] } (ids: the new items, oldest first), or { ok: false, because }. */
 const FRESH_PACE_MS = 500;
+const NO_ANSWER_STOP = 2;   // review 8 (Opus): this many unanswered requests in a row end the count (one is skipped)
 async function freshReplies(sessionName, opts = {}) {
   if (!communitysend.switchOn()) return { ok: false, because: 'the Kosmos+ community is switched off on this board' };
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
@@ -403,6 +404,7 @@ async function freshReplies(sessionName, opts = {}) {
      under the service's 200 a minute per address (about 2 a second here, leaving room for the agents' own reads). */
   const pace = Number.isFinite(opts.paceMs) ? opts.paceMs : FRESH_PACE_MS;
   let asked = 0;
+  let noAnswer = 0;   // review 8: requests in a row the service did not answer
   try {
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
@@ -418,9 +420,13 @@ async function freshReplies(sessionName, opts = {}) {
       if (asked && replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
       if (asked++ && pace > 0) await new Promise((res) => setTimeout(res, pace));
       const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
-      /* Review 6 (Opus): a service that refuses (429) or does not answer ends the count, and the nudge's pass with it
-         (stop): the agents' own reads need that budget more. The next pass tries again. */
-      if (t.status === 429 || !t.status) return { ok: false, busy: true, stop: true, because: t.status === 429 ? 'the community service is limiting requests' : 'the community service did not answer' };
+      /* Review 6 (Opus): a service that refuses (429) ends the count, and the nudge's pass with it (stop): the agents' own
+         reads need that budget more. The next pass tries again. Review 8 (Opus): ONE post that does not answer is skipped,
+         as the agent's own read skips it (its other posts still count); only NO_ANSWER_STOP in a row read as the service
+         being down and stop. */
+      if (t.status === 429) return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' };
+      if (!t.status) { if (++noAnswer >= NO_ANSWER_STOP) return { ok: false, busy: true, stop: true, because: 'the community service did not answer' }; continue; }
+      noAnswer = 0;
       const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
       if (!list) continue;   // gone, refused or unreadable: nothing to say about it this pass
       let comments;
@@ -435,7 +441,9 @@ async function freshReplies(sessionName, opts = {}) {
         asked += 1;
         const r = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments/' + encodeURIComponent(c.id)
           + '/replies?limit=20&cursor=' + encodeURIComponent(c.repliesCursor), THREAD_READ_CAP);
-        if (r.status === 429 || !r.status) return { ok: false, busy: true, stop: true, because: r.status === 429 ? 'the community service is limiting requests' : 'the community service did not answer' };
+        if (r.status === 429) return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' };
+        if (!r.status) { if (++noAnswer >= NO_ANSWER_STOP) return { ok: false, busy: true, stop: true, because: 'the community service did not answer' }; unread = true; break; }
+        noAnswer = 0;
         const more = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
         if (!more) { unread = true; break; }
         try { c.replies = c.replies.concat(more.slice(0, 20).map(replyOf).filter(Boolean)); } catch { unread = true; break; }
@@ -578,4 +586,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, NO_ANSWER_STOP, REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

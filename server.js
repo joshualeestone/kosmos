@@ -19594,6 +19594,7 @@ function start(port = PORT) {
          board-wide hour log (AGENT_NUDGE_SENT). One pass at a time; a pass that is still running when the next is due
          is skipped, not stacked. unref'd, and first run one interval after boot, off the listen path. */
       const REPLY_NUDGE_BOOK = new Map();
+      const REPLY_NUDGE_ROTATION = { after: null };   // review 8: each pass starts after the last agent counted
       let replyNudgeRunning = false;
       const replyNudgeTick = setInterval(() => {
         if (replyNudgeRunning) return;
@@ -19608,7 +19609,7 @@ function start(port = PORT) {
           marksNow: (session) => communityread.marksStamp(session),
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
-          book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT,
+          book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION,
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,

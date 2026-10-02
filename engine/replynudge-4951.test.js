@@ -155,7 +155,8 @@ test('#4951 server.js runs the pass on its interval, with the agent nudge\'s sha
   const call = src.slice(at, src.indexOf('replynudge.REPLY_NUDGE_INTERVAL_MS);', at));
   for (const [what, re] of [['the read', /fresh: \(session\) => communityread\.freshReplies\(session\)/], ['the shared hour log', /sent: AGENT_NUDGE_SENT/],
     ['the typing path', /chat\.deliverAutomatic\(session, text, r/], ['the live-execution gate', /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\)/],
-    ['the switch', /switchOn: \(\) => communitysend\.switchOn\(\)/], ['the board root store', /replynudge\.readNudged\(store\.ROOT, session\)/]]) {
+    ['the switch', /switchOn: \(\) => communitysend\.switchOn\(\)/], ['the board root store', /replynudge\.readNudged\(store\.ROOT, session\)/],
+    ['the rotation kept across passes (review 8)', /rotation: REPLY_NUDGE_ROTATION/]]) {
     assert.match(call, re, 'server.js does not pass ' + what);
   }
   assert.match(src, /if \(replyNudgeRunning\) return;/, 'a pass can stack on one still running');
@@ -386,4 +387,67 @@ test('#4951 review 7 (Sonnet): a told record that turns unreadable between the c
   assert.equal(reads, 2, 'fixture: the record was not read at both points');
   assert.equal(typed.length, 0, 'a line was typed with the told record unreadable');
   assert.ok(!r.results.some((x) => x.act === 'error'), 'the unreadable record reached plan() and threw');
+});
+
+test('#4951 review 8 (Opus): each pass starts after the last agent asked, so a pass that ends early does not starve the same agents', async () => {
+  const run = async (rotation) => {
+    const asked = [];
+    const typed = [];
+    const { o } = rig({ roster: [card('kim'), card('ann'), card('bo')], rotation,
+      fresh: async (s) => { asked.push(s); return s === 'ann' ? { ok: false, busy: true, stop: true, because: 'the community service did not answer' } : { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }; },
+      deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+    for (let i = 0; i < 3; i += 1) await rn.sweepOnce(o);
+    return { asked, typed };
+  };
+  const rot = { after: null };
+  const a = await run(rot);
+  assert.ok(a.typed.includes('bo'), 'an agent after one whose count stops the pass was never told: ' + JSON.stringify(a));
+  assert.deepEqual(a.asked.slice(0, 3), ['kim', 'ann', 'bo'], 'the second pass did not start after the last agent asked');
+  const b = await run(undefined);   // CONTROL: without a rotation, roster order every pass, and bo starves
+  assert.ok(!b.asked.includes('bo'), 'control: bo was reached without a rotation, so this test cannot see starvation');
+});
+
+test('#4951 review 8 (Opus): a quota hold or a busy pane at typing time is said once per change of state, not every pass', async () => {
+  const said = [];
+  const { o, typed } = rig({ log: (r) => said.push(r.act) });
+  const answers = [{ held: true }, { held: true }, { busy: true }, { busy: true }, { held: true }];
+  o.deliver = (s, text) => { const a = answers.shift(); if (a) return { state: D.COULD_NOT, ...a }; typed.push(text); return { state: D.PLACED }; };
+  for (let i = 0; i < 6; i += 1) await rn.sweepOnce(o);
+  assert.deepEqual(said, ['quota-held', 'pane-busy', 'quota-held', 'nudge'], 'not one line per change of state');
+  assert.equal(typed.length, 1);
+});
+
+test('#4951 review 8 (Opus): the lines are spaced by typeGapMs (between two lines, not before the first)', async () => {
+  const gaps = [];
+  const realSetTimeout = global.setTimeout;
+  const { o, typed } = rig({ roster: [card('kim'), card('ann'), card('bo')], typeGapMs: 13,
+    fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }) });
+  global.setTimeout = (fn, ms, ...a) => { if (ms === 13) gaps.push(ms); return realSetTimeout(fn, 0, ...a); };
+  try { await rn.sweepOnce(o); } finally { global.setTimeout = realSetTimeout; }
+  assert.equal(typed.length, 3);
+  assert.equal(gaps.length, 2, 'the lines were not spaced: ' + gaps.length);
+});
+
+test('#4951 review 8 (Opus): ids held in memory (store unwritable) take no cap slot at count time; a later agent is still read and told', async () => {
+  const typed = [];
+  let annHas = [];
+  const { o } = rig({ roster: [card('kim'), card('ann')], limit: { on: true, perHour: 2 }, writeNudged: () => false, readNudged: () => new Set(),
+    fresh: async (s) => ({ ok: true, posts: s === 'kim' ? [{ remoteId: P1, title: 't', ids: ['r-kim'] }] : (annHas.length ? [{ remoteId: P2, title: 't', ids: annHas }] : []) }),
+    deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+  await rn.sweepOnce(o);   // kim told; the store cannot be written, so r-kim is held in memory; one slot of two used
+  annHas = ['r-ann'];
+  await rn.sweepOnce(o);   // kim's r-kim is still unread: held in memory, it must take no slot, so ann is read
+  assert.deepEqual(typed, ['kim', 'ann'], 'a reply held in memory took the last cap slot at count time');
+});
+
+test('#4951 review 8 (Opus): the hour log ages out during the count too, so a slot freed mid-pass is used', async () => {
+  const t0 = Date.now();
+  let calls = 0;
+  const typed = [];
+  const { o } = rig({ roster: [card('kim'), card('ann')], limit: { on: true, perHour: 2 }, sent: [t0 - 60 * 60 * 1000 + 50],
+    clock: () => (calls++ === 0 ? t0 : t0 + 100),
+    fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }),
+    deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
+  await rn.sweepOnce(o);
+  assert.deepEqual(typed, ['kim', 'ann'], 'an hour-log entry that aged out during the count still held a slot');
 });

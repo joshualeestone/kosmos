@@ -146,8 +146,16 @@ async function sweepOnce(o) {
        this pass's lock. */
     const counted = [];
     let readOne = false;   // review 2: the gap follows EVERY read that ran, not only one that counted something
-    prune();
-    for (const card of o.roster) {
+    /* Review 8 (Opus): the pass starts AFTER the last agent asked last pass (o.rotation, kept by the caller), so a pass
+       that ends early (a refusing service, the hour cap) does not starve the same later agents every time, and an agent
+       whose posts end the count goes to the back. Without o.rotation, roster order. */
+    const rot = o.rotation && typeof o.rotation === 'object' ? o.rotation : null;
+    let order = o.roster;
+    if (rot && rot.after) {
+      const at = o.roster.findIndex((c) => c && c.sessionName === rot.after);
+      if (at >= 0) order = o.roster.slice(at + 1).concat(o.roster.slice(0, at + 1));
+    }
+    for (const card of order) {
       const session = card && card.sessionName;
       if (!session || !nudgeable(card)) continue;   // nothing is read for an agent that would not be nudged
       if (stoodDown(session, o.projects)) continue;
@@ -157,6 +165,7 @@ async function sweepOnce(o) {
         let q = false; try { q = o.quotaHeld(session, o.roster) === true; } catch { q = false; }   // review 6: the pass's roster, no new snapshot
         if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out' }); continue; }
       }
+      prune();   // review 8: the hour's log ages out during a long pass too
       if (sent.length + counted.length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
       try {
         // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
@@ -181,6 +190,7 @@ async function sweepOnce(o) {
           if (wait > 0) await new Promise((res) => setTimeout(res, wait));
           fresh = await o.fresh(session);
         }
+        if (rot) rot.after = session;   // review 8: it was asked; the next pass starts after it
         if (fresh && fresh.busy) {
           results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because });
           if (fresh.stop) break;
@@ -235,9 +245,15 @@ async function sweepOnce(o) {
         typedOne = true;
         try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); paneBusy = Boolean(r && r.busy === true); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
-        if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because }); continue; }
-        // Review 7 (Sonnet): a pane still placing another message is busy, not unreachable: no try is counted (as held).
-        if (paneBusy) { results.push({ session, name: display, act: 'pane-busy', delivered: false, delivery: state, because: p.because }); continue; }
+        /* Review 7 (Sonnet): a pane still placing another message is busy, not unreachable: no try is counted (as held).
+           Review 8 (Opus): either is said once per change of state (as skipSaid), so it is on record without a line every pass. */
+        if (held || paneBusy) {
+          const act = held ? 'quota-held' : 'pane-busy';
+          results.push({ session, name: display, act, delivered: false, delivery: state, because: p.because });
+          const m = book.get(session) || {};
+          if (m.waitSaid !== act) { say({ name: display, session, act, delivered: false, delivery: state, because: p.because }); book.set(session, { ...m, waitSaid: act }); }
+          continue;
+        }
         const D = o.DELIVERY || {};
         const delivered = D.PLACED != null && state === D.PLACED;
         const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
