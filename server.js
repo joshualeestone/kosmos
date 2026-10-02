@@ -16030,8 +16030,9 @@ const server = http.createServer(async (req, res) => {
       }
       for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
     }
-    /* Every record with the id, merged (review 3): a registry holding an id twice must not check one record's tasks
-       against the other's members (the same rule as the token read above). */
+    /* Every record with the id, as a UNION (review 3): a registry holding an id twice must not check one record's
+       tasks against only the other's members. A union errs toward keeping a question red (an agent on either record
+       counts), never toward hiding one. (Not the token read's rule above, which requires EVERY record, for a refusal.) */
     const membersOf = new Map();
     for (const x of everyProject || []) {
       if (!x || !x.id) continue;
@@ -16480,6 +16481,10 @@ const server = http.createServer(async (req, res) => {
     // the project had actually been removed. The person was told their removal
     // failed for a removal that happened.
     let gone;
+    /* #5034 review 5: remove() drops EVERY record with this id but answers with the first, so the members to clean up
+       after are read from all of them first. */
+    let everyMember = [];
+    try { everyMember = [...new Set(projects.readAll().filter((p) => p && p.id === id).flatMap((p) => p.agents || []))]; } catch { everyMember = []; }
     try {
       gone = projects.remove(id);
       /* #3311: its seat and its link go with it NOW. Project ids are name slugs
@@ -16500,7 +16505,7 @@ const server = http.createServer(async (req, res) => {
        posts held for them there go with it, or a later project of the same id inherits both. Here, before the tell
        below awaits (review 2): a project of the same name made and joined during the tell must not lose ITS
        question or posts to this cleanup. */
-    for (const a of (gone.agents || [])) clearLeftovers(a, gone.id, 'the project ' + (gone.name || gone.id) + ' was removed');
+    for (const a of new Set([...everyMember, ...(gone.agents || [])])) clearLeftovers(a, gone.id, 'the project ' + (gone.name || gone.id) + ' was removed');
     // The members are re-told AFTER the project is gone, so the block in their
     // instructions stops naming a project that no longer exists.
     let told = [];

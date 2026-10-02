@@ -163,11 +163,16 @@ test('#5034 a repeat leave (not a member) touches nothing and says nothing about
 });
 
 test('#5034 engine: waitingOnPerson with no members is unchanged; with members it leaves out a departed holder', () => {
-  const task = { projectId: 'px', parts: [{ who: 'gone', closedAt: null }] };
-  const roster = [{ sessionName: 'gone', isNamedOurs: true, state: 'needs_you', stateProject: 'px' }];
-  assert.equal(tasks.waitingOnPerson(task, roster), true, 'control: the old rule counts the holder');
-  assert.equal(tasks.waitingOnPerson(task, roster, ['gone']), true, 'a current member still counts');
-  assert.equal(tasks.waitingOnPerson(task, roster, ['someone else']), false);
+  /* Real cards from the fleet fixture (review 5: fixture-discipline forbids a hand-built roster row); the card's
+     stateProject comes from the real self-report. */
+  const task = { projectId: 'px-5034', parts: [{ who: 'gone5034', closedAt: null }] };
+  assert.equal(selfreport.record('gone5034', { state: 'needs_you', project: 'px-5034', because: 'a question' }).recorded, true);
+  const board = fleet.install([fleet.agent('gone5034', { state: 'needs_you' })]);
+  try {
+    assert.equal(tasks.waitingOnPerson(task, board.agents), true, 'control: the old rule counts the holder');
+    assert.equal(tasks.waitingOnPerson(task, board.agents, ['gone5034']), true, 'a current member still counts');
+    assert.equal(tasks.waitingOnPerson(task, board.agents, ['someone else']), false);
+  } finally { board.restore(); }
 });
 
 test('#5034 a question that only INHERITED the project from an earlier report is not cleared (review 1)', async () => {
@@ -258,5 +263,24 @@ test('#5034 FORGERY GUARD: an agent cannot end its own carried project by postin
   } finally {
     messages.setRunner(null);
     board.restore();
+  }
+});
+
+test('#5034 removing a project stored twice cleans up the members of EVERY record with its id (review 5)', async () => {
+  const p = project('Twice stored');
+  projects.addAgent(p.id, 'firstrec', null);
+  const stored = projects.readAll();
+  const rec = stored.find((x) => x.id === p.id);
+  projects.writeAll([...stored, { ...rec, agents: ['secondrec'], tasks: [] }]);
+  assert.equal(projects.readAll().filter((x) => x.id === p.id).length, 2, 'fixture: the id is not stored twice');
+  for (const a of ['firstrec', 'secondrec']) {
+    assert.equal(selfreport.record(a, { state: 'needs_you', project: p.id, because: 'about ' + p.id }).recorded, true);
+    assert.equal(roomhold.hold(a, p.id, 'm-' + a), true);
+  }
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(p.id)}`, { method: 'DELETE', headers: SCREEN });
+  assert.equal(res.status, 200, await res.text().catch(() => ''));
+  for (const a of ['firstrec', 'secondrec']) {
+    assert.equal(selfreport.read(a).state, 'idle', a + ' kept its question about the removed project');
+    assert.deepEqual(roomhold.heldIn(a, p.id), [], a + ' kept its held posts there');
   }
 });
