@@ -933,29 +933,33 @@ _busy_person_hint() {
 # loop. An agent that passes --force or clears its markers gets through, and so does one launched before
 # #4466 with none of the markers. Never rely on it as a security boundary.
 # kosmos#2600: a board launched DIRECTLY (the nohup path below) runs in the security session of whatever started it,
-# and a remote (SSH) session cannot use the login Keychain. `claude auth status` there answers loggedIn:false, so the
-# board calls EVERY Claude account "Anthropic says this account is not signed in" while the same account is signed in
-# on the Mac itself (measured on Mortals 2026-09-30, three arms; cost 14 hours on 09-29). A SUPERVISED start is not
-# affected: it asks launchd to start the login job in the person's desktop session, so this is called only on the
-# direct path, just before it launches.
-# The signal is the question itself, asked read-only: `security show-keychain-info` on the login keychain. Measured
-# 2026-10-02: from SSH it fails ("User interaction is not allowed", rc 36); in the agents' tmux server and in a desktop
-# session it answers (rc 0). It never raises a dialog. Rejected: the SSH variables (tmux copies them into windows of a
-# session that CAN read the Keychain) and `launchctl managername` (it says Background in all three contexts).
-# Advice, never a refusal: a board that is up and wrong beats one that is down. KOSMOS_UNAME and
-# KOSMOS_KEYCHAIN_PROBE let a test stand in for macOS and for the probe.
+# and a remote (SSH) session normally cannot use the login Keychain. `claude auth status` there answers
+# loggedIn:false, so the board shows Claude accounts that keep their sign-in in the Keychain as not signed in while
+# they are signed in on the Mac itself (measured on Mortals 2026-09-30, three arms; cost 14 hours on 09-29). A
+# SUPERVISED start is not affected: launchd starts the login job in the person's desktop session. So this is called
+# only on the direct path, just before it launches.
+# The signal is the question itself, asked read-only of the DEFAULT keychain (the one `claude` reads):
+# `security show-keychain-info`. Measured 2026-10-02 (keychain UNLOCKED in the desktop arms): over SSH it fails with
+# "User interaction is not allowed", rc 36; in the agents' tmux server and in a desktop session it answers, rc 0; a
+# missing keychain is rc 50. Only rc 36 gives the note: any other failure is not this cause, and a wrong note sends a
+# person to fix something that is not broken. A LOCKED keychain in a desktop session was not measured and might put up
+# a password dialog, so the probe is cut at 3 s and a cut probe says nothing.
+# Rejected: the SSH variables (tmux copies them into windows of a session that CAN read the Keychain) and
+# `launchctl managername` (it says Background in all three contexts). Advice, never a refusal: a board that is up and
+# wrong beats one that is down. KOSMOS_NO_KEYCHAIN_NOTE=1 silences it (the installer: the board it starts on the
+# direct path is handed to launchd a few steps later, so the note would be wrong). KOSMOS_UNAME and
+# KOSMOS_SECURITY_BIN let a test stand in for macOS and for `security`.
 keychain_note() {
+  [ -n "${KOSMOS_NO_KEYCHAIN_NOTE:-}" ] && return 0
   [ "${KOSMOS_UNAME:-$(uname -s 2>/dev/null)}" = Darwin ] || return 0
-  if [ -n "${KOSMOS_KEYCHAIN_PROBE:-}" ]; then
-    "$KOSMOS_KEYCHAIN_PROBE" >/dev/null 2>&1 && return 0
-  else
-    command -v security >/dev/null 2>&1 || return 0
-    security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 && return 0
-  fi
+  local _sec="${KOSMOS_SECURITY_BIN:-security}" _rc=0
+  command -v "$_sec" >/dev/null 2>&1 || return 0
+  /usr/bin/perl -e 'alarm 3; exec @ARGV' "$_sec" show-keychain-info >/dev/null 2>&1 || _rc=$?
+  [ "$_rc" = 36 ] || return 0
   if _invoked_by_agent; then
-    say "Note: this Kosmos is starting in a session that cannot read this Mac's Keychain, so it will show the Claude accounts as not signed in even when they are. Tell the person who runs this computer: running \`kosmos restart\` in Terminal on the Mac itself fixes it."
+    say "Note: this Kosmos is starting in a session that cannot read this Mac's Keychain, so it may show Claude accounts that are signed in on this Mac as not signed in. Tell the person who runs this computer: running \`kosmos restart\` in Terminal on the Mac itself fixes it."
   else
-    say "Note: this Kosmos is starting in a session that cannot read this Mac's Keychain (a remote SSH session is the usual reason), so it will show your Claude accounts as not signed in even when they are. To fix that, run \`kosmos restart\` in Terminal on the Mac itself."
+    say "Note: this Kosmos is starting in a session that cannot read this Mac's Keychain (a remote SSH session is the usual reason), so it may show Claude accounts that are signed in on this Mac as not signed in. To fix that, run \`kosmos restart\` in Terminal on the Mac itself."
   fi
   return 0
 }
