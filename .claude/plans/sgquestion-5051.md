@@ -36,9 +36,15 @@ above option 1) still returns the region, possibly starting mid-question.
 - Round 1 (opus, blind): 0 BLOCKER, 2 SHOULD-FIX + 1 follow-up, all taken. SF1: the "below any marker" guard could only make the region
   worse (a non-numbered marker under the menu started it mid-menu); removed, BELOW arm. SF2: "no buttons" rested on the captured layout;
   optionsIn now refuses the menu, BARE arm (assumed compact layout). Follow-up taken here rather than filed: a stale BUTTON press landing on
-  the menu went through (no menu parsed, no 409) and would press "Switch automatically"; server.js now refuses it, test in
+  the menu went through (no menu parsed, no 409) and would press "Switch automatically" [CORRECTED round 2: only for a client that still
+  sends `chose`; no in-tree client has since #3419, so the guard is defense in depth for stale or API clients]; server.js now refuses it, test in
   server.projects.test.js with a typed-answer control. NITs: the 10-row fallback is untested (a pane narrow enough to need more than 16
   rows above option 1, reasoned not measured); the PROSE control exercises the base's live-menu rule, not this change (kept as a control).
   Measured 13:46, each red by name: optionsIn refusal off -> BARE; the below guard back -> BELOW; server guard off -> the stale press was
   PLACED. chat + status + pane-states 381/381; server 5051 + the existing button test 2/2.
-- Round 2: PENDING.
+- Round 2 (sonnet, blind): 0 BLOCKER, 0 SHOULD-FIX. CONVERGED (13:50). No in-tree client sends `chose` (removed #3419), so every page, phone,
+  notification and `kosmos reply` path sends bare text, which goes through as a typed answer by design; the server guard covers stale/API
+  clients. optionsIn's two callers (server.js offering and checking buttons) are consistent with the refusal. NITs recorded, not taken: the
+  guard is skipped when the card is not needs_you or `chose` carries a control character (both then count as typed, no worse than typing 1);
+  an OLD menu above a later non-numbered question starts the region far above it (question still included, reasoned not observed); the
+  10-row fallback and the exact title regex are unpinned (mutants survive, both fail safe).
