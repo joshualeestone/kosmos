@@ -70,3 +70,12 @@ visit to the list (importAddsNewVisit at each new populate generation), so a pag
 legitimate re-add. Each nameless field's accessible name carries its file ("Name, <file>"); the visual sameness
 is recorded above as a premise. Typing clears the old reason with the invalid mark. Enter in a first-run adopt
 field adds its row. Unit 21/21; 7 more sabotages red.
+
+## Review 4 (opus, blind, 2026-10-01 23:15): 1 blocker, 1 warning, 3 nits, all taken
+Blocker (in MY browser check, written in review 1 and never run since): N1 looked the helper up with
+getElementById(aria-describedby), which holds two ids since review 1, so N1 could never pass. It now checks the
+`-help` id is among them and reads it by id. The check has still not run (queued as bc-4962): its first run is
+its first proof. Warning: importNameEnter ignores an input method's Enter (keyCode 229, which WebKit can send with
+isComposing false) and a modified Enter (as PLUS_ENTER_GO). Nits: the adopt-field Enter also covers the board's
+disk-scan and found panels (stated); an added row's disabled name is not carried into a fresh field on the next
+visit; the "not about the name clears an earlier invalid mark" branch is tested. Unit 24/24; 4 more sabotages red.
