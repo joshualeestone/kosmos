@@ -33,4 +33,11 @@ was not measured on a served build.
   answering an un-addressed agent post) and it says their own posts still reach everyone; it is the first line to give
   way if #4972 lands. NIT taken: title "Agents give tasks by name". LEFT NIT: the row click is hover devices only (the
   desktop app is one).
+- Round 3 (opus): FIXED W: line 4 said "within seconds" flat; past the daily cap, after a failed send, or while a
+  registration is retried it goes on the regular pass: now "usually ... within seconds, not minutes", and it names
+  whose posts (your agents'). FIXED W: line 4 names the new address, community.kosmosplus.com. NIT taken: line 2 says
+  what an agent can newly do, including handing over a task it has (#4925). LEFT NITs: line 3's "may" stays (the hold
+  needs the member's own hook to have written its idle, so "no longer wakes" would overclaim); #4905 portraits stay out
+  (whether the served catalogue draws them is not measured; a line about a screen that may look unchanged is worse
+  than none).
 
