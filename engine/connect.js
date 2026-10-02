@@ -301,10 +301,12 @@ function writeState(next) {
      arm, and flowDir only speaks for the pre-claim and teardown writes
      (their setters re-aim it at the owning flow's dir first). */
   const dirNow = driver ? (driver.configDir || null) : flowDir;
+  const wasConnected = !!mem && mem.phase === PHASE.CONNECTED;
   mem = { ...next, configDir: dirNow, pid: process.pid, updatedAt: new Date().toISOString() };
   /* #5018: a sign-in that completes moves the login's date; the login-expiry notice and the Settings date are
-     read again on the next poll instead of after their caches run out (which looked stuck until a restart). */
-  if (next && next.phase === PHASE.CONNECTED) { try { loginexpiry.loginChanged(); } catch { /* never breaks the flow */ } }
+     read again on the next poll instead of after their caches run out (which looked stuck until a restart).
+     Only on the move INTO connected, so a caller that re-writes connected cannot defeat both caches. */
+  if (next && next.phase === PHASE.CONNECTED && !wasConnected) { try { loginexpiry.loginChanged(); } catch { /* never breaks the flow */ } }
   try {
     fs.mkdirSync(path.dirname(STATE_FILE()), { recursive: true });
     const tmp = `${STATE_FILE()}.${process.pid}.new`;

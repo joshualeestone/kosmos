@@ -1157,7 +1157,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    120px at 1440 through 440, then the header WRAPS -- 138px at 420, 154px
    at 400 -- so one value padded from one width put focus 22px under the
    bar at 400. */
-html { scroll-padding-top: 132px; }
+html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: plus the floating notices, see below */
   /* 🔑 RESERVE THE SCROLLBAR GUTTER SO THE LAYOUT DOES NOT MOVE (kosmos#1309).
      Josh, on 0.5.97: "when I hit Connections or This Computer, it is a slightly
      wider design and kicks the page over ... because the content scrolls off the
@@ -1177,27 +1177,20 @@ html { scroll-padding-top: 132px; }
      treats the symptom and the next Settings row that overflows brings it back. */
   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
   /* (The wide agent Talk view is exempted from this gutter, and wide headers are padded to match: see the #3497 block.) */
-/* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
-   case; the comment above says per width, and the notice changed the
-   heights): desktop stays 128 tall so 132 still clears; between 441 and
-   720 the notice wraps onto its own row (157 measured at 600); at 440 and
-   below the header wraps further (179 measured at 375). Padded to clear
-   the with-notice height; without a notice the rescue lands a little low,
-   which is harmless in the direction the guard cares about. */
-@media (max-width: 720px) { html { scroll-padding-top: 165px; } }
-@media (max-width: 440px) { html { scroll-padding-top: 187px; } }
+/* Measured 2026-08-17 with the then-inline update notice present: desktop 128, 157 at 600, 179 at 375. Since #5018
+   the notices float below the header instead, so these values now clear the header with room to spare, and
+   --topnotes-h (the floating stack's height, kept by topnotesTrack) adds whatever notices are showing, so a focused
+   element never lands under one. A little low without a notice is harmless in the direction the guard cares about. */
+@media (max-width: 720px) { html { scroll-padding-top: calc(165px + var(--topnotes-h, 0px)); } }
+@media (max-width: 440px) { html { scroll-padding-top: calc(187px + var(--topnotes-h, 0px)); } }
 /* ⚠️ THE UPDATE NOTICE, ported from the frozen pack. The decisions it
    carries are the pack's, recorded there and not re-opened here: RED
    (Josh's call, twice, wanting it unmissable), and #b3261e specifically
    (the app's one attention red; a second red would be permanent drift).
-   PLACEMENT superseded 2026-08-17 (Josh; pack 2e4e100): it sits IN THE
-   FLOW of the header's left group beside the mark. The old absolute float
-   -- whose own comment called absolute "the requirement" -- carried a
-   measured offset and a history of covering the agent-status stamp; in
-   the flow it cannot overlap anything, the row's x-positions are pinned
-   unshifted by the toast drive, and the header growing ~8px taller while
-   a notice waits is the accepted trade (the pack's mobile note blessed
-   exactly that direction). The Install button is gold (#e3b341, the
+   PLACEMENT: since #5018 it floats with the other notices (.topnotes, below).
+   HISTORY: 2026-08-17 (Josh; pack 2e4e100) to #5018 it sat in the flow of the
+   header's left group beside the mark, because an older absolute float had
+   covered the agent-status stamp. The Install button is gold (#e3b341, the
    pack's --gold-bright): gold is the primary ACTION colour, and an
    all-red notice would read as an error rather than something waiting. */
 .utoast {
@@ -21017,10 +21010,20 @@ function paintLoginAdvisories(advs) {
     // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
     // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
     const next = slot.querySelector('.ux')
-      || ['.apphead .klink', '.kplus-bar-menu', '#h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+      || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
     if (next) next.focus();
   }));
 }
+/* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
+   notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
+(function topnotesTrack() {
+  if (typeof document === 'undefined' || typeof ResizeObserver !== 'function') return;
+  const stack = document.getElementById('topnotes');
+  if (!stack) return;
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--topnotes-h', Math.ceil(stack.getBoundingClientRect().height) + 'px');
+  }).observe(stack);
+})();
 /* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
    the notice for this page's life, and it comes back on reload. */
 const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';

@@ -181,7 +181,7 @@ const CASES = [
       chk(top.underIsContent, '5018: CONTROL: page content sits under the notice (' + where + ')', JSON.stringify(top));
       chk(top.onTop, '5018: the notice is on top of the page (' + where + ')', JSON.stringify(top));
     }
-    if (true) {   // back to the tab view for the X arms below
+    {   // back to the tab view for the X arms below
       await pg.unroute('**/api/style').catch(() => {});
       await pg.reload({ waitUntil: 'networkidle' });
       if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
