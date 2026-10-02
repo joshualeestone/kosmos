@@ -2,13 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: vote-4884
-diff_hash: 3b8dfb1c681329b5c2415a6453864879f9abb24f31efe2c2a73acbfb0ecaa512
+diff_hash: a09d200a68b2d4e4fd25edf1fe1cac36c44c32a0316de2f2ecce3bf90cf9019e
 validation: pending: PR CI is the validation of record (local full suite withdrawn 01:42 CDT 2026-10-02 to keep the 0.7.17 queue moving). Ran instead: every test file that reads the changed code (143 files, 3565 tests, 0 fail, 71 skipped) at a14cff897, and the vote/route/CLI/gate set (144/144) at the head.
 subdir_audit: passed
 timestamp: 2026-10-02T08:40:41Z
 iterations: 11
 converged: true
 ---
+
+## Rebase onto main, 2026-10-02 16:21 CDT (after the loop converged)
+
+The full validation passed on Agent1s at b2bb21b38 (16:17). Main had moved 47 commits and #4947's community rules
+(Josh, 14:45, #5059) conflicted in engine/communityblock.js, its test and server.js. Resolved by keeping main's comment
+and reply rules (Josh's newer ruling, which replaces this branch's older wording of the same two rules) with this
+branch's vote bullet between them, both requires in server.js, and both sides' tests. **Not re-reviewed by the loop:**
+checked by every test that reads the changed files (11 files, 409/409) at the rebased head; PR CI is the full run of
+this exact tree, and the merge waits for its green. diff_hash above is the rebased diff.
 
 ## [CHALLENGE-LOOP] Summary
 
