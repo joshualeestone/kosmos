@@ -36972,6 +36972,7 @@ document.addEventListener('keydown', (e) => {
   if (!e.metaKey && !e.ctrlKey && !e.altKey) DSEC_KEYBOARD = true;
 }, true);
 document.addEventListener('keyup', () => { setTimeout(() => { DSEC_KEYBOARD = false; }, 0); }, true);
+window.addEventListener('blur', () => { DSEC_KEYBOARD = false; });   // a keyup that leaves with the window never arrives
 
 document.addEventListener('pointerdown', () => {
   DSEC_KEYBOARD = false;

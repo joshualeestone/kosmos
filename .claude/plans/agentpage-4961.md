@@ -14,7 +14,8 @@ drew round the 16px-radius card (Josh's screenshot, 2026-10-01 22:17).
 - web/index.html CSS: `.dsec:focus { outline: none; }` and `.dsec.kbd-landed:focus { <the #350 ring> }`.
 - One flag, `DSEC_KEYBOARD`, declared above detailGo, set while a key press is under way: a
   capture-phase `keydown` without a modifier sets it, and the task after its `keyup` clears it (Enter
-  activates a button on keydown, Space on keyup); a capture-phase `pointerdown` clears it and removes
+  activates a button on keydown, Space on keyup), and a window `blur` clears it (a keyup that leaves with
+  the window never arrives); a capture-phase `pointerdown` clears it and removes
   `kbd-landed` from every section. detailGo and settingsGo clear `kbd-landed` from their panel's sections and set it on the
   target only when DSEC_KEYBOARD is set, before focusing it. No handler or source pin changes. Every
   route into a section goes through those two functions (reasoned from the code); only the nav pills
@@ -27,16 +28,17 @@ drew round the 16px-radius card (Josh's screenshot, 2026-10-01 22:17).
   are forced on the section via CDP (the Mac app's WebKit behaviour), and it must draw no outline.
   Enter and Space arms both expect the ring. Then: keyboard-land on AI Settings, Tab inside, click the
   Model heading: no kbd-landed, no outline (forced too on chromium); and a scripted .click() on a pill
-  lands without the ring after that pointer press and after typing in the message box. Run-count
+  lands without the ring after that pointer press, after typing in the message box, and after a key
+  held down as the window lost focus. Run-count
   guard ran=60, forced=10, outlived=4.
 
 ## Evidence
 - On the branch base (check copied into a detached worktree, re-measured after the last arm was
   added): 16 FAIL. The 10 forced click arms, the 2 forced outlive arms (chromium), and the 4
   scripted-click-after-typing arms (both engines). The keyboard ring arms pass there (the #350 ring).
-- With the change: 153 PASS lines, rc 0.
+- With the change: 157 PASS lines, rc 0.
 - Controls, each measured red in exactly its arms: pointerdown keeping the class (outlive arms); a
-  ring regardless of input (click, forced and scripted arms); no keyup clear (after-typing arms); a
+  ring regardless of input (click, forced and scripted arms); no keyup clear (after-typing arms); no window-blur clear (held-key arms); a
   synchronous keyup clear (Space arms).
 - node --test browser-checks-*.test.js web.*.test.js tools.browser-checks-*.test.js: 2344 pass, 0 fail.
   The rest of the suite is left to CI and the full validation at convergence.

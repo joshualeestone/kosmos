@@ -21,8 +21,8 @@
  * Then the ring must not outlive the press: land on AI Settings from the keyboard, Tab inside, then
  * click the Model section's own heading (focus returns to the section): the kbd-landed class is gone,
  * no outline, and on chromium none with :focus-visible forced either. And a scripted .click() on a
- * pill lands without the ring both after that pointer press and after typing in the message box (a
- * key press that has ended is not a keyboard landing).
+ * pill lands without the ring after that pointer press, after typing in the message box (a key press
+ * that has ended is not a keyboard landing), and after a key held down as the window lost focus.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-dsec-ring-4961.js
  */
@@ -176,6 +176,16 @@ const PAGES = [
             await page.waitForTimeout(150);
             const typed = await readFocus(page);
             chk(typed.sec === 'model' && !ring(typed), `${tag}: a scripted .click() on a pill after typing lands without the ring`, JSON.stringify(typed));
+            /* A key held down when the window loses focus never sends its keyup here. */
+            await page.locator('#d-nav button[data-go="talk"]').click();
+            await page.locator('#d-say').click();
+            await page.keyboard.down('a');
+            await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+            await page.evaluate(() => document.querySelector('#d-nav button[data-go="profile"]').click());
+            await page.waitForTimeout(150);
+            const held = await readFocus(page);
+            await page.keyboard.up('a');
+            chk(held.sec === 'profile' && !ring(held), `${tag}: a key held as the window lost focus does not ring a later scripted .click()`, JSON.stringify(held));
             outlived += 1;
           }
           chk(errs.length === 0, `[${theme}] ${engineName}: no page errors`, errs.join(' | '));
