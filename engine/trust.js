@@ -775,7 +775,7 @@ function dropRecordInner(name) {
  * @param {string|null} configDir the ACCOUNT's config dir (null = this process's own).
  * @returns {{ok:true, already:boolean, target:string, displaced:*, madeFile:boolean}
  *          | {ok:false, because:string}}
- *          (already: both keys were in place and nothing was written; displaced: the prior BYPASS_KEY value)
+ *          (already: bypass true and the switch key present, any value; nothing written. displaced: the prior BYPASS_KEY value)
  */
 // #3088: serialise the settings read-modify-write on the SETTINGS file (a separate
 // lock from the config's). preacceptBypass runs on every relaunch alongside

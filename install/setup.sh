@@ -2163,9 +2163,10 @@ KOSMOS_SWEEP_LIST
     printf '  ~/.claude/settings.json (agents skip per-action permission prompts).\n'
     printf '  Delete that line there if you want the question back.\n\n'
   fi
-  # #5039: the same rule for the model-switch setting Kosmos writes beside it. The value, as above.
+  # #5039: the same rule for the model-switch setting Kosmos's agents write beside it (the person may also have set
+  # it with "Switch automatically"; an uninstaller cannot tell). The value, as above.
   if [ -f "$HOME/.claude/settings.json" ] && grep -Eq '"switchModelsOnFlag": *true' "$HOME/.claude/settings.json" 2>/dev/null; then
-    printf '  One setting was left in place: switchModelsOnFlag in ~/.claude/settings.json\n'
+    printf '  A setting was left in place: switchModelsOnFlag in ~/.claude/settings.json\n'
     printf '  (Claude switches to another model when Opus safeguards flag a message).\n'
     printf '  Set it to false there if you want to be asked instead.\n\n'
   fi

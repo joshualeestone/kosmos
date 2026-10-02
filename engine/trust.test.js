@@ -768,6 +768,16 @@ test('#5039: an explicit switchModelsOnFlag false is the person\'s choice and is
   assert.equal(sRead(d)[SWITCH_KEY], false);
 });
 
+test('#5039: a false bypass and an explicit false switch: bypass flips, the switch false is kept', () => {
+  const d = acctDir();
+  fs.writeFileSync(sPath(d), JSON.stringify({ [BYPASS_KEY]: false, [SWITCH_KEY]: false }));
+  const r = preacceptBypass(d);
+  assert.equal(r.ok, true);
+  assert.equal(r.already, false);
+  assert.equal(r.displaced, false);
+  assert.deepEqual(sRead(d), { [BYPASS_KEY]: true, [SWITCH_KEY]: false });
+});
+
 test('#5039: SWITCH_KEY is spelled switchModelsOnFlag (measured in a real settings.json; this pins the spelling only)', () => {
   assert.equal(SWITCH_KEY, 'switchModelsOnFlag');
 });

@@ -22,6 +22,9 @@ Only the write side is measured (above). Done on the card = an agent seen contin
 The only lasting opt-out is an explicit false (a deleted key is written again at the next launch); the uninstall
 notice names the key and says so.
 
+Follow-up (not in this fast fix): nothing tells the operator at write time that their own Claude Code now switches
+when flagged; only the uninstall notice names it. Recorded on #5039 for the needs-you / Settings work.
+
 Weakest premise: a default-account agent's target is the operator's own ~/.claude/settings.json, so the operator's
 own Claude Code sessions also switch automatically from then on. That is the same scope the bypass key already takes
 there. Rejected: a separate writer with its own call sites (three call sites to keep in step).
