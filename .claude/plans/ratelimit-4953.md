@@ -40,6 +40,11 @@ costs requests but never claims a false cap. The fake backends pin both shapes.
 - Comment only: each retry after a pause is counted by the service's limiter (bounded); willSend's `later` reads
   only the daily cap, so a comment held by the short pause is told "a coming pass", true within 10 minutes.
 
+## Review 5
+- Tests: a limiter 429 on a comment holds the same agent's post for the minute (the one-pause design); an
+  unreadable 429 on a comment writes no commentRetryAt and is held to 10 minutes. The stale "held for the whole
+  file" test comment removed (resetPauses clears it per test).
+
 ## Checks
 - Review 1: the comment test now sweeps inside the minute and asserts nothing is sent (control: removing the comment
   pause fails it); the comment no longer says a route reads retryAt (only willSend reads commentRetryAt on main;

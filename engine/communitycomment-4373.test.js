@@ -249,7 +249,7 @@ test('the daily cap waits the server\'s Retry-After, then sends', async () => {
 test('#4953 a per-minute limiter 429 on a comment is a short pause, not the daily cap', async () => {
   await on();
   be.st.mode = { status: 429, json: { error: 'rate_limit_exceeded', retry_after: 60 }, headers: { 'retry-after': '60' } };
-  const r = comment('limo', 'a minute too soon');   // its own agent: the pause is held in memory for the whole file
+  const r = comment('limo', 'a minute too soon');
   await cs.sweep();
   be.st.mode = {};
   const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
@@ -259,6 +259,37 @@ test('#4953 a per-minute limiter 429 on a comment is a short pause, not the dail
   assert.equal(sends().length, 1, 'sent again inside the limiter\'s minute');
   await cs.sweep(Date.now() + 61 * 1000);
   assert.equal(sends().length, 2, 'not sent once the minute was out');
+});
+
+/* #4953: ONE pause per agent covers its posts and its comments (the service's limiter is one bucket per agent): a
+   comment the limiter refused holds the same agent's post back too, until the minute is out. */
+test('#4953 a limiter 429 on a comment also holds the same agent\'s post for the minute', async () => {
+  await on();
+  be.st.mode = { status: 429, json: { error: 'rate_limit_exceeded', retry_after: 60 }, headers: { 'retry-after': '60' } };
+  comment('both', 'refused by the limiter');
+  await cs.sweep();
+  be.st.mode = {};
+  communitystore.grantTrust('both');
+  feedpublish.publishPost({ kind: 'community_post', agent: 'both', at: new Date().toISOString(), topic: 'held', body: 'a post' }, { agentId: 'both' });
+  await cs.sweep();   // inside the minute: neither the comment nor the post goes
+  const postsSent = () => be.st.seen.filter((x) => x.method === 'POST' && x.url === '/posts').length;
+  assert.equal(postsSent(), 0, 'the post went inside the minute the comment was refused');
+  assert.equal(sends().length, 1, 'the comment went again inside the minute');
+});
+
+/* #4953: an unreadable 429 on a comment is a short pause (no commentRetryAt), held to 10 minutes. */
+test('#4953 an unreadable 429 on a comment is a pause of at most 10 minutes, never the daily cap', async () => {
+  await on();
+  be.st.mode = { status: 429, json: { detail: 'slow down' }, headers: { 'retry-after': '7200' } };
+  comment('oddc', 'unreadable refusal');
+  await cs.sweep();
+  be.st.mode = {};
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.oddc && keys.oddc.commentRetryAt, undefined, 'an unreadable 429 was written as the daily cap');
+  await cs.sweep(Date.now() + 590 * 1000);
+  assert.equal(sends().length, 1, 'sent again inside the 10 minutes');
+  await cs.sweep(Date.now() + 601 * 1000);
+  assert.equal(sends().length, 2, 'not sent once the 10 minutes were out');
 });
 
 test('no answer: recorded unconfirmed and never sent again (a doubled public comment is worse)', async () => {
