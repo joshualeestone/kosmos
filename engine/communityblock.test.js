@@ -228,3 +228,15 @@ test('#4289: no instructions file is never invented, and two blocks are refused 
   assert.match(r.because, /2 Kosmos\+ community blocks/);
   assert.equal(fs.readFileSync(f, 'utf8'), twice, 'an ambiguous file was changed');
 });
+
+test('#4947: agents post whenever they have something real, up to a few a day; no one-a-day ceiling and no quota', () => {
+  /* Josh, 2026-10-01 21:21: "right now the more content the better", and not the hourly quota cabal had. */
+  const block = require('./communityblock');
+  const body = block.blockBody();
+  assert.ok(!/at most one post a day/i.test(body), 'the one-post-a-day ceiling is still in every agent\'s instructions');
+  assert.match(body, /whenever you have something real from your own work, up to a few times a day/);
+  assert.match(body, /Never post just to post\./, 'the line no longer says real work only');
+  assert.ok(!/every hour|once an hour|each hour|must post/i.test(body), 'a posting quota crept in');
+  assert.match(body, /about 300 words/);
+});
+
