@@ -386,7 +386,8 @@ jobs:
         # #4119: the fixed allowlist PLUS the checks the selection step named, deduplicated. The
         # driver's never-ran guard covers both: a named check that did not run reds the job.
         # #4601: ROUTED, never dropped. A name in tools/bc-macos-only.txt runs in the macOS job below
-        # (route step, written before any check runs, so a red here cannot lose the macOS set); the rest run here.
+        # (route step, written before any check runs, so a red CHECK here cannot lose the macOS set; a step that
+        # fails before route also skips them, and this job is red then); the rest run here.
         run: |
           echo "running on Linux: ${KOSMOS_BC_LINUX_SET}"
           echo "routed to the macOS job: ${KOSMOS_BC_MAC_SET:-nothing}"

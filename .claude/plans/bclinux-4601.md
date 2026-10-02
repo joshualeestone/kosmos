@@ -70,3 +70,11 @@ CONVENTION left: the macOS job starts after the whole Linux job (a parallel rout
 ~28% that route something; a design trade, recorded).
 NITs taken: stale "run step" comments; the page-gate comment moved back above the checks step.
 Mutants: always() restored, the paths entry removed, and a card stripped from one entry each fail their pin.
+
+### Iteration 4 (sonnet, blind): 0 blockers, 0 warnings. CONVERGED.
+Verified: word splitting of the folded allowlist under set -eu; prefix-safe membership; no pipefail trap; the empty
+Linux-set guard; each name runs on exactly one side; the never-ran guard covers both; !cancelled() gating; outputs
+survive a red Linux job; the font heredoc; no em dashes.
+NIT taken: the route-step comment now says a step failing before route also skips the macOS set (job red then).
+Left: the date in bc-macos-only.txt is right (checked with date); the comma-splitting note; the 60-minute macOS
+timeout (headroom for the queue).
