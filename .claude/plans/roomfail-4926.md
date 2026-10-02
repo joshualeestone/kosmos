@@ -159,3 +159,10 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
 - NIT (kept): a backward clock step (NTP) together with a failing disk keeps entries longer and can fold a repeat after
   the room spoke; needs both at once.
 - Related files: 274/274.
+
+## Merge of main (04:05 CDT 10-02), a837f3079, and its review
+- main's #4993 (#4888) and #4967 (#4934) changed engine/messages.js; the merge conflicted in resetForTests and beside IN_FLIGHT_SENDS. Both sides kept (unrecordedTwin closed before #4888's ID_HIGH / mintId). One comment corrected: #4888's ID_HIGH stops id reuse only while the board runs.
+- 65 related test files (every test naming engine/messages or engine/roomhold, incl. #4888's and engine/messages.test.js), 1812/1812, on the merged tree.
+- Blind review (Sonnet, SOURCE-ONLY): 0 BLOCKER, 0 WARNING. It confirmed the post path's id comes only from mintId, before any await; retry folding never keys on ids; staleHeld treats an unrecorded id as not stale; the comment is true. NITs kept: the comment is one long line (cosmetic); an unrecorded post's held id can collide with a new id after a restart (needs a failed log write AND a restart; already named in the comment; persisting ID_HIGH is out of scope).
+- Needs a new full validation (a hand-resolved merge is not path C). Rides 0.7.18.
+
