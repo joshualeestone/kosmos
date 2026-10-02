@@ -318,11 +318,9 @@ async function paintRoom(page) {
           window.__poll = []; const tick = () => { const st = menu(); const last = window.__poll[window.__poll.length - 1]; if (!last || last[1] !== st) window.__poll.push([Math.round(performance.now() - t0), st, document.activeElement && (document.activeElement.id || document.activeElement.tagName), document.visibilityState, document.hasFocus()]); window.__polls = (window.__polls || 0) + 1; if (window.__polls < 400) setTimeout(tick, 25); }; tick(); });
         await page.mouse.click(word.x, word.y, { button: 'right' });
         await page.waitForTimeout(150);
-        await page.waitForTimeout(900);
         console.log('PROBE-4601 events ' + JSON.stringify(await page.evaluate(() => window.__ev)));
         console.log('PROBE-4601 menu   ' + JSON.stringify(await page.evaluate(() => window.__poll)));
         console.log('PROBE-4601 after  ' + JSON.stringify(await page.evaluate(() => window.__sc.slice(-6))));
-        await page.waitForTimeout(3000);
         console.log('PROBE-4601 later  ' + JSON.stringify(await page.evaluate(() => ({ sc: window.__sc.slice(-8), menu: (document.getElementById('msg-menu') || {}).hidden, cw: document.documentElement.clientWidth, iw: innerWidth }))));
         const r12a = await page.evaluate(() => ({ open: !!document.getElementById('msg-menu') && !document.getElementById('msg-menu').hidden,
           sel: String(getSelection()) }));
