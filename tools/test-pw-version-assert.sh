@@ -15,6 +15,9 @@ GATE="$REPO/tools/browser-checks.sh"
 # four cases would spuriously fail. Ignore the cut-guard here -- we drive a fake
 # runtime and never launch a browser, so there is nothing to contend with.
 export KOSMOS_HARNESS_IGNORE_CUT=1
+# #1398: the gate also waits on a foreign machine claim (a cut, or a queued-heavy turn) before the assert.
+# Same reasoning as above: this drives a fake runtime and launches nothing, so it ignores the claim too.
+export KOSMOS_IGNORE_MACHINE_CLAIM=1
 # Read the pin from committed HEAD, mirroring how the gate reads it: on a branch
 # the gate freezes to HEAD (browser-checks.sh #758) BEFORE reading
 # tools/provision-pw.sh, so it compares against the COMMITTED pin. Reading the

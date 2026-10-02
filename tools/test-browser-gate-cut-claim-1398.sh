@@ -1,86 +1,71 @@
 #!/bin/bash
-# kosmos#1398: the browser GATE must refuse to start while a cut holds the machine.
+# kosmos#1398: the browser GATE waits (and with KOSMOS_NO_WAIT=1 refuses) while a FOREIGN machine claim
+# is live, so a gate started during a release cut can no longer make the cut's own page layer refuse it.
 #
-# The cut guard was one-directional -- a CUT refuses to start into a running gate,
-# but a GATE started mid-cut had nothing to stop it, and killing that gate killed
-# the cut with it (three cuts, ~90 min). The fix mirrors run-tests.sh's
-# kosmos_refuse_if_machine_claimed consult into tools/browser-checks.sh. That
-# mechanism is the self-exclusion-SAFE one: the cut's OWN 3b inherits the exported
-# claim cookie (kosmos_claim_machine) and runs; only a live, FOREIGN claim refuses.
-# (kosmos_refuse_if_cut_live would have been WRONG here -- it keys on the cut's
-# run-marker, which the gate does not carry, so it would make the cut refuse its own
-# page layer. The function's own directions are covered by test-machine-claim-1962.sh;
-# this test covers the WIRING into the gate.)
+# 🛑 THIS TEST NEVER BOOTS A GATE. Every arm runs tools/browser-checks.sh SYNCHRONOUSLY with no
+# Playwright findable (KOSMOS_PW_RUNTIME_DIR at an empty dir, KOSMOS_PW_NODE_PATH empty) and
+# KOSMOS_SKIP_BROWSER_CHECKS=1, so the gate either stops at the claim guard or reaches the clean
+# "BROWSER CHECKS SKIPPED" exit right after it, the seam tools/test-runner-reexec-1818.sh uses. The first
+# version of this test started the real gate in the background for 5 s and killed it; the kill reached
+# the subshell, not the gate, and a real page layer ran on for minutes (2026-10-02 00:38, blind review
+# 1). No `&`, no sleep, no kill here.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-# #2271-style isolation: point the marker dir at an empty temp dir so a real cut's
-# claim on the shared box can never leak in and red this test.
-export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$T/markers"
+export HOME="$T/home"; mkdir -p "$HOME"
+export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$T/markers"   # no real cut's claim can leak in
+mkdir -p "$T/nopw"
+# Nothing inherited may change the outcome: an exported override would turn the refusal arm into a run.
+unset KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_MACHINE_CLAIM_COOKIE KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 now()  { date +%s 2>/dev/null || echo 0; }
+claim() { printf '%s %s %s %s %s\n' "$1" "$$" "$(( $(now) + 600 ))" "somehost" "release 9.9.9" > "$T/markers/machine-claim"; }
+# KOSMOS_HARNESS_IGNORE_CUT=1 skips the SIBLING browser-run guard, so only the claim guard decides.
+gate() { ( cd "$REPO" && env KOSMOS_HARNESS_IGNORE_CUT=1 KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$T/nopw" KOSMOS_PW_NODE_PATH= KOSMOS_NO_WAIT=1 "$@" bash tools/browser-checks.sh 2>&1 ); }
+SKIPPED='BROWSER CHECKS SKIPPED'
 
-# ---- ARM 1 (behavioral, the #1398 direction): a live FOREIGN claim makes the GATE
-# refuse, and refuse EARLY, before it boots a board or Playwright. --------------
-# KOSMOS_HARNESS_IGNORE_CUT=1 skips the SIBLING browser-run guard so only the
-# machine-claim guard under test decides the outcome -- deterministic on a busy box,
-# with no dependence on some other browser run's pid. Red-capable: without the wiring
-# in browser-checks.sh the gate never calls the guard, never refuses, and this fails.
-printf '%s %s %s %s %s\n' "foreign-cookie-1398" "$$" "$(( $(now) + 600 ))" "somehost" "release 9.9.9" > "$T/markers/machine-claim"
-out="$(cd "$REPO" && KOSMOS_HARNESS_IGNORE_CUT=1 bash tools/browser-checks.sh 2>&1)"; rc=$?
-case "$out" in
-  *"reserved for a release"*)
-    if [ "$rc" -ne 0 ]; then pass "a live FOREIGN claim makes the gate REFUSE (the #1398 unguarded direction)"
-    else fail "the gate printed the claim message but exited 0 (rc=$rc)"; fi ;;
-  *) fail "the gate did NOT refuse under a foreign claim (rc=$rc): $(printf '%s' "$out" | head -1)" ;;
-esac
-case "$out" in
-  *boot_board*|*Playwright*|*"=== render-"*) fail "the gate BOOTED before refusing -- the claim guard is too late in the file" ;;
-  *) pass "and it refuses BEFORE booting a board (the guard is early)" ;;
-esac
+# ARM 1: a live FOREIGN claim stops the gate at the guard, with exit 75 (did not run), before the skip exit.
+claim "foreign-cookie-1398"
+out="$(gate)"; rc=$?
+case "$out" in *"reserved for a release"*) pass "a live FOREIGN claim stops the gate (says the box is reserved)" ;;
+  *) fail "the gate did NOT stop under a foreign claim (rc=$rc): $(printf '%s' "$out" | head -2 | tr '\n' ' ')" ;; esac
+[ "$rc" = 75 ] && pass "and exits 75 (did not run), not 1 (a check failed)" || fail "exit was $rc, not 75"
+case "$out" in *"$SKIPPED"*) fail "it went PAST the guard to the skip exit under a foreign claim" ;;
+  *) pass "and stops before anything after the guard" ;; esac
 
-# ---- ARM 2 (behavioral): with the claim GONE, the gate must NOT refuse -- a guard
-# that has only ever seen a claimed box has not been tested (#1398). --------------
-# We only need to prove it passed the claim guard, not run the whole (heavy) gate,
-# so bound it: start it, give it a moment to clear the early guards, and assert no
-# refuse message appeared. A quiet browser probe keeps the sibling guard quiet too.
+# ARM 2: no claim -> the gate passes the guard: it must REACH the skip exit (a positive marker printed only
+# after the guard), not merely fail to print a refusal.
 rm -f "$T/markers/machine-claim"
-printf '#!/bin/sh\nexit 1\n' > "$T/probe-quiet"; chmod +x "$T/probe-quiet"
-( cd "$REPO" && KOSMOS_BC_PROBE="$T/probe-quiet" bash tools/browser-checks.sh > "$T/out2.log" 2>&1 ) &
-bpid=$!; sleep 5; kill "$bpid" 2>/dev/null; pkill -P "$bpid" 2>/dev/null; wait "$bpid" 2>/dev/null
-if grep -qi "reserved for a release" "$T/out2.log" 2>/dev/null; then
-  fail "the gate FALSELY refused with no claim present"
-else
-  pass "with no claim, the gate does NOT refuse (proceeds past the claim guard)"
-fi
+out="$(gate)"; rc=$?
+case "$out" in *"$SKIPPED"*) pass "with no claim the gate gets past the guard (reaches the skip exit)" ;;
+  *) fail "with no claim the gate did not reach the skip exit (rc=$rc): $(printf '%s' "$out" | tail -2 | tr '\n' ' ')" ;; esac
 
-# ---- ARM 3 (static, self-exclusion safety): the guard is wired via the cookie-safe
-# function and sits BEFORE the board boot. The cut's OWN 3b self-excludes via the
-# exported cookie (proven at the function level by test-machine-claim-1962.sh); this
-# asserts the gate uses THAT function, not the run-marker one that would self-refuse.
-BC="$REPO/tools/browser-checks.sh"
-if grep -q 'kosmos_refuse_if_machine_claimed "this page layer"' "$BC"; then
-  pass "browser-checks.sh consults the machine claim (cookie-safe, mirrors run-tests.sh)"
-else
-  fail "browser-checks.sh does not call kosmos_refuse_if_machine_claimed"
-fi
-# Match a CALL (line-start invocation), not a mention: the file's own comment
-# explains why it does NOT use this function, and a bare substring grep would match
-# that prose (the use-vs-mention trap, bulletin a-string-search-cannot-tell-use-from-mention).
-if grep -qE '^[[:space:]]*kosmos_refuse_if_cut_live' "$BC"; then
-  fail "browser-checks.sh CALLS kosmos_refuse_if_cut_live -- that self-refuses the cut's own 3b; use the claim guard"
-else
-  pass "and does NOT call the run-marker guard that would self-refuse the cut's own page layer"
-fi
-guard_line="$(grep -n 'kosmos_refuse_if_machine_claimed' "$BC" | head -1 | cut -d: -f1)"
-boot_line="$(grep -n 'freeze against a concurrent merge' "$BC" | head -1 | cut -d: -f1)"
-if [ -n "$guard_line" ] && [ -n "$boot_line" ] && [ "$guard_line" -lt "$boot_line" ]; then
-  pass "the claim guard is positioned before the freeze/boot region"
-else
-  fail "the claim guard is not clearly before the boot region (guard=$guard_line boot=$boot_line)"
-fi
+# ARM 3: the claim is THIS run's (its queue turn holds it and passed the cookie down) -> not stopped.
+claim "my-cookie-1398"
+out="$(gate KOSMOS_MACHINE_CLAIM_COOKIE=my-cookie-1398)"
+case "$out" in *"$SKIPPED"*) pass "a claim carrying this run's own cookie does not stop it" ;;
+  *) fail "the gate's own claim stopped it: $(printf '%s' "$out" | head -2 | tr '\n' ' ')" ;; esac
+
+# ARM 4: the cut's page layer carries KOSMOS_IGNORE_MACHINE_CLAIM=1 and is not stopped even by a FOREIGN
+# cookie (the claim file can be overwritten by an overlapping queued-heavy renewer mid-cut).
+claim "someone-elses-cookie"
+out="$(gate KOSMOS_IGNORE_MACHINE_CLAIM=1)"
+case "$out" in *"$SKIPPED"*) pass "KOSMOS_IGNORE_MACHINE_CLAIM=1 (what the cut passes) is never stopped" ;;
+  *) fail "the override did not get past the guard: $(printf '%s' "$out" | head -2 | tr '\n' ' ')" ;; esac
+
+# STATIC: release.sh's page-layer launches carry the override, and the gate calls the claim check before
+# the freeze. Matched on CALLS (line-start / the launch line), never on prose that mentions them.
+RS="$REPO/tools/release.sh"; BC="$REPO/tools/browser-checks.sh"
+launches="$(grep -c 'bash tools/browser-checks.sh' "$RS")"
+carrying="$(grep 'bash tools/browser-checks.sh' "$RS" | grep -c 'KOSMOS_IGNORE_MACHINE_CLAIM=1')"
+[ "$launches" -ge 1 ] && [ "$launches" = "$carrying" ] && pass "every release.sh page-layer launch ($launches) passes KOSMOS_IGNORE_MACHINE_CLAIM=1" \
+  || fail "release.sh launches the page layer $launches time(s), $carrying with the override"
+guard_line="$(grep -nE '^[[:space:]]*kosmos_wait_until_clear "this page layer" _bc_claim_clear' "$BC" | head -1 | cut -d: -f1)"
+freeze_line="$(grep -n '^# --- freeze against a concurrent merge' "$BC" | head -1 | cut -d: -f1)"
+[ -n "$guard_line" ] && [ -n "$freeze_line" ] && [ "$guard_line" -lt "$freeze_line" ] && pass "the claim wait is called before the freeze" \
+  || fail "the claim wait call is missing or after the freeze (call=$guard_line freeze=$freeze_line)"
 
 if [ "$fails" -eq 0 ]; then echo "test-browser-gate-cut-claim-1398: all arms passed"; else echo "test-browser-gate-cut-claim-1398: $fails failed"; exit 1; fi

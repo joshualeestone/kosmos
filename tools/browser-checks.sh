@@ -137,20 +137,27 @@ if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ] && [ -z "${KOSMOS_BC_FROZEN_RUNNER
   kosmos_refuse_if_browser_run_live "this page layer" || exit 1
 fi
 
-# #1398: the cut guard was one-directional -- a CUT refuses to start into a running
-# gate (kosmos_refuse_if_cut_live at release.sh's top), but a GATE started while a
-# cut was already running had nothing to stop it, and killing that gate killed the
-# cut with it (three cuts, ~90 min). Mirror the machine-claim consult run-tests.sh
-# already does (kosmos_refuse_if_machine_claimed), which is the self-exclusion-SAFE
-# direction here: the cut's OWN 3b inherits the exported claim cookie
-# (kosmos_claim_machine) and self-excludes, so a cut never refuses its own page
-# layer; only a live, unexpired, FOREIGN claim refuses. Deliberately NOT
-# kosmos_refuse_if_cut_live: that keys on the cut's run-marker, which THIS gate does
-# not carry, so it would make the cut's own 3b refuse itself. `command -v` guards a
-# lib that failed to load (fail-open, like run-tests.sh), and the escape hatch is the
-# same KOSMOS_IGNORE_MACHINE_CLAIM the claim guard uses everywhere else.
-if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
-  kosmos_refuse_if_machine_claimed "this page layer" || exit 1
+# #1398: a GATE started while a release holds the machine had nothing to stop it, so a gate started
+# during a cut's steps 1 to 3 made the cut's own step 3b refuse it later and abort (0.7.08's re-cut #1,
+# 2026-09-29). release.sh asks at its start only whether another CUT or an install harness is live
+# (kosmos_refuse_if_cut_live, kosmos_refuse_if_harness_live), not whether a gate is. So this gate now
+# consults the machine claim, as run-tests.sh does, and WAITS while a FOREIGN claim is live (every 30 s,
+# up to the lib's bound), refusing only at the bound or at once under KOSMOS_NO_WAIT=1. A refusal exits 75
+# ("did not run"), not 1 ("a check failed"), so no wrapper reads it as a red gate.
+# Who is NOT stopped by it: a cut's own page layer (release.sh passes KOSMOS_IGNORE_MACHINE_CLAIM=1 on
+# both 3b launches: the cut already owns the box, and the claim file can be briefly overwritten by an
+# overlapping queued-heavy renewer, so the cut must not depend on reading its own cookie back); a run
+# whose queue turn holds the claim (it carries the cookie: kosmos_refuse_if_machine_claimed self-excludes);
+# and an operator's KOSMOS_IGNORE_MACHINE_CLAIM=1. Any queued-heavy one-off also holds a claim ("release
+# (not a cut) ..."), so a hand-run gate waits for that too, which is the point: the box is reserved.
+# NOT a promise for the whole cut: the cut renews its claim only at step boundaries (30-minute window),
+# so a step longer than that can let it lapse, and a gate started then is not stopped.
+# The frozen-runner child consults again, on purpose: the parent passed moments ago, so a second wait is
+# almost always instant, and a claim taken in those seconds should stop the child too (the parent thaws).
+# `command -v` keeps a lib that failed to load fail-open, as in run-tests.sh.
+_bc_claim_clear() { kosmos_refuse_if_machine_claimed "this page layer"; }
+if command -v kosmos_wait_until_clear >/dev/null 2>&1 && command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
+  kosmos_wait_until_clear "this page layer" _bc_claim_clear || exit 75
 fi
 
 # --- freeze against a concurrent merge (#758) --------------------------------

@@ -836,7 +836,7 @@ if [ "$_cut_parallel" = 1 ]; then
   _suite_bg_pid=$!
   # The render checks, foreground at NORMAL priority: the SAME command, env
   # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
-  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?   # #1398: the cut owns the box; its page layer never waits on the claim
   # Reap the backgrounded suite; `|| _suite_exit=$?` captures its exit without
   # tripping errexit, exactly as the serial `( ... ) || _suite_exit=$?` does.
   wait "$_suite_bg_pid" || _suite_exit=$?
@@ -965,7 +965,7 @@ _page_exit=0
 # a seeded account, the same shape server.projects.test.js already uses, and then RUNNING
 # the page gate. Carded rather than done, and named here so the exclusion cannot be
 # mistaken for coverage.
-( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?   # #1398: the cut owns the box; its page layer never waits on the claim
 fi
 # #4160: QUARANTINED lines too, so a cut refused for a quarantine says so here.
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|^QUARANTINED|^quarantined|retried:|all page|every page check' "$_page_log" || true
