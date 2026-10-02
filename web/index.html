@@ -3946,7 +3946,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
 .sub-back[hidden] { display: none; }
 #panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
-#panel-tasks .tsk-head > #tsk-title { margin-right: auto; min-width: 0; overflow-wrap: anywhere; }
+/* .panel h2's 20px line-height was set for 15px text; at this title's 24px, wrapped lines would touch. A wrapped title
+   is now possible at any width (the row no longer moves it to the next line), so this holds everywhere. The row is
+   already the 34px button's height, so a one-line title does not make the head taller. */
+#panel-tasks .tsk-head > #tsk-title { margin-right: auto; min-width: 0; overflow-wrap: anywhere; line-height: 1.2; }
 #panel-tasks .tsk-head > #tsk-new { flex: none; }
 /* #5053, at phone width (Mona Lisa's design call): the chevron and the title share the first row, the title taking
    all the width it has left, and "+ New task" ALWAYS sits on its own row below, left-aligned with the title's text,
@@ -3955,9 +3958,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 @media (max-width: 40rem) {
   #panel-tasks .tsk-head { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 0; row-gap: 10px; align-items: start; }
   #panel-tasks .tsk-head > .sub-back { grid-column: 1; grid-row: 1; align-self: start; margin: 0 12px 0 0; }
-  /* .panel h2's 20px line-height was set for 15px text; at this title's 24px, wrapped lines would touch (a wrapped
-     title is the ordinary phone case now). Desktop keeps its one-line title and its height. */
-  #panel-tasks .tsk-head > #tsk-title { grid-column: 2; grid-row: 1; margin-right: 0; line-height: 1.2; }
+  #panel-tasks .tsk-head > #tsk-title { grid-column: 2; grid-row: 1; margin-right: 0; }
   #panel-tasks .tsk-head > #tsk-new { grid-column: 2; grid-row: 2; justify-self: start; }
 }
 #pj-docs-view .pjtitle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
