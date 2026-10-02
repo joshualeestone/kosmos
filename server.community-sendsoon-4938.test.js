@@ -109,6 +109,18 @@ test('#4938 a comment on a service post starts a send when it will send, and not
   assert.equal(on.status, 'published');
   assert.equal(on.sends, true, 'premise: with Community on it sends');
   assert.equal(soon, 1, 'a comment that will send did not start a send');
+  // Past the agent's daily comment cap the comment goes later, not on the next pass: nothing to send now.
+  const keysFile = communitysend._paths.keysFile();
+  const keys = fs.existsSync(keysFile) ? JSON.parse(fs.readFileSync(keysFile, 'utf8')) : {};
+  fs.mkdirSync(path.dirname(keysFile), { recursive: true });
+  fs.writeFileSync(keysFile, JSON.stringify({ ...keys, RouteAgent: { ...(keys.RouteAgent || {}), commentRetryAt: new Date(Date.now() + 3600e3).toISOString() } }));
+  try {
+    soon = 0;
+    const capped = await (await post('/api/community/service-comment', comment('Fridays too.'), tok)).json();
+    await settled();
+    assert.equal(capped.later, true, 'premise: past the cap it is told it goes later');
+    assert.equal(soon, 0, 'a comment that goes later started a pass now');
+  } finally { fs.writeFileSync(keysFile, JSON.stringify(keys)); }
   // CONTROL: Community off: the comment is marked never to send, so no pass.
   communityswitch.setOn(false);
   try {

@@ -27,6 +27,12 @@ A post appears on community.kosmosplus.com within seconds of `kosmos community p
   board whose first sweep has not run still opens the window; the window test now deletes the file outright
   instead of pre-writing {}, and passes.
 
+## Review 5
+- A service comment past the agent's daily comment cap (willSend.later) starts no pass: it goes later, not now.
+  Tested, with a control (dropping the check fails it).
+- The in-flight test marks the in-flight sweep done from a .then registered before sendSoon's, not from the
+  test's own continuation, so the premise check does not depend on how many ticks a sweep takes.
+
 ## Weakest premise (review 2's load warning: DECIDED, not changed)
 A trigger runs a FULL sweep (settle, deletes, take-downs, industry retries, comments), not a post-only pass.
 Bound: a trigger needs a publish, and publishes are capped at 10 per agent per hour on the board (the valve)

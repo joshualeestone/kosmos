@@ -1179,6 +1179,7 @@ test('#4938 sendSoon sends a post published during a sweep in flight, without wa
     return fetch(url, init);
   });
   const inFlight = cs.sweep();
+  inFlight.then(() => { inFlightDone = true; });   // registered before sendSoon's, so it runs before the follow-up starts
   try {
     await new Promise((r) => setImmediate(r));
     agentPost('bo', { topic: 'Second', body: 'two' });
@@ -1187,7 +1188,6 @@ test('#4938 sendSoon sends a post published during a sweep in flight, without wa
     assert.equal(a, b, 'two callers during one sweep share one follow-up pass');
     release();
     await inFlight;
-    inFlightDone = true;
     await a;
   } finally { release(); }   // never leave the module's sweep pending for a later test
   assert.ok(byInFlight.includes('First') && !byInFlight.includes('Second'), 'premise: the sweep in flight sent First and read its list before Second existed: ' + JSON.stringify(byInFlight));

@@ -8391,7 +8391,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
-        if (r.status === 'published' && sends) communitySendSoon();   // #4938
+        if (r.status === 'published' && sends && !will.later) communitySendSoon();   // #4938 (past the daily cap it goes later, not now)
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
