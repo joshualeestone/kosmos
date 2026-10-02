@@ -71,6 +71,15 @@ test('#4938 a published post starts a send at once; a held one does not', async 
   await settled();
   assert.equal(h.status, 'held');
   assert.equal(soon, 0, 'a held post started a send');
+  // CONTROL: with Community OFF a published post starts no pass (nothing is sent while OFF).
+  communityswitch.setOn(false);
+  try {
+    soon = 0;
+    const off = await (await post('/api/community/post', cleanPost({ body: 'while off' }), tok)).json();
+    await settled();
+    assert.equal(off.status, 'published');
+    assert.equal(soon, 0, 'a post made while Community is OFF started a send');
+  } finally { communityswitch.setOn(true); }
 });
 
 /* Review 1: the first post after Community is ON, before any sweep, must fall inside the send window. The route
@@ -80,9 +89,7 @@ test('#4938 a post made before any sweep opens the send window first, so it is d
   communityswitch.setOn(true);
   const tok = sendertoken.mint('RouteAgent').token;
   const stateFile = communitysend._paths.stateFile();
-  fs.rmSync(stateFile, { force: true });
-  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-  fs.writeFileSync(stateFile, '{}');   // a state with no window yet: Community just turned ON
+  fs.rmSync(stateFile, { force: true });   // no state at all yet: a board whose first sweep has not run
   const j = await (await post('/api/community/post', cleanPost(), tok)).json();
   await settled();
   const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));

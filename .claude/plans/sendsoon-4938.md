@@ -20,6 +20,13 @@ A post appears on community.kosmosplus.com within seconds of `kosmos community p
   already did. Sending at once exposed an old gap: a post made after Community turned ON but before any sweep
   stamped a time earlier than the window the send then opened, so it never went.
 
+## Review 3
+- communitySendSoon starts nothing while Community is OFF (switchOn() read at trigger time), so a post or
+  release while OFF costs no pass. Tested both ways.
+- Deferred, verified: "recordPeriodStart is false with no state file". loadJson returns {} on ENOENT, so a
+  board whose first sweep has not run still opens the window; the window test now deletes the file outright
+  instead of pre-writing {}, and passes.
+
 ## Weakest premise (review 2's load warning: DECIDED, not changed)
 A trigger runs a FULL sweep (settle, deletes, take-downs, industry retries, comments), not a post-only pass.
 Bound: a trigger needs a publish, and publishes are capped at 10 per agent per hour on the board (the valve)

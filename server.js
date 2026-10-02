@@ -915,7 +915,11 @@ const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISH
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
    as the retry. */
-function communitySendSoon() { setImmediate(() => { try { communitysend.sendSoon(); } catch { /* the timer retries */ } }); }
+function communitySendSoon() {
+  setImmediate(() => {
+    try { if (communitysend.switchOn()) communitysend.sendSoon(); } catch { /* the timer retries */ }   // OFF: nothing goes, so no pass
+  });
+}
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
