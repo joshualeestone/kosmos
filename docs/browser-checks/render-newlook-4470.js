@@ -441,6 +441,12 @@ async function projectsLook(page) {
     await page.hover('#pj-list.asgrid .pj-row:not(.attn)'); await page.waitForTimeout(200);
     out.hover = await page.evaluate(() => { const h = document.querySelector('#pj-list.asgrid .pj-row:not(.attn):hover'); return h ? getComputedStyle(h).borderTopColor : 'missed'; });
     await page.mouse.move(1, 1);
+    /* A card reached from the keyboard keeps a visible focus ring (the browser's own; nothing here removes it), since
+       at rest the plain card has no edge. A key press first, so the focus that follows counts as keyboard focus. */
+    await page.keyboard.press('Shift');
+    out.focus = await page.evaluate(() => { const c = document.querySelector('#pj-list.asgrid .pj-row:not(.attn)'); if (!c) return null;
+      c.focus(); const cs = getComputedStyle(c);
+      const v = { visible: c.matches(':focus-visible'), style: cs.outlineStyle, width: cs.outlineWidth }; c.blur(); return v; });
     /* The roadmap rows, read on the roadmap and compared with the look off by the caller; then back to the grid. */
     await page.evaluate(() => { const r = document.querySelector('#pj-list-view .vt[data-layout="roadmap"]'); if (r) r.click(); });
     await page.waitForTimeout(400);
@@ -1009,6 +1015,8 @@ const AGENTS_LOOK = `(() => {
         `${tag} Projects: the needs-you edge and the current view's gold are today's with the look on`, JSON.stringify({ on: [plOn.attn, plOn.seg], off: [plOff.attn, plOff.seg] }));
       chk(plOn.found && plOff.found && plOn.hover === plOff.hover && plOff.hover !== 'missed',
         `${tag} Projects: a card under the pointer shows today's hover border with the look on`, JSON.stringify({ on: plOn.hover, off: plOff.hover }));
+      chk(plOn.focus && plOn.focus.visible && plOn.focus.style !== 'none' && parseFloat(plOn.focus.width) > 0 && JSON.stringify(plOn.focus) === JSON.stringify(plOff.focus),
+        `${tag} Projects: a card reached from the keyboard shows a focus ring with the look on, as with it off`, JSON.stringify({ on: plOn.focus, off: plOff.focus }));
       chk(plOn.roadmap && plOff.roadmap && JSON.stringify(plOn.roadmap) === JSON.stringify(plOff.roadmap),
         `${tag} Projects: the roadmap rows are exactly today's with the look on (no border, same ring, corners and padding)`, JSON.stringify({ on: plOn.roadmap, off: plOff.roadmap }));
       /* The new look remaps the colour tokens (its surface and rule greys differ from today's), so the row's own
