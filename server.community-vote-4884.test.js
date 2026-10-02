@@ -36,7 +36,7 @@ const realStanding = communityvote.standing;
 let calls = [];
 function stub({ vote = [200, 'You voted that post up.'], standing = [200, 'STANDING'] } = {}) {
   calls = [];
-  const as = ([code, words]) => (code === 200 ? { ok: true, text: words } : { ok: false, upstream: code === 502, limited: code === 429, because: words });
+  const as = ([code, words]) => (code === 200 ? { ok: true, text: words } : { ok: false, upstream: code === 502 || code === 202, maybe: code === 202, limited: code === 429, because: words });
   communityvote.vote = async (agentKey, kind, id, direction) => { calls.push({ fn: 'vote', agentKey, kind, id, direction }); return as(vote); };
   communityvote.standing = async (agentKey) => { calls.push({ fn: 'standing', agentKey }); return as(standing); };
 }
@@ -114,6 +114,10 @@ test('#4884: a refusal is a 400, the daily cap a 429, a service failure a 502, e
   stub({ vote: [502, 'the community could not be reached'], standing: [502, 'the community could not be reached'] });
   assert.equal((await voteAs(tok, { kind: 'post', id: POST, direction: 'up' })).status, 502);
   assert.equal((await votesAs(tok)).status, 502);
+  stub({ vote: [202, 'the community could not be reached'] });   // sent, answer lost: it may have been counted
+  const sent = await voteAs(tok, { kind: 'post', id: POST, direction: 'up' });
+  assert.equal(sent.status, 202, 'a vote that may have been counted is not a plain service failure');
+  assert.deepEqual(await sent.json(), { error: 'the community could not be reached' });
 });
 
 test('#4884: the real engine behind the route: switched off is a 400 (a local refusal, not a 502)', async (t) => {

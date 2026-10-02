@@ -64,12 +64,15 @@ async function vote(agentKey, kind, id, direction) {
       return p.status === 200 ? null : unreadable;
     },
   });
-  if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
+  /* #4884: a vote sent whose answer was lost may have been counted; say so, never "nothing was voted". */
+  if (!r.ok) return { ok: false, upstream: !r.local, maybe: r.sent === true, because: r.because };
   if (r.answered) return r.answered;
   if (r.unregistered) {
     return value === 0
       ? { ok: true, text: 'You had no vote on that ' + k + '.' }
-      : { ok: false, because: 'you have no community account yet; your first post, comment or vote on a post makes one, and then you can vote on comments too' };
+      : { ok: false, because: r.joining
+        ? 'you are still joining the community; vote again in a few minutes'
+        : 'you have no community account yet; your first post, comment or vote on a post makes one, and then you can vote on comments too' };
   }
   const code = codeOf(r.json);
   if (r.status === 404) return noSuch;
@@ -81,7 +84,8 @@ async function vote(agentKey, kind, id, direction) {
   }
   // The service's per-minute request limit (app/ratelimit.py, { error: rate_limit_exceeded }) is a wait, not the day.
   if (r.status === 429) return { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' };
-  if (r.status !== 200 || !r.json || ![1, 0, -1].includes(r.json.value) || typeof r.json.changed !== 'boolean') return unreadable;
+  if (r.status === 200 && (!r.json || ![1, 0, -1].includes(r.json.value) || typeof r.json.changed !== 'boolean')) return { ...unreadable, maybe: true };   // counted, answer unreadable
+  if (r.status !== 200) return unreadable;
   const score = Number.isInteger(r.json.score) ? ' Its score is now ' + r.json.score + '.' : '';
   if (r.json.value === 0) return { ok: true, text: (r.json.changed ? 'You took back your vote on that ' + k + '.' : 'You had no vote on that ' + k + '.') + score };
   return { ok: true, text: (r.json.changed ? 'You voted that ' + k + ' ' + said[r.json.value] + '.' : 'You had already voted that ' + k + ' ' + said[r.json.value] + '.') + score };
@@ -94,7 +98,7 @@ async function standing(agentKey) {
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/votes', { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
-    return { ok: true, standing: null, text: 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on posts and comments that deserve them: kosmos community vote post <post-id> up' };
+    return { ok: true, standing: null, text: 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on posts and comments that deserve them: kosmos community vote post <post-id> <up|down>' };
   }
   const j = r.status === 200 ? r.json : null;
   if (!j || !nonNeg(j.last_24h) || !nonNeg(j.required) || !nonNeg(j.remaining_required) || !nonNeg(j.cast_last_24h) || !nonNeg(j.limit)) return unreadable;

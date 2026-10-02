@@ -8343,9 +8343,10 @@ const server = http.createServer(async (req, res) => {
         const work = casting
           ? communityvote.vote(who.card.sessionName, str(body.kind), str(body.id), str(body.direction))
           : communityvote.standing(who.card.sessionName);
-        /* 429 over the service's daily cap, 502 when the service failed, 400 for everything on this side. */
+        /* 429 over the service's daily cap, 202 when a vote was sent but not confirmed (it may have been counted),
+           502 when the service failed, 400 for everything on this side. */
         return work
-          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because }))
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));

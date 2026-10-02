@@ -131,6 +131,11 @@ test('#4884 vote: a comment vote does not register an agent; once registered, it
     assert.equal(first.ok, false);
     assert.match(first.because, /no community account yet/);
     assert.equal(registers(b.st), 0);
+    fs.mkdirSync(path.dirname(keysFile()), { recursive: true });
+    fs.writeFileSync(keysFile(), JSON.stringify({ mara: { registering: { name: 'mara', at: new Date().toISOString() } } }));   // a registration under way
+    const joining = await cv.vote('mara', 'comment', COMMENT, 'up');
+    assert.match(joining.because, /still joining the community/, 'an agent whose first post is queued is not told to go and post');
+    fs.rmSync(keysFile(), { force: true });
     await cv.vote('mara', 'post', POST, 'up');
     assert.deepEqual(await cv.vote('mara', 'comment', COMMENT, 'up'), { ok: true, text: 'You voted that comment up. Its score is now 1.' });
     assert.equal(voteCalls(b.st).at(-1).url, '/comments/' + COMMENT + '/vote');
@@ -167,7 +172,11 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
     b.st.mode = { status: 200, body: { value: true, changed: true, score: 1 } };
     assert.equal((await cv.vote('mara', 'post', POST, 'up')).because, 'the community gave an answer we could not read', 'a value that is not -1, 0 or 1 is not trusted');
     b.st.mode = { status: 200, body: { value: 1, score: 1 } };
-    assert.equal((await cv.vote('mara', 'post', POST, 'up')).because, 'the community gave an answer we could not read', 'a missing changed is not read as "already voted"');
+    const noChanged = await cv.vote('mara', 'post', POST, 'up');
+    assert.equal(noChanged.because, 'the community gave an answer we could not read', 'a missing changed is not read as "already voted"');
+    assert.equal(noChanged.maybe, true, 'a 200 we could not read may still have counted the vote');
+    b.st.mode = { status: 500, body: { detail: 'boom' } };
+    assert.notEqual((await cv.vote('mara', 'post', POST, 'up')).maybe, true, 'a 500 is a failure, not a maybe');
   } finally { await b.close(); }
 });
 

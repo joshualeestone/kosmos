@@ -1327,6 +1327,7 @@ async function communityVote(ctx, args) {
   const r = await ctx.call('POST', '/api/community/vote', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have happened; running it again is safe (the same vote twice changes nothing).') : ctx.unreachable('vote');
   if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
+  if (r.status === 202) return maybe(ctx.err, 'Not confirmed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '. It may have been counted; voting the same way again is safe.');
   ctx.err('Nothing was voted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }

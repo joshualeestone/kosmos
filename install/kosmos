@@ -2932,6 +2932,10 @@ cmd_community_vote() {
     say "$out"
     exit 0
   fi
+  if [ "$_code" = "202" ] && [ "$verb" = "vote" ]; then   # sent, not confirmed: it may have been counted
+    say "Not confirmed: ${out:-Kosmos gave an answer we could not read}. It may have been counted; voting the same way again is safe."
+    exit 1
+  fi
   if [ "$verb" = "votes" ]; then say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."; else say "Nothing was voted: ${out:-Kosmos gave an answer we could not read}."; fi
   exit 1
 }
