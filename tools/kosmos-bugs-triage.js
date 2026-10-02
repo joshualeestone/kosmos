@@ -223,7 +223,10 @@ async function fetchReports({ base, channel, maxPages, fetchFn, limits }) {
     if (!j.next_cursor) break;
     cursor = j.next_cursor;
   }
-  return { posts: out, truncated };
+  /* Review 15: a post the feed returns on two pages is one report. */
+  const ids = new Set();
+  const once = out.filter((p) => { const k = String(p.id); if (ids.has(k)) return false; ids.add(k); return true; });
+  return { posts: once, truncated };
 }
 
 function ghRun(args) {
@@ -422,11 +425,25 @@ function reconcile(state, posts, names, stateFile, search) {
   for (const g of Object.values(state.groups)) {
     const ids = [...g.posts.map((p) => String(p.id)), ...(g.gone || []).map(String)];
     if (g.status === 'filing') {
-      const goneNow = ids.filter((id) => !live.has(id));
-      if (goneNow.length) { g.goneWhileFiling = goneNow; saveState(stateFile, state); }
+      /* Review 15: only posts IN the draft, recomputed every read, so a post that came back clears it. */
+      const goneNow = g.posts.map((p) => String(p.id)).filter((id) => !live.has(id));
+      const had = JSON.stringify(g.goneWhileFiling || []);
+      if (goneNow.length) g.goneWhileFiling = goneNow; else delete g.goneWhileFiling;
+      if (JSON.stringify(g.goneWhileFiling || []) !== had) saveState(stateFile, state);
       continue;
     }
-    if (g.status !== 'pending' && g.status !== 'withdrawn') continue;
+    if (g.status !== 'pending' && g.status !== 'withdrawn') {
+      /* Review 15: a post that left a group before it was decided is in no draft; when it comes back it is a new report
+         (unseen again, so this read drafts it), never lost behind the decision. */
+      const back = (g.gone || []).map(String).filter((id) => live.has(id));
+      if (back.length) {
+        g.gone = g.gone.filter((id) => !back.includes(String(id)));
+        for (const id of back) { delete state.seen[id]; delete state.seen[live.get(id).id]; }
+        restored += back.length;
+        saveState(stateFile, state);
+      }
+      continue;
+    }
     const here = ids.filter((id) => live.has(id));
     const away = ids.filter((id) => !live.has(id));
     const wasHere = g.posts.map((p) => String(p.id));

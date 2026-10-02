@@ -497,3 +497,35 @@ test('#5062 review 14: the deadline covers gh and says it is the deadline; a dig
   await t.read({ ...o2, fetchFn: site([]).fetchFn, gh: fakeGh().gh });
   assert.throws(() => t.file('g1', { ...o2, retry: true, gh: fakeGh().gh }), /left the channel; do not file it/);
 });
+
+test('#5062 review 15: a report that left before its group was decided comes back as a new report, never lost', async () => {
+  const a = post('s1', 'Board idle when typing', 'first', 'A1');
+  const b = post('s2', 'Board idle when typing fast', 'second one', 'B1');
+  const o = opts('r15a', {});
+  await t.read({ ...o, fetchFn: site([a, b]).fetchFn, gh: fakeGh().gh });
+  await t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh().gh });   // s2 hidden
+  t.skip('g1', o);
+  const r = await t.read({ ...o, fetchFn: site([a, b]).fetchFn, gh: fakeGh().gh });   // s2 back
+  const holders = Object.values(r.state.groups).filter((g) => g.status === 'pending' && g.posts.some((p) => p.id === 's2'));
+  assert.equal(holders.length, 1, 'a report that came back after its group was decided is in no pending group');
+  assert.match(holders[0].draft.body, /second one/);
+  assert.equal(r.state.groups.g1.status, 'skipped', 'the decision changed');
+});
+
+test('#5062 review 15: --retry is blocked only while a post IN the draft is gone, and freed when it returns; the feed is de-duplicated', async () => {
+  const a = post('q1', 'Board idle when typing', 'x', 'A1');
+  const b = post('q2', 'Board idle when typing fast', 'y', 'B1');
+  const o = opts('r15b', {});
+  await t.read({ ...o, fetchFn: site([a, b]).fetchFn, gh: fakeGh().gh });
+  await t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh().gh });   // q2 out of the draft while pending
+  const st = JSON.parse(fs.readFileSync(o.state, 'utf8')); st.groups.g1.status = 'filing'; fs.writeFileSync(o.state, JSON.stringify(st));
+  await t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh().gh });
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1.goneWhileFiling, undefined, 'a post not in the draft blocked --retry');
+  await t.read({ ...o, fetchFn: site([]).fetchFn, gh: fakeGh().gh });   // q1 (in the draft) gone
+  assert.throws(() => t.file('g1', { ...o, retry: true, gh: fakeGh().gh }), /left the channel/);
+  await t.read({ ...o, fetchFn: site([a]).fetchFn, gh: fakeGh().gh });   // back
+  t.file('g1', { ...o, retry: true, gh: fakeGh().gh });
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1.status, 'filed');
+  const d = await t.read({ ...opts('r15c', {}), fetchFn: site([a, a]).fetchFn, gh: fakeGh().gh });
+  assert.equal(d.reports, 1, 'one post on two pages read as two reports');
+});
