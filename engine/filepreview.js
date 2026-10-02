@@ -27,6 +27,15 @@ const attachments = require('./attachments');
 function cacheDir() { return path.join(store.ROOT, 'filepreview'); }
 const CACHE_KEEP = 200;   // first pages kept; the oldest go when a new one is drawn (review 1: never forever)
 
+/* Undefined on win32 (#1732 fs-const-platform-flag): captured here and ORed in undefined-safe. The fstat identity
+   check in readChecked (same device and inode as the walked file, and a regular file) refuses a swapped link or FIFO
+   on every platform; the kernel flags are a second guard where they exist. The seam lets a macOS test take the
+   kernel flag away and see the identity check refuse on its own (as instructions.js does). */
+const KERNEL_NOFOLLOW = fs.constants.O_NOFOLLOW;
+let NOFOLLOW = KERNEL_NOFOLLOW;
+const NONBLOCK = fs.constants.O_NONBLOCK;
+function _setNofollowForTest(v) { NOFOLLOW = arguments.length ? v : KERNEL_NOFOLLOW; }
+
 function tooBig(st) { return st.size > attachments.MAX_BYTES; }
 /* Only a file the list would show: listFiles' rules, walked (resolveListedFile's `listed` mode). An agent's Files
    list is flat (maxDepth 0); a project's walks its subfolders. */
@@ -41,7 +50,7 @@ function readChecked(got) {
   let fd = null;
   try {
     // O_NONBLOCK (review 2): a FIFO swapped in after the walk must not block the board; isFile() below refuses it.
-    fd = fs.openSync(got.target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
+    fd = fs.openSync(got.target, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile() || st.ino !== got.st.ino || st.dev !== got.st.dev) return { ok: false, because: 'that file changed while it was being read' };
     if (tooBig(st)) return { ok: false, because: 'that file is too big to show here' };
@@ -96,7 +105,7 @@ async function preview(folder, name, where, opts) {
   /* Review 1: the stamp names THIS file (device, inode, size, both times). Review 3: the page is stored UNDER its stamp
      (one file, named by a hash of it), so a picture and the stamp it belongs to can never be paired wrongly by two
      previews racing; each render works in its own folder and is renamed into place whole. */
-  const stamp = [got.st.dev, got.st.ino, got.st.size, got.st.mtimeMs, got.st.ctimeMs].join(':');
+  const stamp = [got.st.dev, got.st.ino, got.st.size, got.st.mtimeMs, got.st.ctimeMs].join('|');   // hashed only (#1732: not ':')
   const out = path.join(dir, crypto.createHash('sha256').update(stamp).digest('hex').slice(0, 32) + '.png');
   if (!fs.existsSync(out)) {
     const read = readChecked(got);   // review 2: the renderer reads a private copy, never the person's path
@@ -133,4 +142,4 @@ function reveal(folder, name, where, opts) {
   return projects.revealFile(got.target);
 }
 
-module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, preview, download, reveal };
+module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, preview, download, reveal, _setNofollowForTest };

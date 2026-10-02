@@ -288,6 +288,31 @@ test('#4997 review 3 (measured race): a file swapped for a link to a hidden file
   assert.equal(got.ok, false, 'the hidden file was served: ' + (got.bytes ? got.bytes.toString() : ''));
 });
 
+test('#4997 #1732: with the kernel O_NOFOLLOW taken away (as on Windows), a link swapped in at the open is refused by the identity check alone (CONTROL: no swap serves it)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-files-preview-nofollow-'));
+  fs.mkdirSync(path.join(dir, '.secret'));
+  const pic = path.join(dir, 'pic.png');
+  const hidden = path.join(dir, '.secret', 'key.png');
+  fs.writeFileSync(pic, PNG);
+  fs.writeFileSync(hidden, SECRET);
+  filepreview._setNofollowForTest(undefined);
+  const real = fs.openSync;
+  let swapped = false;
+  let got;
+  try {
+    assert.equal(filepreview.download(dir, 'pic.png', 'here', { maxDepth: 0 }).ok, true, 'CONTROL');
+    /* Between the resolve and the open, as review 11's arm, but a LINK: without the kernel flag the open follows it,
+       so only the fstat identity check stands between the hidden file and the answer. */
+    fs.openSync = function (p, ...rest) {
+      if (!swapped && String(p) === fs.realpathSync(pic)) { swapped = true; fs.rmSync(pic); fs.symlinkSync(hidden, pic); }
+      return real.call(fs, p, ...rest);
+    };
+    got = filepreview.download(dir, 'pic.png', 'here', { maxDepth: 0 });
+  } finally { fs.openSync = real; filepreview._setNofollowForTest(); }
+  assert.ok(swapped, 'the swap never happened, so this arm proved nothing');
+  assert.equal(got.ok, false, 'the hidden file was served: ' + (got.bytes ? got.bytes.toString() : ''));
+});
+
 test('#4997 review 6: on Windows a name with a colon (an alternate data stream, photo.png:Zone.Identifier) is refused (CONTROL: the same file, a real name here, is served off Windows)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-files-preview-ads-'));
   fs.writeFileSync(path.join(dir, 'photo.png:Zone.Identifier'), PNG);   // a legal file name on macOS and Linux
