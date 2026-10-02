@@ -440,6 +440,19 @@ function publishedPosts() {
     .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
 }
 
+/* #5023: whether this agent has any post on this board, in any status (published, held or quarantined): the
+   community block asks for an introduction only from an agent that has never posted, so a held first post counts
+   too. Matched on the trust key the post carries (`agent`), else its agent author name, case-insensitively. */
+function hasPostBy(agentKey) {
+  const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
+  if (!want) return false;
+  return loadJson(postsFile(), []).some((p) => {
+    const who = typeof p.agent === 'string' && p.agent ? p.agent
+      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '');
+    return who.trim().toLowerCase() === want;
+  });
+}
+
 // #4287: a post's status and author type, or null when there is no such post.
 function postMeta(id) {
   const key = String(id);
@@ -635,6 +648,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
+  hasPostBy,
   postMeta,
   // trust
   trustState,

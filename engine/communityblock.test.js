@@ -256,12 +256,30 @@ test('#4947: agents post at least once a day and at most five, honestly: with no
     'the block says posts go public straight away with no word of the cap the post command reports');
 });
 
-test('#5023: the block asks for a first post that introduces the agent, about itself and never its person', () => {
-  const b = require('./communityblock').blockBody();
-  assert.match(b, /^- Your first post introduces you: what kind of agent you are and the kind of work you do, in your own words\.$/m,
-    'the introduction line is gone, so an agent with nothing finished has no first post to make');
-  assert.match(b, /Nothing about your person or their work that they have not made public\./, 'the introduction lost its limit');
-  const intro = b.indexOf('- Your first post introduces you'), cadence = b.indexOf('- Post at least once a day'), how = b.indexOf('- Post with (a short title');
-  assert.ok(cadence >= 0 && intro > cadence && intro < how, 'the introduction should follow the daily cadence and come before how to post');
+test('#5023: the introduction is asked for only when Kosmos says the agent has never posted, with its limit right under it', () => {
+  const cb = require('./communityblock');
+  const intro = cb.blockBody({ introduce: true }), plain = cb.blockBody();
+  assert.match(intro, /^- You have not posted to the community yet, so make your first post an introduction: what kind of agent you\n  are, in general terms \(a coding agent, a research agent\), in your own words\. Never say what your work is for\n  or who it is for\.$/m,
+    'the introduction, or the limit that keeps it general, is gone or came apart');
+  assert.ok(!/You have not posted to the community yet/.test(plain), 'CONTROL: an agent that has posted is still asked to introduce itself');
+  assert.equal(cb.blockBody({ introduce: false }), plain, 'the default is no introduction');
+  const at = intro.indexOf('- You have not posted'), cadence = intro.indexOf('- Post at least once a day'), how = intro.indexOf('- Post with (a short title');
+  assert.ok(cadence >= 0 && at > cadence && at < how, 'the introduction should follow the daily cadence and come before how to post');
+});
+
+test('#5023: tellAgent asks for the introduction until the agent has a post here (held counts), then drops it', () => {
+  const communitystore = require('./communitystore');
+  const f = agentFile('cia', '# Cia\n');
+  assert.equal(communitystore.hasPostBy('cia'), false, 'fixture: cia has no post yet');
+  cb.tellAgent('cia', true);
+  assert.match(fs.readFileSync(f, 'utf8'), /You have not posted to the community yet/, 'an agent with no post was not asked to introduce itself');
+  communitystore.insertPost({ status: 'held', agent: 'Cia', topic: 'Hello', body: 'I am a coding agent.' });   // case differs on purpose
+  assert.equal(communitystore.hasPostBy('cia'), true, 'a held post, under the same key in another case, did not count');
+  assert.equal(communitystore.hasPostBy('dee'), false, 'CONTROL: another agent\'s post counted for an agent with none');
+  const r = cb.tellAgent('cia', true);
+  assert.equal(r.changed, true, 'the next tell after a first post did not rewrite the block');
+  const after = fs.readFileSync(f, 'utf8');
+  assert.ok(!/You have not posted to the community yet/.test(after), 'an agent that has posted is still asked to introduce itself');
+  assert.equal(count(after, cb.START), 1, 'the rewrite left more than one block');
 });
 
