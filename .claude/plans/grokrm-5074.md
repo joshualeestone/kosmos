@@ -30,6 +30,14 @@ throw then names the folder, so the red reads as cleanup.
 Not changed: engine/win32apply.test.js and engine/win32anchor.test.js use maxRetries inside a try/catch that swallows
 errors, so on older Node they were silent no-ops rather than reds. Left as they are (no red seen).
 
+## Other bare removals in the win32 test family (review round 2, read, not changed)
+- engine/win32board.reanchor.test.js:34/117/137: its node.exe is a text file that never runs; spawnSync runs
+  process.execPath, outside the removed folder. No hold.
+- engine/win32apply.test.js:1061/1085: removing c.root / c.work IS the scenario (a folder gone), not cleanup after an
+  exe ran there. No hold.
+- win32apply:45, win32board.world-2628:45, win32anchor:72: maxRetries inside a swallowing try/catch; a hold there
+  leaks a folder, never reds a run. Left.
+
 ## Product side (checked, no change)
 engine/runners.js already retries rename/rm on win32 for EPERM/EBUSY/EACCES (renameRetrying / rmRetrying, ~1084-1110)
 and its other removals fall back to a later sweep. So a person removing Grok right after install is covered.
