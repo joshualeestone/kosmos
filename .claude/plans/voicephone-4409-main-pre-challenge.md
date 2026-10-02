@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: voicephone-4409-main
-diff_hash: c8269c2faf13f68b913178ff5e340019a32962cfaf508a1f5c58c49b06d31f76
+diff_hash: 5efc7afd601e632f229c6ac7510b3f07ccb206d5a2886cd6cc60cc9c8bebc35f
 subdir_audit: passed
 timestamp: 2026-10-02T12:30:50Z
 converged: true
@@ -11,7 +11,7 @@ converged: true
 ## Challenge loop: 25 blind rounds, Opus and Sonnet alternating; round 26 found only NITs
 
 Reviewed on branch voicephone-4409 (stacked on slice 2); after slice 2's squash merge this branch carries exactly
-that diff applied onto origin/main. Ledger in `.claude/plans/voicephone-4409.md`.
+that diff applied onto origin/main. Ledger in `.claude/plans/voicephone-4409-main.md`.
 
 ## [BLOCKER] Round 1 (opus)
 FIXED B: after a refusal the retry kept the refusal on screen and never said who hears the audio; 
