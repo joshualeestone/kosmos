@@ -68,7 +68,9 @@ test('#4973: a sibling read (same-site, cross-site) gets the agents only; the fu
       assert.deepEqual(Object.keys(r.body), ['agents'], site + ': a sibling read carried more than the agents: ' + Object.keys(r.body).join(','));
       const mara = r.body.agents.find((a) => a.sessionName === 'mara');
       const fullMara = full.body.agents.find((a) => a.sessionName === 'mara');
-      assert.deepEqual(mara, { sessionName: 'mara', name: fullMara.name, state: fullMara.state }, site + ': not the three fields the Agents view uses');
+      assert.deepEqual(Object.keys(mara).sort(), ['name', 'sessionName', 'state'], site + ': not the three fields the Agents view uses');
+      assert.equal(mara.name, fullMara.name, site);
+      assert.equal(mara.state, fullMara.state, site);
       assert.equal(r.body.agents.find((a) => a.sessionName === 'guidebot').isGuide, true, site + ': the guide lost its mark, so the other computer would list it');
       assert.equal(r.body.agents.length, full.body.agents.length, site + ': rows were dropped');
     }
