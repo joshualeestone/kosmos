@@ -3,7 +3,7 @@
 Card: joshualeestone/kosmos#2624 (Josh: the top header is pixel-stable across views, "must not jitter or shift by a single pixel").
 
 ## Measured first (headed, Agent1s, ANGLE Metal / Apple M4, 10-02)
-On the served 0.7.18 page and on origin/main 50021fd76, at 1400x950 and 1024x640, every header control is identical in
+On the served 0.7.18 page and on origin/main 50021fd76 (a 10-02 snapshot; main has moved since), at 1400x950 and 1024x640, every header control is identical in
 the tab and one-screen views: the K mark, the Kosmos switcher, the You button, the light/dark and view buttons in the
 You menu, and the 51px height. The exception is the center tabs (Agents / Projects / Tasks, shown in both views since
 #4345). At 1400px they start at x 607 in the tab view; in one screen they start at 613.8 with a short Kosmos name and
@@ -42,3 +42,5 @@ harness. Left to the runner's result.
 ## Weakest premise
 That the file:// page lays out the header as the served board does. The switcher is forced visible with a typed name
 (no worlds over file://), as the existing #2624 check does; a served board with two real Kosmoses is not measured here.
+- Review 5: the check also compares the K mark's and the You cluster's left edges and the tabs' top in both views
+  (a top-only compare stayed green when the one-screen padding was changed: padding 40px reds klinkX and youX).
