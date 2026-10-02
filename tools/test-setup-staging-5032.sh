@@ -47,6 +47,12 @@ got="$( REPO="$F"; eval "$BLK" && printf '%s' "$KM_SETUP_SHA" )" ; rc=$?
 printf '%064d  setup\n' 0 > "$F/dist/setup.sha256"
 ( REPO="$F"; eval "$BLK" ) 2>/dev/null && bad "release: a lying dist/setup.sha256 was accepted" || pass "release: a dist/setup.sha256 that does not name dist/setup refuses the cut"
 
+# 1f: a staging cut refuses before the bump unless the site serves /setup-staging uncached.
+a="$(grep -n 'step "== 1f. the site serves /setup-staging uncached' "$REPO/tools/release.sh" | cut -d: -f1)"; b="$(grep -n 'step "== 2. the version, in one place ==' "$REPO/tools/release.sh" | cut -d: -f1)"
+[ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && grep -qF 'grep -q '"'"'"source": "/setup-staging"'"'"' "$SITE/vercel.json"' "$REPO/tools/release.sh" \
+  && pass "release: a staging cut checks the site's /setup-staging headers before the bump" || bad "release: no pre-bump check of the site's /setup-staging headers ($a vs $b)"
+grep -q '"source": "/setup-staging"' "$REPO/../chaoskosmos-site-setupstaging-5032/vercel.json" 2>/dev/null && pass "site half: vercel.json carries /setup-staging (CONTROL: what 1f looks for exists)" || echo "SKIP  site half not beside this checkout"
+
 # ---- verify-served.sh: only the two names, refused before any fetch ----
 # HOST is a port nothing listens on: a name that got past the gate would fail at the network
 # control instead, with a different sentence (that is the control arm).

@@ -732,6 +732,15 @@ if [ "$_q_rc" -ne 0 ]; then
   exit 1
 fi
 
+step "== 1f. the site serves /setup-staging uncached (#5032) =="
+# A staging cut publishes its installer as /setup-staging, which must be served like /setup (text/plain,
+# Cache-Control: no-store) or an edge can hand a staging box the previous installer (the 0.5.13 wedge shape).
+# Those headers live in the SITE's vercel.json, so a staging cut refuses until the site carries them. Here,
+# before the bump, so a refusal leaves nothing pushed.
+if [ "$CUT_CHANNEL" = staging ] && ! grep -q '"source": "/setup-staging"' "$SITE/vercel.json" 2>/dev/null; then
+  echo "the site's vercel.json has no /setup-staging headers (no-store, text/plain): merge the site half of #5032 first"; exit 1
+fi
+
 step "== 2. the version, in one place =="
 node -e "
 const fs=require('fs'),p='$REPO/package.json';
@@ -1835,9 +1844,12 @@ if [ "$CUT_CHANNEL" = staging ]; then
   echo "     2. exercise it: open the board and click (a person, or an agent driving a browser)"
   echo "     3. promote:  tools/promote-channel.sh \"$SITE\" <that-board's-port>"
   echo "        (promote-channel HOLDS unless a FRESH session can use the board -- the #2063 gate)"
-  echo "   Rollback is a pointer flip, no rebuild: restore the prior pointer AND the installer it names"
-  echo "   (#5032: deploy-site.sh refuses a /setup that does not hash to the pointer's setup_sha256; the"
-  echo "   prior installer is the setup pair committed with that pointer, see docs/staging-channel.md step 5)."
+  echo "   Rollback is a pointer flip, no rebuild: restore the prior pointer AND the installer it names, by hand"
+  echo "   (#5032: deploy-site.sh refuses a /setup that does not hash to the pointer's setup_sha256; the prior"
+  echo "   installer is the setup pair committed with that pointer, docs/staging-channel.md step 5). Promoting a"
+  echo "   PRIOR staging pointer refuses once a newer staging cut replaced setup-staging; restore by hand instead."
+  echo "   (#5032 transition: staging boxes still on a build before #5032 update with /setup, prod's installer,"
+  echo "   until they run a build carrying it, so test THIS cut's installer with a FRESH install from /setup-staging.)"
 fi
 
 # #2159: on a PROD cut the build is now live to users, so generate the release-notes social posts.
