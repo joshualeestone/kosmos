@@ -42,7 +42,7 @@ fi
 # #4977: the guards come from ONE checkout at origin/main shared by every waiter on the Mac (never the worktree this is
 # run from: each branch's own lib would put several lib generations in one queue, the cause of #4977's item 1).
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
-. "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || { echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT" >&2; exit 3; }
+. "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || { echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
 command -v kosmos_wait_until_clear >/dev/null || { echo "QUEUED-HEAVY: cut-guard.sh has no kosmos_wait_until_clear" >&2; exit 3; }
 # Review 12: started inside an ordinary turn that already holds the box (it inherited that turn's claim cookie). It
 # used to take its "turn" at once (the claim read as its own) and then RELEASE the parent's claim at its end, so the
