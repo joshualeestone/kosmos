@@ -109,7 +109,7 @@ function paintWorld({ models = [], openai = null, rolesBody = null, waitMs = 0, 
     esc: (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
     vendorPicksModel: (p) => ['google', 'xai', 'antigravity', 'meta'].includes(p),
     switchKeyedWord: (p) => ({ google: 'Gemini', xai: 'Grok' })[p] || p,
-    openaiNoModelsNote: () => 'OpenAI picks its own model.',
+    openaiNoModelsNote: (because) => (because === 'did not return' ? 'reach' : 'OpenAI picks its own model.'),
     setTimeout, clearTimeout,
     fetch: (url) => { fetched.push(url); if (stuck) return new Promise(() => {}); const body = /openai/.test(url) ? openai : rolesBody;
       return Promise.resolve({ ok: !!body, json: () => Promise.resolve(body) }); },
@@ -245,5 +245,16 @@ test('#4935 a stuck OpenAI models read gives up after the wait and releases Crea
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(w.sel.dataset.loading, '', 'still loading after the wait');
   assert.match(w.sel.innerHTML, /OpenAI picks its own model for now/);
+  assert.equal(w.go.disabled, false, 'Create still held after the wait');
+  assert.equal(w.why.textContent, 'reach', 'a slow read must be worded as could not reach, not as signed out');
+});
+
+test('#4935 a roles read that never answers gives up after the wait and releases Create', async () => {
+  const w = paintWorld({ stuck: true, waitMs: 20 });
+  w.ctx.paint('anthropic', '');
+  assert.equal(w.go.disabled, true, 'premise: held while loading');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(w.sel.dataset.loading, '');
+  assert.equal(w.sel.dataset.retry, '1', 'it falls into the failed-read path');
   assert.equal(w.go.disabled, false, 'Create still held after the wait');
 });

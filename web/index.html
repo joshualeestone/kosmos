@@ -8402,6 +8402,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 /* Item 8: a menu that cannot be chosen says so by looking it, not only by refusing a click: while the team is made
    (tcPaint disables them), and a model menu that is fixed (the vendor picks, nothing to list) or still loading. */
 #cstep-teammake select:disabled { opacity: .55; cursor: default; }
+/* A model menu shown as one fixed sentence ("OpenAI picks its own model for now") reads at full strength, as on the
+   single create; it is a statement, not a locked choice. */
+#cstep-teammake #tc-model[data-fixed="1"]:disabled { opacity: 1; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -48649,7 +48652,7 @@ document.getElementById('tc-account').addEventListener('change', () => { TC_PROV
 function tcIsModelLoading() { const m = document.getElementById('tc-model'); return Boolean(m && m.dataset.loading === '1'); }
 let TC_MODEL_FOR = null;   // the provider|account the model menu was last painted for
 let TC_MODEL_GEN = 0;      // a newer paint supersedes a list still being read
-let TC_MODEL_WAIT_MS = 8000;   // a browser check can shorten it
+let TC_MODEL_WAIT_MS = 8000;   // web.teammodel-4935.test.js shortens it
 function tcSyncModel() {
   const sel = document.getElementById('tc-model');
   const step = document.getElementById('cstep-teammake');
@@ -48704,7 +48707,8 @@ function tcPaintModel(pv, ac) {
     let waited;
     Promise.race([
       fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
-      new Promise((res) => { waited = setTimeout(() => res(null), TC_MODEL_WAIT_MS); }),
+      // Slow is not signed out: the timeout answers as "did not return", which the note words as "could not reach".
+      new Promise((res) => { waited = setTimeout(() => res({ ok: false, because: 'did not return' }), TC_MODEL_WAIT_MS); }),
     ]).catch(() => null).finally(() => clearTimeout(waited))
       .then((out) => {
         if (gen !== TC_MODEL_GEN) return;
@@ -48728,8 +48732,11 @@ function tcPaintModel(pv, ac) {
      ?catalogue=1 (only the role picker downloads the catalogue, #4632). Until it comes, nothing is chosen, so a
      team made meanwhile gets create's default. */
   show('<option value="" selected>Loading the models…</option>', true, '', false, true);
-  fetch('/api/roles', { cache: 'no-store' })
-    .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+  let waitedRoles;
+  Promise.race([   // bounded like the OpenAI read: a read that never answers must not hold Create
+    fetch('/api/roles', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
+    new Promise((res) => { waitedRoles = setTimeout(() => res(null), TC_MODEL_WAIT_MS); }),
+  ]).catch(() => null).finally(() => clearTimeout(waitedRoles))
     .then((body) => {
       if (gen !== TC_MODEL_GEN) return;
       if (!CREATE_MODELS.length && body && Array.isArray(body.models)) CREATE_MODELS = body.models;
