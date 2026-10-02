@@ -55,7 +55,7 @@ function world(html, fetchImpl) {
     document: { getElementById: el, addEventListener: () => {}, removeEventListener: () => {} },
     CURRENT: currentCard(),
     fetch: fetchImpl, encodeURIComponent, tick: async () => {}, agentShown: () => 'Mara', console,
-    /* #4963: a waking restart arms changeDialog's never-a-trap fallback timer; recorded, never fired here
+    /* #4963: a waking restart arms changeDialog's never-a-trap fallback timer; ignored here
        (web.change-dialog-exit-1313.test.js runs it). */
     setTimeout: () => 0,
     /* #2716: changeModelNow/changeProviderNow now fire autoHelloOnSwitchRestart on a real

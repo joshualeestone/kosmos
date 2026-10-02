@@ -1286,6 +1286,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* Josh, 2026-09-26 review: an X top-right instead of Got it. The window opens with focus on itself (no
    ring at all); a keyboard Tab still shows where it is, in gold, never the black ring. */
 .wn-box:focus { outline: none; }
+/* #4963: a waking change dialog focuses its own box (both buttons are hidden then); no ring around the box. */
+#chg-modal .rm-box:focus { outline: none; }
 .wn-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: 0; border-radius: 8px;
   background: none; color: var(--label-2); font-size: 1.5rem; line-height: 1; cursor: pointer; }
 .wn-x:hover { color: var(--label); background: var(--bg); }
@@ -46215,6 +46217,8 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
      opening never acts on the next. */
   const openGen = back.__openGen = (back.__openGen || 0) + 1;
   back.onclick = null;   // a backdrop tap closes only a waking dialog, and only the one this opening armed
+  { const box0 = typeof back.querySelector === 'function' ? back.querySelector('.rm-box') : null;
+    if (box0) box0.removeAttribute('tabindex'); }   // set only while waking, below
   const t = document.getElementById('chg-title');
   const sm = document.getElementById('chg-small');
   const keep = document.getElementById('chg-keep');
@@ -46247,17 +46251,18 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
        interstitial mounts the branded K loader on a canvas whose rAF loop self-terminates on
        `!cv.isConnected` -- but `back.hidden = true` only display:none's the modal, leaving the
        canvas CONNECTED and the loop running. Today no close path is reachable while the loader
-       is up (#4963's Escape and backdrop exits open only once the waking line has replaced it) (keep is hidden and Escape is gated on goBtn.disabled during the busy state), so
-       this cannot leak now; clearing here makes that robust rather than dependent on it, so a
+       is up (keep is hidden and Escape is gated on goBtn.disabled during the busy state; #4963's
+       Escape and backdrop exits open only once the waking line has replaced it), so this cannot
+       leak now; clearing here makes that robust rather than dependent on it, so a
        future exit-while-busy (the backdrop-click-to-close the #1313/#1316 comments contemplate)
        cannot leave an rAF loop drawing to a hidden canvas. Harmless on every other path: the
        modal is hidden and changeDialog resets msg on its next open. */
     msg.textContent = '';
     document.removeEventListener('keydown', onEsc);
   };
+  /* #4963: and only for this opening. An earlier opening's handler that never ran `close` must not act on
+     a later one (its wakingNow would otherwise let Escape close a dialog whose request is in flight). */
   const onEsc = (e) => {
-    /* #4963: and only for this opening. An earlier opening's handler that never ran `close` must not act on
-       a later one (its wakingNow would otherwise let Escape close a dialog whose request is in flight). */
     if (e.key !== 'Escape' || back.hidden || openGen !== back.__openGen || (goBtn.disabled && !wakingNow)) return;
     close();
   };
@@ -52732,7 +52737,9 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
         const m = document.getElementById('chg-msg');
         const back = document.getElementById('chg-modal');
         if (!m || !back || back.hidden || !CURRENT || CURRENT.sessionName !== forAgent) return;
-        if (m.textContent === waitingLine) { finish(m, t); return; }
+        /* #4963: or the line changeDialog's fallback leaves when the wake has not reported by then, so a late
+           report still finishes the dialog (Done, gold) instead of leaving a plain Close. */
+        if (m.textContent === waitingLine || m.textContent === waitingLine.replace(/Waking them…$/, 'Send them a message to wake them.')) { finish(m, t); return; }
         if (Date.now() < until) setTimeout(apply, SWITCH_HELLO_RETRY_MS);
       };
       apply();

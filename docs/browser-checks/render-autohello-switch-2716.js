@@ -168,6 +168,10 @@ function initStub() {
   check('closed dialog: the hello fired but the confirmation is NOT written into a closed modal',
     s4.threadCalls === 1 && s4.msg === WAITING, 'calls=' + s4.threadCalls + ' msg=' + JSON.stringify(s4.msg));
   check('#4963 CONTROL: a dialog closed mid-wait gets no button back', s4.shown === false, JSON.stringify({ closed: s4.shown }));
+  // #4963: a wake that reports after changeDialog's fallback has rewritten the line still finishes the dialog.
+  const s4b = await run({ readyAfter: 2, seed: 'Restarted on OpenAI. Send them a message to wake them.' });
+  check('#4963 a late report still finishes a dialog whose fallback already fired (Done gold, the ready line)',
+    s4b.msg === SAID && s4b.gold && s4b.shown, JSON.stringify({ msg: s4b.msg, gold: s4b.gold, shown: s4b.shown }));
 
   // ---- Arm 5: the person SWITCHED agents mid-wait -> the write is suppressed ----
   const s5 = await run({ readyAfter: 2, mutate: () => { CURRENT = { sessionName: 'other', name: 'Other' }; } });
