@@ -12,8 +12,10 @@
 # THE CHECK. tools/coordinator-floor lists those relay commits. For each one the connector's relay commit
 # (its .commit sidecar, connector-provenance.sh) may carry, the coordinator's /v1/meta "build" must contain
 # it too. "May carry" is everything but PROVABLY OLDER (review 1): the connector's commit a strict ancestor
-# of the floor commit. kosmos-relay squash-merges, so a connector built from the pre-squash branch carries the
-# change without descending from the floor commit; it is asked about, not waved through. By ANCESTRY in the relay checkout: the coordinator is deployed from a relay commit and reports
+# of the floor commit. kosmos-relay squash-, rebase- and merge-merges, so a connector built from the branch
+# before it landed carries the change without descending from the floor commit; it is asked about, not
+# waved through. That rule is only sound if a floor line names the EARLIEST relay main commit carrying the
+# connector-side half of the change (if the tunnel half landed first, name that commit). By ANCESTRY in the relay checkout: the coordinator is deployed from a relay commit and reports
 # it; a build that cannot be resolved there, or that is not a descendant, is refused.
 #
 # FAILS CLOSED. A /v1/meta that cannot be read, has no build, or names a commit the relay checkout does
@@ -60,10 +62,19 @@ coordinator_floor_check() {
   meta="$(curl -fsS -m 15 "$url/v1/meta" 2>/dev/null)" \
     || { echo "coordinator_floor: could not read $url/v1/meta, so whether the coordinator carries what this connector needs is UNKNOWN; refused." >&2; return 1; }
   build="$(printf '%s' "$meta" | sed -n 's/.*"build":[[:space:]]*"\([0-9a-f]\{7,40\}\(-dirty\)\{0,1\}\)".*/\1/p')"
-  [ -n "$build" ] || { echo "coordinator_floor: $url/v1/meta names no build; refused." >&2; return 1; }
+  if [ -z "$build" ]; then
+    case "$meta" in *'"build":"unknown"'*) echo "coordinator_floor: the coordinator reports an UNSTAMPED build (\"unknown\"), so what it carries is unknown; redeploy it with deploy/deploy-coordinator.sh, which stamps it. Refused." >&2 ;;
+      *) echo "coordinator_floor: $url/v1/meta names no build; refused." >&2 ;; esac
+    return 1
+  fi
   case "$build" in *-dirty) echo "coordinator_floor: the coordinator reports a DIRTY build ($build), so what it carries is unknown; redeploy it from a clean relay main at or above the floor. Refused." >&2; return 1 ;; esac
-  build_full="$(git -C "$relay" rev-parse -q --verify "${build}^{commit}" 2>/dev/null)" \
-    || { echo "coordinator_floor: the coordinator reports build $build, which is not in $relay: deployed from a branch (before a squash merge) or an unpushed commit. Redeploy it from relay main at or above the floor. Refused." >&2; return 1; }
+  build_full="$(git -C "$relay" rev-parse -q --verify "${build}^{commit}" 2>/dev/null)" || {
+    if [ "$(git -C "$relay" rev-parse --disambiguate="$build" 2>/dev/null | wc -l | tr -d ' ')" -gt 1 ]; then
+      echo "coordinator_floor: the coordinator's build $build is an AMBIGUOUS short id in $relay; refused (look it up by hand)." >&2
+    else
+      echo "coordinator_floor: the coordinator reports build $build, which is not in $relay: deployed from a branch (deploy-coordinator.sh allows a ref ahead of main) or an unpushed commit. Fetch that branch into $relay so the build resolves and rerun (then a coordinator behind the floor can be overridden), or redeploy from relay main at or above the floor. Refused." >&2
+    fi
+    return 1; }
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     sha="${line%% *}"

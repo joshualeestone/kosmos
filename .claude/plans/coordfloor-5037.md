@@ -27,8 +27,9 @@ commit refuse; the override works and only for exactly 1; the committed floor ho
 
 ## Rejected
 - Building the connector below 534f36980 (Splinter's alternative): ships 0.7.18 without #4869.
-- Comparing by content, as 1d does: the coordinator reports a commit, and a deploy is built from relay main,
-  so ancestry is the question; a squash- or rebase-built coordinator would be refused, the safe side.
+- Comparing by content, as 1d does: the coordinator reports a commit, so ancestry is the question. A coordinator
+  deployed from a branch ahead of main (deploy-coordinator.sh allows it) reports a sha the checkout may lack;
+  that is refused (fail closed), and the refusal says to fetch the branch or redeploy from main (review 3).
 
 ## Weakest premise
 That /v1/meta's "build" is the relay commit the serving coordinator was built from. True on 10-02 (it
