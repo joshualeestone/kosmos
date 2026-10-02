@@ -27,6 +27,11 @@ jobs start at once.
 - The PR's own browser-checks run on ubuntu-latest (a pull_request uses the PR's workflow) must be green
   with the same checks running. Any check that cannot run on Linux is named on the PR and either fixed or
   the job goes back to macOS (the card's "what would change my mind").
+- Rule for the full-set measurement (Splinter, 11:59, tightening my own condition): a check red ONLY on
+  Linux is NOT added to KNOWN_RED by default; that would be weakening the check. Each one is listed on
+  #4601 with its cause, and the job moves only if every one is a runner difference I can explain (font,
+  WebKit port, a macOS path in a fixture), never a product bug the Mac happens to hide. "Linux-only"
+  means red on the Linux run and green on the latest macOS nightly for the same check.
 
 ## Iterations
 (filled in by the review loop)
