@@ -105,9 +105,12 @@ function cappedSentence(value, cap) {
  */
 /* 🛑 SECURITY BOUNDARY (#2575). `entry.by === 'operator'` is honored by this
    function for ANY caller that passes it -- record() cannot know who is calling,
-   so it does not police the field. The invariant "only a person, via the
-   operator-only clear route, may set operator provenance" is therefore enforced
-   ONE LAYER UP, at the HTTP boundary: routes build `entry` field-by-field and
+   so it does not police the field. The invariant "only a board-token caller, via
+   one of the two server writers, may set operator provenance" is therefore enforced
+   ONE LAYER UP, at the HTTP boundary. The two writers: the operator-only clear
+   route (#2575) and server.js clearLeftovers (#5034: a leave or a project removal
+   clears the question the agent raised about that project; both routes sit behind
+   the board token, and neither takes `by` from the request): routes build `entry` field-by-field and
    never spread an untrusted `req.body` into it. In particular /api/report
    (server.js) copies state/project/because/on/owner/until/instance/auto and
    deliberately NOT `by`, so an agent cannot stamp its own report `operator` and
@@ -318,7 +321,8 @@ function record(sessionName, entry) {
        ⚠️ THREE WRITTEN VALUES, NOT A BOOLEAN, and that is the whole reason it
        is not `auto: true`. 'auto' (a lifecycle hook), 'agent' (the agent chose
        to say it), and 'operator' (a person cleared a stale self-report on the
-       agent's behalf, via the operator-only clear route -- #2575). A line
+       agent's behalf, via the operator-only clear route -- #2575 -- or Kosmos
+       cleared it when the agent left the project it was about -- #5034). A line
        written before this field existed carries no `by` and reads as null --
        unknown provenance, which is the honest answer rather than a manufactured
        one, and the same posture `instance` takes two fields up. An omitted
@@ -326,8 +330,8 @@ function record(sessionName, entry) {
        is the ambiguity this exists to remove.
 
        🔑 #2575: 'operator' is the ONE value a caller may assert on the entry
-       (`entry.by === 'operator'`), and only the operator-only clear route sets
-       it. An operator clear has `auto` falsey, so the #900 guard above does NOT
+       (`entry.by === 'operator'`), and only the operator-only clear route and
+       server.js clearLeftovers (#5034) set it. An operator clear has `auto` falsey, so the #900 guard above does NOT
        refuse it -- it lands and supersedes a standing needs_you. It is safe
        because the cleared state RE-DERIVES on the next poll (a scraped working
        outranks a reported idle, #1995; a genuine on-screen prompt re-raises

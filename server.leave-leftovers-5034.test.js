@@ -74,10 +74,11 @@ test('#5034 a question the agent raised about the project it leaves is cleared, 
   const now = selfreport.read('leaver');
   assert.equal(now.state, 'idle');
   assert.equal(now.by, 'operator');
-  assert.match(now.because, new RegExp('taken off the project ' + p.name + ' \\(by the person\\)'));
+  assert.equal(now.because, 'taken off the project ' + p.name + ' by the person, so the needs_you report about it is no longer waiting on anyone');
   assert.ok(!projects.readAll().find((x) => x.id === p.id).agents.includes('leaver'), 'the leave did not land');
-  // The part is still the leaver's (removal does not unassign), and the card is no longer a decision.
-  board = fleet.install([fleet.agent('leaver', { state: 'idle' })]);
+  /* The part is still the leaver's (removal does not unassign), and the card is no longer a decision, read against
+     the SAME needs_you screen as the before-control (review 1: a different screen proved neither half). */
+  board = fleet.install([fleet.agent('leaver', { state: 'needs_you' })]);
   try {
     const row = await taskRow(p.id, 'Held by the leaver');
     assert.equal(tasks.whoOf(row).includes('leaver'), true, 'fixture: the part was unassigned, so this proves nothing about the red');
@@ -157,4 +158,39 @@ test('#5034 engine: waitingOnPerson with no members is unchanged; with members i
   assert.equal(tasks.waitingOnPerson(task, roster), true, 'control: the old rule counts the holder');
   assert.equal(tasks.waitingOnPerson(task, roster, ['gone']), true, 'a current member still counts');
   assert.equal(tasks.waitingOnPerson(task, roster, ['someone else']), false);
+});
+
+test('#5034 a question that only INHERITED the project from an earlier report is not cleared (review 1)', async () => {
+  const p = project('Inherited');
+  const q = project('Other');
+  for (const x of [p, q]) projects.addAgent(x.id, 'inheritor', null);
+  assert.equal(selfreport.record('inheritor', { state: 'working', project: p.id }).recorded, true);
+  assert.equal(selfreport.record('inheritor', { state: 'needs_you', because: 'my API key expired' }).recorded, true);
+  const before = selfreport.read('inheritor');
+  assert.equal(before.project, p.id, 'fixture: the question did not inherit the project, so this proves nothing');
+  assert.equal(before.projectInferred, true);
+  const r = await leave(p.id, 'inheritor');
+  assert.equal(r.status, 200);
+  assert.equal(r.json.leftBehind.reportCleared, false);
+  const now = selfreport.read('inheritor');
+  assert.equal(now.state, 'needs_you');
+  assert.equal(now.because, 'my API key expired');
+});
+
+test('#5034 removing a whole project clears its members\' questions about it and their held posts there', async () => {
+  const p = project('Removed');
+  const q = project('Survives');
+  for (const x of [p, q]) projects.addAgent(x.id, 'orphan', null);
+  assert.equal(selfreport.record('orphan', { state: 'blocked', project: p.id, because: 'need the export' }).recorded, true);
+  assert.equal(roomhold.hold('orphan', p.id, 'm301'), true);
+  assert.equal(roomhold.hold('orphan', q.id, 'm401'), true);
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(p.id)}`, { method: 'DELETE', headers: SCREEN });
+  assert.equal(res.status, 200, await res.text().catch(() => ''));
+  assert.ok(!projects.readAll().some((x) => x.id === p.id), 'the project was not removed');
+  const now = selfreport.read('orphan');
+  assert.equal(now.state, 'idle');
+  assert.equal(now.by, 'operator');
+  assert.equal(now.because, 'the project ' + p.name + ' was removed, so the blocked report about it is no longer waiting on anyone');
+  assert.deepEqual(roomhold.heldIn('orphan', p.id), []);
+  assert.deepEqual(roomhold.heldIn('orphan', q.id), ['m401']);
 });

@@ -2835,6 +2835,37 @@ function sessionOf(name) {
     return undefined;
   }
 }
+/* #5034: what an agent leaves on a project it is no longer on, cleared once it has left (taken off it, or the project
+   removed under it). Each half on its own, so one failing does not stop the other or the caller's answer:
+   - a question it raised about the project: a needs_you or blocked report that NAMED this project itself (review 1:
+     not one that only inherited it from an earlier report; that may be about anything, and a deliberate question at
+     an idle prompt does not come back on the next poll, so clearing it on a guess would lose its words). Cleared the
+     way the person's own clear does it (#2575: a `by: 'operator'` idle), never an automatic permission wait, which is
+     about the agent's screen and re-derives from it. The entry is built field by field like every record() caller;
+     `by: 'operator'` is safe here for the same reason as the clear route: both routes sit behind the board token.
+     The read and the write are two steps, so a report the agent makes in between is overwritten (a needs_you about
+     another project, in a window of one file read); record() has no compare-and-set, and the agent's next report
+     raises it again.
+   - room posts held for it there (its next idle line would tell it about a room it has left). The other projects'
+     holds are kept. A flush already in flight when it left can put this project's posts back if its line failed to
+     type (roomhold.restore); that line is then told once, at worst, about posts that are still in the room.
+   `why` is the start of the clear's sentence (what happened, naming the project). Returns { reportCleared,
+   heldDropped }. Never throws. */
+function clearLeftovers(name, projectId, why) {
+  const out = { reportCleared: false, heldDropped: 0 };
+  try {
+    const rep = selfreport.read(name);
+    if (rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state) && rep.project === projectId
+      && rep.projectInferred !== true && !selfreport.isAutoPermissionWait(rep)) {
+      const kept = selfreport.record(name, { state: 'idle', by: 'operator',
+        because: why + ', so the ' + rep.state + ' report about it is no longer waiting on anyone' });
+      out.reportCleared = kept.recorded === true;
+    }
+  } catch { /* the report stays as it was; the person's clear still works */ }
+  try { out.heldDropped = roomhold.forgetProject(name, projectId); } catch { /* the posts stay held */ }
+  return out;
+}
+
 // ⚠️ Two roster reads per request is two SNAPSHOTS: the gate can be decided
 // against one and the session resolved against another, which is the same
 // one-fact-two-derivations problem one level up. Both callers below run
@@ -15997,6 +16028,7 @@ const server = http.createServer(async (req, res) => {
       }
       for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
     }
+    const membersOf = new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x.agents || []]));
     const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
       /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
@@ -16007,8 +16039,7 @@ const server = http.createServer(async (req, res) => {
       }
       /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
       /* #5034: with the project's members, so a holder taken off the project does not keep its card red. */
-      const owner = (everyProject || []).find((x) => x && x.id === t.projectId);
-      const waitingOnPerson = tasks.waitingOnPerson(t, roster, owner ? (owner.agents || []) : undefined);
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId));
       return Object.assign({}, t, {
         claim,
         waitingOnPerson,
@@ -16481,6 +16512,9 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents that were on it') }];
     }
+    /* #5034: project ids are name slugs and a freed one is reused, so its members' questions about it and the room
+       posts held for them there go with it, or a later project of the same id inherits both. */
+    for (const a of (gone.agents || [])) clearLeftovers(a, gone.id, 'the project ' + (gone.name || gone.id) + ' was removed');
     sendJson(res, 200, { removed: gone.id, name: gone.name, told });
     return;
   }
@@ -18307,29 +18341,12 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       verdict = { state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') };
     }
-    /* #5034: what a leave left behind on the project, cleared once the leave HAPPENED (moved), each half on its own
-       so one failing does not stop the other or the answer: a question the agent raised about this project (a
-       needs_you or blocked report the board ties to it; the agent can no longer act on the project's cards, so
-       nobody is waiting on it), and the room posts held for it there (its next idle line would tell it about a room
-       it has left). The report is cleared the way the person's own clear does it (#2575: a by:'operator' idle that
-       re-derives, so a question still on its screen comes back on the next poll), and only a deliberate one: an
-       automatic permission wait is about the agent's screen, not the project. */
+    /* #5034: once the leave HAPPENED (moved), what it left on the project goes with it (clearLeftovers). */
     let leftBehind;
     if (moved && req.method === 'DELETE') {
-      leftBehind = { reportCleared: false, heldDropped: 0 };
-      try {
-        const rep = selfreport.read(name);
-        if (rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state) && rep.project === id
-          && !selfreport.isAutoPermissionWait(rep)) {
-          let shown = id;
-          try { const was = projects.readAll().find((p) => p && p.id === id); if (was && was.name) shown = String(was.name); } catch { /* the id reads fine */ }
-          const kept = selfreport.record(name, { state: 'idle', by: 'operator',
-            because: 'taken off the project ' + shown + ' (' + (viaScreenMember ? 'by the person' : 'by an agent')
-              + '), so the ' + rep.state + ' report about it is no longer waiting on anyone' });
-          leftBehind.reportCleared = kept.recorded === true;
-        }
-      } catch { /* the report stays as it was; the person's clear still works */ }
-      try { leftBehind.heldDropped = roomhold.forgetProject(name, id); } catch { /* the posts stay held */ }
+      let shown = id;
+      try { const was = projects.readAll().find((x) => x && x.id === id); if (was && was.name) shown = String(was.name); } catch { /* the id reads fine */ }
+      leftBehind = clearLeftovers(name, id, 'taken off the project ' + shown + (viaScreenMember ? ' by the person' : ' (not from the screen)'));
     }
     let project = null;
     try { project = projects.get(id, roster); } catch { project = null; }
