@@ -18,11 +18,12 @@ const post = (id, title, body, name, extra = {}) => ({ id, channel: 'engineering
   created_at: '2026-10-02T21:00:00Z', agent: { name, role: 'Sales Development Representative', avatar: null }, ...extra });
 
 /* A fake site that pages its posts two at a time, as the real feed pages them. */
-function site(posts) {
+function site(posts, { channels = ['kosmos-bugs', 'engineering'] } = {}) {
   const asked = [];
   const fetchFn = async (url) => {
-    asked.push(url);
     const u = new URL(url);
+    if (u.pathname === '/api/channels') return { ok: true, status: 200, json: async () => channels.map((slug) => ({ slug })) };
+    asked.push(url);
     const start = Number(u.searchParams.get('cursor') || 0);
     const page = posts.slice(start, start + 2);
     return { ok: true, status: 200, json: async () => ({ posts: page, next_cursor: start + 2 < posts.length ? String(start + 2) : null }) };
@@ -202,4 +203,48 @@ test('#5062 review 4: a gh failure puts the group back to pending; a run that di
   const st = JSON.parse(fs.readFileSync(o.state, 'utf8')); st.groups.g1.status = 'filing'; fs.writeFileSync(o.state, JSON.stringify(st));
   assert.throws(() => t.file('g1', { ...o, gh: fakeGh().gh }), /was being filed when a run stopped/);
   await assert.rejects(t.main(['read', '--title', 'x', '--state', o.state]), /--title is only for file/);
+});
+
+
+test('#5062 review 5: every verb refuses a live lock; a dead owner\'s lock is taken over', async () => {
+  const s = site([post('v1', 'Board idle', 'x', 'A1'), post('v2', 'Font small', 'y', 'B1')]);
+  const o = opts('v', { fetchFn: s.fetchFn });
+  await t.read({ ...o, gh: fakeGh().gh });
+  const lock = o.state + '.lock';
+  fs.mkdirSync(lock); fs.writeFileSync(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid, since: 'now' }));   // alive: this process
+  assert.throws(() => t.file('g1', { ...o, gh: fakeGh().gh }), /holds .* \(pid \d+/);
+  assert.throws(() => t.dup('g1', '5', { ...o, gh: fakeGh().gh }), /another triage run holds/);
+  assert.throws(() => t.replied('v1', o), /another triage run holds/);
+  fs.writeFileSync(path.join(lock, 'owner'), JSON.stringify({ pid: 999999, since: 'then' }));   // dead
+  t.skip('g2', o);
+  assert.equal(fs.existsSync(lock), false, 'a dead owner\'s lock was not taken over and released');
+});
+
+test('#5062 review 5: a group a run left "filing" can be settled by dup or skip; gh success with an unreadable number stays filing', async () => {
+  const s = site([post('w1', 'Board idle', 'x', 'A1'), post('w2', 'Font small', 'y', 'B1')]);
+  const o = opts('w', { fetchFn: s.fetchFn });
+  await t.read({ ...o, gh: fakeGh().gh });
+  const odd = (args) => (args[1] === 'create' ? { status: 0, stdout: 'https://github.com/x/y/issues/77?foo\n', stderr: '' } : fakeGh().gh(args));
+  assert.throws(() => t.file('g1', { ...o, gh: odd }), /printed no card number/);
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1.status, 'filing', 'a probably-made card went back to pending (a second file would duplicate it)');
+  t.dup('g1', '77', { ...o, gh: fakeGh().gh });
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1.status, 'dup');
+  // A body that cannot be written: nothing was made, so back to pending.
+  assert.throws(() => t.file('g2', { ...o, tmpDir: path.join(DIR, 'no-such-dir'), gh: fakeGh().gh }));
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g2.status, 'pending');
+});
+
+test('#5062 review 5: the scrub keeps bug detail and catches provider keys, shell prompts and ~user', () => {
+  const keep = t.scrub('opened /Applications/Kosmos.app/Contents/Resources/app/web/index.html at commit 0123456789abcdef0123456789abcdef01234567 on version 1.2.3.4', []);
+  assert.match(keep, /Kosmos\.app\/Contents\/Resources\/app\/web\/index\.html/, 'a file path was taken for a link: ' + keep);
+  assert.match(keep, /0123456789abcdef0123456789abcdef01234567/, 'a commit hash was taken for a secret');
+  assert.match(keep, /version 1\.2\.3\.4/, 'a version was taken for an address');
+  assert.match(t.scrub('C:\\Users\\maria and then the board froze', []), /C:\\Users\\\[user\] and then the board froze/);
+  const gone = t.scrub('key AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q tvly-abc12345XYZ BSAabcdefghijklmnop123 Xq7Rk2Lm9Np4Bv8Cz1Dw6Ey3 prompt jsmith@Johns-MacBook-Pro ~ % and ~jsmith/notes', []);
+  assert.doesNotMatch(gone, /AIza|tvly-|BSAab|Xq7Rk2|jsmith|Johns/, gone);
+});
+
+test('#5062 review 5: a channel the site does not have is an error, never a silent zero', async () => {
+  const s = site([], { channels: ['general'] });
+  await assert.rejects(t.read(opts('x', { fetchFn: s.fetchFn, gh: fakeGh().gh })), /has no kosmos-bugs channel/);
 });
