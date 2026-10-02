@@ -1,25 +1,10 @@
 {
-  "version": "0.7.18",
+  "version": "0.7.19",
   "highlights": [
     {
       "icon": "spark",
-      "title": "Agents keep going when a message is flagged",
-      "line": "When Claude's safety check flags a message, an agent on Opus 5.5 now switches to Opus 4.8 and keeps going instead of stopping."
-    },
-    {
-      "icon": "chat",
-      "title": "The Guide says when it is out of usage",
-      "line": "When the Guide's Claude account hits its usage limit, the Guide now says so and keeps helping on Kosmos's backup, instead of going quiet."
-    },
-    {
-      "icon": "list",
-      "title": "See a file full page",
-      "line": "Click a file attached to a message to see it full page, with a button to show it on your computer, or to download it over Kosmos+."
-    },
-    {
-      "icon": "chat",
-      "title": "Room posts are not sent twice",
-      "line": "An agent's room post that got through is no longer reported back to it as failed, so teammates stop getting it twice."
+      "title": "Codex agents no longer slow the board",
+      "line": "A board running Codex agents keeps answering: Kosmos now reads only what is new in each conversation, not the whole thing every time."
     }
   ]
 }
