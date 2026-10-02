@@ -3123,6 +3123,20 @@ function launcherTmuxSafe() {
  * work. One definition, or the two drift.
  */
 function binPaths(opts) {
+  const platform = (opts && opts.platform) || process.platform;
+  const env = (opts && opts.env) || process.env;
+  let tmuxBin = (opts && opts.tmuxBin)
+    || env.AGENT_WORKFORCE_TMUX_BIN;
+  /* #4917: Linux packages tmux into /usr/bin or /usr/local/bin, and custom
+   * installs may expose it only through PATH. Resolve an executable directly,
+   * without a shell, and keep the long-standing Mac and Windows fallback
+   * unchanged. The explicit option and environment override remain authoritative
+   * on every platform. */
+  if (!tmuxBin && platform === 'linux') {
+    const pathDirs = String(env.PATH || '').split(path.delimiter).filter(Boolean);
+    const dirs = [...new Set([...pathDirs, '/usr/local/bin', '/usr/bin', '/bin'])];
+    tmuxBin = dirs.map((dir) => path.join(dir, 'tmux')).find((candidate) => runners.isRunnable(candidate));
+  }
   return {
     // Claude's resolution moved to engine/runners.js (#979, same
     // consolidation the codex line below got in #987): ONE priority list
@@ -3135,9 +3149,8 @@ function binPaths(opts) {
        what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
        removed Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
        straight to plistFor and is not touched by this. */
-    tmuxBin: (opts && opts.tmuxBin)
+    tmuxBin: tmuxBin
       || launcherTmuxSafe()
-      || process.env.AGENT_WORKFORCE_TMUX_BIN
       || '/opt/homebrew/bin/tmux',
     // The OpenAI runner (#245, resolution moved to engine/runners.js for
     // #979). ONE priority list -- env override, then the managed location

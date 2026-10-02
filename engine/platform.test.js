@@ -33,7 +33,7 @@ test('#570 win32 RUNS agents but CANNOT be sent a runner download', () => {
   assert.equal(platform.isSupported('darwin'), true);
   assert.equal(platform.canDownloadRunner('darwin'), true, 'the Mac can still fetch its own');
 
-  assert.equal(platform.isSupported('linux'), false, 'Linux has no substrate');
+  assert.equal(platform.isSupported('linux'), true, 'Linux has the systemd user-unit substrate');
   assert.equal(platform.canDownloadRunner('linux'), false);
 });
 
@@ -82,7 +82,7 @@ test('describe() returns machine facts only -- no user-facing copy', () => {
   assert.deepEqual(platform.describe('darwin'),
     { platform: 'darwin', supported: true, runnerDownloads: true, claudeDownloads: true });
   assert.deepEqual(platform.describe('linux'),
-    { platform: 'linux', supported: false, runnerDownloads: false, claudeDownloads: false });
+    { platform: 'linux', supported: true, runnerDownloads: false, claudeDownloads: false });
   const d = platform.describe();
   assert.equal(d.platform, process.platform, 'describe() defaults to this process');
   assert.equal(d.supported, platform.isSupported());
@@ -95,14 +95,14 @@ test('describe() returns machine facts only -- no user-facing copy', () => {
   assert.deepEqual(Object.keys(d).sort(), ['claudeDownloads', 'platform', 'runnerDownloads', 'supported']);
 });
 
-test('both lists are frozen, and a THIRD platform is still a real port (not an entry)', () => {
+test('both lists are frozen, and a FOURTH platform is still a real port (not an entry)', () => {
   /* ⚠️ THE RULE THIS FILE WAS ALWAYS DEFENDING, restated rather than deleted. The
      old arm read `deepEqual(SUPPORTED, ['darwin'])` and its name said "adding one
      is a real port, not an entry" -- that is what stopped anyone widening the gate
      casually, and it worked: win32 waited for engine/win32launch.js. Pinning the
      exact contents is how that intent is enforced, so it stays pinned, just to the
      new truth. Anyone adding a third entry has to come here and justify it. */
-  assert.deepEqual(platform.SUPPORTED, ['darwin', 'win32'],
+  assert.deepEqual(platform.SUPPORTED, ['darwin', 'win32', 'linux'],
     'a new platform needs a substrate that runs agents there, not a list entry');
   assert.deepEqual(platform.RUNNER_DOWNLOADS, ['darwin'],
     'a new platform needs PUBLISHED runner builds, which is somebody real work');
@@ -117,7 +117,7 @@ test('the gate the server uses: it arms live execution iff the substrate runs th
   const armDecision = (plat) => platform.isSupported(plat); // what server.js branches on
   assert.equal(armDecision('darwin'), true, 'macOS arms live execution');
   assert.equal(armDecision('win32'), true, 'and Windows does now, because agents run there');
-  assert.equal(armDecision('linux'), false, 'Linux leaves it unarmed -> substrate fails closed');
+  assert.equal(armDecision('linux'), true, 'Linux arms live execution because its systemd substrate landed');
 });
 
 test('#570/#3159 the DOWNLOAD gates read a download predicate, not the substrate one -- and the RIGHT per-runner one', () => {
