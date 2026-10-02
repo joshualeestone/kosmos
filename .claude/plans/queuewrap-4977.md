@@ -17,7 +17,7 @@ The wrapper every fleet Mac's heavy one-off runs through is a file in the repo, 
   - every run of the wrapper goes through a shim that refuses (exit 99) unless KOSMOS_RUN_MARKER_DIR is inside the test's own mktemp dir; a control arm proves the shim refuses;
   - fake package managers first on PATH (as the harness had);
   - stray processes are stopped only by an exact `^sleep <N>$` match on lengths unique to this run (no broad pkill); an EXIT trap stops the background wrappers it started (a wrapper run inside a command substitution ends by its own arm's wait and the shim's 240 s deadline);
-  - it counts: 0 BAD and exactly 77 OK, else it fails (74 seeded arms, the shim control, the killed wrapper's temp files, a missing lib checkout exits 3).
+  - it counts: 0 BAD and exactly 78 OK, else it fails (74 seeded arms, the shim control, the killed wrapper's temp files, and two lib arms: a missing checkout and a lib missing a function both exit 3).
 - `package.json`: `test:shell` runs it (tools.every-test-runs.test.js would otherwise flag it as orphaned).
 
 ## Review rounds
