@@ -52,7 +52,7 @@ fi
 # and without what belongs to the whole suite: the queue WAIT (a light queue turn already holds its place; the release
 # claim and install-harness refusals are still asked, once), the coverage count, the shell part and the branch's
 # browser-check gates. A bare `node --test <file>` skips all of it. Other suites' "is a suite live" checks still see
-# a --only run as one (it is run-tests.sh), so they wait for it: the safe direction.
+# a --only run as one (it is run-tests.sh), so they wait for it or refuse: the safe direction.
 KOSMOS_ONLY=0
 KOSMOS_ONLY_FILES=()
 if [ "${1:-}" = --only ]; then

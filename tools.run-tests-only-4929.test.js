@@ -12,6 +12,13 @@
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
+/* A run this file starts must never start this file again: against a runner without --only, node takes `--only` as an
+   option and the runner runs the WHOLE suite, this file included, one level down (measured, review 5). The inner runs
+   carry this mark, and a file that sees it stands down. */
+if (process.env.KOSMOS_ONLY_4929_INNER === '1') {
+  test('stands down inside its own inner run', { skip: 'started by tools.run-tests-only-4929.test.js itself' }, () => {});
+  return;
+}
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -19,6 +26,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const RUNNER = path.join(__dirname, 'tools', 'run-tests.sh');
+/* Read, never run, to see whether this runner knows --only: running one that does not starts the whole suite. */
+const KNOWS_ONLY = /\[ "\$\{1:-\}" = --only \]/.test(require('node:fs').readFileSync(RUNNER, 'utf8'));
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'only-4929-'));
 /* Under the suite (yarn test, CI, --only itself) this process already has what run-tests.sh exports, and CI's node job
    sets KOSMOS_TEST_PART. Every run below starts from an environment with none of that, so each assertion can only
@@ -36,6 +45,7 @@ const cleanEnv = (extra = {}) => {
   const e = { ...process.env };
   for (const k of RUNNER_SET) delete e[k];
   e.TMPDIR = PLAIN_TMP;
+  e.KOSMOS_ONLY_4929_INNER = '1';
   return { ...e, ...extra };
 };
 
@@ -61,6 +71,7 @@ const RED = path.join(DIR, 'red.test.js');
 fs.writeFileSync(RED, `'use strict';\nrequire('node:test')('red', () => { throw new Error('red on purpose'); });\n`);
 
 function run(args, extraEnv = {}) {
+  assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
   // Not about the machine claim or the install harness (cut-guard's own tests are): a run on a busy box must still run.
   const env = cleanEnv({ CODEX_HOME: '/tmp/should-be-unset', KOSMOS_AGENT_TOKEN_ONLY: '1',
     KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', ...extraEnv });
@@ -110,6 +121,7 @@ test('--only refuses, before anything runs: no files, an option, a non-test file
     [['--only', PROBE], { KOSMOS_TEST_PART: 'node', KOSMOS_TEST_PART_LOCAL: '1' }, /does not take KOSMOS_TEST_PART/],
     [['--only', PROBE], { KOSMOS_SHELL_SHARD: '1/2' }, /does not take KOSMOS_TEST_PART or KOSMOS_SHELL_SHARD/],
   ]) {
+    assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
     const e = cleanEnv(env);
     const r = spawnSync('bash', [RUNNER, ...args], { env: e, encoding: 'utf8', timeout: 60000 });
     const out = (r.stdout || '') + (r.stderr || '');
@@ -142,4 +154,17 @@ test('--only asks the machine claim once: a foreign claim refuses it; the claim\
   const own = run(['--only', PROBE], { ...base, KOSMOS_MACHINE_CLAIM_COOKIE: cookie });
   assert.equal(own.code, 0, 'the claim\'s own holder was refused: ' + own.out.slice(-600));
   assert.match(own.out, /ENV \{/);
+});
+
+test('--only asks the install harness once: a live one refuses it; the override runs it', () => {
+  const probe = path.join(DIR, 'harness-live.sh');
+  fs.writeFileSync(probe, "#!/bin/bash\necho '99999 bash tools/test-install.sh'\nexit 0\n", { mode: 0o755 });
+  const base = { KOSMOS_HARNESS_PROBE: probe, KOSMOS_HARNESS_KEEP_FIXTURES: '1', KOSMOS_TESTS_IGNORE_HARNESS: '' };
+  const live = run(['--only', PROBE], base);
+  assert.equal(live.code, 1, 'a live harness did not refuse --only: ' + live.out.slice(-600));
+  assert.match(live.out, /an install harness \(tools\/test-install\.sh\) is already running/);
+  assert.doesNotMatch(live.out, /ENV \{/, 'the probe ran beside a live harness');
+  const over = run(['--only', PROBE], { ...base, KOSMOS_TESTS_IGNORE_HARNESS: '1' });
+  assert.equal(over.code, 0, 'the override did not run it: ' + over.out.slice(-600));
+  assert.match(over.out, /ENV \{/);
 });
