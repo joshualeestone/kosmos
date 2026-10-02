@@ -130,3 +130,11 @@ counted "cancelled", not "fail", so read the rc, not the fail line).
 A read that lands after a refresh dropped its computer is not kept (tested, sabotage red by rc); each group paints
 as its own read lands; the rebuild comment says a same-address rename is a per-group change; fake-dom says it does
 not model detached nodes; a dead stub removed. Unit 27/27.
+
+### Review 7 (opus, blind, whole diff, 2026-10-01 21:44): 0 blockers, 1 warning, 6 nits, all taken
+W: painting each group as its own read lands is now tested (pizzarama held open, agent1s must show first;
+sabotage red). Nits: a throwing per-read paint cannot end the round early; the write-back guard has no typeof
+escape (the test sandboxes declare OA_COMPUTERS); the write-back test renamed "read:" (it drives oaReadOne, not a
+round); README row no longer promises a last-seen time; the sort control repaints the other computers' groups at
+once (NOT unit-tested: the handler lives in the page's global change listener); OA_MAX_AGENTS = 500 cards per
+other computer (tested). Unit 29/29; 3 sabotages red by rc.
