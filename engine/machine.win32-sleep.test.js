@@ -212,6 +212,11 @@ test('#3324 Turn On on Windows brings the sleep Settings window to the FOREGROUN
        window is ApplicationFrameHost's frame around it, so the search must look there. */
     assert.match(script, /ApplicationFrameWindow/, 'it looks for the frame that hosts Settings');
     assert.match(script, /EnumChildWindows/, 'it matches the frame by its Settings-owned child');
+    /* On a cold launch SystemSettings owns a temporary window of the same class, and its
+       MainWindowHandle points at it; forcing that forward left no window focused. */
+    assert.doesNotMatch(script, /MainWindowHandle/, 'no fallback to the temporary cold-launch window');
+    assert.match(script, /WindowPid\(f, out fp\); if \(fp == pid\) return true;/, 'a frame Settings owns itself is skipped');
+    assert.match(script, /if\(\$fg -eq \$h -or/, 'it stands down when Settings is already in front');
     /* Restoring an already-open window un-maximizes it; only a minimized one is restored. */
     const restoreLines = script.split('\n').filter((l) => /ShowWindowAsync\(\s*\$h/.test(l));
     assert.equal(restoreLines.length, 1, 'one restore call');

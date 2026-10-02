@@ -25,7 +25,24 @@ leaves the window behind:
   (`detached: false, windowsHide: true, stdio: 'ignore'`), still `unref()`ed.
 - The script finds the visible `ApplicationFrameWindow` whose child belongs to a
   SystemSettings pid (C# `FrameOf` via EnumWindows/EnumChildWindows); title is not
-  matched (localized). Falls back to SystemSettings' own MainWindowHandle if one exists.
+  matched (localized). Frames SystemSettings owns itself are skipped and there is NO
+  MainWindowHandle fallback (see "Cold launch" below).
+- The helper stands down when the foreground is already the frame, the host
+  (ApplicationFrameHost) or SystemSettings.
+
+## Cold launch (found by the stand-in rig after the PR opened, 2026-10-02 ~10:50)
+The 10-01 stand-in rig (work\scratch-3324\proof.ps1: a WinForms "Kosmos" window really
+clicked, then Turn On through the engine code) showed the first PR version leaving NO
+window focused on a cold Settings launch, every run, while the old (never-running) helper
+left Settings focused. Logged cause: during a cold launch SystemSettings owns a temporary
+window of the same class, and its MainWindowHandle points at it; the helper's fallback
+raised that window while the host's real frame was already activating, breaking the
+handover. Fixed by skipping self-owned frames, dropping the fallback, and standing down
+when Settings is already in front. After: cold 4/4, warm 2/2, File Explorer in front 2/2,
+minimized 1/1, short-lived parent 2/2, all ending with Settings focused and no
+no-focus flicker. Note: this rig does NOT reproduce the original FAIL (the old code
+passes it now), so it proves "no regression", not "fixes the original"; the File
+Explorer test is the one where the old code fails and the fix passes.
 - Test pins both (`machine.win32-sleep.test.js`); the new assertion fails on the old code.
 
 ## Rejected

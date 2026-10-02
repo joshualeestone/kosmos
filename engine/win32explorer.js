@@ -264,6 +264,15 @@ function openSettingsPage(purpose) {
  * window stayed behind). FrameOf finds the visible frame whose child belongs to a
  * SystemSettings pid. The title is not matched: it is localized.
  *
+ * 🛑 ONLY A FRAME THE HOST OWNS, AND HANDS OFF WHEN SETTINGS IS ALREADY IN FRONT. On a cold
+ * launch SystemSettings briefly owns a TEMPORARY window of the same class (and that is what
+ * its MainWindowHandle points at) while the host's real frame is already activating.
+ * Forcing either one forward mid-handover left NO window focused (measured, 2026-10-02), so
+ * FrameOf skips frames SystemSettings owns itself, there is no MainWindowHandle fallback,
+ * and the helper stops when the foreground is already the frame, the host, or Settings.
+ * The price: another packaged app in front (hosted by the same ApplicationFrameHost) is
+ * left in front, the pre-fix state.
+ *
  * NOTHING CALLER-CONTROLLED reaches the shell: the script is a fixed constant, and it is
  * passed as -EncodedCommand (base64 UTF-16LE) so it survives argv as ONE space-free token
  * with no quoting to get wrong. windowsHide is true here (unlike the Explorer launch): a
@@ -285,12 +294,14 @@ const FOREGROUND_SETTINGS_SCRIPT = [
   '[DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);',
   '[DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);',
   '[DllImport("user32.dll", EntryPoint="GetWindowThreadProcessId")] static extern uint WindowPid(IntPtr h, out uint pid);',
+  'public static uint PidOf(IntPtr h) { uint p; WindowPid(h, out p); return p; }',
   'public static IntPtr FrameOf(uint pid) {',
   '  IntPtr found = IntPtr.Zero;',
   '  EnumWindows(delegate(IntPtr f, IntPtr l) {',
   '    if (!IsWindowVisible(f)) return true;',
   '    var c = new System.Text.StringBuilder(64); GetClassName(f, c, 64);',
   '    if (c.ToString() != "ApplicationFrameWindow") return true;',
+  '    uint fp; WindowPid(f, out fp); if (fp == pid) return true;',
   '    EnumChildWindows(f, delegate(IntPtr k, IntPtr m) {',
   '      uint p; WindowPid(k, out p);',
   '      if (p != 0 && p == pid) { found = f; return false; }',
@@ -303,14 +314,15 @@ const FOREGROUND_SETTINGS_SCRIPT = [
   '\'@',
   '$deadline=(Get-Date).AddSeconds(5)',
   'do{',
-  '  $h=[IntPtr]::Zero',
+  '  $h=[IntPtr]::Zero; $sp=0',
   '  foreach($p in Get-Process -Name SystemSettings -ErrorAction SilentlyContinue){',
-  '    $h=[KWin.Native]::FrameOf([uint32]$p.Id)',
-  '    if($h -eq [IntPtr]::Zero -and $p.MainWindowHandle -ne 0){ $h=$p.MainWindowHandle }',
+  '    $sp=[uint32]$p.Id; $h=[KWin.Native]::FrameOf($sp)',
   '    if($h -ne [IntPtr]::Zero){ break }',
   '  }',
   '  if($h -ne [IntPtr]::Zero){',
   '    $fg=[KWin.Native]::GetForegroundWindow()',
+  '    $fp=[KWin.Native]::PidOf($fg)',
+  '    if($fg -eq $h -or ($fp -ne 0 -and ($fp -eq [KWin.Native]::PidOf($h) -or $fp -eq $sp))){ break }',
   '    $ft=[KWin.Native]::GetWindowThreadProcessId($fg,[IntPtr]::Zero)',
   '    $me=[KWin.Native]::GetCurrentThreadId()',
   '    [void][KWin.Native]::AttachThreadInput($me,$ft,$true)',
