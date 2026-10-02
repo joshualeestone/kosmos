@@ -82,6 +82,8 @@ for f in setup setup.sha256 setup-staging setup-staging.sha256 index.html vercel
 # A deploy that serves DIFFERENT bytes for one file than the export held (#4819).
 [ -n "${MANGLE_ON_DEPLOY:-}" ] && printf ' ' >> "$LIVE_DIR/dist/$MANGLE_ON_DEPLOY"
 [ -n "${LATE_ON_DEPLOY:-}" ] && mv "$LIVE_DIR/dist/$LATE_ON_DEPLOY" "$LIVE_DIR/dist/$LATE_ON_DEPLOY.late"
+# #5032: a site-root file served with different bytes than the export held.
+[ -n "${MANGLE_ROOT_ON_DEPLOY:-}" ] && printf ' ' >> "$LIVE_DIR/$MANGLE_ROOT_ON_DEPLOY"
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -411,6 +413,23 @@ run_deploy "$S21" "$L21" --publish
 read -r S22 L22 <<<"$(make_scenario)"; with_setup "$S22" "NEW-INSTALLER"; printf '%064d  setup\n' 0 > "$S22/setup.sha256"; git -C "$S22" commit -qam "bad sidecar"
 run_deploy "$S22" "$L22" --promote
 { [ "$RC" = 1 ] && has "$out" "setup.sha256 names"; } && pass "#5032: a committed setup.sha256 that does not name the installer is refused" || bad "#5032 bad sidecar (rc=$RC) out=$out"
+
+# 23) a committed /setup-staging pair is served and edge-checked after the deploy (review 3: run, not grepped).
+read -r S23 L23 <<<"$(make_scenario)"; with_setup "$S23" "NEW-INSTALLER"
+printf 'NEXT-STAGING-INSTALLER\n' > "$S23/setup-staging"; ( cd "$S23" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+git -C "$S23" add setup-staging setup-staging.sha256 && git -C "$S23" commit -q -m "staging installer"
+run_deploy "$S23" "$L23" --promote
+{ [ "$RC" = 0 ] && [ "$(cat "$L23/setup-staging")" = NEXT-STAGING-INSTALLER ]; } && pass "#5032: a committed /setup-staging pair deploys and passes its edge check" || bad "#5032 setup-staging edge (rc=$RC) out=$out"
+# 24) ...and a served /setup-staging.sha256 that does not describe the served script is refused.
+read -r S24 L24 <<<"$(make_scenario)"; with_setup "$S24" "NEW-INSTALLER"
+printf 'NEXT-STAGING-INSTALLER\n' > "$S24/setup-staging"; ( cd "$S24" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+git -C "$S24" add setup-staging setup-staging.sha256 && git -C "$S24" commit -q -m "staging installer"
+out="$(MANGLE_ROOT_ON_DEPLOY=setup-staging.sha256 PATH="$BIN:$PATH" LIVE_DIR="$L24" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S24" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "/setup-staging"; } && pass "#5032: a served /setup-staging pair that does not agree is refused at the edge" || bad "#5032 setup-staging mangled (rc=$RC) out=$out"
+# 25) a pointer naming an installer over a commit with no setup.sha256: refused before anything is served.
+read -r S25 L25 <<<"$(make_scenario)"; with_setup "$S25" "NEW-INSTALLER"; git -C "$S25" rm -q setup.sha256 && git -C "$S25" commit -q -m "no sidecar"
+run_deploy "$S25" "$L25" --promote
+{ [ "$RC" = 1 ] && has "$out" "has no setup or setup.sha256" && [ "$(cat "$L25/setup")" = setup-script ]; } && pass "#5032: a pointer naming an installer over a commit with no sidecar is refused" || bad "#5032 missing sidecar (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

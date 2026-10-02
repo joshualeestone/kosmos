@@ -37,6 +37,16 @@ grep -qF '_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json $SE
   && pass "release: the release commit carries the channel's installer pair" || bad "release: _site_paths does not name \$SETUP_FILE"
 grep -qF 'KOSMOS_VERIFY_SETUP="$SETUP_FILE"' "$REPO/tools/release.sh" && pass "release: step 9 verifies the channel's installer" || bad "release: step 9 does not pass KOSMOS_VERIFY_SETUP"
 
+# ---- release.sh: the pointer's setup_sha256 comes from the build's own installer pair (the block, RUN) ----
+BLK="$(awk '/^KM_SETUP_SHA="\$\(awk/{p=1} p{print} p&&/does not name dist\/setup.s bytes/{exit}' "$REPO/tools/release.sh")"
+[ -n "$BLK" ] && pass "release: found the installer-sha block" || bad "release: no installer-sha block"
+F="$T/fixrepo"; mkdir -p "$F/dist"; printf 'BUILT-INSTALLER\n' > "$F/dist/setup"; ( cd "$F/dist" && shasum -a 256 setup > setup.sha256 )
+WANT="$(shasum -a 256 < "$F/dist/setup" | awk '{print $1}')"
+got="$( REPO="$F"; eval "$BLK" && printf '%s' "$KM_SETUP_SHA" )" ; rc=$?
+[ "$rc" = 0 ] && [ "$got" = "$WANT" ] && pass "release: KM_SETUP_SHA is the built installer's sha (not the artifact's)" || bad "release: KM_SETUP_SHA wrong (rc=$rc got=$got want=$WANT)"
+printf '%064d  setup\n' 0 > "$F/dist/setup.sha256"
+( REPO="$F"; eval "$BLK" ) 2>/dev/null && bad "release: a lying dist/setup.sha256 was accepted" || pass "release: a dist/setup.sha256 that does not name dist/setup refuses the cut"
+
 # ---- verify-served.sh: only the two names, refused before any fetch ----
 # HOST is a port nothing listens on: a name that got past the gate would fail at the network
 # control instead, with a different sentence (that is the control arm).
