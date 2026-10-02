@@ -39546,6 +39546,7 @@ function pictureStill(bytes) {
   const u32le = (at) => bytes[at] + (bytes[at + 1] << 8) + (bytes[at + 2] << 16) + ((bytes[at + 3] << 24) >>> 0);
   const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (bytes.length >= 8 && PNG_SIG.every((b, i) => bytes[i] === b)) {
+    if (bytes.length < 33 || tag(12) !== 'IHDR' || u32be(8) !== 13) return false;   // IHDR first, 13 bytes long
     let idat = false;
     for (let at = 8; at + 8 <= bytes.length;) {
       const kind = tag(at + 4);
@@ -39559,6 +39560,8 @@ function pictureStill(bytes) {
     }
     return false;
   }
+  // fitPicture keeps only a still PNG today (every WebP is redrawn); the WebP reading is kept so this stays one
+  // reading of both formats, the community's.
   if (bytes.length >= 12 && tag(0) === 'RIFF' && tag(8) === 'WEBP') {
     for (let at = 12; at + 8 <= bytes.length;) {
       const kind = tag(at);

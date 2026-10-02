@@ -20,6 +20,7 @@
  *   F7  a phone JPEG with a rotation tag (EXIF Orientation 6) comes back upright, its sides swapped;
  *   F8  a thin banner is padded to the community's 16 px minimum, never squeezed under it;
  *   F9  a JPEG whose file says PNG is still redrawn: what is kept is decided by the bytes, never the name;
+ *   F10 a PNG whose eXIf turns it (Orientation 6) comes back upright, its sides swapped;
  *   and every picture that comes back (F1, F2, F5 to F8) has each side from 16 to 2,048 px.
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
@@ -147,6 +148,18 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
         thin.getContext('2d').fillRect(0, 0, 3000, 20);
         const banner = await new Promise((res) => thin.toBlob(res, 'image/png'));
         const thinOut = await window.fitPicture(banner);
+        // F10: a 200 x 100 PNG with an eXIf chunk (Orientation 6) spliced in after IHDR, with a correct CRC.
+        const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+        const crc = (u) => { let c = 0xffffffff; for (const b of u) c = crcTable[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+        const pngPlain = new Uint8Array(await (await new Promise((res) => wide.toBlob(res, 'image/png'))).arrayBuffer());
+        // Drop any eXIf the engine wrote, then insert ours after IHDR (8 + 25 bytes).
+        const chunks = []; for (let at = 8; at < pngPlain.length;) { const len = (pngPlain[at] << 24 >>> 0) + (pngPlain[at + 1] << 16) + (pngPlain[at + 2] << 8) + pngPlain[at + 3]; const kind = String.fromCharCode(...pngPlain.subarray(at + 4, at + 8)); if (kind !== 'eXIf') chunks.push(pngPlain.subarray(at, at + 12 + len)); at += 12 + len; }
+        const exifData = new Uint8Array([0x4d, 0x4d, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0]);
+        const typeAndData = new Uint8Array([0x65, 0x58, 0x49, 0x66, ...exifData]);
+        const c = crc(typeAndData);
+        const exifChunk = new Uint8Array([0, 0, 0, exifData.length, ...typeAndData, c >>> 24, (c >>> 16) & 255, (c >>> 8) & 255, c & 255]);
+        const turnedPng = new Blob([pngPlain.subarray(0, 8), chunks[0], exifChunk, ...chunks.slice(1)], { type: 'image/png' });
+        const turnedOut = await window.fitPicture(turnedPng);
         // F9: the F7 JPEG labelled as a PNG.
         const lying = new Blob([plain], { type: 'image/png' });
         const lyingOut = await window.fitPicture(lying);
@@ -157,6 +170,7 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
           softIn: soft.size, softType: softOut.type, softSize: softOut.size, softCorner: await corner(softOut),
           logoType: logoOut.type, logoSize: logoOut.size, logoSame: logoOut === logo, logoCorner: await corner(logoOut),
           transIn: trans.size, transType: transOut.type, transSize: transOut.size, transCorner: await corner(transOut),
+          turnedDims: await decode(turnedOut), turnedRedrawn: turnedOut !== turnedPng,
           lyingRedrawn: lyingOut !== lying, lyingType: lyingOut.type,
           rotDims: await decode(rotOut), thinDims: await decode(thinOut), thinSame: thinOut === banner,
           sides: await Promise.all([fit, gifOut, jpgOut, transOut, logoOut, rotOut, thinOut].map(decode)),
@@ -183,6 +197,7 @@ const GIF_B64 = 'R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==';
       say(r.softCorner[3] < 255 && r.softSize <= 60000 && r.softType !== 'image/jpeg', engine + ' F6c: a soft transparent illustration stays transparent', r.softType + ' ' + r.softSize + ' ' + JSON.stringify(r.softCorner));
       say(r.rotDims.w === 100 && r.rotDims.h === 200, engine + ' F7: a phone JPEG with a rotation tag comes back upright', r.rotDims.w + 'x' + r.rotDims.h);
       say(!r.thinSame && Math.min(r.thinDims.w, r.thinDims.h) >= 16, engine + ' F8: a thin banner is padded to at least 16 px', r.thinDims.w + 'x' + r.thinDims.h);
+      say(r.turnedRedrawn && r.turnedDims.w === 100 && r.turnedDims.h === 200, engine + ' F10: a PNG turned by its eXIf comes back upright', r.turnedDims.w + 'x' + r.turnedDims.h);
       say(r.lyingRedrawn, engine + ' F9: a JPEG whose file says PNG is redrawn, not kept', r.lyingType);
       const badSide = r.sides.filter((d) => Math.min(d.w, d.h) < 16 || Math.max(d.w, d.h) > 2048);
       say(badSide.length === 0, engine + ': every picture that comes back is 16 to 2,048 px on each side', JSON.stringify(r.sides));

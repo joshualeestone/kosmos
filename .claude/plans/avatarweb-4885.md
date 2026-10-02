@@ -84,6 +84,11 @@ picture Kosmos can no longer take down is said in Settings.
 - (review 5) Kosmos's own display gets the fitted picture too: an animated GIF becomes its first frame on the agent's
   page, and a big picture is at most 512 px.
 
+- (review 6) Measured in both engines: a PNG turned by its eXIf (Orientation 6) comes back upright (F10). A PNG is kept
+  as chosen only with IHDR first and 13 bytes long, as the community requires. server.community-picture-4885.test.js
+  pins the two counts on the route: 0 without the picture pass, null when it throws, the count otherwise, on GET and
+  on PUT.
+
 ## Weakest premise
 That 512 px is enough for every place Kosmos shows a picture. Agent pictures render at most a few hundred CSS pixels
 wide; a person who wants a sharper picture can choose a PNG or WebP under 60,000 bytes, which is kept as is.

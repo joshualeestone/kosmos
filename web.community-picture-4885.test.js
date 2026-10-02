@@ -134,6 +134,10 @@ test('#4885 pictureStill: a still PNG or WebP is kept; an animated one, a JPEG, 
   assert.equal(pictureStill(new Uint8Array(0)), false);
   const noIdat = new Uint8Array(Buffer.concat([PNG_SIG, chunk('IHDR', Buffer.alloc(13)), chunk('IEND', Buffer.alloc(0))]));
   assert.equal(pictureStill(noIdat), false, 'a PNG with no picture data is kept as chosen');
+  const late = new Uint8Array(Buffer.concat([PNG_SIG, chunk('tEXt', Buffer.alloc(4)), chunk('IHDR', Buffer.alloc(13)), chunk('IDAT', Buffer.alloc(20)), chunk('IEND', Buffer.alloc(0))]));
+  assert.equal(pictureStill(late), false, 'a PNG whose first chunk is not IHDR is kept as chosen');
+  const short = new Uint8Array(Buffer.concat([PNG_SIG, chunk('IHDR', Buffer.alloc(12)), chunk('IDAT', Buffer.alloc(20)), chunk('IEND', Buffer.alloc(0))]));
+  assert.equal(pictureStill(short), false, 'a PNG with a 12-byte IHDR is kept as chosen');
   const cut = png(chunk('IDAT', Buffer.alloc(20)));
   assert.equal(pictureStill(cut.subarray(0, cut.length - 6)), false, 'a PNG whose last chunk is cut short is kept as chosen');
 });
