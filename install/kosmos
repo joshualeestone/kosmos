@@ -112,11 +112,11 @@ export NO_PROXY no_proxy
 # proxy forwards to the board, and there status, reply and post all said Kosmos is not running (the 0.7.15
 # diagnostic, Meta family). So before this run's first call to the board, and only when a proxy curl uses for
 # http:// is set (http_proxy, all_proxy, ALL_PROXY), one direct probe decides the route (1 s to connect, 1.2 s in all),
-# read from curl's verbose lines (curl 8 prints only "Couldn't connect" otherwise; LC_ALL=C keeps the errno English):
-#   - "Connected to": direct works (a BUSY board connects, then waits: that is not a block);
+# read from curl's own count of connections made (%{num_connects}, not its wording):
+#   - a connection was made: direct works (a BUSY board connects, then waits: that is not a block);
 #   - otherwise (refused, not permitted, a connect timeout): ONE request through the proxy decides. Only a Kosmos
 #     health body ("app":"kosmos") picks the proxy, so the board and agent tokens never go to a proxy that cannot
-#     show it reaches this board (a corporate proxy, a saturated board timing out: review 2), and #4466's empty proxy
+#     show it reaches a Kosmos board (a corporate proxy, a saturated board timing out: review 2), and #4466's empty proxy
 #     answer never does. A "direct" reached this way is not remembered, so a later call (kosmos start, once the board
 #     is up) asks again.
 # The proxy route is per call (curl --noproxy "", which overrides NO_PROXY), so the exported exemption above, which
@@ -126,11 +126,10 @@ _KOSMOS_LB=""
 kosmos_loopback_route() {
   [ -n "$_KOSMOS_LB" ] && return 0
   [ -n "${http_proxy:-}${all_proxy:-}${ALL_PROXY:-}" ] || { _KOSMOS_LB=direct; return 0; }
-  local _err _rc=0
-  _err="$(LC_ALL=C /usr/bin/curl --noproxy '*' -sS -v -o /dev/null --connect-timeout 1 -m 1.2 "${KOSMOS_LOOPBACK_PROBE_URL:-$URL/api/health}" 2>&1)" || _rc=$?
-  if [ "$_rc" = 0 ]; then _KOSMOS_LB=direct; return 0; fi
-  case "$_err" in *"Connected to"*) _KOSMOS_LB=direct; return 0 ;; esac
-  case "$(LC_ALL=C /usr/bin/curl --noproxy '' -sS --connect-timeout 1 -m 3 "$URL/api/health" 2>/dev/null)" in
+  local _nc
+  _nc="$(/usr/bin/curl --noproxy '*' -s -o /dev/null -w '%{num_connects}' --connect-timeout 1 -m 1.2 "${KOSMOS_LOOPBACK_PROBE_URL:-$URL/api/health}" 2>/dev/null)" || true
+  case "$_nc" in ''|0) ;; *) _KOSMOS_LB=direct; return 0 ;; esac
+  case "$(/usr/bin/curl --noproxy '' -sS --connect-timeout 1 -m 3 "$URL/api/health" 2>/dev/null)" in
     *'"app":"kosmos"'*) _KOSMOS_LB=proxy; KOSMOS_NP=(--noproxy '') ;;
     *) KOSMOS_NP=() ;;   # direct for this call, decided again next time
   esac
@@ -1263,6 +1262,9 @@ cmd_stop() {
       sleep 0.3
     done
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+    # #4933 review 3: the loopback route proved on the board just stopped is forgotten, so a restart in this same run
+    # decides again (a remembered proxy route would read the empty port behind it as "another app" and refuse).
+    _KOSMOS_LB=""; KOSMOS_NP=()
     # ⚠️ ASKED IS NOT STOPPED. This said "Stopped." unconditionally and removed
     # the pidfile either way, so a kill that did not work made Kosmos FORGET a
     # live process -- into exactly the state this file describes below as

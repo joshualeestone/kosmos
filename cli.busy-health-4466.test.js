@@ -446,7 +446,9 @@ test('#4933 a failed probe with a proxy that is not this board stays direct: the
     const out = await runCli(['status'], env);
     assert.equal(out.code, 0, out.stdout + out.stderr);
     assert.match(out.stdout, /Kosmos is running at/);
-    await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
+    const posted = await runCli(['post', 'proj', 'hello'], { ...env, TMUX_PANE: '%42' });
+    assert.equal(posted.code, 0, 'the post did not go out directly: ' + posted.stdout + posted.stderr);
+    assert.ok(hits.length >= 1, 'the proxy check never ran, so this proved nothing');
     assert.ok(hits.every((h) => /\/api\/health $/.test(h)), 'something past the health check, or a token, went to the proxy: ' + JSON.stringify(hits));
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
@@ -477,6 +479,19 @@ test('#4933 refused directly while the proxy forwards to the board (a network na
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
 
+test('#4933 review 3: a proxy route remembered for a board that is then stopped is forgotten (a restart decides again, never "another app")', async () => {
+  const hits = [];
+  const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(502); res.end(''); });
+  const p = 'http://127.0.0.1:' + await listen(proxy);
+  try {
+    const env = baseEnv(await closedPort(), proxyEnv(p));
+    void env;
+    const src = require('node:fs').readFileSync(CLI, 'utf8');
+    const stop = src.slice(src.indexOf('cmd_stop() {'), src.indexOf('\n}\n', src.indexOf('cmd_stop() {')));
+    assert.match(stop, /kill -9 "\$pid"[^\n]*\n[\s\S]{0,400}_KOSMOS_LB=""; KOSMOS_NP=\(\)/, 'cmd_stop does not forget the route after the kill');
+  } finally { await new Promise((r2) => proxy.close(r2)); }
+});
+
 test('#4933 a stopped board with a proxy set: refused, the proxy is not a board, so direct: "not running", never "another app"', async () => {
   const hits = [];
   const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(200); res.end(''); });
@@ -487,7 +502,7 @@ test('#4933 a stopped board with a proxy set: refused, the proxy is not a board,
     const out = await runCli(['status'], env);
     assert.match(out.stdout + out.stderr, /not running/);
     assert.doesNotMatch(out.stdout + out.stderr, /another app/);
-    assert.ok(hits.length <= 1 && hits.every((u) => /\/api\/health$/.test(u)), 'the proxy was used past the one check: ' + JSON.stringify(hits));
+    assert.ok(hits.length >= 1 && hits.every((u) => /\/api\/health$/.test(u)), 'the proxy check did not run, or the proxy was used past it: ' + JSON.stringify(hits));
   } finally { await new Promise((r) => proxy.close(r)); }
 });
 
