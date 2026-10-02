@@ -7015,6 +7015,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right,
    the action bottom left. Its own layer above the board, like the other dialogs. */
 .pv-back { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .9); }
+/* The page keeps a strip for its scrollbar (scrollbar-gutter: stable), and Chromium (the Windows app's engine) never
+   paints a fixed layer over it, so the dark would stop short of the edge. While the preview is up the page has no
+   scrollbar and no strip; the page under it moves by that strip, behind the dark. */
+html.pv-open { overflow: hidden; scrollbar-gutter: auto; }
 .pv-box { position: absolute; inset: 0; display: flex; flex-direction: column; outline: none; }
 .pv-x { position: absolute; top: 14px; right: 14px; z-index: 1; width: 40px; height: 40px; border: 0; border-radius: 50%;
   background: rgba(255, 255, 255, .12); color: #fff; font: 400 26px/1 var(--font-ui); cursor: pointer; }
@@ -59584,6 +59588,7 @@ function pvOpen(id, from) {
   back.querySelector('#pv-x').addEventListener('click', pvClose);
   back.addEventListener('click', (e) => { if (e.target === back || e.target === stage) pvClose(); });
   PV_OPENER = from || document.activeElement;
+  document.documentElement.classList.add('pv-open');
   document.body.appendChild(back);
   back.querySelector('.pv-box').focus();
   return true;
@@ -59616,6 +59621,7 @@ function pvClose() {
   const back = document.getElementById('pv-preview');
   if (!back) return;
   back.remove();
+  document.documentElement.classList.remove('pv-open');
   const to = PV_OPENER;
   PV_OPENER = null;
   if (to && typeof to.focus === 'function' && document.contains(to)) to.focus();
