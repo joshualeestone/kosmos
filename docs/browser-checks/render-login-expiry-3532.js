@@ -221,12 +221,21 @@ const CASES = [
     await pg.reload({ waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
     chk(await shown(), '5018: a change (5 days to 4) shows the notice again');
-    // The 5-day dismissal was forgotten when it stopped matching: the same 5-day state coming back (a renewed login
-    // that later nears expiry again) shows. Without the prune, the old key would hide it.
-    adv = [{ ...adv[0], daysLeft: 5 }];
+    // Close it again at 4 days, then the login is renewed (a reply with no notice for that account), then it nears
+    // expiry again with the very same 4-day state: it shows, because the renewal forgot the dismissal. Without the
+    // prune, the old key would hide it.
+    await pg.click('#login-adv-slot .login-adv .ux').catch((e) => errs.push('click: ' + e.message));
+    const keep = adv;
+    adv = [];
+    const b2 = served;
     await pg.reload({ waitUntil: 'networkidle' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
-    chk(await shown(), '5018: a dismissal that stopped matching is forgotten (the same state later shows again)');
+    for (let i = 0; i < 60 && served < b2 + 2; i++) await pg.waitForTimeout(250);
+    chk(served >= b2 + 2, '5018: the renewed (empty) reply was read', 'served ' + (served - b2));
+    adv = keep;
+    await pg.reload({ waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    chk(await shown(), '5018: after a renewal, the same notice later shows again (the dismissal was forgotten)');
     chk(errs.length === 0, '5018: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();

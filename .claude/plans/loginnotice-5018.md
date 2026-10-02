@@ -23,8 +23,10 @@ cleared it. The new login DID reach the keychain (Settings showed Oct 31 after r
   per agent inside snapshot() more often, and still not immediate).
 - claudeloginlive: an in-flight read from an older generation is not reused; an older read never overwrites a newer.
 - A terminal `claude login` outside Kosmos still waits out the TTL (<= 5 min). Accepted; not Josh's path.
-- Dismissal key = severity:daysLeft:expired:email:sorted agents, in localStorage (try/catch, in-memory fallback,
-  capped at 40). Per-viewer convenience, so browser storage is right.
+- Dismissal key = severity:daysLeft:expired:credential (a.service):sorted agents, in localStorage (try/catch,
+  in-memory fallback, capped at 40). Per-viewer convenience, so browser storage is right. A dismissal is forgotten
+  when its credential has no notice at all (the login was renewed), not on any smaller change, so a momentary pane
+  read failure cannot bring a closed notice back.
 - Overlay: one `.topnotes` wrapper, absolute under the header (header gets position: relative), centred
   (left 50% + translate), z-index 4 so the phone menu (z 5) still covers it; in consolidated, where .apphead is static,
   z-index 10 (above the sticky rail at 4, below the reaction picker at 20 and the menus at 40). Pointer-events only on

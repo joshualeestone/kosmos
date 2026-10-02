@@ -4763,7 +4763,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      by later source order, so the slot stays gone whenever consolidated is active. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { display: none; }
   /* The header gives way (Josh, 15:32: "header gone is what I'm going
-     for"). Its notice slots stay in the flow, so an update note or the
+     for"). Its notice slots stay (floating since #5018), so an update note or the
      offline warning still has somewhere to appear; the tabs, the K link,
      the status line and the theme pill are elsewhere in this view. */
   /* 🛑 margin MUST be reset here, and its absence was a shipped clip.
@@ -20982,9 +20982,10 @@ function paintLoginAdvisories(advs) {
   /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
      bring a closed notice back. */
   const advKey = (a) => [a.severity || '', a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
-  /* A dismissal lives only while its notice does: a reply without that exact notice (the login was renewed, the count
-     moved, the agents changed) forgets it, so a later expiry of the same account is never born hidden. */
-  if (Array.isArray(advs)) loginAdvPrune(advs.filter((a) => a && Array.isArray(a.agents)).map(advKey));
+  /* A dismissal lives while its account still has a notice: a reply with NO notice for that credential (the login was
+     renewed) forgets it, so a later expiry of the same account is never born hidden. Keyed on the account, not the
+     exact notice, so one agent's pane read failing for a moment cannot bring a closed notice back. */
+  if (Array.isArray(advs)) loginAdvPrune(advs.filter((a) => a && a.service).map((a) => a.service));
   const hidden = loginAdvDismissed();
   const list = Array.isArray(advs)
     ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
@@ -21039,8 +21040,9 @@ function loginAdvDismissed() {
   try { const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]'); if (Array.isArray(v)) return v.concat(loginAdvHiddenMem); } catch { /* refused */ }
   return loginAdvHiddenMem.slice();
 }
-function loginAdvPrune(liveKeys) {
-  const keep = (k) => liveKeys.includes(k);
+function loginAdvPrune(liveServices) {
+  // A key's 4th field is its credential (advKey); a credential name carries no colon.
+  const keep = (k) => liveServices.includes(String(k).split(':')[3]);
   loginAdvHiddenMem = loginAdvHiddenMem.filter(keep);
   try {
     const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
