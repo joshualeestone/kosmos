@@ -59,6 +59,10 @@ KOSMOS_ONLY=0
 KOSMOS_ONLY_FILES=()
 # --only counts only as the FIRST argument. Anywhere else it would reach node --test beside every suite file, so the
 # whole suite would run; it refuses instead.
+# The --only=<file> spelling is refused too, wherever it is: node rejects it, but only after a heavy queue turn.
+for _only_f in "$@"; do
+  case "$_only_f" in --only=*) echo "run-tests: --only takes its files as separate arguments (tools/run-tests.sh --only <file>...), not --only=<file>" >&2; exit 2 ;; esac
+done
 if [ "${1:-}" != --only ]; then
   for _only_f in "$@"; do
     if [ "$_only_f" = --only ]; then
@@ -86,11 +90,12 @@ if [ "${1:-}" = --only ]; then
       *) echo "run-tests: --only takes *.test.js files (got '$_only_f')" >&2; exit 2 ;;
     esac
     if [ ! -f "$_only_f" ]; then
-      echo "run-tests: no test file '$_only_f' (a relative path is read from the repo root)" >&2
+      case "$_only_f" in /*) echo "run-tests: no test file '$_only_f'" >&2 ;; *) echo "run-tests: no test file '$_only_f' (a relative path is read from the repo root)" >&2 ;; esac
       exit 2
     fi
-    # One spelling per file (a.test.js, ./a.test.js and its absolute path are one file): the absolute path.
-    case "$_only_f" in /*) ;; *) _only_f="$REPO/${_only_f#./}" ;; esac
+    # One spelling per file (a.test.js, ./a.test.js, p/../a.test.js, a symlinked folder, its absolute path): the
+    # folder's physical path plus the name.
+    _only_f="$(cd "$(dirname "$_only_f")" && pwd -P)/$(basename "$_only_f")"
     _only_dup=0
     for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
     [ "$_only_dup" = 1 ] || KOSMOS_ONLY_FILES+=("$_only_f")   # a file named twice runs once

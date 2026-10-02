@@ -219,7 +219,8 @@ from a night in this codebase, kosmos#2616.)
    (`KOSMOS_TEST_FILES`), so the count and the run cannot drift. To run only some files, use
    `tools/run-tests.sh --only <file>...` (kosmos#4929), not a bare `node --test <file>`: it keeps the suite's
    environment and guards (the dead-port phone-home URLs, the fake gh and vercel, the temp root, the --require
-   guards) and skips only what belongs to the whole suite.
+   guards) and skips only what belongs to the whole suite. On a checkout from before #4929, whose runner has no
+   `--only` (`grep -q 'only must come first' tools/run-tests.sh` finds nothing), it would run the whole suite.
 
 2. **Sandbox every root before any `require`.** Roughly two dozen modules freeze `store.ROOT`
    at require time (the ONE data-root derivation, `engine/store.js`, kosmos#1848/#1856). Set

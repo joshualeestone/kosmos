@@ -136,11 +136,11 @@ test('--only reads a relative name from the runner\'s tree, whatever the caller\
   const rel = path.relative(path.join(__dirname), __filename);
   const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
-  const r = spawnSync('perl', ['-e', GROUP, 'bash', RUNNER, '--only', rel, './' + rel, __filename], { env, encoding: 'utf8', timeout: 120000, cwd: DIR });
+  const r = spawnSync('perl', ['-e', GROUP, 'bash', RUNNER, '--only', rel, './' + rel, 'tools/../' + rel, __filename], { env, encoding: 'utf8', timeout: 120000, cwd: DIR });
   const out = (r.stdout || '') + (r.stderr || '');
   assert.equal(r.status, 0, out.slice(-1500));
-  assert.match(out, /--only: 1 named file\(s\)/, 'three spellings of one file were counted apart');
-  assert.ok(out.includes('run-tests: --only:   ' + __filename + '\n'), 'the absolute path of what runs is not printed');
+  assert.match(out, /--only: 1 named file\(s\)/, 'four spellings of one file were counted apart');
+  assert.ok(out.includes('run-tests: --only:   ' + fs.realpathSync(__filename) + '\n'), 'the physical path of what runs is not printed');
   // The shell names the caller's folder by its real path (macOS /var is /private/var), so either spelling counts.
   assert.ok(out.includes('not from your folder (' + DIR) || out.includes('not from your folder (' + fs.realpathSync(DIR)),
     'no note that the name was read from the runner\'s tree: ' + out.slice(0, 600));
@@ -163,10 +163,12 @@ test('--only refuses, before anything runs: no files, an option, a non-test file
     [['--only', PROBE], { KOSMOS_SHELL_SHARD: '1/2' }, /does not take KOSMOS_TEST_PART or KOSMOS_SHELL_SHARD/],
     // Not first, node --test would take --only as its own option and run the whole suite.
     [[PROBE, '--only'], {}, /--only must come first/],
+    [['--only=' + PROBE], {}, /not --only=<file>/],
   ]) {
     assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
     // A misplaced --only on a runner that does not refuse it would run the whole suite: read before running that arm.
-    if (args[0] !== '--only') assert.ok(KNOWS_MISPLACED, 'tools/run-tests.sh does not refuse a misplaced --only: not running it');
+    if (args[0] !== '--only') assert.ok(KNOWS_MISPLACED && /not --only=<file>/.test(fs.readFileSync(RUNNER, 'utf8')),
+      'tools/run-tests.sh does not refuse a misplaced --only or --only=: not running it');
     const e = cleanEnv(env);
     const r = runRunner(args, e, 60000);
     const out = (r.stdout || '') + (r.stderr || '');
