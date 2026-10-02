@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tmuxsocket-2955
-diff_hash: a0f34e64c065e35b18139718920fe6063c484951b53fb0d706443bc941896d3a
+diff_hash: b686fc882704dd166551b41c86cbd0978d793ead3dcacfce49e6a8a1429f53a4
 subdir_audit: passed
 timestamp: 2026-10-02T03:34:46Z
 converged: true
@@ -32,3 +32,7 @@ decided trade-offs (PATH move, once-per-start supervisors, the unlinked-socket t
 ## Related tests
 251 test files that read the launcher, the supervisor, the status engine, create.js or terminal.js, one per process:
 249 green; cli.busy-health-4466 and server.stray-removable red under load, green alone, untouched by this branch.
+
+## After convergence
+Merged origin/main (a conflict in engine.reachable.test.js: both sides added excuses; kept both). The Windows
+coupling audit (#1732) flagged process.env.HOME in the detail line; replaced by os.homedir(). Both are mechanical.
