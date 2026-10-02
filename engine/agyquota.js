@@ -273,7 +273,7 @@ function sweepOnce(o) {
     const tries = (d.entry && d.entry.until === d.report.until && Number.isInteger(d.entry.tries) ? d.entry.tries : 0) + 1;
     book.set(d.session, { until: d.report.until, nudgedAt: mayHaveReached ? now : null, tries, lastTryAt: now, delivery: state });
     // Only a line that may have reached the pane spaces the next agent out: a refusal reached nobody (review 2).
-    if (mayHaveReached) { book.set(LAST, now); noteCapStart(d.session, o.roster, now, o.readCap); }
+    if (mayHaveReached) { book.set(LAST, now); noteCapStart(d.session, o.roster, now, o.readCap, o.env === undefined ? process.env : o.env); }
     const gaveUp = !mayHaveReached && tries >= MAX_TRIES;
     const r = { session: d.session, name: d.card.name || d.session, act: gaveUp ? 'gave-up' : 'nudge', delivered, delivery: state,
       because: gaveUp ? d.because + '; nothing reached the pane in ' + tries + ' tries, so it is left idle with its turn unfinished until someone messages it' : d.because, waiting: due.length - 1 };

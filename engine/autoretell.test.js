@@ -136,3 +136,25 @@ test('a retell that throws is recorded as an error and does not stop the next ag
   // The failed change is remembered too: it is not hammered every sweep.
   assert.deepEqual(sweepOnce({ ...w, retell }), []);
 });
+
+/* #4588 ask 3 review 5: two members due in one sweep. The first retell makes the second not ready (here, the Gemini cap
+   slot it reserved), so the second is skipped WITHOUT being marked acted and keeps its retell for the next sweep. */
+test('#4588 ask 3: a member that stops being ready during the sweep is skipped, not spent, and is retold on a later sweep', () => {
+  const w = {
+    projects: [{ id: 'p1', agents: ['ada', 'bea'], told: { ada: couldNot(T0), bea: couldNot(T0) } }],
+    mtimeOf: () => T0 + 1000,
+    now: T0 + 1000 + SETTLE_MS,
+    acted: new Map(),
+  };
+  let slotTaken = false;
+  const ready = (name) => !slotTaken || name === 'ada';
+  const sent = [];
+  const retell = (name, id) => { sent.push(name); slotTaken = true; return { told: { state: 'told' } }; };
+  const first = sweepOnce({ ...w, ready, retell });
+  assert.deepEqual(first.map((r) => r.name), ['ada'], 'bea was retold although the first retell left her not ready');
+  assert.equal(w.acted.has('bea'), false, 'bea was marked acted without a retell: her one retell for this change was spent');
+  slotTaken = false;   // the slot frees
+  const later = sweepOnce({ ...w, ready, retell, now: w.now + 60000 });
+  assert.deepEqual(later.map((r) => r.name), ['bea'], 'bea was not retold once she was ready again');
+  assert.deepEqual(sent, ['ada', 'bea']);
+});

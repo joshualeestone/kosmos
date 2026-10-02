@@ -465,7 +465,8 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     heard = undefined;   // #4914: an agent that gave the part to itself is not paged about it
   } else if (out.changed && (screen || assigner || heardBudgetAllows(who, r))) {
     const sentence = (((out.task && out.task.parts) || []).find((x) => Number(x.id) === Number(partId)) || {}).sentence;
-    heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver);
+    try { heard = heardBy(projectId, out.task, who, sentence, r, asyncDelivery ? chat.deliverAsync : chat.deliver); }
+    catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // #4588 ask 3: a throw reached nothing
   } else if (out.changed) {
     heard = heardBudgetSkipped(who); // only a process reaches here: screen and assigner always pass
   }

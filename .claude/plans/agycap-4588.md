@@ -43,7 +43,8 @@ happen while the person is messaging all of them directly.
 
 ## Tests
 - engine/agycap-setting.test.js (6): default, the set, round trip, refusals write nothing, a bad file reads no limit.
-- engine/agycap-gate-4588.test.js (8), with real fleet cards:
+- engine/agycap-gate-4588.test.js (12, after reviews 1 and 3 added the reservation, resume-sweep and brake arms),
+  with real fleet cards:
   - held at the cap
   - not held under it or with no limit
   - an already-working target is not held
@@ -127,3 +128,16 @@ happen while the person is messaging all of them directly.
   - agents that depend on each other can wait on a held one
   - a reservation lasts its few minutes even when the agent finishes sooner
   - held agents are not ordered
+
+## Review 5 (opus) and what changed
+- **The auto-retell's fan-out:** due() asked ready() for every member before any retell went out, so a retell earlier
+  in the same pass (which reserves a slot) left a later member held after its one retell was spent. autoretell's
+  sweepOnce now asks ready() again just before each retell (with due()'s own rule), and a member no longer ready is
+  skipped without being marked acted. Tested (engine/autoretell.test.js); removing the recheck reds it.
+- **Fixes:**
+  - The Settings copy says a restart or new team you start "is not held by this limit" (the quota can still hold it).
+  - givePart releases its slot if the tell throws.
+  - The resume's reservation gets the sweep's env.
+  - The firstreply and agentnudge log lines say which hold.
+- **Not changed, decided:** a line to an agent that is already working still reserves it. That line becomes its next
+  turn, so counting it is the conservative side.
