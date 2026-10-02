@@ -18,4 +18,9 @@ file before this change). Every kosmos command in it plays a person, or the Mac 
 - The release cut is unaffected either way (it runs on Mortals over ssh, which forwards only LANG/LC_*).
 
 ## Iterations
-(filled in by the review loop)
+### Iteration 1 (sonnet, blind): 0 blockers, 0 warnings. CONVERGED.
+Verified: no arm tests agent behaviour; TMUX_PANE's only guard use goes through the harness's FAKE tmux
+(AGENT_WORKFORCE_TMUX_BIN, test-install.sh:325), so the real trigger was KOSMOS_AGENT_SESSION/TOKEN, which the
+unset also clears; $TMUX need not be unset (install/kosmos reads none, and the bundled tmux has its own socket);
+placement is before any kosmos call; matches #4619's one-line precedent.
+Left: unsetting KOSMOS_RECLAIM_BUSY too (out of scope, not in this failure); comment wording nits.
