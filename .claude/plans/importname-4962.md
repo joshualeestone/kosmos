@@ -97,3 +97,9 @@ or importNameEnter), passed from the extracted importGoClick. Nits: it moves pas
 shown just before a redraw keeps its reason and invalid mark through it; the plan's round-1 test list is marked as
 such. Unit 29/29; 5 more sabotages red (one, "the click handler ignores detail", needed importGoClick extracted
 before it could go red).
+
+## Review 7 (opus, blind, whole diff, 2026-10-01 23:31): 0 blockers, 0 warnings, 2 nits, both taken. CONVERGED.
+A refused name also gets the page's flagged-field border (`.bad`, #2606), cleared on typing or on a refusal not about
+the name; an add in flight over a minute (a request that never settles) is dropped on the next visit so the row
+can be pressed again. Unit 31/31; 2 more sabotages red. Converged at iteration 7. Remaining before the PR: the
+browser check (bc-4962, queued; its first run is its first proof), the full validation, the proof file.

@@ -457,3 +457,26 @@ test('review 6: the click handler tells a keyboard click (detail 0) from a point
   api.importGoClick({ target: go, detail: 1 });
   assert.deepEqual(seen, [true, false]);
 });
+
+test('review 7: a refused name gets the flagged border, and typing clears it', async () => {
+  const r = rig({ withField: true, parsed: PARSED_NAMELESS, created: { ok: false, httpOk: false, field: 'name', because: 'use at least two characters' } });
+  const cls = new Set();
+  r.field.classList = { add: (c) => cls.add(c), remove: (c) => cls.delete(c) };
+  r.field.value = 'a';
+  await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
+  assert.ok(cls.has('bad'), 'flagged like the create form\'s name field');
+  // eslint-disable-next-line no-new-func
+  const api = new Function(slice('importNameInput') + '\nreturn { importNameInput };')();
+  r.field.removeAttribute = function (k) { delete this.attrs[k]; };
+  api.importNameInput({ target: r.field });
+  assert.ok(!cls.has('bad'));
+});
+
+test('review 7: an add stuck in flight over a minute is dropped on the next visit; a recent one is kept', () => {
+  const now = Date.now();
+  // eslint-disable-next-line no-new-func
+  const api = new Function('now', 'const IMPORT_ADDS = new Map([[\'old\', { state: \'adding\', at: now - 61000 }], [\'new\', { state: \'adding\', at: now - 5000 }]]);\n'
+    + slice('importAddsNewVisit') + '\nreturn { IMPORT_ADDS, importAddsNewVisit };')(now);
+  api.importAddsNewVisit();
+  assert.deepEqual([...api.IMPORT_ADDS.keys()], ['new']);
+});
