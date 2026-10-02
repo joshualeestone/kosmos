@@ -157,10 +157,14 @@ test('#4951 server.js runs the pass on its interval, with the agent nudge\'s sha
     ['the typing path', /chat\.deliverAutomatic\(session, text, r/], ['the live-execution gate', /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\)/],
     ['the switch', /switchOn: \(\) => communitysend\.switchOn\(\)/], ['the board root store', /replynudge\.readNudged\(store\.ROOT, session\)/],
     ['the rotation kept across passes (review 8)', /rotation: REPLY_NUDGE_ROTATION/],
-    ['the agent\'s own read running now (review 12)', /readingNow: \(session\) => communityread\.readingNow\(session\)/]]) {
+    ['the agent\'s own read running now (review 12)', /readingNow: \(session\) => communityread\.readingNow\(session\)/],
+    ['when it went idle (review 15)', /idleSince: \(session\) => \{ const r = selfreport\.read\(session\)/],
+    ['the idle marks kept across passes (review 14)', /idleSeen: REPLY_NUDGE_IDLE_SEEN/],
+    ['the book kept across passes (tries, rests, said-once)', /book: REPLY_NUDGE_BOOK/]]) {
     assert.match(call, re, 'server.js does not pass ' + what);
   }
   assert.match(src, /if \(replyNudgeRunning\) return;/, 'a pass can stack on one still running');
+  assert.match(src.slice(at), /\.finally\(\(\) => \{ replyNudgeRunning = false; \}\)/, 'review 18: the running flag is never reset, so the nudge dies after one pass');
 });
 
 test('#4951 review 1: the card is read again after the replies are read; an agent that started working meanwhile is not typed into', async () => {
@@ -584,7 +588,7 @@ test('#4951 review 14 (Opus): a count older than COUNT_MAX_AGE_MS by its line (a
   const r = await rn.sweepOnce(o);
   assert.deepEqual(typed.map((x) => x.s), ['kim'], 'a stale count was typed');
   assert.ok(r.results.some((x) => x.session === 'ann' && x.act === 'stale-count'));
-  assert.equal(rn.COUNT_MAX_AGE_MS, require('./communityread').FIRST_LOOK_EDGE_MS, 'the count age and the window edge drifted apart');
+  assert.ok(require('./communityread').FIRST_LOOK_EDGE_MS > rn.COUNT_MAX_AGE_MS, 'the window edge is not wider than a count\'s age at its line (review 18)');
 });
 
 test('#4951 review 14 (Opus): a refusing service is said once per change; the log names a failed try and the give-up', async () => {
@@ -672,4 +676,39 @@ test('#4951 review 17 (Sonnet): with comments counted, the line names only the p
   assert.match(t, /\(more are waiting past these: read again until it shows no more\)$/);
   const m = rn.nudgeText([{ title: '', ids: [], more: ['b1'] }, { title: 'C', ids: [], more: ['c1'] }]);
   assert.match(m, /new comments are waiting on 2 of your community posts, including 'C'\./, 'more-only lost its posts: ' + m);
+});
+
+test('#4951 review 18 (Opus): tick passes its re-reads into the pass: the Prompter turned off, or an agent starting work, mid-pass stops the next line', async () => {
+  for (const change of ['prompter', 'working']) {
+    let prompter = true;
+    let annState = 'idle';
+    const typed = [];
+    const store = new Map();
+    await rn.tick({
+      allowed: () => true, env: {}, prompterOn: () => prompter, switchOn: () => true,
+      roster: () => [card('kim'), card('ann', { state: annState })], readProjects: () => [], readLimit: () => ({ on: false }),
+      fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }),
+      readNudged: (s) => new Set(store.get(s) || []), writeNudged: (s, set) => { store.set(s, [...set]); return true; },
+      deliver: (s) => { typed.push(s); if (change === 'prompter') prompter = false; else annState = 'working'; return { state: D.PLACED }; },
+      DELIVERY: D, book: new Map(), sent: [], betweenAgentsMs: 0, typeGapMs: 0, busyWaitMs: 0,
+    });
+    assert.deepEqual(typed, ['kim'], change + ': the second line was typed after the change mid-pass');
+  }
+});
+
+test('#4951 review 18 (Opus): after the service answers again, a later stop is said again', async () => {
+  const said = [];
+  let stop = true;
+  const rotation = { after: null };
+  const { o } = rig({ rotation, log: (r) => said.push(r.act), fresh: async () => (stop ? { ok: false, busy: true, stop: true, because: 'limiting' } : { ok: true, posts: [] }) });
+  await rn.sweepOnce(o); stop = false; await rn.sweepOnce(o); stop = true; await rn.sweepOnce(o);
+  assert.deepEqual(said, ['service-stop', 'service-stop'], 'a stop after the service recovered was not said: ' + JSON.stringify(said));
+});
+
+test('#4951 review 18 (Opus): a count\'s age is from before it asked, so a count that itself took past COUNT_MAX_AGE_MS is not typed', async () => {
+  let t0 = Date.now();
+  const { o, typed } = rig({ clock: () => t0,
+    fresh: async () => { t0 += rn.COUNT_MAX_AGE_MS + 1000; return { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r1'] }] }; } });
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 0, 'a count that took longer than its age limit was typed');
 });

@@ -1,32 +1,37 @@
 'use strict';
 
 /*
- * #4951: tell an agent that its community post has new replies, once per reply (Josh, 2026-10-01 21:35: "when does he
- * go back to reply to their comment").
+ * #4951: tell an agent that its community post has new comments, once per comment (Josh, 2026-10-01 21:35: "when does
+ * he go back to reply to their comment").
  *
  * What was there. Every agent's community block says to answer each reply on its own posts once, seen with
  * `kosmos community read --replies` (communityblock.js), but nothing told the agent a reply had arrived, so a comment
  * could sit unanswered until the agent happened to look.
  *
- * What this does. Every REPLY_NUDGE_INTERVAL_MS the board looks, for each idle agent of ours, at what its own read would
- * show as new (communityread.freshReplies: the same posts, marks, own-name rule, round 2 and 30-reply cap, and it moves no
- * mark). For the reply ids it has not nudged about before, it types ONE line into the agent's session through
- * chat.deliverAutomatic, the board's own typing path (agentnudge.js and firstreply-nudge.js use it the same way):
- * "You have N new replies on your community post '<title>'. Answer each once: kosmos community read --replies".
+ * What this does. Every REPLY_NUDGE_INTERVAL_MS the board looks, for each idle agent of ours, at the comments its own
+ * read would show that it OWES an answer (communityread.freshReplies: comments on the post, not replies under a comment,
+ * per communityblock's rule; the read's own set and cap; it moves no mark). For the ones it has not told about before, it
+ * types ONE line into the agent's session through chat.deliverAutomatic, the board's own typing path (agentnudge.js and
+ * firstreply-nudge.js use it the same way): "Kosmos here: you have N new comments on your community post '<title>'.
+ * Answer each once (a line marked under comment is not owed): kosmos community read --replies", or, for owed comments
+ * past the read's cap, that more are waiting and to read again until none are shown.
  *
- * Once per reply: the ids nudged about are kept per agent (a file under the board's data root, so a restart does not
- * repeat a nudge), and an id is recorded only when the delivery may have reached the pane (PLACED or UNCONFIRMED). A
- * delivery that reached nothing is tried again on later passes, at most MAX_TRIES for the same batch. A reply the agent
+ * Once per comment: the ids are kept per agent (a file under the board's data root, so a restart does not repeat a
+ * line), WRITTEN BEFORE the line is typed and rolled back if the line reached nothing, was held, or met a busy pane
+ * (review 12); a record that cannot be written types nothing. A line that reached nothing is tried again on later
+ * passes; after MAX_TRIES for the same batch it rests GIVE_UP_FOR_MS, then is tried again (review 13). A comment the agent
  * has read stops being new by its own read's mark, so it is never counted again either way.
  *
- * Who is nudged, all of:
+ * Who is told, all of:
  *  - the board's live execution is allowed and the operator brake is off (agentnudge.nudgeEnabled: the same switch
- *    as the Prompter's agent nudge), and the community is switched on;
- *  - its card reads idle, is ours, and is not a switched-off swarm (agentnudge.nudgeableCard). A working agent is not
- *    typed into: it is looked at again next pass. This is #4624's posture for background wakes: nothing here wakes an
- *    agent mid-turn;
+ *    as the Prompter's agent nudge), the Prompter is on, and the community is switched on (asked again before every line);
+ *  - its card reads idle, is ours, and is not a switched-off swarm (agentnudge.nudgeableCard), asked again before its line;
+ *  - it has been idle at least IDLE_FIRST_MS by its own idle report (else seen idle at the pass before), at the count and
+ *    again at the line, so a line never lands just after a person's turn (reviews 14 to 16);
  *  - it is not stood down: an agent that is a member of projects, every one of them paused or switched off for it
  *    (projects.isPaused / isSwarmOff), is left alone, as the Prompter leaves work in a paused project alone (#4771);
+ *  - it is not held on its machine's shared Google quota, and it is not reading its replies right now (review 12);
+ *  - its count is not older than COUNT_MAX_AGE_MS (a long pass, or a machine asleep mid-pass);
  *  - Agent Communication's per-hour limit, when on, is not reached (shared with the Prompter's agent nudges: the same
  *    board-wide log).
  *
@@ -40,14 +45,14 @@ const path = require('node:path');
 const HOUR_MS = 60 * 60 * 1000;
 const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_TRIES = 3;
-const GIVE_UP_FOR_MS = 60 * 60 * 1000;
-const COUNT_MAX_AGE_MS = 15 * 60 * 1000;
-const IDLE_FIRST_MS = 10 * 60 * 1000;   // review 15: idle at least this long (one interval) before a line   // review 14: = communityread.FIRST_LOOK_EDGE_MS (pinned by a test)   // review 13: a batch given up on rests this long, then is tried again
+const GIVE_UP_FOR_MS = 60 * 60 * 1000;   // review 13: a batch given up on rests this long, then is tried again
+const COUNT_MAX_AGE_MS = 15 * 60 * 1000;   // review 14: a count older than this at its line is not typed (< FIRST_LOOK_EDGE_MS, pinned)
+const IDLE_FIRST_MS = 10 * 60 * 1000;   // review 15: idle at least this long (one interval) before a line
 const BUSY_WAIT_MS = 5 * 1000;   // review 6: a busy count waits this long for the read holding the lock, then asks again
 const BUSY_RETRIES = 4;          // so about 20 s, past an agent's own read (two 8 s rounds at most)
 const BETWEEN_AGENTS_MS = 1500;   // review 12: = communityread's FRESH_PACE_MS (pinned by a test)
 const TYPE_GAP_MS = 20 * 1000;   // review 2: between two agents' lines, so each told agent reads with the lock free
-/* Ids kept per agent. One count names at most 30 (the read's cap), so this holds weeks. */
+/* Ids kept per agent. A batch is the named comments (at most 30, the read's cap) plus any owed past it; this holds weeks. */
 const NUDGED_MAX = 1000;
 const TITLE_CAP = 80;
 
@@ -57,7 +62,7 @@ function plainWords(v, cap) {
   return require('./agentnudge').plainWords(String(v == null ? '' : v).replace(/[\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' '), cap);
 }
 
-/* The line typed into the agent's session. posts: [{ title, ids }] with at least one id in all. */
+/* The line typed into the agent's session. posts: [{ title, ids, more }] with at least one id or more in all. */
 function nudgeText(posts) {
   const n = posts.reduce((k, p) => k + p.ids.length, 0);
   const more = posts.reduce((k, p) => k + (Array.isArray(p.more) ? p.more.length : 0), 0);
@@ -111,7 +116,7 @@ function plan(card, fresh, nudged, entry, projects) {
   if (entry && entry.key === key && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) {
     return { act: 'none', because: 'gave up on this batch after ' + MAX_TRIES + ' tries that reached nothing' };
   }
-  return { act: 'nudge', because: ids.length + ' new ' + (ids.length === 1 ? 'reply' : 'replies'), posts, ids, key };
+  return { act: 'nudge', because: ids.length + ' new ' + (ids.length === 1 ? 'comment' : 'comments'), posts, ids, key };
 }
 
 /* The ids already nudged about, per agent, keyed losslessly on the session name (as communityread's marks are). */
@@ -216,6 +221,7 @@ async function sweepOnce(o) {
         { const m = book.get(session); if (m && m.skipSaid) { const { skipSaid, ...rest } = m; book.set(session, rest); } }   // review 13: readable again, so a later outage is said
         if (readOne && gap > 0) await new Promise((res) => setTimeout(res, gap));
         readOne = false;
+        const countStart = clock();   // review 18: the count's age is from BEFORE it asked (its window edge was taken then)
         let fresh = await o.fresh(session);
         if (!(fresh && fresh.asked === 0)) readOne = true;   // review 9: a count that asked the service nothing costs no gap
         /* Review 6 (Opus): a count that stepped aside for an agent's own read would leave every later agent busy too (the
@@ -249,7 +255,7 @@ async function sweepOnce(o) {
         // Review 12: an agent whose told record could not be written last time is still tried, but takes no cap slot
         // here (a store that stays unwritable would otherwise hold a slot every pass); the line's own cap check still holds.
         if (rot && fresh && fresh.ok === true) rot.stopSaid = null;   // the service answered again
-        if (untold.length && !givenUp) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid), countedAt: clock() });
+        if (untold.length && !givenUp) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid), countedAt: countStart });
       } catch (err) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
@@ -302,7 +308,7 @@ async function sweepOnce(o) {
         /* Review 12 (Opus): WRITE AHEAD. The told record takes these ids BEFORE the line is typed, so no restart, crash or
            unwritable store can make it tell the same reply twice. A record that cannot be written types nothing (said once,
            no try counted). A line that reached nothing (or was held, or met a busy pane) is rolled back afterwards; if that
-           rollback cannot be written the reply is missed, never repeated, which is the side "once per reply" allows. */
+           rollback cannot be written the reply is missed, never repeated, which is the side "once per comment" allows. */
         if (o.writeNudged(session, new Set([...nudged, ...p.ids])) !== true) {
           const because = 'its told record could not be written';
           results.push({ session, name: display, act: 'skipped', because });
@@ -314,7 +320,7 @@ async function sweepOnce(o) {
         // Review 13 (Sonnet): a rollback that cannot be written is said: those replies are recorded as told and will not be.
         const rollBack = () => {
           let ok = false; try { ok = o.writeNudged(session, nudged) === true; } catch { ok = false; }
-          if (!ok) say({ name: display, session, act: 'missed', because: 'its told record could not be put back, so these ' + p.ids.length + ' replies will not be told' });
+          if (!ok) say({ name: display, session, act: 'missed', because: 'its told record could not be put back, so these ' + p.ids.length + ' comments will not be told' });
         };
         let state = null;
         let held = false;

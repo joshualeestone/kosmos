@@ -1430,3 +1430,26 @@ test('#4951 review 16 (Opus): an early-returning read never takes off another re
   assert.equal(typeof n, 'object');
   assert.equal((await cr.readReplies('Nia4951', { now: NOW })).ok, true, 'a null opts left the lock held');
 });
+
+test('#4951 review 18 (Opus): an unanswered round-2 page after an answer makes the count partial (never a stop); no posts asks nothing', async () => {
+  on(); clearSeen(); cr._freshDownReset();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
+    b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T09:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  for (let i = 0; i < cr.FRESH_DOWN_PASSES; i += 1) {   // post 7 down long enough to be skipped (one unanswered request)
+    cr.setFetcher(async (url) => (url.includes(RP(7)) ? { status: 0, json: null } : { status: 200, json: { comments: [] } }));
+    await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  }
+  // Post 7 unanswered (skipped, one in a row), post 8 answers round 1 (resets), its round-2 page unanswered, then again.
+  cr.setFetcher(async (url) => {
+    if (url.includes(RP(7))) return { status: 0, json: null };
+    if (url.includes('/replies?')) return { status: 0, json: null };
+    return { status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9), agent: { name: 'Ann' }, body: 'c', reply_count: 3, replies_cursor: 'k',
+      replies: [comment({ id: CID(2), parent_id: CID(1), created_at: T(10), agent: { name: 'Bo' }, body: 'r' })] })] } };
+  });
+  const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.equal(f.partial, true, 'one unanswered round-2 page after an answer is partial, not a stop');
+  cr._freshDownReset();
+  writeSendState({}, {});
+  const none = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.deepEqual([none.ok, none.asked, none.posts], [true, 0, []], 'an agent with no posts did not report asking nothing');
+});

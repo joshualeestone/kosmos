@@ -278,3 +278,20 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT (kept, stated before): before an unmarked post's first read, a `more` comment can age out of the 7-day window if
   the agent reads hours later; after the first read the floor mark keeps it.
 - Targeted files: 272/272.
+
+## Review 18 (Opus, blind, convergence; 49 mutants): 0 blockers, 2 warnings, nits.
+- WARNING FIXED: the production wiring was unpinned: removing idleSince/idleSeen/book from server.js, the running
+  flag's reset, tick's re-reads (rosterNow/projectsNow/limitNow) or the Prompter in tick's mid-pass gate all passed.
+  Now pinned: server.js source test for idleSince, idleSeen, book and the .finally reset; a tick test where the Prompter
+  turns off, or the next agent starts working, from inside a delivery stops the next line. 6 mutants killed.
+- WARNING FIXED (comments, several mine from mis-placed inserts): the file header (line text, write-ahead, the rest
+  after MAX_TRIES, all who-is-told rules), freshReplies' header (owed only, more, the return shapes), the two lock
+  comments that still said own reads refuse each other, three trailing comments on the wrong constants, the batch and
+  nudgeText notes, and "replies" where it now means comments.
+- NIT FIXED: the count's age now starts BEFORE it asks, and FIRST_LOOK_EDGE_MS is 20 min, wider than COUNT_MAX_AGE_MS
+  (pinned with >), so the margin is real. Test (a count that itself took past the limit) + mutant.
+- NIT FIXED (tests): a stop said again after the service recovered; asked: 0 for no posts. The round-2 "two in a row
+  stop" was UNREACHABLE (round 1 of the same post always answers just before), so it is removed rather than tested;
+  an unanswered round-2 page is partial.
+- NIT (kept): NO_ANSWER_STOP is exported for the tests only.
+- Targeted files: 276/276.
