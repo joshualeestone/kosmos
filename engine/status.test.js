@@ -4186,6 +4186,24 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
     + '     ✻ Sautéed for 0s · done 10:35 PM\n'
     + '● That is the capped screen; the marker is the fix.\n' + STATUS;
   assert.notEqual(classify(pane, CATTED).state, STATE.RATE_LIMITED, 'a healthy agent that read a capture reads as capped');
+  /* Review round 4: the footer must come AFTER the vendor row and within two rows, and must be a finished-turn footer.
+     Each arm is a healthy agent that catted a capture with a column-0 ✻ row nearby; a gate that accepts a footer
+     anywhere, a wider window, or any ✻ row reads it as capped. */
+  const EARLIER_FOOTER = '✻ Worked for 4s · done 9:01 AM\n● Bash(cat x)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     more\n● done\n' + STATUS;
+  assert.notEqual(classify(pane, EARLIER_FOOTER).state, STATE.RATE_LIMITED, 'a footer BEFORE the vendor row counted');
+  const LATER_FOOTER = '● Bash(cat x)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     more\n     more\n● done\n✻ Worked for 4s · done 9:01 AM\n' + STATUS;
+  assert.notEqual(classify(pane, LATER_FOOTER).state, STATE.RATE_LIMITED, 'a footer four rows later counted');
+  const BACKGROUND_WAIT = '● Bash(cat x)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Waiting for 1 background agent to finish\n' + STATUS;
+  assert.notEqual(classify(pane, BACKGROUND_WAIT).state, STATE.RATE_LIMITED, 'a live background-agent wait row counted as a turn footer');
+  /* Case-sensitive, as the doc says: the vendor capitalises it; an agent's lowercase line under a real footer must not count. */
+  const LOWERCASE = "  ⎿  you've hit your weekly limit, so I'll pause here\n✻ Worked for 4s · done 9:01 AM\n" + STATUS;
+  assert.notEqual(classify(pane, LOWERCASE).state, STATE.RATE_LIMITED, 'the marker is not case-sensitive');
   /* And the reason the rule is the footer and not "no ● row after it": on Irma's real capped pane Claude Code's own
      survey followed the limit as a ● row. Built from two observed pieces (Jennika's no-credits limit, Irma's survey). */
   const WITH_SURVEY = '> hello\n'

@@ -2430,7 +2430,10 @@ const ASKING_GENERIC = 'it is asking you something';
  * vendor line drawn inside a frame (│ You've...), which reads idle; and a turn
  * that ENDS on a tool call whose result's last row is this sentence: the real
  * footer then lands at column 0 under the tool result and the pane reads
- * rate_limited (review round 3). None has been observed on a live pane;
+ * rate_limited (review round 3); and a /usage-credits line wrapped onto two
+ * rows, which pushes the footer out of the two-row window: the pane still
+ * reads rate_limited through /usage-credits, but the evidence loses the reset
+ * time (capture-pane -J joins it in practice; review round 4). None has been observed on a live pane;
  * narrowing or widening needs another observed screen.
  */
 const RATE_LIMIT_MARKERS = [
@@ -2452,7 +2455,9 @@ const RATE_LIMIT_MARKERS = [
 const HIT_YOUR_LIMIT = RATE_LIMIT_MARKERS.find((re) => re.source.includes('hit your'));
 // Fail at load, not on every classify: a reworded marker would leave this undefined and TypeError each pane read.
 if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LIMIT_MARKERS (#5029); update HIT_YOUR_LIMIT');
-const TURN_FOOTER = /^✻ \S.* for \d/;
+/* Review round 4: every observed footer is "✻ <Verb> for <duration> · done <clock>". The looser /^✻ \S.* for \d/ also took
+   "✻ Waiting for 1 background agent to finish", a live row on a healthy agent, as a footer. */
+const TURN_FOOTER = /^✻ \S+ for \d[\dhms ]* · done \d/;
 function limitMarkersFor(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
   const vendor = rows.some((row, i) => HIT_YOUR_LIMIT.test(row) && rows.slice(i + 1, i + 3).some((next) => TURN_FOOTER.test(next)));
