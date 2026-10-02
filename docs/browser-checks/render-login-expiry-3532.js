@@ -136,12 +136,12 @@ const CASES = [
     chk(Math.abs(geo.headH - bare.headH) < 0.5, '5018: the header does not grow while the notice shows', JSON.stringify({ geo, bare }));
     chk(geo.tabsTop === bare.tabsTop, '5018: the navigation does not move', JSON.stringify({ geo, bare }));
     chk(geo.noteTop >= geo.headBottom, '5018: the notice floats below the header, over the page', JSON.stringify(geo));
-    // On top, not just placed: the point at the notice's centre is the notice, in the tab view and in consolidated
-    // (whose header is position: static, so the stack competes with the page's own sticky layers). Consolidated is
-    // the board's real layout, read from GET /api/style (stubbed in this page only, as mobile-shots does), not a
-    // page-side toggle, so its panes are really there under the notice.
+    // On top, not just placed: every content-bearing point across the notice resolves to the notice, in the tab view
+    // and in consolidated (whose header is position: static, so the stack competes with the page's own sticky layers).
+    // Consolidated is the board's real layout, read from GET /api/style (stubbed in this page only, as mobile-shots
+    // does), not a page-side toggle, so its panes are really there under the notice.
     // Sampled over a 5x3 grid across the notice, not its centre alone: in consolidated the centre can land in a gap of
-    // the body grid, where nothing could cover the notice and "on top" would pass for no reason.
+    // the body grid, where with the stack hidden nothing is underneath, so the control had nothing to test there.
     const onTop = () => pg.evaluate(() => {
       const n = document.querySelector('#login-adv-slot .login-adv');
       const r = n.getBoundingClientRect();
@@ -153,7 +153,9 @@ const CASES = [
       stack.style.visibility = 'hidden';
       const unders = pts.map(([x, y]) => document.elementFromPoint(x, y));
       stack.style.visibility = '';
-      const isContent = (el) => !!el && el !== document.body && el !== document.documentElement;
+      // A real covering layer, not a bare ancestor: body/html, or a wrapper that CONTAINS the notice, cannot cover it,
+      // so counting one as "content underneath" would let the control pass with no competing layer present.
+      const isContent = (el) => !!el && el !== document.body && el !== document.documentElement && !el.contains(n);
       const name = (el) => (el ? (el.id || String(el.className || '') || el.tagName) : null);
       const live = pts.map((_, i) => i).filter((i) => isContent(unders[i]));
       const lost = live.filter((i) => !(hits[i] && n.contains(hits[i])));
