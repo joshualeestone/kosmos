@@ -77,8 +77,15 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const FILE_EXT = new Set(['app', 'html', 'htm', 'js', 'mjs', 'cjs', 'ts', 'json', 'md', 'txt', 'log', 'sh', 'py', 'css', 'plist', 'exe', 'dll', 'zip', 'gz', 'tar', 'dmg', 'pkg']);
 /* What a scrub CAN take out of free text (review 1): emails, links, GitHub @handles (a ping) and #refs (a back-reference
    on another card), HTML comments (invisible to a reader, read by agents), and every author name and name part. */
+/* Review 12: secret-ish words anywhere in a label (accessToken, PGPASSWORD, x-api-key); "pass" only as its own part, so
+   "bypass" and "compass" are not labels. */
+const SECRET_LABEL = /secret|token|passw(?:or)?d|pwd|api[ _-]?key|apikey|access[_-]?key|private[_-]?key|credential|(?:^|[_-])pass(?:$|[_-]|["' \t]*[:=])/i;
+/* Review 12: a field longer than this is cut before the scrub. Several older rules are quadratic (about 210 ms each at 20 KB,
+   tens of seconds at 200 KB), and GitHub refuses a body over 65,536 characters anyway. */
+const SCRUB_MAX = 20000;
 function scrub(text, names) {
   let t = normal(text);
+  if (t.length > SCRUB_MAX) t = [...t.slice(0, SCRUB_MAX)].join('').replace(/[\uD800-\uDBFF]$/, '') + ' [cut: the report was longer]';
   t = t.replace(/<!--[\s\S]*?-->/g, '[comment-removed]');
   /* Review 4: a home folder names its user ("/Users/jsmith/x", "C:\\Users\\Maria Lopez\\x", "/home/bob/x"). */
   t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/gi, '$1[user]');
@@ -87,15 +94,22 @@ function scrub(text, names) {
   t = t.replace(/([A-Za-z]:\\+Users\\+)[^\\\s]+/gi, '$1[user]');
   t = t.replace(/(?<![\p{L}\p{N}])~[\p{L}_][\p{L}\p{N}_.-]*/gu, '~[user]');   // ~jsmith/notes, (~jsmith), "~jsmith/x" (review 6)
   /* Review 10: a private key block goes whole, and a value after a secret-ish label goes whatever its shape (an AWS secret
-     key has "/" in it, which split it into short runs the long-run rule below never reaches). The label stays. */
-  /* Review 11: a header with no END stops at the next blank line, not the end of the post. */
-  t = t.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|\n[ \t]*\n|$)/g, (m) => '[secret-removed]' + (/\n[ \t]*\n$/.test(m) ? '\n\n' : ''));
-  /* Review 11: env-var and compound labels (OPENAI_API_KEY=, refresh_token=, DB_PASS=), "api key:", Basic auth, short and
-     quoted values. Kept: plain words a bug report uses ("token: undefined", "secret: required") and an all-digit value
-     after a token label (a token COUNT is bug detail in this product; a numeric password still goes). */
-  t = t.replace(/(?<![\p{L}\p{N}])((?:[A-Za-z0-9]+[_-])*(?:secret|token|password|passwd|pass|pwd|api[ _-]?key|access[_-]?key|private[_-]?key|credentials?)[A-Za-z0-9_]*["']?[ \t]*[:=][ \t]*|(?:Bearer|Basic)[ \t]+)("[^"\n]*"|'[^'\n]*'|[^\s"',;]{4,})/giu,
-    (m, label, v) => (/^(?:undefined|null|none|true|false|required|missing|empty|expired|invalid|n\/a)$/i.test(v)
+     key has "/" in it, which split it into short runs the long-run rule below never reaches). The label stays.
+     Review 11: a header with no END stops at the next blank line. Review 12: PGP's "PRIVATE KEY BLOCK" too. */
+  t = t.replace(/-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|\n[ \t]*\n|$)/g,
+    (m) => '[secret-removed]' + (/\n[ \t]*\n$/.test(m) ? '\n\n' : ''));
+  /* Review 11: env-var and compound labels (OPENAI_API_KEY=, refresh_token=, DB_PASS=), "api key:", short and quoted values.
+     Review 12, BLOCKER: the label was a nested repeat that backtracked in cubic time ('token_' x 3200 took 28 s, holding the
+     lock and hanging every daily read on the same post). Now the WHOLE identifier is matched once (linear) and the keyword is
+     looked for inside it, which also catches camelCase and glued labels (accessToken, PGPASSWORD). Kept: plain words a bug
+     report uses ("token: undefined", "secret: required") and an all-digit value after a token label (a token COUNT is bug
+     detail in this product; a numeric password still goes). Bearer and Basic only case-sensitive before a token (prose). */
+  t = t.replace(/\bBearer[ \t]+[^\s"',;]{8,}/g, 'Bearer [secret-removed]');   // before the label rule, which would read "Authorization:" as the label
+  t = t.replace(/(?<![\p{L}\p{N}_-])([A-Za-z0-9_-]+(?: key)?["']?[ \t]*[:=][ \t]*)("[^"\n]*"|'[^'\n]*'|[^\s"',;]{4,})/giu,
+    (m, label, v) => (!SECRET_LABEL.test(label)
+      || /^(?:undefined|null|none|true|false|required|missing|empty|expired|invalid|n\/a)$/i.test(v)
       || (/token/i.test(label) && /^\d+$/.test(v)) ? m : label + '[secret-removed]'));
+  t = t.replace(/\bBasic[ \t]+[A-Za-z0-9+/]{8,}={0,2}/g, 'Basic [secret-removed]');
   /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
   t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret-removed]');
   /* A long unbroken run with upper and lower case AND digits reads as a secret. Not a path (no "/"), and not plain hex: a
