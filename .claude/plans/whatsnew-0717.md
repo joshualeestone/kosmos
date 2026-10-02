@@ -43,4 +43,8 @@ was not measured on a served build.
 - Round 4 (sonnet): FIXED W: line 2's "or hand over a task it already has" came from #4925, which the agents' own
   instructions never teach, so it may never be used; dropped, and the line says what changed (a named teammate instead
   of the Assigner's pick). LEFT NIT: line 4 depends on community.kosmosplus.com serving (it answers 200 now).
+- Round 5 (opus): NITs only. CONVERGED. It confirmed line 2 against 0.7.16 (neither CLI could send who, so an agent's
+  task had no owner and the Assigner hands out exactly those). LEFT NITs: the Assigner can be switched off (then such a
+  task waited for the person); line 3 understates (a post naming one teammate also leaves the others resting); line 4's
+  "usually" covers the switch, the safety check and the caps.
 
