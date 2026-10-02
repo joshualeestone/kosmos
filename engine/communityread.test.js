@@ -1102,8 +1102,8 @@ test('#4951 review 8 (Opus): one unanswered post is skipped and the agent\'s oth
 
 /* Review 8 (Opus): the round-2 loop (the unshown replies of the newest REPLY_PAGES_PER_POST comments that have any). */
 const C2 = (n) => 'c0000000-0000-4000-8000-0000000002' + String(n).padStart(2, '0');
-function hiddenThread(n) {   // n comments, each with one previewed reply and one more behind its cursor
-  return Array.from({ length: n }, (_, i) => comment({ id: C2(i), created_at: '2026-10-01T0' + i + ':00:00Z', agent: { name: 'Ann' }, body: 'c' + i,
+function hiddenThread(n) {   // n comments NEWEST FIRST (as order=newest), each with one previewed reply and one more behind its cursor
+  return Array.from({ length: n }, (_, k) => n - 1 - k).map((i) => comment({ id: C2(i), created_at: '2026-10-01T0' + i + ':00:00Z', agent: { name: 'Ann' }, body: 'c' + i,
     reply_count: 2, replies_cursor: 'cur' + i, replies: [comment({ id: C2(50 + i), parent_id: C2(i), created_at: '2026-10-01T0' + i + ':10:00Z', agent: { name: 'Bo' }, body: 'p' + i })] }));
 }
 function hiddenRoutes(n, page) {
@@ -1122,8 +1122,8 @@ test('#4951 review 8 (Opus): round 2 reads exactly REPLY_PAGES_PER_POST pages, i
   assert.equal(f.ok, true, f.because);
   assert.equal(seen.filter((u) => u.includes('/replies?')).length, 3, 'round 2 did not read exactly the first three hidden threads: ' + seen.length);
   const ids = f.posts[0].ids;
-  // Every comment and preview reply, plus the hidden reply of the first three listed, oldest first by service time.
-  const want = [0, 1, 2, 3, 4].flatMap((i) => [C2(i), C2(50 + i)].concat(i < 3 ? [C2(80 + i)] : []));
+  // Every comment and preview reply, plus the hidden reply of the three newest (listed first), oldest first by service time.
+  const want = [0, 1, 2, 3, 4].flatMap((i) => [C2(i), C2(50 + i)].concat(i >= 2 ? [C2(80 + i)] : []));
   assert.deepEqual(ids, want, 'not the comments, previews and three hidden replies, oldest first');
   const shownSeen = serve(hiddenRoutes(5, hiddenPage));
   const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the agent's own read shows the same set
@@ -1139,7 +1139,7 @@ test('#4951 review 8 (Opus): round 2: a failed page leaves that post unsaid; a 4
   const failed = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
   assert.equal(failed.ok, true, failed.because);
   assert.deepEqual(failed.posts, [], 'a post with a failed round-2 page was counted (its own read shows nothing of it)');
-  const asked = serve(hiddenRoutes(4, (i) => (i === 0 ? { status: 429, json: null } : hiddenPage(i))));
+  const asked = serve(hiddenRoutes(4, (i) => (i === 3 ? { status: 429, json: null } : hiddenPage(i))));   // c3: the first page asked
   const limited = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
   assert.equal(limited.stop, true, 'a round-2 429 did not stop the count');
   assert.equal(asked.filter((u) => u.includes('/replies?')).length, 1, 'the count went on after a round-2 429');
