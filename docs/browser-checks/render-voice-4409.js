@@ -638,6 +638,14 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       await phone.waitForFunction(() => !VOICE.btn);
       own[k] = await phone.evaluate(async () => { await new Promise((r) => setTimeout(r, 30)); window.__recStopErr = ''; return document.getElementById('d-say-msg').textContent; });
     }
+    // P2t (round 21): a real tap (touch press, release, click) starts the recognizer from the click, never the press.
+    const tapStart = await phone.evaluate(() => { window.__rec.length = 0; document.getElementById('d-say-msg').textContent = ''; return true; });
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    const tapLog = await phone.evaluate(() => window.__rec.slice());
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => !VOICE.btn);
+    chk(tapStart && tapLog.includes('start') && !tapLog.some((x) => /^start-outside-a-click/.test(x)), 'P2t a real tap starts the recognizer from its click, never from the touch press', JSON.stringify(tapLog));
     // P8f (round 20): an iPhone's speech refusal names Dictation (a device setting), not a per-browser permission.
     await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
     await phone.tap('#d-mic');

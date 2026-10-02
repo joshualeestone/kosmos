@@ -228,4 +228,8 @@ press stops through voiceStop and marks the stop.
   our own stop's wait, an abort the person did not cause is still not said: they already asked to stop and the words
   are kept; only a refusal, no-speech or network loss is said there. LEFT NITs: the source-shape unit assertion;
   voiceBridge per paint (cached); the listening-line comparison is safe because the bridge is built once.
+- Round 21 (opus): FIXED W: nothing pinned the phone's start-from-the-click rule (P2 starts with element.click(), no
+  press); added P2t, a real tap that reads the stand-in's log (["new","start"]); with the pointerdown guard removed it
+  goes red with "start-outside-a-click:pointerdown", as the reviewer predicted. NITs taken: the cap's comment names the
+  real reason a cap in a stop's wait does nothing (stopTimer); the EU sentence reads the right way round.
 

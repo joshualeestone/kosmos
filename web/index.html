@@ -60229,8 +60229,8 @@ const VOICE_PHONE_CAP_MS = 300000;   // as the Mac app: a mic left on by mistake
 let VOICE_PHONE = undefined;   // the shim, built once at load and never rebuilt: an iPad that later gains a trackpad keeps it, and one that starts with a trackpad never gets it, until the page reloads; null where none
 function voicePhoneWho() {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
-  /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer; outside
-     the EU, where iOS 17.4 allows other engines), and on Android only Chrome itself is Google's. Another Android browser
+  /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer),
+     except in the EU, where iOS 17.4 allows other engines, and on Android only Chrome itself is Google's. Another Android browser
      (Samsung Internet, Edge, Opera, Firefox, Brave, DuckDuckGo, Vivaldi) may send the audio elsewhere, so it gets no
      mic rather than a guess. */
   // Brave sends Chrome's exact user agent; navigator.brave tells it apart (on Android the brand check below would too).
@@ -60354,7 +60354,7 @@ function voicePhoneBridge() {
           };
           mine.onend = () => { if (rec === mine) { unwait(); rec = null; emit({ kind: 'stopped' }); } };
           try { mine.start(); } catch { fail(); return; }   // in the tap's click: a phone starts the microphone only from a gesture
-          // Left armed through a stop's wait; it then finds rec !== mine and does nothing.
+          // Left armed through a stop's wait; firing then, its stop finds the stop already waiting (stopTimer) and does nothing.
           capTimer = setTimeout(() => { capTimer = 0; if (rec === mine) voiceStop(VOICE_PHONE); }, VOICE_PHONE_CAP_MS);
         } else if (op === 'stop') {
           const was = rec;
