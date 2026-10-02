@@ -49777,6 +49777,7 @@ async function loadSeededTeams() {
       if (!res.ok) throw new Error('status ' + res.status);
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data && Array.isArray(data.teams) ? data.teams : []);
+      // The menu's order comes from seededTeamGroups (#5021); this rank order is only the list's own.
       const teams = list.filter((t) => t && typeof t.key === 'string' && typeof t.label === 'string')
         .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
       SEEDED_TEAMS = teams.length ? teams : null;   // round 3: an empty list is asked again next visit, like a 404
@@ -49817,6 +49818,8 @@ const SEEDED_KIND_HEADING = { business: 'Business', personal: 'Personal and fami
 function seededTeamGroups(teams) {
   const kindOrder = (k) => { const i = ['business', 'personal'].indexOf(k); return i === -1 ? 2 : i; };
   const byName = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+  // Headings merge by their exact text, so two teams share one only when the catalogue spells it the same; a heading
+  // takes its kind (and so its place) from the first team under it, business first as the route sends them.
   const groups = new Map();
   for (const t of teams || []) {
     const named = typeof t.group === 'string' && t.group.trim();

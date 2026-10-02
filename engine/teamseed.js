@@ -129,7 +129,8 @@ function list(cat) {
   if (gone) return { ok: false, because: gone, unavailable: true };
   const teams = (c.teams() || []).map((t) => ({
     key: t.key, label: t.label, blurb: t.blurb, kind: t.kind, rank: t.rank, count: membersOf(t).length,
-    // #5021: the catalogue's heading for the team, when it has one (the page groups by it, else by kind).
+    // #5021: the catalogue's heading for the team when it is a name; anything else is dropped (the page then heads
+    // the team by its kind), never a reason to refuse the catalogue (engine/catalogue.js says why).
     ...(typeof t.group === 'string' && t.group.trim() ? { group: t.group.trim() } : {}),
   }));
   // The catalogue's own order (business, then personal, each by rank): ranks restart per kind, so rank

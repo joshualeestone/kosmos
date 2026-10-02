@@ -118,10 +118,12 @@ function shapeProblem(c) {
   const teamKeys = c.teams.map((t) => t && t.key);
   if (new Set(teamKeys).size !== teamKeys.length) return 'two teams share a key';
   for (const t of c.teams) {
+    // #5021: a team's `group` (its menu heading) is deliberately NOT checked here. It only sets a heading, so a
+    // malformed one must not make this board refuse the whole catalogue (roles and teams) while older boards,
+    // which ignore the key, take it. engine/teamseed.js list() drops one that is not a name, and the page then
+    // heads the team by its kind. The catalogue's own build check is where a bad group is refused.
     if (!t || typeof t.key !== 'string' || !KEY_RE.test(t.key) || !isText(t.label) || !t.project || !isText(t.project.goal) || !Array.isArray(t.members)
-      || !['business', 'personal'].includes(t.kind) || !Number.isInteger(t.rank)
-      // #5021: the menu heading the team sits under; optional, a name when present (the catalogue adds it).
-      || (t.group !== undefined && !isText(t.group))) {
+      || !['business', 'personal'].includes(t.kind) || !Number.isInteger(t.rank)) {
       return `team ${JSON.stringify(t && t.key)} is incomplete`;
     }
     for (const m of t.members) {

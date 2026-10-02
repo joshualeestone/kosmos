@@ -356,4 +356,9 @@ test('#5021 list: a team carries its catalogue group when it has one, and no gro
   const byKey = Object.fromEntries(r.teams.map((t) => [t.key, t]));
   assert.equal(byKey.marketing.group, 'Marketing and sales', 'the group is passed through, trimmed');
   assert.equal('group' in byKey.home, false, 'a team with no group sends none (the page falls back to its kind)');
+  for (const bad of ['   ', '', 5, null]) {
+    const odd = f.teams().map((t) => (t.key === 'marketing' ? { ...t, group: bad } : t));
+    const got = teamseed.list({ ...f, teams: () => odd }).teams.find((t) => t.key === 'marketing');
+    assert.equal('group' in got, false, 'a group of ' + JSON.stringify(bad) + ' was passed on');
+  }
 });

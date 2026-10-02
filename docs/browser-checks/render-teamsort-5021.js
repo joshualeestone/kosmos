@@ -4,7 +4,7 @@
  * #5021 (Josh, 0.7.17 staging: "categorized by something, at minimum alpha, but ... grouping like we have on picking
  * another role"): New Agent > Team's "Choose a team" menu lists the ready-made teams under headings, A to Z inside each.
  *
- * HERMETIC (file://, fetch stubbed, as render-docs-seg-4937). The real page, opened the person's way (openCreate, then
+ * HERMETIC (file://, fetch stubbed, as render-docs-subfolders-2245). The real page, opened the person's way (openCreate, then
  * the Team card), with the seeded-teams answer stubbed. On chromium and webkit:
  *   - teams with no group (every catalogue today): two headings, Business then Personal and family, each A to Z,
  *     though the answer lists them in rank order with the kinds interleaved (the old menu kept that order);
@@ -74,9 +74,9 @@ async function menu(engine, teams) {
         groups: [...sel.querySelectorAll('optgroup')].map((g) => ({ label: g.label, teams: [...g.querySelectorAll('option')].map((o) => o.textContent) })),
       };
     });
-    await page.selectOption('#team-seeded', teams[0].key).catch(() => {});
+    const picked = await page.selectOption('#team-seeded', teams[0].key).then(() => true, () => false);
     const desc = await page.evaluate(() => (document.getElementById('team-seeded-desc') || {}).textContent || '');
-    return { shape, desc, errs };
+    return { shape, desc: picked ? desc : '(the pick itself failed)', errs };
   } finally {
     await browser.close();
   }

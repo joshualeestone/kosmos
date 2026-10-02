@@ -448,17 +448,12 @@ test('#4556 review: a downloaded role cannot redefine a built-in one, so a menu 
   for (const r of roles.BUILT_IN.filter((x) => x.menu !== false)) assert.ok(roles.byKey(r.key), 'a built-in role went missing: ' + r.key);
 });
 
-test('#5021: a team may carry a group (a name); one that is not a name is refused', async () => {
-  const { signed } = fresh();
+test('#5021: a team\'s group never makes the catalogue refused, whatever it holds (it only sets a menu heading)', async () => {
   const withGroup = (g) => { const c = JSON.parse(TEXT); c.teams[0].group = g; return JSON.stringify(c, null, 2); };
-  const ok = await catalogue.refresh({ fetcher: server(signed(30, withGroup('Marketing and sales'))).fetcher, force: true });
-  assert.equal(ok.loaded, true, 'a named group is accepted');
-  for (const bad of ['', 5]) {
-    const { signed: sb } = fresh();
-    const st = await catalogue.refresh({ fetcher: server(sb(31, withGroup(bad))).fetcher, force: true });
-    assert.equal(st.loaded, false, 'a group of ' + JSON.stringify(bad) + ' was accepted');
+  let n = 30;
+  for (const g of ['Marketing and sales', '', '   ', 5, null]) {
+    const { signed } = fresh();
+    const st = await catalogue.refresh({ fetcher: server(signed(n++, withGroup(g))).fetcher, force: true });
+    assert.equal(st.loaded, true, 'a group of ' + JSON.stringify(g) + ' made the catalogue refused');
   }
-  // CONTROL: the untouched catalogue (no group at all) still loads.
-  const { signed: s2 } = fresh();
-  assert.equal((await catalogue.refresh({ fetcher: server(s2(32)).fetcher, force: true })).loaded, true);
 });
