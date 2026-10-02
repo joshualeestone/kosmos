@@ -1,0 +1,23 @@
+# casedelete-5003: a delete asked in another case must not touch a running agent (kosmos#5003)
+
+## Problem
+delete-leftover plan() checked "is it running?" with `sessionName === clean`, but on a Mac (and Windows) workerDir and
+plistPath are case-blind, so plan('miles') found Miles's folder and job while Miles ran, found no live session named
+'miles', and del() moved the RUNNING agent's folder and auto-start file. Found by #5000's review round 2.
+
+## Change
+plan(): on darwin and win32 the running check compares case-blind (as create.js already does for launch paths). The
+refusal names the running agent as it is (Miles), not as asked.
+
+## Rejected
+- Reading the folder's real case (realpathSync.native) and checking that name: misses a job-only leftover (plist).
+- Lowercasing every name in cleanName: changes how every agent is named and stored.
+
+## Weakest premise
+Mac and Windows disks are assumed case-blind. A case-sensitive APFS volume makes this refuse a delete that would have
+been fine ("X is running"); that is the safe side, and such a volume is rare for a home folder.
+
+## Tests
+delete-leftover.test.js +1: asked as miles5003 / MILES5003 while Miles5003 runs, plan refuses and del leaves the folder and
+the plist; control: own case also refused, and a stopped leftover is offered. Sabotage (caseBlind = false): red.
+Sibling files green: web.delete-leftover 7/7, jobexists.win32-570 14/14.

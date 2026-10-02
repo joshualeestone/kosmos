@@ -189,11 +189,20 @@ function plan(name, opts) {
   const shown = status.readIdentity(clean).displayName || clean;
 
   let live = null;
-  try { live = status.paneRoster().find((c) => c.sessionName === clean) || null; }
+  /* #5003: a Mac's or a Windows disk does not tell case apart, so workerDir('miles') and plistPath('miles') find the
+     files of an agent named Miles. The running check must be just as blind to case, or a delete asked as 'miles'
+     while Miles runs finds no live session and moves the RUNNING agent's folder and job. Case-blind here is the safe
+     side: on a rare case-sensitive disk it refuses a delete that would have been fine, and says why. */
+  const caseBlind = platform === 'darwin' || platform === 'win32';
+  const sameName = (a) => (caseBlind ? String(a).toLowerCase() === clean.toLowerCase() : a === clean);
+  try { live = status.paneRoster().find((c) => sameName(c.sessionName)) || null; }
   catch {
     return { ok: false, because: `we could not check whether ${shown} is running right now, so we have not offered to delete anything. Try again in a moment.` };
   }
-  if (live) return { ok: false, because: `${shown} is running, so there is nothing left over to delete. Remove it first if you want it gone.` };
+  if (live) {
+    const who = live.sessionName === clean ? shown : (status.readIdentity(live.sessionName).displayName || live.sessionName);
+    return { ok: false, because: `${who} is running, so there is nothing left over to delete. Remove it first if you want it gone.` };
+  }
 
   const folderPath = create.workerDir(clean);
   /* On the Mac the job is a FILE, and freeing the name means moving it to the

@@ -299,3 +299,26 @@ test('#5000: a folder that cannot be moved still leaves the name reset, because 
   assert.match(done.because, /None of its files were moved\. Its standing in the community was reset/, done.because);
   assert.ok(!/#\d/.test(done.because), 'a card number reached the person: ' + done.because);
 });
+
+test('#5003: a delete asked in another case while the agent runs is refused, and its folder stays where it is', () => {
+  leftoverAgent('Miles5003');
+  const running = () => status.setPaneSource(() => fleet.line({ session: 'Miles5003', claim: 'Miles5003', title: '✳ Claude Code' }));
+  /* The control on the same path: asked in its own case while running, it is refused as before. */
+  running();
+  const own = mac.plan('Miles5003');
+  assert.equal(own.ok, false, 'control: a running agent asked by its own name was offered for deletion');
+  for (const asked of ['miles5003', 'MILES5003']) {
+    running();
+    const p = mac.plan(asked);
+    assert.equal(p.ok, false, `a running agent asked as ${asked} was offered for deletion`);
+    assert.match(p.because, /is running/, p.because);
+    running();
+    const done = mac.del(asked);
+    assert.equal(done.outcome, leftover.OUTCOME.REFUSED, `a delete asked as ${asked} went ahead on a running agent`);
+    assert.ok(fs.existsSync(create.workerDir('Miles5003')), `the running agent's folder was moved by a delete asked as ${asked}`);
+    assert.ok(fs.existsSync(create.plistPath('Miles5003')), `the running agent's auto-start file was moved by a delete asked as ${asked}`);
+  }
+  /* And once it is not running, the leftover is offered again: the refusal above is about running, not about case. */
+  quiet();
+  assert.equal(mac.plan('Miles5003').ok, true, 'a stopped leftover was refused');
+});
