@@ -200,19 +200,21 @@ function chk(ok, label, extra) {
              is answered here: placed, or (for a name in helloFail) not placed. Every hello is recorded, in order. */
           const hellos = [];
           const helloFail = new Set();
-          const helloHold = {};   // name -> a promise its hello's answer waits for (to see the lead go first, alone)
+          const helloHold = {};
+          const helloUnsure = new Set();   // names whose hello comes back unconfirmed (it may have arrived)   // name -> a promise its hello's answer waits for (to see the lead go first, alone)
           await page.route('**/api/agent/*/thread', async (r) => {
             if (r.request().method() !== 'POST') return r.continue();
             const who = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
             hellos.push({ who, text: (JSON.parse(r.request().postData() || '{}')).text });
             if (helloHold[who]) await helloHold[who];
-            return r.fulfill({ status: 200, json: { ok: true, delivery: { state: helloFail.has(who) ? 'could_not' : 'placed' } } });
+            const state = helloFail.has(who) ? 'could_not' : (helloUnsure.has(who) ? 'unconfirmed' : 'placed');
+            return r.fulfill({ status: 200, json: { ok: true, delivery: { state } } });
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
           // #4936: off unless an arm is about it (the others settle on rows reading Running); fast retries, a long mark.
           await page.evaluate(() => { TC_AUTO_HELLO = false; TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold, helloUnsure };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -416,7 +418,7 @@ function chk(ok, label, extra) {
           const auto = await page.evaluate(() => ({ panel: !document.getElementById('panel-create').hidden,
             marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort(),
             said: (document.getElementById('tc-done-live') || { textContent: '' }).textContent }));
-          chk(hellos.map((h) => h.who).join() === 'mia,lou,ari' || (hellos[0] && hellos[0].who === 'mia' && hellos.length === 3),
+          chk(hellos.length === 3 && hellos[0].who === 'mia' && hellos.slice(1).map((h) => h.who).sort().join() === 'ari,lou',
             `${E} #4936 the lead is said hello to first, then the others, once each`, JSON.stringify(hellos.map((h) => h.who)));
           chk(!auto.panel && auto.marked.join() === 'ari,lou,mia', `${E} #4936 all placed: the step leaves for the agents view on its own, the new members marked`, JSON.stringify(auto));
           await settle(page, () => /Kosmos said hello to your team\./.test((document.getElementById('tc-done-live') || { textContent: '' }).textContent));
@@ -424,6 +426,30 @@ function chk(ok, label, extra) {
           chk(said && said[0] === 'Kosmos said hello to your team. The new agents are marked on your board.' && said[1] === 'polite',
             `${E} #4936 a screen reader is told the team started and where the members are`, JSON.stringify(said));
           chk(errs.length === 0, `${E} no page errors (#4936 all-placed arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936: an UNCONFIRMED hello may have arrived: never sent again, the row says to look, the step stays --- */
+        {
+          const { page, errs, hellos, helloUnsure } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          helloUnsure.add('kit');
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Bo');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Kit');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Cy');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Said hello|Hello not confirmed)$/.test(s.textContent)));
+          await page.waitForTimeout(300);   // room for a wrong retry to show
+          const u = await rows(page);
+          const kept = await page.evaluate(() => TC !== null && !document.getElementById('panel-create').hidden);
+          chk(hellos.filter((h) => h.who === 'kit').length === 1, `${E} #4936 an unconfirmed hello is sent once, never again (it may have arrived)`, JSON.stringify(hellos.map((h) => h.who)));
+          chk(u[1].state === 'Hello not confirmed' && !u[1].retry && /Look at its page/.test(u[1].why || ''), `${E} #4936 its row says to look, with no Try again`, JSON.stringify(u[1]));
+          chk(kept, `${E} #4936 with one unconfirmed, the step stays`);
+          chk(errs.length === 0, `${E} no page errors (#4936 unconfirmed arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
         }

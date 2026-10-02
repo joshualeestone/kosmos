@@ -8354,7 +8354,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   border-radius: var(--radius-control); display: flex; flex-direction: column; gap: 8px; }
 .tc-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
 /* #4936: the members a team just made, marked on the agents view for a few seconds after Create a Team. */
-.just-made { outline: 2px solid var(--accent, #b8860b); outline-offset: 2px; transition: outline-color .6s ease; }
+.just-made { outline: 2px solid var(--gold-edge); outline-offset: 2px; transition: outline-color .6s ease; }
 @media (prefers-reduced-motion: reduce) { .just-made { transition: none; } }
 .tc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: center; }
 .tc-seat { color: var(--label-2); }
@@ -48520,7 +48520,7 @@ function tcPaint() {
       why.textContent = 'Kosmos could not say hello to it, so it has not started. Try again, or say hello to it on its page.';
       const again = document.createElement('button');
       again.type = 'button'; again.className = 'btn tc-retry'; again.textContent = 'Try again';
-      again.setAttribute('aria-label', 'Say hello again: the ' + m.title);
+      again.setAttribute('aria-label', 'Try again: say hello to the ' + m.title);
       again.addEventListener('click', () => tcHelloRetry(m.slot));
       row.append(why, again);
     }
@@ -48587,7 +48587,7 @@ function tcPaint() {
     if (sentN === n) note = 'Kosmos said hello to ' + (n === 1 ? 'your agent.' : 'each of them.') + look;
     else if (notN && sentN + notN === n) note = (n === 1 ? 'Your agent is running, and may not have started: look at its row.'
       : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at its row.') + look;
-    else note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : 'each of them') + ' so ' + (n === 1 ? 'it starts' : 'they start') + '…' + look;
+    else note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : 'each of them') + '…' + look;
   } else {
     note = madeN + ' of ' + n + ' made' + (runningN ? ', ' + runningN + ' running' : '') + (failedN ? ', ' + failedN + ' not made' : '') + '.';
   }
@@ -48643,7 +48643,7 @@ async function tcSayHello() {
   if (gen !== TC_GEN || !TC) return;
   await Promise.all(TC.members.filter((m) => m !== lead).map((m) => tcHelloOne(m, gen)));
   if (gen !== TC_GEN || !TC) return;
-  TC.greeting = false;
+  TC.greeting = TC.members.some((m) => m.hello === 'sending');   // a Try again pressed meanwhile may still be going
   if (TC.members.every((m) => m.hello === 'started')) tcGoToTeam(true);
   else tcPaint();
 }
