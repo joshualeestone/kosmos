@@ -134,3 +134,31 @@ test('#2955: a bare tmux name is looked up on PATH, not taken for a tmux that is
   fs.rmSync(t.sb, { recursive: true, force: true });
 });
 
+/* #2955 review 14: the wall met AFTER the start (a newer tmux took the server while the agent ran) is not "gone":
+   two answers of 1 retire the run's token, and the wall's 1 would retire a LIVE agent's. */
+function answerFn() {
+  const at = SUP.indexOf('_kosmos_session_answer() {');
+  assert.notEqual(at, -1, 'the session-answer helper moved; re-point this test');
+  return SUP.slice(at, SUP.indexOf('\n}\n', at) + 3);
+}
+function answer(body, withSocket) {
+  const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'supanswer-'));
+  const f = nodePath.join(sb, 'tmux'); fs.writeFileSync(f, '#!/bin/sh\n' + body + '\n'); fs.chmodSync(f, 0o755);
+  const sock = nodePath.join(sb, 'sock');
+  if (withSocket) { fs.mkdirSync(nodePath.join(sock, 'tmux-' + process.getuid()), { recursive: true }); fs.writeFileSync(nodePath.join(sock, 'tmux-' + process.getuid(), 'default'), ''); }
+  const out = execFileSync('/bin/bash', ['-c', `set -u\nTMUX_BIN=${JSON.stringify(f)}\nTARGET=a\n${answerFn()}\n_kosmos_session_answer`], { encoding: 'utf8', env: { PATH: '/bin:/usr/bin', TMUX_TMPDIR: sock } });
+  fs.rmSync(sb, { recursive: true, force: true });
+  return out.trim();
+}
+test('#2955: the end-of-run check reads the version wall as "wall", never as gone (a live agent keeps its token)', () => {
+  assert.equal(answer('echo "server exited unexpectedly" >&2; exit 1', true), 'wall', 'the wall was read as the session gone');
+  assert.equal(answer('echo "protocol version mismatch (client 8, server 7)" >&2; exit 1', false), 'wall');
+  // Controls: a real "no such session", no server at all, and 3.5a's serverless voice with no socket are all 1.
+  assert.equal(answer('echo "can\'t find session: a" >&2; exit 1', true), '1');
+  assert.equal(answer('echo "no server running on /x" >&2; exit 1', true), '1');
+  assert.equal(answer('echo "server exited unexpectedly" >&2; exit 1', false), '1', 'a clean Mac with no server was read as the wall');
+  assert.equal(answer('exit 0', true), '0');
+  // And the gone check uses it, comparing as strings (so "wall" can never pass for 1).
+  assert.match(SUP, /_rc="\$\(_kosmos_session_answer\)"\nif \[ "\$_rc" = 1 \]; then\n  sleep 2\n  _rc="\$\(_kosmos_session_answer\)"\n  \[ "\$_rc" = 1 \] && _gone=1/);
+});
+

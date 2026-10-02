@@ -62,7 +62,10 @@ order, and the wall runs one way (measured: a newer tmux reads an older server, 
 socket, the newest tmux on the Mac can read it and both sides move to it. But only the board re-asks while it runs; a
 supervisor asks once per start, so one that started on a tmux that could read the server keeps it until its agent
 restarts. Not measured on a real reboot of a Mac with Kosmos-created agents and a newer Homebrew tmux. "Follows a
-server back to Kosmos's own" matters only when the board's tmux is gone or is older than the bundle. The board switches
+server back to Kosmos's own" matters only when the board's tmux is gone or is older than the bundle. The one-way wall
+is measured on one pair (Homebrew 3.6a and the bundled 3.5a); the code does not depend on its direction (every
+candidate is asked each time). A search blocks the board's request path: the failing look's 5 s plus up to 2 s per
+candidate, a minute apart while nothing can read the server. The board switches
 again each time the owner changes (one log line and one PATH entry each time); only a search that found nothing is
 damped.
 
@@ -188,4 +191,12 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   premise contradicted the one-way measurement and now says what the measurement allows. LEFT NITs: the worst-case
   search stall (2 s per candidate, a minute apart; round 8); test state after the last tests (they are last, each sets
   what it reads).
+- Round 14 (sonnet): FIXED W: a supervisor whose tmux met the wall AFTER its start read has-session's 1 (with the wall's
+  words) as the session gone, twice, and retired a LIVE agent's sender token; the end-of-run check now asks
+  _kosmos_session_answer, which reports "wall" for the wall (with a socket on disk) and compares as strings, so nothing
+  is retired (test: both wall wordings are "wall", no-such-session, no server and a clean Mac are 1; removing a wording
+  reds it). DOCUMENTED W: the blocking search and the one-way measurement's scope, in the weakest premise. DUPLICATE W:
+  the mid-life PATH move (round 6, decided). NITs: the supervisor's candidates differ from the board's only in the
+  last one (PATH tmux vs the launcher's pick), now said; LEFT: path-string dedupe in the supervisor (one extra probe
+  on a symlinked bundle).
 

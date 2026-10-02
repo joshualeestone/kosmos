@@ -115,7 +115,7 @@ _kosmos_supervisor_tmux() {
     _ownd="$(cd "${_own%/*}" 2>/dev/null && pwd)" || _ownd=""
     if [ -n "$_ownd" ]; then _own="$_ownd/tmux"; else _own=""; fi
   fi
-  # The SAME ORDER as the board (engine/status.js tmuxRepick): the known places, then Kosmos's own; this job's PATH
+  # The board's order (engine/status.js tmuxRepick): the known places, then Kosmos's own; then this job's PATH
   # tmux last (usually one of those again). When two can read the server, both sides take the same one.
   for _cand in ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own" "$(command -v tmux 2>/dev/null || true)"; do
     [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
@@ -1313,12 +1313,25 @@ done
 # its reports are refused until its next launch (review of #4530, B1). tmux answers 1
 # for "no such session" and for "no server" (measured); anything else is not an answer.
 # Two answers of 1, a couple of seconds apart, or nothing is retired.
+# #2955: the version wall is not an answer either. If this run's tmux can no longer read the server (a newer tmux
+# took it while the agent ran), has-session says 1 with the wall's words, and two of those would retire a LIVE agent's
+# token. _kosmos_session_answer reports "wall" instead, so nothing is retired; the next launch asks afresh.
+_kosmos_session_answer() {
+  local _s _r=0
+  _s="$("$TMUX_BIN" has-session -t "$TARGET" 2>&1 >/dev/null)" || _r=$?
+  case "$_s" in
+    *"protocol version mismatch"*) echo wall; return 0 ;;
+    *"server exited unexpectedly"*)   # the wall only with a socket on disk (else 3.5a's serverless voice: no server)
+      if [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ]; then echo wall; return 0; fi ;;
+  esac
+  echo "$_r"
+}
 _gone=0
-"$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; _rc=$?
-if [ "$_rc" -eq 1 ]; then
+_rc="$(_kosmos_session_answer)"
+if [ "$_rc" = 1 ]; then
   sleep 2
-  "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; _rc=$?
-  [ "$_rc" -eq 1 ] && _gone=1
+  _rc="$(_kosmos_session_answer)"
+  [ "$_rc" = 1 ] && _gone=1
 fi
 if [ "$_gone" = 1 ]; then
   retire_run_token
