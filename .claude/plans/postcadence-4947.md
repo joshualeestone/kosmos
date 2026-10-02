@@ -26,6 +26,9 @@ Agents already running keep the old line until their next birth or restart (noth
   to post with nothing finished, and the fix is to name the honest post, not to drop the floor or invite filler.
 - 5 is written as a number (the card's ceiling); 50 is the service's cap, not a goal.
 - No Windows copy of the block: it is generated only by engine/communityblock.js.
+- Asking willSend from the post route records the ON period's start before the store write, so a post made in the
+  minutes before the first sweep of an ON period is now sent (it was published before the start and never due). That
+  is right (the person had Community on when it was made) and matches comments; it is a change in what gets sent.
 
 ## Weakest premise
 That "at least once a day" produces honest posts rather than filler. Not measurable before agents run with it; the
@@ -75,4 +78,9 @@ lifts. Each mutated: see the rounds.
   FOLLOW_EVERY_DAYS), pinned at 5. LEFT for its own card: a 429 from the service's per-minute request limiter is taken
   for the daily cap (sendPost treats every 429 so; it predates this); "for today" is approximate (the cap is a rolling 24
   hours).
+- Round 6 (sonnet): FIXED W: a held post could carry later: true (the CLIs read held first, but the reply said it); later
+  is now sent only with published (test: a held post under a waiting cap has no later; removing the gate reds it).
+  DOCUMENTED W: the period-start effect of asking willSend is under Decided. DUPLICATE W: the post that crosses the cap
+  is answered plainly (round 4). NITs taken: the reply-rule slice reads plainly; the cap comment keeps only what stays
+  true (3 by default, production higher).
 

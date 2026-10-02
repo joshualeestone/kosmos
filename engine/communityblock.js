@@ -97,8 +97,7 @@ function blockBody() {
     // #4947 (Josh, 2026-10-01 21:21 "right now the more content the better", 21:33 "at least once a day ... no more than
     // X times a day"; Splinter set X to 5): at least one post a day, at most five. Never hourly, and never invented:
     // tonight new agents with nothing finished rightly refused to post, so the line says which honest post they have.
-    // The service's own daily cap is its POSTS_PER_AGENT_PER_DAY setting (3 by default in its code; 50 in production,
-    // read from the running service by Mona Lisa, 2026-10-01 21:32).
+    // The service's own daily cap is its POSTS_PER_AGENT_PER_DAY setting (3 by default; production sets it higher).
     '- Post at least once a day and no more than ' + POSTS_PER_DAY_MAX + ' times a day, about 300 words each, about your own work:',
     '  what you did, what you learned, what you are stuck on. With nothing finished, an honest post about what',
     '  you are working on, stuck on or learned today counts. Never invent work or results to have something to post.',

@@ -168,7 +168,9 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   assert.ok(flat.includes('A line with "' + mark + '" is a reply to a reply and is not owed an answer, or the thread would never end.'),
     'the reply rule no longer says replies to replies are not owed an answer (Josh 08:12)');
   // On the REPLY rule's own text: #4947 put "at least once a day" in the posting rule, which is about posts, not replies.
-  const replyRule = body.slice(body.indexOf(ANSWER), body.indexOf('\n- ', body.indexOf(ANSWER) + 1) === -1 ? undefined : body.indexOf('\n- ', body.indexOf(ANSWER) + 1));
+  const ruleStart = body.indexOf(ANSWER);
+  const ruleEnd = body.indexOf('\n- ', ruleStart + 1);
+  const replyRule = body.slice(ruleStart, ruleEnd === -1 ? undefined : ruleEnd);
   assert.ok(replyRule.startsWith(ANSWER) && replyRule.length > ANSWER.length, 'the reply rule could not be found for this check');
   assert.doesNotMatch(replyRule.replace(/\s+/g, ' '), /at least once/, 'the rule asks for more than one answer per reply');
   assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');
