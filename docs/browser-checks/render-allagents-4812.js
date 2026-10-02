@@ -10,12 +10,15 @@
  *   agent1s    answers its /api/status with two agents and the CORS pair for laptop's origin (the relay half's answer)
  *   mortals    answers 401 with the CORS pair (its gate: this browser is not let in there)
  *   pizzarama  never answers (not connected; the board's own probe said offline)
- * Chromium enforces CORS on routed answers, so agent1s being READ also proves the credentialed CORS shape works.
+ * These routes add the CORS pair themselves (and Playwright's route.fulfill may supply its own), so agent1s being
+ * read here proves the page's side only. The credentialed CORS answer itself is covered by the relay's own tests.
  *
  * Controls:
  *   A. the Mac's own window (http://127.0.0.1): no section, and not one request to another computer;
  *   B. agent1s stops being readable while online: its last list stays, greyed, not links;
  *   C. agent1s then answers its gate: the kept list is DROPPED (a device not let in sees none of its agents).
+ * The consolidated layout (S4): the section moves with the grid into the Agents view's panel, shows only while that
+ * view is open, reads nothing while it is closed, and goes back under the grid in the tab view.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-allagents-4812.js
  */
@@ -135,8 +138,10 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       const mo = r.groups[1] || { cards: [] };
       chk(mo.cards.length === 0 && /not let in on mortals/.test(mo.note) && mo.open === 'https://mortals.kosmosplus.com/', 'S1 mortals (its gate): no agents, says so, Open to sign in', JSON.stringify(mo));
       const pz = r.groups[2] || { cards: [] };
-      chk(preflights.length === 0, 'S1 the reads are simple: no preflight, which the relay would refuse', preflights.join(' '));
-      chk(pz.cards.length === 0 && /^Not connected, last seen 3 hours ago\.$/.test(pz.note) && pz.open === null, 'S1 pizzarama (not connected): last seen, no link', JSON.stringify(pz));
+      /* Not a guard: Playwright can answer an intercepted preflight itself, so this cannot go red in every engine.
+         web.allagents-4812.test.js asserts the request has no header and no body, which is what keeps it simple. */
+      chk(preflights.length === 0, 'S1 no preflight reached the routes', preflights.join(' '));
+      chk(pz.cards.length === 0 && /^Not connected\.$/.test(pz.note) && pz.open === null, 'S1 pizzarama (not connected): no time this page never saw, no link', JSON.stringify(pz));
 
       // CONTROL B: agent1s stops being readable while the board says it is online: the last list stays, greyed.
       agent1sMode = 'gone';
@@ -169,6 +174,34 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       await page.click('#oa-only');
       const back = await until(page, () => document.querySelectorAll('#oa-groups .oa-card').length >= 2);
       chk(back, 'S2 unticked: the other computers are read and shown again');
+      await ctx.close();
+    }
+
+    // ---- S4 the consolidated layout: the section travels with the grid.
+    {
+      const { ctx, page } = await fresh();
+      await page.goto(HOME + '/?tab=agents', { waitUntil: 'networkidle' });
+      await settle(page);
+      await until(page, () => document.querySelectorAll('#oa-groups .oa-card').length >= 2);
+      const where = () => page.evaluate(() => {
+        const w = document.getElementById('oa-wrap');
+        const g = document.getElementById('grid');
+        return { inPanel: !!w.closest('#panel-cons-agents'), afterGrid: g.nextElementSibling === w, visible: w.getClientRects().length > 0 && !w.hidden };
+      });
+      await page.evaluate(() => { document.documentElement.setAttribute('data-layout', 'consolidated'); showTab('projects'); });
+      const closed = await where();
+      chk(closed.inPanel && closed.afterGrid && !closed.visible, 'S4 consolidated, Agents view closed: moved with the grid, not on screen', JSON.stringify(closed));
+      const before = elsewhere.length;
+      await page.evaluate(() => oaRound());
+      await page.waitForTimeout(1500);
+      chk(elsewhere.length === before, 'S4 and no other computer is read while it is not on screen', (elsewhere.length - before) + ' requests');
+      await page.evaluate(() => { BOARD_LAYOUT = 'grid'; openConsolidatedAgents(); oaRound(); });
+      const shown = await until(page, () => document.querySelectorAll('#panel-cons-agents #oa-groups .oa-card').length >= 2 && !document.getElementById('oa-wrap').hidden);
+      const open = await where();
+      chk(shown && open.inPanel && open.visible, 'S4 Agents view open: the section shows inside it, under the grid', JSON.stringify(open));
+      await page.evaluate(() => { document.documentElement.setAttribute('data-layout', 'tabs'); showTab('agents'); });
+      const back = await where();
+      chk(!back.inPanel && back.afterGrid, 'S4 back to the tab view: under the grid in its own place again', JSON.stringify(back));
       await ctx.close();
     }
 
