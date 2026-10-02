@@ -247,19 +247,39 @@ const CTRL_LOOK = `(() => {
         plain.blur(); if (was && was.focus) was.focus(); if (sec) sec.hidden = secHidden; return o; })() };
   } finally { made.remove(); pd.hidden = h1; ps.hidden = h2; }
 })()`;
-/* #4470, the phone slice: whether the gear shares the crumb's line (only while the project page is shown), an agent
-   message's avatar alignment (a row made in the room's thread and removed), and New task's corners. */
+/* #4470, the phone slice, measured as drawn (round 1: a property read is not a position). In each thread (the room and
+   the DM, shown for the read), an agent's message and one of yours are made with a two-line body: an agent's avatar
+   top against its name's top (the avatar at the top), yours against the body's bottom (the foot). While the project
+   page is shown: whether the gear shares the crumb's line, its right edge and its row's right margin (the touch tap
+   area needs 4px; a plain viewport cannot show the overflow itself), and the same with a long project name. New
+   task's corners. Everything made is removed and every panel put back. */
 const PHONE_LOOK = `(() => {
+  const out = { found: true, vw: innerWidth };
+  const nt = document.getElementById('tsk-new'); if (!nt) return { found: false };
+  out.newTaskRadius = getComputedStyle(nt).borderTopLeftRadius;
+  const one = (threadId, panelId) => {
+    const th = document.getElementById(threadId), panel = document.getElementById(panelId); if (!th || !panel) return null;
+    const hid = panel.hidden; panel.hidden = false; const sec = th.closest('.dsec'), sh = sec ? sec.hidden : false; if (sec) sec.hidden = false;
+    const mk = (you) => { const m = document.createElement('div'); m.className = 'msg' + (you ? ' you' : '');
+      m.innerHTML = '<div class="msg-av">A</div><div class="msg-b"><div class="msg-bd"><div class="msg-who">Ada</div>one<br>two<br>three</div></div>'; th.appendChild(m); return m; };
+    const a = mk(false), y = mk(true);
+    try {
+      const ab = a.querySelector('.msg-av').getBoundingClientRect(), an = a.querySelector('.msg-b').getBoundingClientRect();
+      const yb = y.querySelector('.msg-av').getBoundingClientRect(), yn = y.querySelector('.msg-b').getBoundingClientRect();
+      return { agentAvTopOff: Math.round(ab.top - an.top), yourAvBottomOff: Math.round(yn.bottom - yb.bottom), tall: Math.round(an.height) };
+    } finally { a.remove(); y.remove(); if (sec) sec.hidden = sh; panel.hidden = hid; }
+  };
+  out.room = one('pj-room', 'panel-projects'); out.dm = one('d-dmthread', 'panel-detail');
   const cog = document.getElementById('pj-settings-link'), crumb = document.querySelector('#pj-one-view .pj-crumbrow');
   const shown = !!cog && !!crumb && cog.getClientRects().length > 0 && crumb.getClientRects().length > 0;
-  const cb = shown ? cog.getBoundingClientRect() : null, rb = shown ? crumb.getBoundingClientRect() : null;
-  const room = document.getElementById('pj-room'), nt = document.getElementById('tsk-new');
-  if (!room || !nt) return { found: false };
-  const m = document.createElement('div'); m.className = 'msg'; m.innerHTML = '<div class="msg-av">A</div><div class="msg-b"><div class="msg-bd">x</div></div>'; room.appendChild(m);
-  try {
-    return { found: true, cogOnCrumbLine: shown ? (cb.top < rb.bottom && cb.bottom > rb.top) : 'hidden', cogRight: shown ? Math.round(cb.right) : null,
-      vw: innerWidth, agentAlign: getComputedStyle(m).alignItems, newTaskRadius: getComputedStyle(nt).borderTopLeftRadius };
-  } finally { m.remove(); }
+  const line = () => { const cb = cog.getBoundingClientRect(), rb = crumb.getBoundingClientRect(); return { on: cb.top < rb.bottom && cb.bottom > rb.top, right: Math.round(cb.right), sw: document.documentElement.scrollWidth }; };
+  if (!shown) out.cog = 'hidden';
+  else {
+    out.cog = line(); out.cogRowMarginRight = getComputedStyle(cog.closest('.pjtitle-row')).marginRight;
+    const cur = document.querySelector('#pj-one-view .pj-crumb-cur');
+    if (cur) { const was = cur.textContent; cur.textContent = 'A project with a much longer name than this page usually shows'; out.cogLong = line(); cur.textContent = was; }
+  }
+  return out;
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
@@ -602,10 +622,19 @@ const AGENTS_LOOK = `(() => {
       chk(partOf.found && partOf.above, `${tag} On: a subtask's "Part of" line sits above its title, as it reads`, JSON.stringify(partOf));
       const hdOn = await page.evaluate(HEAD_PLACE);
       const phOn = await page.evaluate(PHONE_LOOK);
-      chk(phOn.found && phOn.agentAlign === 'flex-start' && phOn.newTaskRadius === '999px',
-        `${tag} On: an agent's message has its avatar at the top, beside the name, and New task is a pill`, JSON.stringify(phOn));
-      if (width <= 640) chk(phOn.found && phOn.cogOnCrumbLine === true && phOn.cogRight <= phOn.vw,
-        `${tag} On, a phone: the project's gear sits on the crumb's line, inside the page`, JSON.stringify(phOn));
+      const top = (t) => !!t && t.agentAvTopOff <= 4 && t.tall > 40, foot = (t) => !!t && t.yourAvBottomOff <= 4;
+      chk(phOn.found && top(phOn.room) && top(phOn.dm) && foot(phOn.room) && foot(phOn.dm) && phOn.newTaskRadius === '999px',
+        `${tag} On: an agent's message has its avatar at the top (room and DM), yours keeps it at the foot, and New task is a pill`, JSON.stringify(phOn));
+      if (width <= 960) chk(phOn.found && phOn.cog !== 'hidden' && phOn.cog.on && phOn.cog.right <= phOn.vw && phOn.cog.sw <= phOn.vw
+        && phOn.cogLong && phOn.cogLong.on && phOn.cogLong.sw <= phOn.vw && phOn.cogRowMarginRight === '4px',
+        `${tag} On, a phone: the project's gear sits on the crumb's line inside the page, with a long name too, and keeps 4px for its touch area`, JSON.stringify(phOn));
+      if (width === 1280) {   /* round 1: the header stacks up to 60rem, so the band above a phone is read too */
+        await page.setViewportSize({ width: 900, height: 900 }); await page.waitForTimeout(200);
+        const ph900 = await page.evaluate(PHONE_LOOK);
+        chk(ph900.found && ph900.cog !== 'hidden' && ph900.cog.on && ph900.cog.sw <= ph900.vw && ph900.cogLong && ph900.cogLong.on,
+          `${tag} On at 900 wide: the project's gear sits on the crumb's line, with a long name too`, JSON.stringify(ph900));
+        await page.setViewportSize({ width, height: 900 }); await page.waitForTimeout(200);
+      }
       chk(hdOn.inMid && hdOn.first && hdOn.rootShown && hdOn.nameInDom && !hdOn.nameShown, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers, visually hidden`, JSON.stringify(hdOn));
       chk(!(await page.evaluate(`document.documentElement.scrollWidth > window.innerWidth`)), `${tag} On: the project page has no sideways scroll`);
       /* Turning it off LIVE, on the open project page (no reload): lookToggleClick must move both back. */
@@ -820,8 +849,8 @@ const AGENTS_LOOK = `(() => {
       chk(ctlOff.found && ctlBefore.found && JSON.stringify(ctlOff) === JSON.stringify(ctlBefore) && ctlOff.plainEdge !== 'rgba(0, 0, 0, 0)' && ctlOff.plainRadius !== '999px',
         `${tag} Off, the controls: exactly today's gold-edged buttons, as before the switch was touched (the control)`, JSON.stringify({ off: ctlOff, before: ctlBefore }));
       const phOff = await page.evaluate(PHONE_LOOK);
-      chk(phOff.found && phOff.agentAlign === 'flex-end' && phOff.newTaskRadius !== '999px',
-        `${tag} Off: an agent's message keeps its avatar at the bubble's foot and New task its corners (the control)`, JSON.stringify(phOff));
+      chk(phOff.found && phOff.room && phOff.dm && phOff.room.agentAvTopOff > 4 && phOff.dm.agentAvTopOff > 4 && phOff.newTaskRadius !== '999px',
+        `${tag} Off: an agent's message keeps its avatar at the bubble's foot (room and DM) and New task its corners (the control)`, JSON.stringify(phOff));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
