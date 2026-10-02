@@ -11,12 +11,13 @@ board's evidence of the menu, so it contradicts itself.
 ## Change
 - engine/status.js safeguardsMenuAt(text): the live-menu rule from #5039 ("1. Switch automatically" is the LAST "1." row, "2. Stay on
   <model>" within 3 rows), returning { at, model }. safeguardsMenu now uses it, so the board and the question finder share ONE rule.
-- engine/chat.js questionIn: when the live safeguards menu is below any marker match, the region starts at its "Model switch" title
+- engine/chat.js questionIn: when the safeguards menu is live, the region starts at its "Model switch" title (to the end of the screen)
   (searched up to 16 rows above option 1; 10 rows as the fallback), so the person reads the whole question and both choices.
 
 ## Decided, and why
-- No buttons: optionsIn needs consecutive option lines, and the menu puts a description row between them, so it returns null. The person
-  types the answer; a guessed button never answers for them. Pinned.
+- No buttons, ENFORCED: optionsIn returns null whenever safeguardsMenuAt matches its text (round 1: the captured layout's description rows
+  only happened to prevent them). server.js refuses a BUTTON press (`chose`) that lands on the live menu with the usual 409 "changed on
+  its screen": option 1 switches models and saves that in the agent's Claude settings. A typed answer (no `chose`) goes through.
 - Starting at the title, not a fixed run-up: a narrower pane wraps the question onto more rows; pinned with a wrapped variant.
 
 ## Weakest premise
@@ -27,9 +28,17 @@ above option 1) still returns the region, possibly starting mid-question.
 - #5051 test (chat.test.js): the region starts at the title, holds the question and "2. Stay on Opus 5.5", stops above earlier output; a
   wrapped question still starts at the title; optionsIn draws no buttons; the menu's words in prose above a live permission prompt leave the
   permission prompt as the question. Fails on the base at "the safeguards menu yields no question region".
-- Mutants: no branch -> that arm; no title search -> the wrapped arm. Survives, effectively equivalent: dropping "below any marker match"
-  (a question below the live menu would carry its own "1." row, so safeguardsMenuAt would no longer call the menu live).
+- Mutants: no branch -> that arm; no title search -> the wrapped arm. [CORRECTED round 1: I called dropping "below any marker match"
+  equivalent; it was not, a non-numbered marker line below the menu started the region mid-menu. The guard is now removed.]
 - chat.test.js + status.test.js + status.pane-states-1889.test.js: 381/381.
 
 ## Review
-- Round 1: PENDING.
+- Round 1 (opus, blind): 0 BLOCKER, 2 SHOULD-FIX + 1 follow-up, all taken. SF1: the "below any marker" guard could only make the region
+  worse (a non-numbered marker under the menu started it mid-menu); removed, BELOW arm. SF2: "no buttons" rested on the captured layout;
+  optionsIn now refuses the menu, BARE arm (assumed compact layout). Follow-up taken here rather than filed: a stale BUTTON press landing on
+  the menu went through (no menu parsed, no 409) and would press "Switch automatically"; server.js now refuses it, test in
+  server.projects.test.js with a typed-answer control. NITs: the 10-row fallback is untested (a pane narrow enough to need more than 16
+  rows above option 1, reasoned not measured); the PROSE control exercises the base's live-menu rule, not this change (kept as a control).
+  Measured 13:46, each red by name: optionsIn refusal off -> BARE; the below guard back -> BELOW; server guard off -> the stale press was
+  PLACED. chat + status + pane-states 381/381; server 5051 + the existing button test 2/2.
+- Round 2: PENDING.

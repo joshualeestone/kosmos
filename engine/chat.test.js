@@ -834,6 +834,13 @@ test('#5051: the safeguards model-switch menu is a question the detail page can 
   /* The options are not on consecutive lines (a description row sits between), so no buttons: the choice is typed by
      the person, never answered by a guessed button. */
   assert.equal(chat.optionsIn(found.text), null, 'buttons were drawn for the safeguards menu');
+  /* Review round 1: the same menu WITHOUT description rows (assumed layout) would parse as consecutive options; the
+     refusal is a rule, not a property of the captured layout. */
+  const BARE = MODAL.split('\n').filter((l) => !/^\s{5}(Continue|Stop) /.test(l)).join('\n');
+  assert.equal(chat.optionsIn(chat.questionIn(BARE).text), null, 'buttons were drawn for a compact safeguards menu');
+  /* Review round 1: a non-numbered marker line BELOW the live menu must not start the region mid-menu. */
+  const BELOW = MODAL + '\n✻ Would you like to keep waiting';
+  assert.match(chat.questionIn(BELOW).text, /^ ☐ Model switch/, 'a marker line below the menu cut its question off');
   /* Controls: the menu's words in an agent's prose above a live permission prompt; the permission prompt is the one. */
   const PROSE = ['⏺ The choices are:', '  1. Switch automatically', '  2. Stay on Opus 5.5', '', 'Do you want to proceed?', '❯ 1. Yes', '  2. No'].join('\n');
   assert.doesNotMatch(chat.questionIn(PROSE).text.split('\n').slice(-3).join('\n'), /Switch automatically/);
