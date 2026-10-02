@@ -287,6 +287,9 @@ function loadPaint() {
   t.add('oa-only', 'input', { type: 'checkbox' });
   t.add('oa-title', 'h2', { tabIndex: -1 });
   wrap.appendChild(t.add('oa-groups'));
+  // The page's markup order: the grid, then the section (oaPaint moves the section only when it is not right under
+  // the view on screen, so a section already there keeps focus inside it).
+  const page = t.create('div'); page.append(grid, wrap);
   const timers = [];
   const clock = { now: 1000000 };
   const api = new Function('document', 'location', 'setTimeout', 'Date', `
@@ -304,7 +307,7 @@ function loadPaint() {
     ${slice('oaPaint')}
     return { oaPaint, OA_SEEN, set computers(v) { OA_COMPUTERS = v; }, set busy(v) { OA_BUSY = v; }, set timer(v) { OA_TIMER = v; } };
   `)(t.document, { hostname: 'laptop.kosmosplus.com', protocol: 'https:' }, (fn) => timers.push(fn), { now: () => clock.now });
-  return { api, d: t, grid, groups: t.document.getElementById('oa-groups'), timers, clock };
+  return { api, d: t, grid, wrap, page, groups: t.document.getElementById('oa-groups'), timers, clock };
 }
 
 test('paint: an unchanged round keeps every group element, so focus stays on its card', () => {
@@ -319,6 +322,24 @@ test('paint: an unchanged round keeps every group element, so focus stays on its
   api.oaPaint();
   assert.ok(groups.children.every((g, i) => g === first[i]), 'no group rebuilt');
   assert.equal(d.focused(), first[0].querySelector('.oa-card'), 'focus untouched');
+});
+
+test('paint: the section sits right under the List view when the list is the view on screen, and does not move again', () => {
+  const { api, d, grid, wrap, page } = loadPaint();
+  api.computers = LIST;
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [card('a', { name: 'Ann', state: 'idle' })], at: 1000000 });
+  const alist = d.add('alist'); page.append(alist);   // markup order now: grid, section, list
+  api.oaPaint();
+  assert.equal(wrap.previousElementSibling, grid, 'control: under the grid while the grid is on screen');
+  assert.equal(wrap.hidden, false, 'control: shown');
+  grid.hidden = true;   // the List view (on a phone the only one, #4823)
+  api.oaPaint();
+  assert.equal(wrap.previousElementSibling, alist, 'moved right under the list');
+  assert.deepEqual(page.children, [grid, alist, wrap]);
+  assert.equal(wrap.hidden, false, 'still shown under the list');
+  const card0 = wrap.querySelector('.oa-card'); card0.focus();
+  api.oaPaint();
+  assert.equal(d.focused(), card0, 'already under the list: not moved, so focus stays');
 });
 
 test('paint: only the changed group is replaced, and focus goes back to the same agent', () => {
