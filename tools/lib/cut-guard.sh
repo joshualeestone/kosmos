@@ -1190,6 +1190,18 @@ _kosmos_load_and_cores() {
   printf '%s %s\n' "$l" "$c"
 }
 
+# _kosmos_playwright_browsers: "pid command" of each running Playwright BROWSER (an executable under an ms-playwright
+# browser folder), rc 0 even when none; 2+ when pgrep could not run. Review 6: matching the bare folder name also caught
+# any command that mentions the path (an `ls` or `du` of it). An agent's Playwright MCP browser IS one and holds side
+# turns off while it runs (the safe side).
+_kosmos_playwright_browsers() {
+  local raw rc
+  raw="$(pgrep -fl 'ms-playwright/' 2>/dev/null)"; rc=$?
+  [ "$rc" -ge 2 ] && return "$rc"
+  printf '%s\n' "$raw" | grep -E '^[0-9]+ +[^ ]*ms-playwright/(chromium|chromium_headless_shell|firefox|webkit)[^/ ]*/' || true
+  return 0
+}
+
 # kosmos_light_side_clear <what>: 0 when THIS light run may take a side turn now. Refuses (1, the reason on stderr)
 # unless every one of these holds:
 #   1. this run is light, and KOSMOS_SIDE_LANE is not 0;
@@ -1233,7 +1245,7 @@ kosmos_light_side_clear() {
   kosmos_refuse_if_browser_run_live "$what" || return 1
   local pw pwrc
   if [ -n "${KOSMOS_PW_PROBE:-}" ]; then pw="$("$KOSMOS_PW_PROBE" 2>/dev/null)"; pwrc=$?
-  else pw="$(pgrep -fl 'ms-playwright/' 2>/dev/null)"; pwrc=$?; fi
+  else pw="$(_kosmos_playwright_browsers)"; pwrc=$?; fi
   if [ "$pwrc" -ge 2 ]; then echo "could not tell whether a Playwright browser is running; no side turn for $what." >&2; return 1; fi
   if [ -n "$pw" ]; then echo "a Playwright browser is running ($(printf '%s\n' "$pw" | head -1 | cut -c1-80)); no side turn beside it." >&2; return 1; fi
   lc="$(_kosmos_load_and_cores)"; load="${lc%% *}"; cores="${lc##* }"
@@ -1312,11 +1324,20 @@ kosmos_holds_light_side() {
 kosmos_light_side_intruder() {
   local root="${1:-}" lines rc l pid f
   case "$root" in ''|*[!0-9]*) echo "no side command to protect"; return 0 ;; esac
+  # Review 6: a cut or an install harness that starts during the side turn is an intruder too (the start gate saw
+  # neither, and one on a branch older than #4911 does not wait for a side turn).
+  if ! kosmos_refuse_if_cut_live "a side turn" >/dev/null 2>&1; then echo "a cut started"; return 0; fi
+  if ! kosmos_refuse_if_harness_live "a side turn" "" >/dev/null 2>&1; then echo "an install harness started"; return 0; fi
   if [ -n "${KOSMOS_BC_PROBE:-}" ]; then lines="$("$KOSMOS_BC_PROBE" 2>/dev/null)"; rc=$?
-  else lines="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)')"; rc=$?; [ "$rc" -le 1 ] && rc=0; fi
+  else
+    # Review 6: pgrep's own status, not the filter's (a pgrep that failed read as "nothing live").
+    lines="$(pgrep -fl 'browser-checks\.sh' 2>/dev/null)"; rc=$?; [ "$rc" -le 1 ] && rc=0
+    lines="$(printf '%s\n' "$lines" | grep -E '^[0-9]+ +([^ ]*/)?(ba)?sh +([^ ]*/)?tools/browser-checks\.sh( |$)' || true)"
+  fi
   [ "$rc" -ge 2 ] && { echo "could not tell whether a browser run is live"; return 0; }
+  [ -n "$lines" ] && lines="$(printf '%s\n' "$lines" | _kosmos_drop_test_fixtures || true)"   # a suite's fixture is not a run
   if [ -n "${KOSMOS_PW_PROBE:-}" ]; then l="$("$KOSMOS_PW_PROBE" 2>/dev/null)"; rc=$?
-  else l="$(pgrep -fl 'ms-playwright/' 2>/dev/null)"; rc=$?; [ "$rc" -le 1 ] && rc=0; fi
+  else l="$(_kosmos_playwright_browsers)"; rc=$?; fi
   [ "$rc" -ge 2 ] && { echo "could not tell whether a Playwright browser is live"; return 0; }
   lines="$lines
 $l"

@@ -214,13 +214,16 @@ kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null; rm -f "$M/light-side-claim"
 # (a heavy holder's page layer that began after the side turn, on any branch). Root R stands for the side command;
 # R itself stands for "its own" browser run (self or descendant), ORPHAN for someone else's.
 sleep 60 </dev/null >/dev/null 2>&1 & R=$!
+# The harness guard drops its caller's whole subtree, so its stand-in is the orphan (not this shell's child).
+probe live-harness "printf '$ORPHAN bash tools/test-install.sh\\n'"
 probe own-bc "printf '$R bash tools/browser-checks.sh\\n'"
 probe foreign-bc "printf '$ORPHAN bash tools/browser-checks.sh\\n'"
 probe foreign-pw "printf '$ORPHAN /x/ms-playwright/chromium_headless_shell-1/chrome-headless-shell\\n'"
 for arm in "quiet|quiet|1|nothing live" "own-bc|quiet|1|its own browser run" "foreign-bc|quiet|0|someone else's browser run" \
-    "quiet|foreign-pw|0|someone else's Playwright browser" "broken|quiet|0|an unreadable browser probe" "quiet|broken|0|an unreadable Playwright probe"; do
-  IFS='|' read -r bc pw want name <<< "$arm"
-  out="$(KOSMOS_BC_PROBE="$T/$bc" KOSMOS_PW_PROBE="$T/$pw" kosmos_light_side_intruder "$R")"; rc=$?
+    "quiet|foreign-pw|0|someone else's Playwright browser" "broken|quiet|0|an unreadable browser probe" "quiet|broken|0|an unreadable Playwright probe" \
+    "quiet|quiet|0|a cut that started|live-cut|" "quiet|quiet|0|an install harness that started||live-harness"; do
+  IFS='|' read -r bc pw want name cutp hp <<< "$arm"
+  out="$(KOSMOS_CUT_PROBE="$T/${cutp:-quiet}" KOSMOS_HARNESS_PROBE="$T/${hp:-quiet}" KOSMOS_BC_PROBE="$T/$bc" KOSMOS_PW_PROBE="$T/$pw" kosmos_light_side_intruder "$R")"; rc=$?
   { [ "$rc" -eq "$want" ]; } && pass "intruder check: $name -> $([ "$want" = 0 ] && echo yield || echo stay)" \
     || fail "intruder check: $name gave rc=$rc, wanted $want ($out)"
 done
@@ -356,7 +359,7 @@ else
   touch "$T/go3"
   for _ in $(seq 1 100); do [ -e "$T/ahead.A.ok" ] && [ -e "$T/ahead.B.ok" ] && [ -e "$T/ahead.C.ok" ] && break; sleep 0.1; done
   free=0; for w in A B C; do [ -s "$T/ahead.$w" ] || free=$((free + 1)); done
-  { [ -e "$T/ahead.A.ok" ] && [ "$free" -eq 1 ]; } && pass "three starving waiters of mixed libs: exactly one sees nobody ahead (no circle)" \
+  { [ -e "$T/ahead.A.ok" ] && [ -e "$T/ahead.B.ok" ] && [ -e "$T/ahead.C.ok" ] && [ "$free" -eq 1 ]; } && pass "three starving waiters of mixed libs: exactly one sees nobody ahead (no circle)" \
     || fail "three waiters of mixed libs: $free see nobody ahead (A: $(tr '\n' ' ' < "$T/ahead.A" 2>/dev/null), B: $(tr '\n' ' ' < "$T/ahead.B" 2>/dev/null), C: $(tr '\n' ' ' < "$T/ahead.C" 2>/dev/null); pids A=$W_A B=$W_B C=$W_C)"
   touch "$T/stop3"; wait "$W_A" "$W_B" "$W_C" 2>/dev/null
 fi

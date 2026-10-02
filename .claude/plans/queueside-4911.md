@@ -97,6 +97,18 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
   run (a foreign Playwright appearing mid-turn stops it in 2 s and releases the claim). (5) the dry harness's
   machine-wide orphan check is gone (the capper's sleeps are now 5 s polls). Not taken: (4) a failed ps between the
   side wait and the take can cost a lost take its place (rare, and it rejoins rather than wedging).
+- Round 6 (Opus, blind): no blocker. Fixed: (1) a side command that runs tools/browser-checks.sh reddened a heavy
+  holder's page layer from an older branch (that one refuses on sight, before the yield): such a command now always
+  takes an ordinary turn (dry run checked); (2) the side turn now also yields to a cut or install harness that
+  starts mid-turn (tested, each red without it); (3) the intruder read grep's status for pgrep's; (4) it drops test
+  fixtures as the start gate does, and the Playwright match is narrowed to browser executables under ms-playwright
+  (_kosmos_playwright_browsers; controlled on the box: a real headless shell is seen by pid and gone after kill, a
+  command that only mentions the path is not); (5) the three-waiter arm requires all three answers. Not taken: (6) a
+  side command stopped on a tty read holds the side lane to its cap (bounded; stdin is /dev/null, so only a command
+  that opens /dev/tty itself).
+- KNOWN LIMIT, measured 19:35: an agent's long-lived Playwright browser (one had run 5 h 50 min) is a Playwright
+  browser, so it holds side turns off while it runs. That is the safe direction; it means the side lane opens less
+  often than the load figures alone suggest. The before/after measurement shows how much.
 - ROLLOUT, in this order: merge; update the queue lib checkout (kosmos-bc-main-4610) to origin/main; mv the new
   queued-heavy.sh in. Side turns stay off by themselves until every waiter of the old script has gone.
 - Dry runs of queued-heavy.sh.4911-new (private marker dir, probe seams): side turn; heavy main refused beside a
