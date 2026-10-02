@@ -327,8 +327,8 @@ release_site_restore() {
       fi
     fi
   done
-  # #5032: an UNTRACKED /setup-staging pair was never served (a deploy serves only what is committed), so
-  # it is always an aborted first staging cut's leftover. Removed so a later promote, which copies the
+  # #5032: an UNTRACKED /setup-staging pair was never served (never committed implies never served: a
+  # deploy serves only what is committed; the converse does not hold), so it is an aborted cut's leftover. Removed so a later promote, which copies the
   # pair onto /setup, can never pick up an installer staging never served (promote-channel.sh also
   # refuses an untracked or modified one).
   for f in setup-staging setup-staging.sha256; do

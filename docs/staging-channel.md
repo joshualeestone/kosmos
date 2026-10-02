@@ -77,11 +77,11 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    already served from the staging cut.
 
    **Use `deploy-site.sh --promote` (#2195).** It is the guarded promote deploy: commit `latest.json`
-   first, then
+   (and, #5032, the `setup` + `setup.sha256` the promote copied) first, then
 
    ```sh
-   git -C "$HOME/work/chaoskosmos-site" diff --quiet -- dist/latest.json \
-     || git -C "$HOME/work/chaoskosmos-site" commit -- dist/latest.json -m "promote <V> to prod"
+   git -C "$HOME/work/chaoskosmos-site" diff --quiet -- dist/latest.json setup setup.sha256 \
+     || git -C "$HOME/work/chaoskosmos-site" commit -- dist/latest.json setup setup.sha256 -m "promote <V> to prod"
    git -C "$HOME/work/chaoskosmos-site" push origin HEAD:refs/heads/main   # a deploy serves committed HEAD
    bash tools/deploy-site.sh --promote
    ```
@@ -92,7 +92,11 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    stale live one, keeps every other guard (honest-marker, `.vercelignore`, the post-deploy
    served-by-content verify), and refuses `--promote` when the committed pointer already equals live
    (nothing to promote -- did you forget to commit?). It is self-contained and works for a rollback
-   too (a rollback promotes a PRIOR committed pointer). Run it on the machine that ran the staging
+   too (a rollback promotes a PRIOR committed pointer). **#5032: every deploy refuses a committed
+   `/setup` that does not hash to the committed pointer's `setup_sha256`** (the installer that build
+   was cut with; pointers from before #5032 carry none and are not checked). So a rollback to a #5032
+   pointer must put that pointer's own installer back on `/setup` too: the `setup-staging` pair from the
+   site commit of its staging cut, or the `setup` pair committed with its promote. Run it on the machine that ran the staging
    cut, where `$S/dist` holds the sha-verified artifacts.
 
    If the release being promoted ALSO bumped the Windows build, the committed HEAD carries a new
