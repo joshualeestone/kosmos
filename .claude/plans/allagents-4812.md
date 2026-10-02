@@ -46,3 +46,22 @@ validated address (computerAddressOk) and an encoded sessionName, never from the
   the address not the answer), textContent only (an agent named `<img onerror>` stays text).
 - browser check: the section with two fake siblings (one ok, one unreachable with a kept list), light/dark,
   desktop/phone; absent on 127.0.0.1.
+
+## Review 1 (opus, blind, 2026-10-01 20:40): 0 blockers, 6 warnings, 3 nits. TO DO (next session), in this order
+1. web/index.html ~18096/~43172: in the CONSOLIDATED layout `placeAgentsPanel` moves only grid+orgview, so `#oa-wrap`
+   renders as a full-width band and oaRound reads every sibling every 15 s unseen. Add `oa-wrap` to the relocated ids
+   (and the restore), add a consolidated arm to render-allagents-4812.js.
+2. web/index.html ~27226: sibling rows go through this board's `sortAgents` (role mode calls `.trim()` on `a.role`), so a
+   malformed sibling answer throws inside oaPaint, now called from boardApplyVisibility. Project rows in `oaAgentsOf`
+   to {sessionName, name, state} coerced to strings (or try/catch the oaPaint calls).
+3. web/index.html ~27240: oaPaint rebuilds all groups twice per round, losing keyboard/screen-reader focus. Skip the
+   repaint when a computer's state is unchanged (or keep focus).
+4. web/index.html ~27173: "last seen N ago" uses the coordinator's last_seen (refreshed only daily/on reconnect).
+   Prefer the browser's own last good read (OA_SEEN), else word it without precision.
+5. web.allagents-4812.test.js: assert the fetch's exact options (GET, credentials include, NO headers, NO body). The
+   browser check's no-preflight guard cannot fail in Chromium (Playwright answers intercepted preflights itself); prove
+   any browser arm red by adding a header once, or drop the claim.
+6. render-allagents-4812.js:13: the comment claims routed answers prove the credentialed CORS shape; Playwright's
+   route.fulfill injects the CORS pair. Fix the comment (only the relay's own tests cover the shape).
+NITs: /api/remote/computers polled every 60 s even when "This computer only" or no siblings; "Open" link shown for an
+offline computer while its first read is pending (updating ignored); a catch comment overstates freshness.
