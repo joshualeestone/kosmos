@@ -104,3 +104,12 @@ route's own worst case. Nits taken: OA_AGAIN only from the "This computer only" 
 needs the computers list; S4 checks its own wait; the key comment states the same-name tie. fake-dom gains
 replaceWith. Unit 17/17; 6 more sabotages RED-OK (no in-place note, always rebuild, no focus restore, no read on
 return, return needs computers, replace every group).
+
+### Review 4 taken (opus, blind, 2026-10-01 21:28): 0 blockers, 2 warnings, 4 nits
+W1 the sibling reads run beside the computers refresh from the list already known (never behind it), so a 24 s
+route cannot age a list past OA_STALE_MS or stall every computer; a unit test ties OA_STALE_MS above a round plus
+a read cut. W2 focus falls back card, then Open, then the group (tabIndex -1), and the full rebuild (a computer
+added, removed or renamed) restores focus by address. Nits taken: fake-dom drops focus from removed nodes, refuses
+focus on what a browser would, guards replaceWith; tests for the busy gate, the Open fallback, the rebuild path;
+read-on-return waits for oaStart (OA_TIMER) and https; reads re-check oaGridShown, so a round that began on screen
+reads nothing once the grid has gone. Unit 22/22 (+3 sibling fake-dom suites green); 5 more sabotages RED-OK.

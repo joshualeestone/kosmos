@@ -27776,7 +27776,9 @@ const OA_COMPUTERS_EVERY_MS = 60000;   // the computers route probes each comput
 const OA_STATUS_EVERY_MS = 15000;
 const OA_READ_LIMIT_MS = 10000;
 const OA_COMPUTERS_LIMIT_MS = 30000;   // above the route's own worst case (a 20 s Mac request plus a 4 s probe)
-const OA_STALE_MS = 30000;              // an agents list older than two rounds is not shown as current
+/* Older than a round plus a read's cut plus slack: a list this old was not refreshed by the last round, so it is not
+   shown as current. Sibling reads never wait on the computers route (oaRound), so a slow route cannot age a list. */
+const OA_STALE_MS = 30000;
 let OA_COMPUTERS = null;               // the last good /api/remote/computers answer
 let OA_COMPUTERS_AT = 0;
 const OA_SEEN = new Map();             // address -> { state: 'ok'|'notin'|'blocked'|'out', agents, at }
@@ -27896,6 +27898,8 @@ function oaCard(a, c, off) {
 function oaGroup(c, seen, now) {
   const g = document.createElement('section');
   g.className = 'oa-group';
+  g.dataset.address = c.address;
+  g.tabIndex = -1;   // the last place focus can go back to when nothing inside the new group can take it
   const head = document.createElement('div');
   head.className = 'oa-head';
   const badge = document.createElement('span');
@@ -27942,7 +27946,7 @@ function oaPaint() {
   const others = OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
   const shown = oaGridShown(grid);
   /* Back on screen after reads were paused: read now rather than at the next tick (stale lists show greyed meanwhile). */
-  if (shown && !OA_WAS_SHOWN && !OA_BUSY && typeof setTimeout === 'function') setTimeout(oaRound, 0);
+  if (shown && !OA_WAS_SHOWN && !OA_BUSY && OA_TIMER && location.protocol === 'https:' && typeof setTimeout === 'function') setTimeout(oaRound, 0);   // only once oaStart ran (it waits out first run)
   OA_WAS_SHOWN = shown;
   wrap.hidden = !shown || others.length === 0;
   if (wrap.hidden) return;
@@ -27960,8 +27964,11 @@ function oaPaint() {
   const keys = others.map((c) => oaGroupKey(c, OA_SEEN.get(c.address), now, sort));
   const same = keys.length === OA_PAINTED.length && groups.children.length === keys.length;
   if (!same) {
+    /* A computer added, removed or renamed: every group is rebuilt, and focus goes back by computer address. */
+    const was = Array.from(groups.children).map((g) => [g.dataset ? g.dataset.address : undefined, oaFocusSaved(g)]).find((x) => x[1]);
     groups.textContent = '';
     for (const c of others) groups.appendChild(oaGroup(c, OA_SEEN.get(c.address), now));
+    if (was) oaFocusBack(Array.from(groups.children).find((g) => g.dataset.address === was[0]), was[1]);
   } else {
     others.forEach((c, i) => {
       const old = groups.children[i];
@@ -27977,15 +27984,25 @@ function oaPaint() {
 /* Swap one group, and if focus was inside it, give it back to the same agent's card (or the Open link) in the new one,
    so a state change on one agent does not drop a keyboard or screen-reader user to the top of the page. */
 function oaReplaceGroup(old, next) {
-  const f = document.activeElement;
-  const inside = !!f && typeof f.closest === 'function' && f.closest('.oa-group') === old;
-  const session = inside && f.dataset ? f.dataset.session : undefined;
-  const wasOpen = inside && String(f.className).split(/\s+/).includes('oa-open');
+  const saved = oaFocusSaved(old);
   old.replaceWith(next);
-  if (!inside) return;
-  const to = session !== undefined ? Array.from(next.querySelectorAll('.oa-card')).find((x) => x.dataset.session === session)
-    : (wasOpen ? next.querySelector('.oa-open') : null);
-  if (to && typeof to.focus === 'function') to.focus();
+  oaFocusBack(next, saved);
+}
+/* Where focus is inside a group, if it is: the agent's session, or the Open link, or the group itself. */
+function oaFocusSaved(group) {
+  const f = document.activeElement;
+  if (!f || typeof f.closest !== 'function' || f.closest('.oa-group') !== group) return null;
+  return { session: f.dataset ? f.dataset.session : undefined, open: String(f.className).split(/\s+/).includes('oa-open') };
+}
+/* Back to the same agent's card if it can take focus, else the new group's Open link, else the group itself (a stale
+   or offline list has cards that are not links, and an offline computer has no Open link). */
+function oaFocusBack(next, saved) {
+  if (!saved || !next) return;
+  const can = (x) => !!x && x.tagName === 'A';
+  const card = saved.session !== undefined ? Array.from(next.querySelectorAll('.oa-card')).find((x) => x.dataset.session === saved.session) : null;
+  const open = next.querySelector('.oa-open');
+  const to = can(card) ? card : (can(open) ? open : next);
+  if (typeof to.focus === 'function') to.focus();
 }
 /* What one group paints from, minus the note's time words: the computer, its state, whether the list is stale, the
    agents (in a fixed order: the page shows its own sort, so a reorder by the other computer alone changes nothing on
@@ -28005,9 +28022,9 @@ async function oaRound(again) {
   if (!oaGridShown(grid)) { oaPaint(); return; }
   OA_BUSY = true;
   try {
-    oaPaint();   // a list that went stale meanwhile shows greyed while the computers route answers
+    oaPaint();   // a list that went stale meanwhile shows greyed while the reads run
     const now = Date.now();
-    if (!OA_COMPUTERS || now - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS) {
+    const refresh = (!OA_COMPUTERS || now - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS) ? (async () => {
       OA_COMPUTERS_AT = now;
       try {
         const ac = typeof AbortController === 'function' ? new AbortController() : null;
@@ -28020,11 +28037,17 @@ async function oaRound(again) {
         if (data && data.ok === true) OA_COMPUTERS = data;
         else if (data && data.signedIn === false) OA_COMPUTERS = null;   // no Kosmos+ here: nothing to show
       } catch { /* keep the last good list */ }
-    }
-    if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly()) {
+    })() : null;
+    /* The reads use the computers already known and run beside the refresh, never behind it: the route can take 24 s,
+       and waiting on it would age every list past OA_STALE_MS and stall every computer behind one slow call. Checked
+       again here, so a round that began on screen reads nothing once the grid has gone. */
+    const readAll = async () => {
+      if (!OA_COMPUTERS || !oaEligible(OA_COMPUTERS, location) || oaThisOnly() || !oaGridShown(grid)) return;
       oaPaint();   // groups appear at once, "Reading its agents..." until each answers
       await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).catch(() => null)));
-    }
+    };
+    if (OA_COMPUTERS) await Promise.all([refresh, readAll()]);
+    else { await refresh; await readAll(); }   // the first round: nothing to read until the list is known
     oaPaint();
   } finally {
     OA_BUSY = false;
