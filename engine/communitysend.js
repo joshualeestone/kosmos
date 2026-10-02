@@ -794,8 +794,11 @@ function serviceRefusedIndustry(r) {
 
 /**
  * #4922: send this install's group id to each agent registered before it existed, once, by PATCH /agents/me
- * { install_group }. Only while Community is on (it is about taking part). A refused key and a REMOVED agent are
- * skipped (the removed list read fail-closed). What the service answers, and what the pass then does:
+ * { install_group }, while Community is on and the id file is usable. A REMOVED agent (the removed list read
+ * fail-closed) is never sent it; one that was grouped (or whose id PATCH may have landed, written ahead as
+ * installGroupUnsure) is sent the clear { install_group: null }, whatever the switch says. A refused key is skipped
+ * (said once for a removed, grouped agent, which cannot be cleared from here). What the service answers, and what
+ * the pass then does:
  *   204                                   sent; recorded on the agent's key
  *   400 unknown_fields naming it, 404/405 a service that does not take it: left alone for an hour (as registration)
  *   429                                   the pass pauses, capped like #4940's register wait
@@ -826,8 +829,7 @@ async function sweepInstallGroup(keys, on) {
   /* Review 10: a removed agent's CLEAR goes out whatever the switch says, as the industry clear does: taking someone
      off a public listing must not wait for Community to be on. Sending the id needs it on (that is taking part), and
      with it off no id is made. */
-  const group = on ? installGroup() : null;
-  if (on && !group) return;
+  const group = on ? installGroup() : null;   // null: nothing is SENT this pass; clears still go (review 11)
   const ep = endpointDir();
   if ((installGroupPassAt.get(ep) || 0) > Date.now() || (installGroupUnknownUntil.get(ep) || 0) > Date.now()) return;
   /* #4922 review 7: an agent the person REMOVED keeps its community key (remove is not delete), and grouping it would
@@ -848,14 +850,26 @@ async function sweepInstallGroup(keys, on) {
     const stopHere = () => installGroupFrom.set(ep, (start + idx + 1) % order.length);
     if (Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
-    if (!k || !k.apiKey || k.refused) continue;
+    if (!k || !k.apiKey) continue;
     const removedNow = removedSet.has(clean(agentKey));
-    if (!removedNow && (!on || !switchOn())) continue;   // only clears while Community is off
+    if (k.refused) {
+      // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
+      if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
+        k.installGroupClearUnreachable = true;
+        saveJson(keysFile(), keys);
+        log(`install group: ${agentKey} was removed but its community key is refused, so its group cannot be cleared from here`);
+      }
+      continue;
+    }
+    if (!removedNow && (!on || !switchOn() || !group)) continue;   // only clears while off, or with no usable id
     // Review 9: a removed agent is never linked to the person's other agents. One that was sent the id before it was
     // removed is sent the clear (the service: "send null to clear one"), or its group would keep listing it.
-    if (removedNow && !k.installGroupSent) continue;
+    // installGroupUnsure: an id PATCH whose answer was lost may have landed (review 11), so it counts as grouped.
+    const maybeGrouped = Boolean(k.installGroupSent || k.installGroupUnsure);
+    if (removedNow && !maybeGrouped) continue;
     if (!removedNow && k.installGroupSent === group) continue;
     const want = removedNow ? null : group;
+    if (want !== null && k.installGroupUnsure !== want) { k.installGroupUnsure = want; saveJson(keysFile(), keys); }   // written ahead
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: want });
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
     if (namesInstallGroup(r)) {   // #4922: the service does not know the field: pause, as register does
@@ -887,6 +901,7 @@ async function sweepInstallGroup(keys, on) {
     }
     if (r.status === 204 || r.status === 200) {
       if (want === null) delete k.installGroupSent; else k.installGroupSent = group;   // a restored agent is sent it again
+      delete k.installGroupUnsure;
       delete k.installGroupRetrying;
       saveJson(keysFile(), keys);
     } else {
@@ -897,7 +912,7 @@ async function sweepInstallGroup(keys, on) {
       if (k.installGroupRetrying !== group) {
         k.installGroupRetrying = group;
         saveJson(keysFile(), keys);
-        log(`install group for ${agentKey}: got ${r.status}; trying again in ${INSTALL_GROUP_RETRY_MS >= 60000 ? Math.round(INSTALL_GROUP_RETRY_MS / 60000) + ' min' : Math.round(INSTALL_GROUP_RETRY_MS / 1000) + ' s'}, until it lands`);
+        log(`install group ${want === null ? 'clear' : 'id'} for ${agentKey}: got ${r.status}; trying again in ${INSTALL_GROUP_RETRY_MS >= 60000 ? Math.round(INSTALL_GROUP_RETRY_MS / 60000) + ' min' : Math.round(INSTALL_GROUP_RETRY_MS / 1000) + ' s'}, until it lands`);
       }
       break;
     }

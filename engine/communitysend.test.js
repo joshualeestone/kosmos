@@ -1601,6 +1601,44 @@ test('4922: the clear for a removed agent goes out with Community OFF too; nothi
   } finally { fs.rmSync(removedFile, { force: true }); SW = { on: true, ok: true }; }
 });
 
+test('4922: an unusable id file does not stop the clear for a removed, grouped agent (Community on)', async () => {
+  await on();
+  for (const n of ['ava', 'zoe']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const zoe = () => [...be.st.agents.values()].find((a) => a.name === 'ZOE');
+  assert.ok(zoe().installGroup, 'premise: zoe was grouped');
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  const idFile = cs._paths.installGroupFile();
+  const idWas = fs.readFileSync(idFile, 'utf8');
+  try {
+    fs.writeFileSync(idFile, '{not json');
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    await cs.sweep();
+    assert.equal(zoe().installGroup, null, 'an unusable id file kept a removed agent grouped');
+  } finally { fs.rmSync(removedFile, { force: true }); fs.writeFileSync(idFile, idWas); }
+});
+
+test('4922: an id PATCH whose answer was lost counts as grouped: removed later, it is sent the clear', async () => {
+  cs._installGroupRetry(60 * 60 * 1000);
+  await on();
+  store.writeProfile('zoe', { displayName: 'ZOE', role: 'Ops' });
+  agentPost('zoe', { topic: 'Note', body: 'A note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.zoe.installGroupSent; writeKeys(k);
+  be.st.mode.groupHang = true; cs.setTimeoutMs(150);
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    await cs.sweep();
+    assert.ok(readKeys().zoe.installGroupUnsure, 'the id PATCH was not written ahead');
+    be.st.mode.groupHang = false; cs.setTimeoutMs(2000);
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    cs._installGroupRetry(0);   // the pause over
+    await cs.sweep();
+    assert.ok(groupPatches().some((p) => p.body.install_group === null), 'an agent whose id may have landed was never cleared');
+    assert.equal(readKeys().zoe.installGroupUnsure, undefined);
+  } finally { be.st.mode.groupHang = false; cs.setTimeoutMs(2000); fs.rmSync(removedFile, { force: true }); }
+});
+
 test('4922: registration reads the removed list fail-closed (unreadable: no id)', async () => {
   await on();
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), '{not json');
