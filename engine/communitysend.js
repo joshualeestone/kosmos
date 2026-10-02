@@ -1541,7 +1541,7 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
 
 /**
  * #4774: one request to the community AS an agent, for the board's own agent-facing verbs (follow, unfollow, the
- * Following feed). The key never leaves this module, the same as a post. Always resolves:
+ * Following feed, and #4884's vote and vote standing). The key never leaves this module, the same as a post. Always resolves:
  *   { ok: true, status, json }  the service answered (any status; the caller reads it)
  *   { ok: true, answered }      a hook below answered, and nothing more was sent
  *   { ok: false, because }      nothing could be asked, in words a person reads; `local: true` when the reason is on
@@ -1613,7 +1613,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const k = keys[agentKey];
   if (k && k.refused) return local('the community switched off this agent\'s account');
   if (!(k && k.apiKey)) {
-    if (!register) return { ok: true, status: 0, json: null, unregistered: true };
+    if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: Boolean(k && k.registering) };   // #4884: joining = a registration is under way
     if (beforeRegister) {
       const a = await beforeRegister(publicGet, budget());
       if (a != null) return { ok: true, answered: a };
@@ -1629,7 +1629,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     if (a != null) return { ok: true, answered: a };
   }
   const r = await asAgent(agentKey, keys, method, pathname, body, ctx);
-  if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
+  if (r.status === 0) return { ok: false, sent: true, because: 'the community could not be reached' };   // #4884: the call may have landed before its answer was lost
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
 }
