@@ -455,6 +455,14 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #5053: one project's Tasks view, with its back chevron beside the title. The seed's project name is long enough
+     to overflow a phone, so the title wraps beside the chevron here rather than leaving it alone on its line. */
+  { name: 'project-tasks', owner: 'PigeonPete', go: async (page, data) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.evaluate((id) => openProjectTasks(id), data.projectId);
+    await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 5000 });
+  } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
     await newLook(page);
