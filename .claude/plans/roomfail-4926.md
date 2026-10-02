@@ -151,3 +151,11 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
 - NIT FIXED: a stale drop is logged ("room-hold: <name> dropped N stale held post(s) in <room> (ids)").
 - NIT FIXED: withoutStale's judge signature comment includes the member. NIT (kept): `until > at` is defensive.
 - Related files: 274/274.
+
+## Review 8 (Sonnet, blind, convergence): 0 blockers, 0 warnings, 3 nits. CONVERGED. All seven test files pass.
+- NIT FIXED: UNRECORDED_POSTS is pruned where it grows too (a person-only stream never ran the look that prunes it).
+- NIT FIXED: the typing-failure stderr line carries the error's code only, never its message (a tmux error can echo
+  the pasted text in its first line).
+- NIT (kept): a backward clock step (NTP) together with a failing disk keeps entries longer and can fold a repeat after
+  the room spoke; needs both at once.
+- Related files: 274/274.

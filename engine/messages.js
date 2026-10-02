@@ -2095,8 +2095,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
         if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { roomhold.restore(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
       }
     }
-    // Review 1: the error's first line only, cut short (a tmux error can carry its arguments, the pasted text among them).
-    try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + '); recorded as ' + outcomes[name] + '\n'); } catch { /* never breaks the post */ }
+    // Review 8 (Sonnet): the error's CODE only, never its message (a tmux error can echo the pasted text).
+    try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.code) || 'error').slice(0, 40) + '); recorded as ' + outcomes[name] + '\n'); } catch { /* never breaks the post */ }
   };
 
   const finishDeliveries = () => {
@@ -2161,6 +2161,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        post the room never shows, so the person's every repeat vanished until the window passed; a second delivery in
        this rare case (the record could not be written) is the lesser harm. */
     const seq = (unrecordedSeq += 1);
+    for (let i = UNRECORDED_POSTS.length - 1; i >= 0; i -= 1) if (Date.now() - UNRECORDED_POSTS[i].keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_POSTS.splice(i, 1);   // review 8: pruned here too
     UNRECORDED_POSTS.push({ projectId, at: Date.parse(at), seq, keptAt: Date.now() });   // review 7: breaks a twin's quiet, whoever posted it
     if (operator !== true) UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now(), seq });
     return unrecorded;
