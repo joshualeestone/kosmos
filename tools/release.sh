@@ -668,8 +668,12 @@ step "== 1f. the site serves /setup-staging uncached (#5032) =="
 # Cache-Control: no-store) or an edge can hand a staging box the previous installer (the 0.5.13 wedge shape).
 # Those headers live in the SITE's vercel.json, so a staging cut refuses until the site carries them. Here,
 # before the bump, so a refusal leaves nothing pushed.
-if [ "$CUT_CHANNEL" = staging ] && ! grep -q '"source": "/setup-staging"' "$SITE/vercel.json" 2>/dev/null; then
-  echo "the site's vercel.json has no /setup-staging headers (no-store, text/plain): merge the site half of #5032 first"; exit 1
+# Read from the site's origin/main, the tree 7b commits onto and step 8 deploys, never the local checkout (behind
+# would refuse falsely; ahead or dirty would pass falsely).
+if [ "$CUT_CHANNEL" = staging ]; then
+  git -C "$SITE" fetch -q origin || { echo "could not fetch the site's origin to check its vercel.json"; exit 1; }
+  git -C "$SITE" show origin/main:vercel.json 2>/dev/null | grep -q '"source": "/setup-staging"' \
+    || { echo "the site's origin/main vercel.json has no /setup-staging headers (no-store, text/plain): merge the site half of #5032 first"; exit 1; }
 fi
 
 step "== 2. the version, in one place =="

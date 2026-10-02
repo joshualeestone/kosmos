@@ -65,6 +65,11 @@ That no installer change must reach prod boxes before their app update. The esca
 prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
 
 ## Residuals
+- install/kosmos's "Reinstalling fixes this: curl .../setup | sh" hints send a staging box to the prod installer
+  (as before this card; a staging box should use /setup-staging with KOSMOS_UPDATE_CHANNEL=staging).
+- promote writes latest.json before the /setup pair. A filesystem failure between them leaves a half-promote that
+  deploy-site refuses (the prod pointer names an installer /setup is not); the message says to re-run. Either order
+  leaves a refusable half state, so the pointer, which the guard reads, moves first.
 - A staging box whose release base points at a mirror with no /setup-staging now gets a 404 on update where
   it used to fetch /setup (no such mirror exists today).
 - Rollback to a pointer from BEFORE #5032 (no setup_sha256): unchecked, so after the first #5032 promote it

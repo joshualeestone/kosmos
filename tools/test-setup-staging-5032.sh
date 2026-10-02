@@ -49,7 +49,7 @@ printf '%064d  setup\n' 0 > "$F/dist/setup.sha256"
 
 # 1f: a staging cut refuses before the bump unless the site serves /setup-staging uncached.
 a="$(grep -n 'step "== 1f. the site serves /setup-staging uncached' "$REPO/tools/release.sh" | cut -d: -f1)"; b="$(grep -n 'step "== 2. the version, in one place ==' "$REPO/tools/release.sh" | cut -d: -f1)"
-[ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && grep -qF 'grep -q '"'"'"source": "/setup-staging"'"'"' "$SITE/vercel.json"' "$REPO/tools/release.sh" \
+[ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && grep -qF 'git -C "$SITE" show origin/main:vercel.json 2>/dev/null | grep -q '"'"'"source": "/setup-staging"'"'"'' "$REPO/tools/release.sh" \
   && pass "release: a staging cut checks the site's /setup-staging headers before the bump" || bad "release: no pre-bump check of the site's /setup-staging headers ($a vs $b)"
 grep -q '"source": "/setup-staging"' "$REPO/../chaoskosmos-site-setupstaging-5032/vercel.json" 2>/dev/null && pass "site half: vercel.json carries /setup-staging (CONTROL: what 1f looks for exists)" || echo "SKIP  site half not beside this checkout"
 
