@@ -44,7 +44,11 @@ const MAX_TRIES = 3;
 const NUDGED_MAX = 1000;
 const TITLE_CAP = 80;
 
-function plainWords(v, cap) { return require('./agentnudge').plainWords(v, cap); }
+/* agentnudge's helper, plus (review 1) the invisible characters it leaves: line and paragraph separators, bidi controls
+   and zero-width marks, so a title cannot break the typed line or hide its direction. */
+function plainWords(v, cap) {
+  return require('./agentnudge').plainWords(String(v == null ? '' : v).replace(/[\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' '), cap);
+}
 
 /* The line typed into the agent's session. posts: [{ title, ids }] with at least one id in all. */
 function nudgeText(posts) {
@@ -134,14 +138,23 @@ async function sweepOnce(o) {
       const display = plainWords(card.name || session, 80);
       try {
         const fresh = await o.fresh(session);
+        // Review 1: let anything waiting on the read lock (the agent's own read --replies) in between agents.
+        await new Promise((res) => setImmediate(res));
         if (fresh && fresh.busy) { results.push({ session, name: display, act: 'busy', because: fresh.because }); continue; }
+        /* Review 1: the read took seconds, so the card is read AGAIN before anything is typed: an agent that started
+           working (or was stood down) meanwhile is left for the next pass, never typed into mid-turn (#4624). */
+        let roster = o.roster;
+        let projects = o.projects;
+        if (typeof o.rosterNow === 'function') { try { const r = o.rosterNow(); if (Array.isArray(r)) roster = r; else continue; } catch { continue; } }
+        if (typeof o.projectsNow === 'function') { try { const r = o.projectsNow(); if (Array.isArray(r)) projects = r; else continue; } catch { continue; } }
+        const now2 = roster.find((a) => a && a.sessionName === session);
         const nudged = o.readNudged(session);
-        const p = plan(card, fresh, nudged, book.get(session), o.projects);
+        const p = plan(now2, fresh, nudged, book.get(session), projects);
         if (p.act !== 'nudge') continue;
         if (sent.length >= cap) { say({ name: display, session, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         let state = null;
         let held = false;
-        try { const r = o.deliver(session, nudgeText(p.posts), o.roster); state = r && r.state; held = Boolean(r && r.held === true); }
+        try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); }
         catch (err) { state = 'threw: ' + String((err && err.message) || err); }
         if (held) { results.push({ session, name: display, act: 'quota-held', delivered: false, delivery: state, because: p.because }); continue; }
         const D = o.DELIVERY || {};
@@ -188,7 +201,7 @@ async function tick(o) {
     if (!projects) return null;   // cannot tell a stood-down agent: nudge nobody this pass
     let limit = { ...(o.limitDefaults || { on: true, perHour: 20 }) };
     try { const l = o.readLimit(); if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
-    return (await sweepOnce({ ...o, roster, projects, limit })).results;
+    return (await sweepOnce({ ...o, roster, projects, limit, rosterNow: o.roster, projectsNow: o.readProjects })).results;
   } catch { return null; }
 }
 

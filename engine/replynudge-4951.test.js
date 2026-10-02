@@ -161,3 +161,22 @@ test('#4951 server.js runs the pass on its interval, with the agent nudge\'s sha
   }
   assert.match(src, /if \(replyNudgeRunning\) return;/, 'a pass can stack on one still running');
 });
+
+test('#4951 review 1: the card is read again after the replies are read; an agent that started working meanwhile is not typed into', async () => {
+  const { o, typed } = rig();
+  o.rosterNow = () => [card('kim', { state: 'working' })];   // it began a turn while its replies were being read
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 0, 'a nudge was typed into an agent that had started working');
+  o.rosterNow = () => [card('kim')];   // CONTROL: still idle
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 1);
+  const s = rig();
+  s.o.projectsNow = () => [{ id: 'p', agents: ['kim'], tasks: [], paused: true }];   // stood down meanwhile
+  await rn.sweepOnce(s.o);
+  assert.equal(s.typed.length, 0, 'an agent stood down while its replies were read was nudged');
+});
+
+test('#4951 review 1: a title\'s invisible characters (line separators, bidi, zero-width) do not reach the typed line', () => {
+  const t = rn.nudgeText([{ title: 'ok\u2028next\u202eevil\u200bzw', ids: ['x'] }]);
+  assert.ok(!/[\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/.test(t), 'an invisible character reached the line');
+});

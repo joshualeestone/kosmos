@@ -36,4 +36,12 @@ down, hour cap, busy board, every tick gate, the store, server wiring); engine/c
 no mark moved, own read still shows it, switched off reads nothing, the shared lock). Seven mutants, each red.
 
 ## Review ledger
-(rounds below)
+- Round 1 (Sonnet, blind): 0 blockers, 1 should-fix, 4 nits. Fixed: (1) the roster was read once per pass, and each
+  agent's read takes seconds, so an agent that started working mid-pass could be typed into: the card and the projects
+  are read AGAIN after the replies are read, and an agent no longer idle (or now stood down) is left for the next pass
+  (tested, red with the stale card); (2) the pass yields a macrotask between agents, so the agent's own read --replies
+  can take the lock between them; (5) a title's line separators, bidi controls and zero-width marks are stripped
+  (tested, red when narrowed). Decided, not fixed: (3) the first pass tells an agent about up to 7 days of unanswered
+  replies (the read's own first-look window): that is the card's point (replies sitting unanswered), and it is one line
+  per agent, inside the shared hour cap; (4) three tries that reached nothing give up on that batch until a new reply
+  arrives or the board restarts, as the sibling nudges do.
