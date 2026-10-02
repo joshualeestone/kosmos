@@ -445,6 +445,19 @@ test('#4934: a post whose reply is CUT and whose retry the loop guard refuses ne
     assert.doesNotMatch(out.stdout, /Nothing was sent to anyone/);
     assert.match(out.stdout, /Not posted this time: .*Your first try may have reached the room before that: check kosmos room proj before posting it again\./);
   });
+  // --stdin case (#4934 review 2)
+  await withBoard('cutheld', async (port, firstFile) => {
+    const tmp = fs.mkdtempSync(path.join(SCRATCH_HOME, 'tmp-'));
+    const out = await runCli(['post', '--stdin', 'proj'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', TMPDIR: tmp }), 40000, 'piped draft in the folder');
+    assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'CONTROL: the retry was asked');
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.doesNotMatch(out.stdout, /The piped message was not sent;/);
+    assert.doesNotMatch(out.stdout, /Nothing was sent to anyone/);
+    const kept = out.stdout.match(/The piped message may not have been sent; a copy is saved at (\S+)\. Check before sending it again\./);
+    assert.ok(kept, out.stdout);
+    assert.ok(kept[1].startsWith(tmp + path.sep), 'the copy is under the sandboxed TMPDIR: ' + kept[1]);
+    assert.equal(fs.readFileSync(kept[1], 'utf8'), 'piped draft in the folder');
+  });
 });
 
 test('#4580 a post whose reply is CUT is asked once more too; a board that keeps cutting gets ONE retry, not a loop', async () => {
