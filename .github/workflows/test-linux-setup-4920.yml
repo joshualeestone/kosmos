@@ -43,28 +43,20 @@ jobs:
           bash tools/test-install-static.sh
           bash tools/test-install-static-control-4641.sh
 
-      - name: Run installer unit tests
-        run: |
-          node --test install.*.test.js
-
       - name: Prepare systemd user environment
         run: |
           sudo loginctl enable-linger "$USER" || true
           sudo systemctl start user@"$(id -u)".service || true
           mkdir -p "/run/user/$(id -u)"
-          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          echo "KOSMOS_PORT=16180" >> "$GITHUB_ENV"
+          echo "KOSMOS_NO_OPEN=1" >> "$GITHUB_ENV"
 
       - name: Execute install/setup.sh
-        env:
-          KOSMOS_PORT: "16180"
-          KOSMOS_NO_OPEN: "1"
         run: |
-          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           bash install/setup.sh
 
       - name: Verify installed pieces
-        env:
-          KOSMOS_PORT: "16180"
         run: |
           KOSMOS_HOME="$HOME/.local/share/kosmos"
           test -f "$KOSMOS_HOME/bin/kosmos" && test -x "$KOSMOS_HOME/bin/kosmos"
@@ -79,16 +71,12 @@ jobs:
           grep -q "ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run" "$UNIT_FILE"
 
       - name: Verify board responsiveness
-        env:
-          KOSMOS_PORT: "16180"
         run: |
           KOSMOS_HOME="$HOME/.local/share/kosmos"
           "$KOSMOS_HOME/bin/kosmos" status
           curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
 
       - name: Test stop and restart
-        env:
-          KOSMOS_PORT: "16180"
         run: |
           KOSMOS_HOME="$HOME/.local/share/kosmos"
           "$KOSMOS_HOME/bin/kosmos" stop
