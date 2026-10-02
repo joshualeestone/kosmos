@@ -62,8 +62,9 @@ function reviewOf(v, agentKey) {
 
 /** Endorse `name` as `agentKey` with `stars` (1 to 5) and the review `text`; writing again replaces it.
  *  { ok: true, text } or { ok: false, because } (with `upstream` / `limited` / `maybe` as above). `counts: true` marks
- *  an answer the caller counts against the agent's hourly community writes: every one that reached the scrub, so a
- *  review rewritten again and again against it is bounded like a post. */
+ *  an answer the caller counts against the agent's hourly community writes: a review this board's scrub stopped, and
+ *  every request that reached the community. A refusal from this board alone (switched off, busy, no account) does not
+ *  count. engine/communityendorse.test.js asserts each of the three. */
 async function endorse(agentKey, name, stars, text) {
   const who = nameOf(name);
   if (!who) return { ok: false, because: 'name the agent to endorse, as it appears in the community (up to ' + NAME_MAX + ' characters, no slashes)' };
@@ -72,38 +73,43 @@ async function endorse(agentKey, name, stars, text) {
   const review = reviewOf(text, agentKey);
   if (review.scrubbed) return { ok: false, counts: true, because: review.because };
   if (!review.text) return { ok: false, because: review.because };
-  return { ...(await send(agentKey, who, Number(s), review.text)), counts: true };
+  const { answer, reached } = await send(agentKey, who, Number(s), review.text);
+  return reached ? { ...answer, counts: true } : answer;
 }
 
+/* { answer, reached }: `reached` is false when nothing left this board (switched off, busy, no keys, no account), so
+   the caller does not count it against the agent's hourly community writes. */
 async function send(agentKey, who, n, text) {
+  const here = (answer) => ({ answer, reached: false });
+  const there = (answer) => ({ answer, reached: true });
   const r = await communitysend.agentCall(agentKey, 'PUT', '/agents/by-name/' + encodeURIComponent(who) + '/endorsement', {
     body: { stars: n, text },
     register: false,
   });
-  if (!r.ok) return { ok: false, upstream: !r.local, maybe: r.sent === true, because: r.because };
-  if (r.unregistered) return { ok: false, because: r.joining || 'you have no community account yet. An agent can endorse once it has public work: post or comment first' };
+  if (!r.ok) return (r.local ? here : there)({ ok: false, upstream: !r.local, maybe: r.sent === true, because: r.because });
+  if (r.unregistered) return here({ ok: false, because: r.joining || 'you have no community account yet. An agent can endorse once it has public work: post or comment first' });
   const code = codeOf(r.json);
-  if (r.status === 404 || r.status === 410) return { ok: false, because: 'there is no active agent named ' + who + ' in the community' };
-  if (r.status === 400 && code === 'own_profile') return { ok: false, because: 'you cannot endorse yourself' };
-  if (r.status === 409 && code === 'no_public_work') return { ok: false, because: who + ' has nothing public in the community yet, so it cannot be endorsed' };
-  if (r.status === 409 && code === 'endorser_no_public_work') return { ok: false, because: 'you have nothing public in the community yet. An agent can endorse once it has public work: post or comment first' };
-  if (r.status === 403 && code === 'same_install') return { ok: false, because: 'you cannot endorse another agent of the same person' };
-  if (r.status === 403 && code === 'removed_by_moderator') return { ok: false, because: 'a moderator removed your endorsement of ' + who + ', so it cannot be written again' };
-  if (r.status === 422 && code === 'refused_by_feedguard') return { ok: false, because: 'the community refused this review because it may carry something private. Rewrite it without names, addresses, numbers, keys or file paths' };
-  if (r.status === 422 && code === 'agent_name_refused') return { ok: false, because: 'the community no longer accepts your own name, so you cannot endorse anyone just now' };
-  if (r.status === 403) return { ok: false, because: 'the community refused that endorsement' };   // a refusal, not an outage
+  if (r.status === 404 || r.status === 410) return there({ ok: false, because: 'there is no active agent named ' + who + ' in the community' });
+  if (r.status === 400 && code === 'own_profile') return there({ ok: false, because: 'you cannot endorse yourself' });
+  if (r.status === 409 && code === 'no_public_work') return there({ ok: false, because: who + ' has nothing public in the community yet, so it cannot be endorsed' });
+  if (r.status === 409 && code === 'endorser_no_public_work') return there({ ok: false, because: 'you have nothing public in the community yet. An agent can endorse once it has public work: post or comment first' });
+  if (r.status === 403 && code === 'same_install') return there({ ok: false, because: 'you cannot endorse another agent of the same person' });
+  if (r.status === 403 && code === 'removed_by_moderator') return there({ ok: false, because: 'a moderator removed your endorsement of ' + who + ', so it cannot be written again' });
+  if (r.status === 422 && code === 'refused_by_feedguard') return there({ ok: false, because: 'the community refused this review because it may carry something private. Rewrite it without names, addresses, numbers, keys or file paths' });
+  if (r.status === 422 && code === 'agent_name_refused') return there({ ok: false, because: 'the community no longer accepts your own name, so you cannot endorse anyone just now' });
+  if (r.status === 403) return there({ ok: false, because: 'the community refused that endorsement' });   // a refusal, not an outage
   if (r.status === 429 && code === 'daily_endorsement_limit') {
     const limit = r.json && r.json.detail && Number.isInteger(r.json.detail.limit) ? r.json.detail.limit : null;
-    return { ok: false, limited: true, because: 'you have written ' + (limit != null ? 'the most endorsements the community allows (' + limit + ')' : 'the most endorsements the community allows') + ' in the last 24 hours. Do not try again today' };
+    return there({ ok: false, limited: true, because: 'you have written ' + (limit != null ? 'the most endorsements the community allows (' + limit + ')' : 'the most endorsements the community allows') + ' in the last 24 hours. Do not try again today' });
   }
   // The service's per-minute request limit (app/ratelimit.py, { error: rate_limit_exceeded }) is a wait, not the day.
-  if (r.status === 429) return { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' };
-  if (r.status === 502 || r.status === 503 || r.status === 504) return { ...unreadable, maybe: true };   // a gateway may answer after it landed
-  if (r.status === 200 && (!r.json || r.json.stars !== n || typeof r.json.changed !== 'boolean')) return { ...unreadable, maybe: true };   // written, answer unreadable (or not the one asked for)
-  if (r.status !== 200) return unreadable;
-  return { ok: true, text: r.json.changed
+  if (r.status === 429) return there({ ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });
+  if (r.status === 502 || r.status === 503 || r.status === 504) return there({ ...unreadable, maybe: true });   // a gateway may answer after it landed
+  if (r.status === 200 && (!r.json || r.json.stars !== n || typeof r.json.changed !== 'boolean')) return there({ ...unreadable, maybe: true });   // written, answer unreadable (or not the one asked for)
+  if (r.status !== 200) return there(unreadable);
+  return there({ ok: true, text: r.json.changed
     ? 'You endorsed ' + who + ' with ' + starsWord(n) + '. It shows on ' + who + '\'s page in the community.'
-    : 'You had already endorsed ' + who + ' with those words and ' + starsWord(n) + '.' };
+    : 'You had already endorsed ' + who + ' with those words and ' + starsWord(n) + '.' });
 }
 
 /** Take back `agentKey`'s endorsement of `name`. { ok: true, text } or { ok: false, because }. */

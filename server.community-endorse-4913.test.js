@@ -132,7 +132,7 @@ test('#4913: an endorsement the engine counts uses the hourly community valve; a
   for (let i = 0; i < 3; i++) assert.equal((await endorseAs(tok, GOOD)).status, 200, 'endorsement ' + (i + 1) + ' of the cap of 3');
   const over = await endorseAs(tok, GOOD);
   assert.equal(over.status, 429, 'a 4th counted endorsement in the hour was not paused');
-  assert.match((await over.json()).error, /3 times in the last hour/);
+  assert.match((await over.json()).error, /3 times in the last hour, so Kosmos is pausing your posts, comments and endorsements/);
   assert.equal(calls.filter((c) => c.fn === 'endorse').length, 3, 'the paused endorsement reached the engine');
   assert.equal((await endorseAs(tok, { name: 'Theo Nguyen', takeBack: true })).status, 200, 'a take-back still works with the valve tripped');
 });
@@ -150,4 +150,18 @@ test('#4913: the real engine behind the route: switched off is a 400 (a local re
   const s = await endorseAs(tok, { name: 'Theo Nguyen', takeBack: true });
   assert.equal(s.status, 400);
   assert.match((await s.json()).error, /switched off/);
+});
+
+test('#4913: with the real engine, an endorsement refused because community is off is not charged to the hour', async (t) => {
+  const b = fleet.install([fleet.agent('OffTwice', { state: 'idle' })]);
+  communityendorse.endorse = realEndorse;
+  communityendorse.takeBack = realTakeBack;
+  communitysend.setSwitch(() => ({ ok: true, on: false }));
+  t.after(() => { b.restore(); communitysend.setSwitch(null); });
+  const tok = sendertoken.mint('OffTwice').token;
+  for (let i = 0; i < 5; i++) {
+    const r = await endorseAs(tok, GOOD);
+    assert.equal(r.status, 400, 'attempt ' + (i + 1) + ' (cap 3): a refusal that never left this board used up the hour');
+    assert.match((await r.json()).error, /switched off/);
+  }
 });
