@@ -60213,23 +60213,23 @@ function voiceBridge() {
 }
 /* #4409 slice 3 (Josh, 2026-10-01 17:16: "Can we do it in mobile too?"): on a PHONE with no app bridge, the browser's
    own recognizer, behind the same interface as the Mac's (postMessage {op} in, kosmosVoiceEvent out), so tapping and
-   the dialogs work unchanged. On iPhone Safari Apple hears the audio; on Android Chrome, Google. Slice 1 kept browser
+   the dialogs work unchanged (holding does not: on a phone the mic is a tap, see the pointerdown handler). On iPhone Safari Apple hears the audio; on Android Chrome, Google. Slice 1 kept browser
    recognition out on privacy grounds, an agent's call. Sending phone audio to Apple or Google is Splinter's call, in
    the card's comment of 2026-10-01 17:16 (it cites its own grounds there; Josh may override it, and if he says to keep
    phone audio on the phone only this shim goes). Josh's 17:16 question asked for voice on phones, not for this. The
    bar says who hears it, and the Kosmos+ privacy line names the exception. The Mac app keeps its
    on-device bridge, and a computer's browser (a fine pointer) gets no mic. */
-const VOICE_PHONE_STOP_MS = 5000;
-const VOICE_PHONE_CAP_MS = 300000;   // as the Mac app: a mic left on by mistake does not listen forever (its audio leaves the phone)   // as long as the Mac app waits for the last words after a stop
+const VOICE_PHONE_STOP_MS = 5000;   // as long as the Mac app waits for the last words after a stop
+const VOICE_PHONE_CAP_MS = 300000;   // as the Mac app: a mic left on by mistake does not listen forever (its audio leaves the phone)
 let VOICE_PHONE = undefined;   // the shim, built once at load and never rebuilt: an iPad that later gains a trackpad keeps it, and one that starts with a trackpad never gets it, until the page reloads; null where none
 function voicePhoneWho() {
   const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
   /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer; outside
      the EU, where iOS 17.4 allows other engines), and on Android only Chrome itself is Google's. Another Android browser
      (Samsung Internet, Edge, Opera, Firefox, Brave, DuckDuckGo, Vivaldi) may send the audio elsewhere, so it gets no
-     mic rather than a guess. Brave sends Chrome's exact user agent; navigator.brave tells it apart. */
-  // Brave: excluded by name too (the brand check below would also exclude it on Android). On iOS Brave is WebKit and Apple
-  // would be honest, but this fails closed on purpose: no mic beats a name we have not checked.
+     mic rather than a guess. */
+  // Brave sends Chrome's exact user agent; navigator.brave tells it apart (on Android the brand check below would too).
+  // On iOS Brave is WebKit and Apple would be honest, but this fails closed on purpose: no mic beats an unchecked name.
   try { if (navigator.brave) return ''; } catch { /* no navigator */ }
   if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) {
     // WebKit does not expose navigator.userAgentData and Blink does: an iOS browser that has it is another engine (the
@@ -60341,6 +60341,7 @@ function voicePhoneBridge() {
           };
           mine.onend = () => { if (rec === mine) { unwait(); rec = null; emit({ kind: 'stopped' }); } };
           try { mine.start(); } catch { fail(); return; }   // in the tap's click: a phone starts the microphone only from a gesture
+          // Left armed through a stop's wait; it then finds rec !== mine and does nothing.
           capTimer = setTimeout(() => { capTimer = 0; if (rec === mine) voiceStop(VOICE_PHONE); }, VOICE_PHONE_CAP_MS);
         } else if (op === 'stop') {
           const was = rec;

@@ -474,6 +474,17 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     await eu.goto(PAGE);
     const euMic = await eu.evaluate(() => document.documentElement.classList.contains('has-voice'));
     await euCtx.close();
+    // An iPad says Macintosh, with touch: still Safari's engine, still named Apple.
+    const padCtx = await browser.newContext({ viewport: { width: 820, height: 1180 }, isMobile: true, hasTouch: true,
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15' });
+    const pad = await padCtx.newPage();
+    await pad.addInitScript(harness(false), [false]);
+    await pad.addInitScript(SR);
+    await pad.addInitScript(asWebKit);
+    await pad.goto(PAGE);
+    const padMic = await pad.evaluate(() => ({ cls: document.documentElement.classList.contains('has-voice'), label: document.getElementById('d-mic').getAttribute('aria-label') }));
+    await padCtx.close();
+    chk(padMic.cls && /\(Apple hears the audio\)/.test(padMic.label), 'P1c an iPad (which says Macintosh, with touch) draws the mic, named Apple', JSON.stringify(padMic));
     await openDm(phone);
     const p1 = { cls: await phone.evaluate(() => document.documentElement.classList.contains('has-voice')), shown: await shown(phone, '#d-mic'),
       label: await phone.getAttribute('#d-mic', 'aria-label'),

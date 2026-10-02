@@ -38,7 +38,7 @@ finals once by resultIndex and handle the reported shapes, each pinned both ways
 docs/browser-checks/render-voice-4409.js, on an emulated iPhone (touch, coarse pointer, an iPhone user agent, no
 navigator.userAgentData as on WebKit) with a recording stand-in recognizer that behaves as a real one does on abort:
 - Who can get the mic: P1 (phone yes; a computer's browser, a touch-screen Windows computer and another engine on an
-  iPhone no), P1b (Android Chrome by brand yes; Samsung, Brave and a rebranded Chromium no), P18 (the Mac app's bridge
+  iPhone no), P1c (an iPad, which says Macintosh, yes), P1b (Android Chrome by brand yes; Samsung, Brave and a rebranded Chromium no), P18 (the Mac app's bridge
   wins on any screen), P12 (no bar, no audio).
 - Saying who hears it: P1 (every mic's label from load, the Guide's too), P2a (the bar in the tap itself, readable in
   the top half), P5 (another message line untouched), P10 (the bar follows the visible area), P11 (inside a modal
@@ -49,7 +49,8 @@ navigator.userAgentData as on WebKit) with a recording stand-in recognizer that 
   P15 (a cancel then a new start), P17 (stops itself at 300 s, on a fake clock).
 - P4 read aloud on a phone; P14 the DM composer fits at 390 px.
 Every fix was mutated and each mutation reds its check with a non-zero exit (listed per round below).
-web.voice-4409.test.js 21/21: the recognizer is reached only inside the phone shim, after the Mac bridge.
+web.voice-4409.test.js 22/22: the recognizer is reached only inside the phone shim, after the Mac bridge; a second
+press stops through voiceStop and marks the stop.
 
 ## Review rounds
 - Round 1 (opus): FIXED B: after a refusal the retry kept the refusal on screen and never said who hears the audio;
@@ -156,4 +157,10 @@ web.voice-4409.test.js 21/21: the recognizer is reached only inside the phone sh
   started no longer lets the late start undo "Finishing" (P19); P2's label says what it proves (the click handler);
   P14 says it measures the row, not the screen; a behavioural check that the Mac bridge wins (P18); this Tests section
   brought up to date.
+- Round 12 (sonnet; the reviewer says it glanced at this section by mistake, so this round is not counted as blind): FIXED
+  W: voiceStop was missing from the node harness, so the new stop path had no node pin and any second-press test would
+  have thrown; added, with a second-press test (removing the stop mark reds it, and P19). NITs taken: the two constants'
+  comments were crossed (the 5 s one sat on the cap); the header says holding does not work on a phone; one Brave
+  comment, not two; the cap left armed through a stop is commented; the iPad branch is exercised (P1c; removing it
+  reds it).
 

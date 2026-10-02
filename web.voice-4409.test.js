@@ -148,7 +148,7 @@ function voiceHarness() {
   const make = new Function('window', 'document', 'posted', 'setInterval', 'clearInterval',
     'let CURRENT = null; let PJ_CURRENT = null; const VOICE_SAYS = {}; const VOICE_SAYS_PHONE = {};\n'
     + ['const VOICE = {', 'const SPEAK = {', 'let VOICE_WATCH =', 'const VOICE_LISTENING =', 'let VOICE_PHONE ='].map(pageLine).join('\n') + '\n'   // the page's own state, not a copy
-    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voicePhoneWho', 'voicePhoneBridge', 'voiceListeningLine', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceWho', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
+    + ['viewKey', 'shownNow', 'voiceWhere', 'voiceBridge', 'voicePhoneWho', 'voicePhoneBridge', 'voiceListeningLine', 'voiceSplice', 'voicePaint', 'voiceSay', 'voiceMsgEl', 'voiceMsgEmpty', 'voiceUnsayOwn', 'voiceUnsay', 'voiceWho', 'voiceStop', 'voiceToggle', 'voiceCancel', 'voiceOnEvent', 'voiceSpeakWatch', 'speakStop', 'speakPaint', 'speakSameText', 'speakFollow', 'speechTidy', 'speechTextOfRow'].map(fn).join('\n')
     + '\nreturn { VOICE, SPEAK, voiceWhere, voiceToggle, voiceOnEvent, speakFollow, viewKey, watching() { return VOICE_WATCH; }, set(card, room) { CURRENT = card || null; PJ_CURRENT = room; } };');
   const win = { webkit: { messageHandlers: { kosmosVoice: { postMessage(m) { posted.push(m); } } } }, speechSynthesis: { cancel() {} } };
   const doc = { hidden: false, boxes: {}, getElementById(id) { return this.boxes[id] || null; }, querySelectorAll: () => [] };
@@ -382,5 +382,19 @@ test('#4409 CI: speakCan, which runs at boot, never reads window.speechSynthesis
 test('#4409 slice 2: the New task mic line is cleared each time the dialog opens, like every other dialog mic line', () => {
   const open = fn('openNewTask');
   assert.match(open, /getElementById\('nt-voice-msg'\)\.textContent = '';/, 'a mic refusal would be shown again when New task reopens');
+});
+
+test('#4409 slice 3: a second press on the listening mic stops it through voiceStop, keeping the session for its last words', () => {
+  const { h, posted, mkBtn, mkBox, doc } = voiceHarness();
+  const box = mkBox('d-say');
+  doc.boxes['d-say'] = box;
+  const btn = mkBtn();
+  btn.attrs['data-voice-for'] = 'd-say';
+  h.voiceToggle(btn);
+  assert.equal(posted.at(-1).op, 'start', 'control: the first press starts');
+  h.voiceToggle(btn);
+  assert.deepEqual(posted.at(-1), { op: 'stop' }, 'the second press did not stop');
+  assert.equal(h.VOICE.stopping, true, 'the stop was not marked, so a late start could undo Finishing');
+  assert.equal(h.VOICE.btn, btn, 'a stop ends the session only when the last words are back (stopped)');
 });
 
