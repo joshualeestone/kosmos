@@ -57,7 +57,20 @@ from SENDING board.token; this stops it READING board.token.
    on darwin and absent elsewhere, merge preserves a person's own rules, idempotent on re-run,
    returns {ok:false,because} on a bad folder.
 
-## Out of scope (stated)
-- The root-owned managed-settings install (needs-operator, parked on the card).
+## Token-root coverage (corrected after iteration 2)
+An earlier draft said "the same store root logic the guide uses", which over-claimed. The guard denies
+board.token (and its temp copy) in the current store, each pre-#2439 legacy root, AND the default
+world's base when the agent is in a named world, all as concrete paths, derived defensively (a worlds
+resolution throw degrades to current-store coverage rather than failing agent creation). The settings
+self-plant denies cover the agent's own folder, ~/.claude, and the ~/.claude-* account variants
+(CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f) via an Edit glob. The sandbox filesystem block denies the
+agent's own .claude DIR but only the specific settings FILES under ~/.claude (not the whole dir, which
+holds Claude Code's own runtime state), and realOr's its paths so a symlinked root still matches.
+
+## Out of scope / residuals (stated)
+- The root-owned managed-settings install (needs-operator, parked on the card) - the durable close.
 - A content-based credentials deny for the hardlink vector (unverified setting; not inventing it).
+- The guide's version-dependent mid-path glob for EVERY named world's store (cross-world board.token).
+  Not mirrored: it is Claude-Code-version-dependent and the exotic case; a token-only agent lives in one
+  world. On this default-world fleet the extra roots are usually empty anyway.
 - Turning the switch on for any NEW agent beyond echo (echo is the one pilot, slice 9's decision).

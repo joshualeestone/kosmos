@@ -432,15 +432,38 @@ function guardGuideFolder(dir, agentName, deps = {}) {
 }
 
 /*
+ * #4491: every board.token root a token-only agent could read -- this store, plus the pre-#2439 legacy
+ * roots and the default world's base, each of which carries its own board.token that is a valid token
+ * for that board. Derived the way the guide does, but DEFENSIVELY: worlds resolution can throw, and a
+ * throw here must degrade to current-store coverage, never fail the guard (which would fail agent
+ * creation). The guide lets these throw because it denies the whole root; here the token is the point,
+ * and partial coverage beats no agent. Concrete paths only -- the guide's version-dependent mid-path
+ * glob for every named world's store (cross-world tokens) is NOT mirrored; that residual is in the plan.
+ */
+function tokenOnlyTokenRoots(dataRoot, home, deps = {}) {
+  const roots = [dataRoot];
+  const add = (r) => { if (r && typeof r === 'string' && !roots.includes(r)) roots.push(r); };
+  try { const lr = deps.legacyRoots !== undefined ? deps.legacyRoots : guideLegacyRoots(home); if (Array.isArray(lr)) lr.forEach(add); } catch { /* current store only */ }
+  try {
+    const base = deps.worldsBase !== undefined ? deps.worldsBase : guideWorldsBase();
+    if (base && base !== dataRoot) add(base);   // the default world's base, when this agent is in a named world
+  } catch { /* current store only */ }
+  return roots;
+}
+
+/*
  * #4491: the deny rules and sandbox filesystem paths for a TOKEN-ONLY agent (one listed in
  * sendertoken.tokenOnlyFile). Unlike the guide, a token-only agent is a normal working agent, so its
  * own data folder is NOT denied -- only:
- *  - board.token (Read), and its temporary copy while it is rewritten, so the shell cannot read the
- *    board token slice 9 (#4864) already stops it SENDING; this stops it READING;
- *  - its own settings.json / settings.local.json (Edit), so it cannot edit the guard away;
- *  - the shared ~/.claude settings.json / settings.local.json (Edit), so it cannot plant a sandbox-off
- *    in the user settings the adversarial pass found (user settings can relax the sandbox; the agent
- *    folder's cannot).
+ *  - board.token (Read), and its temp copy, in EVERY root above, so the shell cannot read the board
+ *    token slice 9 (#4864) already stops it SENDING; this stops it READING;
+ *  - the settings.json / settings.local.json it could plant to turn its own guard off (Edit): in its
+ *    own folder, and in the per-account config homes the adversarial pass found -- ~/.claude AND the
+ *    ~/.claude-* variants (CLAUDE_CONFIG_DIR, e.g. ~/.claude-account-f), which user settings can relax
+ *    the sandbox from where the agent-folder's cannot. The .claude-* forms are a glob, which the
+ *    permission layer honours (the guide globs the same account dirs for Read); the sandbox filesystem
+ *    block below gets concrete home-settings paths plus the agent dir, and relies on the permission
+ *    layer plus Seatbelt's translation of permission Read/Edit denies for the glob case.
  * dataRoot/home are overridable for tests (guideDenyRulesFor does the same); production passes neither.
  */
 function tokenOnlySettingsRules(dir, deps = {}) {
@@ -449,17 +472,21 @@ function tokenOnlySettingsRules(dir, deps = {}) {
   const tokenFile = require('./boardauth').TOKEN_FILE;
   const settingsDir = path.join(dir, '.claude');
   const userClaude = path.join(home, '.claude');
-  const tokenPath = path.join(dataRoot, tokenFile);
-  const tokenTmp = path.join(dataRoot, '.' + tokenFile);   // the temporary copy while the token is rewritten
+  const tokenRoots = tokenOnlyTokenRoots(dataRoot, home, deps);
+  const tokenPaths = tokenRoots.map((r) => path.join(r, tokenFile));
+  const tokenTmps = tokenRoots.map((r) => path.join(r, '.' + tokenFile));
+  // Concrete config homes get a denyWrite on their settings FILES (not the whole dir: ~/.claude holds
+  // Claude Code's own runtime state, so a dir-level denyWrite there would break normal operation).
+  const settingsFileDirs = [settingsDir, userClaude];
+  // Permission-layer Edit denies also cover the ~/.claude-* account variants via a glob.
+  const editDirs = [settingsDir, userClaude, path.join(home, '.claude-*')];
   const deny = [
-    `Read(${ruleAbs(tokenPath)})`,
-    `Read(${ruleAbs(tokenTmp)}.*)`,
-    `Edit(${ruleAbs(path.join(settingsDir, 'settings.json'))})`,
-    `Edit(${ruleAbs(path.join(settingsDir, 'settings.local.json'))})`,
-    `Edit(${ruleAbs(path.join(userClaude, 'settings.json'))})`,
-    `Edit(${ruleAbs(path.join(userClaude, 'settings.local.json'))})`,
+    ...tokenPaths.map((p) => `Read(${ruleAbs(p)})`),
+    ...tokenTmps.map((p) => `Read(${ruleAbs(p)}.*)`),
+    ...editDirs.flatMap((d) => [`Edit(${ruleAbs(path.join(d, 'settings.json'))})`, `Edit(${ruleAbs(path.join(d, 'settings.local.json'))})`]),
   ];
-  return { deny, settingsDir, userClaude, tokenPath, tokenTmp };
+  const settingsFiles = settingsFileDirs.flatMap((d) => [path.join(d, 'settings.json'), path.join(d, 'settings.local.json')]);
+  return { deny, settingsDir, userClaude, tokenPaths, tokenTmps, settingsFiles };
 }
 
 /*
@@ -468,9 +495,15 @@ function tokenOnlySettingsRules(dir, deps = {}) {
  * loopback board, the network) still works. Mirrors guardGuideFolder's read-merge-write (preserve a
  * person's own rules, idempotent, never throw, tmp+rename). On macOS (where Claude Code's sandbox is
  * Seatbelt and this was measured) the sandbox block applies the same deny paths to every subprocess;
- * the filesystem.denyWrite on the .claude dirs is what stops a shell `printf > settings.json` that the
- * permission Edit-deny alone does not (measured, this branch's spike arm 3). allowUnsandboxedCommands
- * false stops a refused command being re-run with dangerouslyDisableSandbox (every Kosmos agent runs
+ * the filesystem.denyWrite is what stops a shell `printf > settings.json` that the permission Edit-deny
+ * alone does not (measured, this branch's spike arm 3). It denies the AGENT's own .claude DIR (safe:
+ * Claude Code writes no runtime state there) but only the specific settings FILES under the config home
+ * ~/.claude (NOT the whole dir: that holds Claude Code's own session/config state, so a dir-level
+ * denyWrite there would break normal operation). The board.token temp copy and the ~/.claude-* account
+ * variants are covered by the permission-layer Read/Edit denies above, which Seatbelt translates to
+ * subprocesses (measured for the guide: its permission Read-glob blocked a subprocess read with EPERM);
+ * the sandbox filesystem list carries the concrete paths only. allowUnsandboxedCommands false stops a
+ * refused command being re-run with dangerouslyDisableSandbox (every Kosmos agent runs
  * --dangerously-skip-permissions); allowLocalBinding true keeps the loopback board reachable.
  *
  * DEFENSE-IN-DEPTH, honestly: a fully durable lock needs this block in root-owned MANAGED settings (an
@@ -501,13 +534,17 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
       const fsb = sb.filesystem && typeof sb.filesystem === 'object' && !Array.isArray(sb.filesystem) ? sb.filesystem : {};
       const dr = Array.isArray(fsb.denyRead) ? fsb.denyRead.filter((x) => typeof x === 'string') : [];
       const dw = Array.isArray(fsb.denyWrite) ? fsb.denyWrite.filter((x) => typeof x === 'string') : [];
+      // realOr the paths: Seatbelt matches resolved paths, so a symlinked data dir or /var -> /private/var
+      // would otherwise slip a denyRead/denyWrite (the guide realOr's its own folder for the same reason).
+      const denyReadPaths = rules.tokenPaths.map(realOr);
+      const denyWritePaths = [realOr(rules.settingsDir), ...rules.settingsFiles.map(realOr)];
       next.sandbox = {
         ...sb, enabled: true, autoAllowBashIfSandboxed: true, allowUnsandboxedCommands: false,
         network: { ...net, allowLocalBinding: true },
         filesystem: {
           ...fsb,
-          denyRead: [...new Set([...dr, rules.tokenPath])],
-          denyWrite: [...new Set([...dw, rules.settingsDir, rules.userClaude])],
+          denyRead: [...new Set([...dr, ...denyReadPaths])],
+          denyWrite: [...new Set([...dw, ...denyWritePaths])],
         },
       };
     }
@@ -531,9 +568,9 @@ function managedSettingsPresent(platform = process.platform) {
 }
 
 /* #4491: at board start, guard every agent currently listed in agent-token-only.json, so a pilot listed
-   before this shipped (echo) is guarded from its next session without a re-create. Warns once when the
-   root-owned managed belt is absent (the durable close is the parked admin step). workerDir is
-   overridable for tests. { guarded: [names], managed: boolean }. Never throws. */
+   before this shipped (echo) is guarded from its next session without a re-create. Warns (once per board
+   start, no cross-start dedup) when the root-owned managed belt is absent (the durable close is the
+   parked admin step). workerDir is overridable for tests. { guarded: [names], managed: boolean }. Never throws. */
 function refreshTokenOnlyGuards(deps = {}) {
   const platform = deps.platform || process.platform;
   const out = { guarded: [], managed: managedSettingsPresent(platform) };
