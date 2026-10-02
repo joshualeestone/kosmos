@@ -357,6 +357,7 @@ _menu_table_expected='menu:Kosmos
   sep
   item:Settings…	shortcut:cmd+,	action:openSettings:	target:set
   item:Run agents on this computer	shortcut:-	action:runAgentsHere:	target:set
+  item:Update Kosmos	shortcut:-	action:updateKosmosNow:	target:set
   sep
   item:Services	shortcut:-	action:submenuAction:	target:set
   sep
@@ -628,6 +629,29 @@ case "$_mode_out" in
   *) echo "the #4356 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
 esac
 echo "==> native app: it reads this computer's mode, and a connect computer keeps to Kosmos Plus (#4356)"
+
+# ---- a connect computer's update look (kosmos#4382) ---------------------------
+# A connect computer runs no board, so the app runs `kosmos update --if-newer` and reads its last
+# line. The reading is pure, with its own rows: an answer it cannot read is unknown, never current.
+_upd_rc=0
+_upd_out="$(perl -e 'alarm 20; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-update-selftest 2>&1)" || _upd_rc=$?
+if [ "$_upd_rc" -ne 0 ]; then
+  case "$_upd_out" in
+    *"update-check: only "*)
+      printf '%s\n' "the #4382 selftest is no longer testing anything, so it cannot vouch for the update look:" "$_upd_out" >&2 ;;
+    *"update-check:"*)
+      printf '%s\n' "the native app reads the CLI's update answer wrong (#4382). Its own rows:" "$_upd_out" >&2 ;;
+    *)
+      printf '%s\n' "the #4382 gate did not finish (exit $_upd_rc): a timeout, a missing binary, or something that is not the update look. It could not judge it either way." "$_upd_out" >&2 ;;
+  esac
+  exit 1
+fi
+printf '%s\n' "$_upd_out" | sed 's/^/    /'
+case "$_upd_out" in
+  *"update-check: all good"*) ;;
+  *) echo "the #4382 gate exited 0 without reporting a verdict. Treat that as the gate being broken, not as a pass." >&2; exit 1 ;;
+esac
+echo "==> native app: a connect computer reads its update look right (#4382)"
 
 # ---- dictation's decisions (kosmos#4409) --------------------------------------
 # Which language the mic listens in (on-device only: no model means a refusal, never a network
