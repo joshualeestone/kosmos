@@ -297,7 +297,9 @@ const CREATE_LOOK = `(() => {
       restHovered: cards[1].matches(':hover'), continueRadius: getComputedStyle(go).borderTopLeftRadius,
       /* Round 1: the kind picker's cards, and Team's and Create's main buttons (Team matches Single, #4935). */
       kindEdge: kind ? getComputedStyle(kind).borderTopColor : 'absent', teamRadius: team ? getComputedStyle(team).borderTopLeftRadius : 'absent',
-      createRadius: create ? getComputedStyle(create).borderTopLeftRadius : 'absent' };
+      createRadius: create ? getComputedStyle(create).borderTopLeftRadius : 'absent',
+      /* Round 2: a small inline gold button takes the pill too (every button in the look is one). */
+      inlineRadius: (() => { const b = document.getElementById('orgchart-preview'); return b ? getComputedStyle(b).borderTopLeftRadius : 'absent'; })() };
   } finally { radios.forEach((r, i) => { if (r) r.checked = was[i]; }); cards.forEach((c, i) => { c.hidden = hid[i]; }); step.hidden = sh; panel.hidden = ph; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
@@ -596,7 +598,7 @@ const AGENTS_LOOK = `(() => {
       await page.mouse.move(0, 0);   // round 1: no card under a leftover pointer for the resting read
       const crOn = await page.evaluate(CREATE_LOOK);
       chk(crOn.found && !crOn.restHovered && crOn.restEdge === CLEAR && crOn.kindEdge === CLEAR && crOn.chosenEdge !== CLEAR
-        && crOn.continueRadius === '999px' && crOn.teamRadius === '999px' && crOn.createRadius === '999px',
+        && crOn.continueRadius === '999px' && crOn.teamRadius === '999px' && crOn.createRadius === '999px' && crOn.inlineRadius === '999px',
         `${tag} On, Create an agent: resting option cards (kind and role) have no edge, the chosen one keeps its outline, every main button is a pill (Team's too)`, JSON.stringify(crOn));
       /* Round 1: a card under the pointer keeps today's edge (a real hover on the shown step, then all put back). */
       const crHover = await page.evaluate(() => { const p = document.getElementById('panel-create'), st = document.getElementById('cstep-role');
