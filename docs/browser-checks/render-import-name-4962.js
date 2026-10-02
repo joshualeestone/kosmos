@@ -17,7 +17,8 @@
  *   N3 typing a name and pressing Enter adds it: the create body carries the typed name as name and label, and the
  *      row reads "Added to Kosmos";
  *   N4 control: the named row adds with the file's own name;
- *   N5 at 320px, dark, the nameless row fits without a sideways scroll.
+ *   N5 at 320px the nameless row fits without a sideways scroll and the field does not run under the Add button
+ *      (the dark colour scheme is for the optional screenshot only; no colour is asserted).
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-import-name-4962.js
  */
@@ -129,9 +130,12 @@ const PARSE = {
         const { ctx, page, row } = await fresh({ viewport: { width: 320, height: 640 }, colorScheme: 'dark' });
         const over = await row(NAMELESS).evaluate((el) => {
           const r = el.getBoundingClientRect();
-          return { right: Math.round(r.right), vw: document.documentElement.clientWidth, sw: document.documentElement.scrollWidth };
+          const f = el.querySelector('.fr-importinput').getBoundingClientRect();
+          const g = el.querySelector('.fr-importgo').getBoundingClientRect();
+          const clear = f.right <= g.left + 0.5 || f.bottom <= g.top + 0.5 || f.top >= g.bottom - 0.5;
+          return { right: Math.round(r.right), vw: document.documentElement.clientWidth, sw: document.documentElement.scrollWidth, clear };
         });
-        chk(over.right <= over.vw && over.sw <= over.vw, 'N5 at 320px dark the nameless row fits without a sideways scroll', JSON.stringify(over));
+        chk(over.right <= over.vw && over.sw <= over.vw && over.clear, 'N5 at 320px the nameless row fits without a sideways scroll, the field clear of the button (dark is for the screenshot only)', JSON.stringify(over));
         if (process.env.IN_SHOTS) await row(NAMELESS).screenshot({ path: path.join(process.env.IN_SHOTS, 'importname-320-dark-' + ENGINE + '.png') });
         await ctx.close();
       }

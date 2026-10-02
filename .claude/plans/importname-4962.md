@@ -79,3 +79,13 @@ its first proof. Warning: importNameEnter ignores an input method's Enter (keyCo
 isComposing false) and a modified Enter (as PLUS_ENTER_GO). Nits: the adopt-field Enter also covers the board's
 disk-scan and found panels (stated); an added row's disabled name is not carried into a fresh field on the next
 visit; the "not about the name clears an earlier invalid mark" branch is tested. Unit 24/24; 4 more sabotages red.
+
+## Review 5 (opus, blind, 2026-10-01 23:21; traced every browser-check arm): 0 blockers, 2 warnings, 2 nits
+The reviewer traced N1 to N5 against the page and found each can pass on correct code and fail on broken code
+(N5 only for a page-level overflow, now tightened). Taken: focus goes back to where the keyboard was after a
+refusal that is not about the name, and moves on to the next row after a successful add (this list is pressed
+down, add after add); N5 also asserts the field stays clear of the Add button; "dark" is stated as screenshot-only.
+NOT taken, recorded as a known gap: a file the scan NAMES (so no field is drawn) but whose name the engine cannot
+use (a one-letter heading: agentfile.suggestName returns '') still gets the old "Open it from Create an agent"
+dead end. Fixing it means inserting the field after the parse; that is a separate change, and the case is rare
+next to the nameless one this card is about. Unit 26/26; 2 more sabotages red.
