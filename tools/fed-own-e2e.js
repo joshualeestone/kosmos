@@ -331,6 +331,10 @@ function boardEnv(b) {
     HOME: b.home,
     PORT: String(b.port),
     AGENT_WORKFORCE_RELEASE_BASE: 'http://127.0.0.1:9/dist',
+    // #4253: three boards per run, each a fresh install id; never phone home, report, or post to the community.
+    AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created',
+    AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback',
+    AGENT_WORKFORCE_COMMUNITY_URL: 'http://127.0.0.1:9/',
     AGENT_WORKFORCE_DATA: b.data,
     AGENT_WORKFORCE_WORKERS: b.workers,
     AGENT_WORKFORCE_LAUNCH: b.launch,
