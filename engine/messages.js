@@ -2010,7 +2010,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       if (sent && sent.held === true) {
         roomhold.restore(name, projectId, heldIds);
         unspill(spilled[name]);
-        if (roomhold.hold(name, projectId, mentioned.has(name) ? roomhold.addressedId(id) : id)) {
+        /* #4926 review 1 (Opus): an answer to this member's OWN post (--in-reply-to, no @) asks for its attention too, so it
+           is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
+        const asksIt = mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
+        if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
           reached += 1;
@@ -2048,7 +2051,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      recorded, the sender is told not to re-post, and a retry folds into this row. */
   const typingBroke = (name, err) => {
     if (outcomes[name] === undefined) { outcomes[name] = chat.DELIVERY.UNCONFIRMED; reached += 1; }
-    try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.message) || err) + '); recorded as unconfirmed\n'); } catch { /* never breaks the post */ }
+    // Review 1: the error's first line only, cut short (a tmux error can carry its arguments, the pasted text among them).
+    try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + '); recorded as unconfirmed\n'); } catch { /* never breaks the post */ }
   };
 
   const finishDeliveries = () => {
@@ -2078,29 +2082,36 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   // tagged -- fewer matches, never a false one, which is exactly #460's law
   // that an ambiguous quote resolves to no styling.
   const quotes = quotedSegments(stored, from, projectId, log);
-  appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
-    ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
-    ...(quotes.length ? { quotes } : {}),
-    /* #185: the tokenizer's verdict, persisted at the one moment it runs.
-       The unanswered state keys on WHO WAS ASKED, and re-deriving that at
-       render time would be a second tokenizer that can drift from this
-       one. */
-    ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
-    /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
-    ...(ambiguous.size ? { ambiguousMentions: [...ambiguous] } : {}),
-    ...(operator === true ? { operator: true } : {}),
-    /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
-       "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
-       an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
-    ...(replyExpected === false ? { replyExpected: false } : {}),
-    /* #3224: a post sent with --new is the agent's own answer to "which room": it
-       acknowledges the questions it owed elsewhere at that moment (owedElsewhere stops
-       asking about them) and it is not a suspected misroute in the daily count. */
-    ...(newPost === true && operator !== true ? { newPost: true } : {}),
-    /* #3745: stored only when this post answers another, so an ordinary post's row is unchanged. */
-    ...(answered ? { replyTo: answered.id } : {}),
-    ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
-    ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
+  /* #4926 review 1 (Opus): the members have it by now. A record that cannot be written must not turn into a thrown
+     "refused" (the sender would post it again, and nothing could fold the twin): it is answered unconfirmed. */
+  try {
+    appendLog({ kind: 'post', id, project: projectId, from, to: recipients.filter((n) => !offHere.has(n)), text: stored, at, outcomes,
+      ...(Object.keys(heldUntil).length ? { heldUntil } : {}),
+      ...(quotes.length ? { quotes } : {}),
+      /* #185: the tokenizer's verdict, persisted at the one moment it runs.
+         The unanswered state keys on WHO WAS ASKED, and re-deriving that at
+         render time would be a second tokenizer that can drift from this
+         one. */
+      ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
+      /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
+      ...(ambiguous.size ? { ambiguousMentions: [...ambiguous] } : {}),
+      ...(operator === true ? { operator: true } : {}),
+      /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
+         "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
+         an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
+      ...(replyExpected === false ? { replyExpected: false } : {}),
+      /* #3224: a post sent with --new is the agent's own answer to "which room": it
+         acknowledges the questions it owed elsewhere at that moment (owedElsewhere stops
+         asking about them) and it is not a suspected misroute in the daily count. */
+      ...(newPost === true && operator !== true ? { newPost: true } : {}),
+      /* #3745: stored only when this post answers another, so an ordinary post's row is unchanged. */
+      ...(answered ? { replyTo: answered.id } : {}),
+      ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
+      ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
+  } catch (err) {
+    try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
+    return { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, from, text: stored };
+  }
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
      sentence must be built from `outcomes` per recipient (a post to
      three that reaches two must never render as sent). */

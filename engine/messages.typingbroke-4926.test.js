@@ -117,3 +117,58 @@ test('#4926: a post where EVERY member\'s typing threw is recorded unconfirmed t
     } finally { restores.reverse().forEach((r) => r()); }
   });
 });
+
+const roomhold = require('./roomhold');
+const withDeliverAuto = (fn) => { const real = { a: chat.deliverAutomaticAsync }; chat.deliverAutomaticAsync = fn(real.a); return () => { chat.deliverAutomaticAsync = real.a; }; };
+const postAs = (roster, who, text, extra) => messages.sendPostAsync(Object.assign({ sender: { ok: true, card: roster.find((c) => c.sessionName === who) }, project: 'room4926', projectName: 'Room', text }, extra || {}), roster, roster.map((c) => c.sessionName));
+
+test('#4926 review 1 (Opus): an answer to the member\'s OWN post held on the quota is kept as asking it (never dropped as stale)', async () => {
+  await withRoom(async (roster) => {
+    arm();
+    roomhold.forget('bix');
+    const mine = await postAs(roster, 'bix', 'which branch should I use?');
+    assert.ok(mine.id, 'fixture: bix\'s question was not posted');
+    // bix is now held on the shared quota: its automatic deliveries answer held.
+    const restore = withDeliverAuto((real) => (n, ...rest) => (n === 'bix' ? Promise.resolve({ state: chat.DELIVERY.COULD_NOT, held: true }) : real(n, ...rest)));
+    try {
+      const ans = await postAs(roster, 'cy', 'use main', { replyTo: mine.id });
+      assert.equal(ans.outcomes && ans.outcomes.bix, roomhold.HELD, 'fixture: the answer was not held for bix');
+      assert.deepEqual(roomhold.heldIn('bix', 'room4926'), [roomhold.addressedId(ans.id)], 'the answer to bix\'s own question was held unmarked');
+      // CONTROL: a plain post (no answer, no @) held on the quota is kept unmarked.
+      const plain = await postAs(roster, 'cy', 'unrelated note');
+      assert.ok(roomhold.heldIn('bix', 'room4926').includes(plain.id), 'control: a plain held post was marked');
+    } finally { restore(); roomhold.forget('bix'); }
+  });
+});
+
+test('#4926 review 1 (Opus): the held line riding a typed arrival leaves out a stale post and names a fresh one', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    roomhold.forget('dee');
+    const before = await postAs(roster, 'cy', 'before the stop');   // real rows, so the record reader keeps them
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'cy', to: 'room4926', project: 'room4926', at: new Date().toISOString(), because: 'loop', stopped: true }) + '\n');
+    await new Promise((r) => setTimeout(r, 5));
+    const after = await postAs(roster, 'cy', 'after the stop');
+    roomhold.forget('dee');
+    roomhold.hold('dee', 'room4926', before.id); roomhold.hold('dee', 'room4926', after.id);
+    assert.deepEqual([...messages.staleHeld('room4926', [before.id, after.id])], [before.id], 'fixture: the stop did not make only the earlier post stale');
+    calls.length = 0;
+    await postAs(roster, 'ava', '@dee a question for you');
+    const typed = calls.map((a) => a.join(' ')).join('\n');
+    assert.ok(typed.includes('(' + after.id + ')'), 'fixture: the typed arrival carried no held line naming the fresh post (cannot see the drop)');
+    assert.ok(!new RegExp('\\b' + before.id + '\\b').test(typed), 'a stale held post rode the arrival');
+    roomhold.forget('dee');
+  });
+});
+
+test('#4926 review 1 (Opus): a post the members got but the record could not take is answered unconfirmed, not refused', async () => {
+  await withRoom(async (roster) => {
+    arm();
+    const real = fs.appendFileSync;
+    fs.appendFileSync = (f, ...rest) => { if (f === messages.LOG) throw new Error('ENOSPC: no space left'); return real(f, ...rest); };
+    let d;
+    try { d = await agentPost(roster, 'cannot be recorded', false); } finally { fs.appendFileSync = real; }
+    assert.equal(d.state, chat.DELIVERY.UNCONFIRMED, 'answered ' + d.state);
+    assert.match(String(d.because), /could not be recorded/);
+  });
+});

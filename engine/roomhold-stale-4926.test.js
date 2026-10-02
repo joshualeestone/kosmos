@@ -86,3 +86,24 @@ test('#4926 server.js passes the staleness judge to both flushes', () => {
     assert.match(src.slice(at, at + 600), /stale: \(p, ids\) => messages\.staleHeld\(p, ids\)/, call + ' does not pass the judge');
   }
 });
+
+test('#4926 review 1 (Opus): flushReleased (the quota retry) passes the judge on: a stale plain post is not typed', async () => {
+  const fleet = require('../test-support/fleet');
+  const chat = require('./chat');
+  const board = fleet.install([fleet.agent('gem', { state: 'idle' })]);
+  try {
+    const roster = board.snapshot ? board.snapshot() : board.roster;
+    const D = { PLACED: 'placed', COULD_NOT: 'could_not' };
+    const typed = [];
+    roomhold.forget('gem');
+    roomhold.hold('gem', 'p1', roomhold.addressedId('m5'));   // an ask, so the minute retry looks at it at all
+    roomhold.hold('gem', 'p1', 'm1'); roomhold.hold('gem', 'p1', 'm3');
+    assert.equal(chat.addressable('gem', roster).ok, true, 'fixture: the member cannot be typed into');
+    await roomhold.flushReleased(roster, { isAgy: () => true, readReport: () => null, now: Date.now(), decayMs: 60000,
+      deliver: async (n, text) => { typed.push(text); return { state: D.PLACED }; }, shownOf: () => 'Room', DELIVERY: D, env: {},
+      stale: (p, ids) => new Set(ids.filter((x) => x === 'm1')) });
+    assert.equal(typed.length, 1, 'fixture: the retry typed nothing');
+    assert.ok(/m3/.test(typed[0]) && /m5/.test(typed[0]), 'a fresh or asked post was left out: ' + typed[0]);
+    assert.ok(!/\bm1\b/.test(typed[0]), 'the quota retry told a stale post: ' + typed[0]);
+  } finally { roomhold.forget('gem'); board.restore(); chat.resetForTests(); }
+});

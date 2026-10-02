@@ -46,3 +46,26 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
 - engine/roomhold-stale-4926.test.js (4): staleHeld (age alone, a stop after, not before, not stopped:false, not another
   room, not an unrecorded id); withoutStale keeps addressed; flushOnIdle drops stale and does not keep them; server pin.
 - Mutants: 3 (part A) + 7 (part B) all killed. Related files (messages*, roomhold*, outbox*): 257/257.
+
+## Review 1 (Opus, blind): 0 blockers, 5 warnings, 4 nits.
+- WARNING (reproduced) FIXED: a reply to the member's OWN post (--in-reply-to, no @) held on the Google quota was kept
+  unmarked, so the new stale drop would remove it after 2 h of quota pause. It is now kept marked (asks the member),
+  like an @. Test (control: a plain held post stays unmarked) + mutant.
+- WARNING (mutation-proven) FIXED: the held line riding a typed arrival had no test. Test with two real posts and a
+  loop-guard stop between them: the arrival names the later one, not the earlier. Mutant killed.
+- WARNING (mutation-proven) FIXED: flushReleased passing the judge to flushOnIdle had no test. Direct test. Mutant killed.
+- WARNING (kept, decided): "the person asked the room to go quiet" by POSTING (an operator post, not a valve stop) is
+  not a staleness signal here. An operator post is never held and is typed to every member, and the held line rides
+  that arrival (the arrival path takes the held ids), so it is not a separate wake. Weakest premise: a member whose
+  typing failed for the operator post keeps its held ids to the next idle flush.
+- WARNING FIXED (part) / kept (part): a record write that throws after the members got the post now answers
+  unconfirmed ("it reached the room but could not be recorded") instead of throwing "refused" (test with appendFileSync
+  failing; mutant killed). The reviewer also noted this branch ENDS an outbox loop: a typing throw on the sync path used
+  to make the outbox retry every minute for up to 7 days, typing into the earlier members each time; it now returns
+  unconfirmed, which the outbox reads as delivered. Kept for another card: the outbox replaying an old kept post wakes
+  everyone (no 2 h rule there).
+- NIT FIXED: the stderr line keeps the error's first line, 80 characters (a tmux error can carry the pasted text).
+- NIT (kept, stated before): a throw before any paste is unconfirmed too, so an @-ask to that member reads as typed.
+- NIT (kept, pre-existing): putBack after a paste-then-throw can tell held ids twice.
+- NIT (kept): staleHeld scans the log twice; measured by the reviewer at ~3.6 ms on 200k rows, only when ids are held.
+- Mutants this round: 4/4 killed. Related files: 261/261.
