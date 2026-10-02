@@ -7,7 +7,7 @@ every time?" (screenshot: "Dario: Anthropic, ..." under a header that already sa
 ## Change
 1. Instructions: engine/defaults.js gets a NEW section, `### Your name is already on your message`: Kosmos shows your
    name above every message you post in a room and every reply to the person, so never start a message with your own
-   name. DOCTRINE_VERSION 20 -> 21 with a log entry and a pinned fingerprint. NEW HEADING so existing agents are
+   name. DOCTRINE_VERSION 21 -> 22 (main took 21 for #4624 while this was in review) with a log entry and a pinned fingerprint. NEW HEADING so existing agents are
    re-offered it (missingFrom matches by heading), as #4631 and #4475 did.
 2. Display: web/index.html pjDropSelfName(words, names) drops ONE leading prefix: one of the sender's own names (display
    name and machine name), then a colon (may be tight) or a dash (needs a space on both sides), with optional bold around the
