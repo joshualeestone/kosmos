@@ -2728,7 +2728,8 @@ _kosmos_put_board_back() {
 # was free the board still stayed off. So: on any failed exit in that window (a refusal, or a signal during the probe),
 # when the board was meant to run and had no marker before the run, the marker is taken away (one written by a person
 # in the seconds between our stop and the exit goes with it). This script starts nothing; what supervises the board is
-# no longer held off by the marker, as before the run. Disarmed where the put-back is armed.
+# no longer held off by the marker, as before the run (board-run exits quietly while a stranger holds the port, so
+# launchd's retries until the port is free are silent). Disarmed where the put-back is armed.
 _kosmos_marker_ours=no
 _kosmos_clear_own_marker() {
   [ "$_kosmos_marker_ours" = yes ] || return 0
@@ -2759,8 +2760,8 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ]; then
     _kosmos_was_running=yes
   fi
+  _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
-  _kosmos_marker_ours="$_kosmos_was_running"   # #5033: a refusal below takes back the marker this stop wrote
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
   # earlier, where it is a precondition instead.

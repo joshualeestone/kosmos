@@ -28,10 +28,11 @@ because `_kosmos_was_running=yes` requires no marker before the stop; a person w
 second (a `kosmos stop` during the update) would lose it.
 
 ## Tests (tools/test-update-putback-4818.sh, run by `npm run test:shell`)
-- order: the marker line sits directly after the pause's stop, before the three refusals; no disarm before the
-  arming line; the disarm sits right after it and before the port wait.
+- order: the marker line sits directly before the pause's stop (review 8: a signal during the stop is covered), before the three refusals; no disarm before the
+  arming line; the disarm sits after it and before the port wait.
 - each refusal's shipped die after the marker line: marker gone, nothing started, sentence kept.
 - the pause's real routing (probe through esac) with another app, another Kosmos, and our own board on the port.
+- a hang-up in the armed window takes the marker back (5h).
 - controls: a board the person stopped keeps its marker; switched to connect before the refusal keeps it; past the
   arming point a connect computer keeps it (#4818); a person's stop after the new board started keeps it (5f, the
   disarm's case); exit 0 keeps it.
@@ -40,7 +41,7 @@ Mutations (each restored, tree checked clean) are listed per review round in the
 no take-back call reds every take-back arm; a stray disarm before a refusal reds the count check.
 
 ## Status
-- [x] fix + tests committed (140eb74ab, a598d86a9)
+- [x] fix + tests committed (140eb74ab, a598d86a9), then one commit per review round
 - [x] sibling suites: pause-foreign-board-964, update-abort-2055, install-static (+control), runnable-guard
 - [ ] challenge loop
 - [ ] PR
