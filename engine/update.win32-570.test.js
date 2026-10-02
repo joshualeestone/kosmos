@@ -82,7 +82,7 @@ test('#570/S4 beginInstall no longer throws the platform refusal on win32; it ro
       update.setWindowsInstaller(null);
       update.setInstalledRoot(null);
     }
-  } else {
+  } else if (process.platform === 'darwin') {
     /* On darwin the platform gate is transparent, and the NEXT gate (live execution) is the one that
        catches a test process. Reaching IT proves the platform guard did not refuse the Mac. */
     let err = null;
@@ -91,6 +91,9 @@ test('#570/S4 beginInstall no longer throws the platform refusal on win32; it ro
     assert.match(String(err.message), /live-execution|allowLiveExecution|no opt-in/i,
       'darwin must reach the live-execution gate, not be stopped by the platform one');
     assert.doesNotMatch(String(err.message), /cannot update itself/, 'the Mac must never see the platform refusal');
+  } else {
+    /* On linux or other platforms without self-install, beginInstall throws the platform refusal. */
+    assert.throws(() => update.beginInstall({}), /cannot update itself/);
   }
 });
 

@@ -594,7 +594,7 @@ function setupUrl() {
  * 📌 `platform` is a parameter defaulting to process.platform -- the seam this
  * whole gate family uses -- so both arms are testable from either OS.
  */
-function selfInstallRefusal(platform = process.platform) {
+function selfInstallRefusal(platform = updatePlatform()) {
   if (platformGate.canSelfInstall(platform)) return null;
   return 'Kosmos cannot update itself on this platform (' + String(platform) + '): its installer is a POSIX shell script';
 }

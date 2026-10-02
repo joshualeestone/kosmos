@@ -58,7 +58,7 @@ function curlShim(dir) {
   const real = ['/usr/bin/curl', '/opt/homebrew/bin/curl'].find((c) => fs.existsSync(c));
   fs.writeFileSync(path.join(dir, 'curl'), '#!/bin/bash\n'
     + 'printf "ARGS %s\\n" "$*" >> "' + log + '"\n'
-    + 'for a in "$@"; do case "$a" in @*) f="${a#@}"; printf "FILE %s MODE %s\\n" "$(basename "$f")" "$(stat -f %Lp "$f" 2>/dev/null || stat -c %a "$f")" >> "' + log + '";; esac; done\n'
+    + 'for a in "$@"; do case "$a" in @*) f="${a#@}"; printf "FILE %s MODE %s\\n" "$(basename "$f")" "$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null)" >> "' + log + '";; esac; done\n'
     + 'exec ' + real + ' "$@"\n', { mode: 0o755 });
   return log;
 }

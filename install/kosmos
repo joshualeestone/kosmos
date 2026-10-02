@@ -297,9 +297,15 @@ esac
 say() { printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"; }
 die() { printf '  %s\n' "$*" >&2; exit 1; }
 
-# Whether this Mac has the lsof the port checks use (one answer for all three). A function so a test
+# Whether this machine has the lsof the port checks use (one answer for all three). A function so a test
 # can take it away.
-_lsof_present() { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; }
+_lsof_cmd() {
+  if [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; then printf '/usr/sbin/lsof'; return 0; fi
+  if [ -f /usr/bin/lsof ] && [ -x /usr/bin/lsof ]; then printf '/usr/bin/lsof'; return 0; fi
+  if command -v lsof >/dev/null 2>&1; then command -v lsof; return 0; fi
+  return 1
+}
+_lsof_present() { _lsof_cmd >/dev/null 2>&1; }
 
 # ⚠️ IDENTITY, NOT JUST A 200. Any process squatting on the port answers a
 # bare liveness probe, and then start/status/the app icon would all point a
@@ -518,7 +524,9 @@ port_taken_by_stranger() {
 # (` :18729 ` cannot match inside `:187290`).
 port_has_listener() {
   _lsof_present || return 1
-  case "$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)" in
+  local _lsof_bin
+  _lsof_bin="$(_lsof_cmd)" || return 1
+  case "$("$_lsof_bin" -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)" in
     *" 127.0.0.1:$PORT "*|*" *:$PORT "*) return 0 ;;
     *) return 1 ;;
   esac
@@ -538,11 +546,12 @@ port_has_listener() {
 # documents; awk extracts the FIRST colliding listener's pid (space-bounded NAME).
 port_listener_owner() {
   _lsof_present || return 1
-  local _lsof _pid _uid _cmd _iskos
+  local _lsof _pid _uid _cmd _iskos _lsof_bin
+  _lsof_bin="$(_lsof_cmd)" || return 1
   # -Fpn: field output, a `p<pid>` record then `n<name>` records per file. Parse the pid
   # whose name is a colliding address (exact 127.0.0.1:PORT or *:PORT). Immune to a
   # COMMAND that contains spaces, which the human column layout (awk $2) is not.
-  _lsof="$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -Fpn 2>/dev/null)"
+  _lsof="$("$_lsof_bin" -nP -iTCP:"$PORT" -sTCP:LISTEN -Fpn 2>/dev/null)"
   _pid="$(/usr/bin/awk -v port="$PORT" '
     /^p/ { pid = substr($0, 2); next }
     /^n/ { n = substr($0, 2); if (n == "127.0.0.1:" port || n == "*:" port) { print pid; exit } }' <<EOF

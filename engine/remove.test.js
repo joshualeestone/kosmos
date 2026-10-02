@@ -26,6 +26,14 @@ process.on('exit', () => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
+function caseInsensitiveFS() {
+  const probe = nodePath.join(SANDBOX, 'CaseProbe');
+  try { fs.mkdirSync(probe, { recursive: true }); } catch { /* exists */ }
+  const ci = fs.existsSync(nodePath.join(SANDBOX, 'caseprobe'));
+  try { fs.rmSync(probe, { recursive: true, force: true }); } catch { /* best effort */ }
+  return ci;
+}
+
 const remove = require('./remove');
 process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '0';   // #4006: no real wait before the second try, in tests
 const create = require('./create');
@@ -1480,7 +1488,7 @@ test('an agent stopped but never recorded is told where its way back is', () => 
   }
 });
 
-test('a case-variant spelling cannot report a live agent removed while touching nothing', () => {
+test('a case-variant spelling cannot report a live agent removed while touching nothing', { skip: !caseInsensitiveFS() && 'requires case-insensitive filesystem (macOS/Windows)' }, () => {
   /**
    * ⚠️ macOS VOLUMES ARE CASE-INSENSITIVE BY DEFAULT, so `fs.existsSync` on a
    * path built from `CASEY` resolves `casey`'s real plist and real folder --
@@ -2023,7 +2031,7 @@ test('the removed list is newest first, so the thing you just removed is at the 
     'the undo list is not newest-first, so the agent somebody just removed is not where they look');
 });
 
-test('the success sentence checks the folder by its exact spelling', () => {
+test('the success sentence checks the folder by its exact spelling', { skip: !caseInsensitiveFS() && 'requires case-insensitive filesystem (macOS/Windows)' }, () => {
   /**
    * ⚠️ Unheld until now: swapping `existsExactly` back to `fs.existsSync` here
    * left all 351 tests green, despite the comment above it explaining the
