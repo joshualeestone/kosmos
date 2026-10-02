@@ -305,3 +305,21 @@ every queued turn claims the whole box, median wait 75 min on 2026-10-01, box 76
 - NIT (kept, stated before): SIGKILL of the wrapper leaves its capper; it stops the command at the cap.
 - CONTROL RESULT (clean, 23:05, harness fixed to send the detached child's output away): against the pre-round-16 wrapper
   the 9 round-16 _qh_scan forms AND "a yield stops a detached descendant too" all print BAD. Proven both arms.
+
+## Round 18 (Sonnet, blind): 0 blockers, 2 warnings, 4 nits. (Opus round 18 still running at this entry.)
+- WARNING (reproduced) FIXED: the take read the holder's cookie a THIRD time, separately from what the re-check
+  validated. An empty read (the claim gone at that instant) recorded no holder, which turns the intruder's cookie test
+  off for the whole side turn; a replacement claim read there was recorded as the holder and never read as an intruder.
+  Now kosmos_light_side_clear names the holder it validated (KOSMOS_SIDE_SEEN_HOLDER), the take records exactly that one,
+  and refuses (releasing its side claim) if none was named or the box is no longer held by it. Arms: gone, replaced,
+  unseen; 3 mutants killed (the unseen arm was added because the "empty" guard is otherwise unreachable).
+- WARNING FIXED: _kosmos_light_side_active's compare-then-rm of a stale side claim could delete a fresh one a winner
+  moved in between. Now it moves the stale file aside first, compares that, and puts it back (mv -n, never over a newer
+  one) if it was not the stale line. Arm simulates the winner arriving at the move/remove; the old rm mutant fails it.
+  Residual: while the moved-aside fresh claim is out, a reader sees no side claim for microseconds.
+- NIT FIXED (wrapper, temp + mv): QUEUED_HEAVY_SIDE_POLL_S clamped to 60, so the first look comes before the side
+  claim (SIDE_MIN + 2 min) lapses.
+- NIT (kept): a command that traps TERM and exits 0 keeps rc 0 after a stop (the rc-0 rule from round 16).
+- NIT (kept, stated): kill -9 of the wrapper leaves its command to the capper's cap, unclaimed.
+- NIT (kept, stated): npx/bunx/make test and wrapper scripts are not read by _qh_scan; run-tests.sh refuses visibly.
+- 92/92 in tools/test-light-side-4911.sh.

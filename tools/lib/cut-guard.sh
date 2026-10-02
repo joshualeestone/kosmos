@@ -1160,7 +1160,12 @@ _kosmos_light_side_active() {
   now="$(_kosmos_now_epoch)"
   if [ "$exp" -le "$now" ] 2>/dev/null || ! kill -0 "$pid" 2>/dev/null; then
     # Round 16 (Sonnet): only the line read is removed; a fresh claim moved in since (under the take lock) stays.
-    [ "$(cat "$f" 2>/dev/null)" = "$line" ] && rm -f "$f" 2>/dev/null
+    # Round 18 (Sonnet): moved aside FIRST, then compared, so a claim moved in between the compare and the removal is
+    # put back (never over a newer one, mv -n) rather than deleted.
+    local aside="$f.stale.$$"
+    if [ "$(cat "$f" 2>/dev/null)" = "$line" ] && mv -f "$f" "$aside" 2>/dev/null; then
+      if [ "$(cat "$aside" 2>/dev/null)" = "$line" ]; then rm -f "$aside" 2>/dev/null; else mv -n "$aside" "$f" 2>/dev/null; rm -f "$aside" 2>/dev/null; fi
+    fi
     return 0
   fi
   printf '%s\n' "$line"
@@ -1292,6 +1297,7 @@ kosmos_light_side_clear() {
     # older wrapper during the rollout).
     case "$label" in "queued run (not a cut)"*) ;; *) echo "the box is held by a run whose class cannot be read ($label); no side turn beside it." >&2; return 1 ;; esac
     case "$label" in *"[light]"*) echo "the box is held by a light run ($label); never two light runs at once." >&2; return 1 ;; esac
+    KOSMOS_SIDE_SEEN_HOLDER="$cookie"   # round 18: the holder THIS check validated (the take records exactly this one)
     minhold="${KOSMOS_SIDE_MIN_HOLD_S:-90}"; case "$minhold" in ''|*[!0-9]*) minhold=90 ;; esac
     born="$(printf '%s' "$cookie" | awk -F- '{print $2}')"
     case "$born" in ''|*[!0-9]*) born="$now" ;; esac   # an unreadable start is taken as just now: wait, the safe side
@@ -1362,12 +1368,19 @@ kosmos_light_side_take() {
   # Review 3: a cut, an install harness and a page layer MARK themselves and then look for a side claim; this side
   # looked first and claimed second, so one could slip into the gap. Claimed now, it asks again: anything that marked
   # before the claim is seen here, and anything after it sees the claim. Either way one of the two waits.
+  KOSMOS_SIDE_SEEN_HOLDER=""
   if ! kosmos_light_side_clear "$what" >/dev/null 2>&1; then kosmos_release_light_side; unset KOSMOS_LIGHT_SIDE_COOKIE; return 1; fi
+  # Round 18 (Sonnet): the holder recorded is the one the re-check validated, and it must still hold the box now. A
+  # separate read could come back empty (the intruder's cookie test then never fires) or name a claim that replaced the
+  # holder in between (which then never reads as an intruder). Either way, no side turn.
+  local seen="${KOSMOS_SIDE_SEEN_HOLDER:-}" now_holder
+  now_holder="$(_kosmos_machine_claim_active | awk '{print $1}')"
+  if [ -z "$seen" ] || [ "$now_holder" != "$seen" ]; then kosmos_release_light_side; unset KOSMOS_LIGHT_SIDE_COOKIE; return 1; fi
   kosmos_unmark_suite_waiting
   # Round 17 (Opus): the holder this side turn runs beside, by its claim's cookie. The intruder yields when ANOTHER
   # claim takes the box: an older queued-heavy.sh that found the queue empty never writes a waiter marker, so the
   # marker checks cannot see it, but its claim can be seen. Kept in the run's environment (the capper inherits it).
-  KOSMOS_SIDE_HOLDER_COOKIE="$(_kosmos_machine_claim_active | awk '{print $1}')"; export KOSMOS_SIDE_HOLDER_COOKIE
+  KOSMOS_SIDE_HOLDER_COOKIE="$seen"; export KOSMOS_SIDE_HOLDER_COOKIE
   return 0
 }
 

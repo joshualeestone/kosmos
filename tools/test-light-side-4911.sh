@@ -205,6 +205,32 @@ out="$(iq "$HC")"; rc=$?
 out="$(iq "")"; rc=$?
 [ "$rc" -eq 1 ] && pass "CONTROL: intruder check: the same box with no recorded holder -> stay (the yield above is the cookie's)" || fail "CONTROL: something else yielded (rc=$rc, $out)"
 claim 300 "queued run (not a cut): a full suite"
+# Round 18 (Sonnet): the holder recorded is the one the take's re-check validated, and it must still hold the box. Here
+# the claim is removed (then replaced by another) right after the re-check passes: the take must refuse, not record an
+# empty holder (which turns the intruder's cookie test off) or the replacement (which then never reads as an intruder).
+for gap in gone replaced unseen; do   # unseen: a re-check that passed without naming its holder (defensive)
+  out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_suite_waiting "$((NOW - 10))"
+    eval "_orig_side_clear() $(declare -f kosmos_light_side_clear | tail -n +2)"
+    _n=0; kosmos_light_side_clear() { _orig_side_clear "$@" || return 1; _n=$((_n + 1))
+      [ "$_n" -eq 2 ] && [ "$gap" = unseen ] && { KOSMOS_SIDE_SEEN_HOLDER=""; return 0; }
+      if [ "$_n" -eq 2 ]; then rm -f "$M/machine-claim"; [ "$gap" = replaced ] && printf 'other-%s-1 %s %s host queued run (not a cut): another\n' "$NOW" "$HOLDER" "$((NOW + 1800))" > "$M/machine-claim"; fi; return 0; }
+    kosmos_light_side_take "a light run" 5 && exit 9; [ -e "$M/light-side-claim" ] && exit 8; [ -e "$M/suitewait.$$" ] || exit 7; exit 0 ) 2>&1)"; rc=$?
+  [ "$rc" -eq 0 ] && pass "the take refuses when the holder it validated is $gap before it is recorded" || fail "the take recorded a holder it did not validate ($gap, step rc=$rc, $out)"
+  claim 300 "queued run (not a cut): a full suite"
+done
+kosmos_unmark_suite_waiting
+# Round 18 (Sonnet): a stale side claim is moved aside before it is removed, so a fresh claim that a winner moved in at
+# that instant is put back, not deleted. The winner is simulated arriving exactly when the stale file is moved or removed.
+out="$( (
+  F="$M/light-side-claim"; printf 'stale-1 999999 %s a light run\n' "$((NOW + 600))" > "$F"
+  W="win-1 $$ $((NOW + 600)) the winner"; raced=""
+  arrive() { local a; for a in "$@"; do if [ "$a" = "$F" ] && [ -z "$raced" ]; then raced=1; printf '%s\n' "$W" > "$F"; fi; done; }
+  mv() { arrive "$@"; command mv "$@"; }
+  rm() { arrive "$@"; command rm "$@"; }
+  _kosmos_light_side_active >/dev/null
+  [ -n "$raced" ] || exit 6; [ "$(cat "$F" 2>/dev/null)" = "$W" ] || exit 5; exit 0 ) 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "a fresh side claim that lands as a stale one is cleaned is kept" || fail "cleaning a stale side claim deleted a fresh one (step rc=$rc, $out)"
+rm -f "$M/light-side-claim"
 # Review 3: the take claims FIRST and then asks again, so a cut that marked itself in the gap is seen (here the cut
 # probe reads live only once the side claim exists). The claim is released and the marker kept.
 probe cut-after-claim "[ -e '$M/light-side-claim' ] && printf '$OTHER bash tools/release.sh 0.9.99\\n' || exit 1"
