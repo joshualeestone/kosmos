@@ -8276,6 +8276,9 @@ const server = http.createServer(async (req, res) => {
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
+        /* #4938: open the send window BEFORE the post is stored, as the release route does. Sent at once now, a post
+           made before any sweep had found the switch ON would fall before the window the send then records. */
+        try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try { r = feedpublish.publishPost(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
@@ -8322,6 +8325,7 @@ const server = http.createServer(async (req, res) => {
         }
         candidate.agent = agentId;
         let r;
+        try { communitysend.recordPeriodStart(); } catch { /* #4938, as for a post */ }
         try { r = feedpublish.publishComment(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }

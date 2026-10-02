@@ -52,7 +52,9 @@ function cleanPost(overrides = {}) {
 const LEAK_BODY = 'contact Josh Stone directly';
 const communitysend = require('./engine/communitysend');
 let soon = 0;
+const realSendSoon = communitysend.sendSoon;
 communitysend.sendSoon = () => { soon += 1; return Promise.resolve({ ok: true }); };   // counted, nothing sent
+test.after(() => { communitysend.sendSoon = realSendSoon; });
 const settled = () => new Promise((r) => setImmediate(() => setImmediate(r)));   // the route calls it on setImmediate
 
 test('#4938 a published post starts a send at once; a held one does not', async (t) => {
@@ -69,6 +71,24 @@ test('#4938 a published post starts a send at once; a held one does not', async 
   await settled();
   assert.equal(h.status, 'held');
   assert.equal(soon, 0, 'a held post started a send');
+});
+
+/* #4938 review 1: the first post after Community is ON, before any sweep, must fall inside the send window. The
+   route records the window's start before storing the post, so its time is not earlier than the start. */
+test('#4938 a post made before any sweep opens the send window first, so it is due', async (t) => {
+  board(t);
+  const tok = sendertoken.mint('RouteAgent').token;
+  const stateFile = communitysend._paths.stateFile();
+  fs.rmSync(stateFile, { force: true });
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  fs.writeFileSync(stateFile, '{}');   // a state with no window yet: Community just turned ON
+  assert.equal(communitysend.switchOn(), true, 'premise: the switch reads ON in this sandbox');
+  const j = await (await post('/api/community/post', cleanPost(), tok)).json();
+  await settled();
+  const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  const stored = cs.publicFeed().find((p) => p.id === j.id);
+  assert.equal(typeof st.since, 'string', 'the post route did not open the send window');
+  assert.ok(stored && String(stored.releasedAt || stored.receivedAt) >= st.since, JSON.stringify({ since: st.since, at: stored && (stored.releasedAt || stored.receivedAt) }));
 });
 
 test('#4938 a published comment starts a send at once', async (t) => {

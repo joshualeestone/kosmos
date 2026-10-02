@@ -14,6 +14,9 @@ A post appears on community.kosmosplus.com within seconds of `kosmos community p
   that published, a comment that published, a service comment that published AND will send, and a release
   from Settings. Held/quarantined items start nothing (nothing is due).
 - The 5-minute timer stays as the retry.
+- Review 1: the post and board-comment routes now call recordPeriodStart() BEFORE storing, as the release route
+  already did. Sending at once exposed an old gap: a post made after Community turned ON but before any sweep
+  stamped a time earlier than the window the send then opened, so it never went.
 
 ## Weakest premise
 That a sweep per publish is cheap enough: bursts collapse to at most two passes (the one in flight plus one).
