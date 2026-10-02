@@ -626,7 +626,7 @@ function chk(ok, label, extra) {
           const waiting = await rows(page);
           chk(waiting[2].state === 'Waiting for it to start…' && hellos.filter((h) => h.who === 'zed').length === 0,
             `${E} #4936 a member the board cannot read yet shows "Waiting for it to start…" and is not typed into`, JSON.stringify([waiting[2], hellos.map((h) => h.who)]));
-          // Review 19: still unknown for over three gaps: a loop that waited only a gap or two would have given up by now.
+          // Review 19/25: still unknown for 1.5 s (2.5 gaps): the review-19 loop burned all its looks back to back by now.
           await page.waitForTimeout(1500);
           const still = await rows(page);
           chk(still[2].state === 'Waiting for it to start…' && hellos.filter((h) => h.who === 'zed').length === 0,

@@ -48255,16 +48255,17 @@ async function openTeamCreate(key) {
   if (tcLive() && (TC.key === key || inFlight)) {
     const msg = document.getElementById('tc-msg');
     msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;
+    // Review 24/25: set before the paint, so the note names where it will go. Coming back to this team drops a request
+    // for another; picking another records it (opened once this one finishes, if the person is still here).
+    if (TC.key === key) delete TC.askedKey; else TC.askedKey = key;
     tcPaint();
-    if (TC.key === key) delete TC.askedKey;   // review 24: coming back to this team drops a request for another
     if (TC.key === key && tcFinished() && TC.helloStarted && !document.getElementById('tc-hello').hidden) {
       // Review 12: the same team picked again while one is not said hello to resumes it; say how to make another.
       // Review 13: only when that button is on screen, and the label already ends in "Team".
-      msg.hidden = false; msg.dataset.kind = 'resume';
+      msg.hidden = false; msg.dataset.kind = 'made-again';   // review 25: its own kind, so the in-flight clearing leaves it
       msg.textContent = 'You just made this ' + ((TC.team && TC.team.label) || 'team') + '. To make another, choose Go to your team first.';
     }
     if (TC.key !== key) {
-      TC.askedKey = key;   // review 23: opened for them once this one finishes, if they are still here
       msg.hidden = false; msg.dataset.kind = 'resume';
       // Review 5: a team already made and being said hello to is not "still making".
       // Review 17: and one waiting on its pictures before it leaves is "finishing".
@@ -48596,7 +48597,12 @@ function tcPaint() {
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
-  if (msgEl.dataset.kind === 'resume' && !tcLive()) { msgEl.hidden = true; msgEl.textContent = ''; delete msgEl.dataset.kind; }
+  // Review 25: the "still making / saying hello / finishing" message goes once nothing is in flight, not only once the
+  // team stops being live (a team that stays for a row keeps live, and the message would claim work that has ended).
+  // A request to open another team goes with it: it was for "once this one finishes", which a stay is not.
+  const stillGoing = Boolean(TC.running || TC.watching || TC.busy || TC.greeting || TC.leaving);
+  if (msgEl.dataset.kind === 'resume' && (!tcLive() || !stillGoing)) { msgEl.hidden = true; msgEl.textContent = ''; delete msgEl.dataset.kind; }
+  if (!stillGoing && TC.askedKey) delete TC.askedKey;
   /* Progress is spoken politely (tc-note is a live region): a screen-reader user heard nothing before.
      "Ready" only once the board has seen every member running, not when every create was accepted. */
   let note;
@@ -48744,7 +48750,8 @@ async function tcSayHello() {
   const gen = TC_GEN;
   const lead = tcLead();
   // Review 11: a throw must not leave the team "still saying hello" for good, blocking every other team.
-  const settle = (m) => tcHelloOne(m, gen).catch(() => { if (m && (m.hello === 'sending' || m.hello === 'waiting')) m.hello = 'unsure'; });
+  // Review 25: a throw while only waiting (nothing sent) is "failed" (with Try again), not "not confirmed".
+  const settle = (m) => tcHelloOne(m, gen).catch(() => { if (m && m.hello === 'waiting') m.hello = 'failed'; else if (m && m.hello === 'sending') m.hello = 'unsure'; });
   await settle(lead);
   if (gen !== TC_GEN || !TC) return;
   await Promise.all(TC.members.filter((m) => m !== lead).map(settle));
@@ -48781,7 +48788,7 @@ function tcHelloRetry(slot) {
   TC_STATUS_READ = null;   // review 12: a Try again reads the board afresh (the person may have just answered it)
   const gen = TC_GEN;
   TC.greeting = true;
-  tcHelloOne(m, gen).catch(() => { if (m.hello === 'sending' || m.hello === 'waiting') m.hello = 'unsure'; }).then(() => {   // review 10: never stuck
+  tcHelloOne(m, gen).catch(() => { if (m.hello === 'waiting') m.hello = 'failed'; else if (m.hello === 'sending') m.hello = 'unsure'; }).then(() => {   // review 10: never stuck
     if (gen !== TC_GEN || !TC) return;
     TC.greeting = TC.members.some((x) => x.hello === 'sending' || x.hello === 'waiting');
     if (TC.members.every((x) => x.hello === 'started')) tcLeaveWhenSettled(gen);
