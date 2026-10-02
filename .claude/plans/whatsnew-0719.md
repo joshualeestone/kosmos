@@ -6,7 +6,7 @@ before the cut, and only after #5054 has merged (line 1 describes it). Since the
 
 ## Highlights, each checked against the code
 1. Codex agents no longer slow the board: #5054 (Angel, branch codexcache-5054, faa27a9b5 at writing). engine/
-   codexsession.js read() folded only the bytes appended since the last read (per-rollout ROLLOUT_CACHE keyed by path,
+   codexsession.js read() folds only the bytes appended since the last read (per-rollout ROLLOUT_CACHE keyed by path,
    inode/mtime/size/seam checked) and caches each rollout's immutable first line (META_CACHE), instead of re-reading
    and JSON-parsing every whole 30-100 MB rollout on every status refresh (71% of board CPU in the user's profile).
    Re-check the line against the MERGED diff at the trigger.
