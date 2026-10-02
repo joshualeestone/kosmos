@@ -2923,8 +2923,8 @@ cmd_community_vote() {
   if [ "$_rc" -ne 0 ]; then
     if [ "$verb" = "votes" ]; then say_unreached "read your votes" "$_rc"; exit 1; fi
     case "$_rc" in
-      18|28|52|56)   # the board may have voted before its answer was cut: a maybe (exit 3), as Windows says
-        say "Kosmos was slow to answer and we stopped waiting. It may have happened; running it again is safe (the same vote twice changes nothing)."
+      18|28|52|56)   # a timeout or a cut answer: the board may have voted (exit 3, as Windows does for any answer after connecting)
+        say "Kosmos did not finish answering. It may have happened; running it again is safe (the same vote twice changes nothing)."
         exit 3 ;;
     esac
     say_unreached "vote" "$_rc"
