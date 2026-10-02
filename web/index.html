@@ -1202,10 +1202,11 @@ html { scroll-padding-top: 132px; }
    all-red notice would read as an error rather than something waiting. */
 .utoast {
   --utone: #b3261e;
-  /* IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100). The old
-     absolute float carried a measured top:79 offset and a history of
-     covering the agent-status stamp; an element in the flow cannot overlap
-     anything, so the measurement and its bug class both retire. */
+  /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
+     old float covered the agent-status stamp. Since #5018 (Josh 2026-10-02) the
+     notices float again, over the page under the header's left edge (.topnotes),
+     anchored to the header rather than a measured offset, so the header never
+     grows and the stamp on the right is clear. */
   display: flex; align-items: center; gap: 11px;
   padding: 7px 8px 7px 12px; border-radius: 11px;
   background: var(--bg-elevated); border: 1px solid var(--utone);
@@ -1228,6 +1229,17 @@ html { scroll-padding-top: 132px; }
 .utoast.login-adv.notice .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
+/* #5018: the notices float over the page, under the header's left edge, instead of growing the header (Josh). The
+   header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks. */
+.apphead header { position: relative; }
+.apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 0; z-index: 4;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  max-width: min(460px, calc(100vw - 32px)); pointer-events: none; }
+.apphead .topnotes > div > * { pointer-events: auto; }
+.utoast .ux { flex: 0 0 auto; width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 7px; cursor: pointer;
+  background: none; color: var(--label-2); font-size: 1.125rem; line-height: 1; }
+.utoast .ux:hover { background: var(--bg); color: var(--label); }
+.utoast .ux:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
@@ -1345,6 +1357,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
      let the header's left group wrap the notice onto its own row. */
   .headleft { flex-wrap: wrap; }
   .utoast .utxt small { display: none; }
+  /* #5018: the login notice's line is who and which account, the point of it; it floats, so it costs no header room. */
+  .utoast.login-adv .utxt small { display: block; }
 }
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
@@ -1417,7 +1431,6 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .apphead { border-bottom: 0; }
   html.kremote .apphead header { padding: 0; gap: 0; }
   html.kremote .apphead header .headleft { gap: 8px; }
-  html.kremote .apphead header:has(.headleft > [id$="-slot"]:not(:empty)) { padding: 8px 0; }
 }
 /* #4823: the phone menu, Josh's navigation-mock.png ("copied almost identically from Apple's website"): full screen,
    Kosmos+ navy in both themes, large white type, red bubbles, an X where the two lines were. Settings goes one level
@@ -2038,7 +2051,6 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
      and the name WRAPPED to a second row (main red after #4848, run 36821115449). With no floor it can only shrink. */
   .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 0; }
   .apphead .headleft > .worldsw > .worldsw-btn { max-width: min(220px, 100%); min-width: 0; }
-  .apphead .headleft > [id$="-slot"]:not(:empty) { flex-basis: 100%; }
   /* #4847: on a phone the person's menu shows just their face (and the arrow): their name, which they know, gives its
      room to the computer's name, which is the one that tells them where they are. The name stays the button's
      accessible name (hidden visually as .vh does, not removed). On a phone it is then shown nowhere on screen; their
@@ -11318,6 +11330,11 @@ window.kosmosMeasureScrollbarWidth();
          possible instead of being avoided by a number (the pack's own
          reasoning, drawn 2e4e100). Renders only when a newer version is
          published; role=status per the pack. -->
+    <!-- #5018 (Josh, 2026-10-02): "i hate that these push the navigation down.. i would much rather they appear over
+         the content". The four notice slots float together just under the header, over the page, so the header
+         never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the float sits
+         on the left, under the K mark, clear of the agent-status stamp on the right. -->
+    <div class="topnotes" id="topnotes">
     <div id="utoast-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
@@ -11333,6 +11350,7 @@ window.kosmosMeasureScrollbarWidth();
          since #3955 the post-update message is the "Kosmos has been updated" window,
          and this line must not overwrite the update chip. -->
     <div id="uoffline-slot"></div>
+    </div>
   </div>
   <!-- The pack's centre column: the nav lives IN the header grid, centred,
        and collapses behind the burger under 56rem. THREE tabs, the pack's,
@@ -20966,15 +20984,24 @@ function paintUpdateAbort(ab) {
 function paintLoginAdvisories(advs) {
   const slot = document.getElementById('login-adv-slot');
   if (!slot) return;
-  const list = Array.isArray(advs) ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length) : [];
+  /* #5018 (Josh): a small X hides a notice until it says something new (fewer days, other agents, another account,
+     or expired). The key is the notice's own state, kept per viewer in this browser. */
+  const advKey = (a) => [a.severity || '', a.daysLeft, a.expired ? 'x' : '', a.email || '', a.agents.slice().sort().join(',')].join(':');
+  const hidden = loginAdvDismissed();
+  const list = Array.isArray(advs)
+    ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
-  const sig = list.map((a) => (a.severity || '') + ':' + a.daysLeft + ':' + a.agents.join(',')).join('|');
+  const sig = list.map(advKey).join('|');
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
     const sev = (a.severity === 'urgent' || a.severity === 'warn') ? a.severity : 'notice';
     const n = a.agents.length;
-    const who = a.agents.map(esc).join(', ');
+    // #5018: the names the person gave the agents (the board sends them as names, same order as agents).
+    const names = (Array.isArray(a.names) && a.names.length === n) ? a.names : a.agents;
+    const who = names.map(esc).join(', ');
+    // #5018: which provider and account they run under. No email read: name the provider only, never a guess.
+    const acct = 'On ' + esc(a.provider || 'Claude') + (a.email ? ', ' + esc(a.email) : '') + ': ';
     const head = a.expired
       ? (n === 1 ? 'An agent’s login has expired' : n + ' agents’ login has expired')
       : (a.daysLeft <= 0
@@ -20985,9 +21012,31 @@ function paintLoginAdvisories(advs) {
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
     return '<div class="utoast login-adv ' + sev + '" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + esc(head) + '</b><small>' + who + '. ' + esc(tail) + '</small></div>'
+      + '<div class="utxt"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
+      + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="Close">&times;</button>'
       + '</div>';
   }).join('');
+  slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
+    loginAdvDismiss(btn.getAttribute('data-adv-key'));
+    paintLoginAdvisories(advs);
+  }));
+}
+/* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
+   the notice for this page's life, and it comes back on reload. */
+const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';
+let loginAdvHiddenMem = [];
+function loginAdvDismissed() {
+  try { const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]'); if (Array.isArray(v)) return v.concat(loginAdvHiddenMem); } catch { /* refused */ }
+  return loginAdvHiddenMem.slice();
+}
+function loginAdvDismiss(key) {
+  if (!key) return;
+  loginAdvHiddenMem = loginAdvHiddenMem.concat(key);
+  try {
+    let v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
+    if (!Array.isArray(v)) v = [];
+    localStorage.setItem(LOGIN_ADV_HIDE_KEY, JSON.stringify(v.concat(key).slice(-40)));
+  } catch { /* refused: the in-memory copy still hides it */ }
 }
 
 /* #3955: reload an old page by itself, but only when that cannot lose anything: the window is in the

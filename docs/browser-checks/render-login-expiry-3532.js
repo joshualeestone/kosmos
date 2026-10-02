@@ -96,6 +96,61 @@ const CASES = [
     await pg.close();
   }
 
+  /* #5018 (Josh): the account it runs under, the names he gave the agents, a close X that holds until the notice says
+     something new, and a notice that floats over the page instead of pushing the navigation down. */
+  {
+    let adv = [{ agents: ['amara-singh', 'ben-okafor'], names: ['Amara', 'Ben'], provider: 'Claude',
+      email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    const shown = () => pg.waitForFunction(() => document.querySelector('#login-adv-slot .login-adv'), null, { timeout: 12000 }).then(() => true, () => false);
+    chk(await shown(), '5018: the notice renders');
+    const txt = await pg.$eval('#login-adv-slot', (el) => el.innerText).catch(() => '');
+    chk(/On Claude, owner@example\.com: Amara, Ben\./.test(txt), '5018: names the provider, the account and the given names', JSON.stringify(txt));
+    chk(!/amara-singh|ben-okafor/.test(txt), '5018: no system names', JSON.stringify(txt));
+    await pg.screenshot({ path: path.join(OUT, 'login-expiry-5018-overlay.png') });
+    // Overlay: the header is the same height with the notice as without it, and the notice sits below the header.
+    const geo = await pg.evaluate(() => {
+      const h = document.querySelector('.apphead header').getBoundingClientRect();
+      const n = document.querySelector('#login-adv-slot .login-adv').getBoundingClientRect();
+      const tabs = document.querySelector('.apphead .tabs'); const t = tabs ? tabs.getBoundingClientRect().top : null;
+      return { headH: h.height, headBottom: h.bottom, noteTop: n.top, tabsTop: t };
+    });
+    await pg.evaluate(() => { document.getElementById('login-adv-slot').style.display = 'none'; });
+    const bare = await pg.evaluate(() => {
+      const tabs = document.querySelector('.apphead .tabs');
+      return { headH: document.querySelector('.apphead header').getBoundingClientRect().height, tabsTop: tabs ? tabs.getBoundingClientRect().top : null };
+    });
+    await pg.evaluate(() => { document.getElementById('login-adv-slot').style.display = ''; });
+    chk(Math.abs(geo.headH - bare.headH) < 0.5, '5018: the header does not grow while the notice shows', JSON.stringify({ geo, bare }));
+    chk(geo.tabsTop === bare.tabsTop, '5018: the navigation does not move', JSON.stringify({ geo, bare }));
+    chk(geo.noteTop >= geo.headBottom, '5018: the notice floats below the header, over the page', JSON.stringify(geo));
+    // The X hides it, and it stays hidden across a reload while nothing changes.
+    await pg.click('#login-adv-slot .login-adv .ux').catch((e) => errs.push('click: ' + e.message));
+    chk(!(await pg.$('#login-adv-slot .login-adv')), '5018: the X hides the notice');
+    await pg.reload({ waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForTimeout(2500);
+    chk(!(await pg.$('#login-adv-slot .login-adv')), '5018: still hidden after a reload, nothing changed');
+    // A change (fewer days left) brings it back.
+    adv = [{ ...adv[0], daysLeft: 4 }];
+    await pg.reload({ waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    chk(await shown(), '5018: a change (5 days to 4) shows the notice again');
+    chk(errs.length === 0, '5018: no console errors', errs.join(' | '));
+    await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    await pg.close();
+  }
+
   /* #3532 DARK-MODE escalation guard. The (0,3,0) dark `.utoast { --utone }` override would, without
      the theme restatement, paint notice+warn the same salmon as urgent -- collapsing the escalation
      in dark, invisibly to a classList/text assertion. Render notice and urgent in FORCED dark and
