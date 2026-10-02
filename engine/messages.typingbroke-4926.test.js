@@ -172,3 +172,52 @@ test('#4926 review 1 (Opus): a post the members got but the record could not tak
     assert.match(String(d.because), /could not be recorded/);
   });
 });
+
+test('#4926 review 2 (Sonnet): a throw BEFORE the typing path (nothing typed) is could_not; every member that way is refused, no row', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    const real = roomhold.shouldHold;
+    let broken = ['cy'];
+    roomhold.shouldHold = (o) => { if (broken.includes(o.name)) throw new Error('lookup broke'); return real(o); };
+    try {
+      const d = await agentPost(roster, 'one member unreachable', false);
+      assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT, 'a member nothing was typed into was recorded as maybe reached');
+      assert.equal(enters(calls).length, 2, 'fixture: the other two were not typed into');
+      assert.equal(rows().length, 1);
+      broken = ['bix', 'cy', 'dee'];
+      const none = await agentPost(roster, 'nobody reachable', false);
+      assert.equal(none.state, chat.DELIVERY.COULD_NOT, 'a post typed to nobody was not refused: ' + none.state);
+      assert.equal(rows().filter((r) => r.text && r.text.includes('nobody reachable')).length, 0, 'a post typed to nobody was recorded');
+    } finally { roomhold.shouldHold = real; }
+  });
+});
+
+test('#4926 review 2 (Sonnet): a re-post of a post that reached the room but could not be recorded folds; nobody is typed into twice', async () => {
+  await withRoom(async (roster) => {
+    const calls = arm();
+    const real = fs.appendFileSync;
+    fs.appendFileSync = (f, ...rest) => { if (f === messages.LOG) throw new Error('ENOSPC'); return real(f, ...rest); };
+    try {
+      const d = await agentPost(roster, 'unrecorded once', false);
+      assert.equal(d.state, chat.DELIVERY.UNCONFIRMED);
+      const typed = enters(calls).length;
+      const again = await agentPost(roster, 'unrecorded once', false);
+      assert.equal(again.duplicate, true, 'the re-post was sent again');
+      assert.equal(enters(calls).length, typed, 'a member was typed into twice');
+    } finally { fs.appendFileSync = real; }
+  });
+});
+
+test('#4926 review 2 (Sonnet): a throw from the quoted-words pass after delivery does not turn a landed post into "refused"', async () => {
+  await withRoom(async (roster) => {
+    arm();
+    const earlier = 'an earlier post by cy whose words the quote pass will read back';
+    await postAs(roster, 'cy', earlier);
+    const real = chat.cleanMessage;
+    chat.cleanMessage = (t) => { if (t === earlier) throw new Error('quote pass broke'); return real(t); };
+    let d;
+    try { d = await agentPost(roster, 'a later post by ava', false); } finally { chat.cleanMessage = real; }
+    assert.equal(d.state, chat.DELIVERY.PLACED, 'a landed post was answered ' + d.state);
+    assert.ok(rows().some((r) => r.text === 'a later post by ava'), 'the post was not recorded');
+  });
+});

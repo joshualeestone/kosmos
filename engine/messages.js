@@ -480,6 +480,7 @@ function resetForTests() {
      (the product only appends), and tests reset. */
   READ_CACHE = null;
   IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
+  UNRECORDED_SENDS.clear();
 }
 
 function tmuxBin() {
@@ -958,6 +959,15 @@ const ROOM_PROGRESS_STEPS = 4;
    too: the same send arriving meanwhile waits for the first one's receipt instead of sending again.
    Keyed by sender, place and text; cleared when the first finishes, either way. */
 const IN_FLIGHT_SENDS = new Map();
+/* #4926 review 2 (Sonnet): a post the members got whose record could not be written has no row for recentSameSend to
+   fold a retry into, so its answer is kept here for the dedup window. */
+const UNRECORDED_SENDS = new Map();
+function unrecordedTwin(key) {
+  const u = UNRECORDED_SENDS.get(key);
+  if (!u) return null;
+  if (Date.now() - u.keptAt > SEND_DEDUP_WINDOW_MS) { UNRECORDED_SENDS.delete(key); return null; }
+  return u.result;
+}
 // A twin still in flight, unless it has been in flight longer than the window (a delivery that never settles must
 // not hold every identical retry forever).
 function inFlightTwin(key) {
@@ -1643,6 +1653,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       const foldedState = aggregateState(samePost.outcomes);
       return { state: foldedState, because: foldedState === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: samePost.id, at: samePost.at, outcomes: samePost.outcomes || null, from, text: stored, duplicate: true };
     }
+    const unrecorded = unrecordedTwin(postKey);   // #4926 review 2: delivered but not recorded
+    if (unrecorded) return asDuplicate(unrecorded);
     // Only the async path waits on an in-flight twin: a synchronous caller (sendPost) expects a receipt.
     const inFlight = asynchronousDelivery ? inFlightTwin(postKey) : null;
     if (inFlight) return inFlight.then(asDuplicate);
@@ -1886,6 +1898,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
   const heldUntil = {};
   let reached = 0;
+  const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const deliverOne = (name) => {
     if (offHere.has(name)) return null;
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
@@ -2039,6 +2052,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
     const typeInto = operator === true || roomhold.off(process.env)
       ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
     let sent;
+    typingStarted.add(name);
     try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
@@ -2050,7 +2064,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
      A throw can come after the paste went in, so it is UNCONFIRMED ("may have reached"), never could_not: the post is
      recorded, the sender is told not to re-post, and a retry folds into this row. */
   const typingBroke = (name, err) => {
-    if (outcomes[name] === undefined) { outcomes[name] = chat.DELIVERY.UNCONFIRMED; reached += 1; }
+    /* Review 2 (Sonnet): a throw BEFORE the typing path was entered (the hold check, the spill, a lookup) typed nothing:
+       that member could not be reached, and a post where that is every member is refused as before. */
+    if (outcomes[name] === undefined) {
+      if (typingStarted.has(name)) { outcomes[name] = chat.DELIVERY.UNCONFIRMED; reached += 1; } else outcomes[name] = chat.DELIVERY.COULD_NOT;
+    }
     // Review 1: the error's first line only, cut short (a tmux error can carry its arguments, the pasted text among them).
     try { process.stderr.write('room post ' + id + ': typing into ' + name + ' failed (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + '); recorded as unconfirmed\n'); } catch { /* never breaks the post */ }
   };
@@ -2081,7 +2099,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
   // A requote whose whitespace was reflowed across a newline simply is not
   // tagged -- fewer matches, never a false one, which is exactly #460's law
   // that an ambiguous quote resolves to no styling.
-  const quotes = quotedSegments(stored, from, projectId, log);
+  /* #4926 review 2 (Sonnet): the quoted-words pass runs after delivery too, so a throw from it must not turn into "refused". */
+  let quotes = [];
+  try { quotes = quotedSegments(stored, from, projectId, log); } catch { quotes = []; }
   /* #4926 review 1 (Opus): the members have it by now. A record that cannot be written must not turn into a thrown
      "refused" (the sender would post it again, and nothing could fold the twin): it is answered unconfirmed. */
   try {
@@ -2110,7 +2130,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
       ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
-    return { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, from, text: stored };
+    const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, from, text: stored };
+    if (operator !== true) UNRECORDED_SENDS.set(postKey, { result: unrecorded, keptAt: Date.now() });   // review 2: a retry folds
+    return unrecorded;
   }
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
      sentence must be built from `outcomes` per recipient (a post to

@@ -69,3 +69,14 @@ B. At the flush (idle flush, the quota flushReleased, and the held line riding a
 - NIT (kept, pre-existing): putBack after a paste-then-throw can tell held ids twice.
 - NIT (kept): staleHeld scans the log twice; measured by the reviewer at ~3.6 ms on 200k rows, only when ids are held.
 - Mutants this round: 4/4 killed. Related files: 261/261.
+
+## Review 2 (Sonnet, blind): 0 blockers, 2 warnings, 2 nits.
+- WARNING FIXED: a post delivered but not recorded had no row, so a re-post was not folded and typed into everyone again.
+  Its answer is kept in memory (UNRECORDED_SENDS) for the dedup window and a re-post folds into it. Test + mutant.
+- WARNING FIXED: a throw BEFORE the typing path (the hold check, the spill, a lookup) typed nothing but was counted as
+  "may have reached". Now a member is unconfirmed only if its typing path was entered; before that it is could_not, and
+  a post where that is every member is refused with no row, as before the change. Test + mutant.
+- NIT FIXED: the quoted-words pass after delivery is guarded (a throw there no longer surfaces as "refused"). Test +
+  mutant (cleanMessage made to throw on an earlier row's text).
+- NIT (kept, pre-existing): putBack after a paste-then-throw can tell held ids twice.
+- Gap noted again (kept, other card): outbox replay of an old kept post wakes everyone.
