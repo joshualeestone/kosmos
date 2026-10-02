@@ -7007,7 +7007,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the action bottom left. Its own layer above the board, like the other dialogs. */
 /* The backdrop is an .rm-back too, so every "is a dialog open?" guard in the page sees it (tips, type-to-compose);
    two classes, so its own dark and layer win over .rm-back's. */
-.rm-back.pv-back { position: fixed; inset: 0; z-index: 60; display: block; background: rgba(0, 0, 0, .9); }
+.rm-back.pv-back { position: fixed; inset: 0; z-index: 59; display: block; background: rgba(0, 0, 0, .9); }   /* under first run (60), which pvCovered also gives the keys */
 /* The page keeps a strip for its scrollbar (scrollbar-gutter: stable), and Chromium (the Windows app's engine) never
    paints a fixed layer over it, so the dark would stop short of the edge. While the preview is in the page the page has
    no scrollbar and no strip (it moves by that strip, behind the dark); gone, it has them back, however it went. */
@@ -58788,7 +58788,9 @@ function pvOpen(id, from) {
   back.querySelector('#pv-x').addEventListener('click', pvClose);
   // A click anywhere on the dark closes it: anything but the file itself, the X and the action. Only when the press
   // began on the dark too, so selecting a text file's words and letting go past them does not close it.
-  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do'));
+  /* The file, its controls, and the words a person may want to select or copy (the name, a note, an error)
+     keep the preview open; only the dark around them closes it. */
+  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do, .pv-name, .pv-msg, .pv-note'));
   let pressedOnFile = false;
   back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
   back.addEventListener('click', (e) => { if (!pressedOnFile && !onFile(e.target)) pvClose(); pressedOnFile = false; });

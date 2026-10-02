@@ -29,7 +29,7 @@ Every place the page shows a person's file was printed, not counted (a search ag
 4. Bottom left: "Open in Finder" ("Show in File Explorer" on Windows) asks POST /api/attachment/<id>/reveal, which
    finds the file by id alone and selects it (projects.revealFile: `open -R`; win32explorer.revealFile: `/select,`).
    Over Kosmos+ (kplusRemote) it is "Download" instead, a link to the attachment.
-5. While the preview is up the page drops its scrollbar strip (html.pv-open): Chromium, the Windows app's engine,
+5. While the preview is up the page drops its scrollbar strip (the `html:has(> body > #pv-preview)` rule, no class): Chromium, the Windows app's engine,
    never paints a fixed layer over a `scrollbar-gutter: stable` strip, so the dark stopped 15 px short of the edge.
 
 ## Review 1
