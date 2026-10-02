@@ -59,7 +59,7 @@ async function runOn(engine, base, say) {
         const u = new URL(route.request().url());
         if (u.pathname === '/' || u.pathname === '/index.html') return route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
         const rv = u.pathname.match(/^\/api\/attachment\/([0-9a-f]{24})\/reveal$/);
-        if (rv && route.request().method() === 'POST') { reveals.push(rv[1]); return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
+        if (rv && route.request().method() === 'POST') { reveals.push(rv[1]); if (rv[1] === NOPAGE_ID) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"no such attachment"}' }); return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
         if (/^\/api\/attachment\/[0-9a-f]{24}\/preview$/.test(u.pathname)) return u.pathname.includes(NOPAGE_ID) ? route.fulfill({ status: 404, body: '' }) : route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
         if (u.pathname.startsWith('/api/')) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"stub"}' });
         return route.fulfill({ status: 404, body: '' });
@@ -208,6 +208,10 @@ async function runOn(engine, base, say) {
       await pg.waitForTimeout(250);
       const noPage = await pg.evaluate(() => ({ img: !!document.querySelector('#pv-preview img.pv-media'), card: (document.querySelector('#pv-preview .pv-file b') || {}).textContent }));
       say(!noPage.img && noPage.card === 'windows.pdf', tag + ' P6: a PDF whose first page will not load shows its card, not a broken image', JSON.stringify(noPage));
+      await pg.click('#pv-do');   // the board answers 404 for this one: the file is gone
+      await pg.waitForTimeout(150);
+      const gone = await pg.evaluate(() => (document.getElementById('pv-msg') || {}).textContent);
+      say(gone === 'That file is no longer on this computer.', tag + ' P6: Open in Finder on a file that is gone says so in words', JSON.stringify(gone));
       await pg.keyboard.press('Escape');
       await pg.click(card(TXT_ID));
       await pg.waitForTimeout(150);
