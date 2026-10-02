@@ -1226,6 +1226,7 @@ function pendingRetirements() {
   if (pendingCache.mtimeMs === mtimeMs && pendingCache.dir === retireDir()) { retireUnreadable = pendingCache.unreadable; return pendingCache.list; }
   let names;
   try { names = fs.readdirSync(retireDir()); } catch (e) { return unreadableRetireDir(e); }
+  reportedCorrupt.delete('retire-dir');   // readable again: a later outage is logged again
   let unreadableRequest = false;
   const out = [];
   for (const f of names.filter((n) => n.endsWith('.json') && !finishedRequests.has(n)).sort()) {
@@ -1387,8 +1388,8 @@ const staleRetryAt = new Map();
 function applyOne(r, eps) {
   const file = path.join(retireDir(), r.file);
   if (r.done.includes(path.basename(endpointDir())) && (staleRetryAt.get(r.file) || 0) > Date.now()) return;
-  // Until the store is marked, the current folder is not done, so the name stays held and nothing of the deleted
-  // agent can go out as a new one (a folder with nothing to move would otherwise finish the request).
+  // Until the store is marked, no folder is done, so the name stays held and nothing of the deleted agent can go out as
+  // a new one (a folder with nothing to move would otherwise finish the request).
   let marked = r.marked;                           // once it has landed it is not read again every pass
   if (!marked) { try { communitystore.markAgentNotSent(r.agent, r.at); marked = true; } catch { marked = false; } }
   const done = new Set(r.done);
@@ -1399,8 +1400,10 @@ function applyOne(r, eps) {
     const name = path.basename(ep);
     if (done.has(name)) continue;
     let ok = false;
-    let why = marked || ep !== endpointDir() ? 'unknown' : 'the post store';
-    try { ok = (marked || ep !== endpointDir()) && retireIn(ep, r.agent, r.at); } catch (e) { ok = false; why = (e && e.code) || 'unknown'; }
+    let why = marked ? 'unknown' : 'the post store';
+    // No folder is done before the store mark lands, the current one or any other: the board can be pointed at another
+    // service later, and a request finished without the mark would let the deleted agent's posts go out there.
+    try { ok = marked && retireIn(ep, r.agent, r.at); } catch (e) { ok = false; why = (e && e.code) || 'unknown'; }
     if (ok === 'moved') movedAny = true;
     if (ok) {
       done.add(name);
@@ -1696,7 +1699,7 @@ function willSend(agentKey, now = Date.now()) {
   if (!sinceForOnPeriod(st)) return no;
   // #4994: a retirement that already failed on this service holds the name until it is fixed. A "no" is permanent (the
   // route marks the comment never to send) while this is a fault that can be repaired: it goes, but not on the next
-  // pass. One merely waiting for the lock lands before the next pass sends anything, so it changes nothing.
+  // pass. One not yet tried is answered as usual; if its first try then fails, the comment waits until it is fixed.
   if (agentKey && failedHere(agentKey)) return { sends: true, later: true };
   // Past the service's daily comment cap: it goes, but not on the next pass.
   const later = Boolean(k && k.commentRetryAt && Date.parse(k.commentRetryAt) > now);

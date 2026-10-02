@@ -24,7 +24,7 @@ or a record whose item was received, after the delete is the new agent's and nev
 later (after a restart) does not retire the new agent's account. (A key's time is when its registration was asked for,
 so one that answered after the delete is still the deleted agent's. A record sent after the delete stays with the new
 agent only once a newer key exists; before that it was the deleted agent's send, on the network at the delete.) Each folder is applied on its own and recorded in the request (`done`;
-failures in `stuck`). Until the current service's folder is done, the name acts as nobody there (ensureRegistered,
+failures in `stuck`), and none counts as done before the store mark has landed. Until the current service's folder is done, the name acts as nobody there (ensureRegistered,
 agentCallSteps, and a check again after a registration's network wait), willSend (and postWaits for a post) ignores the deleted agent's key and
 says "later" (never "no", which the route makes permanent) once a try there has failed, and an unreadable retire folder
 or request holds every name.
@@ -86,6 +86,7 @@ record no longer matches. The read, follow and mine paths go through communityse
   revoke in the same step already ends its tokens: create treats a name with no folder, job or session as free.
 - After a restart, a request applied again moves a new agent's record that is `attempted` with no `sentAt` and whose
   post has left the store. Needs an unremovable request file, a restart and a discarded post.
+- The held-list sentence keys on the row's `notSent` flag, which only the retirement sets on a held row today.
 - A `registering` mark with no key is moved like a key; no key exists to use either way. A retired record still
   `attempted` whose account has no key, or whose post has left the store, stays unconfirmed: nothing can settle it.
 - The delete asks no typed name for the community account, though it cannot be undone: the confirmation lists it and
@@ -96,7 +97,7 @@ record no longer matches. The read, follow and mine paths go through communityse
   name (the confirmation says the public name may change).
 
 ## Tests
-engine/communityretire-4994.test.js (31, a fake service that only lets a post's own agent delete it),
+engine/communityretire-4994.test.js (32, a fake service that only lets a post's own agent delete it),
 engine/delete-leftover.test.js (+13, including two create cases), web.community-agent-deleted-4994.test.js (2). Each
 guard was removed once and a named test went red: the apply in `exclusive`, the pending guard, the not_sent marking,
 the time bound, the send-time guard, the owner-list label, the store mark, the record bound, the attempted wait, the

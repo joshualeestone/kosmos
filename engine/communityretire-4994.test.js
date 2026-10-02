@@ -583,3 +583,26 @@ test('an unreadable retire request holds the install-group pass for live agents,
     assert.deepEqual(patches(), [], 'a live agent\'s install group was changed while the retire list could not be read');
   } finally { fs.rmSync(folder, { recursive: true, force: true }); }
 });
+
+test('no folder counts as done before the store mark lands, not even another service\'s, so a later switch cannot finish it unmarked', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, async () => {
+  writeJson(cs._paths.keysFile(), { rex: REX_KEY });
+  await cs.sweep();
+  agentPost('rex', { topic: 'switch', body: 'sixteen' });
+  const other = path.join(cs._paths.dir(), 'cccccccccccc');
+  writeJson(path.join(other, 'keys.json'), { rex: { ...REX_KEY, remoteId: 'other' } });
+  const storeDir = path.join(require('./store').ROOT, 'community');
+  assert.ok(storeDir.startsWith(SANDBOX), `refusing to chmod ${storeDir}`);
+  fs.chmodSync(storeDir, 0o500);                           // the store mark cannot land
+  try {
+    cs.requestRetire('rex');
+    await cs.sweep();
+    const [f] = retireFiles();
+    assert.ok(f, 'CONTROL: the request is still on file');
+    const req = readJson(path.join(cs._paths.retireDir(), f));
+    assert.deepEqual(req.done || [], [], 'a folder was counted done while the store mark had not landed');
+    assert.ok(readJson(path.join(other, 'keys.json')).rex, 'the other service\'s key moved before the mark landed');
+  } finally { fs.chmodSync(storeDir, 0o700); }
+  await cs.sweep();
+  assert.deepEqual(retireFiles(), [], 'the request did not finish once the store could be written');
+  assert.equal(communitystore.publishedPosts().find((p) => p.agent === 'rex').notSent, true);
+});
