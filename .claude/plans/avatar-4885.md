@@ -46,6 +46,13 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
 - Deleting the community picture when the person switches the community off. Switching off does not take down
   posts either; it stops new things going out.
 
+## Decided, not missed (review 2)
+- A sweep that lands while store.saveAvatar is writing (it unlinks, then writes in place) skips that agent for that
+  sweep when the file changed under the read. In the instant between the unlink and the write there is no file, so
+  one needless DELETE can go out; the next sweep sends the new picture. Kept: a flicker that heals itself, against
+  making saveAvatar atomic in a module this PR does not otherwise touch.
+- The picture pass runs after comments, so a failing picture route never delays comment posting.
+
 ## Weakest premise
 That hashing the file each sweep is cheap enough. The file is stat'd first and anything over 60,000 bytes is never
 read, so a sweep reads and hashes at most 60 KB per registered agent (measured here: 11 to 32 KB pictures).

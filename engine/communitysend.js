@@ -1127,11 +1127,15 @@ function avatarWanted(agentKey) {
   let file = null;
   try { file = store.avatarPath(agentKey); } catch { file = null; }
   if (!file) return { id: null, why: null };
-  let size;
-  try { size = fs.statSync(file).size; } catch { return { id: null, why: null }; }
-  if (size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + size };
+  let before;
+  try { before = fs.statSync(file); } catch { return { id: null, why: null }; }
+  if (before.size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + before.size };
   let bytes;
-  try { bytes = fs.readFileSync(file); } catch { return { id: null, why: null }; }
+  let after;
+  try { bytes = fs.readFileSync(file); after = fs.statSync(file); } catch { return { busy: true }; }
+  // store.saveAvatar writes the file in place: a picture that changed while it was read is half written. Left for
+  // the next sweep rather than sent (the service would refuse the cut-short file) or read as "none".
+  if (after.size !== before.size || after.mtimeMs !== before.mtimeMs || bytes.length !== before.size) return { busy: true };
   const type = store.imageTypeOf(bytes);
   if (!AVATAR_TYPES.has(type)) return { id: null, why: 'type:' + (type || 'unknown') };
   return { id: crypto.createHash('sha256').update(bytes).digest('hex'), type, bytes };
@@ -1147,6 +1151,7 @@ async function sweepAvatars(keys, on) {
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
     const w = avatarWanted(agentKey);
+    if (w.busy) continue;
     const want = w.id;
     if (k.refused) {
       // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
@@ -1176,8 +1181,7 @@ async function sweepAvatars(keys, on) {
     if (!k.avatarUnsure && sent === target) continue;
     if (target !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
     const wasUnsure = k.avatarUnsure === true;
-    k.avatarUnsure = true;
-    saveJson(keysFile(), keys);
+    if (!wasUnsure) { k.avatarUnsure = true; saveJson(keysFile(), keys); }
     const r = target === null
       ? await asAgent(agentKey, keys, 'DELETE', '/agents/me/avatar')
       : await asAgent(agentKey, keys, 'PUT', '/agents/me/avatar', rawBody(w.bytes, w.type));
@@ -1192,7 +1196,7 @@ async function sweepAvatars(keys, on) {
       delete k.avatarRetrying;
       k.avatarRefused = want;
       saveJson(keysFile(), keys);
-      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes, and the one it showed before is taken down`);
+      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes${sent !== null || wasUnsure ? ', and the one it showed before is taken down' : ''}`);
     } else if (k.avatarRetrying !== target) {
       k.avatarRetrying = target;
       saveJson(keysFile(), keys);
@@ -1267,17 +1271,19 @@ async function sweepOnce(now) {
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepIndustry(keys, on); }
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  try { await sweepAvatars(keys, on); }   // #4885
-  catch (e) { log(`pictures: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   // #4373 part B: comments go after the owner's deletes, the take-down reads and the industry pass, so a slow comment
   // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
-  // #4922: last, the least urgent: a service slow on this route must not hold back the passes above.
+  // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #4885: pictures last. A failing picture route costs a timeout per agent, so it must not hold back comments
+  // or the install group.
+  try { await sweepAvatars(keys, on); }
+  catch (e) { log(`pictures: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
