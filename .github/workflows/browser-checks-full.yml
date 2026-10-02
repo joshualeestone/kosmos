@@ -128,7 +128,7 @@ jobs:
           set -o pipefail
           # SKIP forced OFF: with it on, a missing Playwright or an engine that cannot launch exits
           # 0, and a green scheduled run would close the card.
-          KOSMOS_BC_CI_ALLOWLIST='render-subback-4586 zz-subback-hidebars-5052 render-orgchart-phone-718 zz-orgchart-probe-5052' KOSMOS_SKIP_BROWSER_CHECKS=0 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh 2>&1 | tee "$RUNNER_TEMP/browser-checks.log"
+          KOSMOS_BC_CI_ALLOWLIST='zz-subback-probe-5052' KOSMOS_SKIP_BROWSER_CHECKS=0 KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh 2>&1 | tee "$RUNNER_TEMP/browser-checks.log"
       # The labels of the checks that went red, for the card. Read from the driver's own
       # summary (`FAILED-LIST:  a|b (why)|c`, one entry per "|", since entries can contain
       # spaces), not from FAIL lines, which the individual checks also print.
