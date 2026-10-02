@@ -162,7 +162,7 @@ test('note: says which of the four it is, with this page\'s own last read for on
   assert.equal(api.oaNote(c, { state: 'out', agents: [{}], at: read }, now), 'Not connected, this page last read it 3 hours ago. Showing what this page last read.');
   assert.equal(api.oaNote(c, { state: 'out', agents: null, at: null }, now), 'Not connected.', 'the coordinator\'s lastSeen (refreshed daily) is never shown as a time');
   assert.equal(api.oaNote({ ...c, lastSeen: null }, { state: 'out', agents: null }, now), 'Not connected.', 'never a made-up time');
-  assert.match(api.oaNote(LIST.computers[1], { state: 'blocked', agents: null }, now), /online but did not let this page read/);
+  assert.match(api.oaNote(LIST.computers[1], { state: 'blocked', agents: null }, now), /online, but its agents cannot be read from here yet\. It may need the latest Kosmos\./);
 });
 
 test('cards: a link to the agent on ITS computer, built from the address, names as text', () => {
@@ -527,7 +527,7 @@ test('note: a greyed list from a refusing computer says when this page last read
   const { api } = load();
   const now = 10 * 3600 * 1000;
   assert.equal(api.oaNote(LIST.computers[1], { state: 'blocked', agents: [{}], at: now - 3 * 3600 * 1000 }, now),
-    'agent1s is online but did not let this page read its agents. Showing what this page last read. This page last read it 3 hours ago.');
+    'agent1s is online, but its agents cannot be read from here yet. It may need the latest Kosmos. Showing what this page last read. This page last read it 3 hours ago.');
 });
 
 test('round: with no list known, the computers route is still asked at most once a minute', { timeout: 2000 }, async () => {
