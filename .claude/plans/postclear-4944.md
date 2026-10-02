@@ -27,10 +27,9 @@ then the box and the line both emptied, which moved the thread.
 - Attachment cards and link previews are not drawn on the bubble, so an attachment send still grows when kept.
 - could_not puts the words back even when the board recorded the attempt: the pre-#4944 arm never emptied the box,
   so the retry copy is what it always offered (check case 14).
-- Reply adjacency on the bubble uses the direct rule only, not the chain rule (prev.replyTo === m.replyTo && prevHid).
 
 ## Validation
-- New: docs/browser-checks/render-dm-send-clears-4944.js (16 cases), with render-dm-send-shows-now,
+- New: docs/browser-checks/render-dm-send-clears-4944.js (19 cases), with render-dm-send-shows-now,
   render-dm-sendjump-4639 and render-dm-reply-4256, via queued-heavy on Agent1s.
 - web.dm-send-shows-now, web.term-compose-967, web.links-everywhere unit tests pass; the inline scripts compile
   (negative control reds).

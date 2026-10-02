@@ -210,6 +210,7 @@ function readThread(page, words) {
     await page.evaluate(() => window.__post.resolve({ delivery: { state: 'could_not', because: 'April is not running' }, recorded: false, recordedBecause: null }));
     await page.waitForTimeout(300);
     chk((await box()) === 'try this one', 'could not deliver: the words are back in the box', JSON.stringify(await box()));
+    chk((await page.evaluate(() => TALK_DRAFTS.april || null)) === 'try this one', 'and parked under the agent too');
 
     /* 8. The person opened another agent during the flight: the words go to april's parked draft, not
        into the other agent's box. */
@@ -318,6 +319,50 @@ function readThread(page, words) {
     await page.waitForTimeout(300);
     const parked = await page.evaluate(() => TALK_DRAFTS.april || null);
     chk(parked === 'park me again', 'words put back in the box are parked under the agent as well', JSON.stringify(parked));
+
+    /* 17. Unconfirmed, not kept, and the person typed something new during the flight: the new words stay,
+       and the line points at the bubble rather than promising the box. */
+    await reset(BASE);
+    await press('unsure one');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => { document.getElementById('d-say').value = 'a new thought'; window.__post.resolve({ delivery: { state: 'unconfirmed', because: 'we typed it and could not tell whether it arrived' }, recorded: false, recordedBecause: null }); });
+    await page.waitForTimeout(300);
+    chk((await box()) === 'a new thought', 'unconfirmed with new words typed: the new words stay in the box', JSON.stringify(await box()));
+    chk(/stays in this conversation, marked not sent/.test(await line()) && !/in the box below/.test(await line()), 'and the line does not promise the box', await line());
+
+    /* 18. Placed after the person retyped the same words and opened another agent: the retyped draft is new
+       typing and is not retired. */
+    await reset(BASE);
+    await press('same words');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => {
+      TALK_DRAFTS.april = 'same words';   // what the input handler parks as they retype
+      CURRENT = { sessionName: 'mara', name: 'Mara' };
+      window.__post.resolve({ delivery: { state: 'placed', paneState: 'idle' }, recorded: true, recordedBecause: null });
+    });
+    await page.waitForTimeout(300);
+    chk((await page.evaluate(() => TALK_DRAFTS.april || null)) === 'same words', 'a retyped draft survives the placed verdict of the send it repeats');
+
+    /* 19. A second answer to the same message, right under the first: the chain rule hides the header on the
+       kept row, so the bubble hides it too and the swap stays in place. */
+    const CHAIN0 = new Date(Date.now() - 120000).toISOString();
+    const CHAIN = Object.assign({}, BASE, { messages: [
+      { from: 'april', at: CHAIN0, text: 'which option?' },
+      { at: new Date(Date.now() - 60000).toISOString(), text: 'option one', replyTo: CHAIN0, delivery: { state: 'placed' } },
+    ] });
+    await reset(CHAIN);
+    await page.evaluate((a) => dmReplyStart(a), CHAIN0);
+    await press('and also option two');
+    await page.waitForFunction(() => window.__post !== null);
+    const cBefore = await rowRect('and also option two');
+    await page.evaluate((fx) => { window.__fx = fx; window.__post.resolve({ delivery: { state: 'placed', paneState: 'idle' }, recorded: true, recordedBecause: null }); },
+      keptWith(CHAIN, { at: new Date().toISOString(), text: 'and also option two', replyTo: CHAIN0, delivery: { state: 'placed', paneState: 'idle' } }));
+    await page.waitForTimeout(400);
+    const cAfter = await rowRect('and also option two');
+    console.log('  chain pending ' + JSON.stringify(cBefore) + '  kept ' + JSON.stringify(cAfter));
+    chk(cBefore && cAfter && cBefore.shownHead === cAfter.shownHead && !cAfter.shownHead, 'a chained answer hides its header on the bubble as the kept row does', JSON.stringify({ cBefore, cAfter }));
+    chk(cBefore && cAfter && !cAfter.pending && Math.abs(cAfter.top - cBefore.top) <= 1 && Math.abs(cAfter.height - cBefore.height) <= 1,
+      'and swaps in place', JSON.stringify({ cBefore, cAfter }));
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
