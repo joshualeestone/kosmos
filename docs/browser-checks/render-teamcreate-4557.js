@@ -555,8 +555,10 @@ function chk(ok, label, extra) {
           await page.waitForTimeout(200);
           const narrow = await page.evaluate(() => { const li = document.querySelector('#tc-list li[data-slot="lead"]'); const st = li.querySelector('.tc-state'); const seat = li.querySelector('.tc-seat');
             const a = st.getBoundingClientRect(), b = li.getBoundingClientRect(), c = seat.getBoundingClientRect();
-            return { fits: document.documentElement.scrollWidth <= innerWidth, inside: a.right <= b.right + 1 && a.left >= b.left - 1, apart: c.right <= a.left + 1, state: st.textContent }; });
-          chk(narrow.fits && narrow.inside && narrow.apart && narrow.state === 'Said hello (picture not set)',
+            // Review 20: the boxes can sit apart while the seat's TEXT overflows its box, so the text is measured too.
+            return { fits: document.documentElement.scrollWidth <= innerWidth, inside: a.right <= b.right + 1 && a.left >= b.left - 1, apart: c.right <= a.left + 1,
+              seatText: seat.scrollWidth <= seat.clientWidth + 1, state: st.textContent }; });
+          chk(narrow.fits && narrow.inside && narrow.apart && narrow.seatText && narrow.state === 'Said hello (picture not set)',
             `${E} #4936 at phone width the lead's long hello state and its "leads the team" seat do not overlap, and nothing scrolls sideways`, JSON.stringify(narrow));
           await page.setViewportSize({ width: 1280, height: 900 });
           await page.click('#tc-hello');

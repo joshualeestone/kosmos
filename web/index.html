@@ -8356,7 +8356,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 /* #4936: the members a team just made, marked on the agents view for a few seconds after Create a Team. */
 .just-made { outline: 2px solid var(--gold-edge); outline-offset: 2px; }
 .tc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 8px; align-items: center; }
-.tc-seat { color: var(--label-2); }
+.tc-seat { color: var(--label-2); min-width: 0; overflow-wrap: anywhere; }   /* #4936 review 20: wraps beside a long hello state */
 .tc-seat b { color: var(--label); font-weight: 600; }
 .tc-name { min-width: 0; font: var(--text-callout) var(--font-ui); color: var(--label);
   background: var(--bg, transparent); border: 0.5px solid var(--border-strong);
@@ -48595,7 +48595,7 @@ function tcPaint() {
     note = (n === 1 ? 'This makes 1 agent. It is a real agent' : 'This makes ' + n + ' agents at once. Each one is a real agent') + ' that works on your AI plan, like any agent you make.'
       + (TC.team && TC.team.caution ? ' ' + TC.team.caution : '');
   } else if (runningN === n) {
-    const warned = TC.members.filter((m) => (m.warn || []).length).length;
+    const warned = TC.members.filter((m) => (m.warn || []).length || m.renamedFrom).length;   // review 20: a rename keeps the step too
     /* Josh, 2026-08-22: "Unless I go say hello to them, they don't start". */
     /* #4936 (Josh, 0.7.16: "Is there a way to say hello to all of them at once automatically"): Kosmos says the
        hello itself, lead first, the same message the agent's page sends. The note follows where that is. */
@@ -48794,7 +48794,8 @@ function tcGoToTeam(auto) {
   let first = null;
   let focused = false;
   // Review 19: once the person clicks or presses a key, focus is theirs: the mark loop stops putting it back.
-  const theirs = () => { focused = false; };
+  let moved = false;   // review 20: and the first scroll and focus wait on it too (a late card must not take focus)
+  const theirs = () => { focused = false; moved = true; };
   document.addEventListener('pointerdown', theirs, { once: true, capture: true });
   document.addEventListener('keydown', theirs, { once: true, capture: true });
   const sel = names.map((n) => '.acard[data-agent="' + CSS.escape(n) + '"], .lrow[data-agent="' + CSS.escape(n) + '"]').join(', ');
@@ -48802,7 +48803,7 @@ function tcGoToTeam(auto) {
     const live = Date.now() < until;
     for (const el of (sel ? document.querySelectorAll(sel) : [])) {
       el.classList.toggle('just-made', live);
-      if (live && !first && el.offsetParent) {
+      if (live && !first && !moved && el.offsetParent) {
         first = el;
         el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
         // Focus leaves the hidden step for the first new member, unless the person has already moved it elsewhere.
