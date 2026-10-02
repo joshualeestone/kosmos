@@ -399,6 +399,13 @@ const SCREENS = [
     await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
+  /* #4470: Create an agent in the new look, for the side by side with 'create-single'. */
+  { name: 'nl-create-single', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+  } },
   { name: 'create-team', owner: 'Angel', go: async (page) => {
     await page.click('#new-agent', { timeout: 5000 });
     await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });

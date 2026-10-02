@@ -281,6 +281,21 @@ const PHONE_LOOK = `(() => {
   }
   return out;
 })()`;
+/* #4470, Create an agent in the new look: a resting option card's edge, a chosen card's edge (one radio checked for
+   the read, then put back), and Continue's corners. Read with the panel and its role step shown, then put back. */
+const CREATE_LOOK = `(() => {
+  const panel = document.getElementById('panel-create'), step = document.getElementById('cstep-role'), go = document.getElementById('role-next');
+  const cards = panel ? [...panel.querySelectorAll('#cstep-role .pick2')] : [];
+  if (!panel || !step || !go || cards.length < 2) return { found: false, cards: cards.length };
+  const ph = panel.hidden, sh = step.hidden; panel.hidden = false; step.hidden = false;
+  const hid = cards.map((c) => c.hidden); cards.forEach((c) => { c.hidden = false; });
+  const radios = cards.map((c) => c.querySelector('input')), was = radios.map((r) => r && r.checked);
+  try {
+    radios.forEach((r) => { if (r) r.checked = false; }); if (radios[0]) radios[0].checked = true;
+    return { found: true, chosenEdge: getComputedStyle(cards[0]).borderTopColor, restEdge: getComputedStyle(cards[1]).borderTopColor,
+      continueRadius: getComputedStyle(go).borderTopLeftRadius };
+  } finally { radios.forEach((r, i) => { if (r) r.checked = was[i]; }); cards.forEach((c, i) => { c.hidden = hid[i]; }); step.hidden = sh; panel.hidden = ph; }
+})()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
    (content none) and no animation. A pulse the box itself does not carry is still a pulse on screen. */
@@ -497,6 +512,7 @@ const AGENTS_LOOK = `(() => {
       const dlBefore = await page.evaluate(DLEFT_LOOK);   // and today's left column, for the same control
       const setBefore = await page.evaluate(SETTINGS_LOOK);   // and today's Settings
       const ctlBefore = await page.evaluate(CTRL_LOOK);   // and today's buttons
+      const crBefore = await page.evaluate(CREATE_LOOK);   // and today's create step
       chk(before.look === null, `${tag} nothing stored: no data-look attribute`, JSON.stringify(before));
       chk(before.kbg && before.kbg !== NEW[theme], `${tag} nothing stored: today's page colour, not the new look's`, before.kbg);
 
@@ -573,6 +589,9 @@ const AGENTS_LOOK = `(() => {
       chk(setOn.found && setOn.boxEdge === CLEAR && setOn.boxRadius === '28px' && setOn.labelCase === 'none',
         `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
       const ctlOn = await page.evaluate(CTRL_LOOK);
+      const crOn = await page.evaluate(CREATE_LOOK);
+      chk(crOn.found && crOn.restEdge === CLEAR && crOn.chosenEdge !== CLEAR && crOn.continueRadius === '999px',
+        `${tag} On, Create an agent: a resting option card has no edge, the chosen one keeps its outline, Continue is a pill`, JSON.stringify(crOn));
       /* Round 3: a button's fill is above the box in both schemes (white in light; a step lighter than the box in dark,
          where the field is black), never the field's. */
       const RAISE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(58, 58, 60)' };
@@ -851,6 +870,9 @@ const AGENTS_LOOK = `(() => {
       const phOff = await page.evaluate(PHONE_LOOK);
       chk(phOff.found && phOff.room && phOff.dm && phOff.room.agentAvTopOff > 4 && phOff.dm.agentAvTopOff > 4 && phOff.newTaskRadius !== '999px',
         `${tag} Off: an agent's message keeps its avatar at the bubble's foot (room and DM) and New task its corners (the control)`, JSON.stringify(phOff));
+      const crOff = await page.evaluate(CREATE_LOOK);
+      chk(crOff.found && crBefore.found && JSON.stringify(crOff) === JSON.stringify(crBefore) && crOff.restEdge !== 'rgba(0, 0, 0, 0)' && crOff.continueRadius !== '999px',
+        `${tag} Off, Create an agent: today's edged cards and Continue, as before the switch was touched (the control)`, JSON.stringify({ off: crOff, before: crBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
