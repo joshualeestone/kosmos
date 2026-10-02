@@ -35,19 +35,19 @@ the project folder" and delete or default to "In the project folder.""
   sentence).
 - Each open counts itself; neither read from an earlier open (the conversation's or the folder's) paints.
   A reopen while the room read was out appended its rows twice (check arm: 2 rows without the guard, 1 with,
-  both engines, measured).
+  both engines, measured). Each open also hides the last project's pager until its own folder lists.
 - The conversation's segment has no count or pager: it never had one, so "its own count/paging" there is none. Below 400px wide the two segments share the row (at 320px the switch was 344px in a 296px
   view and the page scrolled sideways, measured on both engines).
 
 ## Weakest premise
-Second: that opening on the folder is right even when the folder is empty and the conversation has files (the
-screen says "Nothing here yet" beside a switch that holds files). The card says default to the folder.
-
 That hiding the control when the conversation has no files is right. If Josh wants the switch always
 visible for consistency, the one `hidden` toggle goes and the empty segment needs a sentence.
 
+Second: that opening on the folder is right even when the folder is empty and the conversation has files (the
+screen says "Nothing here yet" beside a switch that holds files). The card says default to the folder.
+
 ## Evidence
-- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 31 PASS;
+- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 33 PASS;
   red on main.
 - node --test browser-checks-*, web.*, tools.browser-checks-*: 2351/2351.
 - Surface gate: render-consolidated-nav-4345, render-subback-4586, render-subview-cleanup-3502 pass on

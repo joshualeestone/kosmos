@@ -57750,7 +57750,7 @@ document.getElementById('docs-next').addEventListener('click', () => { PJ_DOCS_P
 
 /* #4937: which of the Documents screen's two lists shows. The view's data-docseg drives the CSS that
    hides the other segment's parts; the radios carry aria-checked and the roving tabindex. */
-let DOCS_OPEN_GEN = 0;   // #4937: a reopen while an earlier room read is out must not get two copies of its rows
+let DOCS_OPEN_GEN = 0;   // #4937: each open counts itself; an earlier open's room read, folder read or folder error does not paint
 function docsSegShow(which) {
   const view = document.getElementById('pj-docs-view');
   const seg = document.getElementById('docs-seg');
@@ -57796,6 +57796,7 @@ async function openDocsView() {
   box.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
   const convo = document.getElementById('docs-convo');
   convo.textContent = '';
+  document.getElementById('docs-pager').hidden = true;          // the last project's pages; a listed folder shows it again
   docsSegShow('folder');                                        // #4937: every open starts on the folder
   const docsOpen = (DOCS_OPEN_GEN += 1);                         // #4937: only this open's room read may paint
   document.getElementById('docs-seg').hidden = true;             // until the conversation has files

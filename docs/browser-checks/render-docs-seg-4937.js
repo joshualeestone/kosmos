@@ -1,4 +1,4 @@
-// Browser-check-surface: docs-seg docs-convo docs-list
+// Browser-check-surface: docs-seg docs-convo docs-list docseg docsSegShow DOCS_OPEN_GEN openDocsView docs-finder docs-msg docs-pager cons-agents-lay
 'use strict';
 /**
  * #4937 (Josh, 2026-10-01 20:56): on a project's Documents screen the conversation's files stacked
@@ -125,6 +125,8 @@ const shown = (page, sel) => page.evaluate((s) => {
     const browser = await engine.launch({ headless: process.env.HEADED === '0' });
     try {
       const page = await browser.newPage({ viewport: { width: 320, height: 700 } });
+      const errs = [];
+      page.on('pageerror', (e) => errs.push(e.message));
       await page.addInitScript(() => {
         const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
         window.setInterval = () => 0;
@@ -151,6 +153,7 @@ const shown = (page, sel) => page.evaluate((s) => {
         return { shown: !seg.hidden, sideways: document.documentElement.scrollWidth > innerWidth, right: Math.round(Math.max(...btns.map((b) => b.right))), vw: innerWidth, oneRow: btns.length === 2 && Math.abs(btns[0].top - btns[1].top) < 1 };
       });
       chk(r.shown && !r.sideways && r.right <= r.vw && r.oneRow, `${engineName} 320px: the switch fits on one row without the page scrolling sideways`, JSON.stringify(r));
+      chk(errs.length === 0, `${engineName} 320px: no page errors`, errs.join(' | '));
       phones += 1;
     } finally {
       await browser.close();
