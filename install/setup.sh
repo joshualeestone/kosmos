@@ -2726,8 +2726,8 @@ _kosmos_put_board_back() {
 # port) die BEFORE the put-back is armed, because starting our board there would collide. But our own `kosmos stop`
 # had already written board.stopped, and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once
 # the port was free the board still stayed off. So: on a failed exit, a board.stopped that OUR stop wrote (the board
-# was meant to run, no marker before the run) is taken away, and nothing is started; whatever normally runs the board
-# brings it back once the port is free. Disarmed where the put-back takes over, which handles the marker itself.
+# was meant to run, no marker before the run) is taken away, and nothing is started. Disarmed where the put-back is
+# armed, so this rm reaches only the refusal window.
 _kosmos_marker_ours=no
 _kosmos_clear_own_marker() {
   [ "$_kosmos_marker_ours" = yes ] || return 0
@@ -2852,7 +2852,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # used to leave the board off with board.stopped written. Not armed on the three dies above: our board still running,
   # another install's board, or another app on the port (starting ours there would collide).
   _kosmos_paused_board="$_kosmos_was_running"
-  _kosmos_marker_ours=no   # #5033: from here the put-back owns the marker (it keeps it when the mode says off)
+  _kosmos_marker_ours=no   # #5033: the take-back covers only the refusals above
   # ⚠️ GONE BY PORT, not merely quiet over HTTP: a listener that stopped
   # answering the probe (mid-shutdown, wedged, or simply not speaking
   # HTTP) still holds the port, and the final start would then find a

@@ -29,8 +29,12 @@ second (a `kosmos stop` during the update) would lose it.
 - order: the marker line sits directly after the pause's stop, before the three refusals; the disarm sits
   after the arming line and before the port wait.
 - another app on the port, board meant to run: marker gone, our board not started, refusal sentence kept.
+  Only this refusal is driven end to end; the other two share its EXIT-trap path and are pinned by line order.
 - controls: a board the person stopped keeps its marker; past the arming point a computer switched to
   connect keeps its marker; switched to connect before the refusal keeps it; exit 0 keeps it.
+
+The disarm changes no outcome found so far (the take-back re-reads the mode itself); it is kept to bound the rm to the
+refusal window, and only the order check pins it.
 
 Mutations (each restored, tree checked clean): no take-back call (5 reds), no disarm (anchor red), no mode
 re-read (5d reds), marker armed unconditionally (anchor red), disarm moved after the survivor die (order

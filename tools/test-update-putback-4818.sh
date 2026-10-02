@@ -320,8 +320,8 @@ run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 if [ -e "$H/board.stopped" ]; then pass "#5033 control: a board the person stopped keeps its marker through the refusal"; else fail "#5033: the person's own board.stopped was removed"; fi
 stop_other "$H"
 
-# 5c. CONTROL: past the arming point the put-back owns the marker. A computer switched to connect during the run
-#     keeps board.stopped after a later failure (without the disarm, the take-back would remove it).
+# 5c. CONTROL: past the arming point, a computer switched to connect during the run keeps board.stopped after a later
+#     failure. (The disarm line is pinned by the order check above, not by this case.)
 P=$(free_port); H=$(home armedconnect); export PORT=$P
 "$H/bin/kosmos" start
 run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
