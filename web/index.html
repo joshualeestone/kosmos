@@ -8397,8 +8397,8 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
   justify-content: flex-end; gap: var(--space-3); }
 @media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
-/* Item 8: once the team is being made (.tc-making, set by tcPaint), every menu looks locked, not only refuses a
-   click. Before that, a model menu shown as one fixed sentence ("OpenAI picks its own model for now", or a list
+/* Item 8: a disabled menu looks locked, not only refuses a click (while the menus fill, and once the team is being
+   made, .tc-making, set by tcPaint, every one). Before the team starts, a model menu shown as one fixed sentence ("OpenAI picks its own model for now", or a list
    still loading) reads at full strength, as on the single create: it is a statement, not a locked choice. */
 #cstep-teammake select:disabled { opacity: .55; cursor: default; }
 #cstep-teammake:not(.tc-making) #tc-model[data-fixed="1"]:disabled { opacity: 1; }
@@ -48415,6 +48415,7 @@ let TC_FILLING = 0;   // a count: a second team opened during the first one's wa
 async function tcFillProvider(gen) {
   TC_FILLING += 1;
   try { await tcFillProviderNow(gen); } finally { TC_FILLING -= 1; }
+  tcSyncModel();   // #4935: the model menu is released here too, not only by the next tcPaint
 }
 async function tcFillProviderNow(gen) {
   const from = document.getElementById('create-provider');
