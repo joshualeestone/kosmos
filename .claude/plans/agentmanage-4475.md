@@ -17,12 +17,14 @@ and cannot force a removal; the person (the board token) removes any agent exact
     refused (403, in step 1's doctrine words). A caller holding the board token (the person, the page, every
     non-token-only agent) is untouched.
   - `tokenOnlyMayRemove` allows only when the target's newest `created` birth (`agentBirthOf`, activeAgentsCreatedBy's
-    rule) carries `createdByName` equal to the caller's token name exactly, and that birth's profile id is the
-    target's current one. A key-only or twin token is refused.
-  - POST /api/team, on the agent path, reads the caller's exact token name and passes it to the team.
-- `engine/team.js` sets `createdByName` on every member: the asking agent's token name when an agent (not the setup
-  guide) asked on a named token, else null, so a member cannot set it. `engine/create.js` records it on the birth.
-- Tests: `server.agent-remove-4475.test.js` (22); `server.team-agent-token-1279.test.js` (the agent path records the
+    rule) carries `createdByName` equal to the caller's token name exactly and `createdById` equal to the caller's
+    current profile id, and that birth's profile id is the target's current one. A key-only or twin token is refused.
+    The handler resolves the caller's card (resolveAgentSender) to read its profile by the key POST /api/team used.
+  - POST /api/team, on the agent path, reads the caller's exact token name and its profile id and passes both to the team.
+- `engine/team.js` sets `createdByName` and `createdById` on every member: the asking agent's token name and profile id
+  when an agent (not the setup guide) asked on a named token, else null, so a member cannot set them.
+  `engine/create.js` records them on the birth.
+- Tests: `server.agent-remove-4475.test.js` (24); `server.team-agent-token-1279.test.js` (the agent path records the
   name end to end, the board-token path records none); `engine/team.newrole-4474.test.js` (createdByName sorted as a
   field the team sets, and who gets one); the pins in `server.agent-token-gate-4491.test.js` and
   `server.agent-token-sender-570.test.js` (the route list, and the token-only call-site count now 3).
@@ -40,8 +42,10 @@ and cannot force a removal; the person (the board token) removes any agent exact
   an agent named "operator" could remove everything the person imported (review 1).
 - The setup guide's creations are the person's: it makes agents on the person's behalf, so its births carry no name
   and it cannot remove them. Rejected: letting it, as any other creator.
-- A birth counts only for the incarnation it made (profile id), so a name freed by deleting what was left (#514) and
-  used again is not the old creator's. A birth with no id (a dry run, or before #170) does not count.
+- Both ends are pinned to one incarnation by profile id: the target (a name freed by deleting what was left, #514,
+  and used again is not the old creator's) and the creator (a later agent that reuses the creator's name is not the
+  creator; review 5). A birth with no id or no creator id (a dry run, before #170, or a creator with no profile)
+  does not count, so such a creator cannot remove what it made; the person can.
 - Agents made before this change have births with no `createdByName`, so their creators cannot remove them; the
   person can. So does a creator whose token carries no name (minted before #4792).
 - Rejected: refusing every agent-token removal (today's behaviour): it keeps "PM, build me a team" from tidying up
@@ -52,8 +56,9 @@ and cannot force a removal; the person (the board token) removes any agent exact
   deleted (leftover deletion); an agent made by hand into a folder whose old profile file survived would keep the old id.
 
 ## Validation
-- `server.agent-remove-4475.test.js` 22/22, `server.team-agent-token-1279.test.js` 20/20. Mutants, each failing only
-  its cases: the creator check disabled (the refusal cases), the createdByName presence check, the profile-id check,
-  the key-only refusal, the board-name check, a slug comparison of the creator in place of the exact name.
+- `server.agent-remove-4475.test.js` 24/24, `server.team-agent-token-1279.test.js` 21/21. Mutants, each failing only
+  its cases: the creator check disabled (the refusal cases), the createdByName presence check, the target profile-id
+  check, the key-only refusal, the board-name check, a slug comparison of the creator in place of the exact name, the
+  creator profile-id check, and the team route recording the sessionName in place of the token name.
 - `engine/team.newrole-4474.test.js` 22/22.
 - `server.agent-token-gate-4491.test.js` 25/25; `server.agent-token-sender-570.test.js` 7/7.
