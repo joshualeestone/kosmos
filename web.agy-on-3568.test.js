@@ -623,3 +623,24 @@ test('#4960: both places that sign Gemini in carry the terms row', () => {
     assert.match(PAGE, new RegExp('<label[^>]*for="' + pre + 'terms-share"'), pre + 'terms-share has no label');
   }
 });
+
+test('#4960 round 3: a link Kosmos would not open is plain words, without "(opens in your browser)"', async () => {
+  const f = agyFlow({
+    '/api/antigravity/check': [{ installed: true, signedIn: false }],
+    'POST /api/antigravity/signin': [{ ok: true, id: 'a1b2c3d4e5f60718', state: 'starting' }],
+    'GET /api/antigravity/signin': [{ id: 'a1b2c3d4e5f60718', state: 'terms', terms: { dataUse: true, termsUrl: null, privacyUrl: 'https://policies.google.com/privacy' } }],
+    '/api/antigravity/signin/stop': [{ ok: true }],
+  });
+  const vh = { hidden: false };
+  f.el('fr-gemini-sub-terms-tos').attrs.href = '#';
+  f.el('fr-gemini-sub-terms-tos').removeAttribute = function (k) { delete this.attrs[k]; };
+  f.el('fr-gemini-sub-terms-tos').querySelector = () => vh;
+  try {
+    await f.FR_AGY_SUB.start();
+    await f.FR_AGY_SUB.start();
+    await f.settle(() => !f.el('fr-gemini-sub-terms-row').hidden);
+    assert.equal('href' in f.el('fr-gemini-sub-terms-tos').attrs, false, 'a link Kosmos refused still has an address');
+    assert.equal(vh.hidden, true, '"(opens in your browser)" stayed on words that open nothing');
+    assert.equal(f.el('fr-gemini-sub-terms-privacy').attrs.href, 'https://policies.google.com/privacy', 'CONTROL: the accepted link is set');
+  } finally { f.FR_AGY_SUB.leave(); }
+});
