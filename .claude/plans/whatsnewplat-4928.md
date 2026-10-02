@@ -28,8 +28,14 @@ file is not for its version stops (or is opted out on purpose), as the Mac cut d
   same words. A real platform-only release with its own words is not this card. Rejected: showing the newest file
   at or below the running version (#3955 rules that last release's text never appears).
 - The Windows build stops rather than warns, as the Mac cut does; the opt-out is the same variable.
+- Dismissing a window records WHICH highlights it showed (seen-version.json "highlightsFor", the file's main
+  version, engine/whatsnew key()), and the board does not open the same words again under another number (Windows
+  on 0.7.13 sees 0.7.16's words, then updates to 0.7.16: shown once). Review 1 found the double showing.
+- The Windows build tells "not for this version" (exit 3: add it to "also" and COMMIT it on the release branch)
+  from "could not run" (any other exit), and the Windows runbook (tools/windows/RELEASING.md) has the step.
+- A malformed "also" fails the whole file, as any problem does (fail closed); the cut's check refuses it first.
 - Weakest premise: the operator has to add the Windows number to "also" when the platforms diverge; the build now
-  says so in its refusal, which is where they will see it.
+  says so in its refusal, and the runbook says so before it.
 
 ## Validation
 Focused: every test that reads whatsnew, whats-new, build-kosmos-windows or releasing.md, plus the scanning guards
