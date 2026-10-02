@@ -60204,6 +60204,8 @@ const VOICE_SAYS_PHONE = {
   'mic-denied': 'This browser is not allowed to use the microphone. Allow it in this browser\'s settings for this site, or in the phone\'s Settings app under the browser.',
   'speech-denied': 'Speech recognition is turned off for this browser (allow it in the phone\'s Settings app under the browser), or not available in a page added to the home screen (open it in the browser instead).',
   network: 'The speech service could not be reached. Check the connection and try again.',
+  // A phone always has a microphone: it is held by something else (a call, a voice memo, another app).
+  'no-mic': 'The microphone is in use by something else, such as a call or another app. Try again when it is free.',
 };
 function voiceBridge() {
   try {
@@ -60464,7 +60466,7 @@ function voiceWho(line, forBtn) {
      Create or Save), a hidden status inside the dialog says it instead, so a screen reader is still told who hears. */
   const btn = forBtn || VOICE.btn, dlg = btn && btn.closest && btn.closest('[aria-modal="true"]'), el = dlg && voiceMsgEl(btn);
   if (el && (!el.textContent || el.textContent === VOICE.dlgSaid)) { el.textContent = line || ''; VOICE.dlgSaid = line || ''; voiceWhoHidden(null, ''); }
-  else if (el) voiceWhoHidden(dlg, line || '');
+  else if (el && line) voiceWhoHidden(dlg, line);
   if (!line) voiceWhoHidden(null, '');
   const vv = window.visualViewport;
   if (line && !VOICE_WHO_FOLLOW && vv) { vv.addEventListener('scroll', voiceWhoPlace); vv.addEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = true; }
@@ -60472,7 +60474,8 @@ function voiceWho(line, forBtn) {
   voiceWhoPlace();
   bar.textContent = line || '';
 }
-/* Every stop the person asks for goes through here (a second tap, letting go of a hold, Escape). Slice 3: on a phone the audio may still be
+/* Every stop the person asks for goes through here (a second tap, letting go of a hold, Escape), and so does the phone's
+   300 s cap. Slice 3: on a phone the audio may still be
    on its way until the last words come back, so the bar stays, saying so. */
 function voiceStop(h) {
   VOICE.stopping = true;   // a late 'listening' (a stop before the recognizer said it started) must not undo this line

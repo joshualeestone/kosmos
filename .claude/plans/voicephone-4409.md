@@ -217,4 +217,9 @@ press stops through voiceStop and marks the stop.
   W3 is the weakest premise (who hears is named from the user agent, unmeasured on a device; every iOS browser is
   WebKit and so Apple's service) (DUPLICATE). NITs taken: the onerror comment is one statement; voiceStop's comment says
   stops the person asks for. LEFT NIT: decision history in the bridge's comments.
+- Round 19 (opus): FIXED W: a phone's audio-capture said the Mac's "No microphone was found."; a phone always has one,
+  so it says the microphone is in use by something else (check P8e; the wording removed reddens only P8e). NITs taken:
+  the hidden dialog status is not created only to be emptied; voiceStop's comment names the 300 s cap. LEFT NITs: the
+  fake's stop answers as a fresh list (the at-index path is covered by P2); dlgSaid keeps a stale value (the page never
+  writes that string).
 

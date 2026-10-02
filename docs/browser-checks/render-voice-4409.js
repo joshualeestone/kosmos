@@ -638,6 +638,15 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
       await phone.waitForFunction(() => !VOICE.btn);
       own[k] = await phone.evaluate(async () => { await new Promise((r) => setTimeout(r, 30)); window.__recStopErr = ''; return document.getElementById('d-say-msg').textContent; });
     }
+    // P8e (round 19): on a phone, audio-capture means the mic is held by something else, not that there is none.
+    await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
+    await phone.tap('#d-mic');
+    await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
+    await phone.evaluate(() => window.__recLast.onerror({ error: 'audio-capture' }));
+    await phone.waitForFunction(() => !VOICE.btn);
+    own.capture = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    chk(/in use by something else/.test(own.capture) && !/No microphone/.test(own.capture), 'P8e a phone says its microphone is in use, never that it has none', JSON.stringify(own.capture));
+    await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
     chk(!/error/.test(own.ours) && /error/.test(own.theirs) && /could not be reached/.test(own.netOnStop),
       'P8d an abort answering our own stop says nothing; unasked it says one; a network loss during our stop is still said', JSON.stringify(own));
     await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
