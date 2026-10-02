@@ -182,8 +182,23 @@ kill "$QH" 2>/dev/null; wait "$QH" 2>/dev/null; rm -f "$M/suitewait.$QH"; kosmos
 claim 300 "(not a cut) queued one-off: a full suite"
 out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_suite_waiting "$((NOW - 10))"
   kosmos_light_side_take "a light run" 5 || exit 9; [ -e "$M/suitewait.$$" ] && exit 8; kosmos_holds_light_side || exit 7
+  [ "${KOSMOS_SIDE_HOLDER_COOKIE:-}" = "$(awk '{print $1}' "$M/machine-claim")" ] || exit 5   # round 17: the holder recorded
   kosmos_release_light_side; kosmos_holds_light_side && exit 6; exit 0 ) 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && pass "a won side take claims, drops its marker, holds the turn, and releases it" || fail "the side take misbehaved (step rc=$rc, $out)"
+[ "$rc" -eq 0 ] && pass "a won side take claims, drops its marker, holds the turn, records its holder, and releases it" || fail "the side take misbehaved (step rc=$rc, $out)"
+
+# Round 17 (Opus): an older queued-heavy.sh that finds the queue EMPTY marks nothing and claims the box when the holder
+# leaves. Its claim replacing the holder's is what the side turn can see, so it yields; the holder's own claim does not.
+HC="$(awk '{print $1}' "$M/machine-claim")"
+iq() { KOSMOS_SIDE_HOLDER_COOKIE="$1" KOSMOS_CUT_PROBE="$T/quiet" KOSMOS_HARNESS_PROBE="$T/quiet" KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/quiet" kosmos_light_side_intruder "$HOLDER"; }
+out="$(iq "$HC")"; rc=$?
+[ "$rc" -eq 1 ] && pass "CONTROL: intruder check: the holder's own claim (renewed under its cookie) -> stay" || fail "CONTROL: the intruder yielded to the holder it started beside (rc=$rc, $out)"
+printf 'old-%s-1 %s %s host queued run (not a cut): an older wrapper\n' "$NOW" "$HOLDER" "$((NOW + 1800))" > "$M/machine-claim"
+out="$(iq "$HC")"; rc=$?
+{ [ "$rc" -eq 0 ] && has "$out" "another run took the box"; } && pass "intruder check: another claim took the box after the holder (an older wrapper that marked nothing) -> yield" \
+  || fail "intruder check: a side turn kept running beside a new main turn (rc=$rc, $out)"
+out="$(iq "")"; rc=$?
+[ "$rc" -eq 1 ] && pass "CONTROL: intruder check: the same box with no recorded holder -> stay (the yield above is the cookie's)" || fail "CONTROL: something else yielded (rc=$rc, $out)"
+claim 300 "(not a cut) queued one-off: a full suite"
 # Review 3: the take claims FIRST and then asks again, so a cut that marked itself in the gap is seen (here the cut
 # probe reads live only once the side claim exists). The claim is released and the marker kept.
 probe cut-after-claim "[ -e '$M/light-side-claim' ] && printf '$OTHER bash tools/release.sh 0.9.99\\n' || exit 1"

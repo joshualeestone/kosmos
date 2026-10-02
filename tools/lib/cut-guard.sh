@@ -1359,6 +1359,10 @@ kosmos_light_side_take() {
   # before the claim is seen here, and anything after it sees the claim. Either way one of the two waits.
   if ! kosmos_light_side_clear "$what" >/dev/null 2>&1; then kosmos_release_light_side; unset KOSMOS_LIGHT_SIDE_COOKIE; return 1; fi
   kosmos_unmark_suite_waiting
+  # Round 17 (Opus): the holder this side turn runs beside, by its claim's cookie. The intruder yields when ANOTHER
+  # claim takes the box: an older queued-heavy.sh that found the queue empty never writes a waiter marker, so the
+  # marker checks cannot see it, but its claim can be seen. Kept in the run's environment (the capper inherits it).
+  KOSMOS_SIDE_HOLDER_COOKIE="$(_kosmos_machine_claim_active | awk '{print $1}')"; export KOSMOS_SIDE_HOLDER_COOKIE
   return 0
 }
 
@@ -1403,6 +1407,12 @@ kosmos_light_side_intruder() {
   local root="${1:-}" lines rc l pid f
   case "$root" in ''|*[!0-9]*) echo "no side command to protect"; return 0 ;; esac
   if pid="$(_kosmos_old_qh_waiter_live)"; then echo "a queued-heavy.sh older than #4911 queued (pid $pid); it would take a turn beside this one"; return 0; fi
+  # Round 17 (Opus): a claim that is not the holder's took the box (an older wrapper that found the queue empty, so it
+  # marked nothing). The holder's renewals keep its cookie, and a cut it runs keeps it too (and is caught below).
+  if [ -n "${KOSMOS_SIDE_HOLDER_COOKIE:-}" ]; then
+    l="$(_kosmos_machine_claim_active | awk '{print $1}')"
+    if [ -n "$l" ] && [ "$l" != "$KOSMOS_SIDE_HOLDER_COOKIE" ]; then echo "another run took the box after the heavy holder this side turn started beside"; return 0; fi
+  fi
   # Review 6: a cut or an install harness that starts during the side turn is an intruder too (the start gate saw
   # neither, and one on a branch older than #4911 does not wait for a side turn).
   if ! kosmos_refuse_if_cut_live "a side turn" >/dev/null 2>&1; then echo "a cut started"; return 0; fi
