@@ -951,7 +951,7 @@ keychain_note() {
   [ "${KOSMOS_UNAME:-$(uname -s 2>/dev/null)}" = Darwin ] || return 0
   local _sec="${KOSMOS_SECURITY_BIN:-security}" _rc=0
   command -v "$_sec" >/dev/null 2>&1 || return 0
-  [ -x /usr/bin/perl ] || return 0   # the 3 s cut needs it; a macOS without it simply gets no note (the safe side)
+  { [ -f /usr/bin/perl ] && [ -x /usr/bin/perl ]; } || return 0   # the 3 s cut needs it; a macOS without it simply gets no note (the safe side)
   # The braces send bash's OWN "killed by a signal" report (on a cut) to /dev/null too, not only the probe's output.
   { /usr/bin/perl -e 'alarm 3; exec @ARGV' "$_sec" show-keychain-info >/dev/null 2>&1; } 2>/dev/null || _rc=$?
   [ "$_rc" = 36 ] || return 0
