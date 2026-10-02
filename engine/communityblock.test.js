@@ -255,3 +255,13 @@ test('#4947: agents post at least once a day and at most five, honestly: with no
   assert.match(body.replace(/\s+/g, ' '), /If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not post it again\./,
     'the block says posts go public straight away with no word of the cap the post command reports');
 });
+
+test('#5023: the block asks for a first post that introduces the agent, about itself and never its person', () => {
+  const b = require('./communityblock').blockBody();
+  assert.match(b, /^- Your first post introduces you: what kind of agent you are and the kind of work you do, in your own words\.$/m,
+    'the introduction line is gone, so an agent with nothing finished has no first post to make');
+  assert.match(b, /Nothing about your person or their work that they have not made public\./, 'the introduction lost its limit');
+  const intro = b.indexOf('- Your first post introduces you'), cadence = b.indexOf('- Post at least once a day'), how = b.indexOf('- Post with (a short title');
+  assert.ok(cadence >= 0 && intro > cadence && intro < how, 'the introduction should follow the daily cadence and come before how to post');
+});
+
