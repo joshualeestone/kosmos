@@ -240,3 +240,36 @@ test('#4896 r5: a RELATIVE recorded dir holds nothing (no agent lives at a path 
   assert.equal(taken.ok, true);
   assert.equal(taken.other, null, 'a relative recorded dir was counted as holding the folder');
 });
+
+/* ---- review 6 ---- */
+function createdAgent(name, role) {
+  const home = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'CLAUDE.md'), 'You are **' + name + '**, a ' + role + '.\n');
+  store.writeProfile(name, { role });
+  return home;
+}
+
+test('#4896 r6: a created agent asked for under another CASE of its own name is the same agent', () => {
+  const home = createdAgent('bobby6', 'writer');
+  const t = discover.folderTakenBy(home, 'Bobby6', { store });
+  assert.equal(t.other, null, 'Bobby6 was refused its own folder bobby6: ' + JSON.stringify(t));
+});
+
+test('#4896 r6: a name whose own profile records a slug folder in the workers root is not refused it', () => {
+  const home = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'slugfolder6');
+  fs.mkdirSync(home, { recursive: true });
+  store.writeProfile('slugfolder6', { role: 'x' });        // an agent of the folder's own name exists
+  store.writeProfile('slug-folder-6', { dir: home });      // ...and this name's OWN record points there
+  const t = discover.folderTakenBy(home, 'slug-folder-6', { store });
+  assert.equal(t.other, null, 'a name was refused the folder its own profile records: ' + JSON.stringify(t));
+});
+
+test('#4896 r6: a folder in the workers root whose agent never existed belongs to nobody', () => {
+  const left = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'old-project6');
+  fs.mkdirSync(left, { recursive: true });
+  const t = discover.folderTakenBy(left, 'casey6', { store });
+  assert.equal(t.other, null, 'a leftover folder was claimed for an agent that does not exist');
+  const home = createdAgent('real6', 'editor');
+  assert.equal(discover.folderTakenBy(home, 'casey6', { store }).other, 'real6', 'CONTROL: an existing agent still holds its home');
+});

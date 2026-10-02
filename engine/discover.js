@@ -1651,8 +1651,12 @@ function folderTakenBy(dir, name, { store }) {
   const want = canonDir(dir);
   const h = got.holders.find((x) => x.key !== self && x.canon === want);
   if (h) return { ok: true, other: h.other, removed: h.removed };
-  const home = createdHomeOf(want);
-  if (home && home !== name) return { ok: true, other: home, removed: false, home: true };
+  /* Review 6: a name whose OWN profile already records this folder is not asking for anybody else's, whatever the
+     folder is called (a slug folder like icecreamkitty recorded by "ice-cream-kitty"). */
+  if (self && got.holders.some((x) => x.key === self && x.canon === want)) return { ok: true, other: null };
+  const home = createdHomeOf(want, { store });
+  /* Review 6: compared by FILE key, not by spelling: Bobby and bobby are one agent on a case-folding volume. */
+  if (home && (!self || store.profileFileName(home) !== self)) return { ok: true, other: home, removed: false, home: true };
   return { ok: true, other: null };
 }
 
@@ -1660,11 +1664,21 @@ function folderTakenBy(dir, name, { store }) {
    names it and the holders above cannot see it. A folder directly inside the workers root is the home of the agent
    of that name, whoever else asks for it. Returns that name, or null. The same name asking for its own home is not a
    second agent (the caller compares). */
-function createdHomeOf(canon) {
+function createdHomeOf(canon, { store }) {
+  const create = require('./create');
   let root = null;
-  try { root = canonDir(require('./create').workersDir()); } catch { root = null; }
+  try { root = canonDir(create.workersDir()); } catch { root = null; }
   if (!root || path.dirname(canon) !== root) return null;
-  return path.basename(canon) || null;
+  const base = path.basename(canon);
+  if (!base) return null;
+  /* Review 6: only an agent that EXISTS has a home: a job under the name, or a profile for it. A leftover or
+     hand-made folder in the workers root belongs to nobody, so any name may adopt it (alreadyIn offers it too). */
+  let exists = false;
+  try { exists = create.hasJob(base); } catch { exists = false; }
+  if (!exists) {
+    try { exists = fs.existsSync(path.join(store.PROFILES, store.profileFileName(base))); } catch { exists = false; }
+  }
+  return exists ? base : null;
 }
 
 /* Review 4: the found list asks per candidate folder, and reading every profile per candidate measured 8.5 ms a call

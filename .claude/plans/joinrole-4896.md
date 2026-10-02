@@ -127,3 +127,14 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
   neither direction can record a second holder.
 - Tests: 2 new arms incl. the CONTROL that the created agent's own name is not a second holder; red on the previous
   commit. 111/111 with connect-agent, remove.test.js and member-roles.
+
+## Review 6 (23:20 CDT): 2 BLOCKER + 1 SHOULD-FIX, all in round 5's createdHomeOf, all measured, all taken
+- BLOCKER: the home was compared to the asker by SPELLING, so Bobby was refused its own folder bobby (APFS folds case).
+  Now compared by profile FILE key.
+- BLOCKER: a name whose OWN profile records a folder in the workers root under a different folder name (a slug
+  folder: icecreamkitty recorded by ice-cream-kitty) was refused it, and restore named an agent that does not exist.
+  A name that already records the folder is now free before the home rule is asked.
+- SHOULD-FIX: any folder in the workers root counted as somebody's home, so a leftover folder refused every name
+  but its basename. Now a home only for an agent that EXISTS (a job, or a profile, under that name).
+- Tests: 3 arms incl. a CONTROL that an existing agent still holds its home; red on the previous commit. 130/130 with
+  connect-agent, remove.test.js and discover.test.js.
