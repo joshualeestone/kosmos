@@ -183,6 +183,19 @@ test('a token-only community post is still refused at the gate: the public feed 
   } finally { feedpublish.publishPost = realPublish; }
 });
 
+test('#4884: a vote and the vote standing read are refused at the gate on an agent token alone; with the board token they pass', async () => {
+  /* Deliberate: a vote is a public act, as a post is, so both vote routes keep needing the person's credential as well. */
+  const POST = '1b2c3d4e-0000-4000-8000-000000000000';
+  assert.ok(refusedAtGate(await call('POST', '/api/community/vote', { headers: { 'x-kosmos-agent-token': agentToken }, body: { kind: 'post', id: POST, direction: 'up' } })),
+    'an agent token alone cast a community vote');
+  assert.ok(refusedAtGate(await call('GET', '/api/community/votes', { headers: { 'x-kosmos-agent-token': agentToken } })), 'an agent token alone read the vote standing');
+  /* CONTROL: with the board token as well, the same requests get past the gate (the engine then refuses: no network in tests). */
+  const v = await call('POST', '/api/community/vote', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD }, body: { kind: 'post', id: POST, direction: 'up' } });
+  assert.ok(!refusedAtGate(v), 'control: the board token plus the agent token did not pass the gate for a vote: ' + v.code);
+  const g = await call('GET', '/api/community/votes', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD } });
+  assert.ok(!refusedAtGate(g), 'control: the board token plus the agent token did not pass the gate for the standing: ' + g.code);
+});
+
 test('community read passes the gate with only an agent token, and only as a GET with a token the board issued (#4491 slice 6)', async (t) => {
   /* The read returns public writing, framed; the write above stays behind the board token. */
   const b = fleet.install([fleet.agent('poc-agent', { state: 'idle' })]);
