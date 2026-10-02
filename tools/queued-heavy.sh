@@ -45,9 +45,11 @@ fi
 # to sit at origin/main; nothing here updates it or checks that it does.
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || { echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
-for _qh_fn in kosmos_wait_until_clear kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed \
-  kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir; do
-  command -v "$_qh_fn" >/dev/null || { echo "QUEUED-HEAVY: cut-guard.sh in $LIB_CHECKOUT has no $_qh_fn (an old checkout? set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
+# The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
+_qh_need="kosmos_wait_until_clear kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
+declare -F kosmos_light_side_clear >/dev/null && _qh_need="$_qh_need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
+for _qh_fn in $_qh_need; do
+  declare -F "$_qh_fn" >/dev/null || { echo "QUEUED-HEAVY: cut-guard.sh in $LIB_CHECKOUT has no $_qh_fn (an old checkout? set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2; exit 3; }
 done
 # Review 12: started inside an ordinary turn that already holds the box (it inherited that turn's claim cookie). It
 # used to take its "turn" at once (the claim read as its own) and then RELEASE the parent's claim at its end, so the
