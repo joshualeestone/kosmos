@@ -150,7 +150,7 @@ test('#4885: Settings re-reads the picture counts each time its Automation secti
 });
 
 test('#4885: the agent page says when a chosen picture could not be fitted for the community', () => {
-  assert.match(HTML, /msg\.textContent = PICTURE_FITS\.has\(pic\) \? 'Saved\.'\s*: 'Saved\. Kosmos could not fit this picture for the community, so it will not show there\.';/);
+  assert.match(HTML, /const unsendable = !PICTURE_FITS\.has\(pic\)\s*&& \(pic\.size > PICTURE_MAX_BYTES \|\| !\['image\/png', 'image\/jpeg', 'image\/webp'\]\.includes\(pic\.type\)\);\s*msg\.textContent = unsendable \? 'Saved\. Kosmos could not fit this picture for the community, so it will not show there\.' : 'Saved\.';/);
   // fitPicture vouches for what it returns kept or redrawn, and only that.
   const fit = lift('fitPicture');
   assert.equal((fit.match(/PICTURE_FITS\.add\(/g) || []).length, 2, 'fitPicture vouches for something other than a kept or redrawn picture');

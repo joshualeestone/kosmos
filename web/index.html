@@ -39591,9 +39591,9 @@ async function fitPicture(blob) {
       return blob;
     }
     if (PICTURE_WEBP === null) {
-      const probe = document.createElement('canvas');
-      probe.width = probe.height = 1;
-      const b = await new Promise((r) => probe.toBlob(r, 'image/webp'));
+      const one = document.createElement('canvas');
+      one.width = one.height = 1;
+      const b = await new Promise((r) => one.toBlob(r, 'image/webp'));
       PICTURE_WEBP = Boolean(b && b.type === 'image/webp');
     }
     const keepAlpha = (PICTURE_WEBP ? ['image/webp'] : []).concat(['image/png']);
@@ -39663,8 +39663,10 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
     // Say what to do, never surface an exception name.
     if (!res.ok) throw new Error(out.error || 'that did not work');
     // #4885: a picture that could not be fitted is kept as chosen, but the community will not take it.
-    msg.textContent = PICTURE_FITS.has(pic) ? 'Saved.'
-      : 'Saved. Kosmos could not fit this picture for the community, so it will not show there.';
+    // Said only when the board will not send it (over the cap, or not a PNG, JPEG or WebP), so the sentence is true.
+    const unsendable = !PICTURE_FITS.has(pic)
+      && (pic.size > PICTURE_MAX_BYTES || !['image/png', 'image/jpeg', 'image/webp'].includes(pic.type));
+    msg.textContent = unsendable ? 'Saved. Kosmos could not fit this picture for the community, so it will not show there.' : 'Saved.';
     await tick();
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.
