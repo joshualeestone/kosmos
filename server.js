@@ -7639,7 +7639,10 @@ const server = http.createServer(async (req, res) => {
     if (!session) { sendJson(res, 409, { error: 'this agent is not running' }); return; }
     const snap = handoffFileSnap(session);
     let delivery;
-    try { delivery = await chat.deliverAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
+    /* #4959: the pickup is the board's own line after a restart (the handoff twin of the wake hello), so it goes
+       through the shared-quota gate like every automatic sender (#4588). A held verdict is COULD_NOT, answered 409
+       below, and the page shows its manual line. */
+    try { delivery = await chat.deliverAutomaticAsync(name, handoffRestart.pickupPrompt(snap.path), safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { delivery, handoffPath: snap.path });
     return;

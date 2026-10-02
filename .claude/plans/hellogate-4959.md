@@ -39,3 +39,16 @@ quota-held retry (#4588), its own card.
 - docs/browser-checks/render-autohello-2686.js: asserts the hello is sent as automatic, and a new arm 5b (held ->
   manual line). Syntax-checked; RUN queued on Agent1s.
 - Full suite before merge.
+
+## Review 1 (23:06 CDT): 0 BLOCKER, 1 SHOULD-FIX, 3 NITs
+- SHOULD-FIX taken: the handoff-restart PICKUP (POST /api/agent/:name/handoff-restart/pickup) is the wake hello's twin,
+  the board's own line after a restart, and was still on chat.deliverAsync. Now chat.deliverAutomaticAsync; a held
+  verdict is COULD_NOT, which the route already answers 409, and the page's deliverPickup reads that as the manual
+  line (no page change). Test arm added; red with the old line, green now.
+- Considered and left plain: /handoff-restart/ask and /compact, /clear. Each follows the person's own click, and
+  #4588's rule is that a person's act is never held.
+- NIT left: attachment refusal uses truthiness, matching how resolveForMessage reads attachment ('' attaches nothing).
+- NIT left: a pending reaction note can ride the wake hello. That predates this change; when the hello is held,
+  the note is not marked told, so nothing is lost.
+- NIT agreed: browser arm 5b is a read-side pin (passes on main too); arm 1's automatic === true is the send-side
+  proof. Already stated in Validation.

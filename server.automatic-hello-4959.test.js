@@ -50,14 +50,14 @@ const HELD = { state: chat.DELIVERY.COULD_NOT, held: true, heldUntil: until, bec
 const PLACED = () => ({ state: chat.DELIVERY.PLACED, at: new Date().toISOString(), because: null, paneState: null, paneNote: null });
 
 /** One POST to the real route with both deliver paths recorded; `auto` is what deliverAutomaticAsync answers. */
-async function post(body, auto) {
+async function post(body, auto, suffix = '/thread') {
   const calls = [];
   const realA = chat.deliverAutomaticAsync; const realP = chat.deliverAsync;
   chat.deliverAutomaticAsync = async (...a) => { calls.push(['automatic', a[1]]); return auto; };
   chat.deliverAsync = async (...a) => { calls.push(['plain', a[1]]); return PLACED(); };
   const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
   try {
-    const res = await fetch(`${base}/api/agent/${NAME}/thread`, {
+    const res = await fetch(`${base}/api/agent/${NAME}${suffix}`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     return { status: res.status, out: await res.json().catch(() => null), calls };
@@ -110,4 +110,17 @@ test('#4959: automatic is exactly true or absent, and only on plain text; anythi
     assert.equal(r.status, 400, JSON.stringify(body) + ' -> ' + JSON.stringify(r.out));
     assert.deepEqual(r.calls, [], JSON.stringify(body) + ' reached a deliver');
   }
+});
+
+/* Review 1: the handoff-restart pickup is the wake hello's twin (the board's own line after a restart), so it is held
+   the same way. A held verdict is COULD_NOT, which this route answers 409, and the page shows its manual line. */
+test('#4959: the handoff-restart pickup goes through the gate, and a held pickup answers 409 with the held verdict', async () => {
+  const held = await post({}, HELD, '/handoff-restart/pickup');
+  assert.equal(held.calls.length, 1, JSON.stringify(held));
+  assert.equal(held.calls[0][0], 'automatic', 'the pickup did not take the gated path');
+  assert.equal(held.status, 409, JSON.stringify(held.out));
+  assert.equal(held.out.delivery.held, true);
+  const placed = await post({}, PLACED(), '/handoff-restart/pickup');
+  assert.equal(placed.status, 200, 'CONTROL: a pickup the gate lets through is answered 200: ' + JSON.stringify(placed.out));
+  assert.deepEqual(placed.calls.map((c) => c[0]), ['automatic']);
 });
