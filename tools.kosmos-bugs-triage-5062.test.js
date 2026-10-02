@@ -302,3 +302,14 @@ test('#5062 review 6: a takeover checks the owner again, so a run that found it 
   assert.equal(JSON.parse(fs.readFileSync(path.join(state + '.lock', 'owner'), 'utf8')).pid, process.pid, 'the other run lost its lock');
   fs.rmSync(state + '.lock', { recursive: true, force: true });
 });
+
+test('#5062 review 7: user@IP, Unicode ~user and dotted hosts leave the draft; the 10 s ownerless boundary holds', () => {
+  const out = t.scrub('ssh jsmith@192.168.1.5, see ~müller/notes and ~Åsa/x, mail from jsmith@mac.local', []);
+  assert.doesNotMatch(out, /jsmith|müller|üller|Åsa|mac\.local/, out);
+  const state = path.join(DIR, 'tenth.json');
+  fs.mkdirSync(state + '.lock', { recursive: true });
+  const five = new Date(Date.now() - 5000);
+  fs.utimesSync(state + '.lock', five, five);
+  assert.throws(() => t.withLock(state, () => 1), /under 10 s old/, 'a 5 s old ownerless lock was taken over');
+  fs.rmSync(state + '.lock', { recursive: true, force: true });
+});
