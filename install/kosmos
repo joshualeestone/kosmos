@@ -108,6 +108,32 @@ URL="http://127.0.0.1:$PORT"
 case ",${NO_PROXY:-}," in *,127.0.0.1,*) ;; *) NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}" ;; esac
 case ",${no_proxy:-}," in *,127.0.0.1,*) ;; *) no_proxy="127.0.0.1,localhost${no_proxy:+,$no_proxy}" ;; esac
 export NO_PROXY no_proxy
+# #4933: BUT THAT EXEMPTION ASSUMES DIRECT LOOPBACK WORKS. Another kind of sandbox blocks direct loopback while its
+# proxy forwards to the board, and there status, reply and post all said Kosmos is not running (the 0.7.15
+# diagnostic, Meta family). So before this run's first call to the board, and only when a proxy curl uses for
+# http:// is set (http_proxy, all_proxy, ALL_PROXY), one direct probe decides the route (1 s to connect, 1.2 s in all),
+# read from curl's own count of connections made (%{num_connects}, not its wording):
+#   - a connection was made: direct works (a BUSY board connects, then waits: that is not a block);
+#   - otherwise (refused, not permitted, a connect timeout): ONE request through the proxy decides. Only a Kosmos
+#     health body ("app":"kosmos") picks the proxy, so the board and agent tokens never go to a proxy that cannot
+#     show it reaches a Kosmos board (a corporate proxy, a saturated board timing out: review 2), and #4466's empty proxy
+#     answer never does. A "direct" reached this way is not remembered, so a later call (kosmos start, once the board
+#     is up) asks again.
+# The proxy route is per call (curl --noproxy "", which overrides NO_PROXY), so the exported exemption above, which
+# the board and its agents inherit, is never rewritten. KOSMOS_LOOPBACK_PROBE_URL is a TEST seam for the probe target.
+KOSMOS_NP=()
+_KOSMOS_LB=""
+kosmos_loopback_route() {
+  [ -n "$_KOSMOS_LB" ] && return 0
+  [ -n "${http_proxy:-}${all_proxy:-}${ALL_PROXY:-}" ] || { _KOSMOS_LB=direct; return 0; }
+  local _nc
+  _nc="$(/usr/bin/curl --noproxy '*' -s -o /dev/null -w '%{num_connects}' --connect-timeout 1 -m 1.2 "${KOSMOS_LOOPBACK_PROBE_URL:-$URL/api/health}" 2>/dev/null)" || true
+  case "$_nc" in ''|0) ;; *) _KOSMOS_LB=direct; return 0 ;; esac
+  case "$(/usr/bin/curl --noproxy '' -sS --connect-timeout 1 -m 3 "$URL/api/health" 2>/dev/null)" in
+    *'"app":"kosmos"'*) _KOSMOS_LB=proxy; KOSMOS_NP=(--noproxy '') ;;
+    *) KOSMOS_NP=() ;;   # direct for this call, decided again next time
+  esac
+}
 PIDFILE="$KOSMOS_HOME/board.pid"
 # #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes
 # it (before it kills), `kosmos start` clears it (at the very top, before any bind
@@ -303,7 +329,8 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
   local _out _rc _code _body _took _left_s
   # `&& _rc=0 || _rc=$?`, not `; _rc=$?`: under set -e a failing substitution in a plain assignment
   # would end the script whenever a caller is outside an if/&&/|| (errexit is only off inside those).
-  _out="$(/usr/bin/curl -sS -m "$1" -w '\n%{time_total}\n%{http_code}' "$URL/api/health" 2>/dev/null)" && _rc=0 || _rc=$?
+  kosmos_loopback_route   # #4933
+  _out="$(/usr/bin/curl -sS ${KOSMOS_NP[@]+"${KOSMOS_NP[@]}"} -m "$1" -w '\n%{time_total}\n%{http_code}' "$URL/api/health" 2>/dev/null)" && _rc=0 || _rc=$?
   case "$_rc" in
     0) ;;
     7) HEALTH_STATE=down; return ;;                 # refused: nothing is listening
@@ -320,7 +347,7 @@ _health_probe() {   # <max seconds>; sets HEALTH_STATE from one probe
   # its time (the start loops count on it). At least half a second, so a slow first answer still
   # leaves the page a real chance rather than a timeout that reads as busy.
   _left_s="$(/usr/bin/awk -v m="$1" -v t="${_took:-0}" 'BEGIN { r = m - t; if (r < 0.5) r = 0.5; printf "%.2f", r }')"
-  _body="$(/usr/bin/curl -fsS -m "$_left_s" "$URL/" 2>/dev/null)" && _rc=0 || _rc=$?
+  _body="$(/usr/bin/curl -fsS ${KOSMOS_NP[@]+"${KOSMOS_NP[@]}"} -m "$_left_s" "$URL/" 2>/dev/null)" && _rc=0 || _rc=$?
   case "$_rc" in
     0) case "$_body" in
          *"Agent Workforce"*|*Kosmos*) HEALTH_STATE=up ;;
@@ -683,7 +710,8 @@ kosmos_curl() {
     if [ -n "$_bt" ];  then printf 'x-kosmos-board-token: %s\n' "$_bt"; fi
     if [ -n "$_tok" ]; then printf 'x-kosmos-agent-token: %s\n' "$_tok"; fi
   } >> "$_hf" || { rm -f "$_hf"; return 99; }
-  if curl -H @"$_hf" "$@"; then _rc=0; else _rc=$?; fi
+  kosmos_loopback_route   # #4933
+  if curl -H @"$_hf" ${KOSMOS_NP[@]+"${KOSMOS_NP[@]}"} "$@"; then _rc=0; else _rc=$?; fi
   rm -f "$_hf"
   return "$_rc"
 }
@@ -1233,6 +1261,9 @@ cmd_stop() {
       sleep 0.3
     done
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+    # #4933 review 3: the loopback route proved on the board just stopped is forgotten, so a restart in this same run
+    # decides again (a remembered proxy route would read the empty port behind it as "another app" and refuse).
+    _KOSMOS_LB=""; KOSMOS_NP=()
     # ⚠️ ASKED IS NOT STOPPED. This said "Stopped." unconditionally and removed
     # the pidfile either way, so a kill that did not work made Kosmos FORGET a
     # live process -- into exactly the state this file describes below as
@@ -1872,7 +1903,7 @@ cmd_post() {
     text="$*"
   fi
   if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955)"
+    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624)."
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose: a live pipe (gh ... | kosmos post

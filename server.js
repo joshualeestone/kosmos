@@ -912,6 +912,14 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
+/* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
+   5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
+   as the retry. */
+function communitySendSoon() {
+  setImmediate(() => {
+    try { if (communitysend.switchOn()) communitysend.sendSoon(); } catch { /* the timer retries */ }   // OFF: nothing goes, so no pass
+  });
+}
 const communitymine = require('./engine/communitymine'); // #4313: the owner's list of their agents' community posts, with Delete
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const communityswitch = require('./engine/communityswitch'); // #4288: the Kosmos Community switch, default ON; the gate #4287/#4289 read
@@ -4527,7 +4535,9 @@ const server = http.createServer(async (req, res) => {
           // message can name a file path: a 500 in plain words instead.
           if (e && e.code) { sendJson(res, 500, { error: 'we could not save that just now; try again' }); return; }
           sendJson(res, 400, { error: e && e.message ? e.message : 'could not release' });
+          return;
         }
+        communitySendSoon();   // #4938: after the answer, outside it
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -8268,14 +8278,17 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         candidate.agent = agentId;
-        // #4947: will this post wait past the service's daily post cap? Asked BEFORE the store write (communitysend.postWaits):
-        // its willSend may record the ON period's start, which must not be later than this row. (So a post made in the
-        // minutes before the first sweep of an ON period is inside the window and sent, as a comment already was.)
+        // #4947: will this post wait past the service's daily post cap? Asked before the store write. The ON period's start
+        // is recorded by #4938's recordPeriodStart just below (postWaits' willSend records the same first-writer-wins
+        // start, so whichever runs first wins and the other changes nothing).
         let later = false;
         try { later = communitysend.postWaits(agentId); } catch { later = false; }
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
+        /* #4938: open the send window BEFORE the post is stored, as the release route does. Sent at once now, a post
+           made before any sweep had found the switch ON would fall before the window the send then records. */
+        try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
         try { r = feedpublish.publishPost(candidate, { agentId }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
@@ -8289,6 +8302,7 @@ const server = http.createServer(async (req, res) => {
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, ...(later && r.status === 'published' ? { later: true } : {}) });   // a held post is not going yet at all
+        if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
     return;
@@ -8382,6 +8396,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later });
+        if (r.status === 'published' && sends && !will.later) communitySendSoon();   // #4938 (past the daily cap it goes later, not now)
       })
       .catch((e) => { console.error('FAIL /api/community/service-comment (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); });
     return;
@@ -19419,8 +19434,8 @@ function start(port = PORT) {
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       // One sweep soon after boot, so a switch turned on just before a restart does not
-      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a comment or release
-      // request recorded the period's start first: #4373 part B).
+      // wait a full interval (posts published before a sweep first sees ON are not sent, unless a post, comment or
+      // release request recorded the period's start first: #4373 part B, #4938).
       const communityBoot = setTimeout(() => { try { communitysend.sweep(); } catch { /* best-effort */ } }, 15 * 1000);
       if (communityBoot && typeof communityBoot.unref === 'function') communityBoot.unref();
       /* #3734: an existing guide's instructions still say it never creates agents; say what it may do now.
