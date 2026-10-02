@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.." || exit 1
 . tools/lib/coordinator-floor.sh
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/coordinator-floor.XXXXXX")"; trap 'rm -rf "$T"' EXIT
+export KOSMOS_COORDINATOR_RETRIES=0   # the file:// "unreadable" arms would otherwise sleep through retries
 g(){ git -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
 
 # The relay history: OLD (before the change), FLOOR (the coordinator-first change), NEWER (after it).
@@ -33,14 +34,14 @@ run && ok "a connector without the floor change passes without asking the coordi
 # 2. THE CASE: connector carries the floor change, coordinator is below it -> refused, names the change
 connector "$NEWER"; coordinator "${OLD:0:8}"
 if run; then bad "a connector carrying the floor change shipped beside an older coordinator (the #4869 shape)"
-else grep -q "does not" "$T/err" && grep -q "signs the account" "$T/err" && grep -q "${OLD:0:8}" "$T/err" \
+else grep -q "needs the coordinator to carry" "$T/err" && grep -q "signs the account" "$T/err" && grep -q "${OLD:0:8}" "$T/err" \
   && ok "a coordinator below the floor refuses, naming the change and the coordinator's build" || bad "wrong refusal: $(cat "$T/err")"; fi
 
 # 3. CONTROL for 2: the coordinator at the floor, and above it, pass (short and full build ids)
 coordinator "${FLOOR:0:8}"; run && ok "a coordinator AT the floor (short build id) passes" || bad "at-floor coordinator refused: $(cat "$T/err")"
 coordinator "$NEWER"; run && ok "a coordinator ABOVE the floor (full build id) passes" || bad "above-floor coordinator refused: $(cat "$T/err")"
 connector "$FLOOR"; coordinator "${OLD:0:8}"
-behind(){ grep -q "does not" "$T/err" && grep -q "signs the account" "$T/err"; }   # the coordinator-behind arm, nothing else
+behind(){ grep -q "needs the coordinator to carry" "$T/err" && grep -q "signs the account" "$T/err"; }   # the coordinator-behind arm, nothing else
 run && bad "a connector built exactly at the floor commit was not checked" || { behind && ok "a connector built exactly at the floor commit is checked too" || bad "wrong refusal at the floor: $(cat "$T/err")"; }
 # 3b. review 1: relay squash-merges, so a connector built from the PRE-SQUASH branch carries the change without
 # descending from the floor commit. It must be asked about, not waved through (the gate used to pass it).

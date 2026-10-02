@@ -63,7 +63,9 @@ coordinator_floor_check() {
   [ -n "$needed" ] || return 0   # the connector carries no floor change: nothing to ask the coordinator
   # Two retries of ANY failure (DNS and refused connections included, which plain --retry skips): one network
   # blip must not refuse a cut the override cannot rescue. curl 7.71+ (both cut Macs: 8.7.1).
-  meta="$(curl -fsS -m 15 --retry 2 --retry-delay 2 --retry-all-errors "$url/v1/meta" 2>/dev/null)" \
+  # KOSMOS_COORDINATOR_RETRIES (default 2) exists for the tests, whose file:// "unreadable" arms would otherwise sleep.
+  command -v node >/dev/null 2>&1 || { echo "coordinator_floor: node is not on PATH, so /v1/meta cannot be parsed; refused (release.sh needs node anyway)." >&2; return 1; }
+  meta="$(curl -fsS -m 15 --retry "${KOSMOS_COORDINATOR_RETRIES:-2}" --retry-delay 2 --retry-all-errors "$url/v1/meta" 2>/dev/null)" \
     || { echo "coordinator_floor: could not read $url/v1/meta, so whether the coordinator carries what this connector needs is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand (the override does not cover this)." >&2; return 1; }
   # Parsed as JSON (node, which release.sh already needs), the top-level "build" only; then held to its shapes.
   build="$(printf '%s' "$meta" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(typeof j.build==="string"?j.build:"")}catch{}' 2>/dev/null)"
@@ -100,7 +102,7 @@ EOF_NEEDED
     return 0
   fi
   {
-    echo "coordinator_floor: the connector (built from ${built:0:12}) needs the coordinator to carry these, and the coordinator serving traffic ($url, build $build) does not:"
+    echo "coordinator_floor: the connector (built from ${built:0:12}, not provably older than these: only a strict ancestor of a floor commit is) needs the coordinator to carry these, and the coordinator serving traffic ($url, build $build) does not:"
     printf '%s' "$behind"
     echo "Deploy the coordinator at or above them first and check $url/v1/meta, then cut. Never roll it back below them afterwards."
     echo "To ship anyway, rerun with KOSMOS_ALLOW_COORDINATOR_BEHIND=1 (it covers a coordinator known to be behind, never an unknown one)."
