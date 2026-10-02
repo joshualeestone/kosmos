@@ -29,7 +29,7 @@ then the box and the line both emptied, which moved the thread.
   so the retry copy is what it always offered (check case 14).
 
 ## Validation
-- New: docs/browser-checks/render-dm-send-clears-4944.js (19 cases), with render-dm-send-shows-now,
+- New: docs/browser-checks/render-dm-send-clears-4944.js (20 cases), listed in docs/browser-checks/gated.txt so the no-URL runner includes it,, with render-dm-send-shows-now,
   render-dm-sendjump-4639 and render-dm-reply-4256, via queued-heavy on Agent1s.
 - web.dm-send-shows-now, web.term-compose-967, web.links-everywhere unit tests pass; the inline scripts compile
   (negative control reds).

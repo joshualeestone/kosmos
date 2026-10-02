@@ -12,23 +12,6 @@
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-dm-send-clears-4944.js
  *
  * The harness below is render-dm-send-shows-now's, which this extends.
- *
- * Its original header follows, kept for the harness's sake. The "Run:" line inside it is that file's,
- * not this one's.
- *
- * send-lag (Josh, Windows 0.7.02): "when I type a message, it is sitting forever
- * before it posts to my dialog". The DM thread drew the person's own message only
- * after the POST had answered AND the thread had been read again, so on a slow
- * Windows board the thread showed nothing of what they had sent for over a minute.
- *
- * Now sendTalk draws the message the moment Send is pressed, marked "Sending…";
- * a send that fails stays drawn, marked "Not sent." with the reason; a send the
- * board kept hands over to the kept row with no second copy.
- *
- * This check loads the page over file:// with fetch stubbed (the render-agentdm-3414
- * pattern) and HOLDS the POST open, which is the only way to see the screen while
- * the board is still thinking. Run:
- *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-dm-send-shows-now.js
  */
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -270,6 +253,7 @@ function readThread(page, words) {
     await page.waitForFunction(() => window.__post !== null);
     await page.evaluate(() => window.__post.reject(new TypeError('Failed to fetch')));
     await page.waitForTimeout(300);
+    chk((await box()) === 'too early', 'and still holds them, once, after that send fails', JSON.stringify(await box()));
 
     /* 13. A reply to an OLDER message draws a visible header, the case where the swap can actually move. */
     const TWO = Object.assign({}, BASE, { messages: [
@@ -360,9 +344,19 @@ function readThread(page, words) {
     await page.waitForTimeout(400);
     const cAfter = await rowRect('and also option two');
     console.log('  chain pending ' + JSON.stringify(cBefore) + '  kept ' + JSON.stringify(cAfter));
-    chk(cBefore && cAfter && cBefore.shownHead === cAfter.shownHead && !cAfter.shownHead, 'a chained answer hides its header on the bubble as the kept row does', JSON.stringify({ cBefore, cAfter }));
+    chk(cBefore && cAfter && cBefore.head && cAfter.head && !cBefore.shownHead && !cAfter.shownHead,
+      'a chained answer carries only the heard header, on the bubble as on the kept row', JSON.stringify({ cBefore, cAfter }));
     chk(cBefore && cAfter && !cAfter.pending && Math.abs(cAfter.top - cBefore.top) <= 1 && Math.abs(cAfter.height - cBefore.height) <= 1,
       'and swaps in place', JSON.stringify({ cBefore, cAfter }));
+
+    /* 20. could_not with new words typed during the flight: they stay, and the line says where the sent words are. */
+    await reset(BASE);
+    await press('the refused one');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => { document.getElementById('d-say').value = 'typed meanwhile'; window.__post.resolve({ delivery: { state: 'could_not', because: 'April is not running' }, recorded: false, recordedBecause: null }); });
+    await page.waitForTimeout(300);
+    chk((await box()) === 'typed meanwhile', 'could not deliver with new words typed: the new words stay', JSON.stringify(await box()));
+    chk(/stays in this conversation, marked not sent/.test(await line()), 'and the line says where the sent words are', await line());
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();

@@ -35648,6 +35648,11 @@ function talkPaintPending(sessionName, name) {
   paintTalkThread(th.__lastBody, th.__lastName || name);
 }
 
+/* #4944: where a message that did not go, and could not go back in the box, can be found. */
+function dmNotSentWhere() {
+  return 'Your message stays in this conversation, marked not sent.'
+    + (TALK_QUERY.trim() ? ' Clear the search to see it.' : '');
+}
 /**
  * Send one message to this agent, and say what became of it.
  *
@@ -35724,7 +35729,7 @@ async function sendTalk(text, attachment) {
      sentence under it never promises a box it did not fill. */
   let tookBox = false;
   let answered = false;   // the board gave a verdict: from then on a throw is not a failed send
-  let sendGen = 0;        // this send's TALK_SEND_GEN
+  let sendGen = -1;       // this send's TALK_SEND_GEN, once it has said "Sending…"
   const restoreUnsent = () => {
     if (!tookBox) return say.value.trim() === text;
     if (flightMoved()) {
@@ -35826,7 +35831,7 @@ async function sendTalk(text, attachment) {
      * reached the agent"), and the two screens must not disagree about what a
      * send did. So the rule is "the box is the only copy when we did not keep
      * it AND we cannot say it arrived", which is `unconfirmed` and, by leaving
-     * the words in place with no clear at all, `could_not`.
+     * the words in place with no clear at all, `could_not` (since #4944, by putting them back: see restoreUnsent).
      */
     const inThread = body.recorded === true;
     const clearSent = () => {
@@ -35867,20 +35872,19 @@ async function sendTalk(text, attachment) {
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
         + (inThread ? ' Your message is kept above.'
           : inBox ? (tookBox ? ' Your message is back in the box below.' : ' Your message is still in the box below.')
-          : ' Your message stays in this conversation, marked not sent.'
-            + (TALK_QUERY.trim() ? ' Clear the search to see it.' : ''));
+          : ' ' + dmNotSentWhere());
     } else {
       /* #4944: nothing was typed, so the words go back into the box for the retry. Even when the board
          kept a record of the attempt: before #4944 this arm never emptied the box, so the retry copy is
-         what it always offered. The catch below differs because a recorded send there is one the board
-         answered as kept, not one it refused. */
-      restoreUnsent();
-      /* Nothing was typed, so the text is back in the box in front of them and
-         no time phrase rides this line: "could not deliver just now" reads as
+         what it always offered. When they cannot go back (words typed since, or another agent opened),
+         the line says where they are instead. */
+      const inBox = restoreUnsent();
+      /* No time phrase rides this line: "could not deliver just now" reads as
          "not at this moment", which invites a retry we have no reason to
          promise. The row in the thread carries the time. */
       line = 'We could not get that to ' + name + ': '
-        + pjSentence(d.because || 'we could not reach them');
+        + pjSentence(d.because || 'we could not reach them')
+        + (inBox || flightMoved() ? '' : ' ' + dmNotSentWhere());
     }
     // Delivering and keeping are two acts and two sentences. Said whenever the
     // record failed, on every verdict — a message that went through and could
@@ -35898,8 +35902,9 @@ async function sendTalk(text, attachment) {
     }
     /* #4944: and back into the box, which was emptied at the press, but only when the board never gave a
        verdict: a throw after one (a placed message included) must not re-arm words it already has. */
-    if (!answered) restoreUnsent();
-    if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
+    const inBox = answered ? true : restoreUnsent();
+    if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that')
+      + (inBox ? '' : ' ' + dmNotSentWhere());
   } finally {
     TALK_SENDING = false;
     TALK_FLIGHT = null;
