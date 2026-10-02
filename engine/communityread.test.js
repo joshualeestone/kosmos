@@ -518,7 +518,8 @@ test('#4833 slice 2 review 1: a reply body cannot start a header line; a removed
   cr.setFetcher(() => new Promise((res) => { held.push(res); }));   // every held fetch is released at the end, so no mutant hangs
   const first = cr.readReplies('Inj4833', { now: NOW });
   // Bounded: without the guard the second read would wait on the held fetch forever; fail in 2 s instead of hanging.
-  const second = await Promise.race([cr.readReplies('Inj4833', { now: NOW }), new Promise((r) => setTimeout(() => r({ ok: true, hung: true }), 2000))]);
+  // #4951 review 14: a second read now WAITS (bounded) for the first; a short bound here makes it give up while the first holds.
+  const second = await Promise.race([cr.readReplies('Inj4833', { now: NOW, readWaitMs: 100 }), new Promise((r) => setTimeout(() => r({ ok: true, hung: true }), 2000))]);
   assert.notEqual(second.hung, true, 'a second read ran beside the first (it waited on the same held fetch)');
   try {
     assert.equal(second.ok, false); assert.match(second.because, /is running on this board/);
@@ -763,11 +764,19 @@ test('#4833 slice 2 review 5: one --replies read at a time per board; the own-co
   const held = []; const release = () => held.splice(0).forEach((r) => r({ status: 200, json: { comments: [] } }));
   cr.setFetcher(() => new Promise((res) => { held.push(res); }));
   const first = cr.readReplies('Kim4833b', { now: NOW });
-  const other = await Promise.race([cr.readReplies('Lee4833b', { now: NOW }), new Promise((r) => setTimeout(() => r({ hung: true }), 2000))]);
+  await new Promise((r) => setImmediate(r));
+  const asked = held.length;
+  // #4951 review 14: a second agent's read WAITS for the first (bounded), never runs beside it.
+  const other = cr.readReplies('Lee4833b', { now: NOW });
+  await new Promise((r) => setTimeout(r, 300));
   try {
-    assert.notEqual(other.hung, true, 'a second agent\'s read ran beside the first');
-    assert.equal(other.busy, true, 'a second agent\'s read was not refused while one ran on this board');
-  } finally { await new Promise((r) => setImmediate(r)); release(); await first; }
+    assert.equal(held.length, asked, 'a second agent\'s read ran beside the first');
+  } finally {
+    release(); await first;
+    for (let i = 0; i < 20 && held.length === 0; i += 1) await new Promise((r) => setTimeout(r, 100));
+    release();
+    assert.equal((await other).ok, true, 'the waiting read did not run after the first');
+  }
   clearSeen();
   serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [
     comment({ id: CID(1), created_at: T(9), agent: { name: 'kim()' }, body: 'from kim-brackets' }),
@@ -939,7 +948,9 @@ test('#4951 freshReplies counts what read --replies would show as new, and MOVES
   });
   const f = await cr.freshReplies('Nia4951', { now: NOW });
   assert.equal(f.ok, true, f.because);
-  assert.deepEqual(f.posts.map((p) => [p.remoteId, p.ids]), [[RP(7), [CID(1), CID(3)]]], 'not the new items, oldest first, without its own or the too-old one');
+  // Review 14: only the COMMENT on the post (CID(1)) is owed an answer; Bo's reply under it (CID(3)) is shown by the read
+  // with "under comment" and is not (#4833), so it is not named.
+  assert.deepEqual(f.posts.map((p) => [p.remoteId, p.ids]), [[RP(7), [CID(1)]]], 'not the owed comment alone, without its own, the reply under it or the too-old one');
   assert.ok(!seen.some((u) => u.includes(RP(8))), 'another agent\'s post was read');
   assert.ok(!seen.some((u) => u.includes('/replies?')), 'a reply page was asked for though no comment has hidden replies');
   assert.equal(fs.existsSync(seenPath('Nia4951')), false, 'freshReplies wrote a mark');
@@ -1060,28 +1071,32 @@ test('#4951 review 7 (Sonnet): a reply past the 2-reply preview is counted, as t
   });
   const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
   assert.equal(f.ok, true, f.because);
-  assert.deepEqual(f.posts.map((p) => p.ids), [[CID(1), CID(3), CID(5)]], 'the third reply (past the preview) was not counted');
+  // Review 14: round 2 is still read (it decides where the read's cap falls), but replies under a comment are not owed.
+  assert.deepEqual(f.posts.map((p) => p.ids), [[CID(1)]], 'a reply under a comment was named, or the comment was not');
   assert.ok(seen.some((u) => u.includes('/replies?') && u.includes('cursor=cur1')), 'the unshown replies were not read');
   const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the agent's own read shows the same three
-  assert.equal(r.count, 3, 'the count and the agent\'s own read disagree');
+  assert.equal(r.count, 3, 'fixture: the agent\'s own read does not show the three');
 });
 
-test('#4951 review 7 (Sonnet): two agents\' own reads still refuse each other (only the nudge\'s count is waited for)', async () => {
+test('#4951 review 14 (Opus): an agent\'s own read waits for another agent\'s own read, then runs; past READ_WAIT_MS it is refused', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  assert.ok(cr.READ_WAIT_MS + 2 * 8000 < 30000, 'a wait plus a read\'s two rounds would pass the CLI\'s 30 s');
   let release;
   cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
   const first = cr.readReplies('Nia4951', { now: NOW });
   await new Promise((res) => setImmediate(res));
-  const second = await cr.readReplies('Nia4951', { now: NOW });
-  assert.equal(second.ok, false, 'a second own read ran beside the first');
-  assert.match(second.because, /another read of replies is running/);
-  release();
+  const refused = await cr.readReplies('Nia4951', { now: NOW, readWaitMs: 200 });   // bound passes while the first holds
+  assert.equal(refused.ok, false, 'a read ran beside another');
+  assert.match(refused.because, /another read of replies is running/);
+  const waiting = cr.readReplies('Nia4951', { now: NOW });   // the default bound: it waits
+  await new Promise((res) => setTimeout(res, 150));
+  const r1 = release; r1();
   assert.equal((await first).ok, true);
+  cr.setFetcher(async () => ({ status: 200, json: { comments: [] } }));
+  assert.equal((await waiting).ok, true, 'a waiting read did not run once the first finished');
 });
 
-/* #4951 review 8 (Opus): ONE post that does not answer is skipped (the agent's own read skips it too); the count stops
-   only on a 429 or NO_ANSWER_STOP unanswered requests in a row. */
 test('#4951 review 10 (Opus): a post it cannot read makes the count partial until it has failed FRESH_DOWN_PASSES passes in a row; then it is skipped', async () => {
   on(); clearSeen(); cr._freshDownReset();
   writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' },
@@ -1133,13 +1148,14 @@ test('#4951 review 8 (Opus): round 2 reads exactly REPLY_PAGES_PER_POST pages, i
   assert.equal(f.ok, true, f.because);
   assert.equal(seen.filter((u) => u.includes('/replies?')).length, 3, 'round 2 did not read exactly the first three hidden threads: ' + seen.length);
   const ids = f.posts[0].ids;
-  // Every comment and preview reply, plus the hidden reply of the three newest (listed first), oldest first by service time.
-  const want = [0, 1, 2, 3, 4].flatMap((i) => [C2(i), C2(50 + i)].concat(i >= 2 ? [C2(80 + i)] : []));
-  assert.deepEqual(ids, want, 'not the comments, previews and three hidden replies, oldest first');
+  // Review 14: only the comments are owed (the previews and hidden replies are under a comment), oldest first.
+  const want = [0, 1, 2, 3, 4].map((i) => C2(i));
+  assert.deepEqual(ids, want, 'not the five comments, oldest first');
+  const shownAll = [0, 1, 2, 3, 4].flatMap((i) => [C2(i), C2(50 + i)].concat(i >= 2 ? [C2(80 + i)] : []));
   const shownSeen = serve(hiddenRoutes(5, hiddenPage));
   const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the agent's own read shows the same set
-  assert.equal(r.count, ids.length, 'the count and the agent\'s own read disagree on a thread with hidden replies');
-  for (const id of ids) assert.ok(r.text.includes(id), 'the agent\'s own read does not show ' + id);
+  assert.equal(r.count, shownAll.length, 'fixture: the read does not show the comments, previews and three hidden replies');
+  for (const id of ids) assert.ok(r.text.includes('(comment ' + id + ')'), 'the agent\'s own read does not show ' + id);   // its own line
   assert.equal(shownSeen.filter((u) => u.includes('/replies?')).length, 3);
 });
 
@@ -1228,14 +1244,16 @@ test('#4951 review 9 (Sonnet): the count is capped as the agent\'s own read is (
     ['/posts/' + RP(8) + '/comments']: () => ({ status: 200, json: { comments: thread(1) } }) });
   const max = 30;
   const oldest = Array.from({ length: max }, (_, n) => n);
-  const want = [0, 1].map((post) => oldest.filter((n) => n % 2 === post).map(id));
+  // Review 14: of the read's oldest 30, only the comments (j = 0: n = 6i + post) are owed.
+  const isComment = (n) => ((n - (n % 2)) / 2) % 3 === 0;
+  const want = [0, 1].map((post) => oldest.filter((n) => n % 2 === post && isComment(n)).map(id));
   const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
-  assert.deepEqual(f.posts.map((p) => p.ids), want, 'not the oldest ' + max + ' across both posts (the read shows those)');
+  assert.deepEqual(f.posts.map((p) => p.ids), want, 'not the comments among the oldest ' + max + ' across both posts');
   const r = await cr.readReplies('Nia4951', { now: NOW });   // CONTROL: the read shows the same 30
   assert.equal(r.count, max, 'fixture: the agent\'s read did not cap at ' + max);
-  for (const x of want.flat()) assert.ok(r.text.includes(x), 'the read does not show ' + x);
+  for (const x of oldest.map(id)) assert.ok(r.text.includes('(comment ' + x + ')'), 'the read does not show ' + x);   // its own line
   const after = await cr.freshReplies('Nia4951', { now: NOW + 1000, paceMs: 0 });
-  assert.deepEqual(after.posts.flatMap((p) => p.ids).sort(), [30, 31, 32, 33, 34, 35].map(id).sort(), 'the rest were not counted once the agent had read the first ' + max);
+  assert.deepEqual(after.posts.flatMap((p) => p.ids).sort(), [30, 31].map(id).sort(), 'the comments left were not counted once the agent had read the first ' + max);
 });
 
 test('#4951 review 10 (Opus): the count\'s pace leaves the service room for two agents\' own reads in the same minute', () => {
@@ -1297,4 +1315,42 @@ test('#4951 review 12 (Opus): a reply within FIRST_LOOK_EDGE_MS of the 7-day win
   ] } }) });
   const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
   assert.deepEqual(f.posts.map((p) => p.ids), [[CID(2)]], 'a reply at the window\'s edge was counted, or one well inside it was not');
+});
+
+test('#4951 review 14 (Opus): a new reply UNDER a comment (not owed an answer, #4833) names nothing; a new comment on the post does', async () => {
+  on(); clearSeen(); cr._freshDownReset();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const list = [comment({ id: CID(1), created_at: T(8), agent: { name: 'Ann' }, body: 'hi', reply_count: 1,
+    replies: [comment({ id: CID(2), parent_id: CID(1), created_at: T(9), agent: { name: 'nia-writes' }, body: 'thanks' })] })];
+  serve({ ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: list } }) });
+  assert.equal((await cr.readReplies('Nia4951', { now: NOW })).count, 1, 'fixture: the agent did not read Ann\'s comment');
+  list[0] = comment(Object.assign({}, list[0], { reply_count: 2, replies: list[0].replies.concat([comment({ id: CID(3), parent_id: CID(1), created_at: T(10), agent: { name: 'Ann' }, body: 'you are welcome!' })]) }));
+  const f = await cr.freshReplies('Nia4951', { now: NOW + 1000, paceMs: 0 });
+  assert.deepEqual(f.posts, [], 'a reply under a comment was named as owed');
+  list.unshift(comment({ id: CID(4), created_at: T(11), agent: { name: 'Bo' }, body: 'a new comment' }));   // CONTROL
+  const g = await cr.freshReplies('Nia4951', { now: NOW + 2000, paceMs: 0 });
+  assert.deepEqual(g.posts.map((p) => p.ids), [[CID(4)]], 'control: a new comment on the post was not named');
+});
+
+test('#4951 review 14 (Opus): items at the window\'s edge keep their places in the cap (as in the read), so nothing named falls past it', async () => {
+  on(); clearSeen(); cr._freshDownReset();
+  writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-20T10:00:00Z' },
+    b: { state: 'sent', agent: 'Nia4951', remoteId: RP(8), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const edge = NOW - cr.REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
+  const iso = (ms) => new Date(ms).toISOString();
+  const id = (n) => 'c0000000-0000-4000-8000-0000000004' + String(n).padStart(2, '0');
+  // Post 7: two comments inside the edge band (oldest). Post 8: 10 comments each with 2 previews (30 items).
+  // Each comment is the NEWEST item of its group, so the item the edge items push past the cap is a comment (named).
+  const p8 = Array.from({ length: 10 }, (_, k) => 9 - k).map((i) => comment({ id: id(10 + i * 3), created_at: iso(NOW - 3600000 + i * 600000 + 5000), agent: { name: 'Ann' }, body: 'c', reply_count: 2,
+    replies: [1, 2].map((j) => comment({ id: id(10 + i * 3 + j), parent_id: id(10 + i * 3), created_at: iso(NOW - 3600000 + i * 600000 + j * 1000), agent: { name: 'Bo' }, body: 'r' })) }));
+  serve({ ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: [
+      comment({ id: id(1), created_at: iso(edge + 120000), agent: { name: 'Cy' }, body: 'edge 1' }), comment({ id: id(2), created_at: iso(edge + 60000), agent: { name: 'Cy' }, body: 'edge 2' })] } }),
+    ['/posts/' + RP(8) + '/comments']: () => ({ status: 200, json: { comments: p8 } }) });
+  const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  const named = f.posts.flatMap((p) => p.ids);
+  assert.ok(!named.includes(id(1)) && !named.includes(id(2)), 'an edge item was named');
+  const r = await cr.readReplies('Nia4951', { now: NOW });
+  assert.equal(r.count, 30, 'fixture: the read is not capped at 30');
+  // Its OWN line, '(comment <id>)': a reply's line names its parent ('under comment <id>') and would match a bare id.
+  for (const x of named) assert.ok(r.text.includes('(comment ' + x + ')'), 'named ' + x + ' but the read does not show it (the cap fell elsewhere)');
 });

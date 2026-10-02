@@ -40,7 +40,8 @@ const path = require('node:path');
 const HOUR_MS = 60 * 60 * 1000;
 const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_TRIES = 3;
-const GIVE_UP_FOR_MS = 60 * 60 * 1000;   // review 13: a batch given up on rests this long, then is tried again
+const GIVE_UP_FOR_MS = 60 * 60 * 1000;
+const COUNT_MAX_AGE_MS = 15 * 60 * 1000;   // review 14: = communityread.FIRST_LOOK_EDGE_MS (pinned by a test)   // review 13: a batch given up on rests this long, then is tried again
 const BUSY_WAIT_MS = 5 * 1000;   // review 6: a busy count waits this long for the read holding the lock, then asks again
 const BUSY_RETRIES = 4;          // so about 20 s, past an agent's own read (two 8 s rounds at most)
 const BETWEEN_AGENTS_MS = 1500;   // review 12: = communityread's FRESH_PACE_MS (pinned by a test)
@@ -160,7 +161,12 @@ async function sweepOnce(o) {
     }
     for (const card of order) {
       const session = card && card.sessionName;
-      if (!session || !nudgeable(card)) continue;   // nothing is read for an agent that would not be nudged
+      const idleSeen = o.idleSeen instanceof Map ? o.idleSeen : null;
+      if (!session || !nudgeable(card)) { if (idleSeen && session) idleSeen.delete(session); continue; }   // nothing is read for an agent that would not be nudged
+      /* Review 14 (Opus): an agent seen idle for the FIRST time this pass may have just finished a person's turn: a line
+         now would send it off to the community while the person waits. It is counted from the next pass on, if it is
+         still idle then (agentnudge's own posture: one interval after the turn). Without o.idleSeen, no wait. */
+      if (idleSeen && !idleSeen.has(session)) { idleSeen.set(session, clock()); continue; }
       if (stoodDown(session, o.projects)) continue;
       /* Review 4 (Opus): an agent held on its machine's shared Google quota is not read and takes no cap slot: delivery
          would hold it (no try counted), so it would fill a slot every pass until the reset and starve later agents. */
@@ -199,7 +205,11 @@ async function sweepOnce(o) {
         if (rot) rot.after = session;   // review 8: it was asked; the next pass starts after it
         if (fresh && fresh.busy) {
           results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because });
-          if (fresh.stop) break;
+          if (fresh.stop) {
+            // Review 14 (Opus): a refusing or silent service is said once per change, not every pass.
+            if (rot && rot.stopSaid !== fresh.because) { say({ name: plainWords(card.name || session, 80), session, act: 'service-stop', because: fresh.because }); rot.stopSaid = fresh.because; }
+            break;
+          }
           continue;
         }
         const memo = book.get(session);
@@ -213,7 +223,8 @@ async function sweepOnce(o) {
         }
         // Review 12: an agent whose told record could not be written last time is still tried, but takes no cap slot
         // here (a store that stays unwritable would otherwise hold a slot every pass); the line's own cap check still holds.
-        if (untold.length && !givenUp) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid) });
+        if (rot && fresh && fresh.ok === true) rot.stopSaid = null;   // the service answered again
+        if (untold.length && !givenUp) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid), countedAt: clock() });
       } catch (err) {
         results.push({ session, name: plainWords(card.name || session, 80), act: 'error', because: String((err && err.message) || err) });
       }
@@ -223,7 +234,7 @@ async function sweepOnce(o) {
        each line: an agent that started working (or was stood down) meanwhile is left for the next pass (#4624). */
     const typeGap = Number.isFinite(o.typeGapMs) ? o.typeGapMs : TYPE_GAP_MS;
     let typedOne = false;
-    for (const { session, fresh } of counted) {
+    for (const { session, fresh, countedAt } of counted) {
       try {
         if (typedOne && typeGap > 0) await new Promise((res) => setTimeout(res, typeGap));
         /* Review 3 (Opus): the gates are asked again before EVERY line (a person can switch the community or the
@@ -249,6 +260,10 @@ async function sweepOnce(o) {
           let now = null; try { now = o.marksNow(session); } catch { now = null; }
           if (now !== fresh.marksAt) { results.push({ session, name: display, act: 'read-meanwhile', because: 'it read its replies after they were counted' }); continue; }
         }
+        /* Review 14 (Opus): a count older than COUNT_MAX_AGE_MS (a long pass, or a machine that slept mid-pass: timers do
+           not run in sleep) is not typed; the next pass counts afresh. FIRST_LOOK_EDGE_MS assumes this bound. */
+        if (Number.isFinite(countedAt) && clock() - countedAt > COUNT_MAX_AGE_MS) { results.push({ session, name: display, act: 'stale-count', because: 'its count is older than ' + Math.round(COUNT_MAX_AGE_MS / 60000) + ' min' }); continue; }
+        if (o.idleSeen instanceof Map && !(card && require('./agentnudge').nudgeableCard(card))) o.idleSeen.delete(session);
         const p = plan(card, fresh, nudged, memo0, projects);
         if (p.act !== 'nudge') continue;
         prune();
@@ -306,7 +321,9 @@ async function sweepOnce(o) {
           book.set(session, { key: p.key, tries, ...(tries >= MAX_TRIES ? { givenAt: clock() } : {}) });
         }
         results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because });
-        if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because });
+        // Review 14 (Opus): the log says which try failed and when it gives up, not "nudge" for a line that reached nothing.
+        const sayAct = mayHaveReached ? 'nudge' : (tries >= MAX_TRIES ? 'gave-up (tried ' + tries + ' times; again in ' + Math.round(GIVE_UP_FOR_MS / 60000) + ' min)' : 'could-not (try ' + tries + ' of ' + MAX_TRIES + ')');
+        if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: sayAct, delivered, delivery: state, because: p.because });
       } catch (err) {
         results.push({ session, name: session, act: 'error', because: String((err && err.message) || err) });
       }
@@ -351,4 +368,4 @@ async function tick(o) {
   } catch { return null; }
 }
 
-module.exports = { GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
+module.exports = { COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };

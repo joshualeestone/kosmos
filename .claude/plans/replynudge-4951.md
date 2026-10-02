@@ -210,3 +210,28 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
 - NIT FIXED: the said-once flags for an unreadable and an unwritable record are cleared once the record reads / writes
   again, so a LATER outage is said too. Tests + 2 mutants.
 - Targeted files: 258/258.
+
+## Review 14 (Opus, blind, "what a person experiences"): 1 BLOCKER, 3 warnings, 2 nits.
+- BLOCKER (reproduced) FIXED: the nudge counted and named replies UNDER a comment and said "Answer each once", but the
+  community rule (#4833, communityblock.js) says a line with "under comment" is a reply to a reply and is NOT owed an
+  answer, or the thread never ends. So every "you are welcome!" woke the agent into the endless thread Josh ruled out.
+  Now only comments ON the post (x === c) are named and told; the cap is still taken over everything the read shows
+  (replies included) so it falls exactly where the read's does. Four older tests pinned the old count; updated to the
+  owed comments (their read-agreement checks kept). New test: a reply under a comment names nothing; a new comment does.
+- WARNING (reproduced) FIXED: the 15-min window edge was applied BEFORE the cap, so edge items (which the read shows
+  and caps first) moved the cap: told replies fell past it. Now the cap is over the read's exact set and edge items are
+  only left unnamed after it. Test (fixture where a comment is what falls past). Also found: three tests checked
+  r.text.includes(id), which a reply's "under comment <id>" line satisfies for its parent; all now match the item's own
+  "(comment <id>)" line (this is why the edge mutant first survived).
+- WARNING (reproduced) FIXED: a count had no age limit before its line (a long pass, or a machine asleep mid-pass:
+  timers stop in sleep). A count older than COUNT_MAX_AGE_MS (= FIRST_LOOK_EDGE_MS, pinned) is not typed ('stale-count').
+- WARNING FIXED: a line could land right after an agent finished a person's turn. Now an agent must have been idle at
+  the pass BEFORE too (o.idleSeen, kept by server.js; agentnudge's own posture); working clears it.
+- WARNING FIXED: two agents' own reads refused each other, so the second agent told about its replies could find its
+  read refused and the replies wait. An own read now WAITS for another's (READ_WAIT_MS 10 s, so wait + two 8 s rounds
+  stays inside the CLI's 30 s, pinned). Two #4833 tests that pinned the refusal: one now asserts the wait-then-run,
+  the other bounds its second read short to keep testing "never beside".
+- NIT FIXED: the log says 'could-not (try n of 3)' and 'gave-up (tried 3 times; again in 60 min)', and a refusing
+  service is said once per change ('service-stop').
+- NIT (kept): the line counts replies not yet told, not all waiting (it can say 1 while the read shows 4).
+- Mutants: 10/10 killed after the fixture fix. Targeted files: 263/263.

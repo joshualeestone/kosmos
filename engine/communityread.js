@@ -370,6 +370,7 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
    agent saw "could not reach" and then nothing new. Two agents' own reads still refuse each other (#4833 review 5); the
    nudge spaces its lines (replynudge.TYPE_GAP_MS) so the agents it tells do not read at once. */
 const FRESH_WAIT_MS = 20 * 1000;
+const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (two 8 s rounds at most), see readReplies
 let replyReadWaiting = 0;
 let replyReadSession = null;   // review 12: whose own read holds the lock   // reads waiting for the lock: the count steps aside between posts while there is one
 
@@ -378,10 +379,16 @@ async function readReplies(sessionName, opts = {}) {
     return { ok: false, because: 'the Kosmos+ community is switched off on this board, so nothing was read' };
   }
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
-  const waitUntil = Date.now() + (Number.isFinite(opts.freshWaitMs) ? opts.freshWaitMs : FRESH_WAIT_MS);
+  const t0 = Date.now();
+  const waitUntil = t0 + (Number.isFinite(opts.freshWaitMs) ? opts.freshWaitMs : FRESH_WAIT_MS);
+  /* #4951 review 14 (Opus): another agent's own read is waited for too (the nudge tells agents one after another, and a
+     refused read left the replies it was told about unanswered). Bounded shorter (READ_WAIT_MS), so a wait plus this
+     read's own two rounds stays inside the CLI's 30 s. One after another costs the service no more than refuse-and-retry. */
+  const readWaitUntil = Math.min(waitUntil, t0 + (Number.isFinite(opts.readWaitMs) ? opts.readWaitMs : READ_WAIT_MS));
   replyReadWaiting += 1;
-  try { while (replyReadRunning === 'fresh' && Date.now() < waitUntil) await new Promise((res) => setTimeout(res, 100)); }
-  finally { replyReadWaiting -= 1; }
+  try {
+    while ((replyReadRunning === 'fresh' && Date.now() < waitUntil) || (replyReadRunning === 'read' && Date.now() < readWaitUntil)) await new Promise((res) => setTimeout(res, 100));
+  } finally { replyReadWaiting -= 1; }
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board; try again in a moment' };
   replyReadRunning = 'read';
   replyReadSession = sessionName;
@@ -468,17 +475,23 @@ async function freshReplies(sessionName, opts = {}) {
       const mark = marks[p.remoteId];
       const fresh = [];
       for (const c of comments) for (const x of [c, ...c.replies]) {
-        // Review 12 (Opus): a post with no mark yet is judged against the window's edge pushed in a little
-        // (FIRST_LOOK_EDGE_MS), so a reply the count sees just inside the window is not out of it by the agent's read.
-        if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook + FIRST_LOOK_EDGE_MS)) fresh.push(x);
+        // EXACTLY the read's set (plain firstLook), so the cap below falls where the read's does (review 14).
+        if (x.author && x.ts && !(me && x.nameKey === me) && afterMark(x, mark, firstLook)) {
+          /* Review 14 (Opus): only a comment ON the post is owed an answer; a reply under a comment is shown by the read
+             with "under comment" and is not (#4833, communityblock's rule), so it is never named or told here.
+             Review 12: one within FIRST_LOOK_EDGE_MS of the window's edge on an unmarked post may be out of the window by
+             the agent's read, so it is not named either (it still takes its place in the cap, as in the read). */
+          fresh.push({ x, owed: x === c, edge: !afterMark(x, mark, firstLook + FIRST_LOOK_EDGE_MS) });
+        }
       }
       if (fresh.length) out.push({ remoteId: p.remoteId, title: titles.get(p.remoteId) || '', items: fresh });
     }
     /* Review 9 (Sonnet): the agent's own read shows at most REPLIES_SHOWN_MAX, the oldest first across its posts, so the
        count is capped the same way: the line never names more than the read will show, and the rest (not told yet) are
        counted on a later pass, once the read has moved past these. */
-    const keep = new Set(out.flatMap((o) => o.items).sort(byPos).slice(0, REPLIES_SHOWN_MAX));
-    const capped = out.map((o) => ({ remoteId: o.remoteId, title: o.title, ids: o.items.filter((x) => keep.has(x)).sort(byPos).map((x) => x.id) }))
+    const keep = new Set(out.flatMap((o) => o.items).sort((a, b) => byPos(a.x, b.x)).slice(0, REPLIES_SHOWN_MAX));
+    const capped = out.map((o) => ({ remoteId: o.remoteId, title: o.title,
+      ids: o.items.filter((i) => keep.has(i) && i.owed && !i.edge).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
       .filter((o) => o.ids.length);
     return { ok: true, posts: capped, asked, marksAt: marksStamp(sessionName, marks) };
   } catch (err) {
@@ -609,4 +622,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

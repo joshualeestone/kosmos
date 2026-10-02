@@ -561,3 +561,42 @@ test('#4951 review 13 (Sonnet): an unwritable record is said again on a LATER ou
   for (let i = 0; i < 3; i += 1) { await rn.sweepOnce(o); writable.shift(); o.writeNudged = (() => { const w = writable[0] === true; return () => w; })(); }
   assert.equal(said.filter((x) => x.startsWith('skipped:its told record could not be written')).length, 2, 'not said once per outage: ' + JSON.stringify(said));
 });
+
+test('#4951 review 14 (Opus): an agent seen idle for the first time is not counted until the next pass (it may have just finished a person\'s turn)', async () => {
+  const idleSeen = new Map();
+  const asked = [];
+  const { o, typed } = rig({ idleSeen, fresh: async (s) => { asked.push(s); return { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r1'] }] }; } });
+  await rn.sweepOnce(o);
+  assert.deepEqual([asked, typed.length], [[], 0], 'an agent idle for the first time was counted or typed into');
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'an agent idle at the pass before was not told');
+  // Working in between starts the wait over.
+  o.roster = [card('kim', { state: 'working' })];
+  await rn.sweepOnce(o);
+  assert.equal(idleSeen.has('kim'), false, 'a working agent kept its idle mark');
+});
+
+test('#4951 review 14 (Opus): a count older than COUNT_MAX_AGE_MS by its line (a long pass, a machine asleep) is not typed', async () => {
+  let t0 = Date.now();
+  const { o, typed } = rig({ clock: () => t0, roster: [card('kim'), card('ann')], typeGapMs: 0,
+    fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }) });
+  o.deliver = (s, text) => { typed.push({ s, text }); t0 += rn.COUNT_MAX_AGE_MS + 1000; return { state: D.PLACED }; };   // kim's line ends after a long sleep
+  const r = await rn.sweepOnce(o);
+  assert.deepEqual(typed.map((x) => x.s), ['kim'], 'a stale count was typed');
+  assert.ok(r.results.some((x) => x.session === 'ann' && x.act === 'stale-count'));
+  assert.equal(rn.COUNT_MAX_AGE_MS, require('./communityread').FIRST_LOOK_EDGE_MS, 'the count age and the window edge drifted apart');
+});
+
+test('#4951 review 14 (Opus): a refusing service is said once per change; the log names a failed try and the give-up', async () => {
+  const said = [];
+  const rotation = { after: null };
+  const { o } = rig({ rotation, log: (r) => said.push(r.act), fresh: async () => ({ ok: false, busy: true, stop: true, because: 'the community service is limiting requests' }) });
+  await rn.sweepOnce(o); await rn.sweepOnce(o);
+  assert.deepEqual(said, ['service-stop'], 'a service stop was not said, or said every pass');
+  const said2 = [];
+  const b = rig({ log: (r) => said2.push(r.act) });
+  b.o.deliver = () => ({ state: D.COULD_NOT });
+  for (let i = 0; i < rn.MAX_TRIES; i += 1) await rn.sweepOnce(b.o);
+  assert.equal(said2[0], 'could-not (try 1 of ' + rn.MAX_TRIES + ')');
+  assert.match(said2[1], /^gave-up \(tried 3 times; again in 60 min\)$/);
+});

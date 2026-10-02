@@ -19595,6 +19595,7 @@ function start(port = PORT) {
          is skipped, not stacked. unref'd, and first run one interval after boot, off the listen path. */
       const REPLY_NUDGE_BOOK = new Map();
       const REPLY_NUDGE_ROTATION = { after: null };   // review 8: each pass starts after the last agent counted
+      const REPLY_NUDGE_IDLE_SEEN = new Map();   // review 14: an agent is nudged only if it was idle at the pass before too
       let replyNudgeRunning = false;
       const replyNudgeTick = setInterval(() => {
         if (replyNudgeRunning) return;
@@ -19610,7 +19611,7 @@ function start(port = PORT) {
           readingNow: (session) => communityread.readingNow(session),   // review 12
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
-          book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION,
+          book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT, rotation: REPLY_NUDGE_ROTATION, idleSeen: REPLY_NUDGE_IDLE_SEEN,
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
