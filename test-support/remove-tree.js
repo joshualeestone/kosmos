@@ -3,8 +3,9 @@
  * removeTree(dir, opts): remove a test's temp folder, outlasting a Windows hold (kosmos#5010, #5074).
  * Moved here from tools.windows-kosmos-shims-570.test.js so the shims test and the grok and
  * codex win32 runner tests share one retry with its own tests
- * (test-support.remove-tree.test.js), not rmSync's maxRetries, whose coverage of this
- * hold on win32 depends on the Node version (see .claude/plans/grokrm-5074.md).
+ * (test-support.remove-tree.test.js), not rmSync's maxRetries: on win32 this hold surfaces as
+ * permission_denied, which rmSync's own retry covers only from Node 26.8 on (read from Node's
+ * source in review, not measured here), and CI floats on Node 26.
  */
 const fs = require('node:fs');
 
