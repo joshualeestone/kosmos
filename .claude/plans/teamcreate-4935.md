@@ -99,6 +99,13 @@ statuses change, and Project/Model look locked while making.
 - A provider with no list hides the row (as the vendor branch does); a redundant .spin rule and an unused test
   helper removed; the plan's round-trip sentence corrected.
 
+## Review 10 changes
+- The TC_MODEL_GEN / TC_MODEL_WAIT_MS comments were merged onto one line by the review-9 insertion: split back.
+  The OpenAI wait's timer is cleared when the race settles.
+- Deferred, verified: "a resumed team after a page reload loses its model". TC is never persisted (no storage
+  write for it), so a reload drops the team and there is nothing to resume; an in-page resume returns from
+  openTeamCreate before the menu reset, so TC.model and the menu both stay as they were.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 

@@ -48482,8 +48482,8 @@ document.getElementById('tc-account').addEventListener('change', () => { TC_PROV
 /* True while a model list is loading: Create and Try again are held then (a team made then gets no model). */
 function tcIsModelLoading() { const m = document.getElementById('tc-model'); return Boolean(m && m.dataset.loading === '1'); }
 let TC_MODEL_FOR = null;   // the provider|account the model menu was last painted for
-let TC_MODEL_GEN = 0;
-let TC_MODEL_WAIT_MS = 8000;   // a browser check can shorten it      // a newer paint supersedes a list still being read
+let TC_MODEL_GEN = 0;      // a newer paint supersedes a list still being read
+let TC_MODEL_WAIT_MS = 8000;   // a browser check can shorten it
 function tcSyncModel() {
   const sel = document.getElementById('tc-model');
   const step = document.getElementById('cstep-teammake');
@@ -48535,10 +48535,11 @@ function tcPaintModel(pv, ac) {
     show('<option value="">Loading this account\'s models…</option>', true, '', false, true);
     /* Bounded, as the account read on this step is: a slow or stuck answer (a live check can take ~20 s cold) must not
        hold Create down with no word why, so after TC_MODEL_WAIT_MS it reads as "cannot list". */
+    let waited;
     Promise.race([
       fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
-      new Promise((res) => setTimeout(() => res(null), TC_MODEL_WAIT_MS)),
-    ]).catch(() => null)
+      new Promise((res) => { waited = setTimeout(() => res(null), TC_MODEL_WAIT_MS); }),
+    ]).catch(() => null).finally(() => clearTimeout(waited))
       .then((out) => {
         if (gen !== TC_MODEL_GEN) return;
         if (out && out.ok && Array.isArray(out.models) && out.models.length) {
