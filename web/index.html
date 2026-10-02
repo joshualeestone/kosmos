@@ -53057,7 +53057,10 @@ function importNamesKept(box) {
     const row = f.closest && f.closest('.fr-importrow');
     const file = row && row.getAttribute('data-import-file');
     if (f.disabled) continue;   // an added or adding row's name comes back through importRowApply, never into a fresh field
-    if (file && (f.value || document.activeElement === f)) kept.set(file, { value: f.value, focused: document.activeElement === f });
+    const said = row.querySelector('.fr-importsaid');
+    const why = said ? said.textContent : '';
+    const bad = f.getAttribute('aria-invalid') === 'true';
+    if (file && (f.value || why || bad || document.activeElement === f)) kept.set(file, { value: f.value, focused: document.activeElement === f, why, bad });
   }
   return kept;
 }
@@ -53068,6 +53071,9 @@ function importNamesRestore(box, kept) {
     const f = k && row.querySelector('.fr-importinput');
     if (f) {
       f.value = k.value;
+      if (k.bad) f.setAttribute('aria-invalid', 'true');   // review 6: a refusal shown just before the redraw stays shown
+      const said = row.querySelector('.fr-importsaid');
+      if (said && k.why) said.textContent = k.why;
       if (k.focused && typeof f.focus === 'function') f.focus();
     }
     importRowApply(row);   // an add in flight or done shows as such on the new row (review 2)
@@ -53192,7 +53198,7 @@ async function populateFoundImports() {
    The paste/choose path (importLoad -> finishImport) is untouched: someone who wants
    to review a file before creating still opens the form that way. This one-click path
    is only for the discovered-file rows. */
-async function addImportedInPlace(file, btn, row) {
+async function addImportedInPlace(file, btn, row, viaKey) {
   if (!file || !btn || btn.disabled) return;
   const said = row && row.querySelector('.fr-importsaid');
   /* kosmos#4962: a nameless file's row carries a Name field. Empty, it is asked for before anything is
@@ -53207,8 +53213,10 @@ async function addImportedInPlace(file, btn, row) {
   }
   const was = btn.textContent;
   /* Where the keyboard was when the add began (the field, after Enter, or the button). Disabling it drops
-     focus to the page, so it is given back on a refusal, and moved on to the next row on success
-     (review 5): this list is pressed down, add after add. */
+     focus to the page, so it is given back on a refusal, and, for an add made FROM THE KEYBOARD (viaKey:
+     the click's detail was 0), moved on to the next row on success (review 5): this list is pressed down,
+     add after add. A pointer add leaves focus alone (review 6): Chrome focuses a clicked button, and moving
+     focus into the next field after a tap would open a phone's keyboard over the list. */
   const had = document.activeElement;
   const hadInRow = !!(had && had.closest && had.closest('.fr-importrow') === row);
   /* A refusal re-enables the Name field. Only a refusal ABOUT THE NAME (the engine says field:'name')
@@ -53338,11 +53346,13 @@ async function addImportedInPlace(file, btn, row) {
   }
   IMPORT_ADDS.set(file, { state: 'added', name: typed || name });
   importRowsSync(file);
-  if (hadInRow && row && row.parentElement) {
+  if (viaKey && hadInRow && row && row.parentElement) {
     const rows = Array.from(row.parentElement.children).filter((r) => r && r.className && String(r.className).split(/\s+/).includes('fr-importrow'));
-    const next = rows[rows.indexOf(row) + 1];
-    const to = next && (next.querySelector('.fr-importinput') || next.querySelector('.fr-importgo'));
-    if (to && !to.disabled && typeof to.focus === 'function') to.focus();
+    /* The next row that can still be added (one already added is passed over). */
+    for (const next of rows.slice(rows.indexOf(row) + 1)) {
+      const to = next.querySelector('.fr-importinput') || next.querySelector('.fr-importgo');
+      if (to && !to.disabled && typeof to.focus === 'function') { to.focus(); break; }
+    }
   }
   /* #2419: NO Undo on an import row, deliberately (Josh's spec for this screen is add +
      a green check: "add, add, add"). The sibling found/scan rows offer Undo, but their
@@ -53357,14 +53367,15 @@ async function addImportedInPlace(file, btn, row) {
    the create form's import panel (#import-found) AND the find-agents screen
    (#fr-fleet, via frPaintScan). One handler, one behaviour on both: add the file in
    place (addImportedInPlace), never jump to the create form. */
-document.addEventListener('click', (e) => {
+function importGoClick(e) {
   const btn = e.target.closest('.fr-importgo');
   if (!btn || btn.disabled) return;
   const row = btn.closest('.fr-importrow');
   const file = row && row.getAttribute('data-import-file');
   if (!file) return;
-  addImportedInPlace(file, btn, row);
-});
+  addImportedInPlace(file, btn, row, e.detail === 0);   // detail 0: Enter/Space or importNameEnter, not a pointer
+}
+document.addEventListener('click', importGoClick);
 /* kosmos#4962: Enter in a nameless row's Name field presses that row's Add; typing again clears the
    invalid mark a refusal set. defaultPrevented is checked so a screen that already acted on this Enter
    (first run's Enter-means-Continue, which now exempts this field) never gets a second action. */
