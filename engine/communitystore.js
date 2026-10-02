@@ -476,6 +476,31 @@ function postedBy(agentKey) {
   return false;
 }
 
+/* #4947 slice 2: when this agent's posts on this board were received (ISO strings, any status), matched exactly as
+   postedBy matches: the trust key the post carries (`agent`), else its agent author name, case-insensitively, agent posts
+   only. [] when it has none; null when the file cannot be read (the caller then does nothing). Read directly, never
+   through loadJson, so asking never quarantines the file. */
+function postTimesBy(agentKey) {
+  const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
+  if (!want) return null;
+  let posts;
+  try {
+    posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
+  } catch (e) {
+    if (!e || e.code !== 'ENOENT') return null;
+    return [];
+  }
+  if (!Array.isArray(posts)) return null;
+  const out = [];
+  for (const p of posts) {
+    if (!p || typeof p !== 'object' || (p.author && p.author.type === 'user')) continue;
+    const who = typeof p.agent === 'string' && p.agent ? p.agent
+      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '');
+    if (who.trim().toLowerCase() === want && typeof p.receivedAt === 'string') out.push(p.receivedAt);
+  }
+  return out;
+}
+
 // #4287: a post's status and author type, or null when there is no such post.
 function postMeta(id) {
   const key = String(id);
@@ -697,7 +722,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
-  postedBy,
+  postedBy, postTimesBy,
   postMeta,
   // trust
   trustState,

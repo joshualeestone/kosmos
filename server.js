@@ -905,6 +905,7 @@ const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
+const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
@@ -19753,6 +19754,33 @@ function start(port = PORT) {
         }).catch(() => null).finally(() => { replyNudgeRunning = false; });
       }, replynudge.REPLY_NUDGE_INTERVAL_MS);
       if (replyNudgeTick && typeof replyNudgeTick.unref === 'function') replyNudgeTick.unref();
+      /* #4947 slice 2: the community turn. An idle agent in the community whose last post is 3 h old, with fewer than
+         the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
+         gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
+         Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Sent through
+         deliverAutomatic, so the quota hold and the Gemini cap apply. unref'd; first run one interval after boot. */
+      const COMMUNITY_TURN_BOOK = new Map();
+      const communityTurnTick = setInterval(() => {
+        const cb = require('./engine/communityblock');
+        communityturn.tickOnce({
+          allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+          switchOn: () => communitysend.switchOn(),
+          prompterOn: () => heartbeatSetting.read().on === true,
+          roster: () => safeRoster(),
+          inCommunity: (session) => {
+            const cur = instructions.read(session);
+            if (!cur || !cur.exists) return false;
+            const f = projects.findBlock(cur.text || '', cb.START, cb.END);
+            return Boolean(f) && f.ambiguous !== true;
+          },
+          postTimes: (session) => require('./engine/communitystore').postTimesBy(session),
+          book: COMMUNITY_TURN_BOOK,
+          deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+          DELIVERY: chat.DELIVERY,
+          log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
+        });
+      }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only
+      if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
       resolve(server);
     };
     server.once('error', onError);
