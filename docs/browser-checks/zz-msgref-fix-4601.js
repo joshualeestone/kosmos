@@ -309,18 +309,19 @@ async function paintRoom(page) {
         await page.evaluate(() => { window.__ev = []; const t0 = performance.now(); const menu = () => { const m = document.getElementById('msg-menu'); return m ? (m.hidden ? 'hidden' : 'open') : 'none'; };
           for (const k of ['pointerdown', 'mousedown', 'contextmenu', 'pointerup', 'mouseup', 'auxclick', 'click', 'blur', 'focusout', 'scroll', 'selectionchange'])
             document.addEventListener(k, (e) => window.__ev.push([Math.round(performance.now() - t0), k, e.button, e.target && (e.target.id || e.target.className || e.target.tagName), menu()]), true);
-          window.__poll = []; const tick = () => { window.__poll.push([Math.round(performance.now() - t0), menu()]); if (window.__poll.length < 40) setTimeout(tick, 25); }; tick(); });
+          window.__poll = []; const tick = () => { const st = menu(); const last = window.__poll[window.__poll.length - 1]; if (!last || last[1] !== st) window.__poll.push([Math.round(performance.now() - t0), st, document.activeElement && (document.activeElement.id || document.activeElement.tagName), document.visibilityState, document.hasFocus()]); window.__polls = (window.__polls || 0) + 1; if (window.__polls < 400) setTimeout(tick, 25); }; tick(); });
         await page.mouse.click(word.x, word.y, { button: 'right' });
         await page.waitForTimeout(150);
         await page.waitForTimeout(900);
         console.log('PROBE-4601 events ' + JSON.stringify(await page.evaluate(() => window.__ev)));
-        console.log('PROBE-4601 menu   ' + JSON.stringify(await page.evaluate(() => window.__poll.filter((x, i, a) => i === 0 || x[1] !== a[i - 1][1]))));
+        console.log('PROBE-4601 menu   ' + JSON.stringify(await page.evaluate(() => window.__poll)));
         console.log('PROBE-4601 after  ' + JSON.stringify(await page.evaluate(() => window.__sc.slice(-6))));
         await page.waitForTimeout(3000);
         console.log('PROBE-4601 later  ' + JSON.stringify(await page.evaluate(() => ({ sc: window.__sc.slice(-8), menu: (document.getElementById('msg-menu') || {}).hidden, cw: document.documentElement.clientWidth, iw: innerWidth }))));
         const r12a = await page.evaluate(() => ({ open: !!document.getElementById('msg-menu') && !document.getElementById('msg-menu').hidden,
           sel: String(getSelection()) }));
         chk(r12a.open && r12a.sel === '', '[webkit] R12 a real right-click on a word opens the menu (and leaves no stray word selected)', JSON.stringify(r12a));
+        console.log('PROBE-4601 pre-copy ' + JSON.stringify(await page.evaluate(() => ({ poll: window.__poll, ev: (window.__ev || []).slice(-8), sc: (window.__sc || []).slice(-6) }))));
         if (r12a.open) {
           await page.click('#msg-menu-copy');
           await page.waitForTimeout(150);
