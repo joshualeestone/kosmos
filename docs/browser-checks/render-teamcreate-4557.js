@@ -389,6 +389,8 @@ function chk(ok, label, extra) {
           await page.click('#tc-back');
           const backed = await page.evaluate(() => ({ team: TC !== null, step: !document.getElementById('cstep-teammake').hidden }));
           await page.evaluate(() => openTeamCreate('marketing'));
+          const howAnother = await page.evaluate(() => { const m = document.getElementById('tc-msg'); return m.hidden ? '' : m.textContent; });
+          chk(/To make another, choose Go to your team first\./.test(howAnother), `${E} #4936 the same team picked again says how to make another`, howAnother);
           await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
           const re = await rows(page);
           chk(backed.team && !backed.step && re.map((r) => r.state).join() === 'Said hello,Said hello,Could not say hello' && re[2].retry,
@@ -587,12 +589,12 @@ function chk(ok, label, extra) {
           /* Review 10: every held state the page knows says its own reason; a state not held, and a board that cannot be
              read, say nothing, so the hello goes ahead. */
           Object.assign(stateOf, { 'h-auth': 'auth_failed', 'h-rate': 'rate_limited', 'h-stop': 'stopped', 'h-lost': 'connection_lost', 'h-idle': 'idle' });
-          const heldSay = await page.evaluate(async () => ({ auth: await tcHelloHeld('h-auth'), rate: await tcHelloHeld('h-rate'), stop: await tcHelloHeld('h-stop'),
-            lost: await tcHelloHeld('h-lost'), idle: await tcHelloHeld('h-idle'), none: await tcHelloHeld('nobody-here') }));
+          const heldSay = await page.evaluate(async () => { TC_STATUS_READ = null; return {} ; }).then(() => page.evaluate(async () => ({ auth: await tcHelloHeld('h-auth'), rate: await tcHelloHeld('h-rate'), stop: await tcHelloHeld('h-stop'),
+            lost: await tcHelloHeld('h-lost'), idle: await tcHelloHeld('h-idle'), none: await tcHelloHeld('nobody-here') })));
           chk(/sign-in failed/.test(heldSay.auth || '') && /at its limit/.test(heldSay.rate || '') && /not ready/.test(heldSay.stop || '') && /not ready/.test(heldSay.lost || '')
             && heldSay.idle === null && heldSay.none === null, `${E} #4936 each held state says why; an idle member and one the board does not list hold nothing`, JSON.stringify(heldSay));
           await page.route('**/api/status*', (r) => r.fulfill({ status: 500, body: 'no' }));
-          chk(await page.evaluate(() => tcHelloHeld('h-auth')) === null, `${E} #4936 a board that cannot be read holds nothing (the hello goes ahead)`);
+          chk(await page.evaluate(() => { TC_STATUS_READ = null; return tcHelloHeld('h-auth'); }) === null, `${E} #4936 a board that cannot be read holds nothing (the hello goes ahead)`);
           chk(errs.length === 0, `${E} no page errors (#4936 held-member arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();

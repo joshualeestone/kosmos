@@ -48254,6 +48254,11 @@ async function openTeamCreate(key) {
     const msg = document.getElementById('tc-msg');
     msg.hidden = true; msg.textContent = ''; delete msg.dataset.kind;
     tcPaint();
+    if (TC.key === key && tcFinished() && TC.helloStarted) {
+      // Review 12: the same team picked again while one is not said hello to resumes it; say how to make another.
+      msg.hidden = false; msg.dataset.kind = 'resume';
+      msg.textContent = 'This is the ' + ((TC.team && TC.team.label) || 'team') + ' team you just made. To make another, choose Go to your team first.';
+    }
     if (TC.key !== key) {
       msg.hidden = false; msg.dataset.kind = 'resume';
       // Review 5: a team already made and being said hello to is not "still making".
@@ -48645,7 +48650,8 @@ async function tcHelloSend(name) {
        delivery, so it and every other status may have placed it already and are never re-sent. */
     if (!r.ok) return { got: (r.status === 404 || r.status === 409) ? 'failed' : 'unsure', why: r.because };
     const state = r.delivery && r.delivery.state;
-    return { got: state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure'), why: r.because };
+    // Review 12: a could_not's own words are about its window and keystrokes; the row says it plainly instead.
+    return { got: state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure'), why: null };
   } catch { return { got: 'unsure', why: null }; }   // the request may have reached the board
   finally { if (timer) clearTimeout(timer); }
 }
@@ -48727,6 +48733,7 @@ async function tcLeaveWhenSettled(gen) {
 function tcHelloRetry(slot) {
   const m = TC && TC.members.find((x) => x.slot === slot);
   if (!m || m.hello !== 'failed' || TC.leaving) return;
+  TC_STATUS_READ = null;   // review 12: a Try again reads the board afresh (the person may have just answered it)
   const gen = TC_GEN;
   TC.greeting = true;
   tcHelloOne(m, gen).catch(() => { if (m.hello === 'sending') m.hello = 'unsure'; }).then(() => {   // review 10: never stuck
