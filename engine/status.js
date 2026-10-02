@@ -670,7 +670,7 @@ function lookProblemFor(got, bin, searched) {
         : searched === 'not-allowed' ? '; this tmux was not picked by the Kosmos launcher, so Kosmos does not swap it for another'
           : '';
     // The path said with ~ for the home folder: a detail line reaches the screen, and a user name has no business there.
-    const home = process.env.HOME || '';
+    const home = (() => { try { return require('node:os').homedir() || ''; } catch { return ''; } })();   // not $HOME: Windows has none (#1732)
     const said = bin && home && bin.startsWith(home + '/') ? '~' + bin.slice(home.length) : (bin || 'tmux');
     return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${said}) cannot read them (it said: ${err})${after}.`;
   }
