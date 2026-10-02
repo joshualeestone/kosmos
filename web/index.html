@@ -48263,7 +48263,7 @@ async function openTeamCreate(key) {
     if (TC.key !== key) {
       msg.hidden = false; msg.dataset.kind = 'resume';
       // Review 5: a team already made and being said hello to is not "still making".
-      msg.textContent = (TC.greeting && !TC.running ? 'Kosmos is still saying hello to ' : 'Kosmos is still making ') + ((TC.team && TC.team.label) || 'a team') + '. You can make another team once it finishes.';
+      msg.textContent = (TC.greeting && !TC.running ? 'Kosmos is still saying hello to your ' : 'Kosmos is still making your ') + ((TC.team && TC.team.label) || 'team') + '. You can make another team once it finishes.';
     }
     if (!TC.running && !TC.watching && TC.members.some((m) => m.state === 'made' && m.seen !== 'running')) {
       for (const m of TC.members) if (m.seen === 'unseen') m.seen = null;
@@ -48508,7 +48508,7 @@ function tcPaint() {
     st.textContent = ({ ready: '', waiting: 'Waiting', held: 'Waiting for the lead', creating: 'Making…',
       made: made + (m.portrait === 'failed' ? ' (picture not set)' : ''), failed: 'Not made' })[m.state] || '';
     // #4936: once it is running, Kosmos says hello to it; the row says where that is.
-    if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', started: 'Said hello', failed: 'Could not say hello', unsure: 'Hello not confirmed' })[m.hello] || st.textContent;
+    if (m.state === 'made' && m.hello) st.textContent = ({ sending: 'Saying hello…', waiting: 'Waiting for it to start…', started: 'Said hello', failed: 'Could not say hello', unsure: 'Hello not confirmed' })[m.hello] || st.textContent;
     if (m.state === 'made' && m.hello && m.portrait === 'failed') st.textContent += ' (picture not set)';   // review 7: still said
     // Review 5: and in its own colour: only "Said hello" is the success green; a failed hello is red, the rest plain.
     if (m.state === 'made' && m.hello && m.hello !== 'started') st.className = 'tc-state' + (m.hello === 'failed' ? ' failed' : '');
@@ -48608,7 +48608,7 @@ function tcPaint() {
       : 'Your team is running. ' + (notN === 1 ? '1 of them' : notN + ' of them') + ' may not have started: look at ' + (notN === 1 ? 'its row.' : 'their rows.')) + look;
     else {
       // Review 5: during a Try again only some are being said hello to, so the note says how many.
-      const sayingN = TC.members.filter((m) => m.hello === 'sending').length;
+      const sayingN = TC.members.filter((m) => m.hello === 'sending' || m.hello === 'waiting').length;
       note = 'Your team is running on your board. Saying hello to ' + (n === 1 ? 'it' : (sayingN && sayingN < n ? (sayingN === 1 ? '1 of them' : sayingN + ' of them') : 'each of them')) + '…' + look;
     }
   } else {
@@ -48621,7 +48621,7 @@ function tcPaint() {
      retry, and this button goes to the team. */
   const hello = document.getElementById('tc-hello');
   const finished = tcFinished();
-  const settled = finished && TC.members.every((m) => m.hello && m.hello !== 'sending');
+  const settled = finished && TC.members.every((m) => m.hello && m.hello !== 'sending' && m.hello !== 'waiting');
   // Review 8: also when every hello is placed but a picture failed, or is still going up after the wait: the step
   // stays for that row, and the person needs a way on that is not Back.
   hello.hidden = !(settled && (TC.members.some((m) => m.hello !== 'started')
@@ -48682,7 +48682,9 @@ async function tcHelloHeld(name) {
   if (a.state === 'auth_failed') return { text: 'Its sign-in failed, so Kosmos did not say hello. Fix it on its page, then Try again.', transient: false };
   if (a.state === 'rate_limited') return { text: 'Its account is at its limit right now, so Kosmos did not say hello. Try again later.', transient: false };
   // Review 13: unknown too: engine/status.js says nothing may type into an UNKNOWN pane automatically.
-  if (['stopped', 'restarting', 'connection_lost', 'unknown'].includes(a.state)) return { text: 'It is not ready to take a message yet. Try again in a moment.', transient: true };
+  // Review 15: a stopped member does not start by itself, so it is not waited out and its row says how.
+  if (a.state === 'stopped') return { text: 'It is stopped, so Kosmos did not say hello. Start it on its page, then Try again.', transient: false };
+  if (['restarting', 'connection_lost', 'unknown'].includes(a.state)) return { text: 'It is not ready to take a message yet. Try again in a moment.', transient: true };
   return null;
 }
 async function tcHelloOne(m, gen) {
@@ -48701,7 +48703,8 @@ async function tcHelloOne(m, gen) {
     if (gen !== TC_GEN || !TC) return;
     // Review 14: "not ready yet" (just made, still starting) is waited out like a busy window, try after try; a
     // member that needs the person, is signed out or at its limit will not clear in seconds, so it stops at once.
-    if (held && held.transient) { got = 'failed'; why = held.text; TC_STATUS_READ = null; continue; }
+    if (held && held.transient) { got = 'failed'; why = held.text; TC_STATUS_READ = null; m.hello = 'waiting'; tcPaint(); continue; }
+    if (m.hello === 'waiting') { m.hello = 'sending'; tcPaint(); }
     if (held) { m.hello = 'failed'; m.helloWhy = held.text; tcPaint(); return; }
     ({ got, why } = await tcHelloSend(m.made.name));
   }
@@ -48716,12 +48719,12 @@ async function tcSayHello() {
   const gen = TC_GEN;
   const lead = tcLead();
   // Review 11: a throw must not leave the team "still saying hello" for good, blocking every other team.
-  const settle = (m) => tcHelloOne(m, gen).catch(() => { if (m && m.hello === 'sending') m.hello = 'unsure'; });
+  const settle = (m) => tcHelloOne(m, gen).catch(() => { if (m && (m.hello === 'sending' || m.hello === 'waiting')) m.hello = 'unsure'; });
   await settle(lead);
   if (gen !== TC_GEN || !TC) return;
   await Promise.all(TC.members.filter((m) => m !== lead).map(settle));
   if (gen !== TC_GEN || !TC) return;
-  TC.greeting = TC.members.some((m) => m.hello === 'sending');   // a Try again pressed meanwhile may still be going
+  TC.greeting = TC.members.some((m) => m.hello === 'sending' || m.hello === 'waiting');   // a Try again pressed meanwhile may still be going
   if (TC.members.every((m) => m.hello === 'started')) tcLeaveWhenSettled(gen);
   else tcPaint();
 }
@@ -48743,10 +48746,11 @@ function tcHelloRetry(slot) {
   TC_STATUS_READ = null;   // review 12: a Try again reads the board afresh (the person may have just answered it)
   const gen = TC_GEN;
   TC.greeting = true;
-  tcHelloOne(m, gen).catch(() => { if (m.hello === 'sending') m.hello = 'unsure'; }).then(() => {   // review 10: never stuck
+  tcHelloOne(m, gen).catch(() => { if (m.hello === 'sending' || m.hello === 'waiting') m.hello = 'unsure'; }).then(() => {   // review 10: never stuck
     if (gen !== TC_GEN || !TC) return;
-    TC.greeting = TC.members.some((x) => x.hello === 'sending');
+    TC.greeting = TC.members.some((x) => x.hello === 'sending' || x.hello === 'waiting');
     if (TC.members.every((x) => x.hello === 'started')) tcLeaveWhenSettled(gen);
+    else tcPaint();   // review 15: a throw above is painted too, not left reading "Saying hello…"
   });
 }
 /* #4936 (Josh: "It should take me to my agent view wherever I was and show me. I should be able to go see the new

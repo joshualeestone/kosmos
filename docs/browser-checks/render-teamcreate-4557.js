@@ -330,7 +330,7 @@ function chk(ok, label, extra) {
           releaseCheck();
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /Running|Not made/.test(s.textContent)));
           const r1 = await rows(page);
-          chk(!view.hello && await page.evaluate(() => { const b = document.getElementById('tc-hello'); return !b || b.hidden; }), `${E} no Say Hello before the team is made, nor while a member is not made`, String(view.hello));
+          chk(!view.hello && await page.evaluate(() => { const b = document.getElementById('tc-hello'); return !b || b.hidden; }), `${E} no Go to your team before the team is made, nor while a member is not made`, String(view.hello));
           const made = projects.readAll().filter((p) => p.name === wantName);
           chk(projects.readAll().length === projectsBefore + 1 && made.length === 1, `${E} pressing the button made the project, for real`, String(projects.readAll().length - projectsBefore));
           const pid = made[0] && made[0].id;
@@ -379,7 +379,7 @@ function chk(ok, label, extra) {
           chk(r2.every((r) => !/not set/.test(r.state)), `${E} and no row says its picture was not set`, JSON.stringify(r2.map((r) => r.state)));
           chk(errs.length === 0, `${E} no page errors`, errs.join(' | '));
           /* #4936: Try again on Ana while it still is not placed: tried three more times, and the step still stays. */
-          await page.click('#tc-list li[data-slot="social"] .tc-retry');
+          await page.focus('#tc-list li[data-slot="social"] .tc-retry'); await page.keyboard.press('Enter');   // review 15: a click does not focus a button on webkit
           // Review 13: the count is node's; the page condition waits for the row to settle again after its retries.
           await settle(page, () => /Could not say hello/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || '')
             && !document.querySelector('#tc-list li[data-slot="social"] .tc-state').textContent.includes('Saying'));
@@ -431,7 +431,7 @@ function chk(ok, label, extra) {
           await settle(page, () => /Loading the team/.test(document.getElementById('tc-title').textContent));
           const loading = await page.evaluate(() => ({ title: document.getElementById('tc-title').textContent, hello: !(document.getElementById('tc-hello') || { hidden: true }).hidden,
             options: document.getElementById('tc-project').options.length, tell: !(document.getElementById('tc-tell') || { disabled: true }).disabled }));
-          chk(/Loading the team/.test(loading.title) && !loading.hello && loading.options === 0 && !loading.tell, `${E} while another team loads, the finished team's Say Hello, project menu and choice are not on offer`, JSON.stringify(loading));
+          chk(/Loading the team/.test(loading.title) && !loading.hello && loading.options === 0 && !loading.tell, `${E} while another team loads, the finished team's Go to your team, project menu and choice are not on offer`, JSON.stringify(loading));
           await page.close();
         }
 
@@ -541,7 +541,7 @@ function chk(ok, label, extra) {
           await page.click('#tc-go');
           // Review 13: `hellos` lives here in node, never inside the page condition (it would throw, and the wait return at once).
           await settle(page, () => typeof TC_UPLOADING !== 'undefined' && TC_UPLOADING === 0
-            && /picture not set/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
+            && [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^Said hello/.test(s.textContent)));   // review 15: every hello landed
           chk(hellos.length === 3, `${E} #4936 every member was said hello to once (picture-failed arm)`, JSON.stringify(hellos.map((h) => h.who)));
           await page.waitForTimeout(600);   // room for a wrong move to the agents view
           const pf = await page.evaluate(() => ({ team: TC !== null, panel: !document.getElementById('panel-create').hidden,
@@ -597,12 +597,13 @@ function chk(ok, label, extra) {
           chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 a Try again that places the last hello leaves for the agents view on its own`);
           /* Review 10: every held state the page knows says its own reason; a state not held, and a board that cannot be
              read, say nothing, so the hello goes ahead. */
-          Object.assign(stateOf, { 'h-auth': 'auth_failed', 'h-rate': 'rate_limited', 'h-stop': 'stopped', 'h-lost': 'connection_lost', 'h-idle': 'idle' });
+          Object.assign(stateOf, { 'h-auth': 'auth_failed', 'h-rate': 'rate_limited', 'h-stop': 'stopped', 'h-lost': 'connection_lost', 'h-unk': 'unknown', 'h-idle': 'idle' });
           const heldSay = await page.evaluate(async () => { TC_STATUS_READ = null; return {} ; }).then(() => page.evaluate(async () => ({ auth: await tcHelloHeld('h-auth'), rate: await tcHelloHeld('h-rate'), stop: await tcHelloHeld('h-stop'),
-            lost: await tcHelloHeld('h-lost'), idle: await tcHelloHeld('h-idle'), none: await tcHelloHeld('nobody-here') })));
+            lost: await tcHelloHeld('h-lost'), unk: await tcHelloHeld('h-unk'), idle: await tcHelloHeld('h-idle'), none: await tcHelloHeld('nobody-here') })));
           const txt = (h) => (h && h.text) || '';
           chk(/sign-in failed/.test(txt(heldSay.auth)) && !heldSay.auth.transient && /at its limit/.test(txt(heldSay.rate)) && !heldSay.rate.transient
-            && /not ready/.test(txt(heldSay.stop)) && heldSay.stop.transient && /not ready/.test(txt(heldSay.lost)) && heldSay.lost.transient
+            && /is stopped/.test(txt(heldSay.stop)) && !heldSay.stop.transient && /not ready/.test(txt(heldSay.lost)) && heldSay.lost.transient
+            && /not ready/.test(txt(heldSay.unk)) && heldSay.unk.transient
             && heldSay.idle === null && heldSay.none === null, `${E} #4936 each held state says why (not ready is waited out, the rest stop); an idle member and one the board does not list hold nothing`, JSON.stringify(heldSay));
           await page.route('**/api/status*', (r) => r.fulfill({ status: 500, body: 'no' }));
           chk(await page.evaluate(() => { TC_STATUS_READ = null; return tcHelloHeld('h-auth'); }) === null, `${E} #4936 a board that cannot be read holds nothing (the hello goes ahead)`);
