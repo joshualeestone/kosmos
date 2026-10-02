@@ -5937,20 +5937,80 @@ test('#1704 a world id ending in -discord does not mangle the roster name', () =
   }
 });
 
-test('#2955: the version wall says its cause and its remedy; other failures keep their own words', () => {
+test('#2955: the version wall says its likely cause; other failures keep their own words', () => {
   /* Agent1s, 2026-10-01: the board's detail was the bare "server exited unexpectedly" while a newer tmux owned the
-     socket, and it took a person to find out what that meant. Reaching lookProblemFor with those words means a socket
-     is on disk (tmuxSaidNoServer took the serverless case), so it is the wall. */
+     socket. Reached only after tmuxRepick found nothing, so it promises no remedy. */
   const status = require('./status');
   const wall = status.lookProblemFor({ ran: true, status: 1, err: 'server exited unexpectedly' }, '/k/tmux/bin/tmux');
-  assert.match(wall, /different version of tmux/);
+  assert.match(wall, /different version of tmux may be running/);
   assert.match(wall, /\/k\/tmux\/bin\/tmux/, 'the detail no longer names which tmux could not read it');
-  assert.match(wall, /Restarting Kosmos/);
+  assert.match(wall, /found no other tmux here that can/);
+  assert.ok(!/Restarting Kosmos/.test(wall), 'the detail promises a remedy it cannot keep');
   assert.match(status.lookProblemFor({ ran: true, status: 1, err: 'protocol version mismatch (client 8, server 7)' }, 'x'), /different version of tmux/);
-  // Controls: a permission refusal and a silent exit are NOT the wall, and say what they said.
   const perm = status.lookProblemFor({ ran: true, status: 1, err: 'error connecting to /tmp/tmux-501/default (Permission denied)' }, 'x');
   assert.ok(!/different version/.test(perm) && /Permission denied/.test(perm), perm);
   assert.equal(status.lookProblemFor({ ran: true, status: 3, err: '' }, 'x'), 'tmux exited 3 without saying why');
   assert.equal(status.lookProblemFor({ ran: false }, 'x'), 'we could not run tmux at all on this computer');
 });
 
+/* #2955: the board meets the version wall and reads through the tmux that can, without a restart. Fake tmux binaries:
+   the launcher's pick answers like 3.5a against a 3.6a server; a candidate lists. A socket file is on disk, as on
+   Agent1s, so the words are the wall and not the serverless voice. */
+function wallMachine() {
+  const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'wall-2955-'));
+  const fake = (name, body) => { const f = nodePath.join(sb, name); fs.writeFileSync(f, '#!/bin/sh\n' + body + '\n'); fs.chmodSync(f, 0o755); return f; };
+  const old = fake('old-tmux', 'echo "server exited unexpectedly" >&2; exit 1');
+  const reader = fake('reader-tmux', 'case "$1" in list-panes) printf "%s\\n" "";; esac; exit 0');
+  const refuser = fake('refuser-tmux', 'echo "server exited unexpectedly" >&2; exit 1');
+  const sock = nodePath.join(sb, 'sock');
+  fs.mkdirSync(nodePath.join(sock, 'tmux-' + process.getuid()), { recursive: true });
+  fs.writeFileSync(nodePath.join(sock, 'tmux-' + process.getuid(), 'default'), '');
+  return { sb, old, reader, refuser, sock };
+}
+function withEnv(vars, fn) {
+  const keys = ['AGENT_WORKFORCE_TMUX_BIN', 'KOSMOS_TMUX_BIN_PICKED', 'TMUX_TMPDIR', 'PATH'];
+  const was = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try { for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } return fn(); }
+  finally { for (const k of keys) { if (was[k] === undefined) delete process.env[k]; else process.env[k] = was[k]; } }
+}
+test('#2955: at the version wall the board switches to a tmux that can list the server, PATH included', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_TMUX_BIN_PICKED: '1', TMUX_TMPDIR: m.sock }, () => {
+      status.setTmuxCandidates([m.refuser, m.reader]);
+      assert.equal(status.tmuxRepick(), true, 'a tmux that can read the server was on the list and not taken');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.reader);
+      assert.ok(process.env.PATH.startsWith(m.sb + nodePath.delimiter), 'a bare tmux would still find the old one first');
+    });
+  } finally { status.setTmuxCandidates(null); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: an explicit tmux choice is never replaced, and nothing that cannot list is taken', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_TMUX_BIN_PICKED: undefined, TMUX_TMPDIR: m.sock }, () => {
+      status.setTmuxCandidates([m.reader]);
+      assert.equal(status.tmuxRepick(), false, 'an explicit choice (a harness stub, a person) was replaced');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.old);
+    });
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_TMUX_BIN_PICKED: '1', TMUX_TMPDIR: m.sock }, () => {
+      status.setTmuxCandidates([m.refuser, nodePath.join(m.sb, 'missing-tmux')]);
+      assert.equal(status.tmuxRepick(), false, 'a tmux that cannot list the server was taken');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.old);
+    });
+  } finally { status.setTmuxCandidates(null); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: the board\'s look reads through the switch in the same call (no restart)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_TMUX_BIN_PICKED: '1', TMUX_TMPDIR: m.sock }, () => {
+      status.setTmuxCandidates([m.reader]);
+      status.setPaneSource(null);
+      const out = status.tmuxPanes();
+      assert.notEqual(out, null, 'the look still failed at the wall although a reader was there');
+      assert.equal(status.lastLookProblem(), null);
+    });
+  } finally { status.setTmuxCandidates(null); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});

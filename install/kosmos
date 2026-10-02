@@ -223,7 +223,6 @@ _kosmos_pick_tmux() {
     return 0
   fi
   unset AGENT_WORKFORCE_TMUX_BIN
-  _kosmos_noserver=""
   _bundled="$KOSMOS_HOME/tmux/bin/tmux"
   _sys="$(PATH="${_KOSMOS_PATH_SYS:-$PATH}" command -v tmux 2>/dev/null || true)"
   # The two places a Mac keeps a tmux, for the board under launchd, whose PATH
@@ -234,30 +233,11 @@ _kosmos_pick_tmux() {
     [ "$_cand" = "$_bundled" ] && continue
     # `list-sessions`, not `-V`: the question is whether it can reach the
     # server, and a version string proves only that a binary exists.
-    if _said="$("$_cand" list-sessions 2>&1 >/dev/null)"; then
+    if "$_cand" list-sessions >/dev/null 2>&1; then
       AGENT_WORKFORCE_TMUX_BIN="$_cand"
       return 0
     fi
-    # 🛑 #2955: NO SERVER YET IS NOT "ESTABLISHES NOTHING". A tmux that answers
-    # in its own words that there is no server ran, connected, and found none:
-    # it works. Taking the bundle then is a bet that no newer tmux starts a
-    # server later, and the bet was lost on Agent1s (2026-10-01 13:42): the
-    # board started 3 s before the fleet's Homebrew 3.6a took the socket, and
-    # the bundled 3.5a could read no agent until a person found it. A person's
-    # own tmux is the one that will start their server, so it is the one to
-    # read through. Only tmux's two serverless answers count (the same two
-    # status.js reads as "no server"); any other refusal still keeps the
-    # bundle, and the first candidate that can LIST still wins over this one.
-    case "$_said" in
-      *"no server running"*|*"error connecting to"*"No such file or directory"*)
-        [ -n "${_kosmos_noserver:-}" ] || _kosmos_noserver="$_cand" ;;
-    esac
   done
-  if [ -n "${_kosmos_noserver:-}" ]; then
-    AGENT_WORKFORCE_TMUX_BIN="$_kosmos_noserver"
-    unset _kosmos_noserver _said
-    return 0
-  fi
   AGENT_WORKFORCE_TMUX_BIN="$_bundled"
 }
 _kosmos_pick_tmux
@@ -268,19 +248,6 @@ export AGENT_WORKFORCE_TMUX_BIN
 # the marker unset, and stays unmarked).
 if [ "${KOSMOS_TMUX_BIN_PICKED:-}" = "1" ] || [ -z "${_KOSMOS_TMUX_EXPLICIT:-}" ]; then
   KOSMOS_TMUX_BIN_PICKED=1; export KOSMOS_TMUX_BIN_PICKED
-fi
-if [ "${KOSMOS_TMUX_BIN_PICKED:-}" = "1" ]; then
-  # #2955: write the pick down for the agents' supervisors (bin/agent-supervisor.sh, _kosmos_supervisor_tmux), whose
-  # launchd jobs carry the bundled path from the day they were made. Only the launcher's own pick, only into an
-  # installed home, and only when it changed: every `kosmos` command runs this, and a rewrite each time is churn.
-  if [ -d "$KOSMOS_HOME/tmux/bin" ]; then
-    _kosmos_was=""; [ -f "$KOSMOS_HOME/tmux/chosen" ] && IFS= read -r _kosmos_was < "$KOSMOS_HOME/tmux/chosen"
-    if [ "$_kosmos_was" != "$AGENT_WORKFORCE_TMUX_BIN" ]; then
-      printf '%s\n' "$AGENT_WORKFORCE_TMUX_BIN" > "$KOSMOS_HOME/tmux/chosen.$$" 2>/dev/null \
-        && mv -f "$KOSMOS_HOME/tmux/chosen.$$" "$KOSMOS_HOME/tmux/chosen" 2>/dev/null || rm -f "$KOSMOS_HOME/tmux/chosen.$$" 2>/dev/null
-    fi
-    unset _kosmos_was
-  fi
 fi
 # The engine's bare `tmux` calls must agree with the choice: when a system tmux
 # won, its directory goes first, so two processes never read the same socket

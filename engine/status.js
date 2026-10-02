@@ -464,7 +464,8 @@ function oneLine(text, max) {
 }
 
 function tmuxPanes() {
-  const got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
+  let got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
+  if (got.ran && got.status !== 0 && isVersionWall(got) && tmuxRepick()) got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
   if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
@@ -492,17 +493,50 @@ function tmuxPanes() {
   LAST_LOOK_PROBLEM = lookProblemFor(got, tmuxBin());
   return null;
 }
-/* The detail line for a look that failed. PURE, for the tests. 🔑 #2955: THE VERSION WALL GETS A CAUSE AND A REMEDY.
-   Reaching here with "server exited unexpectedly" (or tmux's "protocol version mismatch") means a socket IS on disk
-   (tmuxSaidNoServer took the serverless case), so a live server is there that this tmux cannot read: a different
-   version owns it. Measured on Agent1s, 2026-10-01 13:42: the fleet's Homebrew 3.6a took the socket 3 s after the board
-   started on the bundled 3.5a, and the detail said only "server exited unexpectedly". The launcher's pick (install/kosmos,
-   #2955) now prefers a working system tmux, so a restart is the remedy that works, and the detail says so. */
+/* tmux's two answers for "a live server my version cannot read": 3.5a's (also its serverless voice, which
+   tmuxSaidNoServer has already taken when no socket is on disk) and the explicit one. */
+function isVersionWall(got) {
+  return /server exited unexpectedly|protocol version mismatch/i.test(String((got && got.err) || '')) && !tmuxSaidNoServer(got);
+}
+/* 🔑 #2955: A DIFFERENT tmux OWNS THE SERVER, SO READ THROUGH THE ONE THAT CAN. Measured on Agent1s, 2026-10-01 13:42:
+   the board picked the bundled 3.5a at launch (no server yet), and three seconds later the fleet's Homebrew 3.6a
+   started the server; the launcher's pick is made once, so the board read no agent until a person repointed the
+   bundled path. Now the board asks again when it meets the wall: the first tmux that can LIST the live server wins,
+   for the whole process (every engine module reads AGENT_WORKFORCE_TMUX_BIN at call time, and a bare `tmux` follows
+   PATH). The agents' supervisors make the same choice the same way (bin/agent-supervisor.sh, _kosmos_supervisor_tmux).
+   ⚠️ ONLY OVER THE LAUNCHER'S OWN PICK (KOSMOS_TMUX_BIN_PICKED=1). An explicit AGENT_WORKFORCE_TMUX_BIN is a choice:
+   the harness's stubs, a sandbox's inert tmux, a person's. Replacing one would put a test on the live fleet.
+   KOSMOS_TMUX_KNOWN is a harness seam only, as in install/kosmos. Returns true when it switched. */
+let TMUX_CANDIDATES_SEAM = null;
+function tmuxRepick() {
+  if (process.env.KOSMOS_TMUX_BIN_PICKED !== '1') return false;
+  const current = tmuxBin();
+  const known = process.env.KOSMOS_TMUX_KNOWN !== undefined
+    ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
+    : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
+  const cands = TMUX_CANDIDATES_SEAM || known;
+  for (const c of cands) {
+    if (!c || c === current) continue;
+    try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
+    const tried = shDetail(c, ['list-sessions']);
+    if (tried.ran && tried.status === 0) {
+      process.env.AGENT_WORKFORCE_TMUX_BIN = c;
+      process.env.PATH = path.dirname(c) + path.delimiter + (process.env.PATH || '');
+      try { console.error(`[status] #2955: this computer's tmux server belongs to a different version than ${current}; reading through ${c}, which can`); } catch { /* no console */ }
+      return true;
+    }
+  }
+  return false;
+}
+/* The detail line for a look that failed. PURE, for the tests. #2955: the version wall gets a cause, said as likely
+   rather than certain: tmuxSaidNoServer stats only the default socket path and reads an unreadable one as "could not
+   check", so these words usually, not always, mean a different version owns a live server. */
 function lookProblemFor(got, bin) {
   if (!got || !got.ran) return 'we could not run tmux at all on this computer';
   const err = oneLine(got.err, 300);
   if (/server exited unexpectedly|protocol version mismatch/i.test(err)) {
-    return `a different version of tmux is running the terminal sessions on this computer, and the tmux Kosmos is using (${bin || 'tmux'}) cannot read them (it said: ${err}). Restarting Kosmos lets it pick the tmux that can.`;
+    // Reached only after tmuxRepick found nothing (or was not allowed to look), so no remedy is promised.
+    return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${bin || 'tmux'}) cannot read them (it said: ${err}), and Kosmos found no other tmux here that can.`;
   }
   return err || `tmux exited ${got.status} without saying why`;
 }
@@ -8315,7 +8349,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,

@@ -70,24 +70,32 @@ SESSION="${1:?an agent name is required}"
 WORKDIR="${2:?a working directory is required}"
 CLAUDE="${3:?the path to claude is required}"
 TMUX_BIN="${4:?the path to tmux is required}"
-# 🔑 #2955: A JOB BAKED WITH KOSMOS'S OWN tmux FOLLOWS THE LAUNCHER'S PICK. The path above was written into this
-# agent's plist when it was created, and plists are never rewritten. The launcher now prefers a working system tmux
-# (install/kosmos, _kosmos_pick_tmux), so a board on Homebrew's tmux beside a supervisor on the bundled one would put
-# this agent on a server the board cannot read: two tmux versions cannot share one socket. The launcher records what it
-# picked in <kosmos home>/tmux/chosen; a job whose baked path is that home's bundled copy uses the record instead. Any
-# other baked path (a person's own choice, the fleet's Homebrew) is untouched, and so is a missing or unusable record.
+# 🔑 #2955: IF A DIFFERENT tmux OWNS THE SERVER, USE THE ONE THAT CAN READ IT. Two tmux versions cannot share a socket:
+# the older client answers "server exited unexpectedly" (tmux 3.5a) or "protocol version mismatch" and sees nothing.
+# Measured on Agent1s, 2026-10-01 13:42: the fleet's Homebrew 3.6a owned the socket and Kosmos's bundled 3.5a could
+# read no agent. This job's tmux path was baked into its plist when the agent was made, and plists are never rewritten,
+# so the choice is made here, each time the job starts, by asking: the first tmux that can LIST the live server wins.
+# The board makes the same choice the same way (engine/status.js, tmuxRepick), so both land on one tmux per socket.
+# With no server, or any other answer, nothing has been established and the baked path stays, which keeps Kosmos's
+# own agents on the tmux Kosmos ships (a `brew upgrade` cannot pull it out from under them).
 _kosmos_supervisor_tmux() {
-  case "$TMUX_BIN" in
-    */tmux/bin/tmux) ;;
+  local _said _cand
+  _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
+  case "$_said" in
+    *"server exited unexpectedly"*|*"protocol version mismatch"*) ;;
     *) return 0 ;;
   esac
-  local _home="${TMUX_BIN%/tmux/bin/tmux}" _chosen=""
-  [ -f "$_home/tmux/chosen" ] || return 0
-  IFS= read -r _chosen < "$_home/tmux/chosen" || [ -n "$_chosen" ] || return 0
-  [ -n "$_chosen" ] && [ -f "$_chosen" ] && [ -x "$_chosen" ] && TMUX_BIN="$_chosen"
+  for _cand in "$(command -v tmux 2>/dev/null || true)" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux}; do
+    [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
+    if "$_cand" list-sessions >/dev/null 2>&1; then
+      say "$SESSION: this computer's tmux server belongs to a different version than $TMUX_BIN; using $_cand, which can read it (#2955)"
+      TMUX_BIN="$_cand"
+      PATH="$(dirname "$_cand"):$PATH"; export PATH   # so a bare tmux in the agent's pane reads the same server
+      return 0
+    fi
+  done
   return 0
 }
-_kosmos_supervisor_tmux
 LOG="${5:-}"
 # The model this agent runs on, optional and NEW as of the create-agent
 # branch (2026-08-16). Empty means claude's own default. Existing plists
@@ -166,6 +174,7 @@ waited=0
 # escalation, which nothing should do outside a test of the quiet arm.
 POLL_SECS="${AGENT_WORKFORCE_WAIT_POLL_SECS:-5}"
 ESCALATE_SECS="${AGENT_WORKFORCE_WAIT_ESCALATE_SECS:-600}"
+_kosmos_supervisor_tmux   # #2955: before the first look, so every look below reads the live server
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   if [ "$("$TMUX_BIN" show-options -t "$SESSION" -v @kosmos_agent 2>/dev/null)" = "$SESSION" ]; then
     # Ours -- but do not throw away a HEALTHY one. This file can be run by hand,
