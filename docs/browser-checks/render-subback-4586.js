@@ -167,6 +167,9 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
       const nameNode = all.nextSibling, s = nameNode && nameNode.nodeType === 3 ? nameNode.data : '';
       const end = s.replace(/[\s\u00b7]+$/, '').length;
       if (end === 0) return { shown: true, narrowed: false };
+      // The cut is measured from the name's last letter, so it builds the intended shape only from a one-line crumb.
+      const lastR = charRect(nameNode, end - 1), allR = all.getBoundingClientRect(), mid = (r) => (r.top + r.bottom) / 2;
+      if (!(mid(lastR) >= allR.top && mid(lastR) <= allR.bottom)) return { shown: true, narrowed: false, why: 'the name did not end on All tasks\' line before the cut' };
       box.style.width = Math.ceil(charRect(nameNode, end - 1).right - box.getBoundingClientRect().left + 20) + 'px';
     }
     try {
@@ -222,6 +225,7 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
         say(`#5053 long name at ${width}: the title stays on screen`, t.right <= t.inner, JSON.stringify(t));
         const cg = await crumbGeom(tv.page);
         say(`#5072 long name at ${width}: Open project starts a line below All tasks, at the crumb's left edge`, cg.shown && cg.openBelow && cg.openAtLeft, JSON.stringify(cg));
+        // Zero here also holds if the dot left the markup entirely; the 700 arm's exactly-one rules that out.
         say(`#5072 long name at ${width}: no separator dot is drawn on a phone`, cg.shown && cg.dotsDrawn === 0, JSON.stringify(cg));
         const nb = await tv.page.evaluate(() => {
           const n = document.getElementById('tsk-new').getBoundingClientRect(), tr = document.getElementById('tsk-title').getBoundingClientRect();

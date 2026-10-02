@@ -56734,12 +56734,12 @@ function tskPaint() {
     tskOptions(sel, '<option value="">All projects</option>' + projectsList.map((p) => '<option value="' + esc(p.id) + '"' + (TSK.proj === p.id ? ' selected' : '') + '>' + esc(p.name) + ' (' + p.open + ')</option>').join(''), TSK.proj || '');
   }
   const picked = TSK.proj ? projMap.get(TSK.proj) : null;
-  document.getElementById('tsk-crumb').innerHTML = picked
-    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
-    : '';
   /* #5072: the separator and Open project are one unit, so the phone rule can put Open project on its own line and
      drop the dot together (see .tsk-crumb-open). The dot is aria-hidden with a vh comma beside it, the pairing
      .pj-crumb-sep uses, so a screen reader hears a pause rather than a dot. */
+  document.getElementById('tsk-crumb').innerHTML = picked
+    ? '<button type="button" data-proj="">All tasks</button> › ' + esc(picked.name) + ' <span class="tsk-crumb-open"><span class="tsk-crumb-sep" aria-hidden="true">·</span><span class="vh">, </span> <button type="button" data-open-project="' + esc(picked.id) + '">Open project</button></span>'
+    : '';
   /* #4586: the chevron beside the title is the crumb's Open project, shown exactly when that is: the
      panel's delegated [data-open-project] click opens the room, so there is one way in, not two. */
   const back = document.getElementById('tsk-back');
