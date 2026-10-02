@@ -23,8 +23,8 @@ Every place the page shows a person's file was printed, not counted (a search ag
    download the card has always been.
 3. The preview (#pv-preview): a 90% black layer over the whole window; an image at its own size, fitted (contain,
    never cropped), growing from the card it was clicked on unless the person asked for less motion; a PDF as its
-   first page (the existing /preview route draws it) with "The first page"; a text file as its opening (the card's
-   own snippet, as text) with "The start of the file"; anything else its icon, name and size. X top right; Escape and
+   first page (the existing /preview route draws it) with "The first page"; a text file as its opening (the attachment
+   row's own snippet, capped by the engine, as text) with "The start of the file"; anything else its icon, name and size. X top right; Escape and
    a click on the dark close it; focus goes back to the card; Tab stays between the X and the action.
 4. Bottom left: "Open in Finder" ("Show in File Explorer" on Windows) asks POST /api/attachment/<id>/reveal, which
    finds the file by id alone and selects it (projects.revealFile: `open -R`; win32explorer.revealFile: `/select,`).
