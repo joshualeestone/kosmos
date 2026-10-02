@@ -59,3 +59,15 @@ Review R2 (sonnet) 0B 2W 0C 2N:
   button in the look is a pill (the controls slice). The comment now says "every gold button"; the arm reads
   #orgchart-preview.
 - NIT taken: a note that on touch a tapped card can keep :hover (and its edge) until the next tap.
+
+Review R3 (opus) 0B 2W 0C 4N:
+- WARNING: gold buttons were pills and the plain ones beside them square (Read it / Cancel, Create the team / Back to
+  the list...): every button in #panel-create (.btn, .btn-quiet) is now a pill, shape only; plain buttons keep their
+  fill and edge (on the white page the edge is their boundary). Arm: #orgchart-edit (round-2 CSS: 10px, red).
+- WARNING: the hover probe left the page scrolled, skipped silently when no card was found, and could leave panels
+  shown if a step threw: scroll, panels and the probe id are now saved and always put back (finally), and a missing
+  card is a failure.
+- NITs taken: the mouse parked before the before-read too; the hover exemption gated on :not(:disabled) as today's
+  gold hover is; the long comment line rewrapped. NIT left: no arm for the kind picker's hover or a chosen card under
+  the pointer (same selector).
+Validation now: 255/255 (round-2 control 252/255: the plain button's corners).

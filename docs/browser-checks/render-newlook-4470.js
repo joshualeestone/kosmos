@@ -299,7 +299,9 @@ const CREATE_LOOK = `(() => {
       kindEdge: kind ? getComputedStyle(kind).borderTopColor : 'absent', teamRadius: team ? getComputedStyle(team).borderTopLeftRadius : 'absent',
       createRadius: create ? getComputedStyle(create).borderTopLeftRadius : 'absent',
       /* Round 2: a small inline gold button takes the pill too (every button in the look is one). */
-      inlineRadius: (() => { const b = document.getElementById('orgchart-preview'); return b ? getComputedStyle(b).borderTopLeftRadius : 'absent'; })() };
+      inlineRadius: (() => { const b = document.getElementById('orgchart-preview'); return b ? getComputedStyle(b).borderTopLeftRadius : 'absent'; })(),
+      /* Round 3: a plain button beside a gold one takes the same pill (one shape per row). */
+      plainRadius: (() => { const b = document.getElementById('orgchart-edit'); return b ? getComputedStyle(b).borderTopLeftRadius : 'absent'; })() };
   } finally { radios.forEach((r, i) => { if (r) r.checked = was[i]; }); cards.forEach((c, i) => { c.hidden = hid[i]; }); step.hidden = sh; panel.hidden = ph; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
@@ -518,6 +520,7 @@ const AGENTS_LOOK = `(() => {
       const dlBefore = await page.evaluate(DLEFT_LOOK);   // and today's left column, for the same control
       const setBefore = await page.evaluate(SETTINGS_LOOK);   // and today's Settings
       const ctlBefore = await page.evaluate(CTRL_LOOK);   // and today's buttons
+      await page.mouse.move(0, 0);
       const crBefore = await page.evaluate(CREATE_LOOK);   // and today's create step
       chk(before.look === null, `${tag} nothing stored: no data-look attribute`, JSON.stringify(before));
       chk(before.kbg && before.kbg !== NEW[theme], `${tag} nothing stored: today's page colour, not the new look's`, before.kbg);
@@ -598,19 +601,27 @@ const AGENTS_LOOK = `(() => {
       await page.mouse.move(0, 0);   // round 1: no card under a leftover pointer for the resting read
       const crOn = await page.evaluate(CREATE_LOOK);
       chk(crOn.found && !crOn.restHovered && crOn.restEdge === CLEAR && crOn.kindEdge === CLEAR && crOn.chosenEdge !== CLEAR
-        && crOn.continueRadius === '999px' && crOn.teamRadius === '999px' && crOn.createRadius === '999px' && crOn.inlineRadius === '999px',
+        && crOn.continueRadius === '999px' && crOn.teamRadius === '999px' && crOn.createRadius === '999px' && crOn.inlineRadius === '999px' && crOn.plainRadius === '999px',
         `${tag} On, Create an agent: resting option cards (kind and role) have no edge, the chosen one keeps its outline, every main button is a pill (Team's too)`, JSON.stringify(crOn));
-      /* Round 1: a card under the pointer keeps today's edge (a real hover on the shown step, then all put back). */
-      const crHover = await page.evaluate(() => { const p = document.getElementById('panel-create'), st = document.getElementById('cstep-role');
-        const c = st && [...st.querySelectorAll('.pick2')].find((x) => !x.querySelector('input:checked'));
-        if (!p || !st || !c) return null; window.__crWas = [p.hidden, st.hidden, c.hidden]; p.hidden = false; st.hidden = false; c.hidden = false; c.id = c.id || 'cr-hover-probe'; return '#' + c.id; });
-      if (crHover) {
-        await page.hover(crHover, { timeout: 3000 }).catch(() => {});
-        const hv = await page.evaluate((sel) => { const c = document.querySelector(sel); return { hovered: c.matches(':hover'), edge: getComputedStyle(c).borderTopColor }; }, crHover);
-        await page.mouse.move(0, 0);
-        await page.evaluate((sel) => { const p = document.getElementById('panel-create'), st = document.getElementById('cstep-role'), c = document.querySelector(sel);
-          [p.hidden, st.hidden, c.hidden] = window.__crWas; if (c.id === 'cr-hover-probe') c.removeAttribute('id'); }, crHover);
-        if (width > 640) chk(hv.hovered && hv.edge !== CLEAR, `${tag} On, Create an agent: a card under the pointer keeps its edge`, JSON.stringify(hv));
+      /* Round 1: a card under the pointer keeps today's edge (a real hover on the shown step). Round 3: the scroll, the
+         panels and the probe id are saved in the page and ALWAYS put back, and a missing card is a failure, not a skip. */
+      if (width > 640) {
+        const saved = await page.evaluate(() => { const p = document.getElementById('panel-create'), st = document.getElementById('cstep-role');
+          const c = st && [...st.querySelectorAll('.pick2')].find((x) => !x.querySelector('input:checked'));
+          if (!p || !st || !c) return null; const had = c.id; c.id = c.id || 'cr-hover-probe';
+          const sv = { px: scrollX, py: scrollY, p: p.hidden, st: st.hidden, c: c.hidden, had, sel: '#' + c.id }; p.hidden = false; st.hidden = false; c.hidden = false;
+          p.dataset.crSaved = JSON.stringify(sv); return sv.sel; });
+        let hv = null;
+        try {
+          if (saved) { await page.hover(saved, { timeout: 3000 }); hv = await page.evaluate((sel) => { const c = document.querySelector(sel); return { hovered: c.matches(':hover'), edge: getComputedStyle(c).borderTopColor }; }, saved); }
+        } catch (e) { hv = { error: String(e && e.message || e).slice(0, 120) }; }
+        finally {
+          await page.mouse.move(0, 0);
+          await page.evaluate(() => { const p = document.getElementById('panel-create'); if (!p || !p.dataset.crSaved) return; const sv = JSON.parse(p.dataset.crSaved); delete p.dataset.crSaved;
+            const st = document.getElementById('cstep-role'), c = document.querySelector(sv.sel);
+            if (c) { c.hidden = sv.c; if (!sv.had) c.removeAttribute('id'); } if (st) st.hidden = sv.st; p.hidden = sv.p; scrollTo(sv.px, sv.py); });
+        }
+        chk(!!saved && !!hv && hv.hovered && hv.edge !== CLEAR, `${tag} On, Create an agent: a card under the pointer keeps its edge`, JSON.stringify({ saved, hv }));
       }
       /* Round 3: a button's fill is above the box in both schemes (white in light; a step lighter than the box in dark,
          where the field is black), never the field's. */

@@ -10274,17 +10274,18 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 }
 /* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
    step's) lose their hairline at rest (the look's cards have none; the grey bounds them on the white page): a chosen
-   card keeps its ink outline and check mark (the choice is marked by shape, not colour), and a card under the pointer
-   keeps today's edge as its feedback (on touch a tapped card can keep :hover, and so its edge, until the next tap;
-   the chosen card's own outline still marks the choice). Every gold button in the create flow, the steps' main
-   buttons and the small inline ones (Preview the team, Bring it in), Single's and Team's alike (Josh, #4935: Team
-   matches Single), is the drawing's gold pill, as every button in the look is. Unchanged on purpose: the cards' size (#737, Josh), their order
+   card keeps its ink outline and check mark (the choice is marked by shape, not colour), and an enabled card under
+   the pointer keeps today's edge as its feedback (on touch a tapped card can keep :hover until the next tap; the
+   chosen card's own outline still marks the choice). Every button in the create flow is a pill, as every button in
+   the look is (the controls slice): the gold ones, main and inline, Single's and Team's alike (Josh, #4935: Team
+   matches Single), and the plain ones beside them (Cancel, Back, Keep them), which keep their fill and edge because
+   here they sit on the white page, not on a grey box. Unchanged on purpose: the cards' size (#737, Josh), their order
    (Josh, 2026-08-22), the Recommended pill (#737: Josh asked for it back after the pack), and the role menu's own
    edged box (it holds fields, which keep their edge everywhere in the look). A resting card on white is about 1.09:1,
    under WCAG 1.4.11's 3:1, as the controls slice records for buttons: its label identifies it, and the chosen card's
    2px outline is the state. */
-:root[data-look="new"] body:not(.consolidated) #panel-create :is(.pick2:not(:has(input:checked)), .nak-btn):not(:hover) { border-color: transparent; }
-:root[data-look="new"] body:not(.consolidated) #panel-create .btn.uprime { border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #panel-create :is(.pick2:not(:has(input:checked)), .nak-btn):not(:hover:not(:disabled)) { border-color: transparent; }
+:root[data-look="new"] body:not(.consolidated) #panel-create :is(.btn, .btn-quiet) { border-radius: 999px; }
 /* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
    there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
