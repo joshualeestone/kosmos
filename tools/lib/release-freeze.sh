@@ -327,13 +327,15 @@ release_site_restore() {
       fi
     fi
   done
-  # #5032: an UNTRACKED /setup-staging pair was never served (never committed implies never served: a
-  # deploy serves only what is committed; the converse does not hold), so it is an aborted cut's leftover. Removed so a later promote, which copies the
+  # #5032: an UNTRACKED /setup-staging pair is an aborted cut's leftover, unless origin/main already holds it
+  # (the release commit is pushed from a fresh origin/main at 7b, so a cut that died after that push and before
+  # its deploy committed it there without this checkout): then it is left, and the checkout refresh catches up. Removed so a later promote, which copies the
   # pair onto /setup, can never pick up an installer staging never served (promote-channel.sh also
   # refuses an untracked or modified one).
   for f in setup-staging setup-staging.sha256; do
-    if ! git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1 && [ -f "$site/$f" ]; then
-      rm -f "$site/$f" && echo "   removed: $f (never committed, so never served)"
+    if ! git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1 && [ -f "$site/$f" ] \
+       && ! git -C "$site" cat-file -e "origin/main:$f" 2>/dev/null; then
+      rm -f "$site/$f" && echo "   removed: $f (committed nowhere, so never served)"
     fi
   done
   # #2036: an UNTRACKED staging pointer this cut created (staging_ptr_had=0) and never served
