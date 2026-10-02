@@ -535,11 +535,16 @@ test('SITE_COUNTS is sorted, one well-formed line per check, and names only chec
      shows it once, so a stale copy left by a "keep both" merge would sit there unread.
      Count the keys in the SOURCE. */
   const src = fs.readFileSync(__filename, 'utf8');
-  const table = src.slice(src.indexOf('const SITE_COUNTS = {'), src.indexOf('\n};', src.indexOf('const SITE_COUNTS = {')));
-  const seen = [...table.matchAll(/^  '([^']+)': \[/gm)].map((m) => m[1]);
-  assert.equal(seen.length, keys.length,
-    'SITE_COUNTS has a duplicate line (a merge kept both copies?): '
-    + seen.filter((k, i) => seen.indexOf(k) !== i).join(', '));
+  const start = src.indexOf('const SITE_COUNTS = {');
+  const end = src.indexOf('\n};', start);
+  assert.ok(start >= 0 && end > start, 'could not find the SITE_COUNTS table in this file to check it for duplicates');
+  const table = src.slice(start, end).split('\n').slice(1);
+  /* Any key spelling (either quote, any indent), so a reformatted copy cannot hide. */
+  const seen = table.map((l) => /^\s*(['"])(.+?)\1\s*:/.exec(l)).filter(Boolean).map((m) => m[2]);
+  const dups = seen.filter((k, i) => seen.indexOf(k) !== i);
+  assert.deepEqual(dups, [], 'SITE_COUNTS has a duplicate line (a merge kept both copies?): ' + dups.join(', '));
+  const odd = table.filter((l) => l.trim() && !/^  '[^']+': \[\d+, \d+\],$/.test(l));
+  assert.deepEqual(odd, [], "every SITE_COUNTS line is written `  '<check>.js': [n, n],`; these are not");
   const onDisk = new Set(fs.readdirSync(DIR).filter((f) => f.endsWith('.js')));
   for (const [f, pair] of Object.entries(SITE_COUNTS)) {
     assert.ok(onDisk.has(f), `SITE_COUNTS names ${f}, which is not in docs/browser-checks`);
