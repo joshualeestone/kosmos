@@ -12,6 +12,27 @@ const fs = require('node:fs');
 const nodePath = require('node:path');
 const { makeDom } = require('./test-support/fake-dom');
 
+/* The agent cards another computer's /api/status returns are the board's own cards, so these tests take REAL ones from
+   test-support/fleet (fixture-discipline: a hand-written card can carry fields the producer never emits). `over` sets
+   fields on a real card: a different name or state, or a hostile value another computer might send. */
+const os = require('node:os');
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'allagents-4812-'));
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+const fleet = require('./test-support/fleet');
+const CARDS = new Map();
+function card(name, over) {
+  if (!CARDS.has(name)) {
+    const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+    CARDS.set(name, board.agents[0]);
+    fleet.restore();
+  }
+  return Object.assign(JSON.parse(JSON.stringify(CARDS.get(name))), over || {});
+}
+
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
 function slice(name) {
@@ -105,9 +126,10 @@ test('classify: an agents list, a gate, or no answer', () => {
 test('remember: unreachable keeps the last list to grey, not let in drops it', () => {
   const { api } = load();
   const seen = new Map();
-  api.oaRemember(seen, 'a', 'ok', [{ sessionName: 's' }], 5);
-  assert.deepEqual(api.oaRemember(seen, 'a', 'out', null, 9), { state: 'out', agents: [{ sessionName: 's' }], at: 5 });
-  assert.deepEqual(api.oaRemember(seen, 'a', 'blocked', null, 10), { state: 'blocked', agents: [{ sessionName: 's' }], at: 5 });
+  const S = [card('s')];
+  api.oaRemember(seen, 'a', 'ok', S, 5);
+  assert.deepEqual(api.oaRemember(seen, 'a', 'out', null, 9), { state: 'out', agents: S, at: 5 });
+  assert.deepEqual(api.oaRemember(seen, 'a', 'blocked', null, 10), { state: 'blocked', agents: S, at: 5 });
   assert.deepEqual(api.oaRemember(seen, 'a', 'notin', null, 11), { state: 'notin', agents: null, at: null }, 'a browser no longer let in must not keep showing agents');
   assert.deepEqual(api.oaRemember(seen, 'a', 'out', null, 12), { state: 'out', agents: null, at: null }, 'nothing kept after a not-let-in');
 });
@@ -118,7 +140,7 @@ test('read: asks that computer with this browser\'s credentials and keeps only r
   const { api } = load(async (url, opts) => {
     asked.push([url, opts.credentials, opts.mode]);
     optsSeen.push(opts);
-    return { status: 200, json: async () => ({ agents: [{ sessionName: 'angel', name: 'Angel' }, { sessionName: 'g', isGuide: true }, { name: 'nosession' }, null] }) };
+    return { status: 200, json: async () => ({ agents: [card('angel', { name: 'Angel' }), card('g', { isGuide: true }), { name: 'nosession' }, null] }) };
   });
   const r = await api.oaReadOne(LIST.computers[1]);
   assert.deepEqual(asked, [['https://agent1s.kosmosplus.com/api/status', 'include', 'cors']]);
@@ -135,14 +157,14 @@ test('read: asks that computer with this browser\'s credentials and keeps only r
 
 test('read: rows keep only three string fields, so a malformed one cannot reach this board\'s sort', async () => {
   const { api } = load(async () => ({ status: 200, json: async () => ({ agents: [
-    { sessionName: 'a', name: 'Ann', state: 'idle', role: 42, runner: { x: 1 }, profile: null },
-    { sessionName: 'b', name: { not: 'text' }, state: 7 },
+    card('a', { name: 'Ann', state: 'idle', role: 42, runner: { x: 1 }, profile: null }),
+    card('b', { name: { not: 'text' }, state: 7 }),
   ] }) }));
   const r = await api.oaReadOne(LIST.computers[1]);
-  assert.deepEqual(r.agents, [
-    { sessionName: 'a', name: 'Ann', state: 'idle' },
-    { sessionName: 'b', name: '', state: '' },
-  ]);
+  /* The output is this page's own three-field row, not a card: exactly these keys, each a string. */
+  assert.deepEqual(r.agents.map((a) => Object.keys(a).sort()), [['name', 'sessionName', 'state'], ['name', 'sessionName', 'state']],
+    'a row kept a field other than the three this board sorts and paints');
+  assert.deepEqual(r.agents.map((a) => [a.sessionName, a.name, a.state]), [['a', 'Ann', 'idle'], ['b', '', '']]);
 });
 
 test('read: no readable answer is blocked from an online computer, out from an offline one', async () => {
@@ -168,13 +190,13 @@ test('note: says which of the four it is, with this page\'s own last read for on
 test('cards: a link to the agent on ITS computer, built from the address, names as text', () => {
   const { api } = load();
   const c = LIST.computers[1];
-  const card = api.oaCard({ sessionName: 'a b/<x>', name: '<img src=x onerror=alert(1)>', state: 'working' }, c, false);
-  assert.equal(card.tagName, 'A');
-  assert.equal(card.href, 'https://agent1s.kosmosplus.com/?agent=a%20b%2F%3Cx%3E');
-  assert.equal(card.rel, 'noopener noreferrer');
-  assert.equal(card.children[0].textContent, '<img src=x onerror=alert(1)>', 'kept as text');
-  assert.equal(card.children[1].textContent, 'agent1s · Working');
-  const off = api.oaCard({ sessionName: 's', name: 'S', state: 'working' }, c, true);
+  const el = api.oaCard(card('a b/<x>', { name: '<img src=x onerror=alert(1)>', state: 'working' }), c, false);
+  assert.equal(el.tagName, 'A');
+  assert.equal(el.href, 'https://agent1s.kosmosplus.com/?agent=a%20b%2F%3Cx%3E');
+  assert.equal(el.rel, 'noopener noreferrer');
+  assert.equal(el.children[0].textContent, '<img src=x onerror=alert(1)>', 'kept as text');
+  assert.equal(el.children[1].textContent, 'agent1s · Working');
+  const off = api.oaCard(card('s', { name: 'S', state: 'working' }), c, true);
   assert.equal(off.tagName, 'DIV', 'a greyed card is not a link');
   assert.equal(off.className, 'oa-card oa-off');
   assert.equal(off.children[1].textContent, 'agent1s', 'no live state word on a stale card');
@@ -183,7 +205,7 @@ test('cards: a link to the agent on ITS computer, built from the address, names 
 test('group: sorted with this board\'s sort, greyed when not current, gate shows no agents', () => {
   const { api, calls } = load();
   const c = LIST.computers[1];
-  const two = [{ sessionName: 'z', name: 'Zed' }, { sessionName: 'a', name: 'Ann' }];
+  const two = [card('z', { name: 'Zed' }), card('a', { name: 'Ann' })];
   const ok = api.oaGroup(c, { state: 'ok', agents: two }, 0);
   const cards = ok.querySelectorAll('.oa-card');
   assert.deepEqual(cards.map((x) => x.children[0].textContent), ['Ann', 'Zed']);
@@ -216,7 +238,7 @@ test('the section reads and shows only while the grid is on screen, a hidden hol
 test('group key: unchanged rounds give the same key, so focus is not taken off a card', () => {
   const { api } = load();
   const c = LIST.computers[1];
-  const A = { sessionName: 'a', name: 'A', state: 'idle' }, B = { sessionName: 'b', name: 'B', state: 'idle' };
+  const A = card('a', { name: 'A', state: 'idle' }), B = card('b', { name: 'B', state: 'idle' });
   const k1 = api.oaGroupKey(c, { state: 'ok', agents: [A, B], at: 10000 }, 15000, 'name');
   assert.equal(api.oaGroupKey(c, { state: 'ok', agents: [A, B], at: 25000 }, 30000, 'name'), k1, 'a second round with the same answer');
   assert.equal(api.oaGroupKey(c, { state: 'ok', agents: [B, A], at: 25000 }, 30000, 'name'), k1, 'the other computer\'s own order is not what is shown');
@@ -232,7 +254,7 @@ test('group key: unchanged rounds give the same key, so focus is not taken off a
 test('stale: a list read longer ago than two rounds shows greyed, never as current', () => {
   const { api } = load();
   const c = LIST.computers[1];
-  const two = [{ sessionName: 'z', name: 'Zed', state: 'working' }, { sessionName: 'a', name: 'Ann', state: 'idle' }];
+  const two = [card('z', { name: 'Zed', state: 'working' }), card('a', { name: 'Ann', state: 'idle' })];
   const fresh = api.oaGroup(c, { state: 'ok', agents: two, at: 100000 }, 110000);
   assert.ok(fresh.querySelectorAll('.oa-card').every((x) => x.tagName === 'A'), 'control: a fresh list is live links');
   const old = api.oaGroup(c, { state: 'ok', agents: two, at: 100000 }, 100000 + 30 * 60000);
@@ -275,7 +297,7 @@ function loadPaint() {
 test('paint: an unchanged round keeps every group element, so focus stays on its card', () => {
   const { api, d, groups } = loadPaint();
   api.computers = LIST;
-  const A = { sessionName: 'a', name: 'Ann', state: 'idle' };
+  const A = card('a', { name: 'Ann', state: 'idle' });
   api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [A], at: 1000000 });
   api.oaPaint();
   const first = groups.children.slice();
@@ -289,7 +311,7 @@ test('paint: an unchanged round keeps every group element, so focus stays on its
 test('paint: only the changed group is replaced, and focus goes back to the same agent', () => {
   const { api, d, groups } = loadPaint();
   api.computers = LIST;
-  const A = { sessionName: 'a', name: 'Ann', state: 'idle' }, B = { sessionName: 'b', name: 'Bo', state: 'idle' };
+  const A = card('a', { name: 'Ann', state: 'idle' }), B = card('b', { name: 'Bo', state: 'idle' });
   api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [A, B], at: 1000000 });
   api.oaPaint();
   const [g1, g2] = groups.children;
@@ -306,7 +328,7 @@ test('paint: only the changed group is replaced, and focus goes back to the same
 test('paint: a not-connected note\'s time words change in place, the group stays', () => {
   const { api, groups, clock } = loadPaint();
   api.computers = LIST;
-  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'out', agents: [{ sessionName: 'p', name: 'P', state: 'idle' }], at: 1000000 - 120000 });
+  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'out', agents: [card('p', { name: 'P', state: 'idle' })], at: 1000000 - 120000 });
   api.oaPaint();
   const g = groups.children[1];
   const note = () => g.querySelector('.oa-head').querySelector('.oa-note').textContent;
@@ -332,7 +354,7 @@ test('paint: coming back on screen asks for a read at once, even before the comp
 test('paint: focus on a card that goes stale falls back to the Open link, never to the page', () => {
   const { api, d, groups, clock } = loadPaint();
   api.computers = LIST;
-  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'Ann', state: 'idle' }], at: 1000000 });
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [card('a', { name: 'Ann', state: 'idle' })], at: 1000000 });
   api.oaPaint();
   groups.children[0].querySelector('.oa-card').focus();
   assert.equal(d.focused().tagName, 'A', 'control: on the live link');
@@ -358,7 +380,7 @@ test('paint: focus on Open for a computer that goes offline lands on its group',
 test('paint: a computer added rebuilds every group, and focus follows its computer', () => {
   const { api, d, groups } = loadPaint();
   api.computers = LIST;
-  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'p', name: 'P', state: 'idle' }], at: 1000000 });
+  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'ok', agents: [card('p', { name: 'P', state: 'idle' })], at: 1000000 });
   api.oaPaint();
   groups.children[1].querySelector('.oa-card').focus();
   api.computers = { ...LIST, computers: [...LIST.computers, { name: 'zed', address: 'zed.kosmosplus.com', this: false, online: true }] };
@@ -390,7 +412,7 @@ test('paint: the same count but a different computer rebuilds, so focus never la
   const { api, d, groups } = loadPaint();
   const two = (names) => ({ ...LIST, computers: [LIST.computers[0], ...names.map((n) => ({ name: n, address: n + '.kosmosplus.com', this: false, online: true }))] });
   api.computers = two(['agent1s', 'pizzarama']);
-  const angel = [{ sessionName: 'angel', name: 'Angel', state: 'idle' }];
+  const angel = [card('angel', { name: 'Angel', state: 'idle' })];
   api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: angel, at: 1000000 });
   api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'ok', agents: angel, at: 1000000 });
   api.oaPaint();
@@ -409,7 +431,7 @@ test('paint: focus on a group itself stays on the group when it is rebuilt', () 
   api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [], at: 1000000 });
   api.oaPaint();
   groups.children[0].focus();
-  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a', name: 'A', state: 'idle' }], at: 1000000 });
+  api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [card('a', { name: 'A', state: 'idle' })], at: 1000000 });
   api.oaPaint();
   assert.equal(d.focused(), groups.children[0], 'the new group, not its Open link');
 });
@@ -426,7 +448,7 @@ function loadRound(computersAnswer, siblingAnswer) {
     asked.push(url);
     if (url === '/api/remote/computers') return computersAnswer();
     if (siblingAnswer) { const own = siblingAnswer(url); if (own) return own; }
-    return Promise.resolve({ status: 200, json: async () => ({ agents: [{ sessionName: 'a', name: 'A', state: 'idle' }] }) });
+    return Promise.resolve({ status: 200, json: async () => ({ agents: [card('a', { name: 'A', state: 'idle' })] }) });
   };
   t.document.hidden = false;
   const api = new Function('document', 'location', 'fetch', 'setTimeout', 'clearTimeout', `
@@ -470,7 +492,7 @@ test('round: a computers refresh that never answers holds up neither the reads n
 
 test('round: the first round waits for the list, then reads; a computer dropped from it is forgotten', { timeout: 2000 }, async () => {
   const { api, asked } = loadRound(async () => ({ ok: true, json: async () => ({ ...LIST, computers: LIST.computers.filter((c) => c.name !== 'pizzarama') }) }));
-  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'out', agents: [{ sessionName: 'old' }], at: 1 });
+  api.OA_SEEN.set('pizzarama.kosmosplus.com', { state: 'out', agents: [card('old')], at: 1 });
   await api.oaRound();
   assert.equal(asked[0], '/api/remote/computers', 'the list first');
   assert.deepEqual(asked.slice(1), ['https://agent1s.kosmosplus.com/api/status'], 'then the one other valid computer');
@@ -484,7 +506,7 @@ test('read: a read that lands after its computer left the list is not kept', { t
   // Hold agent1s's read open, drop agent1s from the list, then let the read land.
   const r = t.api.readOneHeld((resolve) => { land = resolve; });
   t.api.computers = { ...LIST, computers: LIST.computers.filter((c) => c.name !== 'agent1s') };
-  land({ status: 200, json: async () => ({ agents: [{ sessionName: 'a', name: 'A', state: 'idle' }] }) });
+  land({ status: 200, json: async () => ({ agents: [card('a', { name: 'A', state: 'idle' })] }) });
   await r;
   assert.equal(t.api.OA_SEEN.has('agent1s.kosmosplus.com'), false, 'not written back');
   t.api.computers = LIST;
@@ -506,7 +528,7 @@ test('round: each group paints as its own read lands, not when the slowest compu
 });
 
 test('read: a runaway list from another computer is cut to the first OA_MAX_AGENTS', async () => {
-  const many = Array.from({ length: 2000 }, (_, i) => ({ sessionName: 's' + i, name: 'N' + i, state: 'idle' }));
+  const many = Array.from({ length: 2000 }, (_, i) => { const c = card('s0', { name: 'N' + i, state: 'idle' }); c.sessionName = 's' + i; return c; });
   const { api } = load(async () => ({ status: 200, json: async () => ({ agents: many }) }));
   const r = await api.oaReadOne(LIST.computers[1]);
   assert.equal(r.agents.length, 500);
@@ -514,11 +536,12 @@ test('read: a runaway list from another computer is cut to the first OA_MAX_AGEN
 
 test('read: a body cut off mid-read on an ONLINE computer is not connected (list kept), only a non-JSON body is the gate', async () => {
   const cut = load(async () => ({ status: 200, json: async () => { throw new TypeError('network error'); } }));
-  cut.api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: [{ sessionName: 'a' }], at: 5 });
+  const KEPT = [card('a')];
+  cut.api.OA_SEEN.set('agent1s.kosmosplus.com', { state: 'ok', agents: KEPT, at: 5 });
   assert.equal(LIST.computers[1].online, true, 'control: the board says it is online');
   const r = await cut.api.oaReadOne(LIST.computers[1]);
   assert.equal(r.state, 'out', 'the headers came through: neither a sign-in prompt nor a refusal');
-  assert.deepEqual(r.agents, [{ sessionName: 'a' }], 'the last good list is kept');
+  assert.deepEqual(r.agents, KEPT, 'the last good list is kept');
   const gate = load(async () => ({ status: 200, json: async () => JSON.parse('<html>sign in</html>') }));
   assert.equal((await gate.api.oaReadOne(LIST.computers[1])).state, 'notin', 'control: a gate page that is not JSON');
 });
