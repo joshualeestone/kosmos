@@ -275,6 +275,14 @@ export AGENT_WORKFORCE_TMUX_BIN
 if [ "${KOSMOS_TMUX_BIN_PICKED:-}" = "1" ] || [ -z "${_KOSMOS_TMUX_EXPLICIT:-}" ]; then
   KOSMOS_TMUX_BIN_PICKED=1; export KOSMOS_TMUX_BIN_PICKED
 fi
+# #2955: and WHICH value was picked, so the board can tell its launcher's pick from a value set later over an inherited
+# marker (a harness inside an agent's pane inherits the server's environment, marker included). An explicit choice
+# clears it, so a stale one from an earlier launcher in the chain cannot vouch for it.
+if [ "${KOSMOS_TMUX_BIN_PICKED:-}" = "1" ]; then
+  KOSMOS_TMUX_BIN_PICKED_AS="$AGENT_WORKFORCE_TMUX_BIN"; export KOSMOS_TMUX_BIN_PICKED_AS
+else
+  unset KOSMOS_TMUX_BIN_PICKED_AS
+fi
 # The engine's bare `tmux` calls must agree with the choice: when a system tmux
 # won, its directory goes first, so two processes never read the same socket
 # through two versions.
