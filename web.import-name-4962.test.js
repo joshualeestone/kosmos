@@ -393,16 +393,67 @@ test('review 5: after Enter in the field, a refusal not about the name gives foc
   assert.equal(r.field.getAttribute('aria-invalid'), null, 'and still not called invalid');
 });
 
-test('review 5: after a successful add from the keyboard, focus moves to the next row', async () => {
+test('review 5/6: after a successful add FROM THE KEYBOARD, focus moves to the next row that can still be added', async () => {
   const r = rig({ withField: true, parsed: PARSED_NAMELESS, created: CREATED });
   const box = r.d.create('div');
   box.appendChild(r.row); r.row.parentElement = box;
+  const done = r.d.create('div'); done.className = 'fr-importrow done';
+  const doneGo = r.d.create('button'); doneGo.className = 'btn uprime fr-importgo'; doneGo.disabled = true;
+  done.appendChild(doneGo); box.appendChild(done);
   const next = r.d.create('div'); next.className = 'fr-importrow';
   const nextGo = r.d.create('button'); nextGo.className = 'btn uprime fr-importgo';
   next.appendChild(nextGo); box.appendChild(next);
   r.field.value = 'Pip';
   r.field.focus();
-  await r.add('/Users/p/Downloads/pip.md', r.btn, r.row);
+  await r.add('/Users/p/Downloads/pip.md', r.btn, r.row, true);
   assert.equal(r.btn.textContent, 'Added to Kosmos', 'control: it was added');
-  assert.equal(r.d.focused(), nextGo, 'the next row is where the keyboard goes');
+  assert.equal(r.d.focused(), nextGo, 'past the row already added, to the next one');
+});
+
+test('review 6: a pointer add (click detail 1) leaves focus where it was', async () => {
+  const r = rig({ withField: true, parsed: PARSED_NAMELESS, created: CREATED });
+  const box = r.d.create('div');
+  box.appendChild(r.row); r.row.parentElement = box;
+  const next = r.d.create('div'); next.className = 'fr-importrow';
+  const nextField = r.d.create('input'); nextField.className = 'tk-inp fr-importinput';
+  next.appendChild(nextField); box.appendChild(next);
+  r.field.value = 'Pip';
+  r.btn.focus();                         // Chrome focuses a clicked button
+  await r.add('/Users/p/Downloads/pip.md', r.btn, r.row, false);
+  assert.equal(r.btn.textContent, 'Added to Kosmos');
+  assert.notEqual(r.d.focused(), nextField, 'no jump into the next field (a phone would open its keyboard)');
+});
+
+test('review 6: a refusal shown just before a redraw is still shown, and still marked, after it', () => {
+  const t = makeDom();
+  const box = t.add('import-found');
+  const build = () => {
+    box.textContent = '';
+    const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');
+    const f = t.create('input'); f.className = 'tk-inp fr-importinput';
+    const said = t.create('p'); said.className = 'fr-importsaid';
+    row.append(f, said); box.appendChild(row);
+    return { f, said };
+  };
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\nreturn { importNamesKept, importNamesRestore };')(t.document);
+  const a = build(); a.said.textContent = 'Give this agent a name first.'; a.f.setAttribute('aria-invalid', 'true'); a.f.focus();
+  const kept = api.importNamesKept(box);
+  const b = build();
+  api.importNamesRestore(box, kept);
+  assert.equal(b.said.textContent, 'Give this agent a name first.');
+  assert.equal(b.f.getAttribute('aria-invalid'), 'true');
+  assert.equal(t.focused(), b.f);
+});
+
+test('review 6: the click handler tells a keyboard click (detail 0) from a pointer one', () => {
+  const t = makeDom();
+  const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', '/p/pip.md');
+  const go = t.create('button'); go.className = 'btn uprime fr-importgo'; row.appendChild(go);
+  const seen = [];
+  // eslint-disable-next-line no-new-func
+  const api = new Function('addImportedInPlace', slice('importGoClick') + '\nreturn { importGoClick };')((...a) => seen.push(a[3]));
+  api.importGoClick({ target: go, detail: 0 });
+  api.importGoClick({ target: go, detail: 1 });
+  assert.deepEqual(seen, [true, false]);
 });

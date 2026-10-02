@@ -34,7 +34,7 @@ markdown file, no path", so the file is NOT shown; it is in each field's and but
 What would change it: a tester naming the wrong file, or Josh saying the file may be shown on a nameless row.
 
 ## Tests
-- web.import-name-4962.test.js (12; review 1 added the Enter handlers run for real, the first-run exemption,
+- (Current totals are in the LAST review section below; this list is round 1's.) web.import-name-4962.test.js (12; review 1 added the Enter handlers run for real, the first-run exemption,
   per-surface ids, a typed name kept across a redraw, focus and aria-invalid after a refusal): the nameless row's field, label and helper (a named row has none); distinct
   ids for two paths sharing a 60-character tail; an empty field asks, sends nothing, focuses the field; a typed
   name is sent as name and label; a named row is unchanged (control); the typed name beats a parsed displayName;
@@ -89,3 +89,11 @@ NOT taken, recorded as a known gap: a file the scan NAMES (so no field is drawn)
 use (a one-letter heading: agentfile.suggestName returns '') still gets the old "Open it from Create an agent"
 dead end. Fixing it means inserting the field after the parse; that is a separate change, and the case is rare
 next to the nameless one this card is about. Unit 26/26; 2 more sabotages red.
+
+## Review 6 (opus, blind, 2026-10-01 23:25): 0 blockers, 1 warning, 3 nits, all taken
+W: the move-on-after-success fired for a POINTER add too (Chrome focuses a clicked button), which on a phone would
+open the keyboard over the list after each tap; it now needs a keyboard add (the click's detail is 0: Enter, Space,
+or importNameEnter), passed from the extracted importGoClick. Nits: it moves past a row already added; a refusal
+shown just before a redraw keeps its reason and invalid mark through it; the plan's round-1 test list is marked as
+such. Unit 29/29; 5 more sabotages red (one, "the click handler ignores detail", needed importGoClick extracted
+before it could go red).
