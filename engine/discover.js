@@ -2000,7 +2000,7 @@ function connect(dir, opts) {
 
      ⚠️ IT WRITES INTO A FILE THE PERSON WROTE. Both blocks are constant words with
      no machine state, both go under their own headings so the seam between their
-     words and ours stays visible, and `appendTo` refuses to add itself twice. The
+     words and ours stays visible, and `doctrine.atBirth` refuses to add the rules twice. The
      doctrine refresh already offers these same sections to agents that exist; this
      is the same write at a better moment.
 
@@ -2012,10 +2012,12 @@ function connect(dir, opts) {
     const { MAX_BYTES } = require('./instructions');
     let text = fs.readFileSync(file, 'utf8');
     let changed = false;
+    let rulesAdded = false;
     try {
-      const withDefaults = require('./defaults').appendTo(text);
+      /* #4890: inside the managed span, as at creation, so later rule changes can reach an imported agent too. */
+      const withDefaults = require('./doctrine').atBirth(text, undefined, MAX_BYTES, { frameInline: false });
       if (Buffer.byteLength(withDefaults, 'utf8') <= MAX_BYTES && withDefaults !== text) {
-        text = withDefaults; changed = true;
+        text = withDefaults; changed = true; rulesAdded = true;
       }
     } catch { /* imported without the rules rather than not imported */ }
     try {
@@ -2027,6 +2029,11 @@ function connect(dir, opts) {
       }
     } catch { /* same posture */ }
     if (changed) fs.writeFileSync(file, text, 'utf8');
+    /* #4890: the version written, recorded as creation records it (create.js), so doctrine.status() can tell the
+       person's own edit inside the span from a change to the rules. Only when this import wrote them. */
+    if (rulesAdded) {
+      try { store.writeProfile(name, { doctrineVersion: require('./defaults').DOCTRINE_VERSION }); } catch { /* the banner falls back to offering */ }
+    }
   } catch { /* the doctrine banner still offers them, the old way */ }
 
   const wantProjects = (opts && Array.isArray(opts.projects))

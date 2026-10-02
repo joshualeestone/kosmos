@@ -434,7 +434,8 @@ function served(p, board) {
   /* Values a placeholder may stand for: a number (ids are often `(\d+)`) and each enumerated word,
      in every placeholder, and a number everywhere with a word in the LAST one (`task/1/close`). */
   // #1307: ids can also be hex (a webhook id is 16 hex characters, `([0-9a-f]{16})`), which '1' cannot match.
-  const words = ['1', '0123456789abcdef', ...alternatives(board)];
+  // #4930: an attachment id is 24 (`([0-9a-f]{24})`).
+  const words = ['1', '0123456789abcdef', '0123456789abcdef01234567', ...alternatives(board)];
   const tries = [];
   for (const w of words) tries.push(p.replace(/\/x(?=\/|$)/g, '/' + w));
   const lastX = p.lastIndexOf('/x');
