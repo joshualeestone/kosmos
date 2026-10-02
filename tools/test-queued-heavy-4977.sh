@@ -13,7 +13,9 @@ export TMPDIR=$S/tmp   # review 2: the wrapper's own mktemp files stay inside th
 BG=""   # every background wrapper this test starts, stopped by pid on exit
 # Review 2: a pid in BG is stopped only while it still runs this test's shim or wrapper (a pid reused by another agent's
 # process since is left alone), and the sleeps by KILL (two arms make them ignore TERM).
-ours() { case "$(ps -o command= -p "$1" 2>/dev/null)" in *"$S/qh"*|*queued-heavy.sh*) return 0;; *) return 1;; esac; }
+# Review 3: by PARENTAGE (a reused pid cannot be this shell's child unless this shell made it) and by THIS tree's path.
+ours() { [ "$(ps -o ppid= -p "$1" 2>/dev/null | tr -d ' ')" = "$$" ] || return 1
+  case "$(ps -o command= -p "$1" 2>/dev/null)" in *"$S/qh"*|*"$REAL_QH"*) return 0;; *) return 1;; esac; }
 trap 'for p in $BG; do ours $p && kill $p 2>/dev/null; done; kill ${H:-} 2>/dev/null; wait ${H:-} 2>/dev/null; for n in 1 2 3 4 5 6 7 8 9; do for p in $(pgrep -f "^sleep $((U+n))$"); do kill -KILL $p 2>/dev/null; done; done; rm -rf "${S:?}"' EXIT
 # Review 1: the queue's own settings from the shell that runs this must not change the outcome (as test-light-side-4911).
 KOSMOS_WAIT_CONTROL_VARS="$(bash -c '. "$1" && printf %s "${KOSMOS_WAIT_CONTROL_VARS:-}"' _ "$HERE/lib/cut-guard.sh")"
@@ -63,7 +65,10 @@ o3=$(printf 'echo FROM-STDIN
 ok "a side turn keeps the command's stdin" '[[ "$o3" == *"SIDE TURN"* && "$o3" == *FROM-STDIN* ]]'
 ok "no bash trap warnings on a side turn" '[[ "$o3" != *run_pending_traps* && "$o3" != *"resending 15"* ]]'
 ok "side turn runs beside a heavy holder and releases" '[[ "$o" == *"SIDE TURN"* && "$o" == *"END rc=0"* && ! -e $S/m/light-side-claim ]]'
-/bin/bash $QH --light "b-side" sleep 6 > $S/b.log 2>&1 & B=$!; BG="$BG $B"; until_true 30 '[ -e $S/m/light-side-claim ]'; rm -f $S/m/machine-claim
+/bin/bash $QH --light "b-side" sleep 6 > $S/b.log 2>&1 & B=$!; BG="$BG $B"
+# Review 3: the side turn is running only once it holds its claim AND has left the queue (its marker gone): between the
+# two, a heavy run reads it as a waiter ahead, not as a side turn.
+until_true 30 '[ -e $S/m/light-side-claim ] && [ ! -e $S/m/suitewait.$B ] && grep -q "SIDE TURN: running" $S/b.log'; rm -f $S/m/machine-claim
 o=$(KOSMOS_NO_WAIT=1 /bin/bash $QH "b-heavy" true 2>&1)
 ok "heavy main turn refused beside a live side turn" '[[ "$o" == *"side turn beside the heavy one"* && "$o" == *REFUSED* ]]'
 wait $B
@@ -148,15 +153,18 @@ KOSMOS_RUN_MARKER_DIR=$S/m7 KOSMOS_WAIT_MAX_S=120 KOSMOS_PW_PROBE=$S/quiet QUEUE
 K=$!; BG="$BG $K"
 until_true 60 'grep -q "SIDE TURN: running" $S/k9.out 2>/dev/null && ! gone $((U+7))'
 ok "round 18 (fixture): the wrapper took its side turn" 'grep -q "SIDE TURN: running" $S/k9.out && pgrep -f "^sleep $((U+7))$" >/dev/null'
-kill -9 $K; until_true 30 'gone $((U+7))'
+kill -9 $K; wait $K 2>/dev/null; until_true 30 'gone $((U+7))'
 ok "round 18: a SIGKILLed wrapper's side command is stopped by its capper, not left to the cap" 'gone $((U+7))'
+# #4977 review 3: and its capper removes the wrapper's temp files (in this test's TMPDIR) once it has stopped it.
+until_true 30 '[ -z "$(ls -A $S/tmp 2>/dev/null)" ]'
+ok "#4977: a SIGKILLed wrapper's temp files are removed by its capper" '[ -z "$(ls -A $S/tmp 2>/dev/null)" ]'
 for p in $(pgrep -f "^sleep $((U+7))$"); do kill -KILL $p; done
 
 
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
-EXPECTED=75   # 74 arms seeded from #4911's dry harness, plus the shim control
+EXPECTED=76   # 74 arms seeded from #4911's dry harness, the shim control, and the killed wrapper's temp files
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
