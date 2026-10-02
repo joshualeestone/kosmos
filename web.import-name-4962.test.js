@@ -264,3 +264,88 @@ test('review 2: Enter in a first-run adopt field does not press Continue either'
   r.api.frEnterSubmit(r.ev(r.other));
   assert.equal(r.counts().next, 0);
 });
+
+test('review 3: a refusal during a redraw shows its reason on the row on screen, which is ready again', async () => {
+  const t = makeDom();
+  const box = t.add('import-found');
+  const FILE = '/Users/p/Downloads/pip.md';
+  const mk = () => {
+    box.textContent = '';
+    const row = t.create('div'); row.className = 'fr-importrow'; row.setAttribute('data-import-file', FILE);
+    const cls = (el) => { el.classList = { add(c) { el.className += ' ' + c; } }; return el; };
+    cls(row);
+    const field = t.create('input'); field.className = 'tk-inp fr-importinput'; field.removeAttribute = function (k) { delete this.attrs[k]; };
+    const go = cls(t.create('button')); go.className = 'btn uprime fr-importgo'; go.textContent = 'Add to Kosmos';
+    const said = t.create('p'); said.className = 'fr-importsaid';
+    row.append(field, go, said); box.appendChild(row);
+    return { row, field, go, said };
+  };
+  let release;
+  const fetchImpl = async (url) => {
+    if (/agent-import-file$/.test(url)) { await new Promise((res) => { release = res; }); return { ok: true, json: async () => PARSED_NAMELESS }; }
+    return { ok: false, json: async () => ({ outcome: 'refused', field: 'name', because: 'an agent called pip is already here' }) };
+  };
+  // eslint-disable-next-line no-new-func
+  const api = new Function('document', 'fetch', 'const IMPORT_ADDS = new Map();\n' + slice('importRowApply') + '\n' + slice('importAddsNewVisit') + '\n' + slice('importRowsSync') + '\n'
+    + slice('importNamesKept') + '\n' + slice('importNamesRestore') + '\n' + slice('addImportedInPlace')
+    + '\nreturn { addImportedInPlace, importNamesKept, importNamesRestore };')(t.document, fetchImpl);
+  const first = mk();
+  first.field.value = 'Pip';
+  const adding = api.addImportedInPlace(FILE, first.go, first.row);
+  await Promise.resolve();
+  const kept = api.importNamesKept(box);
+  const second = mk();
+  api.importNamesRestore(box, kept);
+  assert.equal(second.go.disabled, true, 'control: the redrawn row shows the add in flight');
+  release();
+  await adding;
+  assert.equal(second.go.disabled, false, 'the row on screen is ready again, not stuck');
+  assert.equal(second.go.textContent, 'Add to Kosmos');
+  assert.equal(second.field.disabled, false);
+  assert.match(second.said.textContent, /already here/, 'the reason shows where the person is looking');
+  assert.equal(second.field.getAttribute('aria-invalid'), 'true');
+  assert.equal(t.focused(), second.field);
+});
+
+test('review 3: a fresh visit to the list forgets receipts, but keeps an add still in flight', () => {
+  // eslint-disable-next-line no-new-func
+  const api = new Function('const IMPORT_ADDS = new Map([[\'a\', { state: \'added\', name: \'A\' }], [\'b\', { state: \'adding\', name: \'B\' }]]);\n'
+    + slice('importAddsNewVisit') + '\nreturn { IMPORT_ADDS, importAddsNewVisit };')();
+  api.importAddsNewVisit();
+  assert.deepEqual([...api.IMPORT_ADDS.keys()], ['b']);
+  const src = slice('populateFoundImports');
+  assert.match(src, /\+\+FR_IMPORT_POP_GEN;\s*\n[\s\S]{0,600}importAddsNewVisit\(\)/, 'each visit (a new generation) forgets receipts');
+});
+
+test('review 3: each nameless field is told apart by its file for assistive tech', () => {
+  const html = foundImportRowsHtml([{ file: '/a/triage.md', name: '' }, { file: '/a/site-monitor.md', name: '' }]);
+  const labels = [...html.matchAll(/class="tk-inp fr-importinput"[^>]*aria-label="([^"]+)"/g)].map((x) => x[1]);
+  assert.deepEqual(labels, ['Name, /a/triage.md', 'Name, /a/site-monitor.md'], 'the visible word first, then the file');
+});
+
+test('review 3: typing again clears the old reason along with the invalid mark', () => {
+  const t = makeDom();
+  const row = t.create('div'); row.className = 'fr-importrow';
+  const f = t.create('input'); f.className = 'tk-inp fr-importinput'; f.removeAttribute = function (k) { delete this.attrs[k]; };
+  f.setAttribute('aria-invalid', 'true');
+  const said = t.create('p'); said.className = 'fr-importsaid'; said.textContent = 'Give this agent a name first.';
+  row.append(f, said);
+  // eslint-disable-next-line no-new-func
+  const api = new Function(slice('importNameInput') + '\nreturn { importNameInput };')();
+  api.importNameInput({ target: f });
+  assert.equal(f.getAttribute('aria-invalid'), null);
+  assert.equal(said.textContent, '');
+});
+
+test('review 3: Enter in a first-run adopt field adds that row', () => {
+  const t = makeDom();
+  const row = t.create('div'); row.className = 'fr-foundrow fr-adoptrow';
+  const f = t.create('input'); f.className = 'fr-adoptinput';
+  const go = t.create('button'); go.className = 'btn uprime fr-foundgo';
+  let clicks = 0; go.click = () => { clicks += 1; };
+  row.append(f, go);
+  // eslint-disable-next-line no-new-func
+  const api = new Function(slice('importNameEnter') + '\nreturn { importNameEnter };')();
+  api.importNameEnter({ key: 'Enter', target: f, defaultPrevented: false, isComposing: false, repeat: false, preventDefault() { this.defaultPrevented = true; } });
+  assert.equal(clicks, 1);
+});

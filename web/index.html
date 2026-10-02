@@ -53030,7 +53030,8 @@ function foundImportRowsHtml(items, scope) {
     const fid = 'importname-' + String(scope || 'x') + '-' + i + '-' + cssId(file);
     const ask = name ? '' : '<label class="fr-importlab" for="' + esc(fid) + '">Name</label>'
       + '<input class="tk-inp fr-importinput" id="' + esc(fid) + '" type="text" autocomplete="off" maxlength="32"'
-      + ' placeholder="e.g. Site monitor" aria-describedby="' + esc(fid) + '-help ' + esc(fid) + '-said">'
+      + ' placeholder="e.g. Site monitor" aria-label="Name, ' + esc(file) + '"'
+      + ' aria-describedby="' + esc(fid) + '-help ' + esc(fid) + '-said">'
       + '<span class="fr-importhelp" id="' + esc(fid) + '-help">What should we call it? You can rename it anytime.</span>';
     return '<div class="fr-importrow" data-import-file="' + esc(file) + '">'
       + '<span class="fr-importtext">'
@@ -53097,18 +53098,27 @@ function importRowApply(row) {
     go.textContent = 'Adding\u2026';
   }
 }
-function importRowsSync(file) {
+function importAddsNewVisit() {
+  for (const [f, st] of [...IMPORT_ADDS]) if (st.state === 'added') IMPORT_ADDS.delete(f);
+}
+function importRowsSync(file, msg, aboutName) {
   for (const id of ['import-found', 'fr-fleet']) {
     const box = document.getElementById(id);
     if (!box || !box.querySelectorAll) continue;
     for (const row of Array.from(box.querySelectorAll('.fr-importrow'))) {
       if (row.getAttribute('data-import-file') !== file) continue;
       if (IMPORT_ADDS.has(file)) { importRowApply(row); continue; }
-      /* the add failed: a copy redrawn meanwhile goes back to ready (the pressed row's own fail() handles it) */
+      /* The add failed: a copy redrawn meanwhile goes back to ready AND carries the reason (review 3), since
+         the pressed row may no longer be on screen to show it. */
       const go = row.querySelector('.fr-importgo');
       const field = row.querySelector('.fr-importinput');
+      const said = row.querySelector('.fr-importsaid');
       if (go && go.textContent !== 'Add to Kosmos') { go.disabled = false; go.textContent = 'Add to Kosmos'; }
-      if (field) field.disabled = false;
+      if (said && msg) said.textContent = msg;
+      if (field) {
+        field.disabled = false;
+        if (aboutName) { field.setAttribute('aria-invalid', 'true'); field.focus(); }
+      }
     }
   }
 }
@@ -53124,6 +53134,10 @@ async function populateFoundImports() {
   // #3/#4 half (b): a fresh generation per call, so a mode re-pick during the ~2s two-phase
   // retry cannot let a stale partial paint over the newer state.
   const gen = ++FR_IMPORT_POP_GEN;
+  /* kosmos#4962 (review 3): a receipt belongs to one visit to this list. A fresh visit forgets 'added' (the
+     agent may since have been removed, or the same template is wanted under another name; the engine refuses
+     a true duplicate by name, and that refusal lands on the row's field). An add still in flight is kept. */
+  importAddsNewVisit();
   /* Render whatever the scan has so far: the non-TCC rows immediately, then the complete set once
      the app-identity hatch answers. A tccUnavailable result (protected folders unreadable) shows a
      hint instead of a blank/spinner. */
@@ -53204,7 +53218,7 @@ async function addImportedInPlace(file, btn, row) {
       if (aboutName) { field.setAttribute('aria-invalid', 'true'); field.focus(); }
       else field.removeAttribute('aria-invalid');
     }
-    importRowsSync(file);
+    importRowsSync(file, msg, aboutName);
   };
   IMPORT_ADDS.set(file, { state: 'adding', name: typed });
   if (field) field.disabled = true;
@@ -53343,19 +53357,25 @@ document.addEventListener('click', (e) => {
    (first run's Enter-means-Continue, which now exempts this field) never gets a second action. */
 function importNameEnter(e) {
   if (e.key !== 'Enter' || e.repeat || e.isComposing || e.defaultPrevented || !e.target || !e.target.closest) return;
-  const field = e.target.closest('.fr-importinput');
+  /* Also a first-run adopt row's name field, which frEnterSubmit exempts for the same reason: Enter adds
+     that row rather than doing nothing (review 3). */
+  const field = e.target.closest('.fr-importinput') || e.target.closest('.fr-adoptinput');
   if (!field) return;
-  const row = field.closest('.fr-importrow');
-  const go = row && row.querySelector('.fr-importgo');
+  const row = field.closest('.fr-importrow') || field.closest('.fr-foundrow');
+  const go = row && (row.querySelector('.fr-importgo') || row.querySelector('.fr-foundgo'));
   if (!go || go.disabled) return;
   e.preventDefault();
   go.click();
 }
 document.addEventListener('keydown', importNameEnter);
-document.addEventListener('input', (e) => {
+document.addEventListener('input', importNameInput);
+function importNameInput(e) {
   const f = e.target && e.target.closest && e.target.closest('.fr-importinput');
-  if (f) f.removeAttribute('aria-invalid');
-});
+  if (!f) return;
+  f.removeAttribute('aria-invalid');
+  const said = f.closest('.fr-importrow') && f.closest('.fr-importrow').querySelector('.fr-importsaid');
+  if (said) said.textContent = '';   // the old reason is not read with a field that is being fixed
+}
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
 function tickLine(state, text) {
