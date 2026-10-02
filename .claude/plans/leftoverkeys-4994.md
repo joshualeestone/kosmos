@@ -32,7 +32,7 @@ or request holds every name.
 sendPost and sendComment never send a record that follows a retired account; an attempted one is left to
 settleUnconfirmed, which settles one the service never got to not_sent, and leaves a name being retired alone until its
 record has moved. A retired account receives industry clears
-only. The owner's list labels a deleted agent's rows "<name> (deleted agent)" (`agentDeleted`), never by the new
+only, and the install-group pass (#4922) treats a name being retired as removed: cleared if grouped, never sent. The owner's list labels a deleted agent's rows "<name> (deleted agent)" (`agentDeleted`), never by the new
 agent's display name, and reads not_sent posts as "Not sent. It stayed on this computer." (the comment wording). The
 delete's confirmation lists the community account (any service's, or when the keys cannot be read) and stops promising
 everything comes back from the Trash; its
@@ -78,6 +78,8 @@ record no longer matches. The read, follow and mine paths go through communityse
 - A pending record whose post has left the store (discarded) is neither moved nor marked; nothing sends from records
   without a store row. In a stale service's folder, applied while the post store could not be read, pending records stay
   under the bare name; the store mark is what keeps their posts home.
+- After a restart, a request applied again moves a new agent's record that is `attempted` with no `sentAt` and whose
+  post has left the store. Needs an unremovable request file, a restart and a discarded post.
 - A `registering` mark with no key is moved like a key; no key exists to use either way. A retired record still
   `attempted` whose account has no key, or whose post has left the store, stays unconfirmed: nothing can settle it.
 - The delete asks no typed name for the community account, though it cannot be undone: the confirmation lists it and
@@ -88,8 +90,8 @@ record no longer matches. The read, follow and mine paths go through communityse
   name (the confirmation says the public name may change).
 
 ## Tests
-engine/communityretire-4994.test.js (29, a fake service that only lets a post's own agent delete it),
-engine/delete-leftover.test.js (+11, including two create cases), web.community-agent-deleted-4994.test.js (2). Each
+engine/communityretire-4994.test.js (30, a fake service that only lets a post's own agent delete it),
+engine/delete-leftover.test.js (+12, including two create cases), web.community-agent-deleted-4994.test.js (2). Each
 guard was removed once and a named test went red: the apply in `exclusive`, the pending guard, the not_sent marking,
 the time bound, the send-time guard, the owner-list label, the store mark, the record bound, the attempted wait, the
 confirmation line, the re-mark on apply, the hold until marked, the unreadable-folder hold, the create request, and the

@@ -886,7 +886,8 @@ async function sweepInstallGroup(keys, on) {
        back means it was restored. */
     const folderGone = !workerFolderExists(agentKey);
     if (removedUnreadable && !folderGone) continue;   // could be removed: nothing is sent to it, not even a clear
-    const removedNow = removedSet.has(clean(agentKey)) || folderGone;
+    // #4994: a name being retired is the deleted agent's until its key moves: treated as removed, so cleared, never sent.
+    const removedNow = removedSet.has(clean(agentKey)) || folderGone || retiring(agentKey);
     if (k.refused) {
       // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
       if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
@@ -1263,9 +1264,9 @@ function unsentCount(agentKey) {
     const deletes = loadJson(deletesFile());
     const cdeletes = loadJson(commentDeletesFile());
     if (!st || !sent || !csent || !deletes || !cdeletes) return 1;
-    // Switched off, nothing goes: a later ON period starts after every item there is now.
-    if (!switchOn()) return 0;
-    const since = typeof st.since === 'string' ? st.since : null;
+    // Switched off, no PUBLISHED item goes (a later ON period starts after every one there is now); a held one still
+    // can, released after Community is back on.
+    const since = switchOn() && typeof st.since === 'string' ? st.since : null;
     const mine = (item) => item && item.agent === agentKey && item.author && item.author.type === 'agent' && item.notSent !== true;
     // Due: no record yet, or one still waiting (never attempted), and not one the owner asked to delete. A refused,
     // withheld or not_sent record is final already.
@@ -1330,7 +1331,9 @@ function retireIn(epDir, agentKey, at) {
   const live = keys[agentKey];
   const madeAt = live && (live.triedAt || live.registeredAt || (live.registering && live.registering.at));
   const newer = typeof madeAt === 'string' && madeAt > at;
-  if (live && !newer && !keys[to]) { keys[to] = live; saveJson(kf, keys); }   // a retry finds it already there
+  // Copied on every apply, not once: while the live entry stays (a folder that could not be moved yet), what a pass
+  // changes on it (an install group sent, a token refreshed) must reach the retired entry too.
+  if (live && !newer) { keys[to] = live; saveJson(kf, keys); }
   let moved = false;
   const ofName = (item) => item && item.agent === agentKey && item.author && item.author.type === 'agent';
   // Both sides are toISOString() output (the store's nowISO, requestRetire), so the strings order as the times do.
@@ -1688,7 +1691,8 @@ function willSend(agentKey, now = Date.now()) {
  */
 function postLater(agentKey, now = Date.now()) {
   const keys = loadJson(keysFile());
-  const k = keys && agentKey && keys[agentKey];
+  // #4994: as willSend: while the name is held, the key on file is the deleted agent's, and its cap is not this one's.
+  const k = keys && agentKey && !retiring(agentKey) && keys[agentKey];
   return Boolean(k && k.retryAt && Date.parse(k.retryAt) > now);
 }
 /**

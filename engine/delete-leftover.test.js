@@ -390,6 +390,24 @@ test('#4994: a refused or owner-deleted community post is not named as waiting; 
   } finally { setRec(null); fs.writeFileSync(cs._paths.deletesFile(), JSON.stringify({})); }
 });
 
+test('#4994: with Community switched off, a held post still counts as waiting (release could send it); a published one does not', () => {
+  const communitystore = require('./communitystore');
+  const feedpublish = require('./feedpublish');
+  const cs = require('./communitysend');
+  leftoverAgent('switchoff');
+  fs.mkdirSync(nodePath.dirname(cs._paths.stateFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.stateFile(), JSON.stringify({ since: '2000-01-01T00:00:00.000Z' }));
+  communitystore.grantTrust('switchoff');
+  feedpublish.publishPost({ kind: 'community_post', agent: 'switchoff', at: new Date().toISOString(), topic: 't', body: 'published' }, { agentId: 'switchoff' });
+  const waits = () => mac.plan('switchoff', { now: Date.now() }).loses.some((l) => /has not gone out yet/.test(l));
+  cs.setSwitch(() => ({ on: false, ok: true }));
+  try {
+    assert.equal(waits(), false, 'a published post was named as waiting while Community is off');
+    feedpublish.publishPost({ kind: 'community_post', agent: 'switchoff', at: new Date().toISOString(), topic: 't', body: 'held' }, { trusted: false });
+    assert.equal(waits(), true, 'a held post was not named while Community is off');
+  } finally { cs.setSwitch(null); }
+});
+
 test('#4006: deleting a leftover clears its failed-restart record', () => {
   const disruption = require('./disruption');
   leftoverAgent('failgone');

@@ -545,3 +545,19 @@ test('a post the deleted agent was sending at the delete follows the old account
   assert.deepEqual(retireFiles(), [], 'CONTROL: the request was applied');
   assert.match(readJson(cs._paths.sentFile())[id].agent, /^retired:rex:/, 'the old agent\'s post was left under the name, so its delete would ask as the new agent');
 });
+
+test('while a retirement is stuck, the install group is never sent to the deleted agent\'s key, even with a new folder under the name', async () => {
+  writeJson(cs._paths.keysFile(), { rex: REX_KEY });
+  await cs.sweep();                                        // starts the ON period
+  fs.writeFileSync(cs._paths.commentsSentFile(), '{ broken');   // the current folder cannot be retired yet
+  cs.requestRetire('rex');
+  const folder = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'rex');
+  assert.ok(folder.startsWith(SANDBOX), 'refusing to write a worker folder outside this test\'s sandbox');
+  fs.mkdirSync(folder, { recursive: true });               // a NEW rex now exists
+  try {
+    await cs.sweep();
+    assert.equal(retireFiles().length, 1, 'CONTROL: the retirement really is stuck');
+    const sentGroup = be.st.seen.filter((x) => x.method === 'PATCH' && x.auth === 'tok_r1' && x.body && x.body.install_group);
+    assert.deepEqual(sentGroup, [], 'the install group was sent to the deleted agent\'s account');
+  } finally { fs.rmSync(folder, { recursive: true, force: true }); }
+});
