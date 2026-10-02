@@ -43,8 +43,9 @@ cleared it. The new login DID reach the keychain (Settings showed Oct 31 after r
   Floating means each covers the strip under it (max 460px wide, clicks only on the notice) until it clears;
   render-update-toast checks the chip clears New agent at desktop and phone, and the burger on phone.
 - **The X returns the notice when the days count drops** (key includes daysLeft): Josh's card text asks for exactly
-  that ("hidden until the state changes: fewer days left ..."). An expired login's daysLeft keeps falling, so a closed
-  expired notice also returns daily. A rename of an agent does not bring it back (the key uses system names).
+  that ("hidden until the state changes: fewer days left ..."). An expired notice is one state (its key does not use the
+  falling days count), so once closed it stays closed until the login is renewed or the agents change (round 10;
+  earlier rounds had it returning daily, which the card's "hidden until ... expired" does not ask for). A rename of an agent does not bring it back (the key uses system names).
 - loginChanged fires on every write of connected (both writers are a person's action: the driver's finish and the
   already-signed-in answer to a start) and also in finishConnected before its race exit, so a landed login is never
   missed. (Round 5 limited it to the move into connected; round 7 showed that missed two real completions.)

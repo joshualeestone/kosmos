@@ -20981,10 +20981,12 @@ function paintLoginAdvisories(advs) {
      or expired). The key is the notice's own state, kept per viewer in this browser. */
   /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
      bring a closed notice back. */
-  const advKey = (a) => [a.severity || '', a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
+  /* Expired counts as one state: its days count keeps falling, but a closed expired notice says nothing new. */
+  const advKey = (a) => [a.severity || '', a.expired ? 'x' : a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
   /* A dismissal lives while its account still has a notice: a reply with NO notice for that credential (the login was
-     renewed) forgets it, so a later expiry of the same account is never born hidden. Keyed on the account, not the
-     exact notice, so one agent's pane read failing for a moment cannot bring a closed notice back. */
+     renewed, or its date could not be read this time) forgets it, so a later expiry of the same account is never born
+     hidden. Keyed on the account, not the exact notice, so one agent's pane read failing for a moment does not bring a
+     closed notice back; a failed read of the account's own date can, once. */
   if (Array.isArray(advs)) loginAdvPrune(advs.filter((a) => a && a.service).map((a) => a.service));
   const hidden = loginAdvDismissed();
   const list = Array.isArray(advs)
