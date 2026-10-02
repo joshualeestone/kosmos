@@ -139,6 +139,37 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
   say('no page errors (consolidated)', c.errs.length === 0, c.errs.join(' | '));
   await c.ctx.close();
 
+  // ---- #5053: a LONG project name at phone widths. The fixture's own name left only 29px of room at 390 on a Mac
+  // (and overflowed by 3px on Linux), so the head row wrapped and left the chevron alone on its line. A name that
+  // cannot fit must make the TITLE wrap inside its own box, never separate the chevron from it. ----
+  {
+    const LONG = 'Five Families Holdings';
+    const was = [project.name, tasks.map((t) => t.projectName)];
+    project.name = LONG; tasks.forEach((t) => { t.projectName = LONG; });
+    try {
+      for (const width of [390, 360]) {
+        const tv = await boot('tabs', width);
+        await tv.page.evaluate(() => openProjectTasks('p1'));
+        await tv.page.waitForTimeout(800);
+        const g = await geom(tv.page, 'tsk-back', '#tsk-title', '#tsk-new');
+        const t = await tv.page.evaluate(() => { const r = document.getElementById('tsk-title').getBoundingClientRect(), c = document.getElementById('tsk-back').getBoundingClientRect();
+          return { text: document.getElementById('tsk-title').textContent, right: Math.round(r.right), inner: innerWidth, h: Math.round(r.height), chevTop: Math.round(c.top), titleTop: Math.round(r.top) }; });
+        say(`#5053 long name at ${width}: the title is long enough to need the room (the arm tests something)`, t.text.includes(LONG) && t.h > 36, JSON.stringify(t));
+        say(`#5053 long name at ${width}: the chevron stays beside the title, on its first line`, g.display !== 'none' && g.gap >= 0 && g.gap <= 24 && g.overlapY > 10 && Math.abs(t.chevTop - t.titleTop) < 24, JSON.stringify({ g, t }));
+        say(`#5053 long name at ${width}: the title stays on screen`, t.right <= t.inner, JSON.stringify(t));
+        const nb = await tv.page.evaluate(() => {
+          const n = document.getElementById('tsk-new').getBoundingClientRect(), tr = document.getElementById('tsk-title').getBoundingClientRect();
+          return { rightOfTitle: n.left >= tr.right, below: n.top >= tr.bottom - 2, inView: n.right <= window.innerWidth + 1 };
+        });
+        say(`#5053 long name at ${width}: "+ New task" is right of the title or below it, and on screen`, (nb.rightOfTitle || nb.below) && nb.inView, JSON.stringify(nb));
+        say(`no page errors (#5053 long name at ${width})`, tv.errs.length === 0, tv.errs.join(' | '));
+        await tv.ctx.close();
+      }
+    } finally {
+      project.name = was[0]; tasks.forEach((t, i) => { t.projectName = was[1][i]; });
+    }
+  }
+
   // ---- tab view: Tasks for a project, at a desktop and a phone width ----
   for (const width of [1280, 390]) {
     const tv = await boot('tabs', width);

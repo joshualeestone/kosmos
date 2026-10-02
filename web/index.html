@@ -3932,7 +3932,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
-#panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+/* #5053: ONE line, never wrapped as a row. With flex-wrap a project name too long for a phone moved the TITLE to
+   the next line and left the back chevron alone above it (29px of room at 390 on a Mac with a short name). Now the
+   title is what gives: it shrinks and wraps inside its own box; the chevron and "+ New task" keep their size. */
+#panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: nowrap; }
 /* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
    a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
@@ -3943,7 +3946,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
 .sub-back[hidden] { display: none; }
 #panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
-#panel-tasks .tsk-head > #tsk-title { margin-right: auto; }
+#panel-tasks .tsk-head > #tsk-title { margin-right: auto; min-width: 0; overflow-wrap: anywhere; }
+#panel-tasks .tsk-head > #tsk-new { flex: none; }
 #pj-docs-view .pjtitle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
 #pj-docs-view .pjtitle > .sub-back { grid-column: 1; grid-row: 1; margin-right: 12px; }
 #pj-docs-view .pjtitle > :not(.sub-back) { grid-column: 2; }
