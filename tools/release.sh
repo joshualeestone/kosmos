@@ -843,7 +843,7 @@ if [ "$_cut_parallel" = 1 ]; then
   _suite_bg_pid=$!
   # The render checks, foreground at NORMAL priority: the SAME command, env
   # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
-  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
   # Reap the backgrounded suite; `|| _suite_exit=$?` captures its exit without
   # tripping errexit, exactly as the serial `( ... ) || _suite_exit=$?` does.
   wait "$_suite_bg_pid" || _suite_exit=$?
@@ -949,6 +949,9 @@ _page_exit=0
 # exclusion. `env -u` drops it for this gate only, so the page layer runs exactly as it
 # did before that change.
 #
+# (kosmos#4909: every board browser-checks.sh boots now names its own home; the history below
+# is why the cut also removes AGENT_WORKFORCE_HOME, and it removes KOSMOS_BC_SEED_HOME so a cut is
+# never a seeded run.)
 # WHY, measured rather than assumed: `AGENT_WORKFORCE_HOME=` appears at exactly two
 # places in tools/browser-checks.sh (the sb4 board, and the #1573 site that runs twice),
 # so THREE boards set it and SIX do not. (An earlier version of this comment said "seven
@@ -961,13 +964,15 @@ _page_exit=0
 # That would change the behaviour of roughly 25 checks, and the page gate aborts the cut
 # on any red.
 #
+# (Everything from the count above to the end of this block is the pre-#4909 history; since kosmos#4909 every board
+# browser-checks.sh boots names its own home, so the exclusion now only keeps the cut home out of the page layer.)
 # ⚠️ SO THE CLASS THIS CARD IS ABOUT IS STILL OPEN HERE. It is excluded because it is
 # UNMEASURED, not because it is clean: the gate needs a real browser, which this change's
 # author could not run. Closing it means giving those boards their own sandbox home with
 # a seeded account, the same shape server.projects.test.js already uses, and then RUNNING
 # the page gate. Carded rather than done, and named here so the exclusion cannot be
 # mistaken for coverage.
-( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+( cd "$REPO" && env -u AGENT_WORKFORCE_HOME -u KOSMOS_BC_SEED_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
 fi
 # #4160: QUARANTINED lines too, so a cut refused for a quarantine says so here.
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|^QUARANTINED|^quarantined|retried:|all page|every page check' "$_page_log" || true

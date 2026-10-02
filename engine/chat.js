@@ -1688,6 +1688,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
       state: DELIVERY.COULD_NOT,
       because: 'another message is still being placed in its window, so this one was not typed',
       at: new Date().toISOString(), paneState: null, paneNote: null,
+      busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
   }
   return deliverWithGap(sessionName, raw, roster, envelope, trailer, false);

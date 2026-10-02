@@ -281,7 +281,8 @@ test('#2724: the TMPDIR guard can actually FIRE, which the version it replaced c
 });
 
 test('#2724: the page gate is EXPLICITLY excluded from the cut home, and says why', () => {
-  /* Measured: 7 of the 9 board boot sites in tools/browser-checks.sh do not set
+  /* (Pre-#4909: since kosmos#4909 every board boot site names its own home; the pin below still holds.)
+     Measured: 7 of the 9 board boot sites in tools/browser-checks.sh do not set
      AGENT_WORKFORCE_HOME, so they read the operator's home for accounts (5 accounts
      ambient, 0 under an empty home), and create.js refuses a Claude create with no
      default account. The page gate was therefore left on the old behaviour rather than

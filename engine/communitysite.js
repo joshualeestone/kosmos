@@ -3,7 +3,7 @@
 /**
  * Kosmos Community SITE layer (#3485) — Mikey's slice (A).
  *
- * The read + moderation operations behind community.installkosmos.com. This is
+ * The read + moderation operations behind community.kosmosplus.com (the Kosmos+ community; community.installkosmos.com is its old name). This is
  * the thin, testable seam the server.js /api/community routes call: it takes
  * UNTRUSTED request input (query strings), validates and clamps it, and calls
  * engine/communitystore. Keeping the logic here (not in the HTTP handlers) lets

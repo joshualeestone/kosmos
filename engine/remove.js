@@ -1618,6 +1618,38 @@ function restoreInner(name, platform) {
     return { outcome: OUTCOME.REFUSED, because: `${shown} is not on the removed list.`, steps: [] };
   }
 
+  /* #4896 review 3: a stopped removal frees its folder, so another name may have been connected to it since.
+     Restoring now would put two agents on one folder: one instructions file, the same name and role on both, and two
+     Claudes in one worker folder. Refused, naming who holds it. Review 4: this agent's own profile is read with the
+     missing / unreadable split (store.readProfile answers {} for both): missing means nothing to check, unreadable
+     refuses, and so does an unreadable profile list. */
+  {
+    let dirNow = null;
+    let ownUnreadable = false;
+    try {
+      const own = JSON.parse(fs.readFileSync(path.join(store.PROFILES, store.profileFileName(clean)), 'utf8'));
+      dirNow = own && typeof own.dir === 'string' && own.dir ? own.dir : null;
+    } catch (err) { if (!(err && err.code === 'ENOENT')) ownUnreadable = true; }
+    let taken;
+    try {
+      taken = ownUnreadable ? { ok: false } : dirNow ? require('./discover').folderTakenBy(dirNow, clean, { store }) : { ok: true, other: null };
+    } catch { taken = { ok: false } /* review 7: a throw is "could not check", never an uncaught error */; }
+    if (!taken.ok) {
+      return { outcome: OUTCOME.REFUSED, because: `we could not check which agents use ${shown}'s folder, so we did not restore it. Try again in a moment.`, steps: [] };
+    }
+    if (taken.other) {
+      /* Review 9: a second name that took a freed folder reads the SAME instructions file, so its display name is
+         usually this agent's own ("Remove Carl first to restore Carl"). Then it is named by its own agent name. */
+      const same = String(taken.other).trim().toLowerCase() === String(shown).trim().toLowerCase();
+      taken = { ...taken, other: same && taken.name ? taken.name : taken.other };
+      /* Review 4: when the holder is itself on the removed list (it may still be running there), "remove it first"
+         would be a dead end: it is already removed. Say what is true instead. */
+      return { outcome: OUTCOME.REFUSED, because: taken.removed
+        ? `${shown}'s folder is also ${taken.other}'s, who was removed but may still be running there, and one folder holds one agent. Stop ${taken.other} first to restore ${shown}.`
+        : `${shown}'s folder is now connected as ${taken.other}, and one folder holds one agent. Remove ${taken.other} first to restore ${shown}.`, steps: [] };
+    }
+  }
+
   /* #2609: the launch file points at the agent's ACCOUNT directory by absolute
      path (CLAUDE_CONFIG_DIR, or CODEX_HOME for a codex agent -- readJob folds
      both into `configDir`). If that account was deleted after the agent was
@@ -1928,7 +1960,7 @@ function restartInner(name, cause, platform, startIfDead) {
   try {
     const participating = require('./communityswitch').participating();
     const told = require('./communityblock').tellAgent(clean, participating);
-    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : 'remove'} the Kosmos community section (${told.because})`, ok: false });
+    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : 'remove'} the Kosmos+ community section (${told.because})`, ok: false });
   } catch { /* never stops a restart */ }
   /* The kill and its look-again live in `sessionOps` -- one dispatch shared with
      `removeInner`, which is what gives this path a win32 arm. Restart is the

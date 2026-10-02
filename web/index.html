@@ -1286,6 +1286,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* Josh, 2026-09-26 review: an X top-right instead of Got it. The window opens with focus on itself (no
    ring at all); a keyboard Tab still shows where it is, in gold, never the black ring. */
 .wn-box:focus { outline: none; }
+/* #4963: a waking change dialog focuses its own box (both buttons are hidden then); no ring around the box. */
+#chg-modal .rm-box:focus { outline: none; }
 .wn-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: 0; border-radius: 8px;
   background: none; color: var(--label-2); font-size: 1.5rem; line-height: 1; cursor: pointer; }
 .wn-x:hover { color: var(--label); background: var(--bg); }
@@ -3884,7 +3886,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   --tsk-built: var(--pj-mention);
   --tsk-held: var(--k-ink-2);   /* #4771: on hold, set aside by the person */
   --tsk-closed: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule));
-  --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink); }
+  --tsk-wash: color-mix(in srgb, var(--gold) 14%, var(--k-surface)); color: var(--k-ink);
+  --tsk-hover: color-mix(in srgb, var(--k-ink) 5%, transparent); }   /* #4880: a tint OVER the row's own ground, so a cream list stays warm */
 /* #3949: one column, the full width (the Projects rail is gone; its choice is the dropdown). */
 /* #3949 (Josh, 09-26 16:18: "lose the outer thin rounded box stroke that's on this page for no reason"): no frame on
    the tab view either (#3880 had dropped it only in the consolidated column). The tiles and rows keep their boxes. */
@@ -3999,6 +4002,14 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--k-rule); align-items: start; }
 .tsk-row:first-child { border-top: 0; }
 .tsk-row.sel { background: var(--tsk-wash); }
+/* #4880 (Josh 10/01): a row reads as clickable, as a project room's task cards do: a faint ink tint over the row's own
+   ground under a mouse, and while a keyboard-focused control is inside the row. Background only. A ticked row keeps its wash.
+   Where the main pointer cannot hover there is neither the hover tint nor the pointer, and the row opens nothing there. */
+@media (hover: hover) {
+  .tsk-row { cursor: pointer; }
+  .tsk-row:not(.sel):hover { background: var(--tsk-hover); }
+}
+.tsk-row:not(.sel):has(:focus-visible) { background: var(--tsk-hover); }
 .tsk-row input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--gold-deep); }
 .tsk-row .tsk-hit { display: block; line-height: 0; }
 /* #4226 (Raiden's #718 phone sweep): on a touchscreen, every field in the Tasks view is 16px, because iOS zooms into a
@@ -8356,11 +8367,44 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .tc-state.failed { color: var(--danger); }
 .tc-why { grid-column: 1 / -1; margin: 0; color: var(--danger); }
 .tc-retry { grid-column: 1 / -1; justify-self: start; }
-/* Mona's design review of #4709: the Project label had no gap and read as part of the member box above it; it gets
-   the space a field label has on the rest of the sheet. And "(leads the team)" stays on one line. */
-#cstep-teammake .flabel[for="tc-project"] { margin-top: var(--space-6); }
+/* "(leads the team)" stays on one line. (#4709's Project-label gap is now the .field spacing below, #4935.) */
 .tc-leads { white-space: nowrap; }
 @media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
+/* #4935 (Josh, 0.7.16: "Some of the styling just doesn't feel like the Create an Agent styling" and "some of
+   the input fields are touching the labels"). The team steps take the single create's own numbers, the
+   #cstep-name rules above, rather than a second set: a field is 20px from the one above with no rule line,
+   a label sits 6px over its control, the menus are 18rem, the Model block steps the same way, and the
+   footer is its one row. The member box sits 16px under the purpose line, the fields' own spacing below it. */
+#cstep-teammake .field { border-top: 0; padding-top: 0; margin-top: var(--space-7); max-width: 36rem; }
+#team-seeded-pick .flabel, #cstep-teammake .flabel { margin-bottom: var(--space-3); }
+#cstep-teammake #tc-project, #cstep-teammake #tc-provider, #cstep-teammake #tc-account,
+#cstep-teammake #tc-model { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
+#cstep-teammake .mstep:has(> #tc-account-row[hidden]) { padding-left: 0; }
+#cstep-teammake .mstep:has(> #tc-account-row[hidden])::before { content: none; }
+#tc-model-why { margin: 8px 0 0; }
+#cstep-teammake .tc-list { margin: var(--space-6) 0 0; }
+#cstep-teammake #tc-note { margin-top: var(--space-7); }
+#cstep-teammake .sfoot { justify-content: space-between; align-items: flex-start; gap: var(--space-6); margin-top: var(--space-7); }
+.tc-btns { display: flex; gap: var(--space-4); flex: 0 0 auto; }
+/* A phone has no room for the box and two buttons on one line: the buttons go under the box. */
+@media (max-width: 560px) { #cstep-teammake .sfoot { flex-wrap: wrap; } #cstep-teammake .tc-btns { margin-left: auto; } }
+/* "On the team selection can we make the dropdown about half as wide?": the single create's 18rem, which is
+   about half this column, in place of .nak-team-opt's full width. */
+#cstep-team #team-seeded { width: 18rem; max-width: 100%; }
+#cstep-team #team-seeded-desc { margin-top: var(--space-4); }
+#team-seeded-pick .importrow { margin-top: var(--space-6); }
+/* Item 7: the status column is a fixed width, so a row's name does not move sideways as its status changes
+   ("Making…" to "Made, starting…" to "Running"); a longer status wraps inside it instead. */
+#cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 11rem; }
+#cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
+  justify-content: flex-end; gap: var(--space-3); }
+@media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
+/* Item 8: a disabled menu looks locked, not only refuses a click: while the menus fill, and every menu while the
+   choice is fixed (.tc-making, set by tcPaint from tcChoiceFixed: a click or a run, or a member made). Otherwise a
+   model menu shown as one fixed sentence ("OpenAI picks its own model for now", or a list still loading) reads at
+   full strength, as on the single create: it is a statement, not a locked choice. */
+#cstep-teammake select:disabled { opacity: .55; cursor: default; }
+#cstep-teammake:not(.tc-making) #tc-model[data-fixed="1"]:disabled { opacity: 1; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -8418,8 +8462,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    field above it, which is what Josh asked for when he called it unstyled. */
 
 /* 📌 `.roledesc` IS GONE FROM THIS SELECTOR TOO, later the same day: the line
-   under the role menu was removed outright, so the only place a caution is
-   painted now is the last step. The treatment is unchanged. */
+   under the role menu was removed outright. A role's caution came back under the
+   menu as .rolelimit (#pick-limit), the only place it is painted (on the swarm path
+   only a professional-advice disclaimer, #4871). The treatment is unchanged. */
 .rolelimit {
   /* The pack's values (#179): quieter ink, 14px lead; neither 14 nor the
      18 below is a scale step, said plainly rather than rounded to one. */
@@ -14239,7 +14284,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div class="s6-switch-row">
           <span class="s6-sw" id="fr-s6-community" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-community-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos community to help make Kosmos better.</span>
+          <span class="s6-lbl" id="fr-s6-community-lbl">Let your agents join the Kosmos+ community to help make Kosmos better.</span>
         </div>
       </div>
 
@@ -14717,25 +14762,44 @@ window.kosmosMeasureScrollbarWidth();
     <h2 class="tc-h" id="tc-title" tabindex="-1"></h2>
     <p class="rolehelp" id="tc-purpose"></p>
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
-    <label class="flabel" for="tc-project">Project</label>
-    <select id="tc-project"></select>
+    <!-- #4935 (Josh: "Some of the styling just doesn't feel like the Create an Agent styling"): the same
+         structure as that screen, .field > .flabel + .frow, and its stepped Model block (.msteps/.mstep), so
+         the spacing and widths are its rules (extended to this step in the CSS), not a second set. -->
+    <div class="field">
+      <label class="flabel" for="tc-project">Project</label>
+      <div class="frow"><select id="tc-project"></select></div>
+    </div>
     <!-- #4719: ONE provider and account for the whole team, the same choice the single-agent form offers
-         (fillCreateAccounts fills both; the account row shows only at two or more accounts, #2097). -->
-    <label class="flabel" for="tc-provider">Model <span class="flabel-soft">(for every agent in the team; you can change each later)</span></label>
-    <div class="frow"><select id="tc-provider"></select></div>
-    <div class="frow" id="tc-account-row" hidden><select id="tc-account" aria-label="Account"></select></div>
+         (fillCreateAccounts fills both; the account row shows only at two or more accounts, #2097).
+         #4935: and ONE model, the list the single-agent form offers for that provider (tcPaintModel). -->
+    <div class="field" id="tc-model-field">
+      <span class="flabel" id="tc-model-lab">Model <span class="flabel-soft">(for every agent in the team; you can change each later)</span></span>
+      <div class="msteps" role="group" aria-labelledby="tc-model-lab">
+        <div class="frow"><select id="tc-provider" aria-label="Provider"></select></div>
+        <div class="mstep">
+          <div class="frow" id="tc-account-row" hidden><select id="tc-account" aria-label="Account"></select></div>
+          <div class="mstep">
+            <div class="frow" id="tc-model-row"><select id="tc-model" aria-label="Model"></select></div>
+            <p class="dhint" id="tc-model-why" hidden></p>
+          </div>
+        </div>
+      </div>
+    </div>
     <p class="rolehelp" id="tc-note" role="status" aria-live="polite"></p>
     <!-- Review 27: the team step obeyed the single create's "Let Kosmos know" box, which is on another
          step and cannot be seen from here. This is that same choice, shown where it is used (kept equal
          to #create-tell, which stays the one the creates read). `for` names the box, as it does there. -->
-    <label class="tellrow" for="tc-tell">
-      <input type="checkbox" id="tc-tell">
-      <span id="tc-tell-say"></span>
-    </label>
-    <div class="importrow">
-      <button class="btn uprime" type="button" id="tc-go"></button>
-      <button class="btn uprime" type="button" id="tc-hello" hidden></button>
-      <button class="btn" type="button" id="tc-back">Back</button>
+    <!-- #4935: the single create's one-row footer (.sfoot): the box on the left, the buttons on the right. -->
+    <div class="sfoot">
+      <label class="tellrow" for="tc-tell">
+        <input type="checkbox" id="tc-tell">
+        <span id="tc-tell-say"></span>
+      </label>
+      <div class="tc-btns">
+        <button class="btn" type="button" id="tc-back">Back</button>
+        <button class="btn uprime big" type="button" id="tc-go"></button>
+        <button class="btn uprime big" type="button" id="tc-hello" hidden></button>
+      </div>
     </div>
     <p class="rolelimit" id="tc-msg" role="status" aria-live="polite" hidden></p>
   </div>
@@ -17195,9 +17259,9 @@ window.kosmosMeasureScrollbarWidth();
     <section class="dbox">
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
-        <div><b>My agents take part in the Kosmos community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on at community.installkosmos.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one.</p></div>
-        <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos community" hidden><i></i></button>
+        <div><b>My agents take part in the Kosmos+ community</b>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one. Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it.</p></div>
+        <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
            list, never free text (#4336: a typed business name is what the name scrub cannot catch). -->
@@ -17208,7 +17272,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -18479,7 +18543,18 @@ async function kplusLogout(out, msg) {
     /* The board's page is kept by the offline worker; logged out, it must not come back from there without the
        network, so this browser's copies go with the session. */
     try { if (typeof caches !== 'undefined') for (const k of await caches.keys()) if (k.startsWith('kosmos-shell')) await caches.delete(k); } catch { /* the session is gone either way */ }   // sw.js's SHELL_CACHE, any version
-    location.replace('/');
+    // kosmos#4879: when the tunnel serves its page, '#signed-out' makes it say "You're signed out" (kosmos-relay
+    // gate.html) instead of a plain sign-in. Through this board's service worker the page load arrives as
+    // dest "empty" still asking for HTML (measured in Chromium and WebKit, kosmos-relay plan signedout-4879), and
+    // the gate then serves its page. A tunnel from before it shows the plain sign-in page, which is still right.
+    // From a bare '/' (the Agents tab's address) only the fragment would change, and a fragment-only change
+    // reloads nothing: the board would stay up, signed out (review 1). So set the fragment and reload there.
+    if (location.pathname === '/' && !location.search) {
+      history.replaceState(null, '', '/#signed-out');
+      location.reload();
+    } else {
+      location.replace('/#signed-out');
+    }
     return;
   }
   out.disabled = false;
@@ -24315,6 +24390,7 @@ function agyAsk() {
         paintAgyOption(sel, cur);
       }
       if (typeof tcProviderSettle === 'function') tcProviderSettle();   // #4719: a subscription pick no longer allowed
+      if (typeof tcSyncModel === 'function') tcSyncModel();   // #4935: and the team's model list follows it
       // The first-run Gemini row names the subscription only where it is offered (review round 9).
       const tag = document.querySelector && document.querySelector('#fr-gemini-connect');
       const small = tag && tag.parentElement && tag.parentElement.querySelector('.llm-w small');
@@ -24366,6 +24442,7 @@ function museCreateAsk() {
         paintMuseOption(sel, cur);
       }
       if (typeof tcProviderSettle === 'function') tcProviderSettle();   // #4719: a Meta pick Muse no longer allows
+      if (typeof tcSyncModel === 'function') tcSyncModel();   // #4935: and the team's model list follows it
       // A Meta pick this read turned off is undone and said.
       const pv = document.getElementById('create-provider');
       if (pv && pv.value === 'meta') createPickGone(CREATE_ACCOUNTS_KNOWN);
@@ -30537,7 +30614,7 @@ function openCommunityDelete(r, li) {
   /* A comment on a community post is not shown on this board, so it does not "stay" here. */
   /* review 3: a pending comment is not out, so a removal stops it going rather than taking it down. */
   say.textContent = r.kind === 'comment' && r.state === 'pending' ? 'It will not be sent. It cannot be undone.'
-    : 'This comes down from community.installkosmos.com within a few minutes.'
+    : 'This comes down from community.kosmosplus.com within a few minutes.'
       + (r.kind === 'comment' ? '' : ' It stays on this board.') + ' It cannot be undone.';
   const keep = document.createElement('button');
   keep.className = 'btn community-mine-keep';
@@ -30611,7 +30688,7 @@ function openCommunityDelete(r, li) {
 /* engine/communitysend.js DEFAULT_ENDPOINT, the one the board sends to (web.community-held-4525.test.js pins the
    two equal). A board pointed elsewhere by AGENT_WORKFORCE_COMMUNITY_URL still links here: that variable is a
    test seam (browser-checks.sh sets it to a dead address), not a setting a person has. */
-const COMMUNITY_SITE = 'https://community.installkosmos.com';
+const COMMUNITY_SITE = 'https://community.kosmosplus.com';   // #4895
 function communityHeldReason(findings) {
   const said = {
     secret_token: 'what looks like a password or key', high_entropy: 'what looks like a password or key',
@@ -34573,6 +34650,7 @@ const TALK_DRAFTS = {};
  * quietly disappears. { text, startedAt, recorded, failed, because }.
  */
 const TALK_PENDING = {};
+let TALK_SEND_GEN = 0;   // #4944: which send last said "Sending…", so an older send's clear cannot take a newer one's
 /* #967: the Terminal tab's respond-in-context box parks its draft per agent too,
    so switching agents never loses a half-typed reply and never carries it onto
    the next agent's window. Mirrors TALK_DRAFTS. */
@@ -34821,17 +34899,28 @@ function dmReplyStart(at) {
   if (input) input.focus();
 }
 
-/* The in-flight (or not-kept) message, in the person's own bubble. The pill is
-   the thread's delivery pill: dashed while it is on its way, red if it did not go. */
-function dmPendingRow(p) {
+/* The in-flight (or not-kept) message, in the person's own bubble. While it is on its way
+   the time's slot says "Sending…" in plain text (#4944: same height as the kept row);
+   if it did not go, the thread's red delivery pill says so.
+   #4944: the same bubble the kept row is (dmRow's own-message arm), with the reply header the kept row will
+   carry, so the swap when the thread holds it happens in place rather than as a jump. `name` and `adjacent`
+   are dmReplyHead's. */
+function dmPendingRow(p, name, adjacent) {
   const youAv = YOU_PIC
     ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
     : '<div class="msg-av mine" aria-hidden="true"></div>';
+  /* #4944: an unconfirmed send may have arrived, so its pill does not say "Not sent". */
   const pill = p.failed
-    ? '<span class="delivery failed">Not sent. ' + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
-    : '<span class="delivery unsure">Sending…</span>';
+    ? '<span class="delivery failed">' + (p.unsure ? 'Not confirmed. ' : 'Not sent. ')
+      + esc(pjSentence(p.because || 'we could not send that')) + '</span>'
+    /* #4944 (measured by the browser check): "Sending…" is plain text in the time's own slot, NOT the bordered
+       pill. The pill's margin, padding and border made the pending bubble 17px taller than the kept row, so the
+       swap shrank the newest bubble, and in a thread scrolled to the bottom everything above it jumped. A failed
+       send keeps its pill: that is a verdict, and the kept row draws a failure with the same pill. */
+    : 'Sending…';
   return '<div class="msg you dm-pending" data-mid="pending:' + esc(String(p.startedAt)) + '">' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
+    + (p.replyTo && typeof dmReplyHead === 'function' ? dmReplyHead({ replyTo: p.replyTo }, name, adjacent) : '')
     + pjRich(pjWords({ text: p.text }))
     + '<span class="msg-t">' + pill + '</span></div></div></div>';
 }
@@ -34843,6 +34932,22 @@ function dmPendingKept(rows, p) {
   const want = flat(p.text);
   return rows.some((m) => m && !m.from && m.kind !== 'kosmos' && flat(m.text) === want
     && !(Date.parse(m.at) < p.startedAt - 60000));
+}
+
+/* #4256: a reply right under what it answers draws no header, nor one right under another answer to the same
+   message whose header was left out (the room's rule, #3745 round 27: the chain back to the original must be
+   unbroken). Not while searching, which hides the rows between. `rows[i]` is row i's answer; `next` is the
+   answer for one more row after them replying to `nextReplyTo` (#4944: the pending bubble). */
+function dmReplyAdjacency(rows, filtering, nextReplyTo) {
+  const adjacentTo = (prev, replyTo, prevHid) => !filtering && !!prev && typeof replyTo === 'string' && !!replyTo
+    && (prev.at === replyTo || (prev.replyTo === replyTo && prevHid));
+  let prevHid = false;
+  const out = rows.map((m, i) => {
+    const adjacent = adjacentTo(i > 0 ? rows[i - 1] : null, m.replyTo, prevHid);
+    prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
+    return adjacent;
+  });
+  return { rows: out, next: adjacentTo(rows.length ? rows[rows.length - 1] : null, nextReplyTo, prevHid) };
 }
 
 /* The thread rows, and only them, so the search box can repaint between
@@ -34907,7 +35012,11 @@ function paintTalkThread(body, name) {
     delete TALK_PENDING[dmSession];
     pending = null;
   }
-  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending) : '';
+  /* #4944: the bubble's header follows the kept rows' rule, as one more row after them, so the kept row that
+     replaces it draws the same header. */
+  const replyAdj = dmReplyAdjacency(rows, filtering, pending ? pending.replyTo : null);
+  const pendingAdjacent = replyAdj.next;
+  const pendingHtml = (pending && !filtering) ? dmPendingRow(pending, name, pendingAdjacent) : '';
   if (body.historyUnfilable && !allRows.length && !pendingHtml) {
     /**
      * ⚠️ A THIRD FACT, not a flavour of unreadable. This agent's name cannot be
@@ -34982,17 +35091,9 @@ function paintTalkThread(body, name) {
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
       + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
-    /* #4256: a reply right under what it answers draws no header, nor one right under another answer to the same
-       message whose header was left out (the room's rule, #3745 round 27: the chain back to the original must be
-       unbroken). Not while searching, which hides the rows between. */
-    let prevHid = false;
-    const dmHtml = rows.map((m, i) => {
-      const prev = i > 0 ? rows[i - 1] : null;
-      const adjacent = !filtering && !!prev && typeof m.replyTo === 'string' && !!m.replyTo
-        && (prev.at === m.replyTo || (prev.replyTo === m.replyTo && prevHid));
-      prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
-      return dmRow(m, name, adjacent);
-    }).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
+    /* #4256: reply headers by dmReplyAdjacency. */
+    const dmHtml = rows.map((m, i) => dmRow(m, name, replyAdj.rows[i])).join('')
+      + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
     setThread(thread, dmHtml, threadKey);
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
     if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
@@ -35619,6 +35720,14 @@ function talkPaintPending(sessionName, name) {
   paintTalkThread(th.__lastBody, th.__lastName || name);
 }
 
+/* #4944: where a message that did not go, and could not go back in the box, can be found. */
+function dmNotSentWhere(unsure, files) {
+  /* An unconfirmed send may have arrived, so its line does not call it "not sent". Files are cleared only
+     when a send goes or is kept, so after one of these they are still attached for another try. */
+  return (unsure ? 'Your message stays in this conversation.' : 'Your message stays in this conversation, marked not sent.')
+    + (TALK_QUERY.trim() ? ' Clear the search to see it.' : '')
+    + (files ? ' The files are still attached, so you can send them again.' : '');
+}
 /**
  * Send one message to this agent, and say what became of it.
  *
@@ -35687,6 +35796,30 @@ async function sendTalk(text, attachment) {
   TALK_SENDING = true;
   TALK_FLIGHT = sentName;
   DM_REPLY_SENDING = replying ? { agent: sentName, at: replying.at } : null;
+  /* #4944: whether this send emptied the box, and the one way its words go back when the send is not
+     known to have arrived or been kept. Outside the try, because the catch needs both. Into the box when
+     it is still this agent's and empty (words typed since belong to the next message, and the bubble
+     still shows these, marked not sent or not confirmed); into the parked draft when the person has moved to another
+     agent, so the words are in the box when they come back. Returns whether the box holds them now
+     (whoever put them there), so the sentence under it never promises a box that does not hold them. */
+  let tookBox = false;
+  let rawBox = '';        // what the box held when the press emptied it, put back as it was
+  let delivered = false;  // placed, or kept and not refused: from then on a throw must not re-arm the words
+  let sendGen = -1;       // this send's TALK_SEND_GEN, once it has said "Sending…"
+  const restoreUnsent = () => {
+    if (!tookBox) return !flightMoved() && say.value.trim() === text;
+    if (flightMoved()) {
+      if (!(TALK_DRAFTS[sentName] || '').trim()) TALK_DRAFTS[sentName] = rawBox || text;
+      return false;
+    }
+    if (say.value.trim() === '') {
+      say.value = rawBox || text; pjGrowComposer(say);
+      /* Parked as a keystroke would park it: a value written by the program fires no input event, and
+         the press retired the old draft, so without this a switch to another agent would lose it. */
+      TALK_DRAFTS[sentName] = say.value;
+    }
+    return say.value.trim() === text;
+  };
   /**
    * ⚠️ EVERYTHING AFTER THE FLAG IS INSIDE THE TRY. Three DOM statements used
    * to sit between the flag and the `try`, and a throw in any of them would
@@ -35701,11 +35834,44 @@ async function sendTalk(text, attachment) {
     // stays enabled through the flight, and it is where the answer they may
     // want to type instead goes.
     if (sendHadFocus) say.focus();
-    msg.textContent = 'Sending…';
+    /* #4944: the bubble says "Sending…", so the line under the box starts empty. Said there as well, it
+       was the second copy of one fact, and a line that appears and then empties moves the screen. Who
+       says it instead is decided once the bubble is known to be drawn, below. */
+    msg.textContent = '';
+    sendGen = ++TALK_SEND_GEN;
     /* The message goes into the thread NOW, before the board has answered (see
        TALK_PENDING). Painted from the last thread read, so nothing waits on a fetch. */
-    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null };
+    TALK_PENDING[sentName] = { text, startedAt: Date.now(), recorded: false, failed: false, because: null,
+      replyTo: replying ? replying.at : null };   // #4944: drawn with its reply header, as the kept row will be
+    /**
+     * #4944 (Josh, 0.7.16): "as soon as i hit POST, it shows in both places for a second and then shifts
+     * around". The box kept the words until the POST answered, so for the whole flight they were in the
+     * thread AND in the box, and then the box emptied under them. The box empties in the same frame the
+     * bubble is drawn, if one was drawn, and only when the box holds exactly what this send took: an
+     * attachment-only send carries the files' names, which were never in the box. The parked draft goes
+     * too, or the repaint at the end of the flight would put the words straight back.
+     *
+     * 🛑 THIS DOES NOT CHANGE WHERE THE WORDS ARE KEPT. The bubble holds them for the flight, and every
+     * verdict that used to leave them in the box puts them back (`restoreUnsent`, below), so the box is
+     * still their only copy whenever we did not keep the message and cannot say it arrived.
+     */
     talkPaintPending(sentName, name);
+    /* Only once the bubble is really on screen. A search filtering the thread draws no bubble, and nor
+       does a send made before this agent's first thread read has landed; emptying the box then would
+       show the words nowhere for the whole flight. In those two cases the box keeps them as before. */
+    const th = document.getElementById('d-dmthread');
+    const drawn = !!(th && th.__lastSession === sentName
+      && th.querySelector('.dm-pending[data-mid="pending:' + TALK_PENDING[sentName].startedAt + '"]'));   // startedAt is a number
+    tookBox = drawn && say.value.trim() === text;
+    /* With no bubble, nothing on screen would say it is on its way, so the line under the box says it (and,
+       being an alert, is heard). With the bubble, only the quiet announcer says it, so it is heard once. */
+    if (!drawn) msg.textContent = 'Sending…';
+    else dmReplyAnnounce('Sending…');
+    if (tookBox) {
+      rawBox = say.value;
+      say.value = ''; pjGrowComposer(say);
+      if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
+    }
     /* #4639: after the drawn bubble, so it is the row they land on. */
     jumpToOwnSend(document.getElementById('d-dmthread'), TALK_QUERY);
     const res = await fetch('/api/agent/' + encodeURIComponent(sentName) + '/thread', {
@@ -35718,6 +35884,7 @@ async function sendTalk(text, attachment) {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not send that');
     const d = body.delivery || {};
+    delivered = d.state === 'placed' || (body.recorded === true && d.state !== 'could_not');
     /* The kept row takes over from the drawn one once the thread holds it. One the
        board did not keep stays drawn, as not sent, unless it reached the agent: then
        the line below says it was not kept, and the bubble goes. */
@@ -35725,7 +35892,7 @@ async function sendTalk(text, attachment) {
     if (flying) {
       if (body.recorded === true) flying.recorded = true;
       else if (d.state === 'placed') delete TALK_PENDING[sentName];
-      else { flying.failed = true; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
+      else { flying.failed = true; flying.unsure = d.state === 'unconfirmed'; flying.because = d.because || body.recordedBecause || 'we could not send that'; }
     }
     const note = d.paneNote ? ' (' + d.paneNote + ')' : '';
     /**
@@ -35744,14 +35911,17 @@ async function sendTalk(text, attachment) {
      * reached the agent"), and the two screens must not disagree about what a
      * send did. So the rule is "the box is the only copy when we did not keep
      * it AND we cannot say it arrived", which is `unconfirmed` and, by leaving
-     * the words in place with no clear at all, `could_not`.
+     * the words in place with no clear at all, `could_not` (since #4944, by putting them back: see restoreUnsent).
      */
     const inThread = body.recorded === true;
     const clearSent = () => {
-      // Only the text THIS send took, and only if the box still holds exactly
-      // it: anything typed on top belongs to the next message.
-      if (!flightMoved() && say.value.trim() === text) { say.value = ''; pjGrowComposer(say); }
-      if ((TALK_DRAFTS[sentName] || '').trim() === text) delete TALK_DRAFTS[sentName];
+      /* #4944: when the press emptied the box, words there now were typed during the flight and belong
+         to the next message, even when they are the same words. When it did not (no bubble was drawn),
+         the box still holds this send's words and empties now, as it always did. */
+      if (!tookBox && !flightMoved() && say.value.trim() === text) { say.value = ''; pjGrowComposer(say); }
+      /* The parked draft is retired only when the press did not already retire it (after that, a matching
+         draft is new typing) and it is not also what the box holds now. */
+      if (!tookBox && (TALK_DRAFTS[sentName] || '').trim() === text && (flightMoved() || say.value.trim() !== text)) delete TALK_DRAFTS[sentName];
       /* The files follow the words' rule exactly: cleared for the agent they
          were sent to, on the same verdicts, so an unconfirmed-and-unrecorded
          send keeps them for the retry the sentence invites. */
@@ -35776,16 +35946,25 @@ async function sendTalk(text, attachment) {
       line = placedWords(d);
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
+      /* #4944: not kept, so the box is its only sure copy again: the words go back into it. */
+      const inBox = !inThread && restoreUnsent();
       line = 'We could not confirm ' + name + ' got that' + note + '. '
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
-        + (inThread ? ' Your message is kept above.' : ' Your message is still in the box below.');
+        + (inThread ? ' Your message is kept above.'
+          : inBox ? (tookBox ? ' Your message is in the box below.' : ' Your message is still in the box below.')
+          : ' ' + dmNotSentWhere(true, pendingIds.length > 0));
     } else {
-      /* Nothing was typed, so the text stays in the box in front of them and
-         no time phrase rides this line: "could not deliver just now" reads as
+      /* #4944: nothing was typed, so the words go back into the box for the retry. Even when the board
+         kept a record of the attempt: before #4944 this arm never emptied the box, so the retry copy is
+         what it always offered. When they cannot go back (words typed since, or another agent opened),
+         the line says where they are instead. */
+      const inBox = restoreUnsent();
+      /* No time phrase rides this line: "could not deliver just now" reads as
          "not at this moment", which invites a retry we have no reason to
          promise. The row in the thread carries the time. */
       line = 'We could not get that to ' + name + ': '
-        + pjSentence(d.because || 'we could not reach them');
+        + pjSentence(d.because || 'we could not reach them')
+        + (inBox || flightMoved() ? '' : ' ' + dmNotSentWhere(false, pendingIds.length > 0));
     }
     // Delivering and keeping are two acts and two sentences. Said whenever the
     // record failed, on every verdict — a message that went through and could
@@ -35795,17 +35974,28 @@ async function sendTalk(text, attachment) {
     if (!flightMoved()) msg.textContent = line;
   } catch (err) {
     /* Nothing was kept, so the drawn bubble is the only record of the attempt: it
-       stays, marked not sent. The words are still in the box for a retry. */
+       stays, marked not sent. The words go back in the box for a retry. */
     const flying = TALK_PENDING[sentName];
     if (flying && !flying.recorded) {
       flying.failed = true;
       flying.because = (err && err.message) || 'we could not send that';
     }
-    if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that');
+    /* #4944: and back into the box, which was emptied at the press, unless the board's verdict placed or
+       kept it: a throw after that must not re-arm words it already has. Any other throw takes the not-kept
+       rule, whether or not a verdict had arrived. */
+    const inBox = delivered ? true : restoreUnsent();
+    if (!flightMoved()) msg.textContent = pjSentence((err && err.message) || 'we could not send that')
+      + (inBox ? '' : ' ' + dmNotSentWhere(false, pendingIds.length > 0));
   } finally {
     TALK_SENDING = false;
     TALK_FLIGHT = null;
     DM_REPLY_SENDING = null;   // #4256
+    /* #4944: the quiet announcer said "Sending…"; the verdict line, or silence on success, replaces it.
+       After dmReplyAnnounce's own 30 ms delay, so a send answered faster than that is cleared too. */
+    setTimeout(() => {
+      const quiet = document.getElementById('d-reply-say');
+      if (sendGen === TALK_SEND_GEN && quiet && quiet.textContent === 'Sending…') quiet.textContent = '';
+    }, 40);
     // The repaint is about the takeoff agent too: with the flight moved, the
     // open page belongs to somebody else and its own poll is already painting
     // it. The record is the account of what happened, visible when that agent
@@ -38019,7 +38209,7 @@ function conShelfDoor(api, st) {
    Shown only when: the page on screen IS the board's version (never over an old page, where the
    update chip says Reload), a version has been seen before (a fresh install records silently: it
    was not updated, it was installed), and that version is not the one running now. The tiles are
-   web/whats-new.json's highlights, which the board serves only when the file is for this version;
+   web/whats-new.json's highlights, which the board serves only when the file is for this version (or names it in "also", #4928) and they were not dismissed already;
    without them no window opens and the version is recorded quietly (round 3). */
 const WN_ICONS = Object.freeze({
   swarm: '<circle cx="12" cy="8" r="3.5"/><circle cx="5.5" cy="16" r="2.5"/><circle cx="18.5" cy="16" r="2.5"/>',
@@ -46197,7 +46387,16 @@ async function moveAccountNow(say) {
 const WAKE_SPIN_HTML = '<span class="spin spin-sweep wake-spin" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 const WAKE_DONE_HTML = '<svg class="wake-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
+  /* #4963: set once the run has said a restart is waking the agent. From then the switch no longer needs
+     the person, so Escape may close the dialog: the wake goes on without it. */
+  let wakingNow = false;
   const back = document.getElementById('chg-modal');
+  /* #4963: which opening is current, kept on the dialog (one element, reused), so a timer armed by one
+     opening never acts on the next. */
+  const openGen = back.__openGen = (back.__openGen || 0) + 1;
+  back.onclick = null;   // a backdrop tap closes only a waking dialog, and only the one this opening armed
+  { const box0 = typeof back.querySelector === 'function' ? back.querySelector('.rm-box') : null;
+    if (box0) box0.removeAttribute('tabindex'); }   // set only while waking, below
   const t = document.getElementById('chg-title');
   const sm = document.getElementById('chg-small');
   const keep = document.getElementById('chg-keep');
@@ -46219,24 +46418,30 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
      switch went ahead: the person would believe they cancelled something that
      is happening. A key that silently means the opposite of what it says is
      worse than a key that does nothing.
+     #4963: one exception, once a restart is waking the agent: the request has
+     answered and the switch has happened, and the wake carries on whether or not
+     the dialog is open, so Escape closing it says nothing untrue.
      📌 The listener is removed in `close`, so opening this dialog repeatedly
      does not stack handlers. */
   const close = () => {
-    back.hidden = true; keep.onclick = null; goBtn.onclick = null;
+    back.hidden = true; keep.onclick = null; goBtn.onclick = null; back.onclick = null;
     /* #2692: DETACH the interstitial content on close, not just hide the modal. The restart
        interstitial mounts the branded K loader on a canvas whose rAF loop self-terminates on
        `!cv.isConnected` -- but `back.hidden = true` only display:none's the modal, leaving the
        canvas CONNECTED and the loop running. Today no close path is reachable while the loader
-       is up (keep is hidden and Escape is gated on goBtn.disabled during the busy state), so
-       this cannot leak now; clearing here makes that robust rather than dependent on it, so a
+       is up (keep is hidden and Escape is gated on goBtn.disabled during the busy state; #4963's
+       Escape and backdrop exits open only once the waking line has replaced it), so this cannot
+       leak now; clearing here makes that robust rather than dependent on it, so a
        future exit-while-busy (the backdrop-click-to-close the #1313/#1316 comments contemplate)
        cannot leave an rAF loop drawing to a hidden canvas. Harmless on every other path: the
        modal is hidden and changeDialog resets msg on its next open. */
     msg.textContent = '';
     document.removeEventListener('keydown', onEsc);
   };
+  /* #4963: and only for this opening. An earlier opening's handler that never ran `close` must not act on
+     a later one (its wakingNow would otherwise let Escape close a dialog whose request is in flight). */
   const onEsc = (e) => {
-    if (e.key !== 'Escape' || back.hidden || goBtn.disabled) return;
+    if (e.key !== 'Escape' || back.hidden || openGen !== back.__openGen || (goBtn.disabled && !wakingNow)) return;
     close();
   };
   document.addEventListener('keydown', onEsc);
@@ -46291,6 +46496,31 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
         if (waking && typeof msg.insertAdjacentHTML === 'function') msg.insertAdjacentHTML('afterbegin', WAKE_SPIN_HTML);
         goBtn.hidden = true;
         keep.textContent = ok ? 'Done' : 'Close';
+        /* #4963 (Josh, 0.7.16): "you should not be able to press Done ... we shouldnt even show that button
+           until the process is totally complete". While the agent is waking there is no button: the
+           wake helper (autoHelloOnSwitchRestart) shows Done, gold, when it finishes. Escape, or a tap on
+           the backdrop (a phone has no Escape), still closes the dialog, and closing never stops the
+           wake. If the helper never reports, Close comes back after a bound past the readiness window,
+           so the dialog is never a trap (#1313). */
+        if (waking) {
+          keep.hidden = true;
+          wakingNow = true;
+          back.onclick = (e) => { if (e && e.target === back && openGen === back.__openGen) close(); };
+          /* Nothing in the dialog can take focus now (both buttons are hidden), so the dialog itself takes
+             it, rather than leaving a keyboard or screen-reader user on the page behind a modal. */
+          const box = typeof back.querySelector === 'function' ? back.querySelector('.rm-box') : null;
+          if (box) { box.setAttribute('tabindex', '-1'); try { box.focus(); } catch { /* the line is announced */ } }
+          const window_ = (typeof RESTART_READY_WINDOW_MS === 'number' ? RESTART_READY_WINDOW_MS : 30000) + 30000;
+          setTimeout(() => {
+            if (openGen !== back.__openGen || back.hidden || !keep.hidden) return;
+            /* The wake did not report, so the line stops claiming it is still waking. */
+            if (/Waking them…$/.test(msg.textContent)) msg.textContent = msg.textContent.replace(/Waking them…$/, 'Send them a message to wake them.');
+            keep.textContent = 'Close';
+            keep.hidden = false;
+            try { keep.focus(); } catch { /* the sentence stands on its own */ }
+          }, window_);
+          return;
+        }
         keep.hidden = false;
         try { keep.focus(); } catch { /* the sentence stands on its own */ }
       };
@@ -48251,6 +48481,10 @@ async function openTeamCreate(key) {
   }
   const gen = ++TC_GEN;
   TC = null;
+  TC_MODEL_FOR = null;   // #4935: a new team starts on the default model, not the last team's pick
+  TC_MODEL_GEN += 1;     // and a model list still loading for the last team cannot land in this one
+  { const tm = document.getElementById('tc-model'); if (tm) { tm.innerHTML = ''; tm.dataset.loading = ''; tm.dataset.fixed = ''; tm.dataset.retry = ''; } }   // nor its pick or its flags
+  { const w = document.getElementById('tc-model-why'); if (w) { w.textContent = ''; w.hidden = true; } }   // nor its note
   const msg = document.getElementById('tc-msg');
   document.getElementById('tc-title').textContent = 'Loading the team…';
   document.getElementById('tc-purpose').textContent = '';
@@ -48348,6 +48582,7 @@ let TC_FILLING = 0;   // a count: a second team opened during the first one's wa
 async function tcFillProvider(gen) {
   TC_FILLING += 1;
   try { await tcFillProviderNow(gen); } finally { TC_FILLING -= 1; }
+  tcSyncModel();   // #4935: the model menu is released here too, not only by the next tcPaint
 }
 async function tcFillProviderNow(gen) {
   const from = document.getElementById('create-provider');
@@ -48356,7 +48591,7 @@ async function tcFillProviderNow(gen) {
   const stale = () => gen !== undefined && gen !== TC_GEN;   // another team was opened while this one read
   TC_PROVIDER_TOUCHED = false;
   // The menus still hold the last team's options during the wait: not choosable until they are this one's.
-  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
+  for (const id of ['tc-provider', 'tc-account', 'tc-model']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   /* The team step can be opened without the create form (openTeamCreate from the Team path), so the
      account list may not be read yet; read it the way the form does. Without it every member would go to
      Claude, which is the failure #4719 exists for. /api/accounts checks each account live and can be
@@ -48379,6 +48614,7 @@ async function tcFillProviderNow(gen) {
         // It landed during a click or a run: kept, and applied when the choice is next open (tcPaint).
         TC.lateAccounts = true;
         tcApplyLateAccounts();
+        tcSyncModel();   // #4935: the model list follows a provider or account the late list changed
       });
     }
   }
@@ -48403,8 +48639,116 @@ async function tcFillProviderNow(gen) {
   TC_PROVIDER_START = copied === 'anthropic' ? sel.value : '\u0000';
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed(); }
 }
-document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); });
-document.getElementById('tc-account').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; });
+document.getElementById('tc-provider').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; fillCreateAccounts(TC_PICKER); tcSyncModel(); });
+document.getElementById('tc-account').addEventListener('change', () => { TC_PROVIDER_TOUCHED = true; tcSyncModel(); });
+
+/* #4935 (Josh: "is it possible for me to pick a model for all of the agents? ... it'd be great if I could
+   default all of them to a single model"): one model for the whole team, the list the single-agent form
+   offers for that provider. Claude: the engine's list (CREATE_MODELS, from /api/roles), its default chosen.
+   OpenAI: that account's models with "Let OpenAI choose" first, or that sentence alone when the account
+   cannot list them. Gemini, Grok, Antigravity and Muse pick their own: the row is hidden and the reason
+   said, as on the single form. On Claude the default is chosen and sent like any pick; an empty value (OpenAI's
+   own choice, a vendor that picks, a list that could not be read) sends no model, so create uses its default. Repainted
+   only when the provider or account changed (tcSyncModel), so a person's pick survives the 2 s repaints. */
+/* True while a model list is loading: Create and Try again are held then (a team made then gets no model). */
+function tcIsModelLoading() { const m = document.getElementById('tc-model'); return Boolean(m && m.dataset.loading === '1'); }
+let TC_MODEL_FOR = null;   // the provider|account the model menu was last painted for
+let TC_MODEL_GEN = 0;      // a newer paint supersedes a list still being read
+let TC_MODEL_WAIT_MS = 25000;   // above the ~20 s a cold OpenAI account check can take; web.teammodel-4935.test.js shortens it
+function tcSyncModel() {
+  const sel = document.getElementById('tc-model');
+  const step = document.getElementById('cstep-teammake');
+  /* Only an open team step: the subscription and Muse answers that call this come from every screen (the agent
+     page, Settings, first run), the same reason tcProviderSettle returns early. */
+  if (!sel || !TC || !step || step.hidden) return;
+  if (TC_FILLING > 0) return;   // the provider menus still hold the last team's values; the paint after the fill syncs
+  const pv = (document.getElementById('tc-provider') || {}).value || '';
+  const ac = (document.getElementById('tc-account') || {}).value || '';
+  /* A failed roles read stays on create's default (no model is sent) until the list is held: in practice after the
+     person changes provider or account, which reads it again. Never retried in a loop against a failing read. */
+  if (sel.dataset.retry === '1' && CREATE_MODELS.length) TC_MODEL_FOR = null;
+  /* Once the choice is fixed the menu is not repainted, so it keeps what the members were made on. */
+  if (TC_MODEL_FOR !== pv + '|' + ac && !tcChoiceFixed()) { TC_MODEL_FOR = pv + '|' + ac; tcPaintModel(pv, ac); }
+  sel.disabled = tcChoiceFixed() || TC_FILLING > 0 || sel.dataset.fixed === '1';
+}
+function tcPaintModel(pv, ac) {
+  const gen = ++TC_MODEL_GEN;
+  const row = document.getElementById('tc-model-row');
+  const sel = document.getElementById('tc-model');
+  const why = document.getElementById('tc-model-why');
+  const prev = sel.value;
+  /* `loading` holds Create down (tcPaint): pressed then, the team would be made on no model, the default, silently. */
+  const show = (html, fixed, note, keep, loading) => {
+    const was = sel.dataset.loading === '1';
+    sel.innerHTML = html;
+    sel.dataset.fixed = fixed ? '1' : '';
+    sel.dataset.loading = loading ? '1' : '';
+    sel.dataset.retry = '';
+    /* Held at once, whatever started the load; offered again the moment loading ends, whatever ended it (the list
+       landing, or a switch to a provider with nothing to load, whose stale answer is then dropped). */
+    if (loading || was) {
+      const go = document.getElementById('tc-go'); if (go) go.disabled = Boolean(loading) || Boolean(TC && TC.busy);
+      for (const b of document.querySelectorAll('#tc-list .tc-retry')) b.disabled = Boolean(loading);
+    }
+    if (keep && prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;   // a pick the new list still offers is kept
+    sel.disabled = fixed || tcChoiceFixed() || TC_FILLING > 0;
+    if (why) { why.textContent = note || ''; why.hidden = !note; }
+  };
+  if (vendorPicksModel(pv)) {
+    row.hidden = true;
+    show('<option value="" selected></option>', true, switchKeyedWord(pv) + ' picks its own model.'
+      + (pv === 'antigravity' && !FR_AGY_READY   // the single create's own hint, word for word
+        ? ' If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.' : ''), false);
+    return;
+  }
+  row.hidden = false;
+  if (pv === 'openai') {
+    const openaiOwn = '<option value="" selected>OpenAI picks its own model for now</option>';
+    if (!ac) { show(openaiOwn, true, openaiNoModelsNote(null), false); return; }
+    show('<option value="">Loading this account\'s models…</option>', true, '', false, true);
+    /* Bounded, as the account read on this step is: a slow or stuck answer (a live check can take ~20 s cold) must not
+       hold Create down with no word why, so after TC_MODEL_WAIT_MS (above a cold check's ~20 s) it reads as "cannot list". */
+    let waited;
+    Promise.race([
+      fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(ac), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
+      // Slow is not signed out: the timeout answers as "did not return", which the note words as "could not reach".
+      new Promise((res) => { waited = setTimeout(() => res({ ok: false, because: 'did not return' }), TC_MODEL_WAIT_MS); }),
+    ]).catch(() => ({ ok: false, because: 'did not return' })).finally(() => clearTimeout(waited))   // a failed request is not signed out either
+      .then((out) => {
+        if (gen !== TC_MODEL_GEN) return;
+        if (out && out.ok && Array.isArray(out.models) && out.models.length) {
+          show('<option value="" selected>Let OpenAI choose (recommended)</option>'
+            + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join(''), false, '', true);
+        } else show(openaiOwn, true, openaiNoModelsNote(out && out.because), false);
+        if (TC) tcPaint();   // Create is offered again
+      });
+    return;
+  }
+  if (pv && pv !== 'anthropic') {   // a provider this menu has no list for sends no model, never a Claude one
+    row.hidden = true;
+    show('<option value="" selected></option>', true, '', false);
+    return;
+  }
+  const claude = () => show(CREATE_MODELS.map((m) => '<option value="' + esc(m.key) + '"' + (m.default ? ' selected' : '') + '>'
+    + esc(m.label) + '</option>').join(''), false, '', true);
+  if (CREATE_MODELS.length) { claude(); return; }
+  /* The team step can open before the create form has read the roles: the plain read the agent page uses, never
+     ?catalogue=1 (only the role picker downloads the catalogue, #4632). Until it comes, nothing is chosen, so a
+     team made meanwhile gets create's default. */
+  show('<option value="" selected>Loading the models…</option>', true, '', false, true);
+  let waitedRoles;
+  Promise.race([   // bounded like the OpenAI read: a read that never answers must not hold Create
+    fetch('/api/roles', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
+    new Promise((res) => { waitedRoles = setTimeout(() => res(null), TC_MODEL_WAIT_MS); }),
+  ]).catch(() => null).finally(() => clearTimeout(waitedRoles))
+    .then((body) => {
+      if (gen !== TC_MODEL_GEN) return;
+      if (!CREATE_MODELS.length && body && Array.isArray(body.models)) CREATE_MODELS = body.models;
+      if (CREATE_MODELS.length) claude();
+      else { show('<option value="" selected>Kosmos\'s default model</option>', true, 'Kosmos could not read its model list just now, so each agent starts on its default model. You can change it later.', false); sel.dataset.retry = '1'; }   // tried again once the list is held
+      if (TC) tcPaint();   // Create is offered again
+    });
+}
 
 /* A team is FINISHED when every member is made and seen running. Until then it is live and is resumed. */
 function tcFinished() {
@@ -48502,6 +48846,9 @@ function tcPaint() {
     li.append(row);
     return li;
   }));
+  /* #4935 item 5 (Josh: "the one that's making should have the inline spinner spinning"): the Kosmos spinner
+     beside "Making…". It carries no text (aria-hidden, empty <i>), so the row still reads "Making…". */
+  for (const making of list.querySelectorAll('.tc-state.creating')) making.insertAdjacentHTML('afterbegin', pjSpin());
   if (hadSlot && !list.contains(had)) {
     const row = list.querySelector('li[data-slot="' + CSS.escape(hadSlot) + '"]');
     const back = row && ((hadKind === 'retry' && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
@@ -48523,7 +48870,9 @@ function tcPaint() {
   go.hidden = TC.started;
   go.textContent = 'Create ' + n + (n === 1 ? ' agent' : ' agents');
   go.disabled = Boolean(TC.busy);   // round 4: a resumed team still being started must not offer a dead button
+  if (!TC.started && tcIsModelLoading()) go.disabled = true;   // #4935: not while the model list loads
   document.getElementById('tc-project').disabled = TC.started;
+  document.getElementById('cstep-teammake').classList.toggle('tc-making', tcChoiceFixed());   // #4935: every menu looks locked while the choice is fixed
   // The "Let Kosmos know" choice: the sheet's one box, shown here too; fixed once the run has started.
   const tell = document.getElementById('tc-tell');
   const tellBox = document.getElementById('create-tell');
@@ -48533,6 +48882,11 @@ function tcPaint() {
   /* #4719: ONE rule (tcChoiceFixed) for the lock, the settle and the late account list. */
   tcApplyLateAccounts();
   for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = tcChoiceFixed() || TC_FILLING > 0; }
+  tcSyncModel();   // #4935: the model list follows the provider and account, and locks with them
+  /* #4935: nor Try again while the model list loads: a failed lead reopens the menus, and a row retried then would
+     be made, with every member after it, on no model. */
+  { const loading = tcIsModelLoading();
+    for (const b of list.querySelectorAll('.tc-retry')) b.disabled = loading; }
   /* Back is always allowed now (round 3): leaving no longer resets a live team, it only steps away. */
   document.getElementById('tc-back').disabled = false;
   const msgEl = document.getElementById('tc-msg');
@@ -48611,7 +48965,9 @@ function tcModel() {
   const a = document.getElementById('tc-account');
   const provider = p ? String(p.value || '') : '';
   const account = a ? String(a.value || '') : '';
-  const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}) };
+  const md = document.getElementById('tc-model');   // #4935: empty (not chosen, or the vendor picks) sends none
+  const model = md ? String(md.value || '') : '';
+  const m = { ...(provider ? { provider } : {}), ...(account ? { account } : {}), ...(model ? { model } : {}) };
   if (TC) TC.model = m;   // what the members made from here on are made on
   return m;
 }
@@ -48649,12 +49005,13 @@ document.getElementById('tc-hello').addEventListener('click', () => {
 
 document.getElementById('tc-go').addEventListener('click', async () => {
   if (!TC || TC.started || TC.busy) return;
+  if (tcIsModelLoading()) return;   // #4935: not on a model still loading
   const gen = TC_GEN;
   const go = document.getElementById('tc-go');
   const msg = document.getElementById('tc-msg');
   go.disabled = true; msg.hidden = true; msg.textContent = '';
   TC.busy = true;   // live from the click: Back or a reopen now keeps it (the project may be being made)
-  for (const id of ['tc-provider', 'tc-account']) { const e = document.getElementById(id); if (e) e.disabled = true; }
+  for (const id of ['tc-provider', 'tc-account', 'tc-model']) { const e = document.getElementById(id); if (e) e.disabled = true; }
   tcPaint();        // the name boxes lock here (review 27)
   try {
     // Names first, with nothing made: a refused name, or one already taken on this computer, must not
@@ -48881,6 +49238,7 @@ async function tcPortrait(name, image, shown, team, slot) {
 
 async function tcRetry(slot) {
   if (!TC) return;
+  if (tcIsModelLoading()) return;   // #4935: not on a model still loading
   const m = TC.members.find((x) => x.slot === slot);
   if (!m || m.state !== 'failed') return;
   const gen = TC_GEN;
@@ -49106,9 +49464,15 @@ async function loadRoles(initialMode, opening) {
     msg.textContent = '';
     const sel = document.getElementById('rolesel');
     const chosen = sel.value, oldHtml = sel.innerHTML, oldSig = sel.dataset.menu;
+    /* #4871: paintPathOptions repaints the line under the menu from the NEW roles, where the kept choice is missing,
+       so it is put back with the old menu (a Legal pick keeps its "Not a lawyer"). */
+    const limit = document.getElementById('pick-limit'), oldLimit = limit.textContent, oldLimitHidden = limit.hidden;
     if (!ROLES_BUILT) { buildPicker(); ROLES_BUILT = true; } else paintPathOptions();
     updateRecPill();
-    if (chosen && ![...sel.options].some((o) => o.value === chosen)) { sel.innerHTML = oldHtml; sel.dataset.menu = oldSig; }
+    if (chosen && ![...sel.options].some((o) => o.value === chosen)) {
+      sel.innerHTML = oldHtml; sel.dataset.menu = oldSig;
+      limit.textContent = oldLimit; limit.hidden = oldLimitHidden;
+    }
     if (chosen) sel.value = chosen;
   };
   /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
@@ -49172,8 +49536,8 @@ function buildPicker() {
      ⚠️ HE NAMED THE COST HIMSELF -- "I get that we're not displaying anywhere
      else, that's fine" -- so this is a decision, not an oversight. What is NOT
      covered by it: a role's LIMIT on what it reaches, which is a disclosure
-     rather than a description. That moved to the last step in 0.2.92 and is
-     still shown before the agent exists. */
+     rather than a description. It is said under the menu on this screen (#pick-limit, paintPickLimit), the
+     ONLY place it is shown before the agent exists; on the swarm path only a professional-advice disclaimer (#4871). */
   updateRecPill();
   paintRoleMenu();
   document.getElementById('pick-list').hidden = false;
@@ -49224,6 +49588,7 @@ function paintPathOptions() {
   /* The org chart creates every row down the `own` path, so it is offered on the same condition as `own`. */
   document.getElementById('team-orgchart-opt').hidden = !OWN_ROLE;
   paintTeamOrgchartNote();
+  paintPickLimit();   // #4871: the line under the menu depends on the path, so any repaint of the path's options repaints it
 }
 /* #4556 review: when the roles could not be read the org chart cannot be offered, and the Team screen says so
    rather than showing only "Ready-made teams are coming soon." */
@@ -49335,7 +49700,16 @@ document.getElementById('roles-list').addEventListener('change', (e) => {
 function paintPickLimit() {
   const line = document.getElementById('pick-limit');
   const role = PICKED && PICKED !== 'own' ? roleByKey(PICKED) : null;
-  const say = role && role.caution && !document.getElementById('rolepick').hidden ? role.caution : '';
+  /* #4871 (Josh, 2026-10-01: "On the Create a Swarm page I don't want the extra descriptor underneath Picking a Role"):
+     on the swarm path the line under the menu goes, EXCEPT a professional-advice disclaimer (not a lawyer; not
+     financial, tax, medical or veterinary advice). Shipping Legal at all was conditional on that kind being visible
+     at the moment of choice (Josh, 2026-08-10, engine/roles.js), and his 10-01 words were said looking at an
+     operational line (Office Manager's "nothing goes out without the owner"). The single-agent path is unchanged. */
+  /* Errs toward KEEPING: a wrong keep shows one sentence too many, a wrong hide breaks the 08-10 condition. */
+  const ADVICE = /\b(advi[cs]\w*|lawyers?|attorneys?|counsel\w*|legal\w*|accountants?|cpas?|auditors?|tax(es)?|financial planners?|licensed|medic\w*|doctors?|physicians?|clinicians?|nurses?|pharmacists?|psycholog\w*|psychiatr\w*|therap\w*|dentists?|diagnos\w*|veterinar\w*)\b/i;
+  const swarmQuiet = CREATE_PATH === 'swarm'
+    && !(role && role.caution && ADVICE.test(role.caution));
+  const say = role && role.caution && !swarmQuiet && !document.getElementById('rolepick').hidden ? role.caution : '';
   line.textContent = say;
   line.hidden = !say;
 }
@@ -52542,6 +52916,18 @@ async function restartReadyWait(name, mine) {
   return false;
 }
 
+/* #4959: the wake (or the handoff pickup) was HELD because this computer's shared Google quota is out, so nothing was
+   typed. The site's own manual line still stands, and the reason follows it, promising nothing: nothing re-sends the
+   wake after the reset, so "Kosmos will say hello later" would be false. The time is #4588's own wording
+   (quotaResetWords); a missing or past time just says the quota is out. Guarded with typeof, so the lifted unit
+   tests (no page globals) still read. */
+function wakeHeldLine(manualText, delivery) {
+  const at = delivery && typeof delivery.heldUntil === 'string' ? Date.parse(delivery.heldUntil) : NaN;
+  const when = at > Date.now() && typeof quotaResetWords === 'function' ? quotaResetWords(at, Date.now()) : '';
+  return manualText + ' ' + (when
+    ? "This computer's shared Google quota is out until " + when + ', so Kosmos sent nothing.'
+    : "This computer's shared Google quota is out, so Kosmos sent nothing.");
+}
 /* Do the wake for one user-initiated restart: wait for readiness, then POST
    'hello' to the agent's thread and report the outcome. `report(text)` writes
    the site's own status line (a stale-notice element, or the doctrine dialog's
@@ -52573,14 +52959,14 @@ async function sendWakeHello(name, token, report, saidText, manualText, deliver)
           const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text: 'hello' }),
+            body: JSON.stringify({ text: 'hello', automatic: true }),   // #4959: held while the shared quota is out
           });
           const out = await res.json().catch(() => null);
           return (res.ok && out && out.delivery) ? out.delivery : null;
         })();
     if (token !== RESTART_HELLO_SEQ[name]) return;
     const placed = delivery && delivery.state === 'placed';
-    report(placed ? saidText : manualText);
+    report(placed ? saidText : (delivery && delivery.held === true) ? wakeHeldLine(manualText, delivery) : manualText);
   } catch {
     if (token !== RESTART_HELLO_SEQ[name]) return;
     report(manualText);
@@ -52595,7 +52981,8 @@ async function sendWakeHello(name, token, report, saidText, manualText, deliver)
 async function deliverPickup(name) {
   const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/pickup', { method: 'POST' });
   const out = await res.json().catch(() => null);
-  return (res.ok && out && out.delivery) ? out.delivery : null;
+  // #4959: a held pickup is answered 409; its verdict still comes back, so the person is told why.
+  return (out && out.delivery && (res.ok || out.delivery.held === true)) ? out.delivery : null;
 }
 
 async function autoHelloAfterRestart(name, report, saidText, manualText, deliver) {
@@ -52649,9 +53036,12 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
     const title = document.getElementById('chg-title');
     if (title && doneTitle) title.textContent = doneTitle;
     const keep = document.getElementById('chg-keep');
-    if (keep && !keep.hidden) {
+    if (keep) {
+      /* #4963: the button appears only now, when the wait is over (changeDialog hides it while waking). */
+      keep.textContent = 'Done';
+      keep.hidden = false;
       if (keep.classList) keep.classList.add('uprime');
-      // Only if it is not there already (say's render focused it): a second focus re-announces the button.
+      // Only if it is not there already: a second focus re-announces the button.
       try { if (document.activeElement !== keep) keep.focus(); } catch { /* the line stands on its own */ }
     }
   };
@@ -52666,7 +53056,9 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
         const m = document.getElementById('chg-msg');
         const back = document.getElementById('chg-modal');
         if (!m || !back || back.hidden || !CURRENT || CURRENT.sessionName !== forAgent) return;
-        if (m.textContent === waitingLine) { finish(m, t); return; }
+        /* #4963: or the line changeDialog's fallback leaves when the wake has not reported by then, so a late
+           report still finishes the dialog (Done, gold) instead of leaving a plain Close. */
+        if (m.textContent === waitingLine || m.textContent === waitingLine.replace(/Waking them…$/, 'Send them a message to wake them.')) { finish(m, t); return; }
         if (Date.now() < until) setTimeout(apply, SWITCH_HELLO_RETRY_MS);
       };
       apply();
@@ -55632,6 +56024,19 @@ document.getElementById('panel-tasks').addEventListener('click', (e) => {
   if ((b = el('[data-open-task]'))) { tskOpenTask(b.dataset.openTask); return; }
   if ((b = el('[data-open-project]'))) { tskOpenProject(b.dataset.openProject); return; }
   if ((b = el('[data-agent]'))) { openDetail(b.dataset.agent); return; }
+  /* #4880 (Josh 10/01): a click anywhere in a row outside its controls (its text included) opens the task, as its
+     title does. Only where the main pointer can hover, not left of the checkbox's right edge, and not when a drag
+     left text selected in this row. */
+  const row = el('.tsk-row[data-key]');
+  if (!row) return;
+  const ctl = el('button, a, input, label, select, summary, textarea, [role], [tabindex], [contenteditable]');
+  if (ctl && ctl !== row && row.contains(ctl)) return;
+  if (window.matchMedia && !window.matchMedia('(hover: hover)').matches) return;
+  const hit = row.querySelector('.tsk-hit');
+  if (hit && e.clientX <= hit.getBoundingClientRect().right + 6) return;
+  const sel = window.getSelection ? window.getSelection() : null;
+  if (sel && !sel.isCollapsed && String(sel).trim() && sel.containsNode(row, true)) return;
+  tskOpenTask(row.dataset.key);
 });
 document.getElementById('panel-tasks').addEventListener('change', (e) => {
   const box = e.target.closest('input[type="checkbox"][data-key]');
@@ -56459,7 +56864,9 @@ function ntAimAt(p) {
   // the project, so its people are the choices.
   sel.innerHTML = '<option value="">Nobody yet</option>' + (p.agents || []).map((m) =>
     '<option value="' + esc(m.sessionName) + '">' + esc(m.name || m.sessionName)
-    + (m.role ? ' · ' + esc(m.role) : '') + '</option>').join('');
+    /* #4896: the role as the member rows say it (roleLine: a menu title in the menu's words), not as it is stored, so
+       one project does not offer "project manager" beside "Project Manager". */
+    + (m.role ? ' · ' + esc(roleLine({ role: m.role }, ROLE_TITLES)) : '') + '</option>').join('');
   if (keepWho) {
     sel.value = keepWho;
     /* The departed-member case, actually guarded: assigning a value with

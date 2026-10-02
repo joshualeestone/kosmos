@@ -3094,6 +3094,12 @@ function agyNameOk(bin, platform) { return runners.isAgyName(runners.agyRealName
    AGENT_WORKFORCE_ANTIGRAVITY_WINDOWS=0 or an antigravity-windows.off file). */
 function win32AgyOn() { return require('./win32agy').switchOn(); }
 
+/* #2955: the tmux this board's launcher picked, while the board is still on it or on a tmux status.js switched to
+   itself, and while it exists; null otherwise (an explicit value set later wins). status is required at the top of this
+   file; the guard is for a stub of it in a test. */
+function launcherTmuxSafe() {
+  return status && typeof status.launcherTmux === 'function' ? status.launcherTmux() : null;
+}
 /**
  * Where the two things an agent needs actually live on this computer.
  *
@@ -3125,7 +3131,12 @@ function binPaths(opts) {
     // disagree about where Claude lives.
     claudeBin: (opts && opts.claudeBin)
       || runners.resolveBin('claude').bin,
+    /* #2955: the launcher's pick, not a tmux the board switched to at runtime (status.tmuxRepick): a NEW agent bakes
+       what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
+       removed Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
+       straight to plistFor and is not touched by this. */
     tmuxBin: (opts && opts.tmuxBin)
+      || launcherTmuxSafe()
       || process.env.AGENT_WORKFORCE_TMUX_BIN
       || '/opt/homebrew/bin/tmux',
     // The OpenAI runner (#245, resolution moved to engine/runners.js for
@@ -5131,7 +5142,7 @@ function createAgentInner(opts) {
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
           } catch { /* reported below rather than swallowed */ }
           if (!communityLanded) {
-            steps.push({ label: 'could not add the Kosmos community section to its instructions; it will be tried again at its next restart', ok: false });
+            steps.push({ label: 'could not add the Kosmos+ community section to its instructions; it will be tried again at its next restart', ok: false });
           }
         }
       }
@@ -5790,6 +5801,7 @@ module.exports = {
   SERVICE_LABEL_PREFIX,
   parseServiceLabel,
   workerDir,
+  workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home
   usableRecordedDir,
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving

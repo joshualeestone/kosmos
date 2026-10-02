@@ -256,13 +256,19 @@ test('#4771 review: the instructions say "the person parked it" only for the per
     { id: 'l', name: 'Live', folder: '/tmp/l', tasks: [task(1, { onHold: true, onHoldByPerson: true }), task(2, { onHold: true })] },
     { id: 'pp', name: 'PersonPaused', folder: '/tmp/pp', paused: true, pausedByPerson: true, tasks: [task(1)] },
     { id: 'ap', name: 'AgentPaused', folder: '/tmp/ap', paused: true, tasks: [task(1)] },
+    { id: 'aph', name: 'AgentPausedHeld', folder: '/tmp/aph', paused: true, tasks: [task(1, { onHold: true, onHoldByPerson: true })] },
   ], 'ada');
   const line = (proj, n) => body.split('\n').find((l) => l.includes(`task ${n} of ${proj}:`)) || '';
   assert.match(line('Live', 1), /the person parked it/);
   assert.match(line('PersonPaused', 1), /the person parked it/);
   assert.match(line('Live', 2), /\[on hold: do not start it until it is taken off hold\]/, 'an agent\'s hold named the person: ' + body);
-  assert.doesNotMatch(line('AgentPaused', 1), /the person/, 'an agent\'s pause named the person');
-  assert.match(line('AgentPaused', 1), /\[on hold:/);
+  assert.doesNotMatch(line('AgentPaused', 1), /parked it/, 'an agent\'s pause was credited to the person');
+  assert.match(line('AgentPaused', 1), /\[on hold: the project is paused; do not start it until your person resumes it\]/);
+  // Review 6: the person's hold inside an agent's pause names both, so lifting the hold alone is not read as go.
+  assert.match(line('AgentPausedHeld', 1), /\[on hold: the person parked it, and the project is paused; do not start it\]/);
+  // Review 1: every member is taught the pause verb, a member with no tasks too.
+  const noTasks = projects.blockBody([{ id: 'n', name: 'NoTasks', folder: '/tmp/n', tasks: [] }], 'ada');
+  assert.match(noTasks, /project pause <project-id>/, 'a member with no tasks is not taught to pause');
 });
 
 test('#4771 review: closing a held task\'s last part records the close before the hold it dropped (cause, then effect)', () => {

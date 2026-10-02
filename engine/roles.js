@@ -195,6 +195,11 @@ const GUIDE_SECRET_LINES = [
  * setup is a thing they have forgotten by the time the draft arrives. The
  * boundary is also written into the agent's own instructions, so it holds for
  * the agent as well as for the person. Both, or neither is worth much.
+ *
+ * 📌 #4871 (Josh, 2026-10-01): on the Create a Swarm path the picker shows a caution only when it names a
+ * professional-advice word (web/index.html paintPickLimit's ADVICE: lawyer, advice, medical and the like; it errs
+ * toward keeping), so an operational line such as "nothing goes out without the owner" is not shown there. The
+ * single-agent path shows every caution as above.
  */
 
 /* ⚠️ THE CATALOGUE IS WRITTEN ELSEWHERE AND BUILT HERE. The roles below
@@ -1552,11 +1557,26 @@ function byKey(key) {
  * instruction file is the thing an agent boots from, and the number of ways to
  * get clever with it that end badly is larger than the number that end well.
  */
+/* #4896: a member's role as a person reads it, outside the page: the board's roleLine rule (web/index.html), so
+   `kosmos project show` and the board say one name. A role is either a label chosen off the menu ("Project Manager")
+   or a line parsed out of the agent's own instructions ("project manager"), so one project showed both spellings of
+   one title. A LOOKUP, not a transform: a role that is one of the menu's titles, in any case, is said as the menu
+   says it; anything else gets only its first letter raised (title-casing would turn "SEO specialist" into "Seo
+   Specialist"). The same `menu !== false` roles the board learns its titles from (/api/roles). */
+function roleTitle(role) {
+  const parsed = typeof role === 'string' ? role : '';
+  if (!parsed.trim()) return '';
+  const key = parsed.trim().toLowerCase();
+  const hit = ROLES.find((r) => r && r.menu !== false && typeof r.label === 'string' && r.label.toLowerCase() === key);
+  if (hit) return hit.label;
+  return parsed.charAt(0).toUpperCase() + parsed.slice(1);
+}
+
 function instructionsFor(key, name) {
   const role = byKey(key);
   if (!role) return null;
   return `${role.instructions.split('{{NAME}}').join(String(name))}\n`;
 }
 
-module.exports = { ROLES, BUILT_IN, remerge, byKey, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_GREETING, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
+module.exports = { ROLES, BUILT_IN, remerge, byKey, roleTitle, instructionsFor, PAGE_FILE, GUIDE_TAG, GUIDE_GREETING, GUIDE_TITLE, NO_SUMMARY, SETUP_HANDS_OFF, HANDS_OFF_LINES,
   SETUP_MAKES_AGENTS, MAKE_AGENTS_LINES, PM_MAKES_AGENTS, PM_MAKE_AGENTS_LINES, HANDS_OFF_LINES_BEFORE_3734, WHO_YOU_ARE_LINES, WHO_YOU_ARE_LINES_BEFORE_3947, GUIDE_SECRETS_HEADING, GUIDE_SECRET_LINES };

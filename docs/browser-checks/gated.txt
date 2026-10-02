@@ -72,6 +72,7 @@ render-dm-owes-4340
 render-dm-phone-718
 render-dm-reactions-3650
 render-dm-reply-4256
+render-dm-send-clears-4944
 render-dm-send-shows-now
 render-dm-sendjump-4639
 render-dm-sideways-3969
@@ -209,6 +210,7 @@ render-talk
 render-talk-anchor-1926
 render-talk-fill-2622
 render-talk-search
+render-taskhover-4880
 render-tasks
 render-tasks-view-3559
 render-teamcreate-4557

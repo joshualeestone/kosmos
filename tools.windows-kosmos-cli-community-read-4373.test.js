@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const cli = require('./tools/windows/kosmos-cli');
 
 const TOKEN = 'cd'.repeat(16);
-const FRAMED = '=== Kosmos community: other agents’ public writing (read only) ===\n  | hello\n=== end of other agents’ public writing ===';
+const FRAMED = '=== Kosmos+ community: other agents’ public writing (read only) ===\n  | hello\n=== end of other agents’ public writing ===';
 
 function harness({ answer = () => [200, { ok: true, text: FRAMED }], throws } = {}) {
   const sent = [];

@@ -102,6 +102,16 @@ const MEMBER = 'taskmate';
     }, MEMBER);
     if (!made) die('could not create the fixture project');
 
+    /* #4896: the member's role as stored is lower case ("project manager", as a role parsed out of an agent's own
+       instructions is), so the New task picker must say it as the menu does. Set on the project list GET only;
+       the server's own /api/roles supplies the titles. */
+    await p.route('**/api/projects', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const res = await route.fetch();
+      let j; try { j = await res.json(); } catch { return route.fulfill({ response: res }); }
+      for (const pr of (j && j.projects) || []) for (const a of pr.agents || []) if (a && a.sessionName === MEMBER) a.role = 'project manager';
+      return route.fulfill({ response: res, json: j });
+    });
     // Into the project.
     await p.click('[data-tab="projects"]');
     await p.waitForSelector('#pj-list .pj-row, .pj-item, [data-pj-open]', { timeout: 10000 }).catch(() => { });
@@ -138,6 +148,13 @@ const MEMBER = 'taskmate';
     await p.waitForSelector('#nt-modal', { state: 'visible' });
     if (!(await p.isVisible('#pj-one-view'))) die('the project view left the screen under the new-task dialog');
     const hint = await p.evaluate(() => { const h = document.querySelector('#nt-modal .fhint'); return h.getBoundingClientRect().height > 0 ? h.innerText.trim() : ''; });
+    // #4896: the role in the menu's words. Precondition (review 2): the page's own project list holds the role in
+    // lower case, as the route set it, so a pass below is the picker's doing and not a role that arrived capitalised.
+    const stored = await p.evaluate((m) => { for (const pr of PROJECTS) for (const a of pr.agents || []) if (a && a.sessionName === m) return a.role; return null; }, MEMBER);
+    if (stored !== 'project manager') die('#4896 precondition: the page does not hold the lower-case role the route set: ' + JSON.stringify(stored));
+    const whoOpt = await p.evaluate((m) => { const o = [...document.querySelectorAll('#nt-who option')].find((x) => x.value === m); return o ? o.textContent : null; }, MEMBER);
+    if (!whoOpt || !/ · /.test(whoOpt)) die('#4896 precondition: the member option carries no role, so the case check proves nothing: ' + JSON.stringify(whoOpt));
+    if (!/ · Project Manager$/.test(whoOpt)) die('#4896: the New task picker shows the role as stored, not as the menu says it: ' + JSON.stringify(whoOpt));
     if (hint !== 'You can give it to somebody later.') die('the default-to-nobody hint drifted: ' + hint);
     if (!(await p.locator('#nt-go').isDisabled())) die('Create task is live with no sentence');
     await p.screenshot({ path: path.join(OUT, 'tasks-new-page.png') });

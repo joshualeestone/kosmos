@@ -69,10 +69,10 @@ test('#4416: the card takes each runner\'s model from that runner\'s own record'
   const at = src.indexOf('const sessModel = (x) =>');
   assert.notEqual(at, -1, 'the per-runner model choice is gone');
   const block = src.slice(at, src.indexOf('readModel(pane.name, pane.session);', at) + 40);
-  for (const [runner, sess] of [['isAgyPane', 'agySess'], ['isGeminiPane', 'geminiSess'], ['isGrokPane', 'grokSess'], ['isCodexPane', 'codexSess']]) {
+  // #4603 N12: a Muse pane reads its own record too (the model its front kept from the last turn), never the Claude lookup.
+  for (const [runner, sess] of [['isAgyPane', 'agySess'], ['isGeminiPane', 'geminiSess'], ['isGrokPane', 'grokSess'], ['isCodexPane', 'codexSess'], ['isMusePane', 'museSess']]) {
     assert.match(block, new RegExp(runner + ' \\? \\{ model: sessModel\\(' + sess + '\\) \\}'), runner + ' does not read its own record');
   }
-  assert.match(block, /isMusePane \? \{ model: null \}/, 'a Muse pane was sent to the Claude transcript lookup');
   assert.match(block, /!tied \? \{ model: null \}/, 'an untied pane reports the real agent\'s model');
 });
 

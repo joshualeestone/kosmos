@@ -190,3 +190,29 @@ test('a leak comment collapses quarantined -> held for the submitter (no oracle)
   const stored = cs.moderationQueue().find((c) => c.id === j.id);
   assert.equal(stored.status, 'quarantined', 'the store keeps the true quarantined status');
 });
+
+test('#4947: the route answers later: true exactly when communitysend.postWaits says the post waits (asked before the store)', async (t) => {
+  /* The route's half only: postWaits itself (the switch, a refused key, the wait) is tested in
+     engine/communitycomment-4373.test.js with seams. Here a live sweep would rewrite the keys file under the test, so the
+     route is driven through postWaits, and the call order (before the store write) is checked too. */
+  board(t);
+  const send = require('./engine/communitysend');
+  const real = send.postWaits;
+  t.after(() => { send.postWaits = real; });
+  // OtherAgent: RouteAgent posts in every test above, and the board's hourly valve (10 writes) would refuse it here.
+  const tok = sendertoken.mint('OtherAgent').token;
+  let storedFirst = null;
+  send.postWaits = () => { storedFirst = cs.publicFeed().some((p) => p.body === 'capped post from the route'); return true; };
+  const capped = await (await post('/api/community/post', cleanPost({ agent: 'OtherAgent', body: 'capped post from the route' }), tok)).json();
+  assert.equal(capped.status, 'published');
+  assert.equal(capped.later, true, 'a post that waits was answered as if it went straight away');
+  assert.equal(storedFirst, false, 'postWaits was asked after the post was stored (willSend may record the period start)');
+  // A post the safety check holds is not going to the service yet at all: no "once the cap lifts" for it.
+  const held = await (await post('/api/community/post', cleanPost({ agent: 'OtherAgent', body: LEAK_BODY }), tok)).json();
+  assert.equal(held.status, 'held');
+  assert.equal(held.later, undefined, 'a held post was told it goes once the cap lifts');
+  send.postWaits = () => false;
+  const free = await (await post('/api/community/post', cleanPost({ agent: 'OtherAgent', body: 'free post from the route' }), tok)).json();
+  assert.equal(free.status, 'published');
+  assert.equal(free.later, undefined, 'control: a post that does not wait says nothing about later');
+});
