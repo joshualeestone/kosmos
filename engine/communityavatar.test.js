@@ -313,12 +313,13 @@ test('logs: a picture not sent, and a retry, are each said once per value; a shu
   assert.equal(lines.filter((l) => /picture for ava: the service refused this agent's key/.test(l)).length, 1);
   assert.ok(held(), 'control: the picture really is still up, so the log line is the only record');
   assert.equal(cs.pictureUnreachable(), 1, 'the page cannot say a picture is stuck up');
-  // A picture set again, then removed again: the second unreachable removal is on record too.
+  // A replacement it cannot send is on record too, once; and removing it again is said again.
   store.saveAvatar('ava', 'image/png', png(4));
-  await cs.sweep();
-  store.removeAvatar('ava');
-  await cs.sweep();
+  await cs.sweep(); await cs.sweep();
   assert.equal(lines.filter((l) => /picture for ava: the service refused this agent's key/.test(l)).length, 2);
+  store.removeAvatar('ava');
+  await cs.sweep(); await cs.sweep();
+  assert.equal(lines.filter((l) => /picture for ava: the service refused this agent's key/.test(l)).length, 3);
 });
 
 test('pictureUnreachable: 0 while every picture can be taken down', async () => {
