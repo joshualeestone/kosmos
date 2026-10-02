@@ -29,6 +29,16 @@ statuses change, and Project/Model look locked while making.
 - Footer order Back, Create (big): the single create has no Back; this step needs one, put on the left of
   the primary, like the other two-button rows.
 
+## Review 1 changes
+- tcSyncModel returns early without an open team step (TC set, #cstep-teammake shown), as tcProviderSettle does:
+  the subscription/Muse answers call it from every screen. The model list's own roles read is the plain
+  /api/roles, never ?catalogue=1 (only the role picker downloads the catalogue, #4632).
+- openTeamCreate resets TC_MODEL_FOR, so a new team opens on the default model, not the last team's pick.
+- Step-1 spacing rules are scoped to #team-seeded-pick, so the org-chart block (#4559) is untouched.
+- The click lock and the fill lock disable #tc-model with provider and account.
+- .tc-h: the misspelled token meant the title showed at the 1.1rem fallback (~17.6px); the real token is
+  15px/20px, the same title size as the other panels. Visible change, deliberate.
+
 ## Weakest premise
 That 18rem reads as "about half as wide" at Josh's window size; the column is 34-36rem, so it is ~half there.
 

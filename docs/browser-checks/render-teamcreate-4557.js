@@ -822,6 +822,12 @@ function chk(ok, label, extra) {
           chk(JSON.stringify(before) === JSON.stringify(mid) && JSON.stringify(mid) === JSON.stringify(after),
             `${E} #4935 the names stay put as each row's status changes`, JSON.stringify({ before, mid, after }));
           chk(posted.length === 3 && posted.every((b) => b.model === want), `${E} #4935 every member is made on the one model chosen`, JSON.stringify(posted.map((b) => [b.name, b.model])));
+          // Review 1: the next team starts on the default, not on this team's pick (same provider and account).
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => !document.getElementById('tc-go').hidden && !document.getElementById('tc-model').disabled
+            && document.getElementById('tc-model').options.length > 1);
+          const next = await page.evaluate(() => document.getElementById('tc-model').value);
+          chk(next === models.def, `${E} #4935 the next team opens on the default model, not the last team's pick`, JSON.stringify({ next, def: models.def, last: want }));
           chk(errs.length === 0, `${E} no page errors (#4935 arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.close();

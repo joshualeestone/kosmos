@@ -55,12 +55,12 @@ test('#4935 once a member exists, the model it was made on is kept even if the m
 
 test('#4935 tcSyncModel repaints only on a provider or account change, and never once the choice is fixed', () => {
   const sel = { value: 'opus', disabled: false, dataset: {} };
-  const els = { 'tc-provider': { value: 'anthropic' }, 'tc-account': { value: '/a' }, 'tc-model': sel };
+  const els = { 'tc-provider': { value: 'anthropic' }, 'tc-account': { value: '/a' }, 'tc-model': sel, 'cstep-teammake': { hidden: false } };
   const painted = [];
   let fixed = false;
   const ctx = {
     document: { getElementById: (id) => els[id] || null },
-    tcChoiceFixed: () => fixed, TC_FILLING: 0,
+    tcChoiceFixed: () => fixed, TC_FILLING: 0, TC: {},
     tcPaintModel: (pv, ac) => { painted.push(pv + '|' + ac); },
   };
   vm.runInNewContext('let TC_MODEL_FOR = null;\n' + lift('tcSyncModel') + '\nthis.sync = tcSyncModel;', ctx);
@@ -72,4 +72,18 @@ test('#4935 tcSyncModel repaints only on a provider or account change, and never
   fixed = true; els['tc-provider'].value = 'openai'; ctx.sync();
   assert.equal(painted.length, 2, 'a fixed choice is not repainted');
   assert.equal(sel.disabled, true, 'and the menu is locked with the provider and account (item 8)');
+});
+
+/* Review 1: the subscription and Muse answers call tcSyncModel from every screen. With no open team step it must
+   do nothing, or the first one on a fresh page reads the roles from a screen that has nothing to do with teams. */
+test('#4935 tcSyncModel does nothing without an open team step', () => {
+  for (const [tc, hidden] of [[null, false], [{}, true]]) {
+    const painted = [];
+    const els = { 'tc-provider': { value: 'anthropic' }, 'tc-account': { value: '' }, 'tc-model': { value: '', dataset: {} }, 'cstep-teammake': { hidden } };
+    const ctx = { document: { getElementById: (id) => els[id] || null }, tcChoiceFixed: () => false, TC_FILLING: 0, TC: tc,
+      tcPaintModel: () => { painted.push(1); } };
+    vm.runInNewContext('let TC_MODEL_FOR = null;\n' + lift('tcSyncModel') + '\nthis.sync = tcSyncModel;', ctx);
+    ctx.sync();
+    assert.equal(painted.length, 0, JSON.stringify({ tc, hidden }));
+  }
 });
