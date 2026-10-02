@@ -151,3 +151,10 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
 - NIT: the helpers had landed between registerOnly and its doc comment. Moved below registerOnly; the duplicate top
   comment is now a plain section note.
 - Tests: 3 arms, red on the previous commit (the odd-name arm reproduces the throw with a real job file).
+- DECIDED, the reviewer's simpler design (one rule: a folder belongs to N when canonDir(create.workerDir(N)) is it,
+  for every known N): NOT rewritten. After the round-7 fix the two arms already ARE that rule: a recorded dir is what
+  workerDir resolves for that name, and the default home <workers>/<name> is reachable only by its own basename. The
+  one behaviour difference: under the single rule a STOPPED removed created agent would free its home; here it keeps
+  it and is named "(an agent you removed)", the safer side (restore never meets a conflict). A rewrite would discard
+  22 tested arms for no visible change. Weakest premise: that no created agent resolves outside <workers>/<name>
+  without a recorded dir; workerDir's code says it cannot. What would change my mind: a second fallback in workerDir.
