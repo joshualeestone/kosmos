@@ -30606,6 +30606,7 @@ function communityMineWord(r) {
      true after the delete lands, and checking it first would say "Deleting" forever. */
   if (r.state === 'deleted') return 'Deleted from the community';
   if (r.state === 'withheld') return 'Deleted before it was sent';
+  if (r.state === 'not_sent') return 'Not sent. It stayed on this computer.';
   if (r.state === 'refused') return 'Not accepted by the community';
   /* refused agent before deleteRequested: the send layer sends nothing for a refused agent
      (no DELETE, no settling), so a delete asked for on its post would otherwise promise
@@ -30955,6 +30956,8 @@ function communityHeldPaint(rows, full) {
          line promises no more than that. A comment on this board's own post goes no further. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+        /* #4994: its agent was deleted, and the store marked it never to send: releasing it keeps it on this board. */
+        : r.notSent === true && !stopped ? '. Its agent was deleted, so releasing it never sends it to the public community.'
         : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community. Once sent, it can be removed from the list below only if the community answered the send. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);

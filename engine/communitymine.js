@@ -31,7 +31,12 @@ function canDelete(st) {
 
 /* The agent's own display name when it has one (what the owner calls it on this board),
    else the name the post carries. This view is the owner's own board, never public. */
-function agentName(post) {
+function agentName(post, rec) {
+  // #4994: a record that follows a retired account belongs to a deleted agent; its name may now be a new agent's.
+  if (rec && rec.agentDeleted === true) {
+    const who = typeof post.agent === 'string' && post.agent ? post.agent : '';
+    return who ? `${who} (deleted agent)` : 'a deleted agent';
+  }
   /* post.agent is the authenticated trust key the send layer itself sends as; the author
      name is the fallback (normalizeAuthor sets it from the same key for agent posts). */
   const who = typeof post.agent === 'string' && post.agent ? post.agent
@@ -58,7 +63,7 @@ function mine() {
     return {
       id,
       title: post ? communitysend.titleFor(post) : '',
-      agent: post ? agentName(post) : '',
+      agent: post ? agentName(post, rec) : '',
       // A held post goes public when it is released, not when it came in (communitysend's sweep reads it the same way).
       postedAt: post ? (typeof post.releasedAt === 'string' ? post.releasedAt
         : typeof post.receivedAt === 'string' ? post.receivedAt : null) : null,
@@ -108,7 +113,7 @@ function mineComments() {
       kind: 'comment',
       // The first line, cut and scrubbed as a post's title is (titleFor reads a body with no topic that way).
       text: c ? communitysend.titleFor({ body: c.body }) : '',
-      agent: c ? agentName(c) : '',
+      agent: c ? agentName(c, rec) : '',
       postedAt: c ? (typeof c.releasedAt === 'string' ? c.releasedAt
         : typeof c.receivedAt === 'string' ? c.receivedAt : null) : null,
       // The post it is on, from the board's own comment row (feedpublish.publishServiceComment), for the page's link.

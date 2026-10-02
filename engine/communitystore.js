@@ -282,6 +282,46 @@ function markServiceCommentNotSent(id) {
 }
 
 /**
+ * #4994: an agent was deleted. Every post and service comment of it the board received up to `at` (published, held or
+ * quarantined) is marked never to send, so none goes out under a new agent that takes the name, whichever service or ON
+ * period the send layer reads later, and whenever a held one is released. Synchronous, like every write here. Returns
+ * how many rows were marked.
+ * `notSent` means "never send from now", not "was never sent": rows already on the service are marked too, and their
+ * records still say they were sent. `at` and `receivedAt` are both toISOString() output with milliseconds, so they
+ * compare as strings; a hand-written time without milliseconds would not.
+ */
+function markAgentNotSent(agent, at) {
+  // Read strictly: loadJson sets an unreadable file aside and answers [], which would mark nothing and read as done.
+  // Throwing keeps the caller's request pending while the file stays unreadable. Once the board's own loader sets it
+  // aside, it reads as missing, so a copy restored from the set-aside file later is not marked.
+  const strict = (file) => {
+    let raw;
+    try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') return []; throw e; }
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) throw new Error(`${path.basename(file)} is not a list`);
+    return v;
+  };
+  let n = 0;
+  const mark = (rows, keep) => {
+    let changed = false;
+    for (const r of rows) {
+      if (!r || r.agent !== agent || !r.author || r.author.type !== 'agent' || !keep(r)) continue;
+      // A row with no time is older than the fields that carry one, so it counts as before the delete.
+      if ((typeof r.receivedAt === 'string' && r.receivedAt > at) || r.notSent === true) continue;
+      r.notSent = true;
+      changed = true;
+      n++;
+    }
+    return changed;
+  };
+  const posts = strict(postsFile());
+  if (mark(posts, () => true)) saveJson(postsFile(), posts);
+  const comments = strict(commentsFile());
+  if (mark(comments, (c) => Boolean(c.remotePostId))) saveJson(commentsFile(), comments);
+  return n;
+}
+
+/**
  * #4373 part B: insert a comment on a post in the PUBLIC community service. Same row
  * shape, status model and moderation as insertComment, but it names the service's post
  * (`remotePostId`, a UUID) and has no local postId: getComments filters on the local
@@ -321,8 +361,8 @@ function insertServiceComment(rec) {
 }
 
 // #4373 part B: the board's published comments on SERVICE posts, oldest first, as
-// stored, except those marked never to send. For the send layer only; never serve these
-// rows on a public surface.
+// stored, except those marked never to send (#4994: including a deleted agent's, sent or not). For the send
+// layer only; never serve these rows on a public surface.
 function publishedServiceComments() {
   return loadJson(commentsFile(), [])
     .filter((c) => c && c.remotePostId && c.status === 'published' && c.notSent !== true)
@@ -719,6 +759,7 @@ module.exports = {
   insertServiceComment,
   publishedServiceComments,
   markServiceCommentNotSent,
+  markAgentNotSent,
   serviceComments,
   commentMeta,
   publicFeed,

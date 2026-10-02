@@ -488,6 +488,81 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="profile"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-profile', { state: 'visible', timeout: 5000 });
   } },
+  /* #4994: what deleting an agent does to its community account, on the three screens that say it.
+     leftover-delete is the REAL engine's plan (engine/delete-leftover.js), for the removed agent `rex` that seedFiles
+     writes when this screen is asked for (folder, auto-start file, removed record, a community key, and a Trash). The
+     two Community lists are stubbed READS in this screen's own context, in the routes' shapes
+     (communitystore.moderationQueue rows; communitymine.mine() rows), so nothing on the board is written. */
+  { name: 'leftover-delete', owner: 'Angel', go: async (page) => {
+    await page.waitForSelector('#removed-toggle', { state: 'visible', timeout: 8000 });
+    if ((await page.getAttribute('#removed-toggle', 'aria-expanded')) !== 'true') await page.click('#removed-toggle');
+    await page.click(`[data-delete-leftover="${LEFTOVER.claim}"]`, { timeout: 5000 });
+    await page.waitForSelector('#del-modal:not([hidden])', { state: 'visible', timeout: 8000 });
+    await page.mouse.move(1, 1);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => { const m = document.getElementById('del-modal'); return m && !m.hidden ? m.innerText : ''; });
+    for (const want of ['Its community account: anything it posted there stays up', 'Its community account does not come back']) {
+      if (!t.includes(want)) throw new Error('the delete confirmation does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
+  } },
+  { name: 'community-held-deleted', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    const rows = [
+      { id: 'c-ada-1', entry: 'comment', status: 'held', remotePostId: '1b2c3d4e-0000-4000-8000-000000004994', author: { type: 'agent', name: 'Ada' }, body: 'Same here, a template made the weekly report much quicker.', receivedAt: '2026-10-01T08:00:00Z' },
+      { id: 'c-rex-1', entry: 'comment', status: 'held', remotePostId: '1b2c3d4e-0000-4000-8000-000000004994', notSent: true, author: { type: 'agent', name: LEFTOVER.name }, body: 'I tried this on the catalogue and it worked.', receivedAt: '2026-10-01T08:05:00Z' },
+    ];
+    await page.route('**/api/community/moderation**', (r) => {
+      const status = new URL(r.request().url()).searchParams.get('status');
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ queue: rows.filter((x) => !status || x.status === status) }) });
+    });
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#community-held-list li[data-id="c-rex-1"]', { state: 'visible', timeout: 8000 });
+    /* The heading at the top, unless that leaves the deleted agent's row cut off (a phone): then that row in the middle.
+       Checked again after a pause and redone (up to 3 s), since the list repaints on its own poll. */
+    const place = () => page.evaluate(() => {
+      document.getElementById('community-held-head').scrollIntoView({ block: 'start' });
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      if (li && li.getBoundingClientRect().bottom > innerHeight) li.scrollIntoView({ block: 'center' });
+    });
+    const whole = () => page.evaluate(() => {
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      const r = li ? li.getBoundingClientRect() : null;
+      return !!(r && r.top >= 0 && r.bottom <= innerHeight);
+    });
+    await page.mouse.move(1, 1);
+    for (const until = Date.now() + 3000; ;) {
+      await place();
+      await page.waitForTimeout(400);
+      if (await whole() || Date.now() > until) break;
+    }
+  }, verify: async (page) => {
+    const got = await page.evaluate(() => {
+      const li = document.querySelector('#community-held-list li[data-id="c-rex-1"]');
+      const r = li ? li.getBoundingClientRect() : null;
+      return { text: li ? li.innerText : '', inView: !!(r && r.top >= 0 && r.bottom <= innerHeight),
+        at: r ? [Math.round(r.top), Math.round(r.bottom), innerHeight, Math.round(scrollY)] : null };
+    });
+    if (!got.text.includes('Its agent was deleted, so releasing it never sends it to the public community.')) throw new Error('the deleted agent\'s held row does not say it is never sent: ' + JSON.stringify(got.text));
+    if (!got.inView) throw new Error('the deleted agent\'s held row is not wholly on screen (top, bottom, viewport, scrollY): ' + JSON.stringify(got.at));
+  } },
+  { name: 'community-mine-deleted', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    const base = { deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, agentNameUnclaimed: false, deleteRetrying: false };
+    const posts = [
+      { id: 'p-rex-2', title: 'Three tries at the weekly report template', agent: LEFTOVER.claim + ' (deleted agent)', postedAt: '2026-10-01T09:00:00.000Z', state: 'not_sent', ...base, canDelete: false },
+      { id: 'p-rex-1', title: 'What I learned pricing the linen range', agent: LEFTOVER.claim + ' (deleted agent)', postedAt: '2026-09-30T15:00:00.000Z', state: 'sent', ...base, canDelete: true },
+      { id: 'p-ada-1', title: 'Writing captions before the photos arrive', agent: 'Ada', postedAt: '2026-09-29T11:00:00.000Z', state: 'sent', ...base, canDelete: true },
+    ];
+    await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [] }) }));
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#community-mine-list li[data-id="p-rex-2"]', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.getElementById('community-mine-head').scrollIntoView({ block: 'start' }));
+    await page.mouse.move(1, 1);
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => { const l = document.getElementById('community-mine-list'); return l && !l.hidden ? l.innerText : ''; });
+    for (const want of ['Not sent. It stayed on this computer.', LEFTOVER.claim + ' (deleted agent)']) {
+      if (!t.includes(want)) throw new Error('the community list does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
@@ -613,6 +688,10 @@ const DATA_SETS = {
   },
 };
 let DATA = DATA_SETS.sample;   // run() picks the set before the board is seeded
+/* #4994: the removed agent the leftover-delete screen opens the delete confirmation for. Invented. Seeded only when
+   that screen is asked for (run() sets SEED_LEFTOVER), so every other screen's board has no "Show removed agents". */
+const LEFTOVER = { claim: 'rex', name: 'Rex', role: 'Writer' };
+let SEED_LEFTOVER = false;
 
 /* Everything that can be written before the board starts, through the engine's
    own writers, so the files are the shapes the real producers make. The data
@@ -666,6 +745,7 @@ function seedFiles(roots) {
       fs.writeFileSync(path.join(create.workerDir(a.claim), 'CLAUDE.md'), '# ' + a.name + '\n\nYou are ' + a.name + ', the ' + a.role.toLowerCase() + '.\n');
     }
   }
+  if (SEED_LEFTOVER) seedLeftover(landed);
   /* The chat agent's Files folder, for the agent-files screens: more rows than the
      agent page shows (AGENT_FILES_SHOWN, 10, so the list is capped; View All shows with any file), one with
      a long name. */
@@ -685,6 +765,35 @@ function seedFiles(roots) {
       state: 'needs_you', because: DATA.ask,
     }), "the ask agent's needs-you state");
   }
+}
+
+/* #4994: a removed agent with something left on disk, as remove.js leaves one: its folder, its auto-start file and
+   its removed record (the fields recordRemoval writes). Plus a community key in the community folder the board uses
+   (communitysend's own path, so hasAccount finds it) and a Trash on the sandboxed home, so the plan is the Trash
+   case. The key is invented, and the board's community address is a dead one (startBoard), so nothing is sent. */
+function seedLeftover(landed) {
+  const create = require(path.join(REPO, 'engine', 'create'));
+  const store = require(path.join(REPO, 'engine', 'store'));
+  const communitysend = require(path.join(REPO, 'engine', 'communitysend'));
+  const { claim, name, role } = LEFTOVER;
+  fs.mkdirSync(create.workerDir(claim), { recursive: true });
+  fs.writeFileSync(path.join(create.workerDir(claim), 'CLAUDE.md'), '# ' + name + '\n\nYou are ' + name + ', the ' + role.toLowerCase() + '.\n');
+  fs.writeFileSync(path.join(create.workerDir(claim), 'notes.md'), 'Catalogue notes.\n'.repeat(200));
+  fs.mkdirSync(path.dirname(create.plistPath(claim)), { recursive: true });
+  fs.writeFileSync(create.plistPath(claim), '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>'
+    + '<key>Label</key><string>' + create.serviceLabel(claim) + '</string>'
+    + '<key>ProgramArguments</key><array>' + ['/bin/bash', '-lc', 'start', claim, '/usr/local/bin/claude', '/usr/local/bin/tmux', claim, 'sonnet']
+      .map((x) => '<string>' + x + '</string>').join('') + '</array>'
+    + '<key>RunAtLoad</key><true/></dict></plist>\n');
+  const removedAt = new Date(Date.now() - 2 * 86400e3).toISOString();
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: claim, shownAs: name, removedAt, stopped: true,
+    leftRunningByChoice: false, label: create.serviceLabel(claim), plist: create.plistPath(claim), ours: true }], null, 2) + '\n');
+  const keysFile = communitysend._paths.keysFile();
+  fs.mkdirSync(path.dirname(keysFile), { recursive: true });
+  fs.writeFileSync(keysFile, JSON.stringify({ [claim]: { apiKey: 'sample-community-key-4994' } }, null, 2) + '\n', { mode: 0o600 });
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.Trash'), { recursive: true });
+  if (!communitysend.hasAccount(claim)) landed({ recorded: false, because: 'hasAccount does not see the seeded key' }, 'the leftover agent\'s community key');
 }
 
 async function waitForBoard(base, ms) {
@@ -729,6 +838,9 @@ async function startBoard() {
     /* #4632: the catalogue the picker downloads. The harness passes its local copy; run alone,
        a dead port, so this board never asks installkosmos.com (#4253). */
     KOSMOS_CATALOGUE_BASE: process.env.KOSMOS_CATALOGUE_BASE || 'http://127.0.0.1:9/',
+    /* #4994: the community the board sends to, a dead address as tools/browser-checks.sh sets it. A throwaway board
+       reads the switch as on (no file is Josh's default), and leftover-delete seeds a community key. */
+    AGENT_WORKFORCE_COMMUNITY_URL: process.env.AGENT_WORKFORCE_COMMUNITY_URL || 'http://127.0.0.1:9/',
   };
   /* HOME is sealed in this process too (an engine writer can fall back to os.homedir()), and
      Playwright finds its browsers under the home. Pin its cache to the REAL one first, so the
@@ -957,6 +1069,7 @@ async function run() {
   const out = args.out || fs.mkdtempSync(path.join(os.tmpdir(), 'mobile-shots-'));
   fs.mkdirSync(out, { recursive: true });
   DATA = DATA_SETS[args.data];
+  SEED_LEFTOVER = screens.some((s) => s.name === 'leftover-delete');
 
   const board = await startBoard();
   const rows = [];
