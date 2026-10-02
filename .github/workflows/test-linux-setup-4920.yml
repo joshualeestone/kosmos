@@ -1,0 +1,107 @@
+# Linux setup verification (#4920 under #4916).
+#
+# Validates that install/setup.sh runs successfully on a clean Ubuntu runner:
+# - Detects Linux and machine architecture
+# - Discovers or installs tmux without interactive prompts
+# - Symlinks system node into the runtime directory
+# - Installs systemd user unit for board keep-alive and enables lingering
+# - Starts the board and verifies HTTP 200 response on the board port
+# - Successfully stops, restarts, and uninstalls cleanly
+
+name: linux-setup
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-setup-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test-linux-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax and static installer guards
+        run: |
+          sh -n install/setup.sh
+          bash -n install/setup.sh
+          bash tools/test-installer-runnable-guard.sh
+          bash tools/test-plist-heredoc-clean.sh
+          bash tools/test-install-static.sh
+          bash tools/test-install-static-control-4641.sh
+
+      - name: Run installer unit tests
+        run: |
+          node --test install.*.test.js
+
+      - name: Prepare systemd user environment
+        run: |
+          sudo loginctl enable-linger "$USER" || true
+          sudo systemctl start user@"$(id -u)".service || true
+          mkdir -p "/run/user/$(id -u)"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+
+      - name: Execute install/setup.sh
+        env:
+          KOSMOS_PORT: "16180"
+          KOSMOS_NO_OPEN: "1"
+        run: |
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          bash install/setup.sh
+
+      - name: Verify installed pieces
+        env:
+          KOSMOS_PORT: "16180"
+        run: |
+          KOSMOS_HOME="$HOME/.local/share/kosmos"
+          test -f "$KOSMOS_HOME/bin/kosmos" && test -x "$KOSMOS_HOME/bin/kosmos"
+          test -f "$KOSMOS_HOME/tmux/bin/tmux" && test -x "$KOSMOS_HOME/tmux/bin/tmux"
+          test -f "$KOSMOS_HOME/runtime/bin/node" && test -x "$KOSMOS_HOME/runtime/bin/node"
+          "$KOSMOS_HOME/runtime/bin/node" --version
+
+          # Check systemd user unit exists and has expected directives
+          UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
+          test -f "$UNIT_FILE"
+          grep -q "Description=Kosmos Board" "$UNIT_FILE"
+          grep -q "ExecStart=/bin/bash $KOSMOS_HOME/bin/kosmos board-run" "$UNIT_FILE"
+
+      - name: Verify board responsiveness
+        env:
+          KOSMOS_PORT: "16180"
+        run: |
+          KOSMOS_HOME="$HOME/.local/share/kosmos"
+          "$KOSMOS_HOME/bin/kosmos" status
+          curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+
+      - name: Test stop and restart
+        env:
+          KOSMOS_PORT: "16180"
+        run: |
+          KOSMOS_HOME="$HOME/.local/share/kosmos"
+          "$KOSMOS_HOME/bin/kosmos" stop
+          # Board should be stopped
+          if curl -fsS -m 2 http://127.0.0.1:16180/ >/dev/null 2>&1; then
+            echo "FAIL: board still responding after stop" >&2
+            exit 1
+          fi
+          "$KOSMOS_HOME/bin/kosmos" start
+          curl -fsS -m 5 http://127.0.0.1:16180/ >/dev/null
+
+      - name: Test uninstall
+        run: |
+          bash install/setup.sh --uninstall
+          UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
+          test ! -f "$UNIT_FILE"
