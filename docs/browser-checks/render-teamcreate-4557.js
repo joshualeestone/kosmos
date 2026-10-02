@@ -678,9 +678,14 @@ function chk(ok, label, extra) {
           chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 a Try again that places the last hello leaves for the agents view on its own`);
           /* Review 10: every held state the page knows says its own reason; a state not held, and a board that cannot be
              read, say nothing, so the hello goes ahead. */
-          Object.assign(stateOf, { 'h-auth': 'auth_failed', 'h-rate': 'rate_limited', 'h-stop': 'stopped', 'h-lost': 'connection_lost', 'h-unk': 'unknown', 'h-idle': 'idle' });
-          const heldSay = await page.evaluate(async () => { TC_STATUS_READ = null; return {} ; }).then(() => page.evaluate(async () => ({ auth: await tcHelloHeld('h-auth'), rate: await tcHelloHeld('h-rate'), stop: await tcHelloHeld('h-stop'),
-            lost: await tcHelloHeld('h-lost'), unk: await tcHelloHeld('h-unk'), idle: await tcHelloHeld('h-idle'), none: await tcHelloHeld('nobody-here') })));
+          // Review 27: the held states go straight into the page's shared board read, never into /api/status, so the
+          // board never draws cards for these fake agents (a card for a state it was never given could throw).
+          const heldSay = await page.evaluate(async () => {
+            const fake = (n, state) => ({ sessionName: n, name: n, isAgentSession: true, isNamedOurs: true, state });
+            const agents = [fake('h-auth', 'auth_failed'), fake('h-rate', 'rate_limited'), fake('h-stop', 'stopped'), fake('h-lost', 'connection_lost'), fake('h-unk', 'unknown'), fake('h-idle', 'idle')];
+            const ask = async (n) => { TC_STATUS_READ = { at: Date.now(), p: Promise.resolve(agents) }; return tcHelloHeld(n); };
+            return { auth: await ask('h-auth'), rate: await ask('h-rate'), stop: await ask('h-stop'), lost: await ask('h-lost'), unk: await ask('h-unk'), idle: await ask('h-idle'), none: await ask('nobody-here') };
+          });
           const txt = (h) => (h && h.text) || '';
           chk(/sign-in failed/.test(txt(heldSay.auth)) && !heldSay.auth.transient && /at its limit/.test(txt(heldSay.rate)) && !heldSay.rate.transient
             && /is stopped/.test(txt(heldSay.stop)) && !heldSay.stop.transient && /not ready/.test(txt(heldSay.lost)) && heldSay.lost.transient

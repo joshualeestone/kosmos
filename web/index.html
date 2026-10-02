@@ -48647,6 +48647,9 @@ function tcPaint() {
   hello.hidden = !(settled && (TC.members.some((m) => m.hello !== 'started')
     || TC.members.some((m) => m.portrait === 'failed' || (m.warn || []).length || m.renamedFrom) || (!TC.leaving && TC.members.some((m) => m.portraitBusy)) || TC.stayed));
   hello.textContent = n === 1 ? 'Go to your agent' : 'Go to your team';
+  // Review 27: "To make another, choose Go to your team first." only while that button is on screen.
+  const madeMsg = document.getElementById('tc-msg');
+  if (madeMsg.dataset.kind === 'made-again' && hello.hidden) { madeMsg.hidden = true; madeMsg.textContent = ''; delete madeMsg.dataset.kind; }
   if (finished && TC_AUTO_HELLO && !TC.helloStarted) tcSayHello();
 }
 
