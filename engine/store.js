@@ -290,12 +290,18 @@ const ALLOWED_IMAGES = {
 /* The avatar file for `name` inside `dir`, or null. The ONE lookup (one file per
    agent, `<safeKey>.<ext>`), so importing an agent from another Kosmos's avatars
    folder finds it the way this store does (#1704 PR4). */
+/* #4885: the one rule for which file in an avatars folder is `key`'s picture: `<key>.<ext>` with an image extension
+   saveAvatar writes. A stray `<key>.png.bak` or `<key>.txt` is not a picture. Shared by avatarPathIn and avatarLookup
+   so the page and the community sender never disagree about which file it is. */
+const AVATAR_EXTS = new Set(Object.values(ALLOWED_IMAGES));
+function avatarFileIn(names, key) {
+  return names.find((f) => f.startsWith(key + '.') && AVATAR_EXTS.has(f.slice(key.length))) || null;
+}
 function avatarPathIn(dir, name) {
   const key = safeKey(name);
   try {
-    for (const f of fs.readdirSync(dir)) {
-      if (f.startsWith(key + '.')) return path.join(dir, f);
-    }
+    const f = avatarFileIn(fs.readdirSync(dir), key);
+    if (f) return path.join(dir, f);
   } catch { /* no avatars yet */ }
   return null;
 }
@@ -309,7 +315,7 @@ function avatarLookup(name) {
   try { names = fs.readdirSync(avatarsDir()); } catch (e) {
     return e && e.code === 'ENOENT' ? { file: null } : { error: (e && e.code) || 'unreadable' };
   }
-  const f = names.find((n) => n.startsWith(key + '.'));
+  const f = avatarFileIn(names, key);
   return { file: f ? path.join(avatarsDir(), f) : null };
 }
 
@@ -407,13 +413,22 @@ function saveAvatar(name, contentType, buffer) {
 
   const key = safeKey(name);
   ensure(avatarsDir());
+  const existing = avatarPath(name);
+  const dest = path.join(avatarsDir(), key + ext);
+  /* #4885: written beside, then renamed into place, so there is never a moment with no picture or half of one (the
+     community sender reads this folder every sweep, and "no picture" there takes the public one down). The temporary
+     name starts with a dot, so it is never anybody's picture. */
+  const tmp = path.join(avatarsDir(), '.' + key + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
+  try {
+    fs.writeFileSync(tmp, buffer);
+    fs.renameSync(tmp, dest);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* never written */ }
+    throw e;
+  }
   // Replace rather than accumulate: one avatar per agent, and an old .png
   // left beside a new .jpg would win or lose by directory order.
-  const existing = avatarPath(name);
-  if (existing) fs.unlinkSync(existing);
-
-  const dest = path.join(avatarsDir(), key + ext);
-  fs.writeFileSync(dest, buffer);
+  if (existing && existing !== dest) fs.unlinkSync(existing);
   return dest;
 }
 

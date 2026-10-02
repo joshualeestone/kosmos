@@ -439,3 +439,26 @@ test('a same-size replacement given the old timestamp is still read as new', asy
   assert.equal(puts().length, 2, 'the cached old picture was used');
   assert.ok(held().raw.equals(png(9)));
 });
+
+test('saving a picture never leaves a moment with no picture, and a stray file is not the picture', async () => {
+  await on();
+  await registered('ava');
+  store.saveAvatar('ava', 'image/png', png(1));
+  await cs.sweep();
+  const dir = path.dirname(store.avatarPath('ava'));
+  // A replacement of another type: the new file is in place before the old one goes.
+  const realUnlink = fs.unlinkSync;
+  let seenAtUnlink = null;
+  fs.unlinkSync = (f) => { if (String(f).endsWith('ava.png')) seenAtUnlink = store.avatarLookup('ava').file; return realUnlink(f); };
+  try { store.saveAvatar('ava', 'image/jpeg', JPEG); } finally { fs.unlinkSync = realUnlink; }
+  assert.ok(seenAtUnlink, 'there was a moment with no picture');
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), [], 'a temporary file was left behind');
+  await cs.sweep();
+  assert.equal(deletes().length, 0);
+  // A stray sibling is never the picture.
+  fs.writeFileSync(path.join(dir, 'ava.jpg.bak'), 'old');
+  fs.writeFileSync(path.join(dir, 'ava.txt'), 'notes');
+  assert.equal(path.basename(store.avatarLookup('ava').file), 'ava.jpg');
+  store.removeAvatar('ava');
+  assert.equal(store.avatarLookup('ava').file, null, 'a stray file was read as the picture');
+});

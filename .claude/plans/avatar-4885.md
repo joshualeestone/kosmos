@@ -15,7 +15,7 @@ body (PNG, JPEG or WebP, at most 60,000 bytes; metadata stripped server-side; 42
 2. A sweep pass, `sweepAvatars`, after `sweepIndustry` and on its exact pattern: per registered agent, the wanted
    state is the sha256 of the stored picture's bytes (store.avatarLookup), or null for none. Sent when it differs from
    `avatarSent` in keys.json; write-ahead `avatarUnsure` so an unanswered PUT is retried; 404/405/5xx/429/timeouts
-   retried and logged once per value (a new picture: three tries, then an hour, doubling to a day, since each try is
+   retried and logged once per value (a new picture: three tries, then an hour, doubling to six hours, since each try is
    a full upload; a removal: every sweep); the service's own 422 bad_avatar recorded as `avatarRefused`
    and not sent again until the picture changes; while it is wanted the target is "no picture", so the one the
    person replaced is taken down rather than left showing (review 1).
@@ -50,10 +50,9 @@ panel's file input, the create flow's PENDING_AVATAR, and team portraits in tcPo
   posts either; it stops new things going out.
 
 ## Decided, not missed (review 2)
-- A sweep that lands while store.saveAvatar is writing (it unlinks, then writes in place) skips that agent for that
-  sweep when the file changed under the read. In the instant between the unlink and the write there is no file, so
-  one needless DELETE can go out; the next sweep sends the new picture. Kept: a flicker that heals itself, against
-  making saveAvatar atomic in a module this PR does not otherwise touch.
+- (review 8, reversing review 2's call) store.saveAvatar now writes beside and renames into place, so there is never
+  a moment with no picture: a replacement can no longer read as a removal (which goes out even with Community off).
+  The picture lookup accepts only `<key>.<png|jpg|webp|gif>`, so a stray `<key>.png.bak` is not read as "no picture".
 - The picture pass runs in two halves (review 3): removals beside the other take-downs, before comments; new
   pictures after comments, so a failing picture route never delays comment posting and no take-down waits.
 - pictureUnreachable() counts agents whose picture is stuck up because the service refused their key, as
