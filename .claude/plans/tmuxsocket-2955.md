@@ -110,4 +110,15 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   where they differ (EACCES) and that the difference is the conservative side. FIXED W: the test seams reset the last
   search state too. LEFT NITs: a symlinked and a resolved path to one tmux are two candidates (one wasted probe); a
   stale socket file with a 3.5a client reads as "may be a different version" (hedged).
+- Round 6 (sonnet): FIXED W: candidates were probed once per path, not once per binary (the bundle is a symlink to
+  Homebrew's on Agent1s, so one tmux could be probed three times, each blocking up to 5 s); real paths now (test counts
+  probes). FIXED W: the supervisor's own-tmux path was unnormalized (../..), so it never equalled the baked path and could
+  reach PATH that way; normalized (the installed-layout test now compares exactly). FIXED W: an engine run under an
+  older launcher (no recorded value) said "chosen explicitly"; it now says only that the launcher that started this
+  board did not pick it. FIXED NIT: an old agent whose baked tmux is gone (a removed Homebrew) searched nothing and
+  stayed stranded; it now looks for one that can read the server, else uses Kosmos's own (test with a control).
+  DECIDED (W, kept): moving the winning tmux's whole directory ahead on PATH mid-run (Homebrew's node and claude with
+  it). The alternative, a bare-tmux-only shim, would let a bare `tmux` and AGENT_WORKFORCE_TMUX_BIN disagree, which is
+  the defect this card is about; the launcher already does the same at launch, and both comments say so. LEFT NIT:
+  TMUX_LAST_SEARCH is meaningful only right after a failed look (every reader of it is).
 

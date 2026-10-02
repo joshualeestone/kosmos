@@ -543,8 +543,15 @@ function tmuxRepick() {
     ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
     : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
   const cands = (TMUX_CANDIDATES_SEAM || known).concat(ownTmux(), launcherTmux());   // launcherTmux() is non-null here
+  /* Once per real binary: on Agent1s the bundled path is a symlink to Homebrew's, so one tmux can appear three times
+     here, each a blocking probe of up to 5 s. */
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+  const seen = new Set([real(current) || current]);
   for (const c of cands) {
     if (!c || c === current) continue;
+    const r = real(c);
+    if (!r || seen.has(r)) continue;
+    seen.add(r);
     try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
     const tried = shDetail(c, ['list-sessions']);
     if (tried.ran && tried.status === 0) {
@@ -575,7 +582,7 @@ function lookProblemFor(got, bin, searched) {
     // No remedy is promised: say only what the search (tmuxRepick) actually did.
     const after = searched === 'found-nothing' ? ', and Kosmos found no other tmux here that can'
       : searched === 'waiting' ? ', and Kosmos found no other tmux that can a moment ago; it looks again within a minute'
-        : searched === 'not-allowed' ? '; this tmux was chosen explicitly, so Kosmos does not swap it for another'
+        : searched === 'not-allowed' ? '; this tmux was not picked by the Kosmos launcher that started this board, so Kosmos does not swap it for another'
           : '';
     return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${bin || 'tmux'}) cannot read them (it said: ${err})${after}.`;
   }

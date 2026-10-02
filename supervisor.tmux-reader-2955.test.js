@@ -97,7 +97,7 @@ test('#2955: with no seam, the installed supervisor finds Kosmos\'s own tmux thr
   fs.writeFileSync(bundled, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bundled, 0o755);
   fs.writeFileSync(nodePath.join(supDir, 'engine-path'), nodePath.join(home, 'app', 'engine') + '\n');
   const r = run(t.wall, [], 'real', false, nodePath.join(supDir, 'agent-supervisor.sh'));
-  assert.equal(nodePath.resolve(r.bin), bundled, 'the installed supervisor could not find Kosmos\'s own tmux');
+  assert.equal(r.bin, bundled, 'the installed supervisor could not find Kosmos\'s own tmux (or found it by an unnormalized path)');
   fs.rmSync(nodePath.join(supDir, 'engine-path'));
   assert.equal(run(t.wall, [], 'real', false, nodePath.join(supDir, 'agent-supervisor.sh')).bin, t.wall, 'control: with no pointer and nothing beside the script, nothing is found');
   fs.rmSync(t.sb, { recursive: true, force: true });
@@ -106,5 +106,13 @@ test('#2955: the pointer the supervisor reads is the engine directory (what crea
   const create = fs.readFileSync(nodePath.join(__dirname, 'engine', 'create.js'), 'utf8');
   assert.match(create, /const ptrDest = path\.join\(path\.dirname\(dest\), 'engine-path'\);[\s\S]{0,200}fs\.writeFileSync\(ptrStaging, `\$\{__dirname\}\\n`\);/,
     'engine-path no longer names the engine directory, so <it>/../../tmux/bin/tmux is not Kosmos\'s own tmux');
+});
+test('#2955: a baked tmux that is gone (a removed Homebrew) is replaced: by one that can read the server, else by Kosmos\'s own', () => {
+  const t = sandbox();
+  const gone = nodePath.join(t.sb, 'removed', 'tmux');
+  assert.equal(run(gone, [t.wall, t.lists], t.none).bin, t.lists, 'a tmux that can read the server was not taken for a removed one');
+  assert.equal(run(gone, [t.wall], t.none).bin, t.none, 'with no server to list, Kosmos\'s own was not taken for a removed tmux');
+  assert.equal(run(gone, [t.wall], nodePath.join(t.sb, 'no-own')).bin, gone, 'control: with nothing runnable, the baked path stays');
+  fs.rmSync(t.sb, { recursive: true, force: true });
 });
 

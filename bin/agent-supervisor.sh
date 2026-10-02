@@ -79,8 +79,12 @@ TMUX_BIN="${4:?the path to tmux is required}"
 # With no server, or any other answer, nothing has been established and the baked path stays, which keeps Kosmos's
 # own agents on the tmux Kosmos ships (a `brew upgrade` cannot pull it out from under them).
 _kosmos_supervisor_tmux() {
-  local _said _cand _own
-  _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
+  local _said _cand _own _ownd _gone=""
+  if [ -f "$TMUX_BIN" ] && [ -x "$TMUX_BIN" ]; then
+    _said="$("$TMUX_BIN" list-sessions 2>&1 >/dev/null)" && return 0
+  else
+    _gone=1; _said="protocol version mismatch"   # the baked tmux is gone (a removed Homebrew): look for another
+  fi
   case "$_said" in
     *"protocol version mismatch"*) ;;
     # The bundled 3.5a says these same words with NO server at all (it spawns one that exits at once). Only with a
@@ -100,6 +104,9 @@ _kosmos_supervisor_tmux() {
     _ptr="${0%/*}/engine-path"
     if [ -f "$_ptr" ]; then IFS= read -r _engdir < "$_ptr" || true; fi
     if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="${0%/*}/../tmux/bin/tmux"; fi
+    # Normalized, so the equality below recognises it as the baked path and PATH never gets a ../.. entry.
+    _ownd="$(cd "${_own%/*}" 2>/dev/null && pwd)" || _ownd=""
+    if [ -n "$_ownd" ]; then _own="$_ownd/tmux"; else _own=""; fi
   fi
   for _cand in "$(command -v tmux 2>/dev/null || true)" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own"; do
     [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
@@ -113,6 +120,12 @@ _kosmos_supervisor_tmux() {
       return 0
     fi
   done
+  # A baked tmux that is gone, and no server for any candidate to list (the usual case at boot): Kosmos's own runs it.
+  if [ -n "$_gone" ] && [ -n "$_own" ] && [ -f "$_own" ] && [ -x "$_own" ]; then
+    say "$SESSION: $TMUX_BIN is gone; using Kosmos's own tmux, $_own (#2955)"
+    TMUX_BIN="$_own"
+    PATH="${_own%/*}:$PATH"; export PATH
+  fi
   return 0
 }
 LOG="${5:-}"

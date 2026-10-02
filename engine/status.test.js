@@ -6082,7 +6082,7 @@ test('#2955: a search that found nothing waits before it runs again, and the det
       assert.match(status.lastLookProblem(), /looks again within a minute/);
       seams(status, null, [m.refuser]);
       assert.equal(status.tmuxPanes(), null);
-      assert.match(status.lastLookProblem(), /chosen explicitly/, 'an explicit tmux was said to have been searched past');
+      assert.match(status.lastLookProblem(), /not picked by the Kosmos launcher/, 'an explicit tmux was said to have been searched past');
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
@@ -6117,5 +6117,23 @@ test('#2955: with no seam, the board finds Kosmos\'s own tmux two directories ab
   const setup = fs.readFileSync(nodePath.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
   assert.match(setup, /\$KOSMOS_HOME\/app\/engine\//, 'the app is no longer installed at <home>/app/engine');
   assert.match(setup, /\$KOSMOS_HOME\/tmux\/bin\/tmux/, 'the bundle is no longer installed at <home>/tmux/bin/tmux');
+});
+test('#2955: one probe per real tmux, however many paths name it (the bundle is a symlink to Homebrew\'s on Agent1s)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const probes = nodePath.join(m.sb, 'probes');
+    const counted = nodePath.join(m.sb, 'counted-tmux');
+    fs.writeFileSync(counted, `#!/bin/sh\necho x >> ${JSON.stringify(probes)}\necho "server exited unexpectedly" >&2; exit 1\n`); fs.chmodSync(counted, 0o755);
+    const link = nodePath.join(m.sb, 'link-tmux');
+    fs.symlinkSync(counted, link);
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [counted, link, counted]);
+      status.setOwnTmux(link);
+      assert.equal(status.tmuxRepick(), false);
+      const n = fs.readFileSync(probes, 'utf8').trim().split('\n').length;
+      assert.equal(n, 1, 'one tmux was probed ' + n + ' times');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
 
