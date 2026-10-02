@@ -137,6 +137,19 @@ test('#4913: an endorsement the engine counts uses the hourly community valve; a
   assert.equal((await endorseAs(tok, { name: 'Theo Nguyen', takeBack: true })).status, 200, 'a take-back still works with the valve tripped');
 });
 
+test('#4913: endorsements sent at the same moment cannot all pass the valve before any is counted', async (t) => {
+  const b = fleet.install([fleet.agent('Racing', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const tok = sendertoken.mint('Racing').token;
+  stub();
+  // Each answer is held for a moment, so all six are in flight before any comes back.
+  const quick = communityendorse.endorse;
+  communityendorse.endorse = async (...a) => { await new Promise((r) => setTimeout(r, 300)); return quick(...a); };
+  const statuses = (await Promise.all(Array.from({ length: 6 }, () => endorseAs(tok, GOOD)))).map((r) => r.status).sort();
+  assert.deepEqual(statuses, [200, 200, 200, 429, 429, 429], 'six endorsements at once went past the cap of 3');
+  assert.equal(calls.filter((c) => c.fn === 'endorse').length, 3, 'a paused endorsement reached the engine');
+});
+
 test('#4913: the real engine behind the route: switched off is a 400 (a local refusal, not a 502)', async (t) => {
   const b = fleet.install([fleet.agent('Offed', { state: 'idle' })]);
   communityendorse.endorse = realEndorse;
