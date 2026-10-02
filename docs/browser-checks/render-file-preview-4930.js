@@ -118,12 +118,14 @@ async function runOn(engine, base, say) {
       say(reveals.length === 1 && reveals[0] === IMG_ID, tag + ' P3: Open in Finder asks to reveal that attachment', JSON.stringify(reveals));
 
       // P2
+      const lockedOpen = await pg.evaluate(() => ({ overflow: getComputedStyle(document.documentElement).overflow, gutter: getComputedStyle(document.documentElement).scrollbarGutter }));
+      say(lockedOpen.overflow === 'hidden', tag + ' P2: while it is up the page does not scroll (the lock is on)', JSON.stringify(lockedOpen));
       await pg.keyboard.press('Escape');
       await pg.waitForTimeout(100);
       const back2 = await pg.evaluate((sel) => ({ open: !!document.getElementById('pv-preview'), focus: document.activeElement === document.querySelector(sel) }), card(IMG_ID));
       say(!back2.open && back2.focus, tag + ' P2: Escape closes it and focus goes back to the card', JSON.stringify(back2));
-      const unlocked = await pg.evaluate(() => getComputedStyle(document.documentElement).scrollbarGutter !== 'auto' && getComputedStyle(document.documentElement).overflow !== 'hidden');
-      say(unlocked, tag + ' P2: closing gives the page its scrollbar strip back');
+      const unlockedAfter = await pg.evaluate(() => ({ overflow: getComputedStyle(document.documentElement).overflow, gutter: getComputedStyle(document.documentElement).scrollbarGutter }));
+      say(unlockedAfter.overflow !== 'hidden', tag + ' P2: closing takes the lock off (it was on above)', JSON.stringify({ lockedOpen, unlockedAfter }));
       await pg.click(card(IMG_ID));
       await pg.click('#pv-x');
       say(!(await open()), tag + ' P2: the X closes it');
@@ -134,6 +136,10 @@ async function runOn(engine, base, say) {
       const bar = await pg.evaluate(() => { const b = document.querySelector('#pv-preview .pv-bar').getBoundingClientRect(); return { x: Math.round(b.right - 6), y: Math.round(b.top + b.height / 2) }; });
       await pg.mouse.click(bar.x, bar.y);
       say(!(await open()), tag + ' P2: a click on the dark bottom bar closes it too');
+      await pg.click(card(IMG_ID));
+      await pg.click('#pv-name');
+      say(await open(), tag + ' P2: a click on the file name keeps it open (words can be selected)');
+      await pg.keyboard.press('Escape');
 
       // P10
       await pg.click(card(IMG_ID));
