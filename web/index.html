@@ -7041,7 +7041,7 @@ html.pv-open { overflow: hidden; scrollbar-gutter: auto; }
 .pv-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, .72);
   font: var(--text-caption) var(--font-ui); }
 .pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
-.att[data-att] { cursor: zoom-in; }
+.att.haspic[data-att] { cursor: zoom-in; }
 .attachbtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 .attachbtn:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
@@ -59588,10 +59588,12 @@ function pvOpen(id, from) {
     act.replaceWith(b);
   }
   back.querySelector('#pv-x').addEventListener('click', pvClose);
-  // A click anywhere on the dark closes it: anything but the file itself, the X and the action.
-  back.addEventListener('click', (e) => {
-    if (!e.target.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do')) pvClose();
-  });
+  // A click anywhere on the dark closes it: anything but the file itself, the X and the action. Only when the press
+  // began on the dark too, so selecting a text file's words and letting go past them does not close it.
+  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do'));
+  let pressedOnFile = false;
+  back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
+  back.addEventListener('click', (e) => { if (!pressedOnFile && !onFile(e.target)) pvClose(); pressedOnFile = false; });
   PV_OPENER = from || document.activeElement;
   PV_OPENER_ID = id;
   document.documentElement.classList.add('pv-open');
@@ -59642,8 +59644,10 @@ document.addEventListener('click', (e) => {
 });
 /* On the document, in the capture phase, like the update window: Escape closes it before a dialog under it, and
    Tab stays between the X and the action while it is up. */
-/* A window drawn over the preview (first run, the update overlay, the restart screen) owns the keys. */
-function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back'); }
+/* A window drawn over the preview (first run, the update overlay, the restart screen, a native dialog) owns the keys.
+   The phone menu is not one: it sits under the preview. While the update overlay is up the preview and the update
+   window both stand aside to it, the window on top. */
+function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]'); }
 document.addEventListener('keydown', (e) => {
   const back = document.getElementById('pv-preview');
   if (!back || pvCovered()) return;

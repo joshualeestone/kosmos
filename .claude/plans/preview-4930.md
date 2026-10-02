@@ -41,6 +41,12 @@ Every place the page shows a person's file was printed, not counted (a search ag
   not opening.
 - P9: cards drawn by the real message rows (pjMsg, dmRow) open it, not only cards drawn alone.
 
+## Review 2
+- A click on the dark closes it only when the press began on the dark too (selecting a text file's words and letting
+  go past them keeps it open; P6). It stands aside for a native dialog. The zoom cursor only on cards with a picture.
+- Decided, not missed: while the update overlay (.upd-back) is up, the preview and the update window both stand aside
+  to it; it is the window on top and owns the keys. That is the order, not two windows waiting on each other.
+
 ## Rejected / not in this PR
 - The Files lists: they show no images and have no route that serves a file's bytes; a preview there needs one.
 - Arrows and swipe to step through a conversation's images (the card marks it optional).

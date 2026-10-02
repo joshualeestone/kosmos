@@ -190,6 +190,10 @@ async function runOn(engine, base, say) {
       await pg.waitForTimeout(150);
       const txt = await pg.evaluate(() => ({ text: (document.querySelector('#pv-preview pre.pv-text') || {}).textContent, imgs: document.querySelectorAll('#pv-preview img').length, ran: !!window.__ran }));
       say(typeof txt.text === 'string' && txt.text.includes('line three') && txt.text.includes('<img src=x') && txt.imgs === 0 && !txt.ran, tag + ' P6: a text file shows its opening as text, its markup not run', JSON.stringify(txt));
+      // Selecting the text and letting go on the dark does not close it.
+      const sel = await pg.evaluate(() => { const r = document.querySelector('#pv-preview pre.pv-text').getBoundingClientRect(); return { x: r.left + 20, y: r.top + 12, ex: innerWidth - 6, ey: r.top + 12 }; });
+      await pg.mouse.move(sel.x, sel.y); await pg.mouse.down(); await pg.mouse.move(sel.ex, sel.ey, { steps: 8 }); await pg.mouse.up();
+      say(await open(), tag + ' P6: selecting a text file\'s words and letting go on the dark keeps it open');
       await pg.keyboard.press('Escape');
       await pg.click(card(DOC_ID));
       const doc = await pg.evaluate(() => ({ name: (document.querySelector('#pv-preview .pv-file b') || {}).textContent, meta: (document.querySelector('#pv-preview .pv-file span') || {}).textContent }));
