@@ -2722,13 +2722,13 @@ _kosmos_put_board_back() {
     printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
   fi
 }
-# #5033: the refusals at the pause for another Kosmos or another app on the port die BEFORE the put-back is armed,
-# because starting our board there would collide. But our own `kosmos stop` may already have written board.stopped,
-# and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once the port was free the board still
-# stayed off. So: on a failed exit, when the board was meant to run and had no marker before the run, the marker is
-# taken away (one written by a person in the seconds between our stop and the refusal goes with it). This script
-# starts nothing; what supervises the board is no longer held off by the marker, as before the run. Disarmed where
-# the put-back is armed, so this rm reaches only the refusal window.
+# #5033: the three refusals at the pause (our board would not pause, another Kosmos or another app on the port) die
+# BEFORE the put-back is armed, because starting our board there would collide. But our own `kosmos stop` may already
+# have written board.stopped, and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once the port
+# was free the board still stayed off. So: on any failed exit in that window (a refusal, or a signal during the probe),
+# when the board was meant to run and had no marker before the run, the marker is taken away (one written by a person
+# in the seconds between our stop and the exit goes with it). This script starts nothing; what supervises the board is
+# no longer held off by the marker, as before the run. Disarmed where the put-back is armed.
 _kosmos_marker_ours=no
 _kosmos_clear_own_marker() {
   [ "$_kosmos_marker_ours" = yes ] || return 0
@@ -2799,7 +2799,6 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         esac
       fi
       if [ "$_ourboard" = yes ]; then
-        _kosmos_marker_ours=no # #5033: not taken back here (a stop that failed to kill takes its own marker back)
         # OUR board is genuinely running and did not pause -- the #2055 behavior.
         # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
         # in-process updater spawned this curl|sh, so the message goes to stderr /

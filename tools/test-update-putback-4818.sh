@@ -53,7 +53,7 @@ fail() { echo "FAIL  $1"; FAIL=$((FAIL + 1)); }
 # Normalised (TMPDIR ends in a slash on macOS): setup matches its board by the exact path in its command line.
 TMP="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/putback4818.XXXXXX")" && pwd)"
 cleanup() {
-  for pf in "$TMP"/*/board.pid; do [ -f "$pf" ] && kill "$(cat "$pf")" 2>/dev/null; done
+  for pf in "$TMP"/*/board.pid "$TMP"/*/other.pid; do [ -f "$pf" ] && kill "$(cat "$pf")" 2>/dev/null; done
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -328,30 +328,24 @@ else
   fail "#5033: the another-Kosmos refusal: marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), board.pid $( [ -e "$H/board.pid" ] && echo present || echo absent ), err: $(cat "$H/err")"
 fi
 
-# 5a'. The our-board-would-not-pause refusal takes nothing back. The real stop left no marker there (a failed kill
-#      takes its own back), so any marker present was written by someone else. Pinned by its line check (the disarm is
-#      the first line of that branch, before its bookkeeping and its die); the run below only shows the spliced pair.
-OURSOFF="$(awk '/^        _kosmos_marker_ours=no # #5033: not taken back here/{sub(/^ */, ""); print; exit}' "$SETUP")"
-case "$OURSOFF" in _kosmos_marker_ours=no*) : ;; *) echo "FAIL: could not extract the #5033 our-board disarm (anchor drift?)" >&2; exit 1 ;; esac
-L_OURSOFF=$(ln '        _kosmos_marker_ours=no # #5033: not taken back here')
-# Exactly one disarm between the marker line and the arming line, and it is the our-board one: a stray disarm ahead
-# of the another-Kosmos or another-app die would pass every arm above, which run those dies after the marker line.
+# 5a'. The our-board-would-not-pause refusal takes the marker back too. The board is running on that branch, so a
+#      marker there is wrong whoever wrote it: our stop can write one in the gap of a launchd restart and then meet the
+#      board answering (review 7). And no disarm sits before the arming line: a stray one ahead of any of the three
+#      dies would pass the spliced arms, which run those dies right after the marker line.
 n_off=$(awk -v a="$L_MSET" -v b="$L_ARM" 'NR>a && NR<b && /_kosmos_marker_ours=no/{n++} END{print n+0}' "$SETUP")
-if [ "$n_off" -eq 1 ] && [ -n "$L_OURSOFF" ] && [ "$L_MSET" -lt "$L_OURSOFF" ] && [ "$L_OURSOFF" -lt "$L_ARM" ]; then
-  pass "#5033: the only disarm before the arming line is the our-board one"
+if [ "$n_off" -eq 0 ]; then
+  pass "#5033: no disarm between the marker line and the arming line"
 else
-  fail "#5033: $n_off disarm line(s) between the marker line $L_MSET and the arming line $L_ARM (want 1, the our-board one at $L_OURSOFF)"
+  fail "#5033: $n_off disarm line(s) between the marker line $L_MSET and the arming line $L_ARM (want 0)"
 fi
 P=$(free_port); H=$(home refuseours); export PORT=$P
-run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
+LOG_DIR="$H" run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos" stop --force
 '"$MARKSET"'
-'"$OURSOFF"'
 '"$OURSDIE"
-if [ -n "$L_OURSOFF" ] && [ "$(sed -n "$((L_OURSOFF - 1))p" "$SETUP")" = '      if [ "$_ourboard" = yes ]; then' ] \
-   && [ "$L_OURSOFF" -lt "$L_OURS" ] && [ -e "$H/board.stopped" ] && grep -q "could not be paused" "$H/err"; then
-  pass "#5033: the our-board refusal takes nothing back (disarmed on the first line of its branch)"
+if [ ! -e "$H/board.stopped" ] && [ ! -e "$H/board.pid" ] && grep -q "could not be paused" "$H/err"; then
+  pass "#5033: the our-board refusal takes back the marker, starts nothing, and says why"
 else
-  fail "#5033: the our-board refusal: disarm line $L_OURSOFF, die $L_OURS, marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), err: $(cat "$H/err")"
+  fail "#5033: the our-board refusal: marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), board.pid $( [ -e "$H/board.pid" ] && echo present || echo absent ), err: $(cat "$H/err")"
 fi
 
 # 5b. CONTROL: the person had stopped the board before the run: the same refusal keeps their board.stopped.
@@ -411,8 +405,8 @@ for kind in app kosmos; do
   fi
   stop_other "$H"
 done
-# Our own board still running after a stop that could not kill it: the our-board refusal, routed. The stand-in stop
-# leaves the board up and a marker that is not ours (as the real one takes its own back): it is kept.
+# Our own board answering after our stop wrote a marker (the launchd-restart gap): the our-board refusal, routed. The
+# stand-in stop leaves the board up and writes the marker; it is taken back and nothing new is started.
 P=$(free_port); H=$(home routeours); export PORT=$P
 "$H/bin/kosmos" start
 cat > "$H/bin/kosmos.stop" <<'EOS'
@@ -423,8 +417,8 @@ chmod +x "$H/bin/kosmos.stop"
 LOG_DIR="$H" run "$H" "$P" '"$KOSMOS_HOME/bin/kosmos.stop"
 '"$MARKSET"'
 '"$ROUTE"
-if [ -e "$H/board.stopped" ] && grep -q "could not be paused" "$H/err"; then
-  pass "#5033: routed: our board that would not pause keeps a marker that is not ours"
+if [ ! -e "$H/board.stopped" ] && answers "$P" && grep -q "could not be paused" "$H/err"; then
+  pass "#5033: routed: our board that would not pause loses the marker and keeps running"
 else
   fail "#5033: routed ours: marker $( [ -e "$H/board.stopped" ] && echo kept || echo gone ), err: $(cat "$H/err")"
 fi
