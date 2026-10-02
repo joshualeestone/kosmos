@@ -237,4 +237,10 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   in the weakest premise). NIT taken: readerTmux's comment is back above readerTmux. LEFT NITs: ownTmux in a checkout
   names a sibling of the repo (skipped when absent); the supervisor's PATH order differs from its plist's after a
   switch (decided, round 6); a wall at the end of a run is not retried (the next launch retires the token).
+- Round 19 (opus): NITs only. CONVERGED. The reviewer measured on private sockets: 3.5a has-session against a 3.6a
+  server answers "server exited unexpectedly" rc 1 (the end-of-run guard's premise), a stale socket answers "no server
+  running", and #{version} through 3.6a reports a 3.5a server's own version. LEFT NITs: the gone branch's comments say
+  "none running" where the branch also covers a server nothing here can read (same outcome); attachTmux stats a bare
+  "tmux" name against the cwd (harmless: a directory there); LAST_LOOK_PROBLEM and the version cache are not reset
+  between tests (each test sets what it reads).
 
