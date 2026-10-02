@@ -69,7 +69,7 @@ trap 'rm -f "$PTMP"' EXIT   # a signal between mktemp and the rename must not le
 # of it then leaves /setup as it is, loudly.
 KEEP_SETUP=""
 if [ -f "$SITE/dist/latest-staging.json" ]; then
-  KEEP_SETUP="$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(p.version===process.argv[2]&&p.artifact===process.argv[3]&&/^[0-9a-f]{64}$/.test(p.setup_sha256||""))process.stdout.write(p.setup_sha256)}catch{}' "$SITE/dist/latest-staging.json" "$V" "$ARTIFACT" 2>/dev/null || true)"
+  KEEP_SETUP="$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(p.version===process.argv[2]&&p.artifact===process.argv[3]&&p.sha256===process.argv[4]&&/^[0-9a-f]{64}$/.test(p.setup_sha256||""))process.stdout.write(p.setup_sha256)}catch{}' "$SITE/dist/latest-staging.json" "$V" "$ARTIFACT" "$SHA" 2>/dev/null || true)"
 fi
 KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$MANIFEST" KM_LJ_SETUP_SHA="$KEEP_SETUP" \
   node "$POINTER_WRITER" "$PTMP" \
