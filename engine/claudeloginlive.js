@@ -6,8 +6,8 @@
  * `claudeAiOauth.refreshTokenExpiresAt`, from the same keychain entry Claude Code uses, through loginexpiry
  * (which returns only that number and never a token). When `claude auth status` says signed in, this date is
  * still ahead and no rejection has been recorded, the row carries the date and the page shows a calm neutral
- * "Signed in · login good until <date>" (Liu Kang's ruling C on #3997): neither amber, which reads as broken, nor
- * green, which Josh's rule reserves for an answer from Anthropic (#874/#1921). It never renews or rotates a token.
+ * "Signed in · login good until <date>". Ruling C (09-28) drew that neutral and grey; Josh's ruling A (10-02) makes it
+ * green (GREEN_FROM_LOGIN below). It never renews or rotates a token.
  *
  * WHICH ENTRY: the one `claude auth status` reads for the same row (engine/accounts.js listLiveNow): the
  * default account with CLAUDE_CONFIG_DIR UNSET (the bare entry), any other account with it set to its folder.
@@ -20,9 +20,12 @@
 const loginexpiry = require('./loginexpiry');
 const { OUTCOME } = require('./observed');
 
-// Off by ruling C. Josh can turn it on if he overrules his own green rule: an idle account with a good login would
-// then show green instead of the neutral state.
-const GREEN_FROM_LOGIN = false;
+// ON since 2026-10-02 (kosmos#3997, ruling A). Josh, testing 0.7.17: "claude continues to be the only one that will not
+// show in green that I am signed in." A signed-in Claude account whose login is valid and unexpired shows green, like
+// the other providers, without spending a `claude -p` turn to earn it; his older rule (green only from an answer,
+// #874/#1921) is superseded for this case. A real failure still wins: loginGood is false for an expired login, a
+// signed-out `claude auth status`, or any rejection on record, so those rows stay non-green with their reason.
+const GREEN_FROM_LOGIN = true;
 const CACHE_MS = 60 * 1000;
 const MISS_CACHE_MS = 10 * 60 * 1000;
 const READ_BUDGET_MS = 750;

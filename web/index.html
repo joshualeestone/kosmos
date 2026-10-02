@@ -25249,10 +25249,12 @@ async function paintAccounts(opts) {
     const loginDate = loginUntil ? new Date(loginUntil).toLocaleDateString(undefined, new Date(loginUntil).getFullYear() === new Date().getFullYear()
       ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' }) : '';
     const loginOkWhy = loginDate ? 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. It turns green the first time an agent uses it, or when you press Check now.' : '';
+    /* #3997 ruling A (Josh, 10-02): the server's switch is on, so a good login is green. Its title says what the green
+       rests on, the sign-in itself, and that Check now asks Anthropic directly; not "turns green later", which it is. */
+    const loginGreenWhy = loginDate ? 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. Press Check now to ask Anthropic directly.' : '';
     let connBadge;
     if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
-      // Only with the server's switch on (Josh's call): the same words, in green.
-      connBadge = '<span class="acct-connected" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+      connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
       connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'working') {
