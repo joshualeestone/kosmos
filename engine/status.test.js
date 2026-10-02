@@ -5975,7 +5975,7 @@ function withEnv(vars, fn) {
   finally { for (const k of keys) { if (was[k] === undefined) delete process.env[k]; else process.env[k] = was[k]; } }
 }
 function seams(status, launcher, cands) { status.setLauncherTmux(launcher); status.setTmuxCandidates(cands); }
-function unseam(status) { status.setLauncherTmux(undefined); status.setTmuxCandidates(null); }
+function unseam(status) { status.setLauncherTmux(undefined); status.setTmuxCandidates(null); status.setOwnTmux(null); }
 
 test('#2955: at the version wall the board switches to a tmux that can list the server, PATH included', () => {
   const status = require('./status');
@@ -6049,8 +6049,9 @@ test('#2955: Kosmos\'s own tmux is always a candidate, so the board follows a se
     fs.writeFileSync(own, '#!/bin/sh\nexit 0\n'); fs.chmodSync(own, 0o755);
     // A board whose launcher picked Homebrew's (here m.reader, which now meets the wall): only Kosmos's own can list.
     fs.writeFileSync(m.reader, '#!/bin/sh\necho "server exited unexpectedly" >&2; exit 1\n');
-    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.reader, KOSMOS_HOME: home, TMUX_TMPDIR: m.sock }, () => {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
       seams(status, m.reader, []);
+      status.setOwnTmux(own);   // the installed derivation is pinned on its own below; here it is where the fake lives
       assert.equal(status.tmuxRepick(), true, 'the board could not follow the server to Kosmos\'s own tmux');
       assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, own);
       fs.writeFileSync(own, '#!/bin/sh\necho "server exited unexpectedly" >&2; exit 1\n');
@@ -6108,3 +6109,13 @@ test('#2955: a new agent bakes the launcher\'s pick, not a tmux the board switch
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
+test('#2955: with no seam, the board finds Kosmos\'s own tmux two directories above this engine (the installed layout)', () => {
+  /* status.js is <KOSMOS_HOME>/app/engine/status.js in an install; the bundle is <KOSMOS_HOME>/tmux/bin/tmux. The
+     launcher does not export KOSMOS_HOME, so nothing else could name it. */
+  const status = require('./status');
+  assert.equal(status.ownTmux(), nodePath.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'));
+  const setup = fs.readFileSync(nodePath.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  assert.match(setup, /\$KOSMOS_HOME\/app\/engine\//, 'the app is no longer installed at <home>/app/engine');
+  assert.match(setup, /\$KOSMOS_HOME\/tmux\/bin\/tmux/, 'the bundle is no longer installed at <home>/tmux/bin/tmux');
+});
+

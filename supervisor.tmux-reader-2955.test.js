@@ -39,14 +39,17 @@ function sandbox() {
   };
 }
 /** TMUX_BIN and PATH after the reader, from a baked tmux and a list of known places. */
-function run(baked, known, own, noSocket) {
+function run(baked, known, own, noSocket, scriptPath) {
   const script = `say() { :; }\nSESSION=a\nTMUX_BIN=${JSON.stringify(baked)}\n${fn()}\n_kosmos_supervisor_tmux\nprintf '%s\\n%s' "$TMUX_BIN" "$PATH"`;
   // Hermetic: an empty directory first and /bin (no tmux on any runner), so `command -v tmux` finds nothing real.
   const empty = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'supreader-path-'));
   // A socket on disk, as on Agent1s: 3.5a's wall words mean the wall only with one (with none they are its serverless voice).
   const sock = nodePath.join(empty, 'sock');
   if (!noSocket) { fs.mkdirSync(nodePath.join(sock, 'tmux-' + process.getuid()), { recursive: true }); fs.writeFileSync(nodePath.join(sock, 'tmux-' + process.getuid(), 'default'), ''); }
-  const out = execFileSync('/bin/bash', ['-c', script], { encoding: 'utf8', env: { PATH: `${empty}:/bin:/usr/bin`, TMUX_TMPDIR: sock, KOSMOS_TMUX_KNOWN: known.join(' '), KOSMOS_TMUX_OWN: own || nodePath.join(empty, 'no-own-tmux') } });
+  const env = { PATH: `${empty}:/bin:/usr/bin`, TMUX_TMPDIR: sock, KOSMOS_TMUX_KNOWN: known.join(' ') };
+  if (own !== 'real') env.KOSMOS_TMUX_OWN = own || nodePath.join(empty, 'no-own-tmux');
+  // $0 is the script's path, as under launchd (bash -c script NAME sets it).
+  const out = execFileSync('/bin/bash', ['-c', script, scriptPath || nodePath.join(empty, 'agent-supervisor.sh')], { encoding: 'utf8', env });
   fs.rmSync(empty, { recursive: true, force: true });
   const [bin, p] = out.split('\n');
   return { bin, path: p };
@@ -79,5 +82,29 @@ test('#2955: with no socket on disk, 3.5a\'s serverless words start no search (a
   assert.equal(run(t.wall, [t.lists], null, true).bin, t.wall, 'a clean Mac searched for and switched to another tmux');
   assert.equal(run(t.mismatch, [t.lists], null, true).bin, t.lists, 'the explicit protocol-mismatch wording needs no socket check');
   fs.rmSync(t.sb, { recursive: true, force: true });
+});
+test('#2955: with no seam, the installed supervisor finds Kosmos\'s own tmux through the engine-path pointer', () => {
+  /* The layout as installed (measured on Agent1s): the copy that runs is Application Support/Kosmos/bin/agent-
+     supervisor.sh with engine-path beside it naming <KOSMOS_HOME>/app/engine; the bundle is <KOSMOS_HOME>/tmux/bin/tmux.
+     No KOSMOS_TMUX_OWN: this is the derivation production uses. */
+  const t = sandbox();
+  const supDir = nodePath.join(t.sb, 'support', 'bin');
+  const home = nodePath.join(t.sb, 'kosmos');
+  fs.mkdirSync(supDir, { recursive: true });
+  fs.mkdirSync(nodePath.join(home, 'app', 'engine'), { recursive: true });
+  fs.mkdirSync(nodePath.join(home, 'tmux', 'bin'), { recursive: true });
+  const bundled = nodePath.join(home, 'tmux', 'bin', 'tmux');
+  fs.writeFileSync(bundled, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bundled, 0o755);
+  fs.writeFileSync(nodePath.join(supDir, 'engine-path'), nodePath.join(home, 'app', 'engine') + '\n');
+  const r = run(t.wall, [], 'real', false, nodePath.join(supDir, 'agent-supervisor.sh'));
+  assert.equal(nodePath.resolve(r.bin), bundled, 'the installed supervisor could not find Kosmos\'s own tmux');
+  fs.rmSync(nodePath.join(supDir, 'engine-path'));
+  assert.equal(run(t.wall, [], 'real', false, nodePath.join(supDir, 'agent-supervisor.sh')).bin, t.wall, 'control: with no pointer and nothing beside the script, nothing is found');
+  fs.rmSync(t.sb, { recursive: true, force: true });
+});
+test('#2955: the pointer the supervisor reads is the engine directory (what create.js writes)', () => {
+  const create = fs.readFileSync(nodePath.join(__dirname, 'engine', 'create.js'), 'utf8');
+  assert.match(create, /const ptrDest = path\.join\(path\.dirname\(dest\), 'engine-path'\);[\s\S]{0,200}fs\.writeFileSync\(ptrStaging, `\$\{__dirname\}\\n`\);/,
+    'engine-path no longer names the engine directory, so <it>/../../tmux/bin/tmux is not Kosmos\'s own tmux');
 });
 

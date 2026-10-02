@@ -84,21 +84,31 @@ _kosmos_supervisor_tmux() {
   case "$_said" in
     *"protocol version mismatch"*) ;;
     # The bundled 3.5a says these same words with NO server at all (it spawns one that exits at once). Only with a
-    # socket on disk are they the wall, the rule engine/status.js tmuxSaidNoServer follows, so a clean Mac searches
-    # for nothing at every agent start.
+    # socket on disk are they the wall, as in engine/status.js tmuxSaidNoServer, so a clean Mac searches for nothing at
+    # every agent start. One difference: status.js reads an unreadable socket directory as "could not check", while
+    # [ -e ] reads it as absent; here that only means no search and the baked path stays, the conservative side.
     *"server exited unexpectedly"*) [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ] || return 0 ;;
     *) return 0 ;;
   esac
-  # Kosmos's own tmux is always a candidate (this script lives in <kosmos home>/bin), so a job baked with another tmux
-  # follows a server back to it. KOSMOS_TMUX_OWN is a harness seam only.
-  _own="${KOSMOS_TMUX_OWN-${0%/*}/../tmux/bin/tmux}"
+  # Kosmos's own tmux is always a candidate, so a job baked with another tmux follows a server back to it. The copy
+  # that runs lives in Application Support/Kosmos/bin with nothing else (see resolve_token_engine): the app is found
+  # through the engine-path pointer the board writes beside it (<KOSMOS_HOME>/app/engine), and the bundle is
+  # <KOSMOS_HOME>/tmux/bin/tmux. In a checkout or the bundle, beside this script's app. KOSMOS_TMUX_OWN: harness only.
+  _own="${KOSMOS_TMUX_OWN-}"
+  if [ -z "$_own" ]; then
+    local _ptr _engdir=""
+    _ptr="${0%/*}/engine-path"
+    if [ -f "$_ptr" ]; then IFS= read -r _engdir < "$_ptr" || true; fi
+    if [ -n "$_engdir" ]; then _own="$_engdir/../../tmux/bin/tmux"; else _own="${0%/*}/../tmux/bin/tmux"; fi
+  fi
   for _cand in "$(command -v tmux 2>/dev/null || true)" ${KOSMOS_TMUX_KNOWN-/opt/homebrew/bin/tmux /usr/local/bin/tmux} "$_own"; do
     [ -n "$_cand" ] && [ "$_cand" != "$TMUX_BIN" ] && [ -f "$_cand" ] && [ -x "$_cand" ] || continue
     if "$_cand" list-sessions >/dev/null 2>&1; then
       say "$SESSION: this computer's tmux server belongs to a different version than $TMUX_BIN; using $_cand, which can read it (#2955)"
       TMUX_BIN="$_cand"
-      # This supervisor's own later tmux calls, and the -e PATH it builds for some runners' panes. A pane on an existing
-      # server otherwise takes that server's environment, not this one.
+      # This supervisor's own later tmux calls, and the -e PATH it builds for some runners' panes (a pane on an existing
+      # server otherwise takes that server's environment). It moves the whole directory ahead, Homebrew's node and the
+      # rest included, as install/kosmos does at launch when a system tmux wins.
       PATH="${_cand%/*}:$PATH"; export PATH
       return 0
     fi

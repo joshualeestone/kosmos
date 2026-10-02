@@ -521,6 +521,11 @@ let TMUX_CANDIDATES_SEAM = null;
 let TMUX_REPICK_MISSED_AT = 0;
 let TMUX_LAST_SEARCH = 'none';   // 'none' | 'not-allowed' | 'waiting' | 'found-nothing': for the detail line
 const TMUX_REPICK_WAIT_MS = 60000;
+/** Kosmos's own tmux, where the install lays it: this file is <KOSMOS_HOME>/app/engine/status.js and the bundle is
+    <KOSMOS_HOME>/tmux/bin/tmux. The launcher does not export KOSMOS_HOME and the board's launchd job does not carry it,
+    so the path comes from where this file is (in a checkout it names nothing, and is skipped). */
+let TMUX_OWN_SEAM = null;
+function ownTmux() { return TMUX_OWN_SEAM || path.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'); }
 /** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher), AND only
     while the live value is still that pick or one this module switched to itself: an explicit value set later in
     the process (a harness that loaded this module first) is a choice, whatever the environment said at load. */
@@ -537,8 +542,7 @@ function tmuxRepick() {
   const known = process.env.KOSMOS_TMUX_KNOWN !== undefined
     ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
     : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
-  const own = process.env.KOSMOS_HOME ? [path.join(process.env.KOSMOS_HOME, 'tmux', 'bin', 'tmux')] : [];
-  const cands = (TMUX_CANDIDATES_SEAM || known).concat(own, launcherTmux());   // launcherTmux() is non-null here
+  const cands = (TMUX_CANDIDATES_SEAM || known).concat(ownTmux(), launcherTmux());   // launcherTmux() is non-null here
   for (const c of cands) {
     if (!c || c === current) continue;
     try { if (!fs.statSync(c).isFile()) continue; } catch { continue; }
@@ -548,7 +552,9 @@ function tmuxRepick() {
       TMUX_SWITCHED_TO = c;
       TMUX_REPICK_MISSED_AT = 0;
       TMUX_LAST_SEARCH = 'none';
-      // First on PATH, once: a board that switches back and forth must not grow PATH without end.
+      /* First on PATH, once, so a bare `tmux` agrees; a board that switches back and forth must not grow PATH without
+         end. ⚠️ It moves the WHOLE directory ahead (with Homebrew's: its node, git and the rest) for processes spawned
+         after the switch, as install/kosmos does at launch when a system tmux wins. */
       const dirs = String(process.env.PATH || '').split(path.delimiter).filter((d) => d && d !== path.dirname(c));
       process.env.PATH = [path.dirname(c)].concat(dirs).join(path.delimiter);
       try { console.error(`[status] #2955: this computer's tmux server belongs to a different version than ${current}; reading through ${c}, which can`); } catch { /* no console */ }
@@ -8384,7 +8390,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, launcherTmux, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; }, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor, tmuxRepick, tmuxPanes, launcherTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
