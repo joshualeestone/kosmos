@@ -23,14 +23,17 @@ it twice. Rejected for those reasons; reopen if the adopt screen is ever dropped
    (KOSMOS_TMUX_BIN_PICKED=1) AND the value the launcher recorded beside it (KOSMOS_TMUX_BIN_PICKED_AS, new in
    install/kosmos) must agree with AGENT_WORKFORCE_TMUX_BIN, so an explicit choice (a harness stub, a sandbox's inert
    tmux, a person's, or a harness in an agent's pane over an inherited marker) is never replaced. Kosmos's own tmux
-   (<KOSMOS_HOME>/tmux/bin/tmux) and the launcher's pick are always candidates, so the board follows a server back.
+   and the launcher's pick are always candidates, so the board follows a server back. Kosmos's own is found from where
+   status.js is installed (<KOSMOS_HOME>/app/engine, two directories below <KOSMOS_HOME>/tmux/bin/tmux): the launcher
+   does not export KOSMOS_HOME and the board's launchd job does not carry it.
    A search that found nothing waits a minute before it runs again. PATH gets the directory first once, never twice.
 1b. engine/create.js binPaths: a NEW agent bakes the launcher's pick, not a tmux the board switched to; its supervisor
    switches at start if the wall is still there, and a removed or upgraded Homebrew tmux cannot strand it. An existing
    agent's plist rewrite passes its own baked path to plistFor and is not touched.
 2. bin/agent-supervisor.sh `_kosmos_supervisor_tmux`: the same rule, at each start of an agent's job, before its first
-   look: if the baked tmux meets the wall, the first tmux on PATH, in the known places, or Kosmos's own (beside this
-   script) that can LIST the server wins, and goes first on the supervisor's PATH (its own later calls, and the -e PATH
+   look: if the baked tmux meets the wall, the first tmux on PATH, in the known places, or Kosmos's own that can LIST the server
+   wins (Kosmos's own found through the engine-path pointer the board writes beside the installed supervisor, which
+   lives in Application Support with nothing else, measured on Agent1s), and goes first on the supervisor's PATH (its own later calls, and the -e PATH
    it builds for some runners' panes). Plists are never rewritten, so this is where an old
    agent's choice can be made.
 3. engine/status.js `lookProblemFor`: at the wall the detail line says a different version may be running the sessions,
@@ -95,4 +98,16 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   follows each change of owner, so it can switch more than once. NITs taken: create.js's helper sits above binPaths's
   doc comment, not between it and binPaths, and says a load failure instead of swallowing it; the plan's test count
   says what was actually run. LEFT NIT: $0 without a slash in a manual run (the derived path is skipped, harmless).
+- Round 5 (opus): FIXED B: "Kosmos's own tmux is always a candidate" was false in every install: the board built it
+  from KOSMOS_HOME (never exported, not in the board's launchd job) and the supervisor from beside its own script (in
+  Application Support, with nothing else); my tests passed only through seams production never sets. Now the board
+  derives it from where status.js is installed and the supervisor from the engine-path pointer the board writes beside
+  it, both measured on Agent1s (engine-path names ~/.local/share/kosmos/app/engine; two up is tmux/bin/tmux). New tests
+  use those derivations with no seam (the installed supervisor layout in a sandbox, with a no-pointer control; the
+  board's formula and the setup.sh layout it rests on; create.js writing the engine directory into engine-path); each
+  derivation reddened alone. FIXED W: the PATH comments say the whole directory moves ahead (Homebrew's node with it),
+  as the launcher already does. FIXED W: the supervisor's socket check comment said it shares status.js's rule; it says
+  where they differ (EACCES) and that the difference is the conservative side. FIXED W: the test seams reset the last
+  search state too. LEFT NITs: a symlinked and a resolved path to one tmux are two candidates (one wasted probe); a
+  stale socket file with a 3.5a client reads as "may be a different version" (hedged).
 
