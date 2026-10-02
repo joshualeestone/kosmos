@@ -50,11 +50,11 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   const body = PAGE.replace(/<!--[\s\S]*?-->/g, '');
   assert.match(body, /<select id="rolesel"><\/select>\s*<p class="rolelimit" id="pick-limit" hidden><\/p>/);
   const at = SCRIPT.indexOf('function paintPickLimit'); const fn = SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 3);
-  const run = (picked, hidden, caution) => {
+  const run = (picked, hidden, caution, path) => {
     const line = { textContent: '', hidden: undefined };
     const document = { getElementById: (id) => (id === 'pick-limit' ? line : { hidden }) };
     // eslint-disable-next-line no-new-func
-    new Function('document', 'PICKED', 'roleByKey', fn + '\npaintPickLimit();')(document, picked, () => ({ caution }));
+    new Function('document', 'PICKED', 'roleByKey', 'CREATE_PATH', fn + '\npaintPickLimit();')(document, picked, () => ({ caution }), path);
     return line;
   };
   const ea = run('ea', false, 'It never sends anything.');
@@ -62,7 +62,43 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   assert.equal(run('bk', false, null).hidden, true, 'a role with no limit draws a line');
   assert.equal(run('ea', true, 'It never sends anything.').hidden, true, 'the line shows while the dropdown is closed');
   assert.equal(run('own', false, 'x').hidden, true, 'describe-it-yourself has no limit to say');
+  // #4871: on the swarm path the operational line goes (Josh 10-01); a professional-advice disclaimer stays (Josh 08-10).
+  const om = 'It drafts customer messages and plans; nothing goes out without the owner.';
+  assert.equal(run('officemanager', false, om, 'swarm').hidden, true, 'the swarm path still shows an operational line under the menu');
+  assert.equal(run('officemanager', false, om, 'single').hidden, false, 'the single-agent path lost its line');
+  // Every built-in role's caution, through the real function: one that disclaims professional advice survives the
+  // swarm path; the single path keeps every one.
+  const roles = require('./engine/roles');
+  const builtin = (roles.ROLES || []).filter((r) => r.caution);
+  assert.ok(builtin.length >= 3, 'the built-in roles carry no cautions to check');
+  for (const r of builtin) assert.equal(run(r.key, false, r.caution, 'single').hidden, false, 'single path hid ' + r.key);
+  // The built-in disclaimers by name, not by a copy of the pattern: each must survive the swarm path.
+  for (const key of ['legal', 'finance', 'books']) {
+    const r = builtin.find((x) => x.key === key);
+    assert.ok(r, 'the built-in ' + key + ' role lost its caution');
+    assert.equal(run(key, false, r.caution, 'swarm').hidden, false, 'swarm path hid the disclaimer of ' + key);
+  }
+  // ACCEPTED, so it is a decision and not an accident: an operational line that names a professional word is KEPT on
+  // the swarm path. A wrong keep shows one sentence too many; a wrong hide would break the 08-10 condition.
+  assert.equal(run('x', false, 'It tracks tax deadlines; nothing is filed without the owner.', 'swarm').hidden, false);
+  for (const c of ['Not a lawyer, and not legal advice. It drafts and explains.', 'Not financial advice. It records and reconciles.',
+    'It is not medical advice.', 'It organises paperwork; it is not tax advice.', 'It is not an accountant or a financial adviser.',
+    'It organizes care; it never gives veterinary advice.', 'It is not a doctor.', 'It is not a therapist.',
+    'It is not legal counsel.', 'It is not a financial planner.', 'It never diagnoses anything.', 'It is not a CPA.',
+    'It does not replace lawyers or doctors.', 'It gives no advice on taxes.', 'It is not a licensed professional.', 'It is not a nurse.',
+    'It is not an advisory service.', 'It is not legally binding.', 'It is not a counselor.', 'It does not practise medicine.', 'It is not therapy.']) {
+    const l = run('x', false, c, 'swarm');
+    assert.equal(l.hidden, false, 'a professional-advice disclaimer was hidden on the swarm path: ' + c); assert.equal(l.textContent, c);
+  }
   assert.match(SCRIPT, /PICKED = document\.getElementById\('rolesel'\)\.value;\n  paintPickLimit\(\);/);
+  // #4871: repainting the path's options repaints the line, so the swarm rule does not wait on a later loadRoles paint.
+  assert.match(SCRIPT, /paintTeamOrgchartNote\(\);\n  paintPickLimit\(\);[^\n]*\n\}/, 'paintPathOptions no longer repaints the line under the menu');
+  // #4871 review: a superseded roles answer that keeps the old menu keeps the old line under it too.
+  const kc = SCRIPT.slice(SCRIPT.indexOf('const keepChoice = () => {'), SCRIPT.indexOf('if (chosen) sel.value = chosen;'));
+  assert.ok(kc.length > 0 && kc.indexOf('oldLimit = limit.textContent') < kc.indexOf('paintPathOptions()'),
+    'keepChoice no longer saves the line before repainting');
+  assert.match(kc, /sel\.innerHTML = oldHtml; sel\.dataset\.menu = oldSig;\n\s*limit\.textContent = oldLimit; limit\.hidden = oldLimitHidden;/,
+    'keepChoice puts the old menu back without its line');
   assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing;\n  paintPickLimit\(\);\n\}/);   // #4556: the org chart moved to the Team screen
 });
 
