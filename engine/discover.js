@@ -258,18 +258,20 @@ function alreadyIn(dir, roster) {
   const create = require('./create');
   const store = require('./store');
   const name = path.basename(String(dir || ''));
+  /* #4896: recorded under ANY name is in, so the list does not offer a folder connect would refuse. Asked first,
+     because a basename that is not a usable name (review 3) can still be a folder another, typed, name records. An
+     unreadable profile list leaves it offered (connect itself refuses that case with its reason). */
+  try {
+    const taken = dir ? folderTakenBy(String(dir), name || null, { store }) : null;
+    if (taken && taken.ok && taken.other) return true;
+  } catch { /* no record is not a reason to hide it */ }
   if (!name || !create.nameUsable(name)) return false;
   try { if (create.hasJob(name)) return true; } catch { /* ask the other one */ }
   try {
     const p = store.readProfile(name);
     if (p && p.dir && p.dir === dir) return true;
   } catch { /* no record is not a reason to hide it */ }
-  /* #4896: recorded under ANY name is in, so the list does not offer a folder connect would now refuse. An
-     unreadable profile list leaves it offered (connect itself refuses that case with its reason). */
-  try {
-    const taken = folderTakenBy(dir, name, { store });
-    if (taken.ok && taken.other) return true;
-  } catch { /* no record is not a reason to hide it */ }
+
   if (runningUnderName(name, roster)) return true;
   return false;
 }
@@ -1600,25 +1602,43 @@ function scan(opts) {
  * blind is the failure and the refusal is not.
  */
 function folderTakenBy(dir, name, { store }) {
-  const listed = require('./register').known();
-  if (!listed.ok) return { ok: false, other: null };
-  /* Review 2: a REMOVED agent's profile outlives the removal (remove.js does not clear `dir`), so without this a
-     folder whose agent was removed could never be added again under a new name, and the refusal would name an agent
-     that is gone. Gone means the board's own test (remove.hidesCard), the one every card surface asks. */
-  let gone = new Set();
+  /* Review 3: EVERY profile file, read directly. register.known() filters names through NAME_RE, and the folder-only
+     path writes names that fail it (a one-letter typed name), so those claims were invisible. */
+  let files;
+  try { files = fs.readdirSync(store.PROFILES); } catch (err) {
+    if (err && err.code === 'ENOENT') return { ok: true, other: null };   // nothing has ever been recorded
+    return { ok: false, other: null };
+  }
+  /* Review 3: the name compared as its FILE KEY (safeKey lowercases and strips spaces), or "Casey Jones" refuses its
+     own folder on a retry. */
+  const keyOf = (n) => { try { return store.profileFileName(n); } catch { return null; } };
+  const self = name ? keyOf(name) : null;
+  /* Review 2, narrowed by review 3: a removed agent frees its folder only when it actually STOPPED. hidesCard is the
+     wrong test: it is also true for a card cleared while its session was deliberately left running
+     (leftRunningByChoice), and that agent is still in the folder. stopped:false alone ("may be running") keeps the
+     claim too. Restoring a stopped one is refused while another name holds the folder (remove.restore). */
+  let stopped = new Set();
   try {
-    const removal = require('./remove');
-    gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
-  } catch { gone = new Set(); }
-  /* Review 2: one spelling per folder, so `/x/F/` and `/x/F` are the same folder. */
-  const same = (a) => typeof a === 'string' && a !== '' && path.resolve(a) === path.resolve(dir);
-  for (const other of listed.names) {
-    if (other === name || gone.has(other)) continue;
+    stopped = new Set(require('./remove').removedAgents().filter((r) => r && r.stopped !== false && !r.leftRunningByChoice)
+      .map((r) => keyOf(r.name)).filter(Boolean));
+  } catch { stopped = new Set(); }
+  const want = canonDir(dir);
+  for (const f of files) {
+    if (!f.endsWith('.json') || f === self || stopped.has(f)) continue;
     let p = null;
-    try { p = store.readProfile(other); } catch { p = null; }
-    if (p && same(p.dir)) return { ok: true, other: (typeof p.displayName === 'string' && p.displayName.trim()) || other };
+    try { p = JSON.parse(fs.readFileSync(path.join(store.PROFILES, f), 'utf8')); } catch { p = null; }
+    if (p && typeof p.dir === 'string' && p.dir && canonDir(p.dir) === want) {
+      return { ok: true, other: (typeof p.displayName === 'string' && p.displayName.trim()) || f.slice(0, -'.json'.length) };
+    }
   }
   return { ok: true, other: null };
+}
+/* Review 3: one spelling per folder. path.resolve alone missed a case variant (APFS is case-insensitive) and a
+   symlinked parent (/tmp is /private/tmp); realpath.native answers the canonical spelling. A folder that is gone
+   falls back to its resolved path. */
+function canonDir(d) {
+  const r = path.resolve(String(d));
+  try { return fs.realpathSync.native(r); } catch { return r; }
 }
 const FOLDER_UNREADABLE = 'we could not check which agents this computer already has, so we did not add it';
 const folderTakenSentence = (other) => 'that folder is already connected as ' + other + ', and one folder holds one agent';
@@ -2064,7 +2084,7 @@ function disconnect(name) {
   };
 }
 
-module.exports = { alreadyIn,
+module.exports = { alreadyIn, folderTakenBy,
   foundCodex,
   foundGemini,
   codexIdentity,

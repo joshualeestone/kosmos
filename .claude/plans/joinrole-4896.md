@@ -74,5 +74,24 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
 - NIT accepted, stated: alreadyIn now reads every profile per candidate folder: O(folders x agents) small JSON reads,
   roughly 10,000 for 200 folders x 50 agents per scan. Fine at today's sizes; hoist into a per-scan map if a scan is
   ever measured slow.
-- NIT accepted: register.known() filters names through NAME_RE; writeProfile never writes a name that fails it.
+- (RETRACTED by review 3: I wrote that writeProfile never writes a name failing NAME_RE. False: the folder-only path
+  writes a one-letter typed name. See below.)
 - NIT accepted: the unreadable-profiles arm self-skips when run as root (it cannot make the dir unreadable there).
+
+## Review 3 (23:10 CDT): 1 BLOCKER, 4 SHOULD-FIX, all MEASURED by the reviewer in a sandbox, all taken
+- BLOCKER: review 2's "gone" test was remove.hidesCard, which is ALSO true for a card cleared while its session was
+  deliberately left running (leftRunningByChoice). That freed a RUNNING agent's folder: a new name connected and
+  STARTED a second Claude in it. Now only a removal that actually stopped (stopped !== false, not leftRunningByChoice)
+  frees the folder; a partial removal (stopped:false) keeps the claim too.
+- Restore (remove.restoreInner) put two names back on one folder after a stopped removal's folder was taken. Now
+  refused: "<Ann>'s folder is now connected as <Bob>, and one folder holds one agent. Remove <Bob> first to restore
+  <Ann>." An unreadable profile list refuses too.
+- The self-exclusion compared the raw name with the FILE key (safeKey lowercases, strips spaces), so "Casey Jones"
+  refused its own folder on a retry, a regression against main. Now compared by store.profileFileName.
+- register.known() filters by NAME_RE, so a one-letter typed name's claim was invisible. folderTakenBy now reads
+  every *.json in the profiles folder directly.
+- path.resolve missed a case variant (APFS) and a symlinked parent (/tmp). canonDir uses fs.realpathSync.native,
+  falling back to path.resolve for a folder that is gone.
+- NIT (alreadyIn returned before the check when the basename is not a usable name): the any-name check now runs first.
+- Tests: 5 new arms, each asserting the one-folder REASON (not just ok:false, so no arm passes via another refusal);
+  all 5 red on the previous commit, green now. connect-agent, remove.test.js, member-roles green alongside (106/106).

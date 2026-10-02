@@ -1618,6 +1618,23 @@ function restoreInner(name, platform) {
     return { outcome: OUTCOME.REFUSED, because: `${shown} is not on the removed list.`, steps: [] };
   }
 
+  /* #4896 review 3: a stopped removal frees its folder, so another name may have been connected to it since.
+     Restoring now would put two agents on one folder: one instructions file, the same name and role on both, and two
+     Claudes in one worker folder. Refused, naming who holds it. An unreadable profile list refuses too. */
+  {
+    let dirNow = null;
+    try { dirNow = store.readProfile(clean).dir || null; } catch { dirNow = null; }
+    if (dirNow) {
+      const taken = require('./discover').folderTakenBy(dirNow, clean, { store });
+      if (!taken.ok) {
+        return { outcome: OUTCOME.REFUSED, because: `we could not check which agents use ${shown}'s folder, so we did not restore it. Try again in a moment.`, steps: [] };
+      }
+      if (taken.other) {
+        return { outcome: OUTCOME.REFUSED, because: `${shown}'s folder is now connected as ${taken.other}, and one folder holds one agent. Remove ${taken.other} first to restore ${shown}.`, steps: [] };
+      }
+    }
+  }
+
   /* #2609: the launch file points at the agent's ACCOUNT directory by absolute
      path (CLAUDE_CONFIG_DIR, or CODEX_HOME for a codex agent -- readJob folds
      both into `configDir`). If that account was deleted after the agent was

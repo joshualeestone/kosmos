@@ -25,6 +25,7 @@ create.setDryRun(true);
 const discover = require('./discover');
 const store = require('./store');
 const status = require('./status');
+const remove = require('./remove');
 
 test.after(() => { fs.rmSync(SB, { recursive: true, force: true }); });
 /* An empty board through the paneSource seam, as connect-agent.test.js does (#1794). */
@@ -108,4 +109,66 @@ test('#4896: profiles that cannot be read refuse the connect rather than add bli
     assert.equal(out.ok, false);
     assert.match(out.because, /could not check which agents this computer already has/);
   } finally { fs.chmodSync(profiles, 0o755); }
+});
+
+/* ---- review 3 ---- */
+const removedFile = () => path.join(store.ROOT, 'removed.json');
+function withRemoved(records, fn) {
+  fs.writeFileSync(removedFile(), JSON.stringify(records));
+  try { return fn(); } finally { fs.rmSync(removedFile(), { force: true }); }
+}
+
+test('#4896 r3: a card cleared while its session was LEFT RUNNING still holds its folder (it is still there)', () => {
+  const dir = folder('You are **Jo**, a planner.\n');
+  assert.equal(discover.connect(dir, { name: 'jo1' }).ok, true);
+  withRemoved([{ name: 'jo1', removedAt: new Date().toISOString(), stopped: false, leftRunningByChoice: true }], () => {
+    const b = discover.connect(dir, { name: 'jo2' });
+    assert.equal(b.ok, false, 'a second Claude was started in a running agent\'s folder');
+    assert.match(b.because, /already connected as Jo/);
+  });
+  withRemoved([{ name: 'jo1', removedAt: new Date().toISOString(), stopped: false }], () => {
+    assert.match(String(discover.connect(dir, { name: 'jo3' }).because || ''), /one folder holds one agent/, 'a partial removal (may be running) freed the folder');
+  });
+});
+
+test('#4896 r3: restoring a removed agent is refused while another name holds its folder', () => {
+  const dir = folder('You are **Kit**, a tester.\n');
+  assert.equal(discover.connect(dir, { name: 'kit1' }).ok, true);
+  withRemoved([{ name: 'kit1', removedAt: new Date().toISOString(), stopped: true }], () => {
+    assert.equal(discover.connect(dir, { name: 'kit2' }).ok, true, 'fixture: the stopped removal did not free the folder');
+    const back = remove.restore('kit1');
+    assert.equal(back.outcome, remove.OUTCOME.REFUSED, JSON.stringify(back));
+    assert.match(back.because, /folder is now connected as Kit, and one folder holds one agent/);
+  });
+});
+
+test('#4896 r3: a typed name that safeKey rewrites ("Casey Jones") can connect its own folder again', () => {
+  const dir = folder(null);
+  assert.equal(discover.connect(dir, { name: 'Casey Jones' }).ok, true);
+  const again = discover.connect(dir, { name: 'Casey Jones' });
+  assert.doesNotMatch(String(again.because || ''), /one folder holds one agent/, 'a name refused its own folder');
+});
+
+test('#4896 r3: a name outside NAME_RE (one letter) still holds its folder', () => {
+  const dir = folder(null);
+  assert.equal(discover.connect(dir, { name: 'Q' }).ok, true, 'fixture: the folder-only path refused a one-letter name');
+  const b = discover.connect(dir, { name: 'zed2' });
+  assert.equal(b.ok, false, 'a one-letter name\'s folder was given to a second name');
+  assert.match(b.because, /already connected as Q, and one folder holds one agent/);
+});
+
+test('#4896 r3: a case variant and a symlinked-parent spelling are the same folder', () => {
+  const real = fs.realpathSync(path.join(SB, 'theirs'));
+  const dir = path.join(real, 'CaseProj');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'You are **Lu**, a builder.\n');
+  assert.equal(discover.connect(dir, { name: 'lu1' }).ok, true);
+  const lower = path.join(real, 'caseproj');
+  if (fs.existsSync(lower)) {   // a case-insensitive volume (APFS default); on a case-sensitive one this is another folder
+    assert.match(String(discover.connect(lower, { name: 'lu2' }).because || ''), /already connected as Lu/, 'a case variant connected as a second agent');
+  }
+  const link = path.join(SB, 'link-to-theirs');
+  fs.symlinkSync(real, link);
+  const viaLink = path.join(link, 'CaseProj');
+  assert.match(String(discover.connect(viaLink, { name: 'lu3' }).because || ''), /already connected as Lu/, 'a spelling through a symlinked parent connected as a second agent');
 });
