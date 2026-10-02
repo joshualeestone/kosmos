@@ -183,15 +183,14 @@ function scanCacheInvalidate() { scanCache = { at: 0, result: null }; }
    deliberately never walks. It therefore needs its OWN cache: reusing scanCache would
    either leak the TCC roots into the auto poll or hide them from the import flow. Fresh
    within SCAN_CACHE_MS; a scan that throws yields null so callers refuse rather than read. */
-/* kosmos#2461: the cache now lives in engine/importscan.js, which also keeps the last COMPLETE scan
-   for IMPORT_OFFER_KEEP_MS so a file offered from Downloads/Documents/Desktop can still be added after
-   the 30 s cache has expired (a re-scan then comes back partial until the hatch answers again). */
-const IMPORT_OFFER_KEEP_MS = 15 * 60 * 1000;
+/* kosmos#2461: the cache now lives in engine/importscan.js, which also remembers every file any scan
+   offered, until a FULL scan no longer offers it. So a file the list showed from Downloads/Documents/
+   Desktop can still be added after the 30 s cache expires, when a re-scan comes back partial or without
+   those folders (the hatch's answer is consumed on read and must be asked for again). */
 const importScan = require('./engine/importscan').createImportScan({
   scan: () => discover.scan({ importScan: true }),
   now: () => Date.now(),
   cacheMs: SCAN_CACHE_MS,
-  keepMs: IMPORT_OFFER_KEEP_MS,
 });
 function getImportScan() { return importScan.get(); }
 const connect = require('./engine/connect');
@@ -13824,9 +13823,9 @@ const server = http.createServer(async (req, res) => {
      an intermediate directory swapped to a symlink after scan time would be followed. That
      is outside the threat model here -- loopback-only, board-token-gated, single-user home;
      anyone who can rename a directory in your home already runs as you.
-     kosmos#2461: membership now also honours a file the scan offered up to IMPORT_OFFER_KEEP_MS ago
-     (engine/importscan.js), so that residual window is up to 15 minutes rather than 30 s; the request's
-     path is still never trusted, and every guard below still runs. */
+     kosmos#2461: membership now also honours a file a scan offered earlier, until a FULL scan no longer
+     offers it (engine/importscan.js), so that residual window is no longer bounded by the 30 s cache. The
+     request's path is still never trusted, and every guard below still runs on every add. */
   if (pathname === '/api/agent-import-file' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -13843,7 +13842,7 @@ const server = http.createServer(async (req, res) => {
            lives in a TCC folder the auto scan never walks, so it would never be a member
            there. A scan that cannot run leaves `known` false, so the route refuses rather
            than reading. */
-        const known = importScan.known(file);   // kosmos#2461: also the last complete scan, while a re-scan is partial
+        const known = importScan.known(file);   // kosmos#2461: any file a scan offered, unless a FULL scan has since lacked it
         if (!known) {
           sendJson(res, 200, { ok: false, because: 'that file is not one we found on this computer to import' });
           return;

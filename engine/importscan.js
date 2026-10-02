@@ -16,28 +16,40 @@
    at MAX_IMPORTABLE (bounded.importable) can likewise lack a file that is still there. The panel never
    re-fetches the list after it paints, so the file is still on screen when it is refused.
 
-   THE FIX. Remember every file a scan OFFERED (partial, limited or full) and when, for keepMs. A file is a
-   member if the fresh scan offers it, or if it was offered within keepMs and the fresh scan cannot prove
-   it gone. Only a FULL scan proves a file gone: complete, every folder reached (no tccUnavailable), and
-   not cut off (no bounded.importable). A scan that cannot run refuses, as before. Membership still means
+   THE FIX. Remember every file a scan OFFERED (partial, limited or full). A file is a member if the fresh
+   scan offers it, or if it was offered before and no FULL scan has since lacked it. A FULL scan (complete,
+   every folder reached: no tccUnavailable, not cut off: no bounded.importable, and something walked)
+   forgets every remembered file it does not offer, so it is the one thing that proves a file gone. There
+   is NO time limit (review 2): the panel never re-fetches after it paints, so a list left open over lunch
+   must still add, and a window buys nothing, because every add re-runs the read guards below. A scan that
+   cannot run refuses, as before.
+   ⚠️ isFull trusts discover's flags, and through them the native hatch: a protected folder the hatch
+   could not read (contentsOfDirectory failing) is not flagged today (native-app/main.swift), so such a
+   scan counts as full and forgets that folder's offers. Accepted residual, stated rather than fixed here. Membership still means
    "a path our own scanner returned": the request's path is never trusted, and the add route's read-time
    guards (lstat, O_NOFOLLOW, regular file, size cap) are unchanged and still run, so an offered file that
    has since been deleted is refused there. */
 
 const MAX_REMEMBERED = 5000;   // offered files kept for membership; the oldest go first
 
-/* A scan that saw everything it could have offered: only such a scan can say a file is gone. */
+/* A scan that saw everything it could have offered: only such a scan can say a file is gone. `visited` > 0
+   rules out discover's walked-nothing early return (a sandbox it refuses to walk), which carries no flag. */
 function isFull(result) {
   const b = (result && result.bounded) || {};
-  return !!result && !result.scanning && b.tccUnavailable !== true && b.importable !== true;
+  return !!result && !result.scanning && b.tccUnavailable !== true && b.importable !== true
+    && typeof b.visited === 'number' && b.visited > 0;
 }
 
-function createImportScan({ scan, now, cacheMs, keepMs }) {
+function createImportScan({ scan, now, cacheMs }) {
   let cache = { at: 0, result: null };   // the complete scan served to callers for cacheMs
-  const offered = new Map();             // file -> when a scan last offered it (membership only)
+  const offered = new Map();             // file -> when a scan last offered it (membership only), oldest first
 
   function remember(result, t) {
     if (!result || !Array.isArray(result.importable)) return;
+    if (isFull(result)) {                // a full scan proves gone whatever it does not offer
+      const has = new Set(result.importable.map((c) => c && c.file));
+      for (const f of [...offered.keys()]) if (!has.has(f)) offered.delete(f);
+    }
     for (const c of result.importable) {
       if (!c || typeof c.file !== 'string' || !c.file) continue;
       offered.delete(c.file);            // re-insert, so the Map stays oldest-first
@@ -76,9 +88,9 @@ function createImportScan({ scan, now, cacheMs, keepMs }) {
     const fresh = get();
     if (offers(fresh, file)) return true;
     if (!fresh) return false;            // the scan could not run: refuse, as always
-    if (isFull(fresh)) return false;     // a scan that saw everything and lacks it: the file is gone
-    const at = offered.get(file);
-    return typeof at === 'number' && now() - at < keepMs;
+    /* No separate "a full scan lacks it" check here: get() just ran remember(), which forgets everything a
+       FULL scan does not offer, so `offered` already says so. */
+    return offered.has(file);
   }
 
   return { get, warm, known };

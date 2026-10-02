@@ -12,10 +12,10 @@ const { createImportScan } = require('./importscan');
 
 const DL = '/Users/p/Downloads/pip.md';        // a file only the hatch (a protected folder) can see
 const HOME = '/Users/p/agents/plain.agent.md'; // a file the plain roots see on every scan
-const COMPLETE = { scanning: false, importable: [{ file: DL }, { file: HOME }] };
+const COMPLETE = { scanning: false, bounded: { visited: 40 }, importable: [{ file: DL }, { file: HOME }] };
 const PARTIAL = { scanning: true, importable: [{ file: HOME }] };   // the hatch asked again, not answered yet
 const DL2 = '/Users/p/Downloads/second.md';
-const COMPLETE2 = { scanning: false, importable: [{ file: DL }, { file: DL2 }, { file: HOME }] };
+const COMPLETE2 = { scanning: false, bounded: { visited: 40 }, importable: [{ file: DL }, { file: DL2 }, { file: HOME }] };
 // discover's give-up: the hatch's answer went stale, so the scan is "complete" with none of those folders' rows
 const GAVE_UP = { scanning: false, bounded: { tccUnavailable: true }, importable: [{ file: HOME }] };
 // cut off at MAX_IMPORTABLE: a new plain-folder file pushed the Downloads ones past the cap
@@ -30,7 +30,6 @@ function rig(answers, opts) {
     scan: () => { calls.push(clock.t); const a = answers[Math.min(i++, answers.length - 1)]; if (a instanceof Error) throw a; return a; },
     now: () => clock.t,
     cacheMs: 30000,
-    keepMs: 15 * 60000,
   }, opts || {}));
   return { s, clock, calls };
 }
@@ -52,7 +51,7 @@ test('within the cache window the cached complete scan answers, with no new scan
 });
 
 test('a fresh FULL scan without the file is believed: the file is gone', () => {
-  const { s, clock } = rig([COMPLETE, { scanning: false, importable: [{ file: HOME }] }]);
+  const { s, clock } = rig([COMPLETE, { scanning: false, bounded: { visited: 40 }, importable: [{ file: HOME }] }]);
   s.get();
   clock.t += 45000;
   assert.equal(s.known(DL), false, 'an older offer does not bring back a deleted file');
@@ -65,12 +64,30 @@ test('a scan that cannot run refuses, as before, even with a complete scan remem
   assert.equal(s.known(DL), false);
 });
 
-test('the remembered complete scan expires after keepMs', () => {
+test('review 2: no time limit: a list left open over lunch still adds', () => {
   const { s, clock } = rig([COMPLETE, PARTIAL]);
   s.get();
-  clock.t += 15 * 60000 + 1;
-  assert.equal(s.known(DL), false, 'an offer older than the keep window is not honoured');
-  assert.equal(s.known(HOME), true, 'control: a file the partial scan itself has is still a member');
+  clock.t += 3 * 3600000;   // three hours, a closed lid included
+  assert.equal(s.known(DL), true, 'still on screen, still addable');
+  assert.equal(s.known(HOME), true, 'control: a file the partial scan itself has');
+});
+
+test('review 2: a full scan that lacks a file forgets it, so a later partial scan does not bring it back', () => {
+  const { s, clock } = rig([COMPLETE, { scanning: false, bounded: { visited: 40 }, importable: [{ file: HOME }] }, PARTIAL]);
+  s.get();
+  clock.t += 45000;
+  assert.equal(s.known(DL), false, 'the full scan proves it gone');
+  clock.t += 45000;
+  assert.equal(s.known(DL), false, 'and the partial scan after it does not revive the offer');
+});
+
+test('review 2: a scan that walked nothing (discover refused the sandbox) is not full', () => {
+  const { isFull } = require('./importscan');
+  assert.equal(isFull({ ok: true, candidates: [], importable: [], bounded: { depth: false, dirs: false, count: false, visited: 0, importable: false } }), false);
+  const { s, clock } = rig([COMPLETE, { ok: true, scanning: undefined, importable: [], bounded: { visited: 0, importable: false } }]);
+  s.get();
+  clock.t += 45000;
+  assert.equal(s.known(DL), true, 'nothing walked proves nothing gone');
 });
 
 test('a path no scan ever returned is never a member, partial or not', () => {
@@ -137,4 +154,28 @@ test('isFull: only complete, every folder reached, and not cut off', () => {
   assert.equal(isFull(GAVE_UP), false);
   assert.equal(isFull(CAPPED), false);
   assert.equal(isFull(null), false);
+});
+
+/* isFull against REAL discover.scan results, so a renamed or unfolded flag in discover reds here rather
+   than silently making a gave-up or capped scan "full" (review 2). The tcc root is handed to an injected
+   tccScan, as engine/discover.tccscan-2125b.test.js does. */
+test('isFull on real discover.scan results: gave-up, not ready, capped, and a clean control', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const discover = require('./discover');
+  const { isFull } = require('./importscan');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'importscan-2461-'));
+  try {
+    for (let i = 0; i < 3; i++) fs.writeFileSync(path.join(root, 'a' + i + '.agent.md'), 'You are Agent ' + i + ', a helper.\n');
+    const TCC = { dir: '/nonexistent/Downloads', maxDepth: 1, tcc: true };
+    const roots = [{ dir: root, maxDepth: 2 }, TCC];
+    const hatchOk = () => ({ dirs: [], loose: [{ file: '/Users/x/Downloads/sue.agent.md', head: 'You are Sue, an imported agent.' }], bounded: { dirs: false, importable: false, visited: 3 } });
+    const clean = discover.scan({ roots, tccScan: hatchOk });
+    assert.ok(clean.importable.length >= 4, 'control: the walk and the hatch both offered files');
+    assert.equal(isFull(clean), true, 'control: a clean scan is full');
+    assert.equal(isFull(discover.scan({ roots, tccScan: () => null })), false, 'the hatch not ready (partial)');
+    assert.equal(isFull(discover.scan({ roots, tccScan: () => ({ dirs: [], loose: [], bounded: { tccUnavailable: true } }) })), false, 'the hatch gave up');
+    assert.equal(isFull(discover.scan({ roots, tccScan: hatchOk, maxMdReads: 1 })), false, 'cut off by the read budget');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
