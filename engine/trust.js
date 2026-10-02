@@ -756,10 +756,13 @@ function dropRecordInner(name) {
  * only removes the interactive prompt for a decision already made -- and it is scoped to the
  * account's config dir (for a default-account agent, the operator's own ~/.claude/settings.json).
  *
- * #5039 (Josh 2026-10-02): it also sets SWITCH_KEY when absent. That one IS a new decision made for
- * the person: when Opus 5.5's safeguards flag a message, the agent continues on Opus 4.8 instead of
- * stopping on a modal nobody is watching. An explicit false is never overwritten, and it is the only
- * opt-out that lasts: a deleted key is written again at the next launch.
+ * #5039 (Josh 2026-10-02): it also sets SWITCH_KEY when absent. Unlike the bypass key, that IS a new
+ * decision made for the person: when Opus 5.5's safeguards flag a message, the agent continues on Opus
+ * 4.8 instead of stopping on a modal nobody is watching. For a default-account agent the file is the
+ * operator's own ~/.claude/settings.json, so their own Claude Code sessions switch too. An explicit
+ * false is never overwritten, and while Kosmos is installed it is the only opt-out that lasts: a
+ * deleted key is written again at the next Mac launch. (Windows' relaunch does not call this yet;
+ * see kosmos#5039.)
  *
  * Unlike trustFolder (which refuses to CREATE .claude.json, because that file holds session
  * state and creating it would fabricate a history), this CREATES settings.json if absent: a
