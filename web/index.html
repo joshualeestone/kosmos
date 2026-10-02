@@ -34860,6 +34860,22 @@ function dmPendingKept(rows, p) {
     && !(Date.parse(m.at) < p.startedAt - 60000));
 }
 
+/* #4256: a reply right under what it answers draws no header, nor one right under another answer to the same
+   message whose header was left out (the room's rule, #3745 round 27: the chain back to the original must be
+   unbroken). Not while searching, which hides the rows between. `rows[i]` is row i's answer; `next` is the
+   answer for one more row after them replying to `nextReplyTo` (#4944: the pending bubble). */
+function dmReplyAdjacency(rows, filtering, nextReplyTo) {
+  const adjacentTo = (prev, replyTo, prevHid) => !filtering && !!prev && typeof replyTo === 'string' && !!replyTo
+    && (prev.at === replyTo || (prev.replyTo === replyTo && prevHid));
+  let prevHid = false;
+  const out = rows.map((m, i) => {
+    const adjacent = adjacentTo(i > 0 ? rows[i - 1] : null, m.replyTo, prevHid);
+    prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
+    return adjacent;
+  });
+  return { rows: out, next: adjacentTo(rows.length ? rows[rows.length - 1] : null, nextReplyTo, prevHid) };
+}
+
 /* The thread rows, and only them, so the search box can repaint between
    polls without re-fetching (#403). The filter matches what a row SHOWS:
    who said it (as dmWho names them) and the text. */
@@ -34922,20 +34938,10 @@ function paintTalkThread(body, name) {
     delete TALK_PENDING[dmSession];
     pending = null;
   }
-  /* #4944: adjacency by the rule the rows below use (direct, or the chain of answers to one message whose
-     headers were left out), with the newest kept row as the one before it. */
-  let pendingAdjacent = false;
-  if (pending && pending.replyTo && rows.length) {
-    let hid = false;
-    rows.forEach((m, i) => {
-      const prev = i > 0 ? rows[i - 1] : null;
-      const adj = !!prev && typeof m.replyTo === 'string' && !!m.replyTo
-        && (prev.at === m.replyTo || (prev.replyTo === m.replyTo && hid));
-      hid = adj && DM_ROWS.has(m.replyTo);
-    });
-    const lastKept = rows[rows.length - 1];
-    pendingAdjacent = lastKept.at === pending.replyTo || (lastKept.replyTo === pending.replyTo && hid);
-  }
+  /* #4944: the bubble's header follows the kept rows' rule, as one more row after them, so the kept row that
+     replaces it draws the same header. */
+  const replyAdj = dmReplyAdjacency(rows, filtering, pending ? pending.replyTo : null);
+  const pendingAdjacent = replyAdj.next;
   const pendingHtml = (pending && !filtering) ? dmPendingRow(pending, name, pendingAdjacent) : '';
   if (body.historyUnfilable && !allRows.length && !pendingHtml) {
     /**
@@ -35011,17 +35017,9 @@ function paintTalkThread(body, name) {
     const threadKey = (filtering ? TALK_QUERY : '') + '\u0000' + rows.length
       + '\u0000' + (tailRow ? String(tailRow.id || tailRow.at || '') : '')
       + (pendingHtml ? '\u0000' + (pending.failed ? 'failed:' : 'sending:') + pending.startedAt : '');
-    /* #4256: a reply right under what it answers draws no header, nor one right under another answer to the same
-       message whose header was left out (the room's rule, #3745 round 27: the chain back to the original must be
-       unbroken). Not while searching, which hides the rows between. */
-    let prevHid = false;
-    const dmHtml = rows.map((m, i) => {
-      const prev = i > 0 ? rows[i - 1] : null;
-      const adjacent = !filtering && !!prev && typeof m.replyTo === 'string' && !!m.replyTo
-        && (prev.at === m.replyTo || (prev.replyTo === m.replyTo && prevHid));
-      prevHid = adjacent && DM_ROWS.has(m.replyTo);   // left out only when the original is there to name
-      return dmRow(m, name, adjacent);
-    }).join('') + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
+    /* #4256: reply headers by dmReplyAdjacency. */
+    const dmHtml = rows.map((m, i) => dmRow(m, name, replyAdj.rows[i])).join('')
+      + pendingHtml + (filtering ? '' : dmOwesLine(body.owes));
     setThread(thread, dmHtml, threadKey);
     /* #4256: a repaint that replaced the row a jump focused puts focus back, only if focus fell to the page. */
     if (DM_JUMP_FOCUS && (!document.activeElement || document.activeElement === document.body)) {
@@ -35649,8 +35647,9 @@ function talkPaintPending(sessionName, name) {
 }
 
 /* #4944: where a message that did not go, and could not go back in the box, can be found. */
-function dmNotSentWhere() {
-  return 'Your message stays in this conversation, marked not sent.'
+function dmNotSentWhere(unsure) {
+  /* An unconfirmed send may have arrived, so its line does not call it "not sent". */
+  return (unsure ? 'Your message stays in this conversation.' : 'Your message stays in this conversation, marked not sent.')
     + (TALK_QUERY.trim() ? ' Clear the search to see it.' : '');
 }
 /**
@@ -35773,8 +35772,8 @@ async function sendTalk(text, attachment) {
      * around". The box kept the words until the POST answered, so for the whole flight they were in the
      * thread AND in the box, and then the box emptied under them. The box empties in the same frame the
      * bubble is drawn, if one was drawn, and only when the box holds exactly what this send took: an
-     * attachment-only send carries the files' names, which were never in the box. The parked draft goes too, or the repaint at the
-     * end of the flight would put the words straight back.
+     * attachment-only send carries the files' names, which were never in the box. The parked draft goes
+     * too, or the repaint at the end of the flight would put the words straight back.
      *
      * 🛑 THIS DOES NOT CHANGE WHERE THE WORDS ARE KEPT. The bubble holds them for the flight, and every
      * verdict that used to leave them in the box puts them back (`restoreUnsent`, below), so the box is
@@ -35872,7 +35871,7 @@ async function sendTalk(text, attachment) {
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
         + (inThread ? ' Your message is kept above.'
           : inBox ? (tookBox ? ' Your message is back in the box below.' : ' Your message is still in the box below.')
-          : ' ' + dmNotSentWhere());
+          : ' ' + dmNotSentWhere(true));
     } else {
       /* #4944: nothing was typed, so the words go back into the box for the retry. Even when the board
          kept a record of the attempt: before #4944 this arm never emptied the box, so the retry copy is

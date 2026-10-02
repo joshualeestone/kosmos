@@ -358,6 +358,40 @@ function readThread(page, words) {
     chk((await box()) === 'typed meanwhile', 'could not deliver with new words typed: the new words stay', JSON.stringify(await box()));
     chk(/stays in this conversation, marked not sent/.test(await line()), 'and the line says where the sent words are', await line());
 
+    /* 21. The screen reader hears "Sending…" at the press from the quiet announcer, and it is cleared after. */
+    await reset(BASE);
+    await press('heard, not shown');
+    await page.waitForTimeout(80);
+    const heard = await page.evaluate(() => document.getElementById('d-reply-say').textContent);
+    chk(heard === 'Sending…', 'the quiet announcer says "Sending…" during the flight', JSON.stringify(heard));
+    await page.evaluate((fx) => { window.__fx = fx; window.__post.resolve({ delivery: { state: 'placed', paneState: 'idle' }, recorded: true, recordedBecause: null }); },
+      keptWith(BASE, { at: new Date().toISOString(), text: 'heard, not shown', delivery: { state: 'placed', paneState: 'idle' } }));
+    await page.waitForTimeout(400);
+    const after21 = await page.evaluate(() => document.getElementById('d-reply-say').textContent);
+    chk(after21 === '', 'and is cleared once the send is answered', JSON.stringify(after21));
+
+    /* 22. A throw AFTER the board's verdict (placed, not recorded) does not put delivered words back. */
+    await reset(BASE);
+    await press('already delivered');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => {
+      window.__realPlaced = placedWords;
+      placedWords = () => { throw new Error('a paint broke after the verdict'); };
+      window.__post.resolve({ delivery: { state: 'placed', paneState: 'idle' }, recorded: false, recordedBecause: null });
+    });
+    await page.waitForTimeout(300);
+    const threw = await page.evaluate(() => { placedWords = window.__realPlaced; return document.getElementById('d-say').value; });
+    chk(threw === '', 'a throw after a placed verdict leaves the box empty (no second send armed)', JSON.stringify(threw));
+
+    /* 23. Unconfirmed, not kept, and no bubble (a search): the words never left the box, and the line says "still". */
+    await reset(BASE);
+    await page.evaluate(() => { TALK_QUERY = 'zzz-no-match'; });
+    await press('searched and unsure');
+    await page.waitForFunction(() => window.__post !== null);
+    await page.evaluate(() => window.__post.resolve({ delivery: { state: 'unconfirmed', because: 'we typed it and could not tell whether it arrived' }, recorded: false, recordedBecause: null }));
+    await page.waitForTimeout(300);
+    chk((await box()) === 'searched and unsure' && /still in the box below/.test(await line()), 'no bubble and unconfirmed: the words are still in the box, and the line says still', JSON.stringify({ box: await box(), line: await line() }));
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {
