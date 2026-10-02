@@ -1872,7 +1872,7 @@ cmd_post() {
     text="$*"
   fi
   if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955)"
+    say "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624)."
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose: a live pipe (gh ... | kosmos post

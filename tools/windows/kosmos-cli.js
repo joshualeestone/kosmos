@@ -82,7 +82,7 @@ const WRONG_WORLD_STATUS = 421;
 const USAGE = {
   msg: 'Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written)',
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
-  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955)',
+  post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
