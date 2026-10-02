@@ -436,9 +436,9 @@ echo "   refreshed the prod alias $ALIAS to $V"
 # pointer: /setup is what every prod install and update runs, so a cut-off copy must never be served.
 if [ -n "$SETUP_STAGING" ]; then
   for _f in setup setup.sha256; do
-    _t="$(mktemp "$SITE/.$_f.XXXXXX")" || { echo "promote-channel: could not make a temp file for $_f (latest.json is promoted; /setup is NOT yet). Finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE). A re-run would refuse: the pointer is already promoted." >&2; exit 1; }
+    _t="$(mktemp "$SITE/.$_f.XXXXXX")" || { echo "promote-channel: could not make a temp file for $_f (latest.json is promoted; /setup is NOT yet). Re-run promote-channel.sh (safe: it repeats the same copies), or finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE)." >&2; exit 1; }
     cp "$SITE/setup-staging${_f#setup}" "$_t" && mv "$_t" "$SITE/$_f" \
-      || { rm -f "$_t"; echo "promote-channel: could not write $_f (latest.json is promoted; /setup is NOT yet). Finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE)." >&2; exit 1; }
+      || { rm -f "$_t"; echo "promote-channel: could not write $_f (latest.json is promoted; /setup is NOT yet). Re-run promote-channel.sh (safe), or finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE)." >&2; exit 1; }
   done
   cmp -s "$SITE/setup-staging" "$SITE/setup" && cmp -s "$SITE/setup-staging.sha256" "$SITE/setup.sha256" \
     && [ "$(shasum -a 256 < "$SITE/setup" | awk '{print $1}')" = "$SETUP_STAGING" ] \
