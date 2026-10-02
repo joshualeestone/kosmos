@@ -232,4 +232,11 @@ press stops through voiceStop and marks the stop.
   press); added P2t, a real tap that reads the stand-in's log (["new","start"]); with the pointerdown guard removed it
   goes red with "start-outside-a-click:pointerdown", as the reviewer predicted. NITs taken: the cap's comment names the
   real reason a cap in a stop's wait does nothing (stopTimer); the EU sentence reads the right way round.
+- Round 22 (sonnet): FIXED W1: during our own stop's wait, an allow-list of real errors let every unlisted code pass
+  silent; inverted: only 'aborted' answers our stop, every other code is said (P8d's fourth arm, language-not-supported;
+  the old allow-list restored reddens P8d). FIXED W2: a stop the browser never answers ended silently after 5 s; on a
+  phone the last words may still have been on their way, so it now says "the last words may not have come back. Check
+  the box before you send." (P13 extended; the line removed reddens only P13). LEFT NITs: VOICE_PHONE cached at first
+  call (a rotation or a fold keeps it until reload; the comment says so for the trackpad case); empty finals in a list
+  restart; the Mac app's own stop wait is not re-measured here; a stop before onstart is covered by the 5 s timer.
 

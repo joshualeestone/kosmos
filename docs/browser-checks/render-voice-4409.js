@@ -629,7 +629,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     // P8d (round 17): a browser answering OUR stop with an error is not a failure: a quick second tap says no error.
     // The control, the same error with no stop of ours, still says one.
     const own = {};
-    for (const [k, code, mine] of [['ours', 'aborted', true], ['theirs', 'aborted', false], ['netOnStop', 'network', true]]) {
+    for (const [k, code, mine] of [['ours', 'aborted', true], ['theirs', 'aborted', false], ['netOnStop', 'network', true], ['oddOnStop', 'language-not-supported', true]]) {
       await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
       await phone.tap('#d-mic');
       await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'true');
@@ -663,7 +663,7 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     own.capture = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
     chk(/in use by something else/.test(own.capture) && !/No microphone/.test(own.capture), 'P8e a phone says its microphone is in use, never that it has none', JSON.stringify(own.capture));
     await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
-    chk(!/error/.test(own.ours) && /error/.test(own.theirs) && /could not be reached/.test(own.netOnStop),
+    chk(!/error/.test(own.ours) && /error/.test(own.theirs) && /could not be reached/.test(own.netOnStop) && /error/.test(own.oddOnStop),
       'P8d an abort answering our own stop says nothing; unasked it says one; a network loss during our stop is still said', JSON.stringify(own));
     await phone.evaluate(() => { document.getElementById('d-say-msg').textContent = ''; });
     // P10: the bar follows the visible area while it is up (the keyboard, a scroll), and stops following after.
@@ -807,8 +807,9 @@ const shown = (page, sel) => page.evaluate((s) => { const el = document.querySel
     const held = await phone.evaluate(() => !!VOICE.btn && /^Finishing\. Apple/.test(document.getElementById('voice-who').textContent));   // waiting for the last words, and saying so
     await phone.waitForFunction(() => document.getElementById('d-mic').getAttribute('aria-pressed') === 'false', null, { timeout: 8000 }).catch(() => {});
     const ended = await phone.evaluate(() => ({ btn: !!VOICE.btn, bar: (() => { const b = document.getElementById('voice-who'); return !!b && !b.hidden && getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().height > 0; })() }));
-    await phone.evaluate(() => { window.__recNoEnd = false; });
-    chk(held && !ended.btn && !ended.bar, 'P13 a stop with no end after it still ends listening after a wait, and the bar goes', JSON.stringify({ held, ended }));
+    ended.line = await phone.evaluate(() => document.getElementById('d-say-msg').textContent);
+    await phone.evaluate(() => { window.__recNoEnd = false; document.getElementById('d-say-msg').textContent = ''; });
+    chk(held && !ended.btn && !ended.bar && /last words may not have come back/.test(ended.line), 'P13 a stop with no end after it still ends listening after a wait, the bar goes, and it says the last words may be missing', JSON.stringify({ held, ended }));
     /* P14: the composer row still fits a phone with the mic in it: nothing overflows, and the mic is on screen. This is
        the row's own width at 390 px in this file:// page, which lays the rest of the phone screen out unfaithfully (see
        P4): it says the row fits, not where the row sits. */

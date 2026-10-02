@@ -60206,6 +60206,7 @@ const VOICE_SAYS_PHONE = {
   network: 'The speech service could not be reached. Check the connection and try again.',
   // On an iPhone or iPad the refusal is Dictation switched off, a device setting, not one per browser (round 20).
   'speech-denied-apple': 'Dictation is turned off on this device. Turn it on in the Settings app (General, Keyboard), then try again. In a page added to the home screen, open it in Safari instead.',
+  'last-words-missing': 'Listening stopped, but the last words may not have come back. Check the box before you send.',
   // A phone always has a microphone: it is held by something else (a call, a voice memo, another app).
   'no-mic': 'The microphone is in use by something else, such as a call or another app. Try again when it is free.',
 };
@@ -60341,11 +60342,10 @@ function voicePhoneBridge() {
              would stay on and who-hears-the-audio would stay up. A late onend is then not ours (rec !== mine). */
           mine.onerror = (e) => {
             if (rec !== mine) return;   // ours to ignore: our own cancel or a newer start set rec first, aborted included
-            /* An error that is still ours, outside our own stop, came from the browser or the phone (a call, another app
-               taking the mic) and is said. During our own stop's wait, an 'aborted' (or any code not listed) answers that
-               stop and is not a failure; a refusal, a no-speech, and a network loss (the last words may not come back)
-               are still said. */
-            const ownStop = !!stopTimer && !['not-allowed', 'service-not-allowed', 'audio-capture', 'no-speech', 'network'].includes(e.error);
+            /* An error that is still ours came from the browser or the phone (a call, another app taking the mic) and is
+               said. The one exception: during our own stop's wait, an 'aborted' answers that stop and is not a failure.
+               Every other code is said there too (round 22: an allow-list of real errors let an unlisted one pass silent). */
+            const ownStop = !!stopTimer && e.error === 'aborted';
             unwait();
             rec = null;
             try { mine.abort(); } catch { /* already ended */ }
@@ -60359,9 +60359,11 @@ function voicePhoneBridge() {
         } else if (op === 'stop') {
           const was = rec;
           if (!was || stopTimer) return;   // already stopping: one wait, not one per tap
-          const end = () => { stopTimer = 0; if (rec === was) { rec = null; try { was.abort(); } catch { /* ended */ } emit({ kind: 'stopped' }); } };
+          /* Round 22: when the browser never answers the stop, the last words may still have been on their way to the
+             speech service and never come back, so the person is told before the bar goes. */
+          const end = (timedOut) => { stopTimer = 0; if (rec === was) { rec = null; try { was.abort(); } catch { /* ended */ } if (timedOut) emit({ kind: 'error', reason: 'last-words-missing' }); emit({ kind: 'stopped' }); } };
           try { was.stop(); } catch { end(); return; }   // the last words come as a final result, then stopped
-          stopTimer = setTimeout(end, VOICE_PHONE_STOP_MS);   // a browser that never sends onend after a stop does not keep the mic on
+          stopTimer = setTimeout(() => end(true), VOICE_PHONE_STOP_MS);   // a browser that never sends onend after a stop does not keep the mic on
         } else if (op === 'cancel') {
           unwait();
           const was = rec; rec = null;
