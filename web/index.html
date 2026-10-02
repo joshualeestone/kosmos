@@ -37937,7 +37937,9 @@ function settingsOpen(sec, opts) {
     } catch { /* unmeasured: the nav keeps the old 16px */ }
   };
   write();
-  if (typeof ResizeObserver === 'function') new ResizeObserver(write).observe(head, { box: 'border-box' });
+  try {
+    if (typeof ResizeObserver === 'function') new ResizeObserver(write).observe(head, { box: 'border-box' });
+  } catch { /* not a real element (a test harness's stub): the one measurement above stands */ }
 })();
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
