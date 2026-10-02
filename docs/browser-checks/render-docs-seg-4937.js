@@ -148,9 +148,9 @@ const shown = (page, sel) => page.evaluate((s) => {
         await new Promise((res) => setTimeout(res, 150));
         const seg = document.getElementById('docs-seg');
         const btns = [...seg.querySelectorAll('button')].map((b) => b.getBoundingClientRect());
-        return { shown: !seg.hidden, sideways: document.documentElement.scrollWidth > innerWidth, right: Math.round(Math.max(...btns.map((b) => b.right))), vw: innerWidth };
+        return { shown: !seg.hidden, sideways: document.documentElement.scrollWidth > innerWidth, right: Math.round(Math.max(...btns.map((b) => b.right))), vw: innerWidth, oneRow: btns.length === 2 && Math.abs(btns[0].top - btns[1].top) < 1 };
       });
-      chk(r.shown && !r.sideways && r.right <= r.vw, `${engineName} 320px: the switch fits without the page scrolling sideways`, JSON.stringify(r));
+      chk(r.shown && !r.sideways && r.right <= r.vw && r.oneRow, `${engineName} 320px: the switch fits on one row without the page scrolling sideways`, JSON.stringify(r));
       phones += 1;
     } finally {
       await browser.close();

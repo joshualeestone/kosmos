@@ -15,7 +15,7 @@ the project folder" and delete or default to "In the project folder.""
   radiogroup with roving tabindex and the same keys (arrows move and choose, wrapping; Home, End).
 - `#pj-docs-view[data-docseg]` drives two CSS rules: the folder's count, list, pager and sentence show
   only on the folder segment; the conversation's list only on its own.
-- The "From the conversation" / "In the project folder" headings no longer show: the control names the
+- The "From the conversation" / "In the project folder" headings are removed (nothing else read them): the control names the
   two sources (#131's "said apart" holds).
 - Every open starts on the folder; the control shows only when the conversation has files.
 
@@ -47,7 +47,7 @@ That hiding the control when the conversation has no files is right. If Josh wan
 visible for consistency, the one `hidden` toggle goes and the empty segment needs a sentence.
 
 ## Evidence
-- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 29 PASS;
+- docs/browser-checks/render-docs-seg-4937.js (hermetic, both engines, plus a 320px phone arm): 31 PASS;
   red on main.
 - node --test browser-checks-*, web.*, tools.browser-checks-*: 2351/2351.
 - Surface gate: render-consolidated-nav-4345, render-subback-4586, render-subview-cleanup-3502 pass on

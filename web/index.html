@@ -15913,10 +15913,7 @@ window.kosmosMeasureScrollbarWidth();
       <button type="button" role="radio" data-docseg="folder" aria-checked="true" tabindex="0" aria-controls="docs-list">In the project folder</button>
       <button type="button" role="radio" data-docseg="convo" aria-checked="false" tabindex="-1" aria-controls="docs-convo">From this conversation</button>
     </div>
-    <!-- The two headings stay in the page, always hidden, since #4937 (the switch names the sources). -->
-    <h3 class="dlab" id="docs-convo-head" hidden>From the conversation</h3>
     <div id="docs-convo" class="pj-docs"></div>
-    <h3 class="dlab" id="docs-folder-head" hidden>In the project folder</h3>
     <p class="dhint" id="docs-count" style="margin:0 0 8px;" hidden></p>
     <div id="docs-list" class="pj-docs"></div>
     <div class="frow" id="docs-pager" hidden style="margin:10px 0 0; gap:8px;">
@@ -57798,9 +57795,7 @@ async function openDocsView() {
   const count = document.getElementById('docs-count');
   box.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
   const convo = document.getElementById('docs-convo');
-  const convoHead = document.getElementById('docs-convo-head');
-  convo.textContent = ''; convoHead.hidden = true;
-  document.getElementById('docs-folder-head').hidden = true;
+  convo.textContent = '';
   docsSegShow('folder');                                        // #4937: every open starts on the folder
   const docsOpen = (DOCS_OPEN_GEN += 1);                         // #4937: only this open's room read may paint
   document.getElementById('docs-seg').hidden = true;             // until the conversation has files
