@@ -119,7 +119,9 @@ function shapeProblem(c) {
   if (new Set(teamKeys).size !== teamKeys.length) return 'two teams share a key';
   for (const t of c.teams) {
     if (!t || typeof t.key !== 'string' || !KEY_RE.test(t.key) || !isText(t.label) || !t.project || !isText(t.project.goal) || !Array.isArray(t.members)
-      || !['business', 'personal'].includes(t.kind) || !Number.isInteger(t.rank)) {
+      || !['business', 'personal'].includes(t.kind) || !Number.isInteger(t.rank)
+      // #5021: the menu heading the team sits under; optional, a name when present (the catalogue adds it).
+      || (t.group !== undefined && !isText(t.group))) {
       return `team ${JSON.stringify(t && t.key)} is incomplete`;
     }
     for (const m of t.members) {

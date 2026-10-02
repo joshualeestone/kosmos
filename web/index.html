@@ -49748,11 +49748,33 @@ async function loadSeededTeams() {
     return;
   }
   const chosen = sel.value;   // a revisit keeps the team they had picked, while it is still offered
-  sel.innerHTML = '<option value="">Choose a team</option>'
-    + SEEDED_TEAMS.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
+  sel.innerHTML = '<option value="">Choose a team</option>' + seededTeamGroups(SEEDED_TEAMS).map((g) =>
+    '<optgroup label="' + esc(g.name) + '">'
+    + g.teams.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('')
+    + '</optgroup>').join('');
   if (chosen && SEEDED_TEAMS.some((t) => t.key === chosen)) sel.value = chosen;
   sel.disabled = false;
   paintSeededTeam();
+}
+/* #5021 (Josh, 0.7.17 staging: "categorized by something, at minimum alpha, but ... grouping like we have on picking
+   another role"): the ready-made teams under headings, A to Z inside each. The heading is the team's catalogue
+   `group` when it has one (the role picker's way), else its kind: Business, or Personal and family. Business
+   headings come before personal ones, each run A to Z. (Ranks restart per kind, so ordering by rank alone, as
+   before, interleaved the two kinds.) */
+const SEEDED_KIND_HEADING = { business: 'Business', personal: 'Personal and family' };
+function seededTeamGroups(teams) {
+  const kindOrder = (k) => { const i = ['business', 'personal'].indexOf(k); return i === -1 ? 2 : i; };
+  const byName = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+  const groups = new Map();
+  for (const t of teams || []) {
+    const named = typeof t.group === 'string' && t.group.trim();
+    const name = named || SEEDED_KIND_HEADING[t.kind] || 'Other teams';
+    if (!groups.has(name)) groups.set(name, { name, kind: kindOrder(t.kind), teams: [] });
+    groups.get(name).teams.push(t);
+  }
+  const out = [...groups.values()].sort((a, b) => a.kind - b.kind || byName(a.name, b.name));
+  for (const g of out) g.teams.sort((a, b) => byName(a.label, b.label));
+  return out;
 }
 document.getElementById('team-seeded').addEventListener('change', paintSeededTeam);
 document.getElementById('team-seeded-go').addEventListener('click', () => {
