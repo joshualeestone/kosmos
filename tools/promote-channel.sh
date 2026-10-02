@@ -368,7 +368,8 @@ fi
 
 # #5032: re-checked here, right before the first write: setup-staging must still be the bytes checked above (the
 # gates take minutes, and a site pull meanwhile could replace it).
-if [ -n "$SETUP_STAGING" ] && [ "$(shasum -a 256 < "$SITE/setup-staging" | awk '{print $1}')" != "$SETUP_STAGING" ]; then
+if [ -n "$SETUP_STAGING" ] && { [ "$(shasum -a 256 < "$SITE/setup-staging" | awk '{print $1}')" != "$SETUP_STAGING" ] \
+     || [ "$(awk 'NR==1{print $1}' "$SITE/setup-staging.sha256")" != "$SETUP_STAGING" ]; }; then
   echo "promote-channel: setup-staging changed while the gates ran - refusing; nothing was written." >&2; exit 1
 fi
 

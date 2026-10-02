@@ -112,7 +112,7 @@ each one**, and cites the line beside it:
 
 | artifact | who fetches it |
 |---|---|
-| `/setup` | new installs, and `engine/update.js:189` on every update (prod) |
+| `/setup` | new installs, and `setupUrl()` in `engine/update.js` on every update (prod) |
 | `/setup-staging` | staging installs and staging boxes' updates (#5032) |
 | `/dist/latest.json` | `engine/update.js:82`, every 15 minutes |
 | `/dist/kosmos-arm64.tar.gz` + `.sha256` | `install/setup.sh` |

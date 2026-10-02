@@ -672,8 +672,9 @@ step "== 1f. the site serves /setup-staging uncached (#5032) =="
 # would refuse falsely; ahead or dirty would pass falsely).
 if [ "$CUT_CHANNEL" = staging ]; then
   git -C "$SITE" fetch -q origin || { echo "could not fetch the site's origin to check its vercel.json"; exit 1; }
-  git -C "$SITE" show origin/main:vercel.json 2>/dev/null | grep -q '"source": "/setup-staging"' \
-    || { echo "the site's origin/main vercel.json has no /setup-staging headers (no-store, text/plain): merge the site half of #5032 first"; exit 1; }
+  # Captured, then matched: `git show | grep -q` can SIGPIPE-abort under pipefail once the file outgrows a pipe buffer.
+  _vj="$(git -C "$SITE" show origin/main:vercel.json 2>/dev/null)" || _vj=""
+  case "$_vj" in *'"source": "/setup-staging"'*) ;; *) echo "the site's origin/main vercel.json has no /setup-staging headers (no-store, text/plain): merge the site half of #5032 first"; exit 1 ;; esac
 fi
 
 step "== 2. the version, in one place =="
