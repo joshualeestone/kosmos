@@ -54,7 +54,9 @@ fi
 # claim and install-harness refusals are still asked, once), the coverage count, the shell part and the branch's
 # browser-check gates. A bare `node --test <file>` skips all of it. Other suites' "is a suite live" checks still see
 # a --only run as one (it is run-tests.sh), so they wait for it or refuse: the safe direction. A --only run itself
-# does NOT wait for or refuse a live suite (no queue wait, above): it is meant for inside a light queue turn.
+# does NOT wait for or refuse a live suite (no queue wait, above): it is meant for inside a light queue turn. So a
+# --only run outside one can overlap a suite or a live board, and its #3011 LaunchAgents guard can then red on THEIR
+# plist; that red names the cause. The trade-off is taken for not waiting.
 KOSMOS_ONLY=0
 KOSMOS_ONLY_FILES=()
 # --only counts only as the FIRST argument. Anywhere else it would reach node --test beside every suite file, so the
