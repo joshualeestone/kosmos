@@ -37,7 +37,12 @@ account, with CORS and its board token, only for a browser it already lets in).
 - Rejected showing the section in the app's 127.0.0.1 board with a "sign in" link per computer: the page cannot
   read them from there whatever the person does. The app loading its own Kosmos+ address is the separate piece.
 
-- GRID ONLY (review 2, W3): the section shows under the card grid, so in the tab view with the Agents layout on
+- GRID AND LIST (REVERSED 2026-10-02, Baron): the section shows under whichever agents view is on screen, the
+  grid or the list (oaHost), and not under the org chart. The browser check at 320px showed why grid-only was
+  wrong: a phone through Kosmos+ has NO grid view (#4823 shows the list instead), so the section never appeared
+  on a phone, the case this card mostly exists for. The plan had named this exact reversal ("render the same
+  section under #alist"). Org chart still excluded (a hierarchy, which another computer's agents do not join).
+- (superseded) GRID ONLY (review 2, W3): the section shows under the card grid, so in the tab view with the Agents layout on
   list or org it is hidden and nothing is read. Chosen because the list and the chart are this board's own
   structures (rows with actions, a hierarchy) and another computer's agents have neither; a section under each
   is three placements to keep in step. Weakest premise: that list-layout people will switch to the grid to see

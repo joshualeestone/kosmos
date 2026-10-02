@@ -28161,12 +28161,24 @@ function oaGroup(c, seen, now) {
 function oaGridShown(grid) {
   return !!grid && !grid.closest('[hidden]');
 }
+/* kosmos#4812 (2026-10-02): the section goes under whichever of this board's agent views is on screen, the grid or
+   the list, and null when neither is (the org chart, another tab). On a phone the list is the only one (#4823: no grid
+   view there), so a grid-only section never showed through Kosmos+ on a phone, the case this card is mostly for. */
+function oaHost() {
+  for (const id of ['grid', 'alist']) {
+    const el = document.getElementById(id);
+    if (oaGridShown(el)) return el;
+  }
+  return null;
+}
 function oaPaint() {
   const wrap = document.getElementById('oa-wrap');
-  const grid = document.getElementById('grid');
-  if (!wrap || !grid) return;
+  if (!wrap) return;
   const others = OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
-  const shown = oaGridShown(grid);
+  const host = oaHost();
+  const shown = !!host;
+  // Right under the view on screen; moved only when it is not already there, so focus inside it is kept.
+  if (host && wrap.previousElementSibling !== host) host.after(wrap);
   /* Back on screen after reads were paused: read now rather than at the next tick (stale lists show greyed meanwhile). */
   if (shown && !OA_WAS_SHOWN && !OA_BUSY && OA_TIMER && location.protocol === 'https:' && typeof setTimeout === 'function') setTimeout(oaRound, 0);   // only once oaStart ran
   OA_WAS_SHOWN = shown;
@@ -28247,8 +28259,7 @@ async function oaRound(again) {
      reads); a tick, a visibility change or a read-on-return landing mid-round is simply dropped. */
   if (OA_BUSY) { if (again === true) OA_AGAIN = true; return; }
   if (document.hidden) return;
-  const grid = document.getElementById('grid');
-  if (!oaGridShown(grid)) { oaPaint(); return; }
+  if (!oaHost()) { oaPaint(); return; }
   OA_BUSY = true;
   try {
     oaPaint();   // a list that went stale meanwhile shows greyed while the reads run
@@ -28260,8 +28271,8 @@ async function oaRound(again) {
        holds OA_BUSY nor makes later ticks drop, and no list ages past OA_STALE_MS behind it. Only the first round,
        with no list known yet, waits for it: there is nothing to read until it lands. */
     if (!OA_COMPUTERS && refresh) await refresh;
-    /* oaGridShown is checked again because the first round can have waited on the refresh meanwhile. */
-    if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly() && oaGridShown(grid)) {
+    /* oaHost is checked again because the first round can have waited on the refresh meanwhile. */
+    if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly() && oaHost()) {
       oaPaint();   // groups appear at once, "Reading its agents..." until each answers
       // Each group as its own read lands; a paint that throws must not end the round early (the final paint retries).
       await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).then(() => { try { oaPaint(); } catch { /* next paint */ } }, () => null)));
