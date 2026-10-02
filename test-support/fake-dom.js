@@ -68,7 +68,8 @@ function makeDom() {
         this.dispatch('click');
       },
       /* Roughly what a browser lets take focus: a link with an href, an enabled form control, or anything given a
-         tabIndex, and nothing under a hidden ancestor. (Not modelled: display:none from CSS, inert, contenteditable.) */
+         tabIndex, and nothing under a hidden ancestor. (Not modelled: display:none from CSS, inert, contenteditable, and a node not
+         attached to the page, which a browser will not focus: insert before focusing.) */
       focus() {
         if (this.disabled || this.closest('[hidden]')) return;
         const can = (this.tagName === 'A' && !!this.href) || ['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(this.tagName) || typeof this.tabIndex === 'number';
