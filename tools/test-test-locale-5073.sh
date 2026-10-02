@@ -15,7 +15,9 @@ fail() { echo "FAIL  $1"; fails=1; }
 # Runs the pin in a shell whose only environment is PATH plus the given assignments, and prints
 # "LANG=<value>|<stderr>" so each leg can check both what it exported and what it said.
 probe() {
-  env -i PATH=/usr/bin:/bin "$@" /bin/bash -c '. "$1"; kosmos_test_locale_pin 2>/tmp/kl5073-err.$$; printf "LANG=%s|%s" "${LANG:-}" "$(cat /tmp/kl5073-err.$$)"; rm -f /tmp/kl5073-err.$$' _ "$LIB"
+  # LANG is read by a CHILD (printenv), so a pin that sets LANG without exporting it reads as unset: the node
+  # suite inherits only what is exported.
+  env -i PATH=/usr/bin:/bin "$@" /bin/bash -c 'e=$(mktemp); . "$1"; kosmos_test_locale_pin 2>"$e"; printf "LANG=%s|%s" "$(/usr/bin/printenv LANG)" "$(cat "$e")"; rm -f "$e"' _ "$LIB"
 }
 
 out="$(probe)"

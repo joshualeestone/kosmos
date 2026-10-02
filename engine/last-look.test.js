@@ -60,22 +60,22 @@ test('a tmux that is not there is said in words, not as a null', () => {
 
 test('a tmux that answers is not a problem, and clears an older one', () => {
   /* 📌 The control this pair needs: with a working tmux the field is null, so a
-     screen cannot show yesterday's problem beside today's healthy board. On a
-     machine with no tmux server at all this is the no-server path, which is an
-     honest empty rather than a failure — and both are `null` here, which is the
-     point. */
+     screen cannot show yesterday's problem beside today's healthy board. */
   /* #5073: its OWN tmux server, not this machine's. Reading the default socket made the result depend on who was
      running on the box, and on the caller's locale: with no UTF-8 LANG, tmux replaces its field tabs with
      underscores, and a cut launched through `tmux run-shell` (no LANG) read a real agent's pane as one garbage line.
      TMUX_TMPDIR moves the default socket into a folder of ours (short, under /tmp: a socket path has a length
-     limit), and LANG is set here so a caller without one still gets readable output. */
+     limit), and the locale is set here, all three names, so no caller's locale reaches this server. The server is
+     made with the same tmux status.js reads through (AGENT_WORKFORCE_TMUX_BIN when set), so a version difference
+     between two tmux binaries cannot red it, and its one pane runs `sleep`, not a login shell. */
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-look-'));
   const sock = fs.mkdtempSync('/tmp/kl5073-');
-  const own = { TMUX_TMPDIR: sock, LANG: 'en_US.UTF-8' };
+  const own = { TMUX_TMPDIR: sock, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', LC_CTYPE: 'en_US.UTF-8' };
   const tmuxEnv = { ...process.env, ...own };
   delete tmuxEnv.TMUX;   // a test run from inside tmux must not attach to the caller's server
+  const TMUX_BIN = process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux';
   try {
-    execFileSync('tmux', ['new-session', '-d', '-s', 'look5073'], { env: tmuxEnv });
+    execFileSync(TMUX_BIN, ['new-session', '-d', '-s', 'look5073', 'sleep 600'], { env: tmuxEnv });
     const got = ask({
       ...own,
       TMUX: '',
@@ -85,7 +85,7 @@ test('a tmux that answers is not a problem, and clears an older one', () => {
     assert.equal(got.threw, null, 'reading our own server threw: ' + got.threw);
     assert.equal(got.problem, null, 'a healthy look left a problem standing: ' + got.problem);
   } finally {
-    try { execFileSync('tmux', ['kill-server'], { env: tmuxEnv, stdio: 'ignore' }); } catch { /* already gone */ }
+    try { execFileSync(TMUX_BIN, ['kill-server'], { env: tmuxEnv, stdio: 'ignore' }); } catch { /* already gone */ }
     fs.rmSync(sb, { recursive: true, force: true });
     fs.rmSync(sock, { recursive: true, force: true });
   }
