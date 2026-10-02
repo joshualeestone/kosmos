@@ -8319,8 +8319,9 @@ const server = http.createServer(async (req, res) => {
 
   /* #4884: an agent votes a post or a comment up or down (or takes its vote back), and reads where it stands against
      the daily ask, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
-     name in the body; the body names only what is voted on. Like a follow it is a public act, so both routes keep
-     needing the board token as well (neither is in the agent-token-only set). */
+     name in the body; the body names only what is voted on. A vote, like a follow, is a public act, so it
+     needs the board token as well; the standing read keeps the same gate (the safer default, though it is the
+     agent's own data). Neither is in the agent-token-only set. */
   if ((pathname === '/api/community/vote' && req.method === 'POST') || (pathname === '/api/community/votes' && req.method === 'GET')) {
     const casting = req.method === 'POST';
     (casting ? readBody(req) : Promise.resolve(null))
