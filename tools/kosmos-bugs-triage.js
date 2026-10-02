@@ -37,6 +37,8 @@ const DEFAULTS = Object.freeze({
   digest: null,
   channel: 'kosmos-bugs',
   maxPages: 10,
+  timeoutMs: 30000,     // review 13: per request, so a site that drips one byte a second cannot hold the lock
+  deadlineMs: 300000,   // and for the whole read
 });
 
 /* Words that say nothing about WHICH bug it is. Grouping on them would put every report in one group. */
@@ -82,11 +84,14 @@ const FILE_EXT = new Set(['app', 'html', 'htm', 'js', 'mjs', 'cjs', 'ts', 'json'
 const SECRET_LABEL = /secret|token|passw(?:or)?d|pwd|api[ _-]?key|apikey|access[_-]?key|private[_-]?key|credential|(?:^|[_-])pass(?:$|[_-]|["' \t]*[:=])/i;
 /* Review 12: a field longer than this is cut before the scrub. Several older rules are quadratic (about 210 ms each at 20 KB,
    tens of seconds at 200 KB), and GitHub refuses a body over 65,536 characters anyway. */
-const SCRUB_MAX = 20000;
+/* Review 13: the site caps a title at 120 and a body at 4,000 characters, so 5,000 never cuts a real report and bounds
+   the scrub's quadratic rules (20,000 cost about 2 s a field in the worst measured shape). */
+const SCRUB_MAX = 5000;
 function scrub(text, names) {
   let t = normal(text);
   if (t.length > SCRUB_MAX) t = [...t.slice(0, SCRUB_MAX)].join('').replace(/[\uD800-\uDBFF]$/, '') + ' [cut: the report was longer]';
   t = t.replace(/<!--[\s\S]*?-->/g, '[comment-removed]');
+  t = t.replace(/<!--[\s\S]*$/, '[comment-removed]');   // review 13: an unclosed comment hides the rest of the text
   /* Review 4: a home folder names its user ("/Users/jsmith/x", "C:\\Users\\Maria Lopez\\x", "/home/bob/x"). */
   t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/gi, '$1[user]');
   /* Review 9: "\\+" so a JSON-escaped path ("C:\\\\Users\\\\bob\\\\x", pasted from a log) is caught too; it leaked whole. */
@@ -133,7 +138,8 @@ function scrub(text, names) {
   for (const n of names) {
     const name = normal(n).trim();
     if (name.length < 2) continue;
-    t = t.replace(new RegExp('(^|[^\\p{L}\\p{N}])' + escapeRe(name) + '(?=$|[^\\p{L}\\p{N}])', 'giu'), '$1an agent');
+    /* Review 13: a digit does not end a name ("Bob2" is Bob), only a letter does. */
+    t = t.replace(new RegExp('(^|[^\\p{L}])' + escapeRe(name) + '(?=$|[^\\p{L}])', 'giu'), '$1an agent');
   }
   return t;
 }
@@ -181,18 +187,33 @@ function cardFor(group, names) {
 }
 
 /* Read every report the site has in the channel, newest first, up to maxPages pages; say so when it stops early. */
-async function fetchReports({ base, channel, maxPages, fetchFn }) {
+/* Review 13: every request has a timeout and the read has a deadline; without them a server that drips bytes holds the
+   lock forever, and its pid is alive so no later run calls it stale. The signal also bounds reading the body. */
+async function getJson(fetchFn, url, o) {
+  const left = o.deadlineAt - Date.now();
+  if (left <= 0) throw new Error(`the read ran past its ${o.deadlineMs / 1000} s deadline`);
+  const signal = AbortSignal.timeout(Math.min(o.timeoutMs, left));
+  try {
+    const r = await fetchFn(url, { signal });
+    if (!r.ok) throw new Error(`the site answered ${r.status} for ${new URL(url).pathname}`);
+    return await r.json();
+  } catch (e) {
+    if (signal.aborted) throw new Error(`the site did not answer ${new URL(url).pathname} within ${Math.round(Math.min(o.timeoutMs, left) / 1000)} s`);
+    throw e;
+  }
+}
+
+async function fetchReports({ base, channel, maxPages, fetchFn, limits }) {
   const out = []; let cursor = null; let truncated = false;
   for (let page = 0; ; page += 1) {
     if (page >= maxPages) { truncated = true; break; }
     const u = new URL('/api/posts/feed', base);
     u.searchParams.set('channel', channel); u.searchParams.set('limit', '50');
     if (cursor) u.searchParams.set('cursor', cursor);
-    const r = await fetchFn(u.toString());
-    if (!r.ok) throw new Error(`the site answered ${r.status} for ${u.pathname}`);
-    const j = await r.json();
+    const j = await getJson(fetchFn, u.toString(), limits);
     if (!j || !Array.isArray(j.posts)) throw new Error('the site answered a feed with no posts list');
-    out.push(...j.posts.filter((p) => p && (p.sub_channel === channel || p.channel === channel)));
+    /* Review 13: a post moderators took down is not a report any more. */
+    out.push(...j.posts.filter((p) => p && !p.taken_down && (p.sub_channel === channel || p.channel === channel)));
     if (!j.next_cursor) break;
     cursor = j.next_cursor;
   }
@@ -201,7 +222,7 @@ async function fetchReports({ base, channel, maxPages, fetchFn }) {
 
 function ghRun(args) {
   const r = spawnSync('gh', args, { encoding: 'utf8' });
-  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || (r.error ? 'could not run gh: ' + r.error.message : '') };
+  return { status: r.status, signal: r.signal || null, stdout: r.stdout || '', stderr: r.stderr || (r.error ? 'could not run gh: ' + r.error.message : '') };
 }
 
 /* Existing cards that might be this bug. The words go as SEPARATE arguments (review 1, BLOCKER): one quoted argument is
@@ -297,7 +318,8 @@ function writeDigest(o, state, extra) {
   const pending = Object.entries(state.groups).filter(([, g]) => g.status === 'pending');
   const lines = [`# Kosmos bugs triage, ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`, ''];
   if (extra.read) lines.push(`Reports in the channel: ${extra.read.reports}; new this run: ${extra.read.fresh}, in ${extra.read.groups} new group(s).`
-    + (extra.read.truncated ? ' ⚠️ The read stopped at its page limit, so older reports were not read.' : ''), '');
+    + (extra.read.truncated ? ' ⚠️ The read stopped at its page limit, so older reports were not read.' : '')
+    + (extra.read.withdrawn ? ` ${extra.read.withdrawn} report(s) left the channel (deleted or taken down) and are out of their drafts.` : ''), '');
   lines.push(`## Pending (decide each: file <group>, dup <group> <card>, or skip <group>): ${pending.length}`,
     'Before `file`: read the draft yourself for names, secrets and security holes. The scrub is not a guarantee; a security',
     'problem never goes in a public card.', '');
@@ -348,12 +370,12 @@ async function readLocked(o) {
   const state = loadState(o.state);
   /* Review 5: the site answers an unknown channel exactly as an empty one, so a renamed channel would read zero forever. */
   const fetchFn = o.fetchFn || fetch;
-  const ch = await fetchFn(new URL('/api/channels', o.base).toString());
-  if (!ch.ok) throw new Error(`the site answered ${ch.status} for /api/channels`);
-  const known = await ch.json();
+  const limits = { timeoutMs: o.timeoutMs, deadlineMs: o.deadlineMs, deadlineAt: Date.now() + o.deadlineMs };
+  const known = await getJson(fetchFn, new URL('/api/channels', o.base).toString(), limits);
   if (!Array.isArray(known) || !known.some((c) => c && c.slug === o.channel)) throw new Error(`the site has no ${o.channel} channel, so there is nothing to read`);
-  const { posts, truncated } = await fetchReports({ base: o.base, channel: o.channel, maxPages: o.maxPages, fetchFn });
+  const { posts, truncated } = await fetchReports({ base: o.base, channel: o.channel, maxPages: o.maxPages, fetchFn, limits });
   const names = authorNames(posts);
+  const withdrawn = truncated ? 0 : withdrawGone(state, posts, names, o.state);
   const fresh = posts.filter((p) => !(p.id in state.seen));
   const groups = groupReports(fresh);
   for (const g of groups) {
@@ -365,8 +387,29 @@ async function readLocked(o) {
     saveState(o.state, state);
   }
   const { due: replyDue, failed: lookupFailed } = repliesDue(state, { repo: o.repo, gh });
-  const digest = writeDigest(o, state, { read: { reports: posts.length, fresh: fresh.length, groups: groups.length, truncated }, replyDue, lookupFailed });
+  const digest = writeDigest(o, state, { read: { reports: posts.length, fresh: fresh.length, groups: groups.length, truncated, withdrawn }, replyDue, lookupFailed });
   return { digest, state, replyDue, lookupFailed, reports: posts.length, fresh: fresh.length, truncated };
+}
+
+/* Review 13: a pending draft is a snapshot. A post deleted or taken down after it was grouped must not stay in a draft
+   someone may file publicly, so each full read (never a truncated one, which cannot tell gone from unread) drops gone
+   posts from pending groups and redrafts from what is left; a group with nothing left is withdrawn. */
+function withdrawGone(state, posts, names, stateFile) {
+  const live = new Map(posts.map((p) => [String(p.id), p]));
+  let n = 0;
+  for (const g of Object.values(state.groups)) {
+    if (g.status !== 'pending') continue;
+    const still = g.posts.filter((p) => live.has(String(p.id)));
+    if (still.length === g.posts.length) continue;
+    n += g.posts.length - still.length;
+    if (!still.length) { g.status = 'withdrawn'; g.draft = null; }
+    else {
+      g.posts = still;
+      g.draft = cardFor({ posts: still.map((p) => live.get(String(p.id))) }, names);
+    }
+    saveState(stateFile, state);
+  }
+  return n;
 }
 
 /* `allowFiling`: dup and skip may settle a group a run left "filing" (review 5, BLOCKER: nothing could, so it was stuck). */
@@ -398,6 +441,8 @@ function fileLocked(id, o) {
   try {
     fs.writeFileSync(f, g.draft.body, { mode: 0o600 });
     const r = gh(['issue', 'create', '--repo', o.repo, '--title', title, '--body-file', f]);
+    /* Review 13: gh killed by a signal may already have made the card, so the group stays "filing", never pending. */
+    if (r.status === null && r.signal) throw new Error(`gh was stopped (${r.signal}) while filing; look for its card, then dup ${id} <card>, or file ${id} --retry`);
     if (r.status !== 0) { ghFailed = true; throw new Error('gh issue create failed: ' + r.stderr.trim()); }
     const m = /\/issues\/(\d+)\s*$/.exec(r.stdout.trim());
     if (!m) throw new Error(`gh made a card but printed no card number we could read (${r.stdout.trim()}); find it, then: dup ${id} <card>`);

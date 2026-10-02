@@ -396,3 +396,55 @@ test('#5062 review 12: one hostile post cannot hang the read; camelCase and glue
   const keep = 'Basic plan button is missing; Bearer token missing in the header; bypass: enabled; status: running';
   assert.equal(t.scrub(keep, []), keep, 'prose was taken for a secret');
 });
+
+test('#5062 review 13: a site that never finishes answering times out and frees the lock', { timeout: 10000 }, async () => {
+  const o = opts('r13a', { timeoutMs: 150 });
+  const drip = async (url, init) => {
+    if (new URL(url).pathname === '/api/channels') return { ok: true, status: 200, json: async () => [{ slug: 'kosmos-bugs' }] };
+    return { ok: true, status: 200, json: () => new Promise((_, rej) => init.signal.addEventListener('abort', () => rej(init.signal.reason))) };
+  };
+  const started = Date.now();
+  await assert.rejects(t.read({ ...o, fetchFn: drip, gh: fakeGh().gh }), /did not answer \/api\/posts\/feed within/);
+  assert.ok(Date.now() - started < 5000, 'the timeout did not bound the read');
+  assert.equal(fs.existsSync(o.state + '.lock'), false, 'a timed-out read left the lock behind');
+  await assert.rejects(t.read({ ...o, deadlineMs: 0, fetchFn: site([]).fetchFn, gh: fakeGh().gh }), /past its 0 s deadline/);
+});
+
+test('#5062 review 13: a report deleted or taken down before anyone decided leaves its draft; a page-limited read leaves drafts alone', async () => {
+  const a = post('t1', 'Board idle when typing', 'SECRETWORDONE', 'A1');
+  const b = post('t2', 'Board idle when typing fast', 'SECRETWORDTWO', 'B1');
+  const c = post('t3', 'Font tiny', 'x', 'C1');
+  const o = opts('r13b', {});
+  await t.read({ ...o, fetchFn: site([a, b, c]).fetchFn, gh: fakeGh().gh });
+  const before = JSON.parse(fs.readFileSync(o.state, 'utf8')).groups;
+  const two = Object.entries(before).find(([, g]) => g.posts.length === 2)[0];
+  const one = Object.entries(before).find(([, g]) => g.posts.length === 1)[0];
+  // Page-limited: t3 was not reached, which is not the same as gone.
+  await t.read({ ...o, maxPages: 1, fetchFn: site([a, b, c]).fetchFn, gh: fakeGh().gh });
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups[one].status, 'pending', 'a truncated read withdrew a group it never reached');
+  const r = await t.read({ ...o, fetchFn: site([a, { ...b, taken_down: true }]).fetchFn, gh: fakeGh().gh });
+  assert.equal(r.state.groups[one].status, 'withdrawn');
+  assert.deepEqual(r.state.groups[two].posts.map((p) => p.id), ['t1']);
+  assert.ok(!r.state.groups[two].draft.body.includes('SECRETWORDTWO'), 'a taken-down post stayed in a draft');
+  assert.ok(r.state.groups[two].draft.body.includes('SECRETWORDONE'));
+  assert.ok(!r.digest.includes('SECRETWORDTWO'));
+  assert.match(r.digest, /2 report\(s\) left the channel/);
+});
+
+test('#5062 review 13: a post from another channel is not read; --retry refuses a pending group; gh stopped by a signal stays filing', async () => {
+  const o = opts('r13c', {});
+  const other = post('o1', 'Font tiny', 'x', 'A1', { sub_channel: 'general', channel: 'general' });
+  const r = await t.read({ ...o, fetchFn: site([other, post('o2', 'Board idle', 'y', 'B1')]).fetchFn, gh: fakeGh().gh });
+  assert.equal(r.reports, 1, 'an off-channel post was read as a report');
+  assert.throws(() => t.file('g1', { ...o, retry: true, gh: fakeGh().gh }), /--retry is only for a group left filing/);
+  const killed = (args) => (args[1] === 'create' ? { status: null, signal: 'SIGTERM', stdout: '', stderr: '' } : fakeGh().gh(args));
+  assert.throws(() => t.file('g1', { ...o, gh: killed }), /gh was stopped \(SIGTERM\)/);
+  assert.equal(JSON.parse(fs.readFileSync(o.state, 'utf8')).groups.g1.status, 'filing', 'a card gh may have made went back to pending');
+});
+
+test('#5062 review 13: a name with a digit after it, and an unclosed HTML comment, leave the draft', () => {
+  const out = t.scrub('Bob2 said hi to bob_3 <!-- hidden part never closed', ['Bob']);
+  assert.ok(!/bob/i.test(out), out);
+  assert.ok(!out.includes('hidden part'), out);
+  assert.ok(t.scrub('Bobby is a word', ['Bob']).includes('Bobby'), 'a longer word was cut');
+});
