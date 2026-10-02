@@ -69,6 +69,12 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    as it is, with a WARNING when a differing `setup-staging` is committed. **Commit `setup` and
    `setup.sha256` with `latest.json`**: EVERY deploy (`deploy-site.sh --promote`, a rollback, a site copy)
    refuses a committed `/setup` that does not hash to the committed `latest.json`'s `setup_sha256`.
+   So after the first #5032 promote, `/setup` changes only with its pointer: a hand edit to the site's
+   `setup` (or a merge that touches it) needs the matching `setup.sha256` and `setup_sha256` edit, or every
+   site deploy refuses until they agree. A prod-channel cut writes all three together.
+   **Check the first #5032 promote by hand**: staging boxes still on a build before #5032 updated with
+   `/setup` (prod's installer) during that staging round, so only fresh installs from `/setup-staging`
+   exercised the installer the promote puts on `/setup`.
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**
