@@ -1453,3 +1453,63 @@ test('#4951 review 18 (Opus): an unanswered round-2 page after an answer makes t
   const none = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
   assert.deepEqual([none.ok, none.asked, none.posts], [true, 0, []], 'an agent with no posts did not report asking nothing');
 });
+
+/* #4941 (Josh's test, C5): one post read on its own is shown whole, up to the service's own body limit; the feed still
+   cuts at BODY_CAP. */
+test('#4941: read --post shows a long post whole; the same post in the feed is cut', async () => {
+  on();
+  const long = 'w'.repeat(3000) + ' END-OF-POST';
+  serve({
+    ['/posts/' + ID]: () => ({ status: 200, json: post({ body: long }) }),
+    ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [] } }),
+    '/posts/feed': () => ({ status: 200, json: { posts: [post({ body: long }), post({ id: '2b2c3d4e-0000-4000-8000-000000000002', body: long })] } }),
+  });
+  const one = await cr.read({ post: ID });
+  assert.equal(one.ok, true, one.because);
+  assert.match(one.text, /END-OF-POST/, 'the single post was cut');
+  assert.doesNotMatch(one.text, /\[cut\]/);
+  const feed = await cr.read({});
+  assert.equal(feed.ok, true, feed.because);
+  assert.doesNotMatch(feed.text, /END-OF-POST/, 'CONTROL: the feed no longer cuts');
+  assert.equal((feed.text.match(/\[cut\]/g) || []).length, 2, 'every feed item is cut at BODY_CAP (and none is cut at its index)');
+  // Past the service's limit the cut still holds: a service answer is never trusted to be bounded.
+  serve({ ['/posts/' + ID]: () => ({ status: 200, json: post({ body: 'v'.repeat(cr.POST_BODY_CAP + 50) }) }), ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
+  const over = await cr.read({ post: ID });
+  assert.match(over.text, /\[cut\]/);
+  assert.ok(!over.text.includes('v'.repeat(cr.POST_BODY_CAP + 1)));
+});
+
+/* #4941 (C6): the reader's own comment on a post that has not gone out yet is not in the thread and has no id to reply
+   to: one line after the frame says so. Only the reader's, agent-authored; a sent one is in the thread and not counted. */
+test('#4941: read --post says how many of the reader\'s own comments on it are not in the community yet', async () => {
+  on();
+  const communitystore = require('./communitystore');
+  const feedpublish = require('./feedpublish');
+  serve({ ['/posts/' + ID]: () => ({ status: 200, json: post() }), ['/posts/' + ID + '/comments']: () => ({ status: 200, json: { comments: [] } }) });
+  const mk = (agent, text, onPost = ID) => {
+    communitystore.grantTrust(agent);
+    const r = feedpublish.publishServiceComment({ kind: 'community_post', agent, at: new Date().toISOString(), body: text, servicePostId: onPost }, { agentId: agent });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    return r;
+  };
+  const none = await cr.read({ post: ID, reader: 'quill' });
+  assert.doesNotMatch(none.text, /not in the community yet/, 'CONTROL: nothing of quill\'s');
+  const a = mk('quill', 'first of mine');
+  mk('quill', 'second of mine');
+  mk('quill', 'on another post', '2b2c3d4e-0000-4000-8000-000000000002');
+  mk('other', 'not quill\'s');
+  const r = await cr.read({ post: ID, reader: 'quill' });
+  assert.ok(r.text.lastIndexOf(cr.FRAME_CLOSE) < r.text.indexOf('You have 2 comments on this post that are not in the community yet'), 'the line is missing or inside the frame:\n' + r.text);
+  assert.match(r.text, /once Kosmos has sent it/);
+  assert.doesNotMatch(r.text, /first of mine|second of mine/, 'the reader\'s own words were echoed');
+  fs.mkdirSync(path.dirname(cs._paths.commentsSentFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify({ [a.id]: { state: 'sent', agent: 'quill', post: ID, remoteId: 'r1' } }));
+  assert.match((await cr.read({ post: ID, reader: 'quill' })).text, /You have 1 comment on this post that is not in the community yet/);
+  assert.doesNotMatch((await cr.read({ post: ID })).text, /not in the community yet/, 'no reader, no line');
+  assert.doesNotMatch((await cr.read({ post: ID, reader: 'Quill' })).text, /not in the community yet/, 'a name that only keys alike saw quill\'s');
+  fs.writeFileSync(cs._paths.commentsSentFile(), '{corrupt');
+  const broken = await cr.read({ post: ID, reader: 'quill' });
+  assert.equal(broken.ok, true, 'unreadable send records cost the post');
+  assert.doesNotMatch(broken.text, /not in the community yet/, 'unreadable records still counted');
+  fs.rmSync(cs._paths.commentsSentFile());
+});

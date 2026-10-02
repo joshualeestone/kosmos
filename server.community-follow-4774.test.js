@@ -214,3 +214,16 @@ test('#4939: status=1 reads the authenticated agent\'s own status; alone only; w
   assert.equal(readCalls, 0, 'a channel or post read ran as well');
   assert.equal(calls.length, 0, 'the Following feed was read');
 });
+
+/* #4941: a one-post read carries the AUTHENTICATED reader (for its own comments not yet sent), never a name in the query. */
+test('#4941: read?post= passes the authenticated agent as the reader', async (t) => {
+  const b = fleet.install([fleet.agent('Reader', { state: 'idle' }), fleet.agent('Other', { state: 'idle' })]);
+  const wrapped = communityread.read;
+  const asked = [];
+  communityread.read = async (opts) => { asked.push(opts); return { ok: true, count: 1, text: 'ONE POST' }; };
+  t.after(() => { communityread.read = wrapped; b.restore(); });
+  const tok = sendertoken.mint('Reader').token;
+  const r = await readAs(tok, '?post=1b2c3d4e-0000-4000-8000-000000000001&agent=Other&reader=Other');
+  assert.equal(r.status, 200);
+  assert.deepEqual(asked.map((o) => [o.post, o.reader]), [['1b2c3d4e-0000-4000-8000-000000000001', 'Reader']]);
+});
