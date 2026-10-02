@@ -165,6 +165,12 @@ So="$(promote_site yes)"; name_installer "$So" "$(printf 'ANOTHER-CUT\n' | shasu
 refused "a setup-staging that is not the installer the pointer names" "$So" "but the staging pointer names installer"
 Sm="$(promote_site yes)"; printf 'EDITED\n' > "$Sm/setup-staging"; ( cd "$Sm" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 refused "a setup-staging that differs from its committed copy" "$Sm" "differs from its committed copy"
+# The gates take minutes: a setup-staging replaced while they ran is refused before the first write.
+Sc="$(promote_site yes)"; CHG="$T/stub-changing-gate.sh"
+printf '#!/usr/bin/env bash\nprintf "REPLACED-DURING-GATES\\n" > "$CHANGE_SITE/setup-staging"\nexit 0\n' > "$CHG"; chmod +x "$CHG"
+out="$(CHANGE_SITE="$Sc" KOSMOS_PROMOTE_GATE_CMD="bash $CHG" bash "$HERE/promote-channel.sh" "$Sc" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "changed while the gates ran" && [ "$(cat "$Sc/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$Sc/setup")" = PROD-INSTALLER ] \
+  && pass "promote: a setup-staging replaced while the gates ran is refused, nothing written" || bad "promote changed-during-gates (rc=$rc, out=$out)"
 Sx="$(promote_site yes)"; printf '%s  setup\n' "$(printf 0%.0s $(seq 64))" > "$Sx/setup-staging.sha256"; git -C "$Sx" commit -qam "bad sidecar"
 refused "a sidecar that does not name the bytes" "$Sx" "not the setup-staging bytes"
 Sh="$(promote_site yes)"; rm -f "$Sh/setup-staging"; git -C "$Sh" commit -qam "script gone, sidecar kept" >/dev/null 2>&1
