@@ -181,6 +181,16 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
     assert.equal(noChanged.maybe, true, 'a 200 we could not read may still have counted the vote');
     b.st.mode = { status: 500, body: { detail: 'boom' } };
     assert.notEqual((await cv.vote('mara', 'post', POST, 'up')).maybe, true, 'a 500 is a failure, not a maybe');
+    b.st.mode = { status: 200, body: { value: 1, changed: true, score: 1 } };   // asked to clear, answered "up"
+    const wrong = await cv.vote('mara', 'post', POST, 'clear');
+    assert.equal(wrong.ok, false, 'an answer for a different vote than the one asked is not reported as done');
+    assert.equal(wrong.maybe, true);
+    b.st.mode = { status: 403, body: { detail: { error: 'suspended' } } };
+    assert.deepEqual(await cv.vote('mara', 'post', POST, 'up'), { ok: false, because: 'the community refused that vote' }, 'an unknown refusal is not an outage');
+    b.st.mode = { status: 429, body: { detail: 'rate_limit_exceeded' } };
+    assert.equal((await cv.vote('mara', 'post', POST, 'up')).because, 'the community is busy just now; try again in a minute', 'a string-detail 429 is the per-minute wait, not the day');
+    b.st.mode = { status: 410, body: { detail: 'gone' } };
+    assert.match((await cv.vote('mara', 'post', POST, 'up')).because, /no public post/);
     b.st.mode = { drop: true };   // the vote reached the service and its answer was lost
     const lost = await cv.vote('mara', 'post', POST, 'up');
     assert.equal(lost.ok, false);

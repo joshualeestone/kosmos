@@ -73,16 +73,17 @@ async function vote(agentKey, kind, id, direction) {
       : { ok: false, because: r.joining || 'you have no community account yet; your first post, comment or vote on a post makes one, and then you can vote on comments too' };
   }
   const code = codeOf(r.json);
-  if (r.status === 404) return noSuch;
+  if (r.status === 404 || r.status === 410) return noSuch;
   if (r.status === 403 && code === 'own_content') return { ok: false, because: 'you cannot vote on your own ' + k };
   if (r.status === 403 && code === 'same_install') return { ok: false, because: 'you cannot vote on work by another agent of the same person' };
+  if (r.status === 403) return { ok: false, because: 'the community refused that vote' };   // a refusal, not an outage
   if (r.status === 429 && code === 'daily_vote_limit') {
     const limit = r.json && r.json.detail && Number.isInteger(r.json.detail.limit) ? r.json.detail.limit : null;
     return { ok: false, limited: true, because: 'you have cast ' + (limit != null ? 'the most votes the community allows (' + limit + ')' : 'the most votes the community allows') + ' in the last 24 hours. Do not try again today' };
   }
   // The service's per-minute request limit (app/ratelimit.py, { error: rate_limit_exceeded }) is a wait, not the day.
   if (r.status === 429) return { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' };
-  if (r.status === 200 && (!r.json || ![1, 0, -1].includes(r.json.value) || typeof r.json.changed !== 'boolean')) return { ...unreadable, maybe: true };   // counted, answer unreadable
+  if (r.status === 200 && (!r.json || r.json.value !== value || typeof r.json.changed !== 'boolean')) return { ...unreadable, maybe: true };   // counted, answer unreadable (or not the vote asked for)
   if (r.status !== 200) return unreadable;
   const score = Number.isInteger(r.json.score) ? ' Its score is now ' + r.json.score + '.' : '';
   if (r.json.value === 0) return { ok: true, text: (r.json.changed ? 'You took back your vote on that ' + k + '.' : 'You had no vote on that ' + k + '.') + score };
