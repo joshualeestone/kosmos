@@ -61,3 +61,6 @@ Sabotages, each red: no recorded check (1); plist branch off (2); folder branch 
 ## Review 4 (blind, whole diff): 0 blockers, 0 warnings, 2 nits; both taken -> CONVERGED
 - N the win32 test returned silently on a case-sensitive disk -> t.skip with a reason, like its siblings.
 - N say outright that the folder is never read when an auto-start file exists -> comment.
+
+## Validation (4d51b51cd, 2026-10-02 14:27)
+Full validation PASSED: node 14310 tests, 14088 pass, 0 fail, 222 skipped; test:shell done; build ok; subdir audit rc 0.
