@@ -612,7 +612,7 @@ test('#3998 round 7: a second refused code is counted, so the page can bring the
 /* ---- review round 8 ---------------------------------------------------------------------- */
 test('#3998 round 8: the marker words must be the item the marker is on (a one-line button row)', () => {
   const s = require('./agysignin');
-  const st = scripted(s, 'Terms of Service & Data Use\n\n> Previous    [Done]\n');
+  const st = scripted(s, 'Terms of Service & Data Use\n\n  [ ] Yes, I agree\n> Previous    [Done]\n');
   try {
     const { id } = s.start();
     agreeOn(s, id);
@@ -1191,6 +1191,50 @@ test('#4960: termsOf reads the measured frames: the box, where the marker is, an
   const odd = TERMS2().replace('https://antigravity.google/terms', 'https://evil.example/terms').replace('https://policies.google.com/privacy', 'http://policies.google.com/privacy');
   assert.equal(s.termsOf(odd).termsUrl, null, 'a link to another site would be shown to the person');
   assert.equal(s.termsOf(odd).privacyUrl, null, 'a plain-http link would be shown');
+  const other = TERMS2().replace('https://antigravity.google/terms', 'https://sites.google.com/view/terms').replace('https://policies.google.com/privacy', 'https://policies.google.com/privacy).');
+  assert.equal(s.termsOf(other).termsUrl, null, 'round 1: any google.com page (sites.google.com) would be linked as the terms');
+  assert.equal(s.termsOf(other).privacyUrl, 'https://policies.google.com/privacy', 'round 1: trailing punctuation became part of the link');
+});
+
+test('#4960 round 1: Done is never pressed on a frame that does not show the box as the person chose', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS2());
+  try {
+    const { id } = s.start();
+    agreeOn(s, id, false);
+    st.screen = 'Terms of Service & Data Use\n    [Previous]    >  Done \n'; s.tickForTests(); s.tickForTests();
+    assert.deepEqual(st.sent, [], 'Done was pressed with the box not drawn (it may still be ticked)');
+    assert.notEqual(s.status().state, 'done');
+  } finally { s.resetForTests(); }
+});
+
+test('#4960 round 1: a half-drawn first terms frame is not handed to the panel (it would read the box as unticked)', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Terms of Service & Data Use\nAI coding agents are known\n');
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.status().state, 'setup', 'the terms were handed to the panel before the box was drawn');
+    assert.equal(s.status().terms, undefined);
+    assert.equal(s.agree(id, { dataUse: false }).ok, false, 'an answer was taken before the box was drawn');
+    st.screen = TERMS2(); s.tickForTests();
+    assert.equal(s.status().state, 'terms');
+    assert.equal(s.status().terms.dataUse, true, 'CONTROL: the full frame gives the box as Antigravity has it');
+  } finally { s.resetForTests(); }
+});
+
+test('#4960 round 1: Show on the terms hands them to the window; the panel stops asking', async () => {
+  const s = require('./agysignin');
+  scripted(s, TERMS2());
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    s.setForTests({ openFile: (f, done) => done(null) });
+    await s.show(id);
+    assert.equal(s.status().state, 'stuck', 'the panel kept asking the terms while the window had them');
+    assert.equal(s.status().shown, true);
+    assert.equal(s.status().terms, undefined);
+  } finally { s.resetForTests(); }
 });
 
 test('#4960: the terms wait for the person: no key, not stuck, and the panel gets the box as agy has it', () => {
@@ -1263,9 +1307,9 @@ test('#4960: a screen Kosmos does not recognise says what it saw, with codes and
   try {
     s.start();
     s.tickForTests();
-    st.screen = 'A brand new screen\nSigned in as josh@example.com\ntoken 4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v\n';
+    st.screen = 'Old words\n1\n2\n3\n4\nA brand new screen\nSigned in as josh@example.com\ntoken 4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v\nin /Users/josh/x\n';
     for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); }
     assert.equal(s.status().state, 'stuck');
-    assert.deepEqual(s.status().seen, ['A brand new screen', 'Signed in as <email>', 'token <long>']);
+    assert.deepEqual(s.status().seen, ['3', '4', 'A brand new screen', 'Signed in as <email>', 'token <long>', 'in <path>'], 'not the newest lines, or not masked');
   } finally { s.resetForTests(); }
 });

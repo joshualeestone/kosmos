@@ -12,7 +12,8 @@
  * in a folder Kosmos owns (never the home folder), reads the screen once a second, and answers each
  * screen it recognises by the words on it. The person sees only Google's page, and pastes the code
  * into Kosmos's own panel. What Kosmos never does on the person's behalf:
- *   - tick the optional data-sharing box (the panel says so; they can opt in later in agy);
+ *   - accept Antigravity's terms or decide its OPTIONAL data-sharing box (#4960: agy 1.2.12+ draws it ticked; the
+ *     panel shows the terms and the box as agy has it, and Kosmos applies the person's answer, agree());
  *   - trust any folder but its own sign-in folder.
  * A screen it does not recognise is not guessed at: after a few seconds the state becomes `stuck`,
  * and the panel offers to show the window so the person can finish by hand.
@@ -73,9 +74,10 @@ const MAX_VISITS = 3;
 /* #4960: keys Kosmos sends on the terms after the person agreed (a toggle, Down, Right, Enter is four) before it shows
    the screen instead. */
 const MAX_TERMS_KEYS = 6;
-/* #4960: the only addresses the terms' links may point at (agy 1.2.12 and 1.2.14 show antigravity.google/terms and
-   policies.google.com/privacy). Anything else is left out of the panel rather than linked. */
-const TERMS_HOSTS = /^(?:[a-z0-9-]+\.)*(?:google\.com|antigravity\.google)$/;
+/* #4960: the only hosts the terms' links may point at (agy 1.2.12 and 1.2.14 show antigravity.google/terms and
+   policies.google.com/privacy). Exact hosts, not any google.com (sites.google.com and redirects are someone else's
+   page under the label "Terms of Service"). Anything else is left out of the panel rather than linked. */
+const TERMS_HOSTS = new Set(['antigravity.google', 'policies.google.com']);
 /* The size of agy's hidden terminal: wide enough that its Google URL and the trust folder's path are
    not wrapped mid-word (the screen readers match on whole lines), tall enough for its longest screen. */
 const PANE_COLS = 120;
@@ -130,7 +132,7 @@ let S = null;   // { id, state, url, because, step, folder, lastSeen, timer, bus
 
 function signinFolder() { return path.join(folderRoot(), 'agy-signin'); }
 
-/** What a screen is told: never the folder, never the raw screen. */
+/** What a screen is told: never the folder, never the raw screen (#4960: only `seen`, a few masked lines, when stuck). */
 function status() {
   if (!S) return { state: 'idle' };
   const out = { id: S.id, state: S.state, step: S.step || null };
@@ -187,8 +189,8 @@ function markedLine(text) {
    Returns { dataUse: true|false|null, focus: 'box'|'previous'|'done'|null, sameRow, termsUrl, privacyUrl }. */
 function safeLink(u) {
   try {
-    const x = new URL(String(u));
-    return x.protocol === 'https:' && TERMS_HOSTS.test(x.hostname) && !x.username && !x.password ? x.href : null;
+    const x = new URL(String(u).replace(/[.,;:)\]]+$/, ''));   // a sentence's own punctuation is not the address
+    return x.protocol === 'https:' && TERMS_HOSTS.has(x.hostname) && !x.port && !x.username && !x.password ? x.href : null;
   } catch { return null; }
 }
 function termsOf(text) {
@@ -211,13 +213,15 @@ function termsOf(text) {
   }
   return out;
 }
-/* #4960: the first lines of a screen Kosmos did not recognise, for the panel and the log, so a stuck sign-in says what
-   it saw. Long tokens (a code, a key) and e-mail addresses are masked; box-drawing and blank lines are dropped. */
+/* #4960: the last lines of a screen Kosmos did not recognise (the newest screen is drawn last), for the panel and the
+   log, so a stuck sign-in says what it saw. Long tokens (a code, a key), e-mail addresses and paths are masked;
+   box-drawing and blank lines are dropped. */
 function seenOf(text) {
   return String(text).split('\n')
     .map((l) => l.replace(/[\u2500-\u259f]/g, '').trim())
     .filter((l) => l)
-    .slice(0, 6)
+    .slice(-6)
+    .map((l) => l.replace(/(?:~|\/(?:Users|home|private|var|tmp))\/\S*/g, '<path>'))
     .map((l) => l.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '<email>').replace(/[A-Za-z0-9/_\-.~+=]{24,}/g, '<long>').slice(0, 120));
 }
 function stuckUnknown(text) {
@@ -389,6 +393,9 @@ function step() {
     S.step = 'terms'; S.lastSeen = now();
     const tm = termsOf(text);
     if (!S.agreed) {
+      /* Only once the box itself is drawn (round 1): a half-drawn first frame would give the panel "unticked" while
+         Antigravity has it ticked, and the panel sets its box once. Until then it is still setting up. */
+      if (tm.dataUse === null) { if (S.state !== 'terms') { S.state = 'setup'; S.because = null; } return; }
       S.terms = tm;
       if (S.state !== 'terms') { S.state = 'terms'; S.because = null; }
       return;
@@ -401,8 +408,10 @@ function step() {
     if (tm.focus === 'box') key = tm.dataUse === S.agreed.dataUse ? 'Down' : 'Enter';
     else if (tm.focus === 'previous') key = tm.sameRow ? 'Right' : 'Down';
     else if (tm.focus === 'done') {
-      // Never past a box that is not what the person chose (a toggle that did not land, a box drawn after the key).
-      if (tm.dataUse !== null && tm.dataUse !== S.agreed.dataUse) { S.state = 'stuck'; S.because = 'Kosmos could not set Antigravity\'s data-sharing choice the way you chose it'; return; }
+      /* Done only on a frame that SHOWS the box as the person chose (round 1): a box not drawn in this frame is no key
+         (the same-screen rule shows the window if it never comes), and one drawn the other way is stuck. */
+      if (tm.dataUse === null) return;
+      if (tm.dataUse !== S.agreed.dataUse) { S.state = 'stuck'; S.because = 'Kosmos could not set Antigravity\'s data-sharing choice the way you chose it'; return; }
       key = 'Enter';
     }
     if (!key) return;   // no marker drawn yet: wait for the full frame (round 26)
@@ -611,6 +620,9 @@ function show(id) {
        Terminal has come up, and pressing nothing is the safe way to be wrong. Stop still works. */
     S.shown = true;
     if (!S.shownAt) S.shownAt = now();
+    /* #4960 round 1: shown on the terms, the person answers them in the window (agree() refuses once shown), so the
+       panel stops asking: the shown-window state, not 'terms' forever. */
+    if (S.state === 'terms') { S.state = 'stuck'; S.because = 'Antigravity is showing its terms; answer them in the window'; }
     const mine = S;
     openFile(file, (err) => {
       /* An `open` that failed outright (not a timeout, which may have opened Terminal anyway) opened

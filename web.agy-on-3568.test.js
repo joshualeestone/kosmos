@@ -601,12 +601,12 @@ test('#4960: the terms are asked in Kosmos\'s panel: the links, the box as Antig
     assert.equal(f.el('fr-gemini-sub-terms-tos').attrs.href, 'https://antigravity.google/terms');
     assert.equal(f.el('fr-gemini-sub-terms-privacy').attrs.href, 'https://policies.google.com/privacy');
     assert.equal(f.el('fr-gemini-sub-terms-share').checked, true, 'the box did not start as Antigravity has it');
-    assert.equal(f.active(), f.el('fr-gemini-sub-terms-go'), 'focus did not go to Agree and continue');
+    assert.equal(f.active(), f.el('fr-gemini-sub-terms-intro'), 'focus did not go to the terms\' first words (on Agree, one Enter accepts them unread)');
     f.el('fr-gemini-sub-terms-share').checked = false;   // the person unticks it
     const before = f.posts.length;
     await f.settle(() => f.posts.length > before + 3);
     assert.equal(f.el('fr-gemini-sub-terms-share').checked, false, 'a poll ticked the box again over the person\'s answer');
-    await f.FR_AGY_SUB.agreeTerms();
+    await f.el('fr-gemini-sub-terms-go').listeners.click();   // the button, as the person presses it
     assert.deepEqual(f.bodies.find(([p]) => p === '/api/antigravity/signin/agree'), ['/api/antigravity/signin/agree', JSON.stringify({ id: 'a1b2c3d4e5f60718', dataUse: false })],
       'the answer did not carry the person\'s choice, or the sign-in it is for');
     assert.doesNotMatch(PAGE, /Kosmos leaves Google's optional data sharing off/, 'the panel still says Kosmos leaves data sharing off (Antigravity ticks it; the person decides)');
@@ -615,7 +615,7 @@ test('#4960: the terms are asked in Kosmos\'s panel: the links, the box as Antig
 
 test('#4960: both places that sign Gemini in carry the terms row', () => {
   for (const pre of ['acct-gemini-sub-', 'fr-gemini-sub-']) {
-    for (const part of ['terms-row', 'terms-tos', 'terms-privacy', 'terms-share', 'terms-go']) assert.match(PAGE, new RegExp('id="' + pre + part + '"'), pre + part + ' is missing');
+    for (const part of ['terms-row', 'terms-intro', 'terms-tos', 'terms-privacy', 'terms-share', 'terms-go']) assert.match(PAGE, new RegExp('id="' + pre + part + '"'), pre + part + ' is missing');
     assert.match(PAGE, new RegExp('<label[^>]*for="' + pre + 'terms-share"'), pre + 'terms-share has no label');
   }
 });

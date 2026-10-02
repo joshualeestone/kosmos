@@ -13116,7 +13116,7 @@ window.kosmosMeasureScrollbarWidth();
         <!-- #4960: Antigravity's terms, asked HERE: the links, and its optional data-sharing box as Antigravity has it.
              Kosmos presses nothing on them until the person answers. -->
         <div id="acct-gemini-sub-terms-row" hidden style="margin-top:8px;">
-          <p class="dhint" style="margin:0 0 6px;">Antigravity asks you to accept Google's <a id="acct-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="acct-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
+          <p class="dhint" id="acct-gemini-sub-terms-intro" tabindex="-1" style="margin:0 0 6px;">Antigravity asks you to accept Google's <a id="acct-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="acct-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
           <label class="dhint" for="acct-gemini-sub-terms-share" style="display:flex;gap:8px;align-items:flex-start;margin:0;"><input type="checkbox" id="acct-gemini-sub-terms-share" style="margin-top:3px;"><span>Also let Google collect and use my Antigravity interactions to improve it. Optional: you can change this later in Antigravity's settings.</span></label>
           <div class="frow" style="margin-top:8px;"><button class="btn uprime" id="acct-gemini-sub-terms-go" type="button">Agree and continue</button></div>
         </div>
@@ -14248,7 +14248,7 @@ window.kosmosMeasureScrollbarWidth();
                   <!-- #4960: Antigravity's terms, asked HERE: the links, and its optional data-sharing box as Antigravity has it.
                        Kosmos presses nothing on them until the person answers. -->
                   <div id="fr-gemini-sub-terms-row" hidden style="margin-top:8px;">
-                    <p class="dhint" style="margin:0 0 6px;">Antigravity asks you to accept Google's <a id="fr-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="fr-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
+                    <p class="dhint" id="fr-gemini-sub-terms-intro" tabindex="-1" style="margin:0 0 6px;">Antigravity asks you to accept Google's <a id="fr-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="fr-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
                     <label class="dhint" for="fr-gemini-sub-terms-share" style="display:flex;gap:8px;align-items:flex-start;margin:0;"><input type="checkbox" id="fr-gemini-sub-terms-share" style="margin-top:3px;"><span>Also let Google collect and use my Antigravity interactions to improve it. Optional: you can change this later in Antigravity's settings.</span></label>
                     <div class="frow" style="margin-top:8px;"><button class="btn uprime" id="fr-gemini-sub-terms-go" type="button">Agree and continue</button></div>
                   </div>
@@ -29165,7 +29165,9 @@ function agySubDriver(pre, onReady) { return {
         if (this.termsFor !== this.signinId) {
           this.termsFor = this.signinId;
           const box = this.el('terms-share'); if (box) box.checked = tm.dataUse === true;
-          const go = this.el('terms-go'); if (go && go.focus) go.focus();
+          /* Focus the terms' first words, not Agree (round 1): one Enter must not accept them for a keyboard user who
+             has not yet reached the links or the optional box. */
+          const intro = this.el('terms-intro'); if (intro && intro.focus) intro.focus();
         }
         this.say("Almost done. Antigravity asks you to accept Google's terms, and whether to share your usage data (optional).", '', false);
       } else if (state === 'checking' || state === 'setup') {
