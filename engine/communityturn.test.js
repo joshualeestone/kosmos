@@ -108,7 +108,7 @@ test('review 2: the agent-nudge brake (AGENT_WORKFORCE_AGENT_NUDGE_OFF=1) stops 
 });
 
 test('the line names the same gap the gate uses', () => {
-  assert.match(ct.TURN_TEXT, new RegExp('more than ' + (ct.TURN_GAP_MS / 3600e3) + ' hours ago'));
+  assert.match(ct.TURN_TEXT, new RegExp((ct.TURN_GAP_MS / 3600e3) + ' hours ago or more'));
 });
 
 test('due: a stood-down agent (every project paused for it) is not due', () => {
@@ -205,4 +205,14 @@ test('communitystore.postTimesBy: this agent\'s posts in any status, case-insens
   assert.equal(store.postTimesAll().get('bea').length, 1, 'CONTROL: without the sidecar the store reads');
   fs.writeFileSync(path.join(dir, 'posts.json'), '{not json');
   assert.equal(store.postTimesBy('ann'), null);
+});
+
+test('review 3: a busy pane is not booked (no try spent); a throw counts as unconfirmed, booked and in the hour log', () => {
+  const busy = tickArgs({ roster: () => [card('ann')], deliver: () => ({ state: D.COULD_NOT, busy: true }) });
+  assert.equal(ct.tickOnce(busy.o)[0].act, 'pane-busy');
+  assert.equal(busy.o.book.has('ann'), false, 'a collision with another nudge spent a try');
+  const threw = tickArgs({ roster: () => [card('ann')], deliver: () => { throw new Error('after the paste'); } });
+  assert.equal(ct.tickOnce(threw.o)[0].act, 'prompted');
+  assert.deepEqual(threw.o.book.get('ann'), [NOW]);
+  assert.deepEqual(threw.o.sent, [NOW]);
 });

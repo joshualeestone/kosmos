@@ -19770,7 +19770,7 @@ function start(port = PORT) {
           switchOn: () => communitysend.switchOn(),
           prompterOn: () => heartbeatSetting.read().on === true,
           roster: () => safeRoster(), readProjects: () => projects.readAll(),
-          readLimit: () => limits.read(),
+          readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
           sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
           quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,

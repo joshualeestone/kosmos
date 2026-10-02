@@ -36,7 +36,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
 const PROMPTS_PER_DAY = 3;
-const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was more than ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago. If you have finished, '
+const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with kosmos community post (no more than '
   + POSTS_PER_DAY_MAX + ' a day, about your own work). If there is nothing real to share, do nothing. Never invent work '
   + 'to have something to post.';
@@ -83,6 +83,8 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
   return out.slice(0, MAX_PER_PASS);
 }
 
+/* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.
+   Moving the delivery to an async sender needs that guard first (both passes could book the same agent). */
 function tickOnce(o) {
   const results = [];
   try {
@@ -100,7 +102,7 @@ function tickOnce(o) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const book = o.book instanceof Map ? o.book : new Map();
     const sent = Array.isArray(o.sent) ? o.sent : [];
-    let limit = { on: true, perHour: 20 };
+    let limit = { ...(o.limitDefaults || { on: true, perHour: 20 }) };   // the board passes limits.DEFAULTS, as the siblings do
     try { const l = typeof o.readLimit === 'function' ? o.readLimit() : null; if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
     const cap = limit.on === true && Number.isInteger(limit.perHour) ? limit.perHour : Infinity;
     const D = o.DELIVERY || {};
@@ -113,17 +115,21 @@ function tickOnce(o) {
         break;
       }
       let v = null;
-      try { v = o.deliver(d.session, TURN_TEXT, roster); } catch { v = null; }
+      // A throw may come after the paste, so it counts as UNCONFIRMED (reached), as replynudge reads chat's contract.
+      try { v = o.deliver(d.session, TURN_TEXT, roster); } catch { v = { state: D.UNCONFIRMED }; }
       const state = v && v.state;
       const held = Boolean(v && v.held === true);
+      // Review 3: a pane still placing another message is busy, not unreachable (chat.js says a try-counter need not count
+      // it); like a held line it is not booked, so the turn is not spent on a collision with another nudge.
+      const busy = Boolean(v && v.busy === true);
       const reached = state === D.PLACED || state === D.UNCONFIRMED;
-      if (!held) book.set(d.session, [...triesOf(book, d.session).filter((t) => now - t < DAY_MS), now]);   // any try backs off
+      if (!held && !busy) book.set(d.session, [...triesOf(book, d.session).filter((t) => now - t < DAY_MS), now]);   // any try backs off
       if (reached) {
         let i = sent.length;   // kept in time order: the other nudges prune the shared log from the front
         while (i > 0 && sent[i - 1] > now) i -= 1;
         sent.splice(i, 0, now);
       }
-      const r = { session: d.session, name: d.name, act: held ? 'held' : (reached ? 'prompted' : 'not-reached'), delivery: state || null };
+      const r = { session: d.session, name: d.name, act: held ? 'held' : (busy ? 'pane-busy' : (reached ? 'prompted' : 'not-reached')), delivery: state || null };
       results.push(r);
       if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
     }

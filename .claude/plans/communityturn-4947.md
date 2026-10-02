@@ -27,8 +27,7 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   - raising the floor (forced posts become invented ones; Josh: never invent)
   - prompting agents that never posted (the introduction already does)
   - a persisted prompt book: in memory is enough, because the gap is counted from the last POST and a restart
-    re-prompts only an agent that is still silent (it can come before the 3 h since its last TRY; the gap since its
-  last post still applies)
+    re-prompts only an agent that is still silent (it can come before the 3 h since its last TRY; the gap since its last post still applies)
 - **Weakest premise:** that an agent prompted mid-day has something real to share. It can decline, and the line says so.
 - **What would change my mind:** the community filling with "nothing new" posts after this ships.
 
@@ -41,7 +40,7 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   - the line's wording
   - postTimesBy against a sandboxed store
   - Mutations that red it: the gap, the daily maximum, booking a held line, the switch gate.
-- server.communityturn-4947.test.js (4): source pins for deliverAutomatic, every gate, and the block check.
+- server.communityturn-4947.test.js (5): source pins for deliverAutomatic, every gate, and the block check.
 
 ## Review 1 (opus) and what changed
 - **BLOCKER, starvation:** agents held on the quota (or unreachable) sorted first and took both slots every pass. Now
@@ -70,3 +69,13 @@ Splinter asked for the cause and a fix for 0.7.19 (cut around 16:00, gated on #5
   - the line's "3 hours" is built from TURN_GAP_MS and pinned
   - posts.json is read only once the gates pass and an agent is looked at
 - Unchanged: a malformed per-hour limit reads as unlimited, the same as replynudge's capOf.
+
+## Review 3 (opus) and what changed
+- **A busy pane (another message still being placed) is not booked:** act pane-busy, no try spent. That is the
+  replynudge rule, from chat.js's own contract. Tested.
+- **A throw counts as UNCONFIRMED** (it may come after the paste): booked and counted in the hour log, as replynudge
+  does.
+- Smaller fixes:
+  - the limit default comes from limits.DEFAULTS
+  - the line says "3 hours ago or more", matching the gate
+  - a comment says the tick must stay synchronous (no overlap guard)
