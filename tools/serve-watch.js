@@ -12,7 +12,8 @@
  *      pointer's sha256, re-read when the pointer or the file's headers change, after a failed read, and daily. The
  *      names must be the ones the installers derive from `version` (and `arch`). Also what every install fetches
  *      whatever the pointers say: /setup, the tmux bundle and the generic fallback tarball (each against its sidecar).
- *   2. community.installkosmos.com: /api/health answers {"ok":true}, and the public feed answers.
+ *   2. community.kosmosplus.com (where builds post): /api/health answers {"ok":true}, and the public feed answers;
+ *      community.installkosmos.com (its old name, while installed apps still post there): /api/health answers.
  *   3. The relay: a computer name that never exists answers with the relay's own "Mac not connected" page, so the relay
  *      process itself is checked, whatever computer is on (a person's computer as the canary would alarm every time it
  *      slept). Its build is NOT checked: the relay writes it only to its own journal (kosmos-relay: crates/relay/src/serve.rs), with
@@ -73,7 +74,7 @@ const SITE = (env.SERVE_WATCH_SITE || 'https://installkosmos.com').replace(/\/+$
 const COMMUNITY = (env.SERVE_WATCH_COMMUNITY || 'https://community.kosmosplus.com').replace(/\/+$/, '');   // #4895: where builds post
 /* #4895: the community's old name. Installed apps from before the move still post there until they update, so its
    health is watched too while it is an alias. SERVE_WATCH_COMMUNITY_OLD='' turns this check off. */
-const COMMUNITY_OLD = (env.SERVE_WATCH_COMMUNITY_OLD !== undefined ? env.SERVE_WATCH_COMMUNITY_OLD : 'https://community.installkosmos.com').replace(/\/+$/, '');
+const COMMUNITY_OLD = (env.SERVE_WATCH_COMMUNITY_OLD !== undefined ? env.SERVE_WATCH_COMMUNITY_OLD.trim() : 'https://community.installkosmos.com').replace(/\/+$/, '');
 /* A computer name that never exists: the relay's own listener answers it with its "Mac not connected" page
    (kosmos-relay: crates/relay/src/redirect.rs), whatever computer is or is not on, over plain http (no certificate involved). */
 const RELAY = env.SERVE_WATCH_RELAY || 'http://serve-watch-canary.kosmosplus.com/';
