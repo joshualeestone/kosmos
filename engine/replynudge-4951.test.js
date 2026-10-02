@@ -220,3 +220,18 @@ test('#4951 review 2: if the told store cannot be written, the next pass still d
   await rn.sweepOnce(o);
   assert.equal(typed.length, 1, 'a reply was nudged again because its record could not be written');
 });
+
+test('#4951 review 3: a failed delivery keeps the told ids held in memory (store unwritable), so an earlier reply is not told again', async () => {
+  const typed = [];
+  let ids = ['a'];
+  let ok = true;
+  const { o } = rig({ writeNudged: () => false, readNudged: () => new Set(),
+    fresh: async () => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids }] }),
+    deliver: (s, text) => { typed.push(text); return { state: ok ? D.PLACED : D.COULD_NOT }; } });
+  await rn.sweepOnce(o);            // told about a; the store cannot be written, so a is held in memory
+  ids = ['a', 'b']; ok = false;
+  await rn.sweepOnce(o);            // b fails to deliver
+  ok = true;
+  await rn.sweepOnce(o);            // b again: the line must count only b
+  assert.match(typed[typed.length - 1], /you have 1 new reply/, 'a was told again after a failed delivery: ' + typed[typed.length - 1]);
+});

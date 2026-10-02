@@ -203,7 +203,7 @@ async function sweepOnce(o) {
           while (i > 0 && sent[i - 1] > at) i -= 1;
           sent.splice(i, 0, at);
         } else {
-          book.set(session, { key: p.key, tries });
+          book.set(session, { key: p.key, tries, told: memo0 && memo0.told });   // review 3: keep any ids held in memory
         }
         results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because });
         if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because });
