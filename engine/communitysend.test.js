@@ -41,9 +41,10 @@ function backend() {
         return null;
       };
       if (req.method === 'POST' && req.url === '/agents/register') {
+        if (st.mode.refuseGroup && 'install_group' in body) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] });
         if ([...st.agents.values()].some((a) => a.name.toLowerCase() === body.name.toLowerCase())) return send(409, { detail: 'that name is taken' });
         const id = 'a' + (++st.n);
-        const a = { id, name: body.name, bio: body.bio, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true, registeredAt: new Date().toISOString() };
+        const a = { id, name: body.name, bio: body.bio, installGroup: body.install_group || null, key: 'kc_key_' + id, token: 'tok_' + id + '_1', active: true, registeredAt: new Date().toISOString() };
         st.agents.set(id, a);
         return send(201, { agent_id: id, name: a.name, name_replaced: false, api_key: a.key, token: a.token });
       }
@@ -76,6 +77,16 @@ function backend() {
         const p = st.posts.get(decodeURIComponent(req.url.slice(7)));
         if (!p || p.agent !== a.id || p.deleted) return send(404, { detail: 'post not found' });
         p.deleted = true;
+        return send(204);
+      }
+      // #4922: PATCH /agents/me with install_group, as the service validates it (^[A-Za-z0-9_-]{16,64}$).
+      if (req.method === 'PATCH' && req.url === '/agents/me' && body && 'install_group' in body) {
+        if (!a) return send(401, { detail: 'invalid or expired token' });
+        if (st.mode.noGroupRoute) return send(404, { detail: 'not found' });
+        if (st.mode.slowDown) return send(429, { detail: 'slow down' }, { 'retry-after': '60' });
+        if (st.mode.refuseGroup) return send(422, { detail: [{ loc: ['body', 'install_group'], msg: 'Extra inputs are not permitted', type: 'extra_forbidden' }] });
+        if (typeof body.install_group !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(body.install_group)) return send(422, { detail: 'bad install_group' });
+        a.installGroup = body.install_group;
         return send(204);
       }
       if (req.method === 'GET' && req.url === '/agents/me/posts') {
@@ -164,7 +175,9 @@ test('1. a published post reaches the backend with exactly the pinned keys', asy
   assert.deepEqual(Object.keys(posts()[0].body).sort(), [...cs.PAYLOAD_KEYS].sort());
   assert.deepEqual(posts()[0].body, { channel: 'general', sub_channel: null, title: 'Weekly ops', body: 'We moved invoicing to Tuesdays.' });
   const reg = be.st.seen.find((s) => s.url === '/agents/register');
-  assert.deepEqual(reg.body, { name: 'Ava', bio: 'Operations assistant' });
+  const { install_group: group, ...rest } = reg.body;   // #4922: the install's group id rides along
+  assert.deepEqual(rest, { name: 'Ava', bio: 'Operations assistant' });
+  assert.match(String(group), /^[0-9a-f]{48}$/);
   assert.equal(cs.statuses()[r.id].state, 'sent');
   // A second sweep does not send it again.
   await cs.sweep();
@@ -1198,4 +1211,158 @@ test('#4938 sendSoon sends a post published during a sweep in flight, without wa
   agentPost('cy', { topic: 'Third', body: 'three' });
   await cs.sendSoon();
   assert.ok(posts().some((s) => s.body && s.body.title === 'Third'));
+});
+
+/* ---- #4922: the install's group id (kosmos-community install_group) ---------------------------------------------- */
+const groupPatches = () => be.st.seen.filter((x) => x.method === 'PATCH' && x.url === '/agents/me' && x.body && 'install_group' in x.body);
+const readKeys = () => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+const writeKeys = (k) => fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(k));
+
+test('4922: every agent of one install registers with the same random group id; no PATCH is needed after it', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  store.writeProfile('dex', { displayName: 'Dex', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  agentPost('dex', { topic: 'Two', body: 'Second note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register').map((x) => x.body.install_group);
+  assert.equal(regs.length, 2);
+  assert.match(regs[0], /^[0-9a-f]{48}$/);
+  assert.equal(regs[0], regs[1], 'two agents of one install sent different group ids');
+  const privateId = require('./ping').installId();
+  assert.match(String(privateId), /\S{8,}/, 'the private install id is empty, so the next check proves nothing');
+  assert.notEqual(regs[0], privateId, 'the group id is the Mac\'s private install id');
+  assert.equal(JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, regs[0]);
+  await cs.sweep();
+  assert.equal(groupPatches().length, 0, 'an agent registered with the id was sent it again');
+});
+
+test('4922: an agent registered before the id existed is sent it once, only while Community is on', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);   // as if it registered before #4922
+  SW = { on: false, ok: true };
+  await cs.sweep();
+  assert.equal(groupPatches().length, 0, 'the id was sent with Community off');
+  SW = { on: true, ok: true };
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1);
+  const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
+  assert.equal(groupPatches()[0].body.install_group, group);
+  assert.equal([...be.st.agents.values()][0].installGroup, group, 'the service did not record it');
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'it was sent again after it landed');
+});
+
+test('4922: a service without the field is tried again every sweep, then lands', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.ava.installGroupSent; writeKeys(k);
+  be.st.mode.noGroupRoute = true;
+  await cs.sweep(); await cs.sweep();
+  assert.equal(groupPatches().length, 2, 'a 404 was given up on');
+  assert.equal(readKeys().ava.installGroupRetrying, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'the retry mark is not tied to the id');
+  be.st.mode.noGroupRoute = false;
+  await cs.sweep();
+  assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
+  assert.equal(readKeys().ava.installGroupRetrying, undefined);
+});
+
+test('4922: an unreadable group file sends no id and is not overwritten', async () => {
+  await on();
+  fs.mkdirSync(path.dirname(cs._paths.installGroupFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.installGroupFile(), '{not json');
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const reg = be.st.seen.find((x) => x.url === '/agents/register');
+  assert.ok(reg, 'the agent did not register at all');
+  assert.equal('install_group' in reg.body, false, 'an id was sent although the file could not be read');
+  assert.equal(fs.readFileSync(cs._paths.installGroupFile(), 'utf8'), '{not json', 'the unreadable file was overwritten');
+  assert.equal(groupPatches().length, 0);
+});
+
+test('4922: an agent registered with an id the file no longer holds is sent the one the file holds', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const first = readKeys().ava.installGroupSent;
+  assert.match(String(first), /^[0-9a-f]{48}$/);
+  const kept = 'b'.repeat(48);   // the other id won the race to the file
+  fs.writeFileSync(cs._paths.installGroupFile(), JSON.stringify({ group: kept }));
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'the agent was not moved to the id the install kept');
+  assert.equal(groupPatches()[0].body.install_group, kept);
+  assert.equal(readKeys().ava.installGroupSent, kept);
+});
+
+test('4922: the id file is per endpoint, beside the keys, so another server never sees this one\'s id', () => {
+  assert.equal(path.dirname(cs._paths.installGroupFile()), path.dirname(cs._paths.keysFile()));
+  assert.notEqual(path.dirname(cs._paths.installGroupFile()), cs._paths.dir());
+});
+
+test('4922: a refused key is not sent the id; a 422 (a service without the field) is retried; an expired token logs in again and lands', async () => {
+  await on();
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  store.writeProfile('dex', { displayName: 'Dex', role: 'Ops' });
+  store.writeProfile('cal', { displayName: 'Cal', role: 'Ops' });
+  for (const n of ['ava', 'dex', 'cal']) agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' });
+  await cs.sweep();
+  const k = readKeys();
+  for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent;
+  k.ava.refused = true;                 // the service refused ava's key
+  writeKeys(k);
+  const dex = [...be.st.agents.values()].find((a) => a.name === 'Dex');
+  dex.token = 'expired';                // dex's token no longer works; its key still does
+  be.st.mode.refuseGroup = true;
+  await cs.sweep();
+  const keysNow = readKeys();
+  assert.equal(keysNow.ava.installGroupSent, undefined);
+  assert.equal(keysNow.ava.installGroupRetrying, undefined, 'a refused key was marked as retrying');
+  assert.equal(keysNow.cal.installGroupRetrying, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'a 422 was not kept for another try');
+  const before = groupPatches().length;
+  await cs.sweep();
+  assert.equal(groupPatches().length, before + 2, 'a 422 was given up on (dex and cal must be tried again; ava never)');
+  be.st.mode.refuseGroup = false;
+  dex.token = 'expired-again';
+  await cs.sweep();
+  assert.equal(readKeys().dex.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group, 'an expired token did not log in again and land');
+  assert.equal(readKeys().ava.installGroupSent, undefined, 'a refused key was sent the id');
+  const avaAuth = 'Bearer ' + readKeys().ava.token;
+  assert.equal(groupPatches().filter((x) => x.auth === avaAuth).length, 0, 'a PATCH went out as the refused agent');
+});
+
+test('4922: a service that does not know install_group still lets agents register (without it), and they get it later', async () => {
+  await on();
+  be.st.mode.refuseGroup = true;
+  store.writeProfile('ava', { displayName: 'Ava', role: 'Ops' });
+  agentPost('ava', { topic: 'One', body: 'First note.' });
+  await cs.sweep();
+  const regs = be.st.seen.filter((x) => x.url === '/agents/register');
+  assert.equal(regs.length, 2, 'it did not try again without the field');
+  assert.equal('install_group' in regs[1].body, false);
+  assert.ok(readKeys().ava && readKeys().ava.apiKey, 'the agent was kept off the community by the id');
+  assert.equal(posts().length, 1, 'the post did not go out');
+  be.st.mode.refuseGroup = false;
+  await cs.sweep();
+  assert.equal(readKeys().ava.installGroupSent, JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group);
+});
+
+test('4922: a 429 stops the pass for this sweep; the rest are sent on the next', async () => {
+  await on();
+  for (const n of ['ava', 'dex', 'cal']) { store.writeProfile(n, { displayName: n.toUpperCase(), role: 'Ops' }); agentPost(n, { topic: 'Note ' + n, body: 'A note from ' + n + '.' }); }
+  await cs.sweep();
+  const k = readKeys(); for (const n of ['ava', 'dex', 'cal']) delete k[n].installGroupSent; writeKeys(k);
+  be.st.mode.slowDown = true;
+  await cs.sweep();
+  assert.equal(groupPatches().length, 1, 'the pass went on after a 429');
+  be.st.mode.slowDown = false;
+  await cs.sweep();
+  const group = JSON.parse(fs.readFileSync(cs._paths.installGroupFile(), 'utf8')).group;
+  for (const n of ['ava', 'dex', 'cal']) assert.equal(readKeys()[n].installGroupSent, group, n + ' was not sent it after the 429');
 });

@@ -94,6 +94,8 @@ function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.jso
 // #4801: the owner's removals of COMMENTS, beside deletes.json and never in it: sweepDeletes walks deletes.json as POSTS
 // (DELETE /posts/{id}), and a comment id there would ask the service to delete a post. Written ONLY by requestDelete.
 function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json'); }
+// #4922: this install's community group id, one per endpoint like the keys (another server never sees it).
+function installGroupFile() { return path.join(endpointDir(), 'install-group.json'); }
 
 function saveJson(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -242,9 +244,39 @@ function profileName(profile) {
 function readProfileSafe(agentKey) {
   try { return store.readProfile(agentKey) || {}; } catch { return {}; }
 }
+/**
+ * #4922: the opaque id the community uses to tell that agents belong to the same person (kosmos-community
+ * `install_group`, ^[A-Za-z0-9_-]{16,64}$): its vote rule "not on work by another agent of the same person", and
+ * "Works alongside" on a profile once three or more take part (#4370). Random, made once, kept in its own file; never
+ * ping.installId() (phonenotify promises that one never leaves the Mac) and nothing derived from the machine.
+ * A file that is there but unreadable gives null: nothing is sent, and no second id is made over it.
+ */
+const INSTALL_GROUP_RE = /^[A-Za-z0-9_-]{16,64}$/;
+const INSTALL_GROUP_PASS_MS = 30 * 1000;   // the install-group pass's share of one sweep
+let installGroupUnreadableLogged = false;
+function installGroup() {
+  /* Read here, not through loadJson: its corrupt() says sending is paused, and it is not (agents are sent without an id). */
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(installGroupFile(), 'utf8')); }
+  catch (err) { rec = err && err.code === 'ENOENT' ? {} : undefined; }
+  if (rec && typeof rec.group === 'string' && INSTALL_GROUP_RE.test(rec.group)) { installGroupUnreadableLogged = false; return rec.group; }
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec) || Object.keys(rec).length) {
+    // Unreadable, or holding something else: not ours to overwrite. Agents go without an id until it is repaired.
+    if (!installGroupUnreadableLogged) {
+      installGroupUnreadableLogged = true;
+      log('install-group.json cannot be used; agents are sent without a group id until it is repaired or removed');
+    }
+    return null;
+  }
+  const group = crypto.randomBytes(24).toString('hex');
+  try { saveJson(installGroupFile(), { group, createdAt: new Date().toISOString() }); } catch { return null; }
+  return group;
+}
 function registration(agentKey) {
   const profile = readProfileSafe(agentKey);
   const out = { name: profileName(profile) || 'agent-' + crypto.randomBytes(3).toString('hex') };
+  const group = installGroup();
+  if (group) out.install_group = group;
   if (typeof profile.role === 'string' && profile.role.trim()) {
     const r = communitysite.scrubAuthorName(profile.role);
     if (r.ok && r.name !== communitysite.DEFAULT_AUTHOR_NAME) out.bio = r.name;
@@ -420,6 +452,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
       keys[agentKey] = {
         remoteId: String(r.json.agent_id || ''), name: String(r.json.name || reg.name),
         apiKey: r.json.api_key, token: r.json.token, registeredAt: new Date().toISOString(),
+        ...(reg.install_group ? { installGroupSent: reg.install_group } : {}),   // #4922: registered with it
       };
       saveJson(keysFile(), keys);
       return keys[agentKey];
@@ -429,6 +462,14 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
     if (!(r.status >= 400 && r.status < 500)) return null;
     delete keys[agentKey];
     saveJson(keysFile(), keys);
+    /* #4922: a service that does not know install_group answers 422 naming it (its schemas forbid unknown fields).
+       Registered again without it, so no agent is kept off the community by the id; the install-group pass sends it
+       once the service knows it. */
+    if (r.status === 422 && reg.install_group && JSON.stringify(r.json || '').includes('install_group')) {
+      delete reg.install_group;
+      log(`register for ${agentKey}: the service does not take install_group yet; registering without it`);
+      continue;
+    }
     if (r.status === 429) {
       registerRetryAt.set(agentKey, now + Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 3600)) * 1000);
       registerWaitWhy.set(agentKey, 'limit');
@@ -734,6 +775,36 @@ function serviceRefusedIndustry(r) {
   return r.status === 400 && Boolean(r.json) && r.json.detail === 'unknown industry';
 }
 
+/**
+ * #4922: send this install's group id to each agent registered before it existed, once, by PATCH /agents/me
+ * { install_group }. Only while Community is on (it is about taking part). A refused key is skipped. Any other answer
+ * is tried again every sweep and logged once per agent and id: the id always matches the service's pattern, so a 422
+ * is a service that does not know the field yet (its schemas forbid unknown fields), not a refusal of this value.
+ */
+async function sweepInstallGroup(keys, on) {
+  if (!on) return;
+  const group = installGroup();
+  if (!group) return;
+  const until = Date.now() + INSTALL_GROUP_PASS_MS;
+  for (const agentKey of Object.keys(keys)) {
+    if (!switchOn() || Date.now() > until) break;   // the rest wait for the next sweep
+    const k = keys[agentKey];
+    if (!k || !k.apiKey || k.refused || k.installGroupSent === group) continue;
+    const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: group });
+    if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
+    if (r.status === 429) break;   // the service asks to slow down: the rest wait for the next sweep
+    if (r.status === 204 || r.status === 200) {
+      k.installGroupSent = group;
+      delete k.installGroupRetrying;
+      saveJson(keysFile(), keys);
+    } else if (k.installGroupRetrying !== group) {
+      k.installGroupRetrying = group;
+      saveJson(keysFile(), keys);
+      log(`install group for ${agentKey}: got ${r.status || 'no answer'}; trying again every sweep until it lands`);
+    }
+  }
+}
+
 async function sweepIndustry(keys, on) {
   const cur = industry.read();
   if (!cur.ok) return;
@@ -886,6 +957,9 @@ async function sweepOnce(now) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
+  // #4922: last, the least urgent: a service slow on this route must not hold back the passes above.
+  try { await sweepInstallGroup(keys, on); }
+  catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -1302,6 +1376,6 @@ module.exports = {
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
-  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile },
+  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
 };
