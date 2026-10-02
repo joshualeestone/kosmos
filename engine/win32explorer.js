@@ -218,6 +218,13 @@ function openFile(file, opts) {
   return shown.ok ? { ok: true, revealedInstead: true, say: REVEALED_INSTEAD_SENTENCE } : shown;
 }
 
+/** #4930: show one file selected in its folder in File Explorer (never opens it). */
+function revealFile(file) {
+  const refusal = targetRefusal(file, 'file');
+  if (refusal) return { ok: false, because: refusal };
+  return launch(['/select,' + quotedPath(path.win32.normalize(file))]);
+}
+
 /** Open one of the closed list of Settings pages, by purpose. */
 function openSettingsPage(purpose) {
   if (!Object.prototype.hasOwnProperty.call(SETTINGS_PAGES, purpose)) {
@@ -317,6 +324,7 @@ module.exports = {
   powershellPath,
   openFolder,
   openFile,
+  revealFile,
   openSettingsPage,
   foregroundSettings,
   FOREGROUND_SETTINGS_SCRIPT,

@@ -1415,6 +1415,22 @@ function revealFolder(folder) {
   }
 }
 
+/**
+ * #4930: show one file selected in its folder (Finder's `open -R`; File Explorer's /select), never opening it. The
+ * path is the caller's, already resolved from a stored record. Same runner seam and error rule as revealFolder.
+ */
+function revealFile(file) {
+  if (revealOnWindows()) return win32explorer.revealFile(file);
+  try {
+    if (revealRunner) return revealRunner('/usr/bin/open', ['-R', file]);
+    execFileSync('/usr/bin/open', ['-R', file], { timeout: 5000, stdio: 'ignore' });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ReferenceError || err instanceof TypeError) throw err;
+    return { ok: false, because: 'Finder did not open' };
+  }
+}
+
 /* #2245: the bounds on the documents walk. See listFiles. LIST_SKIP_DIRS is dependency,
    cache and BUILD-OUTPUT trees: a list sorted newest first would otherwise fill with a
    fresh build's artefacts. The cost is that a file a person saved into a folder named
@@ -3334,6 +3350,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
   isUnderTmpDir, tmpFolderRefused,
 };
