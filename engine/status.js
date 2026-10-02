@@ -465,8 +465,8 @@ function oneLine(text, max) {
 
 function tmuxPanes() {
   let got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
-  /* The wall, or the tmux itself gone (ran false: ENOENT after a `brew uninstall`): either way another tmux may read the
-     server. A run that timed out is also ran false; the repick's own minute's wait bounds that case. */
+  /* The wall, or the tmux itself gone (ran false and the file missing: a `brew uninstall`): either way another tmux may
+     read the server. A run that timed out is also ran false but its file is there, so it starts no search. */
   if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
   if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
@@ -539,10 +539,13 @@ const TMUX_REPICK_WAIT_MS = 60000;
     so the path comes from where this file is (in a checkout it names nothing, and is skipped). */
 let TMUX_OWN_SEAM = null;
 function ownTmux() { return TMUX_OWN_SEAM || path.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'); }
-/** The tmux this board switched to at the version wall and is still on, or null (it never switched, or the value has
-    since been set to something else). For callers that would otherwise run an agent's baked tmux. */
-function switchedTmux() {
-  return TMUX_SWITCHED_TO && process.env.AGENT_WORKFORCE_TMUX_BIN === TMUX_SWITCHED_TO ? TMUX_SWITCHED_TO : null;
+/** The tmux this board reads this computer's server through, when that is proven: the board is on its launcher's pick
+    or a switch from it, and its last look succeeded. For callers that would otherwise run an agent's baked tmux
+    (Open in Terminal): a newer tmux reads an older server and not the other way round (measured 2026-10-01: Homebrew
+    3.6a lists a 3.5a server; 3.5a against 3.6a says "server exited unexpectedly"), so a baked path can be the one that
+    cannot. Null with an explicit choice (a test's stub) or a failed look: the baked path stays. */
+function readerTmux() {
+  return launcherPick() && LAST_LOOK_PROBLEM === null ? tmuxBin() : null;
 }
 /** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher), AND only
     while the live value is still that pick or one this module switched to itself: an explicit value set later in
@@ -594,6 +597,23 @@ function tmuxRepick() {
       return true;
     }
   }
+  /* The board's tmux is gone and nothing could list a server (none running): Kosmos's own runs the next one, the same
+     fallback the supervisor makes for a gone baked tmux. */
+  if (tmuxGone()) {
+    const own = ownTmux();
+    try {
+      if (fs.statSync(own).isFile()) {
+        process.env.AGENT_WORKFORCE_TMUX_BIN = own;
+        TMUX_SWITCHED_TO = own;
+        TMUX_REPICK_MISSED_AT = 0;
+        TMUX_LAST_SEARCH = 'none';
+        const dirs = String(process.env.PATH || '').split(path.delimiter).filter((d) => d && d !== path.dirname(own));
+        process.env.PATH = [path.dirname(own)].concat(dirs).join(path.delimiter);
+        try { console.error(`[status] #2955: ${current} is gone and no server is running; using Kosmos's own tmux, ${own}`); } catch { /* no console */ }
+        return true;
+      }
+    } catch { /* no own tmux either */ }
+  }
   TMUX_REPICK_MISSED_AT = Date.now();
   TMUX_LAST_SEARCH = 'found-nothing';
   return false;
@@ -602,7 +622,11 @@ function tmuxRepick() {
    rather than certain: tmuxSaidNoServer stats only the default socket path and reads an unreadable one as "could not
    check", so these words usually, not always, mean a different version owns a live server. */
 function lookProblemFor(got, bin, searched) {
-  if (!got || !got.ran) return 'we could not run tmux at all on this computer';
+  if (!got || !got.ran) {
+    return searched === 'found-nothing' ? 'we could not run tmux at all on this computer, and Kosmos found no other tmux here that it could use'
+      : searched === 'waiting' ? 'we could not run tmux at all on this computer; Kosmos looks again for another within a minute'
+        : 'we could not run tmux at all on this computer';
+  }
   const err = oneLine(got.err, 300);
   if (/server exited unexpectedly|protocol version mismatch/i.test(err)) {
     // No remedy is promised: say only what the search (tmuxRepick) actually did.
@@ -8428,7 +8452,7 @@ module.exports = {
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
   setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
-  tmuxRepick, tmuxPanes, launcherTmux, switchedTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; }, shDetail,
+  tmuxRepick, tmuxPanes, launcherTmux, readerTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,

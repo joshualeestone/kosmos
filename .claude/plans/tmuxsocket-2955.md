@@ -7,6 +7,12 @@ unexpectedly") until Angel pointed the bundled path at Homebrew's. Splinter put 
 Mortals, checked the same evening: the same wall (bundled 3.5a against Homebrew 3.7c), hidden because its board was
 started with AGENT_WORKFORCE_TMUX_BIN=/opt/homebrew/bin/tmux.
 
+## Measured: the wall runs ONE way (2026-10-01 21:22, private sockets on Agent1s)
+Homebrew 3.6a LISTS a server the bundled 3.5a started (rc 0). The bundled 3.5a against a 3.6a server says "server
+exited unexpectedly". With no server both say "error connecting to ... (No such file or directory)". So a newer tmux
+reads older servers, never the reverse, and the switch only ever needs the one wording (plus tmux's own "protocol version
+mismatch", kept as the explicit spelling).
+
 ## Decided: NOT a private socket (the card's option 1)
 Kosmos shares the person's tmux server ON PURPOSE: install/kosmos and install.tmux-pick.test.js record why (the adopt
 audience: "you already have agents here" exists to show agents a person already runs in their own tmux). A private
@@ -156,4 +162,16 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   tmux name is looked up on PATH, not taken for a gone tmux (test; my first version of it could not fail: a listing PATH
   tmux won either way; it now uses a serverless PATH tmux and a listing own, so a missed lookup switches). LEFT NIT:
   LAST_LOOK_PROBLEM is not reset between the new tests (each test that reads it sets it first).
+- Round 11 (opus): FIXED W: Open in Terminal used the board's tmux only after a switch in this process, not when the
+  launcher already picked the reader (the board starting after a newer server); it now uses status.readerTmux: the
+  board's tmux when it is the launcher's pick (or a switch from it) and its last look succeeded, else the baked path
+  (tests; an explicit test stub still yields the baked path, as server.launch-terminal-2129 requires). MEASURED W: the
+  reverse direction (newer client, older server) is not a wall: 3.6a reads a 3.5a server (section above), so nothing
+  needs to match a reverse wording. FIXED W: with its tmux gone and no server running the board now falls back to
+  Kosmos's own, as the supervisor does (test). NITs taken: the timeout comment says a timeout starts no search; a gone
+  tmux's detail line says what the search found (test); switchedTmux removed (nothing called it after readerTmux).
+  LEFT NITs: the fresh-process test child gets PATH and HOME only (the modules it loads write nothing at load); the
+  supervisor dedupes by path, the board by real path. NOTED, operations: 0.7.16 auto-installed on Agent1s at 21:21
+  and put the real 3.5a back at the bundled path (Angel's symlink gone, as she warned); the relaunched board picked
+  Homebrew's (it could list the live server), so the board reads its agents.
 

@@ -6170,7 +6170,7 @@ test('#2955: a launcher pick that is gone is not vouched for, and the board look
       status.setPaneSource(null);
       assert.notEqual(status.tmuxPanes(), null, 'the board stayed blind with its tmux gone and a reader there');
       assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.reader);
-      assert.equal(status.switchedTmux(), m.reader);
+      assert.equal(status.readerTmux(), m.reader, 'the board reads through the switch and says so (Open in Terminal uses it)');
       assert.equal(create.binPaths().tmuxBin, m.reader, 'a new agent would bake the tmux that is gone');
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
@@ -6181,5 +6181,44 @@ test('#2955: the wall\'s detail line shows the home folder as ~ (no user name on
   const said = status.lookProblemFor({ ran: true, status: 1, err: 'server exited unexpectedly' }, home + '/.local/share/kosmos/tmux/bin/tmux', 'found-nothing');
   assert.match(said, /\(~\/\.local\/share\/kosmos\/tmux\/bin\/tmux\)/);
   assert.ok(!said.includes(home), 'the home folder (and the user name in it) reached the detail line');
+});
+test('#2955: readerTmux vouches only for a launcher pick whose last look worked (never an explicit stub, never after a failed look)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.reader, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.reader, []);
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null);
+      assert.equal(status.readerTmux(), m.reader, 'a launcher pick that reads the server was not vouched for');
+      seams(status, null, []);
+      assert.equal(status.readerTmux(), null, 'an explicit choice was vouched for over the agent\'s baked tmux');
+      process.env.AGENT_WORKFORCE_TMUX_BIN = m.refuser;
+      seams(status, m.refuser, []);
+      assert.equal(status.tmuxPanes(), null);
+      assert.equal(status.readerTmux(), null, 'a tmux whose look failed was vouched for');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: the board\'s tmux gone and no server running: Kosmos\'s own takes over (the supervisor\'s fallback too)', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    const own = nodePath.join(m.sb, 'own-tmux');
+    fs.writeFileSync(own, '#!/bin/sh\necho "error connecting to /x (No such file or directory)" >&2; exit 1\n'); fs.chmodSync(own, 0o755);
+    const gone = nodePath.join(m.sb, 'gone-tmux');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: gone, KOSMOS_HOME: undefined, TMUX_TMPDIR: nodePath.join(m.sb, 'empty-sock') }, () => {
+      seams(status, gone, [m.refuser]);
+      status.setOwnTmux(own);
+      assert.equal(status.tmuxRepick(), true, 'a gone tmux with nothing to list left the board on the gone path');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, own);
+    });
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: gone, KOSMOS_HOME: undefined, TMUX_TMPDIR: nodePath.join(m.sb, 'empty-sock') }, () => {
+      seams(status, gone, []);
+      status.setPaneSource(null);
+      assert.equal(status.tmuxPanes(), null);
+      assert.match(status.lastLookProblem(), /found no other tmux here that it could use/, 'a gone tmux\'s detail dropped what the search found');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
 
