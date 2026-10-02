@@ -364,3 +364,40 @@ test('#5003: a recorded folder named like the agent in another case does not ren
   const p = mac.plan('cato5003');
   assert.equal(p.name, 'cato5003', 'a recorded folder\'s name was taken as the agent\'s: ' + p.name);
 });
+
+test('#5003: a connected agent whose recorded folder sits in the workers folder under another case keeps its own name', () => {
+  /* discover.connect names the agent as typed: `nero5003`, recorded folder workers/Nero5003, label ...nero5003. */
+  const dir = nodePath.join(create.WORKERS_DIR, 'Nero5003');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'x\n');
+  store.writeProfile('nero5003', { dir });
+  assert.equal(create.workerDir('nero5003'), dir, 'control: the recorded folder is what workerDir answers');
+  quiet();
+  const p = mac.plan('nero5003');
+  assert.equal(p.name, 'nero5003', 'the recorded folder\'s spelling was taken as the agent\'s: ' + p.name);
+});
+
+test('#5003: on the Mac the auto-start file\'s spelling wins over the folder\'s', (t) => {
+  /* The folder says Vela5003 but the job was written for vela5003: the label is what bootout must name. */
+  leftoverAgent('vela5003');
+  const folder = create.workerDir('vela5003');
+  const upper = nodePath.join(nodePath.dirname(folder), 'Vela5003');
+  fs.renameSync(folder, upper);
+  if (!fs.existsSync(create.workerDir('vela5003'))) { t.skip('this disk tells case apart'); return; }
+  quiet();
+  const p = mac.plan('VELA5003');
+  assert.equal(p.name, 'vela5003', 'the folder\'s spelling won over the auto-start file\'s: ' + p.name);
+  assert.equal(p.job.label, create.serviceLabel('vela5003'));
+});
+
+test('#5003: the win32 arm reads a stopped leftover\'s own spelling from its folder too', () => {
+  leftoverAgent('Ida5003', { job: false });
+  /* Task Scheduler answers "no such task", so the plan gets as far as the folder (the stub is the one this module's
+     win32 arm reads through; nothing here runs schtasks). */
+  const win32job = require('./win32job');
+  win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.' }));
+  let win;
+  try { win = leftover.plan('ida5003', { platform: 'win32' }); } finally { win32job.setRunner(null); }
+  if (!fs.existsSync(create.workerDir('ida5003'))) return; // a case-sensitive disk has nothing to read
+  assert.equal(win.name || 'refused: ' + win.because, 'Ida5003');
+});

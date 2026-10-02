@@ -169,28 +169,37 @@ function trashCanTake(p) {
   } catch { return false; }
 }
 
-/* #5003: the agent's own spelling of `asked`, read from the disk: the real name of its folder in the workers folder,
-   or (a Mac leftover with only an auto-start file) the name inside that file's real name. Only on a case-blind
-   platform, and only when the two differ in case alone. The folder counts only when it sits directly in the workers
-   folder: a connected agent's recorded folder can be anywhere and named anything, so its name says nothing about the
-   agent's. A linked folder is not read here (plan() refuses it). Anything unreadable leaves `asked`. */
+/* #5003: the agent's own spelling of `asked`, read from the disk, on a case-blind platform, and only when the two differ
+   in case alone. In order:
+   1. (Mac) the name inside its auto-start file's real name: that file IS the launchd label the delete must stop, so
+      when it exists its spelling wins.
+   2. its folder's real name, but only when no folder is recorded for the agent, so the folder is the default one in
+      the workers folder (workerDir answers a recorded folder or that, nothing else). A connected agent's recorded
+      folder can be named anything (discover.connect lets a person type the name), so its name says nothing.
+   A linked folder is not read here (plan() refuses it). Anything unreadable leaves `asked`.
+   ⚠️ KNOWN GAP: a Windows leftover with ONLY its startup task. Task Scheduler ignores case, so the task is removed,
+   but the board's other records keep the asked spelling. Reading the task's real name means parsing schtasks
+   output, which this Mac-built change cannot test against a real Windows answer. */
 function realCaseName(asked, platform) {
   if (platform !== 'darwin' && platform !== 'win32') return asked;
   const sameButCase = (real) => (typeof real === 'string' && real !== asked && real.toLowerCase() === asked.toLowerCase() ? real : null);
+  if (platform === 'darwin') {
+    try {
+      const real = path.basename(fs.realpathSync.native(create.plistPath(asked)), '.plist');
+      const parsed = create.parseServiceLabel(real);
+      const named = sameButCase(parsed && parsed.name);
+      if (parsed) return named || asked;
+    } catch { /* no auto-start file: try the folder */ }
+  }
+  let recorded = null;
+  try { recorded = require('./store').readProfile(asked).dir || null; } catch { recorded = null; }
+  if (recorded) return asked;
   try {
     const dir = create.workerDir(asked);
     const st = fs.lstatSync(dir);
-    if (st.isDirectory() && !st.isSymbolicLink()) {
-      const real = fs.realpathSync.native(dir);
-      if (path.dirname(real).toLowerCase() !== fs.realpathSync.native(create.WORKERS_DIR).toLowerCase()) return asked;
-      return sameButCase(path.basename(real)) || asked;
-    }
-  } catch { /* no folder: try the auto-start file */ }
-  if (platform !== 'darwin') return asked;
-  try {
-    const real = path.basename(fs.realpathSync.native(create.plistPath(asked)), '.plist');
-    const parsed = create.parseServiceLabel(real);
-    return sameButCase(parsed && parsed.name) || asked;
+    if (!st.isDirectory() || st.isSymbolicLink()) return asked;
+    const real = fs.realpathSync.native(dir);
+    return sameButCase(path.basename(real)) || asked;
   } catch { return asked; }
 }
 

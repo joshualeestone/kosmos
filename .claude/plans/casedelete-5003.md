@@ -44,3 +44,16 @@ Sibling files green: web.delete-leftover 7/7, jobexists.win32-570 14/14.
 - N "(this computer does not tell X and Y apart)" is false on a case-sensitive volume -> "(Kosmos treats X and Y as the
   same name here)".
 - N "a link is never followed" overstated -> "A linked folder is not read here (plan() refuses it)".
+
+## Review 3 (blind, whole diff): 0 blockers, 2 warnings, 2 nits
+- W a connected agent `miles` recorded at workers/Miles (directly in the workers folder) was renamed to Miles -> the
+  folder's spelling is read only when NO folder is recorded for the agent; and on the Mac the auto-start file's spelling
+  is read FIRST and wins (it is the launchd label bootout must name). The review-2 parent check became unreachable
+  (workerDir answers a recorded folder or WORKERS_DIR/<name>; its sabotage stayed green), so it is removed.
+  Tests +2 (recorded workers/Nero5003 keeps nero5003; folder Vela5003 vs job vela5003 -> vela5003 wins).
+- W Windows leftover with ONLY its startup task: NOT fixed, recorded as a KNOWN GAP in the code and here. Task
+  Scheduler is case-blind so the task is removed, but the board's other records keep the asked spelling. Fixing means
+  parsing schtasks /FO LIST output, which cannot be tested against a real Windows answer from this Mac.
+- N win32 folder arm untested -> test +1 (stubbed schtasks "no such task"; ida5003 plans as Ida5003).
+- N the running test no longer exercises the case-blind running check alone: documented since review 1.
+Sabotages, each red: no recorded check (1); plist branch off (2); folder branch returns asked (1).
