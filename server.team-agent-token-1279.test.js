@@ -285,6 +285,26 @@ test('AUTH: a valid AGENT token creates, and createdBy is the AUTHENTICATED call
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 
+test('#4475: the birth records the creator\'s EXACT token name and its profile id, not its lossy sessionName', async () => {
+  create.setClaudeProbe(LIVE);
+  const store = require('./engine/store');
+  const tok = sendertoken.mint('Dr. Pm').token;
+  liveness.seen(store.safeKey('Dr. Pm'));
+  store.writeProfile(store.safeKey('Dr. Pm'), {});
+  const id = store.readProfile(store.safeKey('Dr. Pm')).id;
+  assert.ok(id, 'the test could not mint the creator\'s profile id');
+  const board = fleet.install([]); // paneless: the card (and createdBy) is the store key, drpm
+  try {
+    const r = await postTeam({ purpose: 'agent builds a team', members: [{ name: 'drpmmadeone', role: 'pm' }] }, { 'x-kosmos-agent-token': tok });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const b = birthOf('drpmmadeone');
+    assert.ok(b, 'no birth record');
+    assert.equal(b.createdBy, store.safeKey('Dr. Pm'), 'CONTROL: createdBy is the lossy key, so the next line can tell them apart');
+    assert.equal(b.createdByName, 'Dr. Pm', 'the birth recorded the sessionName, not the token name');
+    assert.equal(b.createdById, id, 'the birth did not record the creator\'s profile id');
+  } finally { board.restore(); create.setClaudeProbe(null); }
+});
+
 test('AUTH: the BOARD token drives the operator path (createdBy = body.creator)', async () => {
   create.setClaudeProbe(LIVE);
   const board = fleet.install([]);
@@ -299,6 +319,7 @@ test('AUTH: the BOARD token drives the operator path (createdBy = body.creator)'
     assert.ok(b);
     assert.equal(b.createdBy, 'opsboss', 'the operator path records the operator-supplied creator');
     assert.equal(b.createdByName, undefined, '#4475: the operator path recorded a creator token name, so an agent named opsboss could remove this');
+    assert.equal(b.createdById, undefined, '#4475: the operator path recorded a creator profile id');
   } finally { board.restore(); create.setClaudeProbe(null); }
 });
 

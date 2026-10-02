@@ -2608,20 +2608,26 @@ function agentBirthOf(name) {
   return newest;
 }
 /* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
-   Only when all of these hold, else refused:
-   - the target's newest birth carries `createdByName`: the exact name on the token of the agent that asked for it
-     through POST /api/team (engine/team.js records it only for an agent that is not the setup guide). The person's
-     paths record none, so a fixed creator word they write ("operator", "kosmos") never makes an agent its owner;
-   - that birth's profile id is the target's current one (a profile that cannot be read gives none), so a name
-     freed and used again is not the old creator's;
-   - the caller's token carries its name, and that name is `createdByName` exactly. */
-function tokenOnlyMayRemove(caller, target) {
+   `callerSession` is the caller's card sessionName as resolveAgentSender gives it, the same key POST /api/team reads
+   the creator's profile by. Only when all of these hold, else refused:
+   - the target's newest birth carries `createdByName` and `createdById`: the exact token name and the profile id of the
+     agent that asked for it through POST /api/team (engine/team.js records them only for an agent that is not the
+     setup guide). The person's paths record neither, so a fixed creator word they write ("operator", "kosmos") never
+     makes an agent its owner;
+   - that birth's profile id is the target's current one, so a name freed and used again is not the old creator's;
+   - the caller's token carries its name and it is `createdByName` exactly, and the caller's current profile id is
+     `createdById`, so a later agent that reuses the creator's name is not the creator.
+   A profile that cannot be read gives no id, which refuses. */
+function tokenOnlyMayRemove(caller, target, callerSession) {
   if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return false;
+  if (typeof callerSession !== 'string' || !callerSession) return false;
   const birth = agentBirthOf(target);
-  if (!birth || typeof birth.createdByName !== 'string' || !birth.createdByName || !birth.id) return false;
-  let current; try { current = store.readProfile(create.slugFor(target)).id; } catch { return false; }
+  if (!birth || typeof birth.createdByName !== 'string' || !birth.createdByName || !birth.createdById || !birth.id) return false;
+  if (birth.createdByName !== caller.name) return false;
+  let current; let mine;
+  try { current = store.readProfile(create.slugFor(target)).id; mine = store.readProfile(callerSession).id; } catch { return false; }
   if (!current || current !== birth.id) return false;
-  return birth.createdByName === caller.name;
+  return Boolean(mine) && mine === birth.createdById;
 }
 
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
@@ -3952,8 +3958,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
    token is that agent, never the person. Person-only routes (restarting or reconfiguring agents, settings,
-   POST /api/agents, and removing any agent the caller did not create, #4475) are not in this set (nor
-   AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board token. The header only, never `token` in the body:
+   POST /api/agents) are not in this set (nor AGENT_TOKEN_ROUTE_PATTERNS below) and keep requiring the board token.
+   Removing an agent is in the patterns since #4475 and is narrowed in its handler to the caller's own creations. The header only, never `token` in the body:
    this gate runs before the body is read, and the handlers resolve the header first (presentedAgentToken), so both see the same
    caller. Not in REMOTE_AGENT_ROUTES, so a DIRECT network peer is still refused by
    remoteWriteGuard. ⚠️ Kosmos+ tunnel traffic reaches this board over loopback, so that guard
@@ -7184,6 +7190,7 @@ const server = http.createServer(async (req, res) => {
         let effectiveCreator;
         let callerKind;
         let creatorTokenName = null;
+        let creatorProfileId = null;
         if (presented) {
           const authRoster = safeRoster();
           if (authRoster === null) {
@@ -7202,6 +7209,9 @@ const server = http.createServer(async (req, res) => {
              match its creator exactly (the sessionName above is a slug or a store key, both lossy). A key-only token
              (before #4792) carries none, and its births are then not removable by it. */
           try { const named = sendertoken.resolveName(presented); creatorTokenName = (named && named.ok === true && typeof named.name === 'string' && named.name) ? named.name : null; } catch { creatorTokenName = null; }
+          /* #4475: and the creator's profile id, read by the same sessionName the removal route resolves the caller to,
+             so a later agent that reuses the creator's name is not the creator. None when it has no profile. */
+          try { creatorProfileId = store.readProfile(effectiveCreator).id || null; } catch { creatorProfileId = null; }
         } else {
           // OPERATOR path: no agent token, so on an enforcing board the board token
           // is required (computed only here -- it is never read on the agent path).
@@ -7397,6 +7407,7 @@ const server = http.createServer(async (req, res) => {
           fromAgent: callerKind === 'agent',   // #4474: an agent's members are vetted (team.vetAgentMember)
           fromGuide,
           creatorTokenName,   // #4475: recorded on each birth (createdByName) for an agent that is not the guide
+          creatorProfileId,   // #4475: recorded beside it (createdById)
         };
         let result;
         if (callerKind === 'agent') {
@@ -7533,12 +7544,16 @@ const server = http.createServer(async (req, res) => {
        with `?force` (the person's override). The person, and any caller holding the board token, are as before. */
     const tokenOnly = agentTokenOnlyCaller(req);
     if (tokenOnly !== null) {
-      /* The engine acts on the name as sent; the check above matches by slug. So a token-only caller names the agent
-         exactly by its board name (the slug), and the two cannot read different agents. */
+      /* The engine acts on the name as sent; the ownership check below matches by slug. So a token-only caller names
+         the agent exactly by its board name (the slug), and the two cannot read different agents. */
       let board; try { board = create.slugFor(name); } catch { board = null; }
       if (!board || board !== name) { sendJson(res, 400, { error: `name the agent by its board name${board ? ` (${board})` : ''}` }); return; }
       if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }
-      if (!tokenOnlyMayRemove(tokenOnly, name)) {
+      const roster = safeRoster();
+      if (roster === null) { sendJson(res, 503, { error: 'we could not check which agents are running, so we could not tell who this request is from; try again' }); return; }
+      const sender = resolveAgentSender(req, null, roster);
+      if (!sender.ok) { sendJson(res, 403, { error: sender.because }); return; }
+      if (!tokenOnlyMayRemove(tokenOnly, name, sender.card && sender.card.sessionName)) {
         sendJson(res, 403, { error: 'an agent can remove only an agent it created; the person removes other agents from the board' });
         return;
       }

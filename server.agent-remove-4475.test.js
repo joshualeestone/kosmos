@@ -29,12 +29,15 @@ const { start, server, boardAuthState } = require('./server');
 const sendertoken = require('./engine/sendertoken');
 const create = require('./engine/create');
 const store = require('./engine/store');
+const liveness = require('./engine/liveness');
+const fleet = require('./test-support/fleet');
 
 const BOARD = 'BOARDTOKEN_test_4475_0123456789abcdef';
 const GATE_REFUSAL = /this board belongs to the account that started it/;
 const NOT_YOURS = /an agent can remove only an agent it created/;
 let base;
 let pmToken;
+let board;
 
 test.before(async () => {
   await start(0);
@@ -42,10 +45,20 @@ test.before(async () => {
   assert.equal(boardAuthState.on, false, 'a fully-sandboxed board must not enforce');
   boardAuthState.on = true;
   boardAuthState.token = BOARD;
-  const minted = sendertoken.mint('pm-agent');
-  assert.ok(minted.ok, 'could not mint an agent token for the test: ' + minted.because);
-  pmToken = minted.token;
+  board = fleet.install([]);   // an empty roster: each test agent is paneless, known by its heartbeat
+  pmToken = agentToken('pm-agent');
 });
+
+/* A live agent holding a token, as POST /api/team and the removal route resolve it: paneless, so its card is its store
+   key, and it has a profile there (the profile id POST /api/team records as createdById). */
+function agentToken(name) {
+  const minted = sendertoken.mint(name);
+  assert.ok(minted.ok, 'could not mint an agent token for ' + name + ': ' + minted.because);
+  liveness.seen(store.safeKey(name));
+  store.writeProfile(store.safeKey(name), {});
+  return minted.token;
+}
+const creatorId = (name) => { store.writeProfile(store.safeKey(name), {}); return store.readProfile(store.safeKey(name)).id; };
 
 /* A birth line as engine/create.js writes it for an agent an agent made through POST /api/team: createdByName (the
    asking agent's exact token name), and the profile id the agent's profile carries (minted on the profile's first
@@ -55,7 +68,7 @@ function born(name, createdBy, extra = {}) {
   store.writeProfile(create.slugFor(name), {});
   const id = store.readProfile(create.slugFor(name)).id;
   assert.ok(id, 'the test could not mint a profile id for ' + name);
-  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ name, outcome: 'created', createdBy, createdByName: createdBy, id, ...extra }) + '\n');
+  fs.appendFileSync(create.createdLogFile(), JSON.stringify({ name, outcome: 'created', createdBy: store.safeKey(createdBy), createdByName: createdBy, createdById: creatorId(createdBy), id, ...extra }) + '\n');
 }
 async function remove(name, headers, query = '') {
   const res = await fetch(`${base}/api/agent/${encodeURIComponent(name)}/removal${query}`, { method: 'DELETE', redirect: 'manual', headers });
@@ -87,12 +100,10 @@ test('a token-only agent may remove an agent it created', async () => {
 });
 
 test('the creator is matched by its exact token name: a name with a period, and an adopted agent\'s capitals', async () => {
-  const kip = sendertoken.mint('Dr. Kip');
-  assert.ok(kip.ok, 'could not mint a token for a name with a period: ' + kip.because);
+  const kip = { token: agentToken('Dr. Kip') };
   born('Kip Kid', 'Dr. Kip');
   assert.ok(reachedEngine(await remove('kip-kid', { 'x-kosmos-agent-token': kip.token })), 'a creator with a period was not matched');
-  const casey = sendertoken.mint('Casey');
-  assert.ok(casey.ok);
+  const casey = { token: agentToken('Casey') };
   born('Casey Kid', 'Casey');
   assert.ok(reachedEngine(await remove('casey-kid', { 'x-kosmos-agent-token': casey.token })), 'an adopted creator with capitals was not matched');
 });
@@ -100,8 +111,7 @@ test('the creator is matched by its exact token name: a name with a period, and 
 test('a different agent whose name folds to the same slug or key is not the creator', async () => {
   born('Kip Kid Two', 'Dr. Kip');
   for (const other of ['dr-kip', 'drkip', 'DR. KIP']) {
-    const t = sendertoken.mint(other);
-    assert.ok(t.ok, 'could not mint ' + other);
+    const t = { token: agentToken(other) };
     const r = await remove('kip-kid-two', { 'x-kosmos-agent-token': t.token });
     assert.equal(r.code, 403, `${other} removed an agent Dr. Kip made: ${r.text.slice(0, 160)}`);
   }
@@ -167,9 +177,8 @@ test('a refused birth does not make its creator the owner', async () => {
 
 test('a birth the person made (no createdByName) never makes an agent of the recorded creator\'s name the owner', async () => {
   // The org-chart import records createdBy "operator" and the setup guide "kosmos"; an agent can take either name.
-  const op = sendertoken.mint('operator');
-  assert.ok(op.ok);
-  born('Imported Kid', 'operator', { createdByName: undefined });
+  const op = { token: agentToken('operator') };
+  born('Imported Kid', 'operator', { createdByName: undefined, createdById: undefined });
   const r = await remove('imported-kid', { 'x-kosmos-agent-token': op.token });
   assert.equal(r.code, 403, 'an agent named operator removed an agent the person imported: ' + r.text.slice(0, 160));
   assert.match(r.text, NOT_YOURS);
@@ -201,8 +210,7 @@ test('a birth with no profile id (dry run, or before #170) is not honoured', asy
 });
 
 test('an older token that carries only its key (no name) is refused, even for its own creation', async () => {
-  const minted = sendertoken.mint('key-only');
-  assert.ok(minted.ok);
+  const minted = { token: agentToken('key-only') };
   born('Key Kid', 'key-only');
   assert.ok(reachedEngine(await remove('key-kid', { 'x-kosmos-agent-token': minted.token })), 'CONTROL: the named token did not pass');
   // Strip the name, as a token minted before #4792 has none.
@@ -220,6 +228,31 @@ test('an older token that carries only its key (no name) is refused, even for it
   born('Key Kid Two', 'key-only');
   const r = await remove('key-kid-two', { 'x-kosmos-agent-token': minted.token });
   assert.equal(r.code, 403, 'a key-only token removed an agent: ' + r.text.slice(0, 160));
+  assert.match(r.text, NOT_YOURS);
+});
+
+test('a later agent that reuses the creator\'s name is not the creator (its profile id must be the creator\'s)', async () => {
+  const first = { token: agentToken('Builder') };
+  born('Built Kid', 'Builder');
+  assert.ok(reachedEngine(await remove('built-kid', { 'x-kosmos-agent-token': first.token })), 'CONTROL: the creator itself did not pass');
+  born('Built Kid Two', 'Builder');
+  // The creator is removed and what is left deleted (#514): its profile goes, and a new agent named Builder mints a new one.
+  const want = store.profileFileName(store.safeKey('Builder'));
+  const find = (dir) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const fp = path.join(dir, e.name); if (e.isDirectory()) { const hit = find(fp); if (hit) return hit; } else if (e.name === want && path.basename(dir) === store.PROFILES_DIRNAME) return fp; } return null; };
+  const file = find(SANDBOX);
+  assert.ok(file, 'the test did not find the creator\'s profile');
+  fs.rmSync(file);
+  sendertoken.revoke('Builder');
+  const second = { token: agentToken('Builder') };
+  const r = await remove('built-kid-two', { 'x-kosmos-agent-token': second.token });
+  assert.equal(r.code, 403, 'a new agent reusing the creator\'s name removed the old creator\'s work: ' + r.text.slice(0, 160));
+  assert.match(r.text, NOT_YOURS);
+});
+
+test('a birth with no creator profile id (a creator with no profile) is not honoured', async () => {
+  born('No Creator Id', 'pm-agent', { createdById: null });
+  const r = await remove('no-creator-id', asAgent());
+  assert.equal(r.code, 403);
   assert.match(r.text, NOT_YOURS);
 });
 
@@ -242,8 +275,7 @@ test('a caller holding the board token as well as an agent token is treated as t
 });
 
 test('a revoked agent token no longer removes even its own creation', async () => {
-  const minted = sendertoken.mint('short-lived');
-  assert.ok(minted.ok);
+  const minted = { token: agentToken('short-lived') };
   born('Short Kid', 'short-lived');
   assert.ok(reachedEngine(await remove('short-kid', { 'x-kosmos-agent-token': minted.token })), 'CONTROL: the live token did not pass');
   sendertoken.revoke('short-lived');
@@ -262,6 +294,7 @@ test('planning and restoring a removal still need the board token', async () => 
 });
 
 test.after(() => {
+  try { board.restore(); } catch { /* ignore */ }
   try { server.close(); } catch { /* ignore */ }
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
