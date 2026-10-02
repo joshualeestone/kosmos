@@ -46,7 +46,9 @@ const STOP = new Set(['the', 'and', 'for', 'with', 'when', 'that', 'this', 'from
   'says', 'said', 'still', 'only', 'just', 'out', 'any', 'all', 'one', 'two', 'get', 'got', 'gets']);
 
 /* NFKC folds fullwidth and compatibility forms; zero-width and bidi controls are removed. Both before any match. */
-const INVISIBLE = /[​-‏‪-‮⁠-⁤﻿­]/g;
+/* Review 8: every format character (\p{Cf}: zero-width, bidi controls and isolates, tags) plus the combining grapheme
+   joiner, variation selectors and the Hangul filler, all of which hide inside a name and still display it whole. */
+const INVISIBLE = /[\p{Cf}\u034f\ufe00-\ufe0f\u3164]/gu;
 const normal = (s) => String(s == null ? '' : s).normalize('NFKC').replace(INVISIBLE, '');
 
 function words(title) {
@@ -77,28 +79,32 @@ const FILE_EXT = new Set(['app', 'html', 'htm', 'js', 'mjs', 'cjs', 'ts', 'json'
    on another card), HTML comments (invisible to a reader, read by agents), and every author name and name part. */
 function scrub(text, names) {
   let t = normal(text);
-  t = t.replace(/<!--[\s\S]*?-->/g, '[comment removed]');
+  t = t.replace(/<!--[\s\S]*?-->/g, '[comment-removed]');
   /* Review 4: a home folder names its user ("/Users/jsmith/x", "C:\\Users\\Maria Lopez\\x", "/home/bob/x"). */
-  t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/g, '$1[user]');
-  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+(?: [^\\\s]+)?(?=\\)/g, '$1[user]');   // "C:\\Users\\Maria Lopez\\x": one or two words, up to the next \\
-  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+/g, '$1[user]');
+  t = t.replace(/(\/Users\/|\/home\/)[^/\s]+/gi, '$1[user]');
+  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+(?: [^\\\s]+)?(?=\\)/gi, '$1[user]');   // "C:\\Users\\Maria Lopez\\x": one or two words, up to the next \\
+  t = t.replace(/([A-Za-z]:\\Users\\)[^\\\s]+/gi, '$1[user]');
   t = t.replace(/(?<![\p{L}\p{N}])~[\p{L}_][\p{L}\p{N}_.-]*/gu, '~[user]');   // ~jsmith/notes, (~jsmith), "~jsmith/x" (review 6)
   /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
-  t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret removed]');
+  t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret-removed]');
   /* A long unbroken run with upper and lower case AND digits reads as a secret. Not a path (no "/"), and not plain hex: a
      commit hash or an id is bug detail, not a credential (review 5: both were being removed). */
-  t = t.replace(/\b[A-Za-z0-9+_-]{24,}={0,2}/g, (m) => (/[a-z]/.test(m) && /[A-Z]/.test(m) && /\d/.test(m) && !/^[0-9a-f-]+$/i.test(m) ? '[secret removed]' : m));
-  t = t.replace(/[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu, '[email removed]');
-  t = t.replace(/\b(?:https?:\/\/|www\.)\S+/gi, '[link removed]');
+  t = t.replace(/\b[A-Za-z0-9+_-]{24,}={0,2}/g, (m) => (/[a-z]/.test(m) && /[A-Z]/.test(m) && /\d/.test(m) && !/^[0-9a-f-]+$/i.test(m) ? '[secret-removed]' : m));
+  /* Review 8: a clone-form git URL names its GitHub user and the email rule would take only git@host, so these go first. */
+  t = t.replace(/\b(?:ssh|git|s?ftp|ftps):\/\/\S+/gi, '[link-removed]');
+  t = t.replace(/[\w.-]+@[\w.-]+\.[a-z]{2,}:[\w.~-]+\/\S*/gi, '[link-removed]');
+  t = t.replace(/[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu, '[email-removed]');
+  t = t.replace(/\b(?:https?:\/\/|www\.)\S+/gi, '[link-removed]');
   /* Review 4: a bare domain with a path ("github.com/jsmith/repo") is a profile or a repo, so it goes too; and IPs. */
   /* Not a file name: "Kosmos.app/Contents" or "index.html/x" is a path in a bug report, not a site. */
-  t = t.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.([a-z]{2,})\/\S*/gi, (m, tld) => (FILE_EXT.has(tld.toLowerCase()) ? m : '[link removed]'));
+  t = t.replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.([a-z]{2,})\/\S*/gi, (m, tld) => (FILE_EXT.has(tld.toLowerCase()) ? m : '[link-removed]'));
   t = t.replace(/[\p{L}\p{N}._-]+@[\p{L}\p{N}][\p{L}\p{N}_-]*(?:\.[\p{L}\p{N}_-]+)*/gu, '[user]@[host]');   // review 6, BEFORE the IP rule (review 7: jsmith@192.168.1.5 kept the user): the whole host, then any sentence dot
-  t = t.replace(/(?<![vV]|version |Version )\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[address removed]');
+  t = t.replace(/(?<![vV]|version |Version )\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '[address-removed]');
   /* A shell prompt names its user and machine ("jsmith@Johns-MacBook-Pro ~ %"); the email rule needs a dot after the @. */
-  t = t.replace(/(^|[^\p{L}\p{N}_])@[A-Za-z0-9][A-Za-z0-9-]*/gu, '$1[handle removed]');
+  t = t.replace(/(^|[^\p{L}\p{N}_])@[\p{L}\p{N}][\p{L}\p{N}-]*/gu, '$1[handle-removed]');
   t = t.replace(/\b[\w.-]+\/[\w.-]+#(\d+)\b/g, 'issue $1');   // review 4: owner/repo#4, a cross-repo back-reference
   t = t.replace(/(^|[^\p{L}\p{N}_&])#(\d+)\b/gu, '$1issue $2');
+  t = t.replace(/\bGH-(\d+)\b/gi, 'issue $1');   // review 8: GitHub links GH-1234 like #1234
   for (const n of names) {
     const name = normal(n).trim();
     if (name.length < 2) continue;
@@ -170,7 +176,7 @@ async function fetchReports({ base, channel, maxPages, fetchFn }) {
 
 function ghRun(args) {
   const r = spawnSync('gh', args, { encoding: 'utf8' });
-  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+  return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || (r.error ? 'could not run gh: ' + r.error.message : '') };
 }
 
 /* Existing cards that might be this bug. The words go as SEPARATE arguments (review 1, BLOCKER): one quoted argument is
@@ -431,7 +437,7 @@ async function main(argv) {
   if (verb === 'read' && !args.length) {
     try { return (await read(opts)).digest; } catch (e) {
       /* Review 5: a failed daily read says so in the digest, so yesterday's file is never read as today's. */
-      if (opts.digest) { try { fs.writeFileSync(opts.digest, `# Kosmos bugs triage FAILED ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC\n\n${e.message}\n`); } catch { /* best effort */ } }
+      if (opts.digest && !/another triage run (holds|is taking over|took)/.test(e.message)) { try { fs.writeFileSync(opts.digest, `# Kosmos bugs triage FAILED ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC\n\n${e.message}\n`); } catch { /* best effort */ } }
       throw e;
     }
   }
