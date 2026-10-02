@@ -30,8 +30,10 @@ from SENDING board.token; this stops it READING board.token.
   --dangerously-skip-permissions), `network.allowLocalBinding: true` (the loopback board)
 - `filesystem.denyRead: [<board.token>]` (belt-and-suspenders with the permission Read-deny;
   both measured in the spike)
-- `filesystem.denyWrite: [<agent>/.claude, <HOME>/.claude]` - this is what stops a shell
-  `printf > settings.json` / self-plant that the permission Edit-deny alone does not (measured arm 3)
+- `filesystem.denyWrite`: the agent's own `.claude` DIR (no runtime state there) plus the specific
+  settings FILES under each config home (NOT the whole `~/.claude` dir, which holds Claude Code's own
+  runtime state). This is what stops a shell `printf > settings.json` / self-plant that the permission
+  Edit-deny alone does not (measured arm 3). See the "Token-root coverage" section for the full set.
 
 ## Proven vs reasoned (from the spike, card comments)
 - PROVEN (spike arm 3, measured by hand): with the agent-folder denies + sandbox, Write/Edit/printf
