@@ -175,4 +175,9 @@ press stops through voiceStop and marks the stop.
   no mic; removing the gate reds it; Chromium calls any touch screen coarse, so the check answers the pointer query as
   a trackpad iPad does). Checked, not changed: Splinter's card comment is stamped 22:16:37Z, 17:16 CDT,
   the same minute as Josh's question. LEFT NIT: pinch zoom (scale, offsetLeft).
+- Round 14 (sonnet), OPEN, paused 19:49 for #2955 (Splinter: it goes ahead of this slice): W1 a dialog mic whose line
+  already holds the page's own message (a failed Create or Save) says nothing about who hears the audio to a screen
+  reader, which cannot reach the bar past aria-modal. W2 the voice section header still says "no audio kept", wider than
+  the phone path. W3 Android's no-speech after a stretch of silence says "Nothing was heard." with words already in the
+  box. NITs: the 300 s cap ends without saying why; the two 17:16 stamps (checked in round 13: both are 17:16 CDT).
 
