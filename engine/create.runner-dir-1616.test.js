@@ -50,6 +50,7 @@ process.on('exit', () => {
 const create = require('./create');
 const openai = require('./openaiaccounts');
 const runners = require('./runners');
+const status = require('./status');
 /* A recording runner, so a CONTROL creation can complete instead of being taken
    back as partial by the #1598 live-execution gate. DRY_RUN must be FALSE or every
    gate below is skipped (`!DRY_RUN && !runnerRunnable(...)`) and the arms pass
@@ -69,6 +70,12 @@ fs.writeFileSync(realBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 /* tmux for the creation paths that reach a spawn: the same stand-in
    create.test.js uses, so a control creation can actually complete. */
 const TMUX = '/bin/echo';
+/* #5073: createAgent asks status.paneRoster() whether the name is free, and with no pane source that reads THIS
+   machine's tmux: the result then depends on who is running here and on the caller's locale (no UTF-8 LANG and tmux
+   mangles its output, so the roster cannot be read and creation refuses). An empty fleet, as create.spoken-name-1367
+   does. */
+test.beforeEach(() => { status.setPaneSource(() => ''); });
+test.afterEach(() => { status.setPaneSource(null); });
 
 test('the fixture argues with something real: existsSync says yes where isRunnable says no', () => {
   for (const p of [asDir, noExec]) {

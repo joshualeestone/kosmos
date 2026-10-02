@@ -64,13 +64,31 @@ test('a tmux that answers is not a problem, and clears an older one', () => {
      machine with no tmux server at all this is the no-server path, which is an
      honest empty rather than a failure — and both are `null` here, which is the
      point. */
+  /* #5073: its OWN tmux server, not this machine's. Reading the default socket made the result depend on who was
+     running on the box, and on the caller's locale: with no UTF-8 LANG, tmux replaces its field tabs with
+     underscores, and a cut launched through `tmux run-shell` (no LANG) read a real agent's pane as one garbage line.
+     TMUX_TMPDIR moves the default socket into a folder of ours (short, under /tmp: a socket path has a length
+     limit), and LANG is set here so a caller without one still gets readable output. */
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-look-'));
-  const got = ask({
-    AGENT_WORKFORCE_DATA: path.join(sb, 'data'),
-    AGENT_WORKFORCE_WORKERS: path.join(sb, 'workers'),
-  });
-  assert.equal(got.problem, null, 'a healthy look left a problem standing: ' + got.problem);
-  fs.rmSync(sb, { recursive: true, force: true });
+  const sock = fs.mkdtempSync('/tmp/kl5073-');
+  const own = { TMUX_TMPDIR: sock, LANG: 'en_US.UTF-8' };
+  const tmuxEnv = { ...process.env, ...own };
+  delete tmuxEnv.TMUX;   // a test run from inside tmux must not attach to the caller's server
+  try {
+    execFileSync('tmux', ['new-session', '-d', '-s', 'look5073'], { env: tmuxEnv });
+    const got = ask({
+      ...own,
+      TMUX: '',
+      AGENT_WORKFORCE_DATA: path.join(sb, 'data'),
+      AGENT_WORKFORCE_WORKERS: path.join(sb, 'workers'),
+    });
+    assert.equal(got.threw, null, 'reading our own server threw: ' + got.threw);
+    assert.equal(got.problem, null, 'a healthy look left a problem standing: ' + got.problem);
+  } finally {
+    try { execFileSync('tmux', ['kill-server'], { env: tmuxEnv, stdio: 'ignore' }); } catch { /* already gone */ }
+    fs.rmSync(sb, { recursive: true, force: true });
+    fs.rmSync(sock, { recursive: true, force: true });
+  }
 });
 
 test('the message is one line and bounded, because it reaches a screen', () => {

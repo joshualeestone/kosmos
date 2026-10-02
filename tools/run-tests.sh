@@ -162,6 +162,11 @@ unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME
 # agent carries a KOSMOS_AGENT_TOKEN) would make each CLI test that spreads process.env stop sending the board
 # token, and five tests that expect it went red (measured). A test that wants the switch sets it itself.
 unset KOSMOS_AGENT_TOKEN_ONLY
+# #5073, the same boundary for the caller's locale: with none, tmux replaces its field tabs and every test that reads
+# tmux goes red for that alone (the 0.7.19 re-cut, launched through `tmux run-shell`, had no LANG). The rules are in
+# the lib; a lib that is missing fails loud here rather than skipping the pin.
+. "$REPO/tools/lib/test-locale.sh" || { echo "run-tests: tools/lib/test-locale.sh is missing" >&2; exit 1; }
+kosmos_test_locale_pin
 
 # #708: label a live board's cwd as the main checkout / a worktree / neither.
 # Sourced HERE rather than beside the cut-guard source below, because
