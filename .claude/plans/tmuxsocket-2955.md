@@ -12,6 +12,9 @@ Homebrew 3.6a LISTS a server the bundled 3.5a started (rc 0). The bundled 3.5a a
 exited unexpectedly". With no server both say "error connecting to ... (No such file or directory)". So a newer tmux
 reads older servers, never the reverse, and the switch only ever needs the one wording (plus tmux's own "protocol version
 mismatch", kept as the explicit spelling).
+And for driving, not only listing (measured 21:59, same pair, private socket): 3.6a against a 3.5a server ran
+new-session, send-keys, capture-pane (the keys were there), has-session and kill-session, all rc 0, and 3.5a still read
+its own server after. So a board or supervisor switched to the newer tmux can do every operation Kosmos does.
 
 ## Decided: NOT a private socket (the card's option 1)
 Kosmos shares the person's tmux server ON PURPOSE: install/kosmos and install.tmux-pick.test.js record why (the adopt
@@ -208,4 +211,10 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   the code (the last candidates differ; dedupe differs); both comments now say either side lands on a tmux that can
   read the server. NITs taken: one switch helper (tmuxSwitchTo) for both switches; the comments name every reader that
   follows the switch at call time, and say "no app beside it" for the Application Support copy.
+- Round 16 (sonnet): MEASURED W: a newer client driving (not only listing) an older server: new-session, send-keys,
+  capture-pane, has-session and kill-session from 3.6a against a 3.5a server all rc 0 (recorded above). DOCUMENTED W:
+  the end-of-run check looks only at the default socket because a supervisor's sessions are always there (no $TMUX
+  under launchd, no -L); the comment says so. DUPLICATE W: the PATH move (round 6). NITs left: test seams exported
+  (excused by name); ownTmux names a sibling of a checkout (skipped when absent); the header's last-candidate wording
+  (round 15).
 

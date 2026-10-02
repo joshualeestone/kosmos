@@ -1323,7 +1323,9 @@ _kosmos_session_answer() {
   _s="$("$TMUX_BIN" has-session -t "$TARGET" 2>&1 >/dev/null)" || _r=$?
   case "$_s" in
     *"protocol version mismatch"*) echo wall; return 0 ;;
-    *"server exited unexpectedly"*)   # the wall only with a socket on disk (else 3.5a's serverless voice: no server)
+    *"server exited unexpectedly"*)   # the wall only with a socket on disk (else 3.5a's serverless voice: no server).
+      # This job's sessions are always on the default socket under its TMUX_TMPDIR (launchd gives it no $TMUX, and
+      # nothing here passes -L), so that one path is the whole question.
       if [ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/default" ]; then echo wall; return 0; fi ;;
   esac
   echo "$_r"
