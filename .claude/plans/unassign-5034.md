@@ -57,7 +57,7 @@ Second: `by: 'operator'` on an agent-made removal is not literally a person. Acc
 
 ## Tests
 
-`server.leave-leftovers-5034.test.js` (12; 1-7 first, 8-12 from reviews): the clear and the card leaving decision (with a before-control that the
+`server.leave-leftovers-5034.test.js` (13; 1-7 first, 8-13 from reviews): the clear and the card leaving decision (with a before-control that the
 card WAS a decision); a departed holder raising the question again does not re-red the card; controls that must NOT
 clear (another project's question, an automatic wait); held posts dropped for this project and kept for another; a
 repeat leave touches nothing; engine rule unchanged with no members.
@@ -65,8 +65,9 @@ repeat leave touches nothing; engine rule unchanged with no members.
 Sabotage: see the review log; the CURRENT record is the last "ALL SABOTAGES RE-RUN" line (earlier runs went stale
 when a later fix changed what a test depended on, review 2 W1).
 
-Wider run: 205 files touching roomhold / waitingOnPerson / selfreport / member routes / server.js text:
-3673 tests, 3623 pass, 0 fail, 50 skipped.
+Wider run (CORRECTED in review 5: the earlier 205-file run left out the repo-wide meta tests such as
+fixture-discipline, which this branch failed): 206 files, every test touching roomhold / waitingOnPerson / selfreport /
+member routes / engine/tasks PLUS every test that lists files and reads them: 4805 tests, 4715 pass, 0 fail, 90 skip.
 
 ## Review log
 
@@ -101,3 +102,8 @@ Wider run: 205 files touching roomhold / waitingOnPerson / selfreport / member r
   prompt to the old project. W2 a re-join does not bring an ended carry back until the agent names the project ->
   ACCEPTED RESIDUAL (errs toward a missed light, as `started` already does), documented. N1 security comment
   tidied. N2 /api/report must not copy `left` -> FORGERY GUARD test 12; sabotage J (route copies body.left) -> #12 red.
+- Review 5 (opus, blind): 1 B, 0 W, 2 N. B test 7 built a roster row by hand, which fixture-discipline.test.js forbids,
+  and my wide run had not included that test (claim corrected above) -> test 7 on real fleet cards. N1 the membersOf
+  comment claimed parity with the token read (which needs EVERY record) -> says union, and why. N2 project removal
+  cleaned only the first same-id record's members -> members of every record read before remove() (test 13);
+  sabotage K (removal ignores the other records) -> #13 red.
