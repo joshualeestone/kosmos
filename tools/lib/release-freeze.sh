@@ -328,13 +328,14 @@ release_site_restore() {
     fi
   done
   # #5032: an UNTRACKED /setup-staging pair is an aborted cut's leftover, unless origin/main already holds it
-  # (the release commit is pushed from a fresh origin/main at 7b, so a cut that died after that push and before
-  # its deploy committed it there without this checkout): then it is left, and the checkout refresh catches up. Removed so a later promote, which copies the
+  # WITH THESE BYTES (the release commit is pushed from a fresh origin/main at 7b, so a cut that died after that push
+  # and before its deploy committed it there without this checkout): then it is left, and the refresh catches up.
+  # Other bytes (an older copy on origin/main) are removed, or the next pull would refuse to overwrite them. Removed so a later promote, which copies the
   # pair onto /setup, can never pick up an installer staging never served (promote-channel.sh also
   # refuses an untracked or modified one).
   for f in setup-staging setup-staging.sha256; do
     if ! git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1 && [ -f "$site/$f" ] \
-       && ! git -C "$site" cat-file -e "origin/main:$f" 2>/dev/null; then
+       && [ "$(git -C "$site" hash-object "$site/$f")" != "$(git -C "$site" rev-parse -q --verify "origin/main:$f" 2>/dev/null)" ]; then
       rm -f "$site/$f" && echo "   removed: $f (committed nowhere, so never served)"
     fi
   done
