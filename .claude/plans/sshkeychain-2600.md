@@ -1,38 +1,48 @@
-# kosmos#2600 (narrowed): say it when a Kosmos is started from SSH on a Mac
+# kosmos#2600 (narrowed): say it when a Kosmos is launched where it cannot read the Keychain
 
 ## Why
-A board started from a remote (SSH) session on a Mac runs in that session's security context, which cannot read the
-login Keychain. `claude auth status` there answers loggedIn:false, so the board calls every Claude account "Anthropic
-says this account is not signed in" while the same account is signed in on the Mac itself. Measured on Mortals
-2026-09-30, three arms (from ssh false; from the agents' tmux session true; all five accounts connected after a
-restart from the right context). It cost 14 hours on 09-29 because it looked like a build problem.
+A board launched DIRECTLY (cmd_start's nohup path) runs in the security session of whatever started it, and a remote
+(SSH) session cannot use the login Keychain. `claude auth status` there answers loggedIn:false, so the board calls
+every Claude account "Anthropic says this account is not signed in" while the same account is signed in on the Mac
+itself. Measured on Mortals 2026-09-30, three arms. It cost 14 hours on 09-29 because it looked like a build problem.
 
 ## Change (slice 1, this branch)
-- `install/kosmos`: `ssh_keychain_note <start|restart>`, called by the `start` and `restart` dispatch after the agent
-  guard and before the command. On a Mac, when SSH_CONNECTION, SSH_CLIENT or SSH_TTY is set, it says in one sentence
-  that this Kosmos will not be able to read the Mac's Keychain and will show Claude accounts as not signed in, and
-  how to start it on the Mac itself. It always returns 0: advice, never a refusal.
+- `install/kosmos`: `keychain_note`, called inside `cmd_start` only on the DIRECT launch path (after the supervised
+  branch returns, right before "Bringing the board up."). So `start`, `restart` (which calls cmd_start), `open` and the
+  installer's start are all covered, and a SUPERVISED start (launchd kickstarts the login job in the person's desktop
+  session, which can read the Keychain) and an already-running board say nothing.
+- On a Mac, when `security show-keychain-info "$HOME/Library/Keychains/login.keychain-db"` FAILS in this session, it
+  says in one sentence that this Kosmos cannot read the Mac's Keychain and will show Claude accounts as not signed in,
+  and that running `kosmos restart` in Terminal on the Mac itself fixes it. An agent is told to ask the person.
+  Always returns 0: advice, never a refusal.
+
+## Measured (2026-10-02 01:37)
+- `security show-keychain-info` on the login keychain: over SSH to Mortals, rc 36 "User interaction is not allowed";
+  in Mortals' agents' tmux server (which CAN read the Keychain, the 09-30 arm), rc 0; on Agent1s in a desktop-session
+  tmux, rc 0. It reports settings only and raises no dialog.
+- `launchctl managername` (the reviewer's suggestion): "Background" in all three contexts, so it cannot tell them
+  apart. Rejected.
+- The SSH variables (the first version's signal): tmux copies them into new windows of a session that CAN read the
+  Keychain, so they misfire on the known workaround. Rejected.
 
 ## Decided
-- Advice, not a refusal: starting from SSH is sometimes the only way in (a headless Mac, an emergency), and a board
-  that is up and wrong beats a board that is down. A false positive costs one line.
-- Signal: the SSH variables a remote login sets. Rejected: probing the Keychain itself from the CLI
-  (`security show-keychain-info`), because the CLI runs in the same context as the board it is about to start, so
-  the probe answers the question directly, but it can raise a GUI consent prompt on the Mac, and a start must never
-  block on a dialog nobody sees.
+- Advice, not a refusal: starting from SSH is sometimes the only way in, and a board that is up and wrong beats one
+  that is down.
+- The fix named is `kosmos restart` on the Mac itself, not "open the app": the app runs `kosmos start`, which finds the
+  wrong board already running and leaves it.
 - NOT in this slice: the board's own "not signed in" verdict naming the likely cause (slice 2, an engine change), and
-  the fleet default `CLAUDE_CODE_OAUTH_TOKEN` passthrough (parked: needs `claude setup-token` per account by a person).
+  the fleet default `CLAUDE_CODE_OAUTH_TOKEN` passthrough (parked: needs `claude setup-token` per account).
 
 ## Weakest premise
-That the SSH variables are present. A remote session that strips them, or a board started by a launchd job created
-from SSH, is not caught.
+That the login keychain's `show-keychain-info` failing is the same condition as `claude` being unable to read its
+credential. They matched on all three measured contexts, but the credential could live in another keychain.
 
 ## Tests
-- tools/test-ssh-keychain-note-2600.sh (9 arms, wired into test:shell): a start from SSH on a Mac gives the note,
-  names `kosmos start`, returns 0; a restart with only SSH_TTY names `kosmos restart`; CONTROL: no SSH variables, no
-  note; a non-Mac host, no note; sourcing the CLI writes nothing to HOME; both dispatch lines call it before the
-  command. The CLI is SOURCED (it returns before its dispatch), so no board is started.
-- 5 sabotages, each red: no SSH check, no Mac check, SSH_TTY ignored, start not wired, the note returns 1.
-- Existing CLI tests checked by hand for output assertions the note could break when a suite runs over SSH (as on
-  Mortals): the start/restart arms use positive matches only; the START_ADVICE / "kosmos start" negatives are on
-  msg, report, status, post, connections, connect and community, never start or restart.
+- tools/test-ssh-keychain-note-2600.sh (10 arms, in test:shell): the note when the probe fails, naming the fix, rc 0;
+  CONTROL: no note when the probe succeeds; no note off a Mac; agent wording; sourcing writes nothing to HOME or
+  KOSMOS_HOME (with a control that the emptiness check sees a written file); placement inside cmd_start after the
+  supervised branch and before the direct launch; not called from the dispatch.
+- 5 sabotages, each red: probe ignored, no Mac check, agent wording lost, not called on the direct path, called from
+  the dispatch.
+- Review 1 (opus, blind): 1 blocker (the note fired on the supervised path, where the board CAN read the Keychain, and
+  in the installer), 5 warnings, 2 nits; all taken by the redesign above.
