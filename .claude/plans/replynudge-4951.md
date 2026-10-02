@@ -198,3 +198,15 @@ no mark moved, own read still shows it, switched off reads nothing, the shared l
   stamp could not see a read whose marks were not written yet. Test + server pin + mutant. (Clearing the session at the
   read's end is redundant with the lock state; that mutant is equivalent.)
 - Targeted files: 253/253.
+
+## Review 13 (Sonnet, blind, multi-pass on a real on-disk store): 0 blockers, 2 warnings, 2 nits.
+- WARNING (reproduced) FIXED: a throw from the typing path was read as "reached nothing" and rolled back, so the line
+  could be typed twice (a throw can come after the paste; chat.js's own rule is that a throw is unconfirmed). It now
+  keeps the written-ahead record. Test + mutant.
+- WARNING (reproduced) FIXED: a batch given up on after MAX_TRIES stayed given up until a NEW reply arrived (a pane down
+  for half an hour that came back never got those replies). It now rests GIVE_UP_FOR_MS (1 h) and is tried again.
+  Test with an injected clock (not before the hour, yes after) + 2 mutants.
+- NIT FIXED: a rollback that cannot be written is said ('missed': those replies will not be told). Test + mutant.
+- NIT FIXED: the said-once flags for an unreadable and an unwritable record are cleared once the record reads / writes
+  again, so a LATER outage is said too. Tests + 2 mutants.
+- Targeted files: 258/258.

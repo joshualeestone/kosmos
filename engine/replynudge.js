@@ -40,6 +40,7 @@ const path = require('node:path');
 const HOUR_MS = 60 * 60 * 1000;
 const REPLY_NUDGE_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_TRIES = 3;
+const GIVE_UP_FOR_MS = 60 * 60 * 1000;   // review 13: a batch given up on rests this long, then is tried again
 const BUSY_WAIT_MS = 5 * 1000;   // review 6: a busy count waits this long for the read holding the lock, then asks again
 const BUSY_RETRIES = 4;          // so about 20 s, past an agent's own read (two 8 s rounds at most)
 const BETWEEN_AGENTS_MS = 1500;   // review 12: = communityread's FRESH_PACE_MS (pinned by a test)
@@ -181,6 +182,7 @@ async function sweepOnce(o) {
           if (!m.skipSaid) { say({ name: plainWords(card.name || session, 80), session, act: 'skipped', because }); book.set(session, { ...m, skipSaid: true }); }
           continue;
         }
+        { const m = book.get(session); if (m && m.skipSaid) { const { skipSaid, ...rest } = m; book.set(session, rest); } }   // review 13: readable again, so a later outage is said
         if (readOne && gap > 0) await new Promise((res) => setTimeout(res, gap));
         readOne = false;
         let fresh = await o.fresh(session);
@@ -203,7 +205,12 @@ async function sweepOnce(o) {
         const memo = book.get(session);
         const untold = fresh && fresh.ok === true && Array.isArray(fresh.posts) ? fresh.posts.flatMap((p) => (p.ids || []).filter((id) => !told.has(id))) : [];
         // Review 3 (Opus): a batch given up on (MAX_TRIES) takes no cap slot either, or it blocks later agents every pass.
-        const givenUp = memo && memo.key === untold.slice().sort().join(',') && Number.isInteger(memo.tries) && memo.tries >= MAX_TRIES;
+        let givenUp = memo && memo.key === untold.slice().sort().join(',') && Number.isInteger(memo.tries) && memo.tries >= MAX_TRIES;
+        /* Review 13 (Sonnet): a batch given up on is tried again once GIVE_UP_FOR_MS has passed (a pane unreachable for
+           half an hour that came back would otherwise never be told about those replies until a new one arrived). */
+        if (givenUp && !(Number.isFinite(memo.givenAt) && clock() - memo.givenAt < GIVE_UP_FOR_MS)) {
+          const { key, tries, givenAt, ...rest } = memo; book.set(session, rest); givenUp = false;
+        }
         // Review 12: an agent whose told record could not be written last time is still tried, but takes no cap slot
         // here (a store that stays unwritable would otherwise hold a slot every pass); the line's own cap check still holds.
         if (untold.length && !givenUp) counted.push({ session, fresh, noSlot: Boolean(memo && memo.writeSaid) });
@@ -257,13 +264,20 @@ async function sweepOnce(o) {
           if (!m.writeSaid) { say({ name: display, session, act: 'skipped', because }); book.set(session, { ...m, writeSaid: true }); }
           continue;
         }
-        const rollBack = () => { try { o.writeNudged(session, nudged); } catch { /* missed, never repeated */ } };
+        { const m = book.get(session); if (m && m.writeSaid) { const { writeSaid, ...rest } = m; book.set(session, rest); } }   // review 13: writable again
+        // Review 13 (Sonnet): a rollback that cannot be written is said: those replies are recorded as told and will not be.
+        const rollBack = () => {
+          let ok = false; try { ok = o.writeNudged(session, nudged) === true; } catch { ok = false; }
+          if (!ok) say({ name: display, session, act: 'missed', because: 'its told record could not be put back, so these ' + p.ids.length + ' replies will not be told' });
+        };
         let state = null;
         let held = false;
         let paneBusy = false;
         typedOne = true;
         try { const r = o.deliver(session, nudgeText(p.posts), roster); state = r && r.state; held = Boolean(r && r.held === true); paneBusy = Boolean(r && r.busy === true); }
-        catch (err) { state = 'threw: ' + String((err && err.message) || err); }
+        /* Review 13 (Sonnet): a throw from the typing path may come after the paste (chat.js's own rule: a throw is
+           unconfirmed, "nothing was typed" is not ours to claim), so it keeps the written-ahead record, never repeats. */
+        catch (err) { state = (o.DELIVERY && o.DELIVERY.UNCONFIRMED) || 'unconfirmed'; }
         /* Review 7 (Sonnet): a pane still placing another message is busy, not unreachable: no try is counted (as held).
            Review 8 (Opus): either is said once per change of state (as skipSaid), so it is on record without a line every pass. */
         if (held || paneBusy) {
@@ -289,7 +303,7 @@ async function sweepOnce(o) {
           sent.splice(i, 0, at);
         } else {
           rollBack();
-          book.set(session, { key: p.key, tries });
+          book.set(session, { key: p.key, tries, ...(tries >= MAX_TRIES ? { givenAt: clock() } : {}) });
         }
         results.push({ session, name: display, act: 'nudge', delivered, delivery: state, because: p.because });
         if (mayHaveReached || tries === 1 || tries >= MAX_TRIES) say({ name: display, session, act: 'nudge', delivered, delivery: state, because: p.because });
@@ -337,4 +351,4 @@ async function tick(o) {
   } catch { return null; }
 }
 
-module.exports = { BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
+module.exports = { GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };

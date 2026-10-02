@@ -264,7 +264,7 @@ test('#4951 review 3 (Opus): a batch given up on takes no cap slot; a later agen
   const { o } = rig({ roster: [card('kim'), card('ann')], limit: { on: true, perHour: 1 },
     fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }),
     deliver: (s) => { typed.push(s); return { state: D.PLACED }; } });
-  o.book.set('kim', { key: 'r-kim', tries: rn.MAX_TRIES });
+  o.book.set('kim', { key: 'r-kim', tries: rn.MAX_TRIES, givenAt: Date.now() });
   await rn.sweepOnce(o);
   assert.deepEqual(typed, ['ann'], 'a given-up batch held the only cap slot');
 });
@@ -505,4 +505,59 @@ test('#4951 review 12 (Opus): an agent whose own read is running right now is no
 
 test('#4951 review 12 (Opus): the gap between agents is the count\'s own pace', () => {
   assert.ok(rn.BETWEEN_AGENTS_MS >= require('./communityread').FRESH_PACE_MS, 'the gap between agents is shorter than the count\'s pace');
+});
+
+test('#4951 review 13 (Sonnet): a batch given up on rests GIVE_UP_FOR_MS, then is tried again (not stuck until a new reply)', async () => {
+  let t0 = Date.now();
+  let ok = false;
+  const { o, typed } = rig({ clock: () => t0 });
+  o.deliver = (s, text) => { typed.push({ s, text }); return { state: ok ? D.PLACED : D.COULD_NOT }; };
+  for (let i = 0; i < rn.MAX_TRIES + 1; i += 1) await rn.sweepOnce(o);
+  assert.equal(typed.length, rn.MAX_TRIES, 'fixture: not given up after MAX_TRIES');
+  t0 += rn.GIVE_UP_FOR_MS - 60000;
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, rn.MAX_TRIES, 'tried again before the rest was over');
+  t0 += 2 * 60000; ok = true;
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, rn.MAX_TRIES + 1, 'a batch given up on was never tried again');
+});
+
+test('#4951 review 13 (Sonnet): a throw from the typing path keeps the written-ahead record (it may have been typed); no repeat', async () => {
+  const { o, store, typed } = rig({});
+  o.deliver = (s, text) => { typed.push(text); throw new Error('tmux raised after the paste'); };
+  await rn.sweepOnce(o);
+  assert.deepEqual([...(store.get('kim') || [])].sort(), ['r1', 'r2'], 'a throw rolled the record back');
+  await rn.sweepOnce(o);
+  assert.equal(typed.length, 1, 'the same line was typed again after a throw');
+});
+
+test('#4951 review 13 (Sonnet): a rollback that cannot be written is said (those replies will not be told)', async () => {
+  const said = [];
+  let writes = 0;
+  const { o } = rig({ log: (r) => said.push(r.act) });
+  o.writeNudged = () => { writes += 1; return writes === 1; };   // the write-ahead succeeds, the rollback does not
+  o.deliver = () => ({ state: D.COULD_NOT });
+  await rn.sweepOnce(o);
+  assert.ok(said.includes('missed'), 'a failed rollback was silent: ' + JSON.stringify(said));
+});
+
+test('#4951 review 13 (Sonnet): an unreadable record is said again on a LATER outage, after it read fine in between', async () => {
+  const said = [];
+  let readable = false;
+  const { o } = rig({ log: (r) => said.push(r.act + ':' + r.because), fresh: async () => ({ ok: true, posts: [] }) });
+  o.readNudged = () => (readable ? new Set() : null);
+  await rn.sweepOnce(o); await rn.sweepOnce(o);
+  readable = true; await rn.sweepOnce(o);
+  readable = false; await rn.sweepOnce(o);
+  assert.equal(said.filter((x) => x.startsWith('skipped:its told record could not be read')).length, 2, 'not said once per outage: ' + JSON.stringify(said));
+});
+
+test('#4951 review 13 (Sonnet): an unwritable record is said again on a LATER outage, after a write worked in between', async () => {
+  const said = [];
+  const writable = [false, true, false];
+  const { o } = rig({ log: (r) => said.push(r.act + ':' + r.because) });
+  o.writeNudged = () => writable[0] === true;
+  o.deliver = () => ({ state: D.COULD_NOT, held: true });   // the line between is held, so the book entry survives it
+  for (let i = 0; i < 3; i += 1) { await rn.sweepOnce(o); writable.shift(); o.writeNudged = (() => { const w = writable[0] === true; return () => w; })(); }
+  assert.equal(said.filter((x) => x.startsWith('skipped:its told record could not be written')).length, 2, 'not said once per outage: ' + JSON.stringify(said));
 });
