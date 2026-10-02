@@ -871,6 +871,9 @@ async function sweepInstallGroup(keys, on) {
     const want = removedNow ? null : group;
     if (want !== null && k.installGroupUnsure !== want) { k.installGroupUnsure = want; saveJson(keysFile(), keys); }   // written ahead
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { install_group: want });
+    // Review 12: a definite refusal proves nothing landed, so the written-ahead mark goes (a later removal must not send
+    // a clear for an agent that was never grouped).
+    if (k.installGroupUnsure && (namesInstallGroup(r) || [400, 404, 405, 422].includes(r.status))) { delete k.installGroupUnsure; saveJson(keysFile(), keys); }
     if (k.refused) continue;   // asAgent found the key refused: this agent is skipped from now on, not retried
     if (namesInstallGroup(r)) {   // #4922: the service does not know the field: pause, as register does
       installGroupUnknownUntil.set(ep, Date.now() + INSTALL_GROUP_UNKNOWN_MS);

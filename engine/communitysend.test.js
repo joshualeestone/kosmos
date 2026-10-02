@@ -1639,6 +1639,25 @@ test('4922: an id PATCH whose answer was lost counts as grouped: removed later, 
   } finally { be.st.mode.groupHang = false; cs.setTimeoutMs(2000); fs.rmSync(removedFile, { force: true }); }
 });
 
+test('4922: an id PATCH that was refused outright is not "maybe grouped": removed later, no clear is sent', async () => {
+  cs._installGroupRetry(0);
+  await on();
+  store.writeProfile('zoe', { displayName: 'ZOE', role: 'Ops' });
+  agentPost('zoe', { topic: 'Note', body: 'A note.' });
+  await cs.sweep();
+  const k = readKeys(); delete k.zoe.installGroupSent; writeKeys(k);
+  be.st.mode.groupBadBody = true;   // 400 invalid_input: nothing landed
+  const removedFile = path.join(store.ROOT, 'removed.json');
+  try {
+    await cs.sweep();
+    assert.equal(readKeys().zoe.installGroupUnsure, undefined, 'a definite refusal left the may-have-landed mark');
+    be.st.mode.groupBadBody = false;
+    fs.writeFileSync(removedFile, JSON.stringify([{ name: 'zoe' }]));
+    await cs.sweep();
+    assert.equal(groupPatches().filter((p) => p.body.install_group === null).length, 0, 'a clear was sent for an agent that was never grouped');
+  } finally { be.st.mode.groupBadBody = false; fs.rmSync(removedFile, { force: true }); }
+});
+
 test('4922: registration reads the removed list fail-closed (unreadable: no id)', async () => {
   await on();
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), '{not json');
