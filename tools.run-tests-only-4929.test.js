@@ -158,12 +158,31 @@ test('--only works when the runner is called by a relative path from outside the
   assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
   const above = path.dirname(path.dirname(__dirname));   // two levels up, so the runner's path is relative and has a folder
   const relRunner = path.relative(above, RUNNER);
-  const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
+  // With CDPATH naming a folder that has the runner's own relative path in it: the REPO line's cd must not follow it.
+  const cdp = fs.mkdtempSync(path.join(DIR, 'cdp2-'));
+  fs.mkdirSync(path.join(cdp, path.dirname(relRunner), '..'), { recursive: true });
+  const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1', CDPATH: cdp });
   const r = spawnSync('perl', ['-e', GROUP, 'bash', relRunner, '--only', PROBE], { env, encoding: 'utf8', timeout: 120000, cwd: above });
   const out = (r.stdout || '') + (r.stderr || '');
   assert.doesNotMatch(out, /No such file or directory/, 'a lib did not load: ' + out.slice(-800));
   assert.doesNotMatch(out, /LEAK/, 'a false LEAK red: ' + out.slice(-800));
   assert.equal(r.status, 0, out.slice(-1500));
+});
+
+test('--only takes a repo file whose name starts with a dash as a file, not a node option', () => {
+  // Node starts each file as a child by the name it was given, and "-x.test.js" reaches that child as an option. The
+  // file has to sit at a repo's top, and a *.test.js made inside THIS repo mid-suite would be seen by the tests that
+  // walk the tree, so the runner runs from a throwaway repo whose tools/ and test-support/ are this repo's own.
+  assert.ok(KNOWS_ONLY, 'tools/run-tests.sh has no --only: not running it, since it would run the whole suite');
+  const fake = fs.mkdtempSync(path.join(DIR, 'fakerepo-'));
+  for (const d of ['tools', 'test-support']) fs.symlinkSync(path.join(__dirname, d), path.join(fake, d));
+  fs.writeFileSync(path.join(fake, '-dash.test.js'), `require('node:test')('dash', () => {});\n`);
+  const env = cleanEnv({ KOSMOS_IGNORE_MACHINE_CLAIM: '1', KOSMOS_TESTS_IGNORE_HARNESS: '1' });
+  const r = spawnSync('perl', ['-e', GROUP, 'bash', path.join(fake, 'tools', 'run-tests.sh'), '--only', './-dash.test.js'], { env, encoding: 'utf8', timeout: 120000, cwd: fake });
+  const out = (r.stdout || '') + (r.stderr || '');
+  assert.doesNotMatch(out, /bad option/, 'the dash name reached node as an option: ' + out.slice(-600));
+  assert.equal(r.status, 0, out.slice(-1500));
+  assert.match(out, /tests 1\b/);
 });
 
 test('--only passes a red file\'s failure on', () => {

@@ -107,8 +107,10 @@ if [ "${1:-}" = --only ]; then
     # inside this repo goes to node by its repo-relative name (node runs from the repo root), so only that part is
     # checked: a checkout folder such as "kosmos (copy)" does not refuse every file.
     case "$_only_f" in "$_only_repo"/*) _only_f="${_only_f#"$_only_repo"/}" ;; esac
-    case "$_only_f" in -*) _only_f="./$_only_f" ;; esac   # review 17: a repo file named -x.test.js is a file, not an option
     case "$_only_f" in *'['*|*'*'*|*'?'*|*'{'*|*'('*|*'!'*|*'\'*) echo "run-tests: --only cannot take '$_only_f': node --test reads [ * ? { ( ! \\ as a pattern, so it could run nothing" >&2; exit 2 ;; esac
+    # A repo file named -x.test.js: node --test starts each file as a child by the name it was given, and a relative
+    # "-x.test.js" (even spelled ./-x.test.js) reaches that child as an option. Its absolute path cannot (measured).
+    case "$_only_f" in -*) _only_f="$_only_repo/$_only_f" ;; esac
     _only_dup=0
     for _only_g in ${KOSMOS_ONLY_FILES[@]+"${KOSMOS_ONLY_FILES[@]}"}; do [ "$_only_g" = "$_only_f" ] && _only_dup=1; done
     [ "$_only_dup" = 1 ] || KOSMOS_ONLY_FILES+=("$_only_f")   # a file named twice runs once
