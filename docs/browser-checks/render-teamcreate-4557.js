@@ -126,6 +126,7 @@ function chk(ok, label, extra) {
           const specsFail = { n: 0 };   // how many of the RUN's spec reads fail (the names pre-check never does)
           const specsMangle = { slot: null, reads: 0 };   // a slot whose spec comes back under another name than was sent
           const checkHold = { p: null };   // the names pre-check held until the arm releases it (review 27)
+          const stateOf = {};   // #4936 review 9: name -> the board state a member shows (default idle)
           const pictureFail = new Set();   // #4936 review 7: names whose picture upload is refused
           const pictures = [];             // every picture PUT: { name, type }. The members here are not real agents, so it is answered here.
           const portraitAsks = [];         // #4720: every /api/catalogue/portrait read, as "team/slot"
@@ -196,7 +197,7 @@ function chk(ok, label, extra) {
             const resp = await r.fetch();
             const j = await resp.json().catch(() => null);
             if (!j || !Array.isArray(j.agents)) return r.fulfill({ response: resp });
-            for (const n of made) if (!hidden.has(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: 'idle' });
+            for (const n of made) if (!hidden.has(n)) j.agents.push({ sessionName: n, name: n, displayName: n, isAgentSession: true, isNamedOurs: true, state: stateOf[n] || 'idle' });
             return r.fulfill({ response: resp, json: j });
           });
           /* #4936: the step says hello to every member itself. The members here are not real agents, so the hello
@@ -221,7 +222,7 @@ function chk(ok, label, extra) {
           await clearFirstRun(page);
           // #4936: off unless an arm is about it (the others settle on rows reading Running); fast retries, a long mark.
           await page.evaluate(() => { TC_AUTO_HELLO = false; TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold, helloUnsure, helloStatus, helloHang, pictureFail };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold, helloUnsure, helloStatus, helloHang, pictureFail, stateOf };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -539,6 +540,40 @@ function chk(ok, label, extra) {
           await settle(page, () => TC === null && document.querySelectorAll('.just-made').length >= 3);
           chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 and Go to your team leaves for the agents view`);
           chk(errs.length === 0, `${E} no page errors (#4936 picture-failed arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #4936 review 9: a member asking something on its page is not typed into; a 409 (held) says the server's
+           reason on the row; both offer Try again --------------------------------------------------------------- */
+        {
+          const { page, errs, hellos, helloStatus, stateOf } = await newPage(1280);
+          await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          stateOf.ned = 'needs_you'; helloStatus.oz = 409;
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.selectOption('#tc-project', 'none');
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Pam');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Ned');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Oz');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((s) => /^(Said hello|Could not say hello)$/.test(s.textContent)));
+          const q = await rows(page);
+          const sentQ = (n) => hellos.filter((h) => h.who === n).length;
+          chk(q[1].state === 'Could not say hello' && q[1].retry && /asking something on its page/.test(q[1].why) && sentQ('ned') === 0,
+            `${E} #4936 a member asking something is not typed into: its row says why, with Try again`, JSON.stringify([q[1], sentQ('ned')]));
+          chk(q[2].state === 'Could not say hello' && q[2].retry && /refused here/i.test(q[2].why) && sentQ('oz') === 3,
+            `${E} #4936 a 409 is tried three times and the row says the server's reason`, JSON.stringify([q[2], sentQ('oz')]));
+          /* Answered: Try again now says hello, and with every hello placed the step leaves on its own. */
+          delete stateOf.ned;
+          await page.click('#tc-list li[data-slot="content"] .tc-retry');
+          await settle(page, () => /Said hello/.test((document.querySelector('#tc-list li[data-slot="content"] .tc-state') || {}).textContent || ''));
+          chk(sentQ('ned') === 1 && await page.evaluate(() => TC !== null), `${E} #4936 Try again after the question is answered says hello once; Oz still not greeted keeps the step`, String(sentQ('ned')));
+          delete helloStatus.oz;
+          await page.click('#tc-list li[data-slot="social"] .tc-retry');
+          await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
+          chk(await page.evaluate(() => TC === null && document.getElementById('panel-create').hidden), `${E} #4936 a Try again that places the last hello leaves for the agents view on its own`);
+          chk(errs.length === 0, `${E} no page errors (#4936 held-member arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
         }
