@@ -115,6 +115,20 @@ test('a live agent: opens Terminal attached to its session, command is shell-quo
     'the tmux binary is not present or not single-quoted: ' + script);
 });
 
+test('#2955: after the board switched tmux at the version wall, Terminal attaches with the switched one, not the baked one', async () => {
+  lastRun = null;
+  const name = 'lt-switched';
+  born(name);
+  const real = status.switchedTmux;
+  status.switchedTmux = () => '/k/switched/tmux';   // the board met the wall and reads through this one
+  try {
+    const r = await launch(name);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const script = lastRun.args[1];
+    assert.ok(script.includes("exec '/k/switched/tmux'"), 'Terminal attached with the baked tmux, which cannot read the server: ' + script);
+  } finally { status.switchedTmux = real; }
+});
+
 test('a stopped agent: refuses, and NO terminal is opened', async () => {
   lastRun = null;
   /* An agent with a job but NO live pane. Clear the pane file so paneRoster

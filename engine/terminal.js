@@ -99,8 +99,12 @@ function openTerminal(name) {
 
   // The agent's OWN tmux binary (the recorded path is the working one), falling
   // back to a bare `tmux` on PATH only when the job is unreadable.
+  // #2955: EXCEPT after the board met the version wall and switched to the tmux that can read this computer's server
+  // (status.tmuxRepick): then the baked path is the one that cannot, and the agent's supervisor made the same switch.
   const job = create.readJob(clean);
-  const tmuxBin = (job && job.tmux) || 'tmux';
+  let switched = null;
+  try { switched = require('./status').switchedTmux(); } catch { /* no status module: the baked path */ }
+  const tmuxBin = switched || (job && job.tmux) || 'tmux';
 
   // The command Terminal runs: attach a viewer to the running session. `exec`
   // so the window's shell becomes the tmux client and the window closes with

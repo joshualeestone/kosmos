@@ -28,7 +28,7 @@ it twice. Rejected for those reasons; reopen if the adopt screen is ever dropped
    does not export KOSMOS_HOME and the board's launchd job does not carry it.
    A search that found nothing waits a minute before it runs again. PATH gets the directory first once, never twice.
 1b. engine/create.js binPaths: a NEW agent bakes the launcher's pick, not a tmux the board switched to; its supervisor
-   switches at start if the wall is still there, and a removed or upgraded Homebrew tmux cannot strand it. An existing
+   switches at start if the wall is still there, and a removed Homebrew tmux cannot strand it. An existing
    agent's plist rewrite passes its own baked path to plistFor and is not touched.
 2. bin/agent-supervisor.sh `_kosmos_supervisor_tmux`: the same rule, at each start of an agent's job, before its first
    look: if the baked tmux meets the wall, the first tmux on PATH, in the known places, or Kosmos's own that can LIST the server
@@ -135,4 +135,15 @@ found one red (engine.reachable.test.js: the two new test seams, now excused by 
   started through the launcher has no pick and never switches (named in round 6's wording fix; the reviewer found the
   message true). NIT taken: the export line is split, the #2955 seams on their own lines. LEFT NIT: the supervisor
   de-duplicates by path, the board by real path (one extra probe on a symlinked bundle, harmless).
+- Round 9 (opus): FIXED W: Open in Terminal attached with the agent's baked tmux, which after a switch is the one that
+  cannot read the server; it uses the tmux the board switched to (status.switchedTmux), else the baked one (test in
+  server.launch-terminal-2129; reverting reds it). FIXED W: a launcher pick that was removed after launch (a brew
+  uninstall) left the board saying "could not run tmux" with Kosmos's own a candidate, and new agents baking the gone
+  path; a gone tmux now also starts the search, and only a pick that exists is baked (launcherTmux), while the switch
+  goes by the pick itself (launcherPick); test, each half reddened alone. FIXED CONVENTION: "removed or upgraded" was
+  wider than the code (an upgraded Homebrew meets the same wall until its server restarts); now "removed". NITs taken:
+  the detail line shows the home folder as ~ (no user name on screen; test); every status test pins Kosmos's own tmux
+  to a missing path unless it sets one; the 2 s test's bound is under the 4 s it proves, not a tight 3.5 s; a
+  tautological plistFor assertion removed (it could not fail); the redundant lazy require gone (status is required at
+  the top of create.js; no cycle).
 

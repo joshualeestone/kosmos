@@ -3095,9 +3095,10 @@ function agyNameOk(bin, platform) { return runners.isAgyName(runners.agyRealName
 function win32AgyOn() { return require('./win32agy').switchOn(); }
 
 /* #2955: the tmux this board's launcher picked, while the board is still on it or on a tmux status.js switched to
-   itself; null otherwise (an explicit value set later wins). A failure to load status.js is said, not swallowed. */
+   itself, and while it exists; null otherwise (an explicit value set later wins). status is required at the top of this
+   file; the guard is for a stub of it in a test. */
 function launcherTmuxSafe() {
-  try { return require('./status').launcherTmux(); } catch (e) { console.error('[create] #2955: could not read the launcher\'s tmux pick: ' + (e && e.message)); return null; }
+  return status && typeof status.launcherTmux === 'function' ? status.launcherTmux() : null;
 }
 /**
  * Where the two things an agent needs actually live on this computer.
@@ -3132,7 +3133,7 @@ function binPaths(opts) {
       || runners.resolveBin('claude').bin,
     /* #2955: the launcher's pick, not a tmux the board switched to at runtime (status.tmuxRepick): a NEW agent bakes
        what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
-       removed or upgraded Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
+       removed Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
        straight to plistFor and is not touched by this. */
     tmuxBin: (opts && opts.tmuxBin)
       || launcherTmuxSafe()

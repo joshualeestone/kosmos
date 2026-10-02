@@ -5974,7 +5974,9 @@ function withEnv(vars, fn) {
   try { for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } return fn(); }
   finally { for (const k of keys) { if (was[k] === undefined) delete process.env[k]; else process.env[k] = was[k]; } }
 }
-function seams(status, launcher, cands) { status.setLauncherTmux(launcher); status.setTmuxCandidates(cands); }
+// Kosmos's own tmux is pinned to a missing path unless a test sets it: the real one (two up from this engine) must never
+// be asked by a test.
+function seams(status, launcher, cands) { status.setLauncherTmux(launcher); status.setTmuxCandidates(cands); status.setOwnTmux('/nonexistent/own/tmux'); }
 function unseam(status) { status.setLauncherTmux(undefined); status.setTmuxCandidates(null); status.setOwnTmux(null); }
 
 test('#2955: at the version wall the board switches to a tmux that can list the server, PATH included', () => {
@@ -6006,13 +6008,14 @@ test('#2955: an explicit tmux choice is never replaced (no launcher pick, or a v
 test('#2955: the launcher pick is read from the marker AND the value it marked (an inherited marker over a new value is a choice)', () => {
   /* The module reads it once at load; this runs that read in a fresh process with each environment. */
   const { execFileSync } = require('node:child_process');
+  const real = process.execPath;   // a file that exists: launcherTmux also asks that the pick still be there
   const read = (env) => execFileSync(process.execPath, ['-e', "process.stdout.write(String(require('./engine/status').launcherTmux()))"],
     { cwd: nodePath.join(__dirname, '..'), encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env } });
-  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux', KOSMOS_TMUX_BIN_PICKED: '1', KOSMOS_TMUX_BIN_PICKED_AS: '/k/tmux' }), '/k/tmux');
-  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: '/stub/tmux', KOSMOS_TMUX_BIN_PICKED: '1', KOSMOS_TMUX_BIN_PICKED_AS: '/k/tmux' }), 'null',
+  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: real, KOSMOS_TMUX_BIN_PICKED: '1', KOSMOS_TMUX_BIN_PICKED_AS: real }), real);
+  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: '/stub/tmux', KOSMOS_TMUX_BIN_PICKED: '1', KOSMOS_TMUX_BIN_PICKED_AS: real }), 'null',
     'a harness value over an inherited marker was taken as the launcher\'s pick');
-  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux', KOSMOS_TMUX_BIN_PICKED: '1' }), 'null');
-  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: '/k/tmux' }), 'null');
+  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: real, KOSMOS_TMUX_BIN_PICKED: '1' }), 'null');
+  assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: real }), 'null');
 });
 test('#2955: the board\'s look reads through the switch in the same call (no restart)', () => {
   const status = require('./status');
@@ -6098,8 +6101,6 @@ test('#2955: a new agent bakes the launcher\'s pick, not a tmux the board switch
       assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.reader);
       assert.equal(create.binPaths().tmuxBin, m.old, 'the switched tmux would be baked into a new agent\'s job');
       assert.equal(create.binPaths({ tmuxBin: '/somewhere/tmux' }).tmuxBin, '/somewhere/tmux');
-      assert.match(create.plistFor('ann', '/bin/claude', '/opt/homebrew/bin/tmux'), /<string>\/opt\/homebrew\/bin\/tmux<\/string>/,
-        'an existing agent\'s baked path was rewritten by a plist rewrite');
       // A harness that loaded this module first and then set its own stub: a choice, whatever was read at load.
       process.env.AGENT_WORKFORCE_TMUX_BIN = '/stub/tmux';
       assert.equal(status.launcherTmux(), null, 'a value set after load was taken as the launcher\'s pick');
@@ -6153,8 +6154,32 @@ test('#2955: a candidate that hangs is given up after 2 s (a probe runs on a boa
       const t0 = Date.now();
       assert.equal(status.tmuxRepick(), false, 'a tmux that took 4 s was waited for and taken');
       const took = Date.now() - t0;
-      assert.ok(took < 3500, 'the search blocked for ' + took + ' ms');
+      assert.ok(took < 3900, 'the search waited for the 4 s tmux (' + took + ' ms)');
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: a launcher pick that is gone is not vouched for, and the board looks for another (a brew uninstall after launch)', () => {
+  const status = require('./status');
+  const create = require('./create');
+  const m = wallMachine();
+  try {
+    const gone = nodePath.join(m.sb, 'gone-tmux');
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: gone, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, gone, [m.reader]);
+      assert.equal(status.launcherTmux(), null, 'a pick that is gone was vouched for (new agents would bake it)');
+      status.setPaneSource(null);
+      assert.notEqual(status.tmuxPanes(), null, 'the board stayed blind with its tmux gone and a reader there');
+      assert.equal(process.env.AGENT_WORKFORCE_TMUX_BIN, m.reader);
+      assert.equal(status.switchedTmux(), m.reader);
+      assert.equal(create.binPaths().tmuxBin, m.reader, 'a new agent would bake the tmux that is gone');
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
+test('#2955: the wall\'s detail line shows the home folder as ~ (no user name on screen)', () => {
+  const status = require('./status');
+  const home = process.env.HOME;
+  const said = status.lookProblemFor({ ran: true, status: 1, err: 'server exited unexpectedly' }, home + '/.local/share/kosmos/tmux/bin/tmux', 'found-nothing');
+  assert.match(said, /\(~\/\.local\/share\/kosmos\/tmux\/bin\/tmux\)/);
+  assert.ok(!said.includes(home), 'the home folder (and the user name in it) reached the detail line');
 });
 

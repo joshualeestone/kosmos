@@ -465,7 +465,9 @@ function oneLine(text, max) {
 
 function tmuxPanes() {
   let got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
-  if (got.ran && got.status !== 0 && isVersionWall(got) && tmuxRepick()) got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
+  /* The wall, or the tmux itself gone (ran false: ENOENT after a `brew uninstall`): either way another tmux may read the
+     server. A run that timed out is also ran false; the repick's own minute's wait bounds that case. */
+  if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]);
   if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
@@ -492,6 +494,12 @@ function tmuxPanes() {
      sites marked here are all that channel. (Mona Lisa, 2026-08-22.) */
   LAST_LOOK_PROBLEM = lookProblemFor(got, tmuxBin(), TMUX_LAST_SEARCH);
   return null;
+}
+/** The tmux this board would run is not a file any more (it was removed after launch). */
+function tmuxGone() {
+  const b = tmuxBin();
+  if (!b.includes('/')) return false;   // a bare name on PATH: nothing to stat
+  try { return !fs.statSync(b).isFile(); } catch (e) { return Boolean(e && e.code === 'ENOENT'); }
 }
 /* tmux's two answers for "a live server my version cannot read": 3.5a's (also its serverless voice, which
    tmuxSaidNoServer has already taken when no socket is on disk) and the explicit one. */
@@ -526,23 +534,36 @@ const TMUX_REPICK_WAIT_MS = 60000;
     so the path comes from where this file is (in a checkout it names nothing, and is skipped). */
 let TMUX_OWN_SEAM = null;
 function ownTmux() { return TMUX_OWN_SEAM || path.join(__dirname, '..', '..', 'tmux', 'bin', 'tmux'); }
+/** The tmux this board switched to at the version wall and is still on, or null (it never switched, or the value has
+    since been set to something else). For callers that would otherwise run an agent's baked tmux. */
+function switchedTmux() {
+  return TMUX_SWITCHED_TO && process.env.AGENT_WORKFORCE_TMUX_BIN === TMUX_SWITCHED_TO ? TMUX_SWITCHED_TO : null;
+}
 /** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher), AND only
     while the live value is still that pick or one this module switched to itself: an explicit value set later in
     the process (a harness that loaded this module first) is a choice, whatever the environment said at load. */
-function launcherTmux() {
+function launcherPick() {
   const pick = TMUX_LAUNCHER_SEAM !== undefined ? TMUX_LAUNCHER_SEAM : LAUNCHER_TMUX;
   if (!pick) return null;
   const live = process.env.AGENT_WORKFORCE_TMUX_BIN;
   return live === pick || (TMUX_SWITCHED_TO && live === TMUX_SWITCHED_TO) ? pick : null;
 }
+/* For baking into a NEW agent's job: the launcher's pick, and only while it exists. A pick that is gone (Homebrew's
+   tmux uninstalled after launch) vouches for nothing, and binPaths then takes the live value. The switch itself goes
+   by launcherPick: a gone pick is exactly when the board must look for another. */
+function launcherTmux() {
+  const pick = launcherPick();
+  if (!pick) return null;
+  try { return fs.statSync(pick).isFile() ? pick : null; } catch { return null; }
+}
 function tmuxRepick() {
-  if (!launcherTmux()) { TMUX_LAST_SEARCH = 'not-allowed'; return false; }
+  if (!launcherPick()) { TMUX_LAST_SEARCH = 'not-allowed'; return false; }
   if (TMUX_REPICK_MISSED_AT && Date.now() - TMUX_REPICK_MISSED_AT < TMUX_REPICK_WAIT_MS) { TMUX_LAST_SEARCH = 'waiting'; return false; }
   const current = tmuxBin();
   const known = process.env.KOSMOS_TMUX_KNOWN !== undefined
     ? process.env.KOSMOS_TMUX_KNOWN.split(/\s+/).filter(Boolean)
     : ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux'];
-  const cands = (TMUX_CANDIDATES_SEAM || known).concat(ownTmux(), launcherTmux());   // launcherTmux() is non-null here
+  const cands = (TMUX_CANDIDATES_SEAM || known).concat(ownTmux(), launcherPick());   // non-null here; a gone one is skipped
   /* Once per real binary: on Agent1s the bundled path is a symlink to Homebrew's, so one tmux can appear three times
      here, each a blocking probe of up to 5 s. */
   const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
@@ -584,7 +605,10 @@ function lookProblemFor(got, bin, searched) {
       : searched === 'waiting' ? ', and Kosmos found no other tmux that could read them a moment ago; it looks again within a minute'
         : searched === 'not-allowed' ? '; this tmux was not picked by the Kosmos launcher, so Kosmos does not swap it for another'
           : '';
-    return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${bin || 'tmux'}) cannot read them (it said: ${err})${after}.`;
+    // The path said with ~ for the home folder: a detail line reaches the screen, and a user name has no business there.
+    const home = process.env.HOME || '';
+    const said = bin && home && bin.startsWith(home + '/') ? '~' + bin.slice(home.length) : (bin || 'tmux');
+    return `a different version of tmux may be running the terminal sessions on this computer: the tmux Kosmos is using (${said}) cannot read them (it said: ${err})${after}.`;
   }
   return err || `tmux exited ${got.status} without saying why`;
 }
@@ -8399,7 +8423,7 @@ module.exports = {
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
   setPaneSource, setPaneCapture, setCreatedSource, createdKeys, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
-  tmuxRepick, tmuxPanes, launcherTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; }, shDetail,
+  tmuxRepick, tmuxPanes, launcherTmux, switchedTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
