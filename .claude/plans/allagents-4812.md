@@ -113,3 +113,15 @@ added, removed or renamed) restores focus by address. Nits taken: fake-dom drops
 focus on what a browser would, guards replaceWith; tests for the busy gate, the Open fallback, the rebuild path;
 read-on-return waits for oaStart (OA_TIMER) and https; reads re-check oaGridShown, so a round that began on screen
 reads nothing once the grid has gone. Unit 22/22 (+3 sibling fake-dom suites green); 5 more sabotages RED-OK.
+
+### Review 5 taken (opus, blind, 2026-10-01 21:33): 0 blockers, 2 warnings, 7 nits
+W1 the computers refresh is its own guarded promise (oaRefreshComputers, OA_REFRESHING): a round awaits only its
+reads (the first round alone waits for the list), so a hung route neither holds OA_BUSY nor drops ticks. Driven by
+unit tests of oaRound itself with a fetch that never answers (2 s test timeout, so a regression fails, not hangs).
+W2 the per-group path needs the same computers in the same places (by address), else a full rebuild; focus goes
+back by address, or to the section title (tabindex -1) when that computer is gone. Nits taken: the re-check
+comment says it matters on the first round; focus on a group stays on the group (the unused open flag removed);
+OA_SEEN forgets computers off the list; fake-dom refuses focus when disabled, on a link with no href, or under a
+hidden ancestor (and says what it does not model); a test renamed; the source-regex check replaced by driven
+tests. Unit 26/26 (+3 sibling fake-dom suites green); 6 more sabotages RED (one by exit code: a timed-out test is
+counted "cancelled", not "fail", so read the rc, not the fail line).

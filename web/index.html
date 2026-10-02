@@ -18560,7 +18560,7 @@ window.kosmosMeasureScrollbarWidth();
      everywhere else. Read-only: every card opens the agent on its own computer. -->
 <section class="oa-wrap" id="oa-wrap" aria-labelledby="oa-title" hidden>
   <div class="oa-top">
-    <h2 class="oa-title" id="oa-title">Your other computers</h2>
+    <h2 class="oa-title" id="oa-title" tabindex="-1">Your other computers</h2>
     <label class="oa-only"><input type="checkbox" id="oa-only"> This computer only</label>
   </div>
   <div id="oa-groups"></div>
@@ -27785,6 +27785,7 @@ const OA_SEEN = new Map();             // address -> { state: 'ok'|'notin'|'bloc
 let OA_TIMER = null;
 let OA_BUSY = false;
 let OA_PAINTED = [];                  // oaGroupKey of each group #oa-groups shows now, in order
+let OA_REFRESHING = false;            // a computers refresh is in flight
 let OA_AGAIN = false;                 // a round was asked for while one was running
 let OA_WAS_SHOWN = false;             // whether the grid was on screen at the last paint
 
@@ -27962,13 +27963,19 @@ function oaPaint() {
      not part of the key; they are written in place. */
   const sort = typeof AGENT_SORT === 'string' ? AGENT_SORT : 'name';
   const keys = others.map((c) => oaGroupKey(c, OA_SEEN.get(c.address), now, sort));
-  const same = keys.length === OA_PAINTED.length && groups.children.length === keys.length;
+  const same = keys.length === OA_PAINTED.length && groups.children.length === keys.length
+    && others.every((c, i) => groups.children[i].dataset.address === c.address);   // same computers in the same places
   if (!same) {
-    /* A computer added, removed or renamed: every group is rebuilt, and focus goes back by computer address. */
+    /* The computers changed (added, removed, renamed or reordered): every group is rebuilt, and focus goes back by
+       computer address, or to the section's title if that computer is gone. */
     const was = Array.from(groups.children).map((g) => [g.dataset ? g.dataset.address : undefined, oaFocusSaved(g)]).find((x) => x[1]);
     groups.textContent = '';
     for (const c of others) groups.appendChild(oaGroup(c, OA_SEEN.get(c.address), now));
-    if (was) oaFocusBack(Array.from(groups.children).find((g) => g.dataset.address === was[0]), was[1]);
+    if (was) {
+      const back = Array.from(groups.children).find((g) => g.dataset.address === was[0]);
+      if (back) oaFocusBack(back, was[1]);
+      else { const t = document.getElementById('oa-title'); if (t && typeof t.focus === 'function') t.focus(); }
+    }
   } else {
     others.forEach((c, i) => {
       const old = groups.children[i];
@@ -27988,11 +27995,11 @@ function oaReplaceGroup(old, next) {
   old.replaceWith(next);
   oaFocusBack(next, saved);
 }
-/* Where focus is inside a group, if it is: the agent's session, or the Open link, or the group itself. */
+/* Where focus is inside a group, if it is: the agent's session (a card), or the group itself. */
 function oaFocusSaved(group) {
   const f = document.activeElement;
   if (!f || typeof f.closest !== 'function' || f.closest('.oa-group') !== group) return null;
-  return { session: f.dataset ? f.dataset.session : undefined, open: String(f.className).split(/\s+/).includes('oa-open') };
+  return { session: f.dataset ? f.dataset.session : undefined, group: f === group };
 }
 /* Back to the same agent's card if it can take focus, else the new group's Open link, else the group itself (a stale
    or offline list has cards that are not links, and an offline computer has no Open link). */
@@ -28001,7 +28008,7 @@ function oaFocusBack(next, saved) {
   const can = (x) => !!x && x.tagName === 'A';
   const card = saved.session !== undefined ? Array.from(next.querySelectorAll('.oa-card')).find((x) => x.dataset.session === saved.session) : null;
   const open = next.querySelector('.oa-open');
-  const to = can(card) ? card : (can(open) ? open : next);
+  const to = saved.group ? next : (can(card) ? card : (can(open) ? open : next));   // on the group stays on the group
   if (typeof to.focus === 'function') to.focus();
 }
 /* What one group paints from, minus the note's time words: the computer, its state, whether the list is stale, the
@@ -28023,36 +28030,46 @@ async function oaRound(again) {
   OA_BUSY = true;
   try {
     oaPaint();   // a list that went stale meanwhile shows greyed while the reads run
-    const now = Date.now();
-    const refresh = (!OA_COMPUTERS || now - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS) ? (async () => {
-      OA_COMPUTERS_AT = now;
-      try {
-        const ac = typeof AbortController === 'function' ? new AbortController() : null;
-        const cut = ac ? setTimeout(() => ac.abort(), OA_COMPUTERS_LIMIT_MS) : null;
-        let res, data;
-        try {
-          res = await fetch('/api/remote/computers', ac ? { cache: 'no-store', signal: ac.signal } : { cache: 'no-store' });
-          data = res.ok ? await res.json() : null;
-        } finally { if (cut) clearTimeout(cut); }
-        if (data && data.ok === true) OA_COMPUTERS = data;
-        else if (data && data.signedIn === false) OA_COMPUTERS = null;   // no Kosmos+ here: nothing to show
-      } catch { /* keep the last good list */ }
-    })() : null;
-    /* The reads use the computers already known and run beside the refresh, never behind it: the route can take 24 s,
-       and waiting on it would age every list past OA_STALE_MS and stall every computer behind one slow call. Checked
-       again here, so a round that began on screen reads nothing once the grid has gone. */
-    const readAll = async () => {
-      if (!OA_COMPUTERS || !oaEligible(OA_COMPUTERS, location) || oaThisOnly() || !oaGridShown(grid)) return;
+    const need = !OA_COMPUTERS || Date.now() - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS;
+    const refresh = need ? oaRefreshComputers() : null;
+    /* The round waits only for its reads. The computers refresh runs on its own (it can take 24 s), so it neither
+       holds OA_BUSY nor makes later ticks drop, and no list ages past OA_STALE_MS behind it. Only the first round,
+       with no list known yet, waits for it: there is nothing to read until it lands. */
+    if (!OA_COMPUTERS && refresh) await refresh;
+    /* oaGridShown is checked again because the first round can have waited on the refresh meanwhile. */
+    if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly() && oaGridShown(grid)) {
       oaPaint();   // groups appear at once, "Reading its agents..." until each answers
       await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).catch(() => null)));
-    };
-    if (OA_COMPUTERS) await Promise.all([refresh, readAll()]);
-    else { await refresh; await readAll(); }   // the first round: nothing to read until the list is known
+    }
     oaPaint();
   } finally {
     OA_BUSY = false;
     if (OA_AGAIN) { OA_AGAIN = false; setTimeout(oaRound, 0); }
   }
+}
+/* The account's computers, refreshed on their own: one at a time, cut at OA_COMPUTERS_LIMIT_MS, repainting when it
+   lands. A computer no longer on the list is forgotten, so one added back later starts as new, not as stale. */
+function oaRefreshComputers() {
+  if (OA_REFRESHING) return null;
+  OA_REFRESHING = true;
+  OA_COMPUTERS_AT = Date.now();
+  return (async () => {
+    try {
+      const ac = typeof AbortController === 'function' ? new AbortController() : null;
+      const cut = ac ? setTimeout(() => ac.abort(), OA_COMPUTERS_LIMIT_MS) : null;
+      let res, data;
+      try {
+        res = await fetch('/api/remote/computers', ac ? { cache: 'no-store', signal: ac.signal } : { cache: 'no-store' });
+        data = res.ok ? await res.json() : null;
+      } finally { if (cut) clearTimeout(cut); }
+      if (data && data.ok === true) {
+        OA_COMPUTERS = data;
+        const keep = new Set(oaOthers(data).map((c) => c.address));
+        for (const a of [...OA_SEEN.keys()]) if (!keep.has(a)) OA_SEEN.delete(a);
+      } else if (data && data.signedIn === false) OA_COMPUTERS = null;   // no Kosmos+ here: nothing to show
+    } catch { /* keep the last good list */ }
+    finally { OA_REFRESHING = false; oaPaint(); }
+  })();
 }
 function oaStart() {
   if (OA_TIMER || typeof location === 'undefined' || location.protocol !== 'https:') return;
