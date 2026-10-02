@@ -455,8 +455,8 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
-  /* #5053: one project's Tasks view, with its back chevron beside the title. The seed's project name is long enough
-     to overflow a phone, so the title wraps beside the chevron here rather than leaving it alone on its line. */
+  /* #5053: one project's Tasks view, with its back chevron beside the title. The built-in seed's project name is long
+     enough to wrap on a phone, so the shot shows the title wrapping beside the chevron (a store data set's may not). */
   { name: 'project-tasks', owner: 'PigeonPete', go: async (page, data) => {
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });

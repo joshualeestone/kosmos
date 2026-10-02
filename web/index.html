@@ -3932,9 +3932,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
-/* #5053: ONE line, never wrapped as a row. With flex-wrap a project name too long for a phone moved the TITLE to
-   the next line and left the back chevron alone above it (29px of room at 390 on a Mac with a short name). Now the
-   title is what gives: it shrinks and wraps inside its own box; the chevron and "+ New task" keep their size. */
+/* #5053: never wrapped as a row. With flex-wrap a project name too long for the row moved the TITLE to the next
+   line and left the back chevron alone above it (29px of room at 390 on a Mac with a short name). On a wide screen
+   the title shrinks and wraps inside its own box; at phone width the grid below takes over. */
 #panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: nowrap; }
 /* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
@@ -3948,6 +3948,18 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 #panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
 #panel-tasks .tsk-head > #tsk-title { margin-right: auto; min-width: 0; overflow-wrap: anywhere; }
 #panel-tasks .tsk-head > #tsk-new { flex: none; }
+/* #5053, at phone width (Mona Lisa's design call): the chevron and the title share the first row, the title taking
+   all the width it has left, and "+ New task" ALWAYS sits on its own row below, left-aligned with the title's text,
+   so it stays in one place whatever the name's length. The chevron top-aligns with the title's first line. No
+   column gap: the chevron carries its own margin, so with the chevron hidden (all projects) the title is not indented. */
+@media (max-width: 40rem) {
+  #panel-tasks .tsk-head { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 0; row-gap: 10px; align-items: start; }
+  #panel-tasks .tsk-head > .sub-back { grid-column: 1; grid-row: 1; align-self: start; margin: 0 12px 0 0; }
+  /* .panel h2's 20px line-height was set for 15px text; at this title's 24px, wrapped lines would touch (a wrapped
+     title is the ordinary phone case now). Desktop keeps its one-line title and its height. */
+  #panel-tasks .tsk-head > #tsk-title { grid-column: 2; grid-row: 1; margin-right: 0; line-height: 1.2; }
+  #panel-tasks .tsk-head > #tsk-new { grid-column: 2; grid-row: 2; justify-self: start; }
+}
 #pj-docs-view .pjtitle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
 #pj-docs-view .pjtitle > .sub-back { grid-column: 1; grid-row: 1; margin-right: 12px; }
 #pj-docs-view .pjtitle > :not(.sub-back) { grid-column: 2; }
