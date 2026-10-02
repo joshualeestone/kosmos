@@ -200,17 +200,19 @@ function chk(ok, label, extra) {
              is answered here: placed, or (for a name in helloFail) not placed. Every hello is recorded, in order. */
           const hellos = [];
           const helloFail = new Set();
+          const helloHold = {};   // name -> a promise its hello's answer waits for (to see the lead go first, alone)
           await page.route('**/api/agent/*/thread', async (r) => {
             if (r.request().method() !== 'POST') return r.continue();
             const who = decodeURIComponent(r.request().url().split('/api/agent/')[1].split('/')[0]);
             hellos.push({ who, text: (JSON.parse(r.request().postData() || '{}')).text });
+            if (helloHold[who]) await helloHold[who];
             return r.fulfill({ status: 200, json: { ok: true, delivery: { state: helloFail.has(who) ? 'could_not' : 'placed' } } });
           });
           await page.goto(URL, { waitUntil: 'networkidle' });
           await clearFirstRun(page);
           // #4936: off unless an arm is about it (the others settle on rows reading Running); fast retries, a long mark.
           await page.evaluate(() => { TC_AUTO_HELLO = false; TC_HELLO_GAP_MS = 50; TC_JUST_MADE_MS = 60000; });
-          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail };
+          return { page, errs, posted, script, slow, hidden, warnSteps, drop, specsFail, specsMangle, projectTaken, projectPosts, holdCreate, checkHold, pictures, portraitAsks, staticAsks, hellos, helloFail, helloHold };
         };
         const rows = (page) => page.evaluate(() => [...document.querySelectorAll('#tc-list li')].map((li) => ({
           slot: li.dataset.slot,
@@ -376,6 +378,10 @@ function chk(ok, label, extra) {
           const went = await page.evaluate(() => ({ team: TC === null, panel: !document.getElementById('panel-create').hidden, opened: window.__tcOpened || null,
             marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort(),
             onlyCards: [...document.querySelectorAll('.just-made')].every((e) => e.matches('.acard, .lrow')) }));
+          await settle(page, () => /may not have started/.test((document.getElementById('tc-done-live') || { textContent: '' }).textContent));
+          const wentSaid = await page.evaluate(() => (document.getElementById('tc-done-live') || { textContent: '' }).textContent);
+          chk(wentSaid === '1 of them may not have started: look at its page. The new agents are marked on your board.',
+            `${E} #4936 with a member not greeted, the screen reader is told so, never "said hello to your team"`, wentSaid);
           chk(went.team && !went.panel && !went.opened && went.marked.join() === 'ana,leo-two,maya-okafor' && went.onlyCards,
             `${E} #4936 Go to your team leaves the create view for the agents view, the new members' cards marked (only board cards), no team left to resume`, JSON.stringify(went));
           /* Review 28: opening a team after that must not show the finished team's Say Hello while the new
@@ -391,8 +397,9 @@ function chk(ok, label, extra) {
 
         /* --- #4936: every hello placed: the step takes the person to the agents view on its own ------------------- */
         {
-          const { page, errs, hellos } = await newPage(1280);
+          const { page, errs, hellos, helloHold } = await newPage(1280);
           await page.evaluate(() => { TC_AUTO_HELLO = true; });
+          let releaseLead; helloHold.mia = new Promise((res) => { releaseLead = res; });
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.selectOption('#tc-project', 'none');
@@ -400,6 +407,11 @@ function chk(ok, label, extra) {
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Lou');
           await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Ari');
           await page.click('#tc-go');
+          // The lead's hello is held: nobody else is said hello to until it is answered.
+          for (let i = 0; i < 60 && hellos.length === 0; i++) await page.waitForTimeout(100);
+          await page.waitForTimeout(600);
+          chk(hellos.map((h) => h.who).join() === 'mia', `${E} #4936 while the lead's hello is unanswered, no other member is said hello to`, JSON.stringify(hellos.map((h) => h.who)));
+          releaseLead();
           await settle(page, () => typeof TC !== 'undefined' && TC === null && document.querySelectorAll('.just-made').length >= 3);
           const auto = await page.evaluate(() => ({ panel: !document.getElementById('panel-create').hidden,
             marked: [...new Set([...document.querySelectorAll('.just-made')].map((e) => e.dataset.agent))].sort(),
@@ -541,11 +553,11 @@ function chk(ok, label, extra) {
           await page.click('#tc-go');
           await settle(page, () => /Made, starting/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
           const starting = await rows(page);
-          chk(starting[2].state === 'Made, starting…' && !/ready/.test(await page.textContent('#tc-note')),
+          chk(starting[2].state === 'Made, starting…' && !/Kosmos said hello/.test(await page.textContent('#tc-note')),
             `${E} a member the board cannot see yet reads "Made, starting", and the team is not called ready`, JSON.stringify(starting.map((r) => r.state)));
           await settle(page, () => /not seen running/.test((document.querySelector('#tc-list li[data-slot="social"] .tc-state') || {}).textContent || ''));
           const after = await rows(page);
-          chk(after[2].state === 'Made, not seen running yet' && after[0].state === 'Running' && !/ready/.test(await page.textContent('#tc-note')),
+          chk(after[2].state === 'Made, not seen running yet' && after[0].state === 'Running' && !/Kosmos said hello/.test(await page.textContent('#tc-note')),
             `${E} after the wait it says so plainly, and still does not claim the team is ready`, JSON.stringify(after.map((r) => r.state)) + ' | ' + await page.textContent('#tc-note'));
           chk(errs.length === 0, `${E} no page errors (unseen arm)`, errs.join(' | '));
           await page.close();

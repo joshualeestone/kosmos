@@ -48425,7 +48425,9 @@ function tcFinished() {
 }
 function tcLive() {
   // #4936: a team still being greeted is live too, so Back or opening it again resumes it rather than dropping it.
-  return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting));
+  // A member not greeted keeps it live too: its row and Try again must not be dropped by Back or a reopen.
+  return Boolean(TC && (TC.busy || TC.started) && (!tcFinished() || TC.greeting
+    || (TC.helloStarted && TC.members.some((m) => m.hello !== 'started'))));
 }
 
 function tcFillProjects() {
@@ -48612,12 +48614,9 @@ let TC_AUTO_HELLO = true;     // a browser check whose arm is not about #4936 tu
 let TC_HELLO_GAP_MS = 3000;   // a browser check can shorten it
 async function tcHelloSend(name) {
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'hello' }),
-    });
-    const out = await res.json().catch(() => null);
-    if (!res.ok) return res.status >= 500 ? 'unsure' : 'failed';   // a 5xx may have placed it already
-    const state = out && out.delivery && out.delivery.state;
+    const r = await postWakeHello(name);   // the same request sendWakeHello makes
+    if (!r.ok) return r.status >= 500 ? 'unsure' : 'failed';   // a 5xx may have placed it already
+    const state = r.delivery && r.delivery.state;
     return state === 'placed' ? 'started' : (state === 'could_not' ? 'failed' : 'unsure');
   } catch { return 'unsure'; }   // the request may have reached the board
 }
@@ -48661,8 +48660,8 @@ function tcHelloRetry(slot) {
 }
 /* #4936 (Josh: "It should take me to my agent view wherever I was and show me. I should be able to go see the new
    agents easily."): to the agents, where the create step's own Back goes, with the new members' board cards scrolled
-   to and marked for a few seconds. `auto`: only if the person is still on this step; a team finished while they were
-   elsewhere (Back keeps it running) is marked where it is, and the screen does not move under them. */
+   to and marked for a few seconds. `auto` (every hello said): only if the person is still on this step; otherwise the
+   screen does not move under them and the team is simply finished. */
 let TC_JUST_MADE_MS = 10000;
 function tcStepShown() {
   const panel = document.getElementById('panel-create');
@@ -48672,6 +48671,7 @@ function tcStepShown() {
 function tcGoToTeam(auto) {
   if (!TC) return;
   const names = TC.members.filter((m) => m.made && m.made.name).map((m) => m.made.name);
+  const notSaid = TC.members.filter((m) => m.hello !== 'started').length;
   const leaving = !auto || tcStepShown();
   TC_GEN += 1; TC = null;   // the team is finished: nothing is left to resume
   if (!leaving) return;
@@ -48686,7 +48686,7 @@ function tcGoToTeam(auto) {
       el.classList.toggle('just-made', live);
       if (live && !first && el.offsetParent) {
         first = el;
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
         // Focus leaves the hidden step for the first new member, unless the person has already moved it elsewhere.
         const at = document.activeElement;
         if (!at || at === document.body || document.getElementById('panel-create').contains(at)) { el.tabIndex = -1; el.focus({ preventScroll: true }); }
@@ -48699,7 +48699,11 @@ function tcGoToTeam(auto) {
   let live = document.getElementById('tc-done-live');
   if (!live) { live = document.createElement('p'); live.id = 'tc-done-live'; live.className = 'vh'; live.setAttribute('aria-live', 'polite'); document.body.append(live); }
   live.textContent = '';
-  setTimeout(() => { live.textContent = 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. It is' : 'team. The new agents are') + ' marked on your board.'; }, 100);
+  const where = names.length === 1 ? 'It is marked on your board.' : 'The new agents are marked on your board.';
+  setTimeout(() => {
+    live.textContent = notSaid === 0 ? 'Kosmos said hello to your ' + (names.length === 1 ? 'agent. ' : 'team. ') + where
+      : (notSaid === 1 ? '1 of them' : notSaid + ' of them') + ' may not have started: look at ' + (notSaid === 1 ? 'its page. ' : 'their pages. ') + where;
+  }, 100);
 }
 /* The lead as the list marks it ("leads the team"), and the name it was made under. */
 function tcLead() {
@@ -48773,7 +48777,7 @@ document.getElementById('tc-tell').addEventListener('change', (e) => {
   if (tellBox) tellBox.checked = e.currentTarget.checked;   // one choice for the sheet, whichever step it was made on
 });
 
-/* Straight to the lead, the way the single create's Say Hello goes straight to its agent (openDetail). */
+/* #4936 "Go to your team": the agents view with the members marked (tcGoToTeam), not one agent's page. */
 document.getElementById('tc-hello').addEventListener('click', () => {
   if (!tcFinished()) return;
   tcGoToTeam(false);   // #4936 "Go to your team": the team on the agents view, not into one agent's page
@@ -52713,19 +52717,22 @@ async function restartReadyWait(name, mine) {
    deliverPickup instead, so the fresh session is pointed at its handoff rather
    than merely greeted -- one function, one 'placed'-only success rule, two
    messages. Existing callers omit it and get the 'hello' behaviour unchanged. */
+/* #4936: the wake hello request itself, shared by sendWakeHello and the team step (tcHelloSend), so there is one copy.
+   Resolves { ok, status, delivery } (delivery null when the answer had none); throws only when the board was not reached. */
+async function postWakeHello(name) {
+  const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'hello' }),
+  });
+  const out = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, delivery: (out && out.delivery) || null };
+}
 async function sendWakeHello(name, token, report, saidText, manualText, deliver) {
   try {
     const delivery = deliver
       ? await deliver()
-      : await (async () => {
-          const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text: 'hello' }),
-          });
-          const out = await res.json().catch(() => null);
-          return (res.ok && out && out.delivery) ? out.delivery : null;
-        })();
+      : await postWakeHello(name).then((r) => (r.ok ? r.delivery : null));
     if (token !== RESTART_HELLO_SEQ[name]) return;
     const placed = delivery && delivery.state === 'placed';
     report(placed ? saidText : manualText);
