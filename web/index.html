@@ -1180,7 +1180,8 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 /* Measured 2026-08-17 with the then-inline update notice present: desktop 128, 157 at 600, 179 at 375. Since #5018
    the notices float below the header instead, so these values now clear the header with room to spare, and
    --topnotes-h (the floating stack's height, kept by topnotesTrack) adds whatever notices are showing, so a focused
-   element never lands under one. A little low without a notice is harmless in the direction the guard cares about. */
+   element never lands under one. A little low without a notice is harmless in the direction the guard cares about,
+   and so is consolidated, where the header is not sticky and the stack scrolls away (the padding then over-shoots). */
 @media (max-width: 720px) { html { scroll-padding-top: calc(165px + var(--topnotes-h, 0px)); } }
 @media (max-width: 440px) { html { scroll-padding-top: calc(187px + var(--topnotes-h, 0px)); } }
 /* ⚠️ THE UPDATE NOTICE, ported from the frozen pack. The decisions it
@@ -20969,6 +20970,10 @@ function paintUpdateAbort(ab) {
    data.loginAdvisories is an array of { agents, daysLeft, severity, expired } (one per
    credential near expiry); empty/absent clears the slot. dataset.v is a signature so an
    unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
+/* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
+   the notice for this page's life, and it comes back on reload. */
+const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';
+let loginAdvHiddenMem = [];
 function paintLoginAdvisories(advs) {
   const slot = document.getElementById('login-adv-slot');
   if (!slot) return;
@@ -20988,7 +20993,7 @@ function paintLoginAdvisories(advs) {
     // #5018: the names the person gave the agents (the board sends them as names, same order as agents).
     const names = (Array.isArray(a.names) && a.names.length === n) ? a.names : a.agents;
     const who = names.map(esc).join(', ');
-    // #5018: which provider and account they run under. No email read: name the provider only, never a guess.
+    // #5018: which provider and account they run under; when the email could not be read, the provider only, never a guess.
     const acct = 'On ' + esc(a.provider || 'Claude') + (a.email ? ', ' + esc(a.email) : '') + ': ';
     const head = a.expired
       ? (n === 1 ? 'An agent’s login has expired' : n + ' agents’ login has expired')
@@ -21024,10 +21029,6 @@ function paintLoginAdvisories(advs) {
     document.documentElement.style.setProperty('--topnotes-h', Math.ceil(stack.getBoundingClientRect().height) + 'px');
   }).observe(stack);
 })();
-/* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
-   the notice for this page's life, and it comes back on reload. */
-const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';
-let loginAdvHiddenMem = [];
 function loginAdvDismissed() {
   try { const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]'); if (Array.isArray(v)) return v.concat(loginAdvHiddenMem); } catch { /* refused */ }
   return loginAdvHiddenMem.slice();
