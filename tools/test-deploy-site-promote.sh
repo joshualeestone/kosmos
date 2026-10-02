@@ -424,8 +424,8 @@ run_deploy "$S23" "$L23" --promote
 read -r S24 L24 <<<"$(make_scenario)"; with_setup "$S24" "NEW-INSTALLER"
 printf 'NEXT-STAGING-INSTALLER\n' > "$S24/setup-staging"; ( cd "$S24" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 git -C "$S24" add setup-staging setup-staging.sha256 && git -C "$S24" commit -q -m "staging installer"
-out="$(MANGLE_ROOT_ON_DEPLOY=setup-staging.sha256 PATH="$BIN:$PATH" LIVE_DIR="$L24" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S24" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
-{ [ "$RC" = 1 ] && has "$out" "/setup-staging"; } && pass "#5032: a served /setup-staging pair that does not agree is refused at the edge" || bad "#5032 setup-staging mangled (rc=$RC) out=$out"
+out="$(MANGLE_ROOT_ON_DEPLOY=setup-staging PATH="$BIN:$PATH" LIVE_DIR="$L24" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S24" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "does NOT match its served /setup-staging.sha256"; } && pass "#5032: a served /setup-staging pair that does not agree is refused at the edge" || bad "#5032 setup-staging mangled (rc=$RC) out=$out"
 # 25) a pointer naming an installer over a commit with no setup.sha256: refused before anything is served.
 read -r S25 L25 <<<"$(make_scenario)"; with_setup "$S25" "NEW-INSTALLER"; git -C "$S25" rm -q setup.sha256 && git -C "$S25" commit -q -m "no sidecar"
 run_deploy "$S25" "$L25" --promote

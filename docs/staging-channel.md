@@ -12,7 +12,7 @@ just which pointer you fetch**, never a different build:
 - `dist/latest-staging.json` -- the **staging** pointer.
 
 Promotion points prod at the exact bytes staging verified. It never rebuilds. Rollback is the
-same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host / "staging base".)
+same: flip the pointer back (and, #5032, put back the installer that pointer names; step 5). (Model A, confirmed 2026-09-04. Not a second host / "staging base".)
 
 ## The loop
 

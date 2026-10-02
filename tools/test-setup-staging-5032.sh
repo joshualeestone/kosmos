@@ -8,9 +8,9 @@
 #
 # Covered here: release.sh's channel selection (extracted and evaluated) and its step 5 / site paths /
 # verify call (source checks); verify-served.sh's name gate (run); release_site_restore's two new arms
-# (run, each with a control); promote-channel.sh's copy and its four refusals (run against a fixture
-# git site, with a control that /setup really changed); deploy-site.sh's promote guard (source check:
-# the deploy itself needs a live host). engine/update.js's setupUrl is covered by
+# (run, each with a control); promote-channel.sh's copy and its refusals (run against a fixture git site,
+# with a control that /setup really changed). deploy-site.sh's guard is RUN in test-deploy-site-promote.sh
+# (cases 19-25). engine/update.js's setupUrl is covered by
 # engine/update.win32-check.test.js ("#5032: ...").
 #
 #   bash tools/test-setup-staging-5032.sh
@@ -76,6 +76,18 @@ S="$(newsite)"; printf 'NEVER-SERVED\n' > "$S/setup-staging"; echo x > "$S/setup
 release_site_restore "$S" 1.0.1 1 >/dev/null
 [ ! -e "$S/setup-staging" ] && [ ! -e "$S/setup-staging.sha256" ] && pass "restore: an untracked setup-staging pair is removed" || bad "restore left an untracked setup-staging pair"
 [ "$(cat "$S/setup")" = PROD-INSTALLER ] && pass "restore: CONTROL /setup is left alone" || bad "restore touched /setup"
+# Untracked here but ALREADY on origin/main with the same bytes (a cut that died after its 7b push): kept.
+# With other bytes (an older copy on origin/main): removed, or the next pull would refuse to overwrite it.
+OR="$T/origin-site.git"; git init -q --bare "$OR"
+S="$(newsite)"; git -C "$S" remote add origin "$OR"
+printf 'PUSHED-STAGING\n' > "$S/setup-staging"; ( cd "$S" && shasum -a 256 setup-staging > setup-staging.sha256 )
+git -C "$S" add setup-staging setup-staging.sha256; git -C "$S" commit -qm pushed; git -C "$S" push -q origin HEAD:main; git -C "$S" fetch -q origin
+git -C "$S" rm -q --cached setup-staging setup-staging.sha256; git -C "$S" commit -qm "local checkout without it"
+release_site_restore "$S" 1.0.3 1 >/dev/null
+[ "$(cat "$S/setup-staging" 2>/dev/null)" = PUSHED-STAGING ] && pass "restore: an untracked pair origin/main already holds (same bytes) is kept" || bad "restore removed a pair origin/main holds"
+printf 'NEWER-NEVER-SERVED\n' > "$S/setup-staging"
+release_site_restore "$S" 1.0.4 1 >/dev/null
+[ ! -e "$S/setup-staging" ] && pass "restore: CONTROL an untracked pair whose bytes differ from origin/main's is removed" || bad "restore kept bytes origin/main does not hold"
 # A later staging cut changed a TRACKED pair and aborted: put back to the committed bytes.
 S="$(newsite)"; printf 'SERVED-STAGING\n' > "$S/setup-staging"; ( cd "$S" && shasum -a 256 setup-staging > setup-staging.sha256 )
 git -C "$S" add setup-staging setup-staging.sha256; git -C "$S" commit -qm staging
@@ -144,7 +156,7 @@ Sh="$(promote_site yes)"; rm -f "$Sh/setup-staging"; git -C "$Sh" commit -qam "s
 refused "a sidecar with no script" "$Sh" "not committed"
 
 # ---- deploy-site.sh: the guard (the pointer names its installer) is RUN in tools/test-deploy-site-promote.sh
-# (cases 19-22). Here only that the staging pair is edge-checked after a deploy (needs a live host to run).
+# (cases 19-25, the edge check included).
 grep -qF 'served_verify_asset_ok "$HOST/setup-staging"' "$REPO/tools/deploy-site.sh" && pass "deploy-site: the staging pair is checked at the edge" || bad "deploy-site: no edge check for /setup-staging"
 
 # ---- the pointer writer: setup_sha256 only when given, and only a real sha ----
