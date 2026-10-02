@@ -27,13 +27,14 @@ After a provider switch (or any restart), the agent's launchd job is loaded and 
 ## Decisions
 - Wait for the unload, not retry on code 5 or tighten `loaded()` alone. Waiting is the condition itself.
 - Rejected: kickstart. It keeps the old ProgramArguments, so a switched provider would never take effect (the existing comment).
-- Weakest premise / cost: restart is synchronous, so the board waits too, about 5 s per restart (measured 5.1 s live), and up to 25 s for a job slow to stop. The burst allowance bounds a sweep at 30 s a minute; agents past it are left stopped on the failed card (before: stopped under a false RESTARTED).
+- Weakest premise / cost: restart is synchronous, so the board waits too, about 5 s per restart (measured 5.1 s live), and up to 25 s for a job slow to stop. Worst case for one restart: 25 s first wait + 2 s #4006 pause + the burst allowance left for the second wait, about 32 s (a print is capped at the time left, so a wait does not run past its budget by more than 200 ms). The burst allowance bounds a sweep at 30 s a minute; agents past it are left stopped on the failed card (before: stopped under a false RESTARTED).
 
 ## Validation
 - engine/remove.test.js #4964 runs against a launchd modelled on the measured timing:
   - with the wait, RESTARTED and the job loaded afterwards;
   - CONTROL without the wait, RESTARTED while the job is gone (the measured lie);
   - a job that never unloads is bounded and still bootstrapped.
+- Review 3: no second wait once the first bootstrap loaded our job; a failed bootout is not waited on and its 5 is not a restart. Review 4: that case says the restart did not take effect (not "not running"); print timeout capped at the time left.
 - Review rounds 1 and 2: dry-run freeze, trusted already-loaded after a timed-out wait, burst freeze, print failure read as gone, gone launch file; each fix has a test that fails with the fix removed (measured).
 - Focused run: remove/restart/class1/create suites plus the file-scanning guards, 618 pass (before review 1; re-run before the PR).
 - LIVE on Agent1s: the branch's remove.restart against the real launchd for zz-test-4964 took 5115 ms, and the job was `state = running` for the 10 s after (the installed build left it unloaded twice).

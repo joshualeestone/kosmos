@@ -2891,6 +2891,7 @@ test('#4964: a bootout that failed is not waited on, and the old job\'s "already
     assert.ok(Date.now() - t0 < 1500, `it waited ${Date.now() - t0} ms on a job nothing asked to stop`);
     assert.ok(m.bootstraps >= 1, 'it never tried to start the agent');
     assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'the old job, never stopped, read as the agent restarted');
+    assert.match(out.because, /macOS would not stop its launch job, so the restart did not take effect/, 'told the agent is not running while its old job runs on');
   } finally {
     remove.setRunner(null);
     status.setPaneSource(null);

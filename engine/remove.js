@@ -221,7 +221,9 @@ function waitUnloaded(label) {
   const budget = Math.min(base, unloadAllowance(started));
   let gone = false;
   for (;;) {
-    const out = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${label}`], { timeout: UNLOAD_PRINT_TIMEOUT_MS });
+    const left0 = budget - (Date.now() - started);
+    const out = run('/bin/launchctl', ['print', `gui/${process.getuid()}/${label}`],
+      { timeout: Math.max(200, Math.min(UNLOAD_PRINT_TIMEOUT_MS, left0)) });   // a print never carries the wait far past its budget
     if (out && out.dryRun) { gone = true; break; }
     if (printSaysGone(out)) { gone = true; break; }
     const left = budget - (Date.now() - started);
@@ -2063,8 +2065,10 @@ function restartInner(name, cause, platform, startIfDead) {
   /* #4964: only bootstrap once launchd has really let go of the old job (the Mac; Windows' /End+/Run has no such
      gap). If it is still held when the wait runs out, bootstrap anyway, but an "already loaded" answer then means the
      dying job, and print answers for it too, so neither is trusted: not loaded, and the #4006 second try runs. */
-  /* A bootout that failed asked nothing to stop, so its job is still held (no wait: it would not leave), and a 5 from
-     the bootstrap is that old job. */
+  /* A bootout that failed may have stopped nothing, so its job is taken as still held and is not waited on (a refused
+     one would never leave). A 5 from the bootstrap is then the old job. Not measured: a bootout that timed out after
+     launchd began the teardown; that job does leave, and with no wait the restart ends PARTIAL (honest, not
+     recovered). Accepted. */
   let held = false;
   let firstLoadedNew = false;
   let stopped = false;
@@ -2144,6 +2148,11 @@ function restartInner(name, cause, platform, startIfDead) {
                   + 'running. It needs another try.'
                 : `we closed ${shown}'s window and started its task, but its supervisor never came `
                   + 'up, so it is not running right now. It needs another restart.')
+            /* #4964: launchd refused the bootout, so the old job was never asked to stop: it may still be running
+               as before, and whatever this restart was for (a switched provider) did not take effect. */
+            : !stopped && !fromDead
+              ? `we closed ${shown}'s window but macOS would not stop its launch job, so the restart did not take `
+                + 'effect. If it is running, it is still running as before; if not, it needs another restart.'
             : (fromDead
                 ? `we could not start ${shown}. Its launch job did not load, so it is not running. `
                   + 'It needs another try.'
