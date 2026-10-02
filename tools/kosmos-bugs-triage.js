@@ -88,7 +88,21 @@ const SECRET_LABEL = /secret|token|passw(?:or)?d|pwd|api[ _-]?key|apikey|access[
    the scrub's quadratic rules (20,000 cost about 2 s a field in the worst measured shape). */
 const SCRUB_MAX = 5000;
 const GH_TIMEOUT_MS = 60000;
+/* The scrubbed text as a person reads it. */
 function scrub(text, names) {
+  return shown(scrubRaw(text, names));
+}
+
+/* Review 18: a name becomes MARK, not the words "an agent", inside a stored draft; only output turns it into words. So a
+   later pass with more names never mistakes the reporter's own "an Agent 7" for the tool's replacement (round 17's
+   guard swallowed it and leaked the name), and never matches inside its own replacement ("an an agent"). The site
+   refuses control characters in titles and bodies (kosmos-community app/schemas.py text_problem), so MARK cannot come
+   from a report; if one ever did, it would read "an agent", a change of wording, not a leak. */
+const MARK = '\u0001';
+/* After the reporter's own article ("an Agent 7 user") the mark reads "agent", not "an an agent". */
+const shown = (t) => String(t).replace(new RegExp('(^|[^\\p{L}])(an?|the)(\\s+)' + MARK, 'giu'), (m, pre, art, sp) => pre + (art.toLowerCase() === 'a' ? art + 'n' : art) + sp + 'agent').split(MARK).join('an agent');
+
+function scrubRaw(text, names) {
   let t = normal(text);
   if (t.length > SCRUB_MAX) t = [...t.slice(0, SCRUB_MAX)].join('').replace(/[\uD800-\uDBFF]$/, '') + ' [cut: the report was longer]';
   t = t.replace(/<!--[\s\S]*?-->/g, '[comment-removed]');
@@ -142,16 +156,14 @@ function scrub(text, names) {
 /* Review 16: also run at file time and when the digest prints a draft, with every name known THEN, since a draft made
    before an author first posted still holds that author's name. Running it twice changes nothing. */
 function scrubNames(text, names) {
-  /* Review 17: "an agent" is what a name becomes, so a name part "agent" or "an" would match it again ("an an agent");
-     the replacement is protected while the names run, which makes a second pass change nothing. */
-  let t = String(text).replace(/\ban agent\b/gi, '\u0001');
+  let t = String(text);
   for (const n of names || []) {
     const name = normal(n).trim();
     if (name.length < 2) continue;
     /* Review 13: a digit does not end a name ("Bob2" is Bob), only a letter does. */
-    t = t.replace(new RegExp('(^|[^\\p{L}])' + escapeRe(name) + '(?=$|[^\\p{L}])', 'giu'), '$1\u0001');
+    t = t.replace(new RegExp('(^|[^\\p{L}])' + escapeRe(name) + '(?=$|[^\\p{L}])', 'giu'), '$1' + MARK);
   }
-  return t.replace(/\u0001/g, 'an agent');
+  return t;
 }
 
 /* Every author's full name AND each part of it of two letters or more, split on spaces, dots, dashes, underscores and
@@ -182,13 +194,13 @@ function fence(text) {
    Review 17: the draft keeps its report parts, so a later rescrub (file time, digest time, with names learned since) runs
    over the reports only and never over the tool's own header or title prefix. */
 function cardFor(group, names) {
-  const reports = group.posts.map((p) => ({ title: scrub(p.title, names).replace(/\s+/g, ' ').trim(), text: scrub(p.body, names) }));
+  const reports = group.posts.map((p) => ({ title: scrubRaw(p.title, names).replace(/\s+/g, ' ').trim(), text: scrubRaw(p.body, names) }));
   const dates = group.posts.map((p) => String(p.created_at || '').slice(0, 10)).filter(Boolean).join(', ');
   return renderDraft({ reports, dates }, []);
 }
 
 function renderDraft(d, names) {
-  const reports = d.reports.map((x) => ({ title: scrubNames(x.title, names), text: scrubNames(x.text, names) }));
+  const reports = d.reports.map((x) => ({ title: shown(scrubNames(x.title, names)), text: shown(scrubNames(x.text, names)) }));
   const title = [...('Community report: ' + reports[0].title)].slice(0, 120).join('');
   const lines = [
     `Reported on the Kosmos community's Kosmos bugs channel (${reports.length} report${reports.length === 1 ? '' : 's'}, ${d.dates}).`
@@ -205,7 +217,7 @@ function renderDraft(d, names) {
 /* The draft as it is shown or filed now, with every name known now. A draft saved before review 17 has no parts. */
 function draftNow(draft, names) {
   if (draft && Array.isArray(draft.reports) && draft.reports.length) return renderDraft(draft, names);
-  return { title: scrubNames(draft.title, names), body: scrubNames(draft.body, names) };
+  return { title: shown(scrubNames(draft.title, names)), body: shown(scrubNames(draft.body, names)) };
 }
 
 /* Read every report the site has in the channel, newest first, up to maxPages pages; say so when it stops early. */
@@ -372,7 +384,7 @@ function writeDigest(o, state, extra) {
   /* Review 10: a group left "filing" was in no section, and its posts are seen, so it vanished from every digest. */
   const stuck = Object.entries(state.groups).filter(([, g]) => g.status === 'filing');
   if (stuck.length) lines.push('', `## Interrupted while filing (look for its card on GitHub; found: dup <group> <card>; none: file <group> --retry): ${stuck.length}`,
-    ...stuck.map(([id, g]) => `- ${id}: ${g.draft.title} (posts ${g.posts.map((p) => p.id).join(', ')})`));
+    ...stuck.map(([id, g]) => `- ${id}: ${draftNow(g.draft, state.names).title} (posts ${g.posts.map((p) => p.id).join(', ')})`));
   const reopen = Object.entries(state.groups).filter(([, g]) => g.linkedWhileClosed && g.status === 'dup');
   if (reopen.length) lines.push('', `## Linked to a card that was already closed (check the bug is not back): ${reopen.length}`, ...reopen.map(([id, g]) => `- ${id}: #${g.card}, posts ${g.posts.map((p) => p.id).join(', ')}`));
   const digest = lines.join('\n') + '\n';
@@ -543,7 +555,9 @@ function fileLocked(id, o) {
   /* Review 4: marked BEFORE the card is made, so a run that dies between the two leaves "filing", which refuses a retry. */
   g.status = 'filing'; saveState(o.state, state);
   const now = draftNow(g.draft, state.names);
-  const title = o.title ? scrubNames(normal(o.title), state.names) : now.title;
+  const title = o.title !== undefined ? shown(scrubNames(normal(o.title), state.names)) : now.title;
+  /* Review 18: a typed title is scrubbed too; when that changes it, say so, so nobody is surprised by what was filed. */
+  if (o.title !== undefined && title !== normal(o.title)) o.onNote && o.onNote(`your title was filed as: ${title}`);
   const f = path.join(o.tmpDir || os.tmpdir(), 'card-' + process.pid + '-' + Date.now() + '.md');
   let number; let ghFailed = false;
   try {
@@ -611,7 +625,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (['--base', '--state', '--digest', '--repo', '--title'].includes(a)) {
-      if (argv[i + 1] === undefined) throw new Error(a + ' needs a value. ' + USAGE);
+      if (argv[i + 1] === undefined || (a === '--title' && !argv[i + 1].trim())) throw new Error(a + ' needs a value. ' + USAGE);
       o[a.slice(2)] = argv[i + 1]; i += 1;
     } else if (a === '--retry') o.retry = true;
     else if (a.startsWith('--')) throw new Error('unknown option ' + a + '. ' + USAGE);
@@ -631,7 +645,11 @@ async function main(argv) {
       throw e;
     }
   }
-  if (verb === 'file' && args.length === 1) return `filed ${args[0]} as #${file(args[0], opts)}\n`;
+  if (verb === 'file' && args.length === 1) {
+    const notes = [];
+    const n = file(args[0], { ...opts, onNote: (m) => notes.push(m) });
+    return notes.map((m) => m + '\n').join('') + `filed ${args[0]} as #${n}\n`;
+  }
   if (verb === 'dup' && args.length === 2) {
     const wasClosed = dup(args[0], args[1], opts);
     return `linked ${args[0]} to #${args[1]}${wasClosed ? ' (that card is CLOSED: check the bug is not back, and reopen it if so)' : ''}\n`;

@@ -607,7 +607,6 @@ test('#5062 review 17: rescrubbing at file time touches the reports only; the he
   assert.match(sent.body, /kosmos#5062/);
   assert.ok(!/an an agent/.test(sent.body + title + r.digest), 'a second pass rescrubbed its own replacement');
   assert.match(sent.body, /my an agent froze/, 'the report text itself was not scrubbed');
-  assert.equal(t.scrub(t.scrub('ask Agent Smith', ['Agent Smith', 'Agent', 'Smith']), ['Agent', 'an']), 'ask an agent');
 });
 
 test('#5062 review 17: a search left stale by a failed redraft is tried again on the next good read', async () => {
@@ -621,4 +620,42 @@ test('#5062 review 17: a search left stale by a failed redraft is tried again on
   assert.equal(r.state.groups.g1.matchesStale, undefined, 'the stale search was never retried');
   assert.deepEqual(r.state.groups.g1.matches.map((m) => m.number), [55]);
   assert.ok(!/search did not finish/.test(r.digest));
+});
+
+test('#5062 review 18: a reporter writing "an Agent 7" never keeps the name; a name followed by a digit is replaced once', async () => {
+  const o = opts('r18a', {});
+  const ps = [post('y1', 'Board idle when typing', 'I, an Agent 7 user, saw it. Bob2 crashed; Bob_x too.', 'Agent 7'),
+    post('y2', 'Board idle when typing fast', 'z', 'Bob'), post('y3', 'Board idle when typing slow', 'z', 'Kosmos Agent')];
+  const r = await t.read({ ...o, fetchFn: site(ps).fetchFn, gh: fakeGh().gh });
+  const g = fakeGh();
+  t.file('g1', { ...o, gh: g.gh });
+  const body = g.created()[0].body;
+  assert.match(body, /I, an agent user, saw it\. an agent2 crashed; an agent_x too\./);
+  for (const out of [r.digest, body]) {
+    assert.ok(!/agent 7/i.test(out), 'the name Agent 7 survived');
+    assert.ok(!/an an agent/.test(out), 'a replacement was replaced again');
+    assert.ok(!/bob/i.test(out));
+  }
+  assert.equal(t.scrub('a Bob and the Bob and Bob', ['Bob']), 'an agent and the agent and an agent');
+  assert.ok(!body.includes('\u0001') && !r.digest.includes('\u0001'), 'the stored marker reached the output');
+});
+
+test('#5062 review 18: a typed title is scrubbed and the person is told; an empty --title is refused', async () => {
+  const o = opts('r18b', {});
+  await t.read({ ...o, fetchFn: site([post('z1', 'Board idle', 'x', 'Zed Agent')]).fetchFn, gh: fakeGh().gh });
+  const notes = []; const g = fakeGh();
+  t.file('g1', { ...o, title: 'Agent list crashes', onNote: (m) => notes.push(m), gh: g.gh });
+  assert.deepEqual(notes, ['your title was filed as: an agent list crashes']);
+  const sent = g.created()[0].args;
+  assert.equal(sent[sent.indexOf('--title') + 1], 'an agent list crashes');
+  assert.throws(() => t.parseArgs(['file', 'g1', '--title', '  ']), /--title needs a value/);
+});
+
+test('#5062 review 18: a draft stores the mark, not the words, so a name part "An" never turns a filed replacement into "an agent agent"', async () => {
+  const o = opts('r18c', {});
+  await t.read({ ...o, fetchFn: site([post('v1', 'Board idle when typing', 'Bob crashed it', 'Bob'), post('v2', 'Board idle when typing fast', 'z', 'An Nguyen')]).fetchFn, gh: fakeGh().gh });
+  const g = fakeGh();
+  t.file('g1', { ...o, gh: g.gh });
+  assert.match(g.created()[0].body, /an agent crashed it/);
+  assert.ok(!/agent agent/.test(g.created()[0].body), g.created()[0].body);
 });
