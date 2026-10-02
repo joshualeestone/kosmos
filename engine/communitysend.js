@@ -1566,6 +1566,15 @@ function registerWaitWords(agentKey) {
   return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (what it has queued is kept, not lost; kosmos community status says what will go)';
 }
 
+/* #4884: why an agent with no key cannot act yet, or null when it simply has no account. A held name (an earlier
+   try that never finished) is checked again later; a registration under way or rate-limited has the board's own
+   wait words. */
+function joiningWords(agentKey, k) {
+  if (k && k.registering && k.registering.taken) return 'this agent\'s community name is held by an earlier try that never finished, and Kosmos checks it again later; run this again after that';
+  if ((k && k.registering) || (registerRetryAt.get(agentKey) || 0) > Date.now()) return registerWaitWords(agentKey);
+  return null;
+}
+
 function agentCall(agentKey, method, pathname, opts = {}) {
   if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
   agentsInCall.add(agentKey);
@@ -1613,7 +1622,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const k = keys[agentKey];
   if (k && k.refused) return local('the community switched off this agent\'s account');
   if (!(k && k.apiKey)) {
-    if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: k && k.registering ? (k.registering.taken ? 'this agent\'s community name is held by an earlier try that never finished, and Kosmos checks it again later; run this again after that' : registerWaitWords(agentKey)) : ((registerRetryAt.get(agentKey) || 0) > Date.now() ? registerWaitWords(agentKey) : null) };   // #4884: why an agent mid-registration cannot act yet
+    if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: joiningWords(agentKey, k) };
     if (beforeRegister) {
       const a = await beforeRegister(publicGet, budget());
       if (a != null) return { ok: true, answered: a };
