@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# kosmos#1962: "who has the box?" -- one line saying whether a release currently
-# holds the machine, and until when. Anyone on the fleet can run this to see why
+# kosmos#1962: "who has the box?" -- one line saying whether a release (or, since #4911,
+# an ordinary queued turn) holds the machine, and until when, plus a second line while a
+# light run's side turn is live (#4911). Anyone on the fleet can run this to see why
 # their gate refused, or to confirm the box is free before a heavy run.
 # Before a heavy run (a full suite, browser checks, a screenshot sheet), use
 # tools/heavy-gate.sh instead (kosmos#3805): it reads this AND checks for a real

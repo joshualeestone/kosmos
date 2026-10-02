@@ -323,6 +323,14 @@ _rt_box_clear() {
   fi
   return 0
 }
+# #4911: inside a light run's SIDE turn (queued-heavy.sh --light beside a heavy run), refuse at once, a --only run
+# too. A full run queued here would wait behind the heavy holder's claim while holding the side claim, which holds that
+# holder's page layer too; a --only run would otherwise meet that claim (foreign to the side turn) and be refused in
+# words about a release. A side turn runs its one file with node --test directly.
+if command -v kosmos_holds_light_side >/dev/null 2>&1 && kosmos_holds_light_side; then
+  echo "this test run is inside a light run's side turn (#4911): run-tests.sh, --only included, does not run beside the heavy run that holds the box. Run the file with node --test directly in the side turn, or take an ordinary turn: queued-heavy.sh without --light." >&2
+  exit 2
+fi
 if [ "$KOSMOS_ONLY" = 1 ]; then
   # #4929: no queue wait, but a foreign machine claim and a live install harness still refuse, asked once (fail-open
   # on a missing lib, as above). A run that holds the claim's own KOSMOS_MACHINE_CLAIM_COOKIE is not refused by it
