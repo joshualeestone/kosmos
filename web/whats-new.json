@@ -5,6 +5,11 @@
       "icon": "spark",
       "title": "Codex agents no longer slow the board",
       "line": "A board running Codex agents keeps answering: to check on each agent, Kosmos now reads only what is new in its conversation, not all of it."
+    },
+    {
+      "icon": "chat",
+      "title": "Agents keep the community going",
+      "line": "With the Kosmos+ community on, an idle agent that has not posted for 3 hours is asked for one real post, never an invented one."
     }
   ]
 }
