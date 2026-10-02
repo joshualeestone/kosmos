@@ -2412,11 +2412,23 @@ const ASKING_GENERIC = 'it is asking you something';
  * says "If you hit your limit" on a healthy agent and must stay calm. It
  * allows any word before "limit" for the same reason as its sibling: one plan
  * tier said "weekly", and another may say "session" or "5-hour".
+ *
+ * ⚠️ ANCHORED, UNLIKE ITS TWO SIBLINGS, because "you've hit your rate limit"
+ * is ordinary English and this array outranks needs_you: unanchored, an agent
+ * ASKING "Looks like you've hit your GitHub API rate limit. Want me to wait?"
+ * read rate_limited and its question was hidden, and a healthy Guide
+ * EXPLAINING limits switched itself to the backup (review round 1). Every
+ * observed vendor row starts with the sentence, after only spaces or the
+ * tool-output glyph ⎿ (the 2026-08-21 screens had no ⎿, so it is optional);
+ * agent prose starts with ●. Case-sensitive like /usage-credits: the vendor
+ * capitalises it. What still matches: an agent's indented SECOND paragraph
+ * that opens with exactly this sentence. Narrowing that needs another
+ * observed screen, the same rule as above.
  */
 const RATE_LIMIT_MARKERS = [
   /reached your .{0,40}limit/i,   // observed 2026-08-21
   /\/usage-credits\b/,            // observed 2026-08-21
-  /you['’]ve hit your .{0,40}limit/i, // observed 2026-10-02 (#5029)
+  /^[\s⎿]*You['’]ve hit your .{0,40}limit/, // observed 2026-10-02 (#5029); anchored, see above
 ];
 
 /**
@@ -3569,6 +3581,8 @@ function messageAt(text, markers) {
   const CONTINUES = /^[A-Za-z0-9/]/;
   for (let i = 0; i < rows.length; i += 1) {
     if (!markers.some((re) => re.test(rows[i]))) continue;
+    /* ⎿ here and NOT in matchedLine's copy, on purpose (#5029): this one writes a person-facing line, and Claude
+       Code prints its limit message under its tool-output glyph. matchedLine's result only answers yes or no. */
     let out = rows[i].replace(/^[\s>│├└─*❯›⎿]+/, '').trim();
     if (!out) continue;
     for (let extra = 0; extra < 2 && !ENDS.test(out); extra += 1) {

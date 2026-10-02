@@ -41,4 +41,7 @@ does not hand back until something else changes the screen (pre-existing for the
 - Full suite: PENDING.
 
 ## Review
-- Round 1: PENDING.
+- Round 1 (opus, blind): BLOCKER taken: the marker was unanchored and outranks needs_you, so an agent ASKING "you've hit your GitHub API rate limit, wait?" read rate_limited (question hidden) and a healthy Guide explaining limits switched to the backup. Now /^[\s⎿]*You['’]ve hit your .{0,40}limit/ (case-sensitive), with ASKING (must be needs_you) and EXPLAINING controls; the unanchored mutant reds on ASKING by name. SHOULD-FIX 3 taken (the healthy-pane control could not fail; replaced). NIT 5 taken (note on why only messageAt strips ⎿).
+  SHOULD-FIX 2 REJECTED: create.js CLAUDE_CAPACITY, see Decided (both outcomes of a miss allow the create; its input is unobserved). NIT 4 DEFERRED: on an unobserved modal shape with no row between, the evidence would carry "What do you want to do?" on; changing messageAt's sentence-end rule touches every evidence line.
+  Residual, stated in the code: an indented second paragraph of agent prose opening with exactly "You've hit your ... limit" still matches.
+- Round 2: PENDING.

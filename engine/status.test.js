@@ -4166,7 +4166,14 @@ test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limit
      (#1234) delivers the banner as ONE logical line, so pin that shape too. */
   const PROMO_ONE_LINE = 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit your limit, you can continue on Fable 5 with usage credits.\n\n> ready\n';
   assert.notEqual(classify(pane, PROMO_ONE_LINE).state, STATE.RATE_LIMITED, 'the one-line promo banner is pausing a healthy agent');
-  assert.notEqual(classify(pane, 'Worked for 1m\n> ready\n').state, STATE.RATE_LIMITED, 'a healthy pane reads as capped');
+  /* Review round 1: an agent ASKING about some other limit, and a healthy Guide EXPLAINING the Claude one, both in
+     its own prose (●). Unanchored, the marker read both as capped: the question was hidden behind Paused, and the
+     Guide switched itself to the backup. The question must still surface as needs_you. */
+  const ASKING = '● Looks like you\'ve hit your GitHub API rate limit. Want me to wait for it to reset?\n\n'
+    + ' Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  assert.equal(classify(pane, ASKING).state, STATE.NEEDS_YOU, 'an agent asking about a limit had its question hidden');
+  const EXPLAINING = '● If you\'ve hit your weekly limit, Kosmos switches the Guide to its hosted backup until it resets.\n\n> ready\n';
+  assert.notEqual(classify(pane, EXPLAINING).state, STATE.RATE_LIMITED, 'a healthy Guide explaining limits reads as capped');
 });
 
 test('#887: the prompt glyph ❯ (and Codex\'s ›) is stripped from the evidence line', () => {
