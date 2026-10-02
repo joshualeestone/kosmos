@@ -15002,7 +15002,7 @@ const server = http.createServer(async (req, res) => {
            heldUntil included, and the caller treats anything but placed as not said. */
         if (automatic && delivery && delivery.held === true) {
           sendJson(res, 200, { delivery, recorded: false,
-            recordedBecause: delivery.heldBy === 'cap'
+            recordedBecause: delivery.heldBy === 'cap'   // defensive: this route's automatic hello sends with { cap: false }
               ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
               : 'held: nothing was typed while the shared quota is out, so nothing was kept' });
           return;
@@ -19402,7 +19402,8 @@ function start(port = PORT) {
         book: CONNLOST_BOOK,
         probe: () => connlostHeal.probeApi(),
         /* Plain deliver, not deliverAutomatic: it counts a try before delivering (connlost-heal.js), so a quota hold
-           would spend its budget (#4588 PR B review 2). */
+           would spend its budget (#4588 PR B review 2). For the same reason the Gemini cap (#4588 ask 3) does not hold
+           it: a reconnect line to a lost agent is let through. */
         deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
         DELIVERY: chat.DELIVERY,
         log: (r) => process.stdout.write(`connlost-heal: ${r.name} (${r.session}) ${r.act}${r.act === 'nudge' ? ' delivery=' + (r.delivery || '?') : ''} - ${r.because}\n`),

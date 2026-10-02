@@ -114,3 +114,16 @@ happen while the person is messaging all of them directly.
   mind: lockouts in a team that works mostly by agent-to-agent task messages.
 - givePart releases its slot when the give changed nothing. The flush log says "after the quota hold or the Gemini
   limit". The browser check confirms its restore to No limit before the next theme.
+
+## Review 4 (sonnet) and what changed
+- **A delivery that throws now gives its cap slot back** (deliverAutomatic and the async twin release in a catch,
+  then rethrow). Pinned in source, because deliver() is chat.js's own internal function and a stub cannot reach it.
+- **The Settings copy says held messages "can arrive late".**
+- **The room-hold cap test checks the idle member is told once:** the next retry types nothing.
+- **Noted in comments:**
+  - the connection-heal line is not capped, for the same reason it is not quota-held
+  - wakeHeldLine's cap branch and recordedBecause's cap text are defensive (both callers send with { cap: false })
+- **Accepted as the opt-in's trade-off, documented:**
+  - agents that depend on each other can wait on a held one
+  - a reservation lasts its few minutes even when the agent finishes sooner
+  - held agents are not ordered

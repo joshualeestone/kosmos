@@ -524,6 +524,10 @@ test('#4588 ask 3: with a cap set, an idle agy member\'s held PLAIN post is flus
         if (capOn) {
           assert.deepEqual(after.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]], 'cap on: the idle member is told');
           assert.equal(typedTo(tmux, 'mara').length, 1);
+          // Review 4: told once. The next minute's retry finds nothing held for her and types nothing.
+          const again = arm();
+          assert.deepEqual(await roomhold.flushReleased(r2, releasedDeps(r2, Date.now())), [], 'the idle member was told twice');
+          assert.deepEqual(typedTo(again, 'mara'), []);
         } else {
           assert.deepEqual(after, [], 'no cap: an idle member holding only plain posts waits for its next wake');
           assert.deepEqual(typedTo(tmux, 'mara'), []);

@@ -17351,7 +17351,7 @@ window.kosmosMeasureScrollbarWidth();
         <label class="dhint" for="agycap-max" style="margin:0;">Working at the same time</label>
         <select id="agycap-max"></select>
       </div>
-      <p class="dhint" style="margin:8px 0 0;">Gemini agents on this computer share one Google account's quota, so several working at once can use it up together. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes. Your own messages, and a restart you start, always go straight through. No limit by default.</p>
+      <p class="dhint" style="margin:8px 0 0;">Gemini agents on this computer share one Google account's quota, so several working at once can use it up together. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart you start, always go straight through. No limit by default.</p>
       <p class="dhint" id="agycap-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
@@ -53744,8 +53744,10 @@ async function restartReadyWait(name, mine) {
    (quotaResetWords); a missing or past time just says the quota is out. Guarded with typeof, so the lifted unit
    tests (no page globals) still read. */
 function wakeHeldLine(manualText, delivery) {
-  /* #4588 ask 3: held by the person's own cap on Gemini agents at once, not by the quota. No time: the cap lifts as the
-     others stop working (and their few-minute start reservations pass), not at a clock time Kosmos can name. */
+  /* #4588 ask 3: held by the person's own cap on Gemini agents at once, not by the quota. DEFENSIVE today: both callers
+     (the wake hello and the handoff pickup) send with { cap: false }, so a cap verdict does not reach here; kept so a
+     future automatic caller cannot show "the quota is out" for a cap hold. No time: the cap lifts as the others stop
+     working, not at a clock time Kosmos can name. */
   if (delivery && delivery.heldBy === 'cap') {
     return manualText + ' The Gemini agents on this computer are at the limit you set for working at once, so Kosmos sent nothing.';
   }

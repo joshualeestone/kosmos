@@ -1730,7 +1730,9 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
   if (held) return held;
   // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
   const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
-  const v = deliver(sessionName, raw, roster, envelope, trailer);
+  let v;
+  try { v = deliver(sessionName, raw, roster, envelope, trailer); }
+  catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }   // review 4: a throw reached nothing either
   if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
   return v;
 }
@@ -1741,7 +1743,9 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
   if (held) return held;
   // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
   const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
-  const v = await deliverAsync(sessionName, raw, roster, envelope, trailer);
+  let v;
+  try { v = await deliverAsync(sessionName, raw, roster, envelope, trailer); }
+  catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }
   if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
   return v;
 }

@@ -194,3 +194,17 @@ test('#4588 ask 3 review 3: a send after the person\'s own click ({ cap: false }
     assert.equal(quota.heldBy, 'quota');
   } finally { fs.rmSync(capSetting.FILE, { force: true }); require('./agyquota').CAP_STARTS.clear(); }
 });
+
+test('#4588 ask 3 review 4 pin: deliverAutomatic and its async twin give the cap slot back when the delivery THROWS', () => {
+  /* A pin, not a run: deliver() is chat.js's internal function, so a test cannot make it throw without changing which
+     stubs reach it. Both bodies must release in a catch and rethrow. */
+  const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  for (const [fn, call] of [['function deliverAutomatic(', 'deliver(sessionName, raw, roster, envelope, trailer)'], ['async function deliverAutomaticAsync(', 'await deliverAsync(sessionName, raw, roster, envelope, trailer)']]) {
+    const at = src.indexOf(fn);
+    assert.notEqual(at, -1, fn);
+    const body = src.slice(at, src.indexOf('\n}\n', at));
+    const tryAt = body.indexOf('try { v = ' + call + '; }');
+    assert.notEqual(tryAt, -1, fn + ' does not wrap the delivery in try');
+    assert.match(body.slice(tryAt), /catch \(err\) \{ require\('\.\/agyquota'\)\.releaseCapStart\(slot\); throw err; \}/, fn + ' does not release on a throw');
+  }
+});
