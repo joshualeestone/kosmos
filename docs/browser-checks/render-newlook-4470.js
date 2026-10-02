@@ -31,6 +31,9 @@
  *    page's ground and the rest flat, no edge and no gold; Files with no card under a hairline and a sentence-case
  *    heading; 300 to 380px wide on a desktop; the Profile boxes with no edge and 28px corners and sentence-case field
  *    labels; with the look off, today's (the control),
+ *  - Settings in the new look (SETTINGS_LOOK): the nav a grey box with flat items, the current one a page tile (on a
+ *    phone the scroller stays, the current item a grey tile); boxes with no edge and 28px corners and sentence-case
+ *    labels; with the look off, today's (the control),
  *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
  *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
  *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
@@ -176,6 +179,21 @@ const DLEFT_LOOK = `(() => {
           talkRadius: getComputedStyle(document.getElementById('d-talk-box')).borderTopLeftRadius }; })(),
       cut: [...document.querySelectorAll('#d-nav button:not([hidden]) .dnav-lab')].filter((l) => l.scrollWidth > l.clientWidth).map((l) => l.textContent.trim()) };
   } finally { files.hidden = filesHidden; if (panel) panel.hidden = wasHidden; }
+})()`;
+/* #4470, Settings in the new look: the section nav's ground and corners, the current item and another (ground, edge),
+   a box's edge and corners and its first field label's case. Read with the panel shown and put back. */
+const SETTINGS_LOOK = `(() => {
+  const nav = document.getElementById('s-nav'), panel = document.getElementById('panel-settings');
+  if (!nav || !panel) return { found: false };
+  const wasHidden = panel.hidden; panel.hidden = false;
+  try {
+    const on = nav.querySelector('button.on'), off = nav.querySelector('button:not(.on):not([hidden])');
+    const box = panel.querySelector('.dbox'), lab = panel.querySelector('.dbox .flabel');
+    if (!on || !off || !box || !lab) return { found: false, on: !!on, off: !!off, box: !!box, lab: !!lab };
+    const N = getComputedStyle(nav), O = getComputedStyle(on), X = getComputedStyle(off), B = getComputedStyle(box), L = getComputedStyle(lab);
+    return { found: true, navBg: N.backgroundColor, navRadius: N.borderTopLeftRadius, onBg: O.backgroundColor, onEdge: O.borderTopColor,
+      offBg: X.backgroundColor, offEdge: X.borderTopColor, boxEdge: B.borderTopColor, boxRadius: B.borderTopLeftRadius, labelCase: L.textTransform };
+  } finally { panel.hidden = wasHidden; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
@@ -391,6 +409,7 @@ const AGENTS_LOOK = `(() => {
       const before = await page.evaluate(PAGE_STATE);
       const dmBefore = await page.evaluate(DM_LOOK);   // today's DM, before the switch is ever touched (the off control's baseline)
       const dlBefore = await page.evaluate(DLEFT_LOOK);   // and today's left column, for the same control
+      const setBefore = await page.evaluate(SETTINGS_LOOK);   // and today's Settings
       chk(before.look === null, `${tag} nothing stored: no data-look attribute`, JSON.stringify(before));
       chk(before.kbg && before.kbg !== NEW[theme], `${tag} nothing stored: today's page colour, not the new look's`, before.kbg);
 
@@ -459,6 +478,13 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, an agent's page: Files has no card, a hairline above it, and a sentence-case heading`, JSON.stringify(dlOn));
       if (width >= 1088) chk(dlOn.found && dlOn.width >= 300 && dlOn.width <= 380, `${tag} On, an agent's page: the left column is the project page's 300 to 380px`, JSON.stringify(dlOn));
       chk(dlOn.found && dlOn.cut.length === 0, `${tag} On, an agent's page: no section button's label is cut off`, JSON.stringify(dlOn));
+      const setOn = await page.evaluate(SETTINGS_LOOK);
+      const navWide = width > 640;   // up to 40rem the nav is the sideways scroller, with no box
+      chk(setOn.found && setOn.navBg === (navWide ? GREY_OF[theme] : CLEAR) && setOn.onBg === (navWide ? PAGE_OF[theme] : GREY_OF[theme])
+        && setOn.onEdge === CLEAR && setOn.offBg === CLEAR && setOn.offEdge === CLEAR,
+        `${tag} On, Settings: the nav ${navWide ? 'is the grey box, the current item a tile in the page' : 'stays a scroller, the current item a grey tile'}; no edge and no gold`, JSON.stringify(setOn));
+      chk(setOn.found && setOn.boxEdge === CLEAR && setOn.boxRadius === '28px' && setOn.labelCase === 'none',
+        `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
       chk(dlOn.boxFound && dlOn.boxEdge === CLEAR && dlOn.boxRadius === '28px' && dlOn.labelCase === 'none' && (dlOn.labelSpacing === 'normal' || dlOn.labelSpacing === '0px'),
         `${tag} On, an agent's Profile: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(dlOn));
       chk(dlOn.boxFound && dlOn.headCase2 === 'none' && dlOn.talkRadius === '0px',
@@ -691,6 +717,9 @@ const AGENTS_LOOK = `(() => {
       chk(dlOff.found && dlBefore.found && JSON.stringify(dlOff) === JSON.stringify(dlBefore) && dlOff.onEdge !== 'rgba(0, 0, 0, 0)' && dlOff.offEdge !== 'rgba(0, 0, 0, 0)'
         && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme] && dlOff.boxEdge !== 'rgba(0, 0, 0, 0)' && dlOff.labelCase === 'uppercase' && dlOff.headCase2 === 'uppercase',
         `${tag} Off, an agent's page: exactly today's left column (edged buttons, FILES in capitals), as before the switch was touched (the control)`, JSON.stringify({ off: dlOff, before: dlBefore }));
+      const setOff = await page.evaluate(SETTINGS_LOOK);
+      chk(setOff.found && setBefore.found && JSON.stringify(setOff) === JSON.stringify(setBefore) && setOff.onEdge !== 'rgba(0, 0, 0, 0)' && setOff.boxEdge !== 'rgba(0, 0, 0, 0)' && setOff.labelCase === 'uppercase',
+        `${tag} Off, Settings: exactly today's gold current item, edged boxes and capital labels, as before the switch was touched (the control)`, JSON.stringify({ off: setOff, before: setBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
