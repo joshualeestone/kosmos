@@ -167,11 +167,17 @@ async function runOn(engine, base, say) {
       // Counted in the capture phase WITHOUT cancelling it, so the page's own handler decides (a cancelled click would
       // test the defaultPrevented guard, not the modifier one).
       await pg.evaluate((sel) => { window.__cardClicks = 0; window.__cardCancelled = null; document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest(sel)) { window.__cardClicks += 1; setTimeout(() => { window.__cardCancelled = e.defaultPrevented; }, 0); } }, true); }, card(IMG_ID));
-      await pg.click(card(IMG_ID), { modifiers: ['Meta'] });
-      await pg.waitForTimeout(150);
-      const mod = await pg.evaluate(() => ({ clicks: window.__cardClicks, open: !!document.getElementById('pv-preview'), cancelled: window.__cardCancelled }));
-      say(mod.clicks === 1 && !mod.open && mod.cancelled === false, tag + ' P5: a Cmd-click lands on the card, keeps the download and opens no preview', JSON.stringify(mod));
-      await pg.evaluate(() => { const b = document.getElementById('pv-preview'); if (b) b.remove(); });
+      for (const [key, word] of [['Meta', 'Cmd'], ['Control', 'Ctrl']]) {
+        await pg.evaluate(() => { window.__cardClicks = 0; window.__cardCancelled = null; });
+        /* A real Ctrl-click on a Mac host is a right-click (no click event), so the Ctrl arm dispatches the click the
+           Windows app gets: a primary-button click carrying ctrlKey. */
+        if (key === 'Meta') await pg.click(card(IMG_ID), { modifiers: [key] });
+        else await pg.evaluate((sel) => { const a = document.querySelector(sel); a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true })); }, card(IMG_ID));
+        await pg.waitForTimeout(150);
+        const mod = await pg.evaluate(() => ({ clicks: window.__cardClicks, open: !!document.getElementById('pv-preview'), cancelled: window.__cardCancelled }));
+        say(mod.clicks === 1 && !mod.open && mod.cancelled === false, tag + ' P5: a ' + word + '-click lands on the card, keeps the download and opens no preview', JSON.stringify(mod));
+        await pg.evaluate(() => { const b = document.getElementById('pv-preview'); if (b) b.remove(); });
+      }
 
       // P9
       const rows = await pg.evaluate((IMG_ID) => {
@@ -224,7 +230,7 @@ async function runOn(engine, base, say) {
       await pg.keyboard.press('Escape');
       await pg.click(card(DOC_ID));
       const doc = await pg.evaluate(() => ({ name: (document.querySelector('#pv-preview .pv-file b') || {}).textContent, meta: (document.querySelector('#pv-preview .pv-file span') || {}).textContent }));
-      say(doc.name === 'deck.pptx' && /PowerPoint/.test(doc.meta || ''), tag + ' P6: any other file shows its name and size', JSON.stringify(doc));
+      say(doc.name === 'deck.pptx' && /PowerPoint/.test(doc.meta || '') && /2\.0 MB/.test(doc.meta || ''), tag + ' P6: any other file shows its name and size', JSON.stringify(doc));
       await pg.keyboard.press('Escape');
       say(errors.length === 0, tag + ': no page errors', errors.slice(0, 3).join(' | '));
       await ctx.close();

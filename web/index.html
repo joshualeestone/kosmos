@@ -58847,7 +58847,8 @@ document.addEventListener('click', (e) => {
 });
 /* On the document, in the capture phase, like the update window: Escape closes it before a dialog under it, and
    Tab stays between the X and the action while it is up. */
-/* A window drawn over the preview (first run, the update overlay, the restart screen, a native dialog) owns the keys.
+/* A window drawn over the preview (first run, the update overlay, the restart screen; a native dialog, should the
+   page ever open one: none does today) owns the keys.
    The phone menu is not one: it sits under the preview. While the update overlay is up the preview and the update
    window both stand aside to it, the window on top. */
 function pvCovered() { return !!document.querySelector('.fr-back:not([hidden]), .frc-back:not([hidden]), .upd-back, .restart-back, dialog[open]'); }
