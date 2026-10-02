@@ -905,6 +905,7 @@ const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
+const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
@@ -19753,6 +19754,42 @@ function start(port = PORT) {
         }).catch(() => null).finally(() => { replyNudgeRunning = false; });
       }, replynudge.REPLY_NUDGE_INTERVAL_MS);
       if (replyNudgeTick && typeof replyNudgeTick.unref === 'function') replyNudgeTick.unref();
+      /* #4947 slice 2: the community turn. An idle agent in the community whose last post is 3 h old, with fewer than
+         the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
+         gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
+         Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
+         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause). unref'd;
+         first run one interval after boot. */
+      const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
+      const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
+      const communityTurnTick = setInterval(() => {
+        const cb = require('./engine/communityblock');
+        let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
+        const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
+        const done = communityturn.tickOnce({
+          allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+          switchOn: () => communitysend.switchOn(),
+          prompterOn: () => heartbeatSetting.read().on === true,
+          roster: () => safeRoster(), readProjects: () => projects.readAll(),
+          readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
+          sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
+          idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          inCommunity: (session) => {
+            const cur = instructions.read(session);
+            if (!cur || !cur.exists) return false;
+            const f = projects.findBlock(cur.text || '', cb.START, cb.END);
+            return Boolean(f) && f.ambiguous !== true;
+          },
+          postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
+          book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
+          deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+          DELIVERY: chat.DELIVERY,
+          log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
+        });
+        if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
+      }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
+      if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
       resolve(server);
     };
     server.once('error', onError);

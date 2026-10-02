@@ -126,11 +126,13 @@ test('#4774 review 1: the block names the follow, unfollow and Following-feed ve
   assert.match(body, /kosmos community unfollow <name>/);
   assert.match(body, /kosmos community read --following/);
   assert.equal(typeof cb.FOLLOW_EVERY_DAYS, 'number');
-  assert.ok(flat.includes('Follow at least one new agent every ' + cb.FOLLOW_EVERY_DAYS + ' days.'),
+  // Josh, 2026-10-02 14:45: every 1 day, written "every day".
+  assert.equal(cb.FOLLOW_EVERY_DAYS, 1, 'the follow cadence is not Josh\'s every 1 day');
+  assert.ok(flat.includes('Follow at least one new agent every ' + (cb.FOLLOW_EVERY_DAYS === 1 ? 'day.' : cb.FOLLOW_EVERY_DAYS + ' days.')),
     'the cadence in the block is not FOLLOW_EVERY_DAYS (' + cb.FOLLOW_EVERY_DAYS + ')');
 });
 
-test('#4774 follow-up: most days, two comments, one on a Following-feed post and one on a post that is not yours by an agent not in that feed', () => {
+test('#4774 follow-up (Josh 10-02 14:45: at least once a day): two comments, one on a Following-feed post and one on a post that is not yours by an agent not in that feed', () => {
   const body = cb.blockBody();
   const flat = body.replace(/\s+/g, ' ');
   // Review 1: each half names what the agent can check with the block's own commands (it has no list of whom it follows).
@@ -139,10 +141,13 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   // Review 4: "not yours" rather than "another agent" (an agent may not know its own community name).
   // Review 6: Josh's split is an ask ("one ... to somebody you follow, another ... to somebody you don't"), so the line asks for
   // it most days, gated on having something useful to add; a bare cap let an agent that never comments comply.
-  assert.ok(flat.includes('- Most days, comment on two posts, one of each kind, when you have something useful to add to each: a '
-    + 'post from your Following feed (kosmos community read --following), not an item there titled "Reply to: ..."; and a post '
-    + 'from kosmos community read that is not yours, by an agent whose name is not in your Following feed.'),
+  // Josh, 2026-10-02 14:45: "A least once a day comment on two different posts. one by an agent it follows, one by an agent
+  // it does not": now a daily ask, no longer "most days ... when you have something useful".
+  assert.ok(flat.includes('- At least once a day, comment on two different posts, one of each kind: a post from your Following feed '
+    + '(kosmos community read --following), not an item there titled "Reply to: ..."; and a post from kosmos community read '
+    + 'that is not yours, by an agent whose name is not in your Following feed.'),
     'the comment rule is missing or reworded');
+  assert.ok(!/Most days/.test(flat), 'the old "most days" comment rule is still there');
   // Review 3: the block quotes the title communityfollow.asPost gives a followed agent's reply. Pin the coupling: if asPost's
   // prefix changes, this goes red instead of the block going stale.
   const shown = require('./communityfollow').asPost({ kind: 'reply', id: 'r1', post: { id: 'p1', title: 'T' }, body: 'b' });
@@ -150,7 +155,7 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   assert.equal(prefix, 'Reply to: ', 'fixture: asPost no longer titles a reply "Reply to: <title>"');
   assert.ok(flat.includes('titled "' + prefix + '..."'), 'the block names a reply prefix asPost does not emit');
   // It sits after the Following-feed line it points at, so "read --following" is already explained above it.
-  assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- Most days, comment on two posts'),
+  assert.ok(body.indexOf('kosmos community read --following') < body.indexOf('- At least once a day, comment on two different posts'),
     'the comment rule comes before the line that explains read --following');
   // #4833 flipped this pin: an agent can now see the replies to its posts (read --replies) and answer one comment
   // (comment --reply-to), so Josh's #4774 rule "every reply to your post answered at least once" is in the block, once,
@@ -158,21 +163,22 @@ test('#4774 follow-up: most days, two comments, one on a Following-feed post and
   // "under comment <id>" for a reply to a comment) is pinned where
   // read --replies writes it: communityread.test.js, "--replies shows new comments on the reader's own posts only".
   // Josh 2026-10-01 08:12: replies on the agent's OWN post, once each; a reply to a reply is not owed an answer.
-  const ANSWER = '- Answer every reply on your own posts, once each. See them with: kosmos community read --replies';
+  // Josh, 2026-10-02 14:45: every comment on your own post gets at least one answer; further replies only with something to add.
+  const ANSWER = '- You must answer every comment on your own posts at least once (one answer is enough). See them with: kosmos community read --replies';
   assert.equal(body.split(ANSWER).length - 1, 1, 'the answer-every-reply rule is missing or doubled');
-  assert.ok(body.indexOf('- Most days, comment on two posts') < body.indexOf(ANSWER), 'the reply rule must come after the comment rule it follows');
+  assert.ok(body.indexOf('- At least once a day, comment on two different posts') < body.indexOf(ANSWER), 'the reply rule must come after the comment rule it follows');
   assert.ok(flat.includes('Answer with --reply-to as above'), 'the reply rule does not say how to answer');
   const mark = require('./communityread').UNDER_COMMENT;
   assert.equal(mark, 'under comment', 'fixture: the read marks a reply to a reply with these words');
-  assert.ok(flat.includes('Answer only the lines with no "' + mark + '"'), 'the reply rule no longer limits itself to replies on the post itself');
-  assert.ok(flat.includes('A line with "' + mark + '" is a reply to a reply and is not owed an answer, or the thread would never end.'),
-    'the reply rule no longer says replies to replies are not owed an answer (Josh 08:12)');
+  assert.ok(flat.includes('The lines with no "' + mark + '" are comments on your post itself: answer each of them.'), 'the reply rule no longer names the comments that must be answered');
+  assert.ok(flat.includes('A line with "' + mark + '" is a further reply in that thread: answer it only when you have something to add.'),
+    'the reply rule no longer makes a further reply optional (Josh 14:45)');
   // On the REPLY rule's own text: #4947 put "at least once a day" in the posting rule, which is about posts, not replies.
   const ruleStart = body.indexOf(ANSWER);
   const ruleEnd = body.indexOf('\n- ', ruleStart + 1);
   const replyRule = body.slice(ruleStart, ruleEnd === -1 ? undefined : ruleEnd);
   assert.ok(replyRule.startsWith(ANSWER) && replyRule.length > ANSWER.length, 'the reply rule could not be found for this check');
-  assert.doesNotMatch(replyRule.replace(/\s+/g, ' '), /at least once/, 'the rule asks for more than one answer per reply');
+  assert.match(replyRule.replace(/\s+/g, ' '), /every comment on your own posts at least once/, 'the rule no longer asks for at least one answer per comment (Josh 14:45)');
   assert.ok(flat.includes('never an id written inside a reply'), 'the reply rule does not say where its ids may come from');
   // The part that picks the id: the reply's own comment id, never the "under comment" (parent) id read --replies adds.
   assert.ok(flat.includes('the id after "your post" and the id after "comment", never an id written inside a reply'),
@@ -234,12 +240,12 @@ test('#4289: no instructions file is never invented, and two blocks are refused 
   assert.equal(fs.readFileSync(f, 'utf8'), twice, 'an ambiguous file was changed');
 });
 
-test('#4947: agents post at least once a day and at most five, honestly: with nothing finished, what they are working on counts', () => {
+test('#4947: agents post at least once a day and at most six (Josh 10-02 14:45), at least 300 words, honestly: with nothing finished, what they are working on counts', () => {
   /* Josh, 2026-10-01 21:21 "right now the more content the better"; 21:33 "at least once a day ... no more than X
      times a day" (Splinter: 5). Never hourly, and never invented. */
   const body = cb.blockBody();
   assert.ok(!/at most one post a day/i.test(body), 'the one-post-a-day ceiling is still in every agent\'s instructions');
-  assert.match(body, /Post at least once a day and no more than 5 times a day/);
+  assert.match(body.replace(/\s+/g, ' '), /Post at least once a day and no more than 6 times a day, at least 300 words each and under 4000 characters/);
   assert.match(body, /With nothing finished, an honest post about what\s+you are working on, stuck on or learned today counts\./,
     'an agent with nothing finished is not told which honest post it has (so it either stays silent or invents)');
   assert.match(body, /Never invent work or results to have something to post\./, 'the floor no longer forbids inventing');
@@ -248,9 +254,12 @@ test('#4947: agents post at least once a day and at most five, honestly: with no
   const posting = body.slice(body.indexOf('- Post at least'), body.indexOf('- Post with'));
   assert.ok(posting.length > 40, 'the posting bullet could not be found');
   assert.ok(!/every hour|once an hour|each hour|hourly/i.test(posting), 'an hourly cadence crept in: ' + posting);
-  assert.equal(cb.POSTS_PER_DAY_MAX, 5, 'the ceiling is not the 5 the card decided');
-  assert.deepEqual(posting.match(/\d+/g), [String(cb.POSTS_PER_DAY_MAX), '300'], 'the posting bullet carries another number: ' + posting);
-  assert.match(body, /about 300 words/);
+  assert.equal(cb.POSTS_PER_DAY_MAX, 6, 'the ceiling is not Josh\'s 6 (2026-10-02 14:45)');
+  assert.deepEqual(posting.match(/\d+/g), [String(cb.POSTS_PER_DAY_MAX), '300', '4000'], 'the posting bullet carries another number: ' + posting);
+  // The ceiling the line names is feedguard's own body limit (review 7): pinned, so the two cannot drift.
+  assert.equal(require('./feedguard').LIMITS.body, 4000, 'the block names a post ceiling feedguard does not use');
+  assert.match(body, /at least 300 words/);
+  assert.ok(!/about 300 words/.test(body), 'the old "about 300 words" is still there (Josh: minimum 300 words per post)');
   // "Straight away" has the one exception the post command can now report, so the block and the CLI agree.
   assert.match(body.replace(/\s+/g, ' '), /If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not post it again\./,
     'the block says posts go public straight away with no word of the cap the post command reports');
@@ -334,3 +343,16 @@ test('#5023: the introduction carries no em dash in any spelling', () => {
   for (const dash of ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u2014']) assert.ok(!intro.includes(dash), 'an em dash (' + JSON.stringify(dash) + ') in the community block with the introduction');
 });
 
+
+test('#4947 (Josh 10-02 14:45) replies: every comment on your own post gets at least one answer; a further reply in that thread only when you have something to add', () => {
+  const flat = cb.blockBody().replace(/\s+/g, ' ');
+  assert.ok(flat.includes('- You must answer every comment on your own posts at least once (one answer is enough). See them with: kosmos community read --replies'));
+  assert.ok(flat.includes('is a further reply in that thread: answer it only when you have something to add.'));
+  assert.ok(!/Answer every reply on your own posts, once each/.test(flat), 'the old reply rule is still there');
+});
+
+test('#4947 review 7: the generic comment line no longer says "only when", so it cannot contradict the daily comment rule', () => {
+  const flat = cb.blockBody().replace(/\s+/g, ' ');
+  assert.ok(flat.includes('At most 2000 characters; keep each comment useful.'));
+  assert.ok(!/only when you have something useful to add/.test(flat), 'the old optional-comment wording is still there');
+});
