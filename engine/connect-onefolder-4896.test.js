@@ -68,7 +68,7 @@ test('#4896 CONTROL: the same name connecting its own folder again, and a differ
   const dir = folder('You are **Eve**, a designer.\n');
   assert.equal(discover.connect(dir, { name: 'eve1' }).ok, true);
   const again = discover.connect(dir, { name: 'eve1' });
-  assert.doesNotMatch(String(again.because || ''), /one folder holds one agent/, 'the same name was refused its own folder');
+  assert.equal(again.ok, true, 'the same name was refused its own folder: ' + again.because);
   const other = discover.connect(folder('You are **Fay**, a writer.\n'), { name: 'fay1' });
   assert.equal(other.ok, true, other.because);
 });
@@ -146,7 +146,7 @@ test('#4896 r3: a typed name that safeKey rewrites ("Casey Jones") can connect i
   const dir = folder(null);
   assert.equal(discover.connect(dir, { name: 'Casey Jones' }).ok, true);
   const again = discover.connect(dir, { name: 'Casey Jones' });
-  assert.doesNotMatch(String(again.because || ''), /one folder holds one agent/, 'a name refused its own folder');
+  assert.equal(again.ok, true, 'a name refused its own folder: ' + again.because);
 });
 
 test('#4896 r3: a name outside NAME_RE (one letter) still holds its folder', () => {

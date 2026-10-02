@@ -95,3 +95,6 @@ This is the first reading of the old "weakest premise", but the folder is SHARED
 - NIT (alreadyIn returned before the check when the basename is not a usable name): the any-name check now runs first.
 - Tests: 5 new arms, each asserting the one-folder REASON (not just ok:false, so no arm passes via another refusal);
   all 5 red on the previous commit, green now. connect-agent, remove.test.js, member-roles green alongside (106/106).
+- NIT taken: the two "same name again" controls now require ok:true, not merely "not this refusal".
+- Out of scope, stated (reasoned, not measured): profiles are per world, so a DIFFERENT world could connect the same
+  folder. Worlds are separate boards; its own card if it is ever seen.
