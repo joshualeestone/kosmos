@@ -26,6 +26,6 @@ pills).
   render-dm-chatfirst-718, render-settings-nav also pass on this branch.
 
 ## Weakest premise
-That nobody needs the pills to stay on screen halfway down a long AI Settings page. Scrolling up
-reaches them; if that proves annoying, the next step is a sticky nav with the Files card moved out of
+That nobody needs the pills to stay on screen halfway down a long AI Settings page. That includes a
+pill's needs-you dot (`.snav .dot`), which now scrolls away with it. Scrolling up reaches them; if that proves annoying, the next step is a sticky nav with the Files card moved out of
 its column, not a sticky nav over it.

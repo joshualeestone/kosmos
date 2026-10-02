@@ -9,7 +9,9 @@
  *
  * Boots a sandboxed board with one agent that has saved files (so the Files card shows). On chromium
  * and webkit: on AI Settings, scrolls the page to several offsets, and in the Talk view scrolls the
- * left column's own scroll box; at every offset the nav and the Files card must not overlap.
+ * left column's own scroll box; at every offset the nav and the Files card must not overlap. The
+ * Talk offsets did not overlap on main either: they guard against a regression there, and only the
+ * AI Settings offsets tell the old page from the new.
  * Controls: the Files card is showing, and each scroll actually moved the card (so an unscrolled page
  * cannot pass by never testing the overlap).
  *
