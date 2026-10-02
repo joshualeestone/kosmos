@@ -33,11 +33,12 @@ export KOSMOS_CUT_PROBE="$T/quiet" KOSMOS_HARNESS_PROBE="$T/quiet" KOSMOS_BC_PRO
 M="$KOSMOS_RUN_MARKER_DIR"
 NOW="$(date +%s)"
 # claim <age s> <label>: a heavy holder ($HOLDER, live) holding the machine claim for <age> seconds.
-claim() { printf '%s-%s-1 %s %s host release %s\n' "$HOLDER" "$((NOW - $1))" "$HOLDER" "$((NOW + 1800))" "$2" > "$M/machine-claim"; }
+# claim: a label beginning "queued run" is written as it is (this wrapper's turns); anything else as the lib's "release <x>".
+claim() { case "$2" in "queued run"*) l="$2" ;; *) l="release $2" ;; esac; printf '%s-%s-1 %s %s host %s\n' "$HOLDER" "$((NOW - $1))" "$HOLDER" "$((NOW + 1800))" "$l" > "$M/machine-claim"; }
 # side: run the side check as a light run that holds a queue place; prints stderr, returns its rc.
 side() { ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_suite_waiting "$((NOW - 10))"; kosmos_light_side_clear "this light run" ) 2>&1; }
 
-claim 300 "(not a cut) queued one-off: a full suite"
+claim 300 "queued run (not a cut): a full suite"
 out="$(side)"; rc=$?
 [ "$rc" -eq 0 ] && pass "a light run takes a side turn beside a heavy holder on a half-idle box" \
   || fail "the side turn was refused on the clear case (rc=$rc, $out)"
@@ -58,14 +59,19 @@ out="$( ( export KOSMOS_QUEUE_CLASS=light; kosmos_unmark_suite_waiting; kosmos_l
 claim 300 "0.9.99"
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "held by a cut"; } && pass "never beside a cut's claim" || fail "a side turn beside a cut (rc=$rc, $out)"
-claim 300 "(not a cut) queued one-off [light]: one check"
+claim 300 "queued run (not a cut) [light]: one check"
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "never two light runs"; } && pass "never beside a light main turn" || fail "two light runs at once (rc=$rc, $out)"
-claim 30 "(not a cut) queued one-off: a build"
+# Round 17 (Sonnet): an older queued-heavy.sh labels every turn "release (not a cut) queued one-off", light ones too,
+# so its class cannot be read: no side turn beside it (it may be a light run).
+claim 300 "(not a cut) queued one-off: an older wrapper's run"
+out="$(side)"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "class cannot be read"; } && pass "never beside an older wrapper's turn, whose class cannot be read" || fail "a side turn beside an older wrapper's turn (rc=$rc, $out)"
+claim 30 "queued run (not a cut): a build"
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "its load is not readable yet"; } && pass "not until the heavy run has held the box long enough for the load to show it" \
   || fail "a side turn beside a heavy run 30 s old (rc=$rc, $out)"
-printf 'nonsense %s %s host release (not a cut) queued one-off: x\n' "$HOLDER" "$((NOW + 1800))" > "$M/machine-claim"
+printf 'nonsense %s %s host queued run (not a cut): x\n' "$HOLDER" "$((NOW + 1800))" > "$M/machine-claim"
 out="$(side)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "its load is not readable yet"; } && pass "a holder whose start cannot be read counts as just started" \
   || fail "an unreadable claim start passed, or refused for another reason (rc=$rc, $out)"
@@ -78,7 +84,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_PROBE="$T/l
 { [ "$rc" -eq 1 ] && has "$out" "no queued heavy run holds the box"; } && pass "a bare suite with no claim is not a holder a side turn may join (its age is unreadable)" \
   || fail "a side turn beside an unclaimed suite (rc=$rc, $out)"
 
-claim 300 "(not a cut) queued one-off: a full suite"
+claim 300 "queued run (not a cut): a full suite"
 # Each arm asserts its OWN reason: a refusal for another reason (this shell's own light marker reading as an earlier
 # light waiter did, in the first draft) would pass every arm with the check under test deleted.
 kosmos_unmark_suite_waiting
@@ -159,7 +165,7 @@ KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this run" --suite-queue --side side
 
 # Review 3: a queued-heavy.sh from before #4911 waiting (its marker names queued-heavy and has no side/aware line)
 # holds every side turn off; one that is side-aware does not.
-claim 300 "(not a cut) queued one-off: a full suite"
+claim 300 "queued run (not a cut): a full suite"
 # A live stand-in whose command names queued-heavy.sh (a marker whose command is not its process's is stale and removed).
 printf '#!/bin/bash\ntrap '"'"'kill $c; exit 0'"'"' TERM\nsleep 600 & c=$!\nwait $c\n' > "$T/queued-heavy.sh"; chmod +x "$T/queued-heavy.sh"
 "$T/queued-heavy.sh" </dev/null >/dev/null 2>&1 & QH=$!
@@ -179,7 +185,7 @@ kill "$QH" 2>/dev/null; wait "$QH" 2>/dev/null; rm -f "$M/suitewait.$QH"; kosmos
 
 # kosmos_light_side_take: the take a caller makes under its lock. A win claims and drops the queue marker; a loss
 # (another side turn is live) keeps both as they were. kosmos_holds_light_side says the winner holds it.
-claim 300 "(not a cut) queued one-off: a full suite"
+claim 300 "queued run (not a cut): a full suite"
 out="$( ( export KOSMOS_QUEUE_CLASS=light KOSMOS_SIDE_CAPABLE=1; kosmos_mark_suite_waiting "$((NOW - 10))"
   kosmos_light_side_take "a light run" 5 || exit 9; [ -e "$M/suitewait.$$" ] && exit 8; kosmos_holds_light_side || exit 7
   [ "${KOSMOS_SIDE_HOLDER_COOKIE:-}" = "$(awk '{print $1}' "$M/machine-claim")" ] || exit 5   # round 17: the holder recorded
@@ -198,7 +204,7 @@ out="$(iq "$HC")"; rc=$?
   || fail "intruder check: a side turn kept running beside a new main turn (rc=$rc, $out)"
 out="$(iq "")"; rc=$?
 [ "$rc" -eq 1 ] && pass "CONTROL: intruder check: the same box with no recorded holder -> stay (the yield above is the cookie's)" || fail "CONTROL: something else yielded (rc=$rc, $out)"
-claim 300 "(not a cut) queued one-off: a full suite"
+claim 300 "queued run (not a cut): a full suite"
 # Review 3: the take claims FIRST and then asks again, so a cut that marked itself in the gap is seen (here the cut
 # probe reads live only once the side claim exists). The claim is released and the marker kept.
 probe cut-after-claim "[ -e '$M/light-side-claim' ] && printf '$OTHER bash tools/release.sh 0.9.99\\n' || exit 1"

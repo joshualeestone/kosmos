@@ -1286,6 +1286,11 @@ kosmos_light_side_clear() {
     cookie="$(printf '%s' "$active" | awk '{print $1}')"
     label="$(printf '%s' "$active" | awk '{$1=$2=$3=$4=""; sub(/^ +/,""); print}')"
     case "$label" in *"(not a cut)"*) ;; *) echo "the box is held by a cut ($label); no side turn beside a cut." >&2; return 1 ;; esac
+    # Round 17 (Sonnet): only a holder from THIS wrapper generation, whose label says its class. An older queued-heavy.sh
+    # labels every turn "release (not a cut) queued one-off", light ones included, so its light turn read as a heavy
+    # holder and a side turn joined it: two light runs at once. Unknown class, no side turn (the cost is none beside an
+    # older wrapper during the rollout).
+    case "$label" in "queued run (not a cut)"*) ;; *) echo "the box is held by a run whose class cannot be read ($label); no side turn beside it." >&2; return 1 ;; esac
     case "$label" in *"[light]"*) echo "the box is held by a light run ($label); never two light runs at once." >&2; return 1 ;; esac
     minhold="${KOSMOS_SIDE_MIN_HOLD_S:-90}"; case "$minhold" in ''|*[!0-9]*) minhold=90 ;; esac
     born="$(printf '%s' "$cookie" | awk -F- '{print $2}')"
