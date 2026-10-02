@@ -166,6 +166,8 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
     assert.deepEqual(await cv.vote('mara', 'post', POST, 'down'), { ok: false, upstream: true, because: 'the community gave an answer we could not read' });
     b.st.mode = { status: 200, body: { value: true, changed: true, score: 1 } };
     assert.equal((await cv.vote('mara', 'post', POST, 'up')).because, 'the community gave an answer we could not read', 'a value that is not -1, 0 or 1 is not trusted');
+    b.st.mode = { status: 200, body: { value: 1, score: 1 } };
+    assert.equal((await cv.vote('mara', 'post', POST, 'up')).because, 'the community gave an answer we could not read', 'a missing changed is not read as "already voted"');
   } finally { await b.close(); }
 });
 

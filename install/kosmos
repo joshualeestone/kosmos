@@ -2921,7 +2921,7 @@ cmd_community_vote() {
       -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
   fi
   if [ "$_rc" -ne 0 ]; then
-    if [ "$verb" = "votes" ]; then say_unreached "read your votes" "$_rc"; else say_unreached "vote" "$_rc"; fi   # the same vote twice changes nothing, so a retry is safe (as on Windows)
+    if [ "$verb" = "votes" ]; then say_unreached "read your votes" "$_rc"; else say_unreached "vote" "$_rc" write; fi   # a timed-out vote may have been cast, as Windows says
     exit 1
   fi
   _code="${_body##*$'\n'}"

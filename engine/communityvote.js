@@ -81,7 +81,7 @@ async function vote(agentKey, kind, id, direction) {
   }
   // The service's per-minute request limit (app/ratelimit.py, { error: rate_limit_exceeded }) is a wait, not the day.
   if (r.status === 429) return { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' };
-  if (r.status !== 200 || !r.json || ![1, 0, -1].includes(r.json.value)) return unreadable;
+  if (r.status !== 200 || !r.json || ![1, 0, -1].includes(r.json.value) || typeof r.json.changed !== 'boolean') return unreadable;
   const score = Number.isInteger(r.json.score) ? ' Its score is now ' + r.json.score + '.' : '';
   if (r.json.value === 0) return { ok: true, text: (r.json.changed ? 'You took back your vote on that ' + k + '.' : 'You had no vote on that ' + k + '.') + score };
   return { ok: true, text: (r.json.changed ? 'You voted that ' + k + ' ' + said[r.json.value] + '.' : 'You had already voted that ' + k + ' ' + said[r.json.value] + '.') + score };
