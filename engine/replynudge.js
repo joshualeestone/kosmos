@@ -135,7 +135,8 @@ async function sweepOnce(o) {
     const clock = () => (typeof o.clock === 'function' ? o.clock() : Date.now());
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
     const prune = () => { const t = clock(); for (let i = sent.length - 1; i >= 0; i -= 1) if (t - sent[i] >= HOUR_MS) sent.splice(i, 1); };
-    const cap = o.limit && o.limit.on === true && Number.isInteger(o.limit.perHour) ? o.limit.perHour : Infinity;
+    const capOf = (l) => (l && l.on === true && Number.isInteger(l.perHour) ? l.perHour : Infinity);
+    let cap = capOf(o.limit);
     const nudgeable = require('./agentnudge').nudgeableCard;
     const gap = Number.isFinite(o.betweenAgentsMs) ? o.betweenAgentsMs : 1000;
     /* Review 1 (Opus): READ FIRST, TYPE AFTER. Every agent's count is read (paced, the read lock held only while
@@ -148,15 +149,29 @@ async function sweepOnce(o) {
       const session = card && card.sessionName;
       if (!session || !nudgeable(card)) continue;   // nothing is read for an agent that would not be nudged
       if (stoodDown(session, o.projects)) continue;
+      /* Review 4 (Opus): an agent held on its machine's shared Google quota is not read and takes no cap slot: delivery
+         would hold it (no try counted), so it would fill a slot every pass until the reset and starve later agents. */
+      if (typeof o.quotaHeld === 'function') {
+        let q = false; try { q = o.quotaHeld(session) === true; } catch { q = false; }
+        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out' }); continue; }
+      }
       if (sent.length + counted.length >= cap) break;   // review 1: the hour's cap is met: read no further this pass
       try {
+        // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
+        /* Review 4 (Opus): the told record is read BEFORE the service is asked, so an agent whose record cannot be read
+           costs no requests, and the skip is said once (not every pass) so the reason is on record. */
+        const told = o.readNudged(session);
+        if (!(told instanceof Set)) {
+          const because = 'its told record could not be read';
+          results.push({ session, name: plainWords(card.name || session, 80), act: 'skipped', because });
+          const m = book.get(session) || {};
+          if (!m.skipSaid) { say({ name: plainWords(card.name || session, 80), session, act: 'skipped', because }); book.set(session, { ...m, skipSaid: true }); }
+          continue;
+        }
         if (readOne && gap > 0) await new Promise((res) => setTimeout(res, gap));
         readOne = true;
         const fresh = await o.fresh(session);
         if (fresh && fresh.busy) { results.push({ session, name: plainWords(card.name || session, 80), act: 'busy', because: fresh.because }); continue; }
-        // Review 2: only replies it has NOT been told about count (and take a cap slot); told-but-unread ones wait for its read.
-        const told = o.readNudged(session);
-        if (!(told instanceof Set)) { results.push({ session, name: plainWords(card.name || session, 80), act: 'skipped', because: 'its told record could not be read' }); continue; }
         const memo = book.get(session);
         if (memo && memo.told instanceof Set) for (const id of memo.told) told.add(id);
         const untold = fresh && fresh.ok === true && Array.isArray(fresh.posts) ? fresh.posts.flatMap((p) => (p.ids || []).filter((id) => !told.has(id))) : [];
@@ -178,6 +193,8 @@ async function sweepOnce(o) {
         /* Review 3 (Opus): the gates are asked again before EVERY line (a person can switch the community or the
            Prompter off while this pass types), like the card below. */
         if (typeof o.gatesOpen === 'function') { let open = false; try { open = o.gatesOpen() === true; } catch { open = false; } if (!open) break; }
+        // Review 4 (Opus): the hour's limit too, so a person who turns it on mid-pass is obeyed from the next line.
+        if (typeof o.limitNow === 'function') { try { const l = o.limitNow(); if (l && typeof l === 'object') cap = capOf(l); } catch { /* keep the cap this pass began with */ } }
         let roster = o.roster;
         let projects = o.projects;
         if (typeof o.rosterNow === 'function') { let r = null; try { r = o.rosterNow(); } catch { r = null; } if (!Array.isArray(r)) continue; roster = r; }
@@ -259,7 +276,7 @@ async function tick(o) {
       let s = false; try { s = o.switchOn() === true; } catch { s = false; }
       return require('./agentnudge').nudgeEnabled(a, o.env) && p && s;
     };
-    return (await sweepOnce({ ...o, roster, projects, limit, rosterNow: o.roster, projectsNow: o.readProjects, gatesOpen })).results;
+    return (await sweepOnce({ ...o, roster, projects, limit, rosterNow: o.roster, projectsNow: o.readProjects, limitNow: o.readLimit, gatesOpen })).results;
   } catch { return null; }
 }
 

@@ -279,3 +279,39 @@ test('#4951 review 3 (Opus): the defaults the timing relies on: a waiting read g
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /prompterOn: \(\) => heartbeatSetting\.read\(\)\.on === true/, 'server.js does not pass the Prompter gate');
 });
+
+test('#4951 review 4 (Opus): an agent held on its Google quota is not read and takes no cap slot; a later agent is told', async () => {
+  const typed = [];
+  const read = [];
+  const { o } = rig({ roster: [card('kim'), card('ann'), card('bo')], limit: { on: true, perHour: 1 },
+    fresh: async (s) => { read.push(s); return { ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }; },
+    deliver: (s) => { typed.push(s); return { state: D.COULD_NOT, held: true }; } });
+  o.quotaHeld = (s) => s !== 'bo';
+  o.deliver = (s) => { typed.push(s); return { state: D.PLACED }; };
+  const r = await rn.sweepOnce(o);
+  assert.deepEqual(read, ['bo'], 'a quota-held agent was read');
+  assert.deepEqual(typed, ['bo'], 'quota-held agents held the only cap slot');
+  assert.deepEqual(r.results.filter((x) => x.act === 'quota-held').map((x) => x.session), ['kim', 'ann']);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /quotaHeld: \(session\) => require\('\.\/engine\/agyquota'\)\.heldForQuota\(/, 'server.js does not pass the quota gate');
+});
+
+test('#4951 review 4 (Opus): an unreadable told record costs no service read, and the skip is said once, not every pass', async () => {
+  const read = [];
+  const said = [];
+  const { o } = rig({ readNudged: () => null, fresh: async (s) => { read.push(s); return { ok: true, posts: [] }; }, log: (x) => said.push(x.act) });
+  await rn.sweepOnce(o);
+  await rn.sweepOnce(o);
+  assert.deepEqual(read, [], 'the service was asked for an agent that is always skipped');
+  assert.deepEqual(said, ['skipped'], 'the skip was not said exactly once across two passes');
+});
+
+test('#4951 review 4 (Opus): the hour\'s limit is re-read before each line; turned on mid-pass, it holds the next line', async () => {
+  const typed = [];
+  let limit = { on: false };
+  const { o } = rig({ roster: [card('kim'), card('ann')], fresh: async (s) => ({ ok: true, posts: [{ remoteId: P1, title: 't', ids: ['r-' + s] }] }),
+    deliver: (s) => { typed.push(s); limit = { on: true, perHour: 1 }; return { state: D.PLACED }; } });
+  o.limitNow = () => limit;
+  await rn.sweepOnce(o);
+  assert.deepEqual(typed, ['kim'], 'a limit turned on mid-pass was not obeyed');
+});

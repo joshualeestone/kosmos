@@ -1011,7 +1011,8 @@ test('#4951 review 2: the count steps aside between posts while an agent\'s own 
   const own = cr.readReplies('Nia4951', { now: NOW });
   await new Promise((res) => setTimeout(res, 120));
   release();
-  await counting;
+  const c = await counting;
+  assert.equal(c.busy, true, 'a count cut short must read as busy, never a partial answer (review 4)');
   const r = await own;
   assert.equal(r.ok, true, r.because);
   assert.ok(Date.now() - t0 < 5000, 'the agent\'s own read waited too long');

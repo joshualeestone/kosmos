@@ -407,7 +407,9 @@ async function freshReplies(sessionName, opts = {}) {
     const titles = postTitles(sessionName);
     const out = [];
     for (const p of posts) {
-      if (asked && replyReadWaiting > 0) break;   // review 2: an agent's own read is waiting: let it in (the rest next pass)
+      /* Review 2: an agent's own read is waiting: let it in. Review 4 (Opus): as BUSY, not a partial ok, or the agent is
+         told about some posts now and the rest in a second line, and a batch given up on comes back under a new key. */
+      if (asked && replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
       if (asked++ && pace > 0) await new Promise((res) => setTimeout(res, pace));
       const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
       const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;

@@ -19608,6 +19608,7 @@ function start(port = PORT) {
           readNudged: (session) => replynudge.readNudged(store.ROOT, session),
           writeNudged: (session, set) => replynudge.writeNudged(store.ROOT, session, set),
           book: REPLY_NUDGE_BOOK, sent: AGENT_NUDGE_SENT,
+          quotaHeld: (session) => require('./engine/agyquota').heldForQuota(session, safeRoster(), Date.now()) !== null,
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`reply-nudge: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''} - ${r.because}\n`),
