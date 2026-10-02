@@ -36,6 +36,8 @@
  *    labels; with the look off, today's (the control),
  *  - the controls in the new look (CTRL_LOOK): a plain button a pill in the page's ground with no edge, the main one a
  *    pill keeping its fill, a danger one keeping its edge; with the look off, today's (the control),
+ *  - the phone slice (PHONE_LOOK): an agent message's avatar at the top, New task a pill, and on a phone the project's
+ *    gear on the crumb's line inside the page; with the look off, today's foot-aligned avatar and New task (the control),
  *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
  *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
  *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
@@ -244,6 +246,20 @@ const CTRL_LOOK = `(() => {
         const o = document.activeElement === plain ? getComputedStyle(plain).outlineStyle : 'not focused';
         plain.blur(); if (was && was.focus) was.focus(); if (sec) sec.hidden = secHidden; return o; })() };
   } finally { made.remove(); pd.hidden = h1; ps.hidden = h2; }
+})()`;
+/* #4470, the phone slice: whether the gear shares the crumb's line (only while the project page is shown), an agent
+   message's avatar alignment (a row made in the room's thread and removed), and New task's corners. */
+const PHONE_LOOK = `(() => {
+  const cog = document.getElementById('pj-settings-link'), crumb = document.querySelector('#pj-one-view .pj-crumbrow');
+  const shown = !!cog && !!crumb && cog.getClientRects().length > 0 && crumb.getClientRects().length > 0;
+  const cb = shown ? cog.getBoundingClientRect() : null, rb = shown ? crumb.getBoundingClientRect() : null;
+  const room = document.getElementById('pj-room'), nt = document.getElementById('tsk-new');
+  if (!room || !nt) return { found: false };
+  const m = document.createElement('div'); m.className = 'msg'; m.innerHTML = '<div class="msg-av">A</div><div class="msg-b"><div class="msg-bd">x</div></div>'; room.appendChild(m);
+  try {
+    return { found: true, cogOnCrumbLine: shown ? (cb.top < rb.bottom && cb.bottom > rb.top) : 'hidden', cogRight: shown ? Math.round(cb.right) : null,
+      vw: innerWidth, agentAlign: getComputedStyle(m).alignItems, newTaskRadius: getComputedStyle(nt).borderTopLeftRadius };
+  } finally { m.remove(); }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
@@ -585,6 +601,11 @@ const AGENTS_LOOK = `(() => {
       const partOf = await page.evaluate(PART_OF);
       chk(partOf.found && partOf.above, `${tag} On: a subtask's "Part of" line sits above its title, as it reads`, JSON.stringify(partOf));
       const hdOn = await page.evaluate(HEAD_PLACE);
+      const phOn = await page.evaluate(PHONE_LOOK);
+      chk(phOn.found && phOn.agentAlign === 'flex-start' && phOn.newTaskRadius === '999px',
+        `${tag} On: an agent's message has its avatar at the top, beside the name, and New task is a pill`, JSON.stringify(phOn));
+      if (width <= 640) chk(phOn.found && phOn.cogOnCrumbLine === true && phOn.cogRight <= phOn.vw,
+        `${tag} On, a phone: the project's gear sits on the crumb's line, inside the page`, JSON.stringify(phOn));
       chk(hdOn.inMid && hdOn.first && hdOn.rootShown && hdOn.nameInDom && !hdOn.nameShown, `${tag} On: back and "Projects / name" head the conversation; the h2 stays for screen readers, visually hidden`, JSON.stringify(hdOn));
       chk(!(await page.evaluate(`document.documentElement.scrollWidth > window.innerWidth`)), `${tag} On: the project page has no sideways scroll`);
       /* Turning it off LIVE, on the open project page (no reload): lookToggleClick must move both back. */
@@ -798,6 +819,9 @@ const AGENTS_LOOK = `(() => {
       const ctlOff = await page.evaluate(CTRL_LOOK);
       chk(ctlOff.found && ctlBefore.found && JSON.stringify(ctlOff) === JSON.stringify(ctlBefore) && ctlOff.plainEdge !== 'rgba(0, 0, 0, 0)' && ctlOff.plainRadius !== '999px',
         `${tag} Off, the controls: exactly today's gold-edged buttons, as before the switch was touched (the control)`, JSON.stringify({ off: ctlOff, before: ctlBefore }));
+      const phOff = await page.evaluate(PHONE_LOOK);
+      chk(phOff.found && phOff.agentAlign === 'flex-end' && phOff.newTaskRadius !== '999px',
+        `${tag} Off: an agent's message keeps its avatar at the bubble's foot and New task its corners (the control)`, JSON.stringify(phOff));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));
