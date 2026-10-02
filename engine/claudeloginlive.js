@@ -90,13 +90,19 @@ function loginGood({ badge, checkLiveState, latestOutcome, until, checkRefused =
    disabled organisation) records no outcome, so with ruling A the row would stay green on its login date while the
    person reads "Could not check". Marked here, by folder, until a later Check now answers connected or rejected, so
    the row falls back to the unverified state. In memory, like engine/observed: a board restart forgets it. */
-const refusedChecks = new Set();
-function noteCheck(dir, { state, refused } = {}) {
+const refusedChecks = new Map();   // folder -> when the failed check answered (epoch ms)
+function noteCheck(dir, { state, refused } = {}, now = Date.now()) {
   if (!dir) return;
   if (state === 'connected' || state === 'none') refusedChecks.delete(dir);
-  else if (refused) refusedChecks.add(dir);
+  else if (refused) refusedChecks.set(dir, now);
 }
-function checkRefused(dir) { return !!dir && refusedChecks.has(dir); }
+/* Review 3: a real outcome seen AFTER the failed check (an agent's request, or a later check) outranks it, so a
+   working account is not held amber once that outcome ages out. `newerOutcomeAt` is the time of the newest outcome
+   the row holds. */
+function checkRefused(dir, newerOutcomeAt = null) {
+  if (!dir || !refusedChecks.has(dir)) return false;
+  return !(Number.isFinite(newerOutcomeAt) && newerOutcomeAt > refusedChecks.get(dir));
+}
 /* Whether that good login also turns the row green: only with the switch on. */
 function greenFromLogin(args) { return GREEN_FROM_LOGIN && loginGood(args); }
 

@@ -171,6 +171,8 @@ test('#3997 review 1: a failed Check now (non-zero, not capacity, not a dead sig
     await checkNow(ARIA_DIR);
     const m = await rows();
     assert.equal(m.get('aria@example.com').badge, 'working', 'a good check after a refusal did not turn the row green');
+    // Review 3: the green above would show from the fresh check alone; the mark itself must be gone too.
+    assert.equal(claudeloginlive.checkRefused(ARIA_DIR), false, 'a connected Check now did not clear the failed-check mark');
   } finally { create.setClaudeProbe(null); }
 });
 test('#3997 review 1 control: capacity is not a failure, and keeps the login-green', async () => {

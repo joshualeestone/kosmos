@@ -94,3 +94,13 @@ test('#3997 review 1: a refused Check now blocks the login-green for that folder
   m.noteCheck('', { state: 'unknown', refused: true });
   assert.equal(m.checkRefused(''), false, 'an empty folder is never marked');
 });
+
+test('#3997 review 3: a real outcome seen after the failed check outranks it (a working account is not held amber)', () => {
+  m._clearForTest();
+  m.noteCheck('/a', { state: 'unknown', refused: true }, 1000);
+  assert.equal(m.checkRefused('/a'), true, 'no outcome at all: the failed check stands');
+  assert.equal(m.checkRefused('/a', 900), true, 'an outcome from BEFORE the failed check does not lift it');
+  assert.equal(m.checkRefused('/a', 1000), true, 'the same moment does not lift it');
+  assert.equal(m.checkRefused('/a', 1001), false, 'an outcome AFTER the failed check lifts it');
+  assert.equal(m.checkRefused('/a', null), true);
+});
