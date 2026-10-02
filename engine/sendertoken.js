@@ -264,7 +264,8 @@ function endedLogFile() { return path.join(store.ROOT, 'ended-agents.jsonl'); }
 function noteEnded(sessionName) {
   try {
     fs.mkdirSync(path.dirname(endedLogFile()), { recursive: true });
-    fs.appendFileSync(endedLogFile(), JSON.stringify({ name: String(sessionName), at: new Date().toISOString() }) + '\n', 'utf8');
+    // A leading newline too, so a line torn by an earlier failed write ends there and does not swallow this one.
+    fs.appendFileSync(endedLogFile(), '\n' + JSON.stringify({ name: String(sessionName), at: new Date().toISOString() }) + '\n', 'utf8');
     return true;
   } catch (e) {
     console.error('#4475: could not add ' + sessionName + ' to the history of ended agents (' + ((e && e.message) || 'threw') + ')');
@@ -273,7 +274,8 @@ function noteEnded(sessionName) {
 }
 /* Did an agent whose name matches any of `names` (by slug, both sides) end AFTER `sinceIso` (or at it, when
    `inclusive`)? true, false, or null when the history cannot be read (a missing file is none). Loose on purpose: a
-   caller uses true to REFUSE, so matching more names only refuses more. Lines that do not parse are skipped. */
+   caller uses true to REFUSE, so matching more names only refuses more. A line that does not parse, or has no name,
+   may be an end that could not be written whole, so it is read as an end for every name. Blank lines are skipped. */
 const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 function endedSince(names, sinceIso, opts = {}) {
   if (typeof sinceIso !== 'string' || !ISO_MS.test(sinceIso)) return null;   // a time we cannot order against refuses
@@ -286,8 +288,8 @@ function endedSince(names, sinceIso, opts = {}) {
   try { raw = fs.readFileSync(endedLogFile(), 'utf8'); } catch (e) { return (e && e.code === 'ENOENT') ? false : null; }
   for (const line of raw.split('\n')) {
     if (!line) continue;
-    let r; try { r = JSON.parse(line); } catch { continue; }
-    if (!r || typeof r.name !== 'string') continue;
+    let r; try { r = JSON.parse(line); } catch { return true; }
+    if (!r || typeof r.name !== 'string') return true;
     if (!want.has(slug(r.name))) continue;
     // Times compare as strings only in toISOString's one fixed form; a line in any other form is read as an end.
     if (typeof r.at !== 'string' || !ISO_MS.test(r.at)) return true;

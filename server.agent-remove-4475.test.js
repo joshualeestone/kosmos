@@ -357,6 +357,19 @@ test('planning and restoring a removal still need the board token', async () => 
   }
 });
 
+test('a torn history line (an end not written whole) is read as an end, and the next end still lands on its own line', async () => {
+  born('Torn Kid', 'pm-agent');
+  assert.ok(reachedEngine(await remove('torn-kid', asAgent())), 'CONTROL: it passed before the torn line');
+  fs.mkdirSync(path.dirname(sendertoken.endedLogFile()), { recursive: true });
+  fs.appendFileSync(sendertoken.endedLogFile(), '{"name":"torn-k');   // a write cut off, with no newline after it
+  assert.equal((await remove('torn-kid', asAgent())).code, 403, 'a torn line was skipped, so an end it may have held was lost');
+  sendertoken.revoke('next-after-torn');
+  const lines = fs.readFileSync(sendertoken.endedLogFile(), 'utf8').split('\n');
+  assert.ok(lines.some((l) => { try { return JSON.parse(l).name === 'next-after-torn'; } catch { return false; } }), 'the end written after a torn line was swallowed into it');
+  // Leave the shared history whole again for the cases after this one (a torn line refuses every name).
+  fs.writeFileSync(sendertoken.endedLogFile(), lines.filter((l) => { if (!l) return false; try { JSON.parse(l); return true; } catch { return false; } }).join('\n') + '\n');
+});
+
 test('a history that cannot be read refuses (last: it replaces the history file with a folder)', async () => {
   born('Unread Kid', 'pm-agent');
   assert.ok(reachedEngine(await remove('unread-kid', asAgent())), 'CONTROL: it passed while the history was readable');
