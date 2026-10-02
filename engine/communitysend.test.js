@@ -74,6 +74,8 @@ function backend() {
         if (!CHANNELS.has(body.channel)) return send(400, { detail: 'unknown channel' });
         // kosmos#5062: as the real service: a sub-channel must exist under the channel (its migration 0011 adds
         // engineering/kosmos-bugs; `noBugs` plays a site deployed before it).
+        // #5062 review 1: what the board had saved for this post when the fallback resend reached the site.
+        if (st.mode.peekOnGeneral && body.channel === 'general') st.peek = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'));
         if (body.sub_channel != null && (st.mode.noBugs || SUB_CHANNELS[body.sub_channel] !== body.channel)) {
           return send(400, { detail: 'unknown sub_channel for this channel' });
         }
@@ -411,9 +413,16 @@ test('#5062: a Kosmos bug report is sent to engineering/kosmos-bugs; a site with
   assert.deepEqual([cs.payload({ body: 'x', topic: 't' }).channel, cs.payload({ body: 'x', topic: 't' }).sub_channel], ['general', null]);
   // A site that does not know the channel yet: one refusal, then general, then sent.
   be.st.mode.noBugs = true;
+  be.st.mode.peekOnGeneral = true;
   const before = posts().length;
   const r2 = report();
   await cs.sweep();
+  /* Review 1: the resend's mark is saved BEFORE it goes, naming general, so a board that stops while it is out looks for
+     the post where it was sent and never posts a second copy. */
+  assert.ok(be.st.peek && be.st.peek[r2.id], 'nothing was saved for the post before the fallback resend');
+  assert.deepEqual([be.st.peek[r2.id].channel, be.st.peek[r2.id].attempted], ['general', true],
+    'the fallback resend went out with its old mark: ' + JSON.stringify(be.st.peek[r2.id]));
+  be.st.mode.peekOnGeneral = false;
   const tries = posts().slice(before).map((p) => [p.body.channel, p.body.sub_channel]);
   assert.deepEqual(tries, [['engineering', 'kosmos-bugs'], ['general', null]], 'the fallback did not resend to general: ' + JSON.stringify(tries));
   assert.equal(cs.statuses()[r2.id].state, 'sent');
