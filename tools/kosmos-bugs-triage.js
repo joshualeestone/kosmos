@@ -88,8 +88,14 @@ function scrub(text, names) {
   t = t.replace(/(?<![\p{L}\p{N}])~[\p{L}_][\p{L}\p{N}_.-]*/gu, '~[user]');   // ~jsmith/notes, (~jsmith), "~jsmith/x" (review 6)
   /* Review 10: a private key block goes whole, and a value after a secret-ish label goes whatever its shape (an AWS secret
      key has "/" in it, which split it into short runs the long-run rule below never reaches). The label stays. */
-  t = t.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, '[secret-removed]');
-  t = t.replace(/\b((?:aws_)?(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)\w*["']?\s*[:=]\s*["']?|Bearer\s+)[^\s"',;]{8,}/gi, '$1[secret-removed]');
+  /* Review 11: a header with no END stops at the next blank line, not the end of the post. */
+  t = t.replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|\n[ \t]*\n|$)/g, (m) => '[secret-removed]' + (/\n[ \t]*\n$/.test(m) ? '\n\n' : ''));
+  /* Review 11: env-var and compound labels (OPENAI_API_KEY=, refresh_token=, DB_PASS=), "api key:", Basic auth, short and
+     quoted values. Kept: plain words a bug report uses ("token: undefined", "secret: required") and an all-digit value
+     after a token label (a token COUNT is bug detail in this product; a numeric password still goes). */
+  t = t.replace(/(?<![\p{L}\p{N}])((?:[A-Za-z0-9]+[_-])*(?:secret|token|password|passwd|pass|pwd|api[ _-]?key|access[_-]?key|private[_-]?key|credentials?)[A-Za-z0-9_]*["']?[ \t]*[:=][ \t]*|(?:Bearer|Basic)[ \t]+)("[^"\n]*"|'[^'\n]*'|[^\s"',;]{4,})/giu,
+    (m, label, v) => (/^(?:undefined|null|none|true|false|required|missing|empty|expired|invalid|n\/a)$/i.test(v)
+      || (/token/i.test(label) && /^\d+$/.test(v)) ? m : label + '[secret-removed]'));
   /* Review 4: secrets, by their common prefixes and as long unbroken runs (a public repo must never get one). */
   t = t.replace(/\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[abpr]-[A-Za-z0-9-]{8,}|AKIA[A-Z0-9]{12,}|AIza[A-Za-z0-9_-]{20,}|tvly-[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,}|BSA[A-Za-z0-9_-]{16,})/g, '[secret-removed]');
   /* A long unbroken run with upper and lower case AND digits reads as a secret. Not a path (no "/"), and not plain hex: a
