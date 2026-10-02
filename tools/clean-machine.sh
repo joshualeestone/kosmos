@@ -92,8 +92,12 @@ for _try in 1 2 3 4 5; do
 done
 [ -n "$PORT" ] || { fail "could not pick a port"; exit 1; }
 
-say "== fetching the SERVED installer from $HOST =="
-curl -fsSL "$HOST/setup" -o "$SB/setup" || { fail "could not fetch $HOST/setup"; exit 1; }
+# #5032: KOSMOS_VERIFY_SETUP=setup-staging walks the STAGING installer (a staging cut publishes it as
+# /setup-staging; /setup stays prod's until the promote). Default: /setup, prod.
+SETUP_NAME="${KOSMOS_VERIFY_SETUP:-setup}"
+case "$SETUP_NAME" in setup|setup-staging) ;; *) fail "KOSMOS_VERIFY_SETUP must be setup or setup-staging"; exit 1 ;; esac
+say "== fetching the SERVED installer from $HOST/$SETUP_NAME =="
+curl -fsSL "$HOST/$SETUP_NAME" -o "$SB/setup" || { fail "could not fetch $HOST/$SETUP_NAME"; exit 1; }
 say "   $(wc -c < "$SB/setup" | tr -d ' ') bytes"
 
 SBHOME="$SB/home"

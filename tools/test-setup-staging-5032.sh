@@ -103,6 +103,8 @@ out="$(bash "$HERE/promote-channel.sh" "$Sa" 2>&1)"; rc=$?
 Sb="$(promote_site no)"; printf 'SOME-INSTALLER\n' > "$Sb/setup-staging"; ( cd "$Sb" && shasum -a 256 setup-staging > setup-staging.sha256 ); git -C "$Sb" add setup-staging setup-staging.sha256; git -C "$Sb" commit -qm x
 out="$(bash "$HERE/promote-channel.sh" "$Sb" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$Sb/setup")" = PROD-INSTALLER ] && pass "promote: CONTROL a committed setup-staging the pointer does not name is not copied" || bad "promote copied an unnamed setup-staging (rc=$rc, out=$out)"
+has "$out" "WARNING setup-staging differs from /setup" && pass "promote: ...and says loudly that prod now serves the build beside the older /setup" || bad "promote did not warn about the unnamed, differing setup-staging (out=$out)"
+has "$(bash "$HERE/promote-channel.sh" "$(promote_site no)" 2>&1)" "WARNING setup-staging differs" && bad "promote warned with no setup-staging at all" || pass "promote: CONTROL no setup-staging, no warning"
 
 # Refusals: each leaves BOTH the prod pointer and /setup untouched.
 refused() {   # label site expected-phrase
@@ -135,6 +137,16 @@ KM_LJ_VERSION=1 KM_LJ_SHA=a KM_LJ_ARTIFACT=b KM_LJ_MANIFEST=c node "$WR" "$P" &&
 KM_LJ_VERSION=1 KM_LJ_SHA=a KM_LJ_ARTIFACT=b KM_LJ_MANIFEST=c KM_LJ_SETUP_SHA="$G" node "$WR" "$P" && grep -q "\"setup_sha256\":\"$G\"" "$P" && pass "writer: KM_LJ_SETUP_SHA becomes setup_sha256" || bad "writer did not write setup_sha256: $(cat "$P")"
 KM_LJ_VERSION=1 KM_LJ_SHA=a KM_LJ_ARTIFACT=b KM_LJ_MANIFEST=c KM_LJ_SETUP_SHA=NOTASHA node "$WR" "$P" 2>/dev/null && bad "writer accepted a non-sha installer" || pass "writer: refuses a KM_LJ_SETUP_SHA that is not a sha256"
 grep -qF 'KM_LJ_SETUP_SHA="$KM_SETUP_SHA"' "$REPO/tools/release.sh" && pass "release: the cut's pointer names its installer" || bad "release: the pointer does not get KM_LJ_SETUP_SHA"
+grep -qF 'KOSMOS_VERIFY_SETUP="$SETUP_FILE" bash "$REPO/tools/kosmos-artifact-check.sh"' "$REPO/tools/release.sh" && grep -qF '"$SITE/$SETUP_NAME"' "$REPO/tools/kosmos-artifact-check.sh" \
+  && pass "release: step 9e audits the channel's installer (so a staging floor raise is not a false red)" || bad "release: step 9e does not audit the channel's installer"
+
+# ---- publish-staging-pointer.sh: a hand republish keeps the installer name only for the same build ----
+Sr="$(promote_site yes)"; NAMED="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).setup_sha256||"")' "$Sr/dist/latest-staging.json")"
+bash "$HERE/publish-staging-pointer.sh" "$Sr" >/dev/null 2>&1
+grep -q "\"setup_sha256\":\"$NAMED\"" "$Sr/dist/latest-staging.json" && [ -n "$NAMED" ] && pass "publish-staging: republishing the same build keeps the installer it names" || bad "publish-staging dropped the installer name on a same-build republish: $(cat "$Sr/dist/latest-staging.json")"
+Sr2="$(promote_site yes)"; node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="9.9.8";require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$Sr2/dist/latest-staging.json"
+bash "$HERE/publish-staging-pointer.sh" "$Sr2" >/dev/null 2>&1
+! grep -q setup_sha256 "$Sr2/dist/latest-staging.json" && pass "publish-staging: CONTROL a republish of a DIFFERENT build names no installer" || bad "publish-staging carried an installer name across builds: $(cat "$Sr2/dist/latest-staging.json")"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-setup-staging-5032: ALL PASS"; else echo "test-setup-staging-5032: FAILURES above"; exit 1; fi
