@@ -3421,15 +3421,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the left side means a lone section (its preceding sibling hidden) gets no
    stray top margin, so single-section pills are unaffected. */
 .dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
-/* #4961: no ring round a whole section. A nav pill moves focus INTO its section (detailGo), so a
-   keyboard user's next Tab lands inside; the section is a tabindex=-1 landing spot, not a tab
-   stop, and the control that Tab reaches shows its own ring. The old 2px ink :focus-visible
-   outline drew a black stroke round the 16px-radius card in the Mac app, where WebKit matches
-   :focus-visible on that focus even after a click (Safari does not focus the clicked button).
-   This drops #350's ring for keyboard users on purpose: the pill they pressed shows as current
-   and the section it revealed is what they now see, and a ring round a whole card is the
-   stroke Josh asked to remove. */
+/* #4961: a nav pill moves focus INTO its section (detailGo on an agent's page, settingsGo in
+   Settings), so a keyboard user's next Tab lands inside. The ring that marks where they landed
+   (#350) is drawn only when the pill was pressed from the keyboard (`kbd-landed`, set by those
+   two functions), never on a click. Keyed on :focus-visible it drew a black stroke round the
+   16px-radius card after a CLICK in the Mac app: Safari does not focus a clicked button, so the
+   focus moved next can match :focus-visible there. */
 .dsec:focus { outline: none; }
+.dsec.kbd-landed:focus { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
    none while the box is showing. ⚠️ ORDER-DEPENDENT: the sibling rule last
    has the same specificity as the three above it and wins by position; move
@@ -36803,7 +36802,11 @@ function detailGo(section, opts) {
      open it stays where it was: opening an agent already manages focus (the
      answer button's intent, the back button), and yanking it here would fight
      that. */
-  if (target && !(opts && opts.focus === false)) target.focus();
+  if (target && !(opts && opts.focus === false)) {
+    document.querySelectorAll('#panel-detail .dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
+    if (opts && opts.keyboard) target.classList.add('kbd-landed');   // #4961: the landing ring is keyboard-only
+    target.focus();
+  }
   /* ⚠️ A PAINT THAT MEASURES LAYOUT CANNOT DO IT INTO A HIDDEN SECTION.
      `setThread` scrolls the thread to its newest row when the count changes;
      with Talk at display:none the scrollHeight is 0, the assignment is a
@@ -36909,7 +36912,8 @@ function detailGo(section, opts) {
 document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
-  detailGo(b.dataset.go);   // the Skills lazy-load lives in detailGo, beside the group reveal (#4550)
+  /* #4961: a click from Enter or Space carries detail 0; a pointer click carries its click count. */
+  detailGo(b.dataset.go, { keyboard: e.detail === 0 });   // the Skills lazy-load lives in detailGo, beside the group reveal (#4550)
 });
 /* kosmos#1918: wire the agent page's "Sign in again" affordance ONCE (paintDetail
    only toggles its visibility). It opens Settings -> Accounts, the existing re-auth
@@ -36983,7 +36987,11 @@ function settingsGo(section, opts) {
     sec.hidden = !on;
     if (on) target = sec;
   });
-  if (target && !(opts && opts.focus === false)) target.focus();
+  if (target && !(opts && opts.focus === false)) {
+    document.querySelectorAll('#panel-settings .dsec.kbd-landed').forEach((sec) => sec.classList.remove('kbd-landed'));
+    if (opts && opts.keyboard) target.classList.add('kbd-landed');   // #4961: the landing ring is keyboard-only
+    target.focus();
+  }
   /* Plus paints on arrival immediately (its truth is a fetch, not the
      poll, so a person should not wait for the next tick to see it), and
      the status tick() (#743) keeps repainting it every 5s for as long as
@@ -37637,7 +37645,7 @@ function settingsOpen(sec, opts) {
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
-  settingsOpen(b.dataset.go);
+  settingsOpen(b.dataset.go, { keyboard: e.detail === 0 });   // #4961: see detailGo's nav handler
 });
 
 /* ── skills, both surfaces, one painter (#477, #478) ─────────────────────
