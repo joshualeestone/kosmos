@@ -138,3 +138,10 @@ escape (the test sandboxes declare OA_COMPUTERS); the write-back test renamed "r
 round); README row no longer promises a last-seen time; the sort control repaints the other computers' groups at
 once (NOT unit-tested: the handler lives in the page's global change listener); OA_MAX_AGENTS = 500 cards per
 other computer (tested). Unit 29/29; 3 sabotages red by rc.
+
+### Review 8 (opus, blind, whole diff, 2026-10-01 21:47): 0 blockers, 1 warning, 2 nits, all taken
+W: a 200 whose body is cut off (this page's time limit, a dropped connection) was read as the gate ("not let in"),
+erasing the kept list and asking for a sign-in; now only a body that fails to PARSE (SyntaxError) is the gate, and
+anything else is no answer (tested both arms, sabotages red). Nits: a read this page aborted itself is "out", not
+"did not let this page read" (NOT unit-tested: the abort is internal to oaReadOne's 10 s timer); a greyed list from
+a refusing computer says when this page last read it (tested). Unit 31/31.
