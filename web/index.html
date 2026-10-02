@@ -8427,8 +8427,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
    field above it, which is what Josh asked for when he called it unstyled. */
 
 /* 📌 `.roledesc` IS GONE FROM THIS SELECTOR TOO, later the same day: the line
-   under the role menu was removed outright, so the only place a caution is
-   painted now is the last step. The treatment is unchanged. */
+   under the role menu was removed outright. A role's caution came back under the
+   menu as .rolelimit (#pick-limit), the only place it is painted (on the swarm path
+   only a professional-advice disclaimer, #4871). The treatment is unchanged. */
 .rolelimit {
   /* The pack's values (#179): quieter ink, 14px lead; neither 14 nor the
      18 below is a scale step, said plainly rather than rounded to one. */
@@ -49115,9 +49116,15 @@ async function loadRoles(initialMode, opening) {
     msg.textContent = '';
     const sel = document.getElementById('rolesel');
     const chosen = sel.value, oldHtml = sel.innerHTML, oldSig = sel.dataset.menu;
+    /* #4871: paintPathOptions repaints the line under the menu from the NEW roles, where the kept choice is missing,
+       so it is put back with the old menu (a Legal pick keeps its "Not a lawyer"). */
+    const limit = document.getElementById('pick-limit'), oldLimit = limit.textContent, oldLimitHidden = limit.hidden;
     if (!ROLES_BUILT) { buildPicker(); ROLES_BUILT = true; } else paintPathOptions();
     updateRecPill();
-    if (chosen && ![...sel.options].some((o) => o.value === chosen)) { sel.innerHTML = oldHtml; sel.dataset.menu = oldSig; }
+    if (chosen && ![...sel.options].some((o) => o.value === chosen)) {
+      sel.innerHTML = oldHtml; sel.dataset.menu = oldSig;
+      limit.textContent = oldLimit; limit.hidden = oldLimitHidden;
+    }
     if (chosen) sel.value = chosen;
   };
   /* #4632: a menu without the downloaded catalogue (offline, or the download not done yet) is asked
@@ -49181,8 +49188,8 @@ function buildPicker() {
      ⚠️ HE NAMED THE COST HIMSELF -- "I get that we're not displaying anywhere
      else, that's fine" -- so this is a decision, not an oversight. What is NOT
      covered by it: a role's LIMIT on what it reaches, which is a disclosure
-     rather than a description. That moved to the last step in 0.2.92 and is
-     still shown before the agent exists. */
+     rather than a description. It is said under the menu on this screen (#pick-limit, paintPickLimit), the
+     ONLY place it is shown before the agent exists; on the swarm path only a professional-advice disclaimer (#4871). */
   updateRecPill();
   paintRoleMenu();
   document.getElementById('pick-list').hidden = false;
@@ -49233,6 +49240,7 @@ function paintPathOptions() {
   /* The org chart creates every row down the `own` path, so it is offered on the same condition as `own`. */
   document.getElementById('team-orgchart-opt').hidden = !OWN_ROLE;
   paintTeamOrgchartNote();
+  paintPickLimit();   // #4871: the line under the menu depends on the path, so any repaint of the path's options repaints it
 }
 /* #4556 review: when the roles could not be read the org chart cannot be offered, and the Team screen says so
    rather than showing only "Ready-made teams are coming soon." */
@@ -49344,7 +49352,16 @@ document.getElementById('roles-list').addEventListener('change', (e) => {
 function paintPickLimit() {
   const line = document.getElementById('pick-limit');
   const role = PICKED && PICKED !== 'own' ? roleByKey(PICKED) : null;
-  const say = role && role.caution && !document.getElementById('rolepick').hidden ? role.caution : '';
+  /* #4871 (Josh, 2026-10-01: "On the Create a Swarm page I don't want the extra descriptor underneath Picking a Role"):
+     on the swarm path the line under the menu goes, EXCEPT a professional-advice disclaimer (not a lawyer; not
+     financial, tax, medical or veterinary advice). Shipping Legal at all was conditional on that kind being visible
+     at the moment of choice (Josh, 2026-08-10, engine/roles.js), and his 10-01 words were said looking at an
+     operational line (Office Manager's "nothing goes out without the owner"). The single-agent path is unchanged. */
+  /* Errs toward KEEPING: a wrong keep shows one sentence too many, a wrong hide breaks the 08-10 condition. */
+  const ADVICE = /\b(advi[cs]\w*|lawyers?|attorneys?|counsel\w*|legal\w*|accountants?|cpas?|auditors?|tax(es)?|financial planners?|licensed|medic\w*|doctors?|physicians?|clinicians?|nurses?|pharmacists?|psycholog\w*|psychiatr\w*|therap\w*|dentists?|diagnos\w*|veterinar\w*)\b/i;
+  const swarmQuiet = CREATE_PATH === 'swarm'
+    && !(role && role.caution && ADVICE.test(role.caution));
+  const say = role && role.caution && !swarmQuiet && !document.getElementById('rolepick').hidden ? role.caution : '';
   line.textContent = say;
   line.hidden = !say;
 }
