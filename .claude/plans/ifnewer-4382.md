@@ -97,3 +97,12 @@ than restarting under it (intended).
 NITs taken: a look that could not look keeps the offer it had; a press during a look is logged; the person's
 relaunch keeps the Restart offer under it, so a failed relaunch leaves it; `refused` with only spaces is
 unknown, and CRLF output splits (18 selftest rows); the help line says the verb is for connect computers.
+
+### Iteration 4 (sonnet, blind): 0 blockers, 0 warnings, 2 conventions, nits. Conventions taken.
+1. CONVENTION: Not Now did not hold for an installed or failed offer (the bar came back daily). Fixed: Not Now
+   holds for that version whatever the bar says; pressing Update or Restart clears it.
+2. CONVENTION: a pressed Update answered `refused` or `board` vanished silently. Fixed: says "Kosmos is
+   already being updated on this computer" and keeps the offer.
+NITs taken: a marker from the future holds nothing off in the app (the CLI's `find -mmin` cannot cheaply,
+left); a comment that `.newer` cannot arrive while Restart waits. Left: the app passes its environment
+to the CLI (an agent-launched app is refused, the safe direction).

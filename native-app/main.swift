@@ -2436,7 +2436,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     static func installUnderWay(kosmosHome: String) -> Bool {
         let marker = kosmosHome + "/logs/install.started"
         guard let at = (try? FileManager.default.attributesOfItem(atPath: marker))?[.modificationDate] as? Date else { return false }
-        return Date().timeIntervalSince(at) < 30 * 60
+        let age = Date().timeIntervalSince(at)
+        return age >= 0 && age < 30 * 60   // a marker from the future (a clock change) holds nothing off
     }
 
     /// One more look an hour after one that could not reach the release host, not a day later.
@@ -2481,6 +2482,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if case .unknown = answer, !updateLookIsRetry { retryUpdateLookSoon() }
         switch answer {
         case .newer(let v):
+            // Not reachable while an installed update waits for Restart (the CLI is then the new one);
+            // if it were, this offer would replace the Restart one.
             showUpdateOffer(v)
         case .failed(let v):
             showUpdateOffer(v, note: "Kosmos could not update to \(v). Press Update to try again.")
@@ -2498,6 +2501,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .unknown:
             // Could not look: what is on offer stays on offer (a missed look is not "nothing newer").
             if let v = installedUpdate { showInstalledOffer(v) }
+        case .board where asked, .refused where asked:
+            // The person pressed Update and it could not start here (another install is under way, or a
+            // board now runs): say so, and keep what was offered.
+            showUpdateOffer(offeredUpdate, note: "Kosmos is already being updated on this computer. Try again in a few minutes.")
         case .current, .board, .refused:
             // A later look finds the installed version current; an installed update still waits for Restart.
             if let v = installedUpdate { showInstalledOffer(v) } else { showUpdateOffer(nil) }
@@ -2534,7 +2541,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             item.title = actionable.map { installed ? "Restart Kosmos to Use \($0)" : "Update Kosmos to \($0)" } ?? "Update Kosmos"
         }
         let text: String? = note ?? version.map { "Kosmos \($0) is available. Updates are off on this computer, so it was not installed." }
-        guard let text, note != nil || version != updateBarDismissed else {
+        // Not Now holds for that version whatever the bar would say about it (an install waiting for
+        // Restart, a failure); the menu item still offers it, and a new version raises the bar again.
+        guard let text, version == nil || version != updateBarDismissed else {
             updateBar?.isHidden = true
             return
         }
@@ -2583,10 +2592,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard computerMode == .connect else { return }
         guard !updateLookInFlight else { logLine("#4382: Update pressed while a look is running; it answers shortly"); return }
         if let v = installedUpdate {
+            updateBarDismissed = nil
             relaunchAfterUpdate(to: v)
             return
         }
         guard offeredUpdate != nil else { return }
+        updateBarDismissed = nil   // asked for it: what follows is shown, even after a Not Now
         lookForUpdate(install: true)
     }
 
