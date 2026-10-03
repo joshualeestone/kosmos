@@ -1869,7 +1869,7 @@ function installVendor(provider, m, o, existing) {
            SHA256 and runs its installer, whenever the binary is absent. The
            reader's subject is the product, not the module -- and the old
            wording also handed them the worse of the two remedies. */
-        fail(`We could not find ${m.name} on this computer. Connect a Claude account in Settings, AI Models, and Kosmos will download and set it up for you. This step can only link a copy that is already on this computer.`);
+        fail(`We could not find ${m.name} on this computer. Connect a Claude account in Settings, AI Models. Kosmos will then download and set it up for you; installing from here can only link a copy that is already on this computer.`);
         return;
       }
       job.phase = 'proving';

@@ -5463,7 +5463,7 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /could not find Claude Code/);
   // #5127: the whole sentence a person sees, ending at the place to connect (no alternative here).
-  assert.match(r.because, /Connect a Claude account in Settings, AI Models, and Kosmos will set it up\.$/);
+  assert.match(r.because, /Connect a Claude account in Settings, AI Models\. Kosmos will then set it up\.$/);
   assert.ok(!/OpenAI instead/.test(r.because), 'a dead-end alternative was offered in words');
   assert.equal(r.alternative.offered, false);
   assert.match(r.alternative.because, /codex runner/);
@@ -5483,7 +5483,7 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
   assert.match(r.because, /or create this agent on OpenAI instead/i);
   // #5127: the shipped sentence, joined right: the place, a full stop, then the alternative as its own sentence.
-  assert.match(r.because, /in Settings, AI Models, and Kosmos will set it up\. Or create this agent on OpenAI instead\.$/);
+  assert.match(r.because, /in Settings, AI Models\. Kosmos will then set it up\. Or create this agent on OpenAI instead\.$/);
   assert.equal(r.alternative.offered, true);
 
   // And nothing was half-made by any of the three refusals.

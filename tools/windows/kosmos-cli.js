@@ -1014,7 +1014,8 @@ async function agentCreate(ctx, args) {
   if (made && !j.error) { ctx.out('Made "' + (made.shownAs || made.name || name) + '". It\'s on your board now: ' + ctx.url + '/'); return 0; }
   const ref = Array.isArray(j.refused) && j.refused[0] ? j.refused[0] : null;
   const because = j.error || (ref && ref.because) || j.because;
-  if (because) { ctx.err('Kosmos did not make that agent: ' + because + '.'); return 1; }
+  // #5127: a reason that already ends a sentence keeps its own stop, never a second one.
+  if (because) { ctx.err('Kosmos did not make that agent: ' + because.replace(/[.\s]+$/, '') + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when making that agent.');
   return 1;
 }

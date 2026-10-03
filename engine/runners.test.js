@@ -533,7 +533,7 @@ test('#979: with no claude anywhere, the install REFUSES in words and never clai
     // Code, through the sign-in flow; only this step cannot. A sentence that
     // says "Kosmos cannot download one" is false to the only subject the
     // reader has, and points them at the worse of the two remedies.
-    assert.match(job.because, /Connect a Claude account in Settings, AI Models, and Kosmos will download and set it up/);
+    assert.match(job.because, /Connect a Claude account in Settings, AI Models\. Kosmos will then download and set it up/);
     assert.doesNotMatch(job.because, /cannot download/i,
       'never a flat claim that the product cannot do what its sign-in flow does');
     assert.equal(job.receivedBytes, null, 'nothing was downloaded, so no count is invented');

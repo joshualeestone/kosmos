@@ -4871,7 +4871,7 @@ function createAgentInner(opts) {
              sentence a real person meets, and the worse of the two remedies
              is the one it was handing them. */
           because: 'we could not find Claude Code on this computer, so an agent made now could not start. '
-            + 'Connect a Claude account in Settings, AI Models, and Kosmos will set it up.'
+            + 'Connect a Claude account in Settings, AI Models. Kosmos will then set it up.'
             + (codexConnected ? ' Or create this agent on OpenAI instead.' : ''),
           alternative: codexConnected
             ? { offered: true }
