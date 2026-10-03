@@ -312,7 +312,7 @@ test('#5167 review 22: every download alert is modal (a sheet over a sheet can b
 test('#5167 review 23: Return never grants downloads; the question holds back quiet alerts; the committed page moves only at a commit', () => {
   const may = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
   assert.match(may, /allow\.keyEquivalent = ""\n\s+refuse\.keyEquivalent = "\\r"/, 'Return (a keypress meant for the composer) answers Allow');
-  assert.match(may, /downloadAlertsUp \+= 1[^\n]*\n\s+let asked = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+wake\.invalidate\(\)\n\s+downloadAlertsUp -= 1/,
+  assert.match(may, /downloadAlertsUp \+= 1[^\n]*\n[^\n]*\n\s+let asked = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+wake\.invalidate\(\)\n\s+downloadAlertsUp -= 1/,
     'a quiet refusal can open over the question');
   assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'), /\.path\.lowercased\(\)/,
     'Report.pdf and report.pdf at once collide on a case-insensitive Downloads');
@@ -428,4 +428,12 @@ test('#5167 review 36/37: alerts wait a turn; the question shows only a real nam
   assert.match(may, /RunLoop\.main\.add\(wake, forMode: \.modalPanel\)/);
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
   assert.match(act, /mayDownload\(file: nil\)/, 'the question shows a link\'s name, which the answer can make differ from what is saved');
+});
+
+test('#5167 review 38: the question brings the app forward; a failed save gives its cap place back', () => {
+  const may = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
+  assert.match(may, /NSApp\.activate\(ignoringOtherApps: true\)[^\n]*\n\s+let asked = alert\.runModal\(\)/, 'a question asked in the background leaves Allow asleep with no reason given');
+  assert.match(may, /Allow can be pressed a second after this appears\./);
+  assert.match(body('@objc(download:didFailWithError:resumeData:)'), /if let host = downloadHosts\.removeValue\(forKey: ObjectIdentifier\(download\)\) \{\n\s+savesByHost\[host\] = max\(0, savesByHost\[host, default: 1\] - 1\)/,
+    'failed downloads use up the per-computer cap');
 });

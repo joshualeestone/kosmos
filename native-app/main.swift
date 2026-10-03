@@ -400,6 +400,7 @@ func downloadDestination(dir: URL, suggested: String, exists: (URL) -> Bool) -> 
         var stem = (name as NSString).deletingPathExtension
         if ext.utf8.count > 20 { ext = ""; stem = name }   // not an extension anyone opens by; it must not starve the stem
         while !stem.isEmpty && stem.utf8.count + (ext.isEmpty ? 0 : ext.utf8.count + 1) > 200 { stem.removeLast() }
+        while let last = stem.last, last == "." || last == " " { stem.removeLast() }   // a cut can end on either
         if stem.isEmpty { stem = "Download" }
         name = ext.isEmpty ? stem : stem + "." + ext
     }
@@ -2893,7 +2894,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let clean = file.map { downloadDestination(dir: URL(fileURLWithPath: "/"), suggested: $0) { _ in false }.lastPathComponent }
         let shown = clean.map { $0.filter { !"\"\u{201C}\u{201D}\u{2018}\u{2019}'`".contains($0) } }   // cannot close the quotation
         let what = (shown.map { !$0.isEmpty && $0 != "Download" } ?? false) ? "\u{201C}\(shown!)\u{201D}" : "a file"
-        alert.informativeText = "This Kosmos+ computer wants to save \(what) to your Downloads folder. Allow it only if it is one of your own computers. Your answer lasts until Kosmos quits; after Don't Allow, View > Reload asks again."
+        alert.informativeText = "This Kosmos+ computer wants to save \(what) to your Downloads folder. Allow it only if it is one of your own computers. Allow can be pressed a second after this appears. Your answer lasts until Kosmos quits; after Don't Allow, View > Reload asks again."
         alert.alertStyle = .warning
         let allow = alert.addButton(withTitle: "Allow")
         let refuse = alert.addButton(withTitle: "Don't Allow")
@@ -2921,6 +2922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
         downloadAlertsUp += 1   // nothing quiet is said over the question
+        NSApp.activate(ignoringOtherApps: true)   // in front, so Allow can wake (it sleeps while the question is not)
         let asked = alert.runModal() == .alertFirstButtonReturn
         wake.invalidate()
         downloadAlertsUp -= 1
@@ -2953,6 +2955,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// it). It counts files, not bytes: a computer the person allowed can still send a large one. This
     /// computer's own board, which this app loaded, has no cap.
     private var savesByHost: [String: Int] = [:]
+    private var downloadHosts: [ObjectIdentifier: String] = [:]   // capped downloads in flight, removed at their end
     static var savesPerComputerCap = 50
     private var pendingSayScheduled = false   // one summary waiting at a time, however fast refusals come
     private var quietToldThisPage: Set<String> = []   // refusals already said for this page load, by their words
@@ -3141,6 +3144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 return
             }
             savesByHost[host] = n + 1
+            downloadHosts[ObjectIdentifier(download)] = host   // a failed save gives its place back
         }
         let taken = Set(downloadsInFlight.values.map { $0.standardizedFileURL.path.lowercased() })   // Downloads is case-insensitive
         let dest = downloadDestination(dir: dir, suggested: suggestedFilename) {
@@ -3157,6 +3161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(downloadDidFinish:)
     func downloadDidFinish(_ download: WKDownload) {
         downloadsTold.remove(download)
+        downloadHosts.removeValue(forKey: ObjectIdentifier(download))   // kept in savesByHost: it was saved
         guard let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download)) else { return }
         logLine("#5167: download saved: \(dest.lastPathComponent)")
         /* Marked as downloaded, as Safari marks its own, so Gatekeeper checks it when it is opened: the
@@ -3184,6 +3189,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(download:didFailWithError:resumeData:)
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
+        if let host = downloadHosts.removeValue(forKey: ObjectIdentifier(download)) {
+            savesByHost[host] = max(0, savesByHost[host, default: 1] - 1)
+        }
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
         // it did not start (WebKit refusing a download on its own) is said as a quiet refusal; any other
@@ -5431,9 +5439,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         }
     }
     var liveAsked: [String] = []
-    /* Before the rows are read, the messages are waited for (up to 10s), so a busy build box cannot fail a good
+    /* Before the rows are read, the messages are waited for (up to 20s), so a busy build box cannot fail a good
        product on a message that came late. Ten come from the arms (the eleventh is said by the rows' own direct questions); a run that says fewer is judged as it stands. */
-    func settled(_ go: @escaping () -> Void, tries: Int = 100) {
+    func settled(_ go: @escaping () -> Void, tries: Int = 200) {
         if told.count >= 10 || tries == 0 { go(); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled(go, tries: tries - 1) }
     }

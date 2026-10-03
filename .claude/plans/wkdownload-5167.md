@@ -428,6 +428,15 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Round 36's deferred alert and quote stripping are pinned by a test; "1 file" not "1 files"; the
   attachment header is read the same way in both places.
 
+## Review round 38 changes
+- The question brings the app forward before asking (Allow sleeps while it is not in front) and says
+  Allow can be pressed after a second.
+- A failed or cancelled download gives its place in the per-computer cap back.
+- A name's stem is trimmed of a trailing dot or space after the byte cut; the live selftest waits up
+  to 20s for its messages.
+- Not changed (decided): each refusal said once per page load then once in the summary (round 34);
+  a click in a same-origin frame saves (round 11); the no-console skip and the gate's time.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
