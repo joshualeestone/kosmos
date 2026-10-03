@@ -2746,7 +2746,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            allows it for a Kosmos+ computer (mayDownload). */
         if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-            mayDownload(file: url.lastPathComponent) { decisionHandler($0 ? .download : .cancel) }
+            // The name the page asks for (#5165's ?name=, or the link's own name), shown cleaned like a saved name.
+            let asked = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "name" }?.value
+            mayDownload(file: asked.map { ($0 as NSString).lastPathComponent }) { decisionHandler($0 ? .download : .cancel) }
             return
         }
         // A download this app will not save is refused, not loaded in the window instead (from a board page's own
@@ -2780,7 +2782,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /* #5167: what each response does, in the order below: an attachment from the board's origin, on a board
-       page, is saved (for a Kosmos+ computer, after the person allows it); any other attachment is refused and said; a board file the window cannot show is saved; anything
+       page, is saved (for a Kosmos+ computer, after the person allows it); any other attachment is refused and said
+       (a foreign file the window cannot show likewise); a board file the window cannot show is saved; anything
        else is shown if WebKit can show its type and cancelled if not.
        📌 PINNED selector, as above: a near-miss Swift signature compiles and is never called. */
     @objc(webView:decidePolicyForNavigationResponse:decisionHandler:)
@@ -2801,7 +2804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
                .trimmingCharacters(in: .whitespaces).lowercased() == "attachment" {
             if isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-                mayDownload(file: url.lastPathComponent) { decisionHandler($0 ? .download : .cancel) }
+                mayDownload(file: navigationResponse.response.suggestedFilename) { decisionHandler($0 ? .download : .cancel) }
             } else {
                 logLine("#5167: refused an attachment that is not from this board")
                 if committedPageURL != nil { tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
@@ -2813,7 +2816,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if !navigationResponse.canShowMIMEType, let url = navigationResponse.response.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-            mayDownload(file: url.lastPathComponent) { decisionHandler($0 ? .download : .cancel) }   // a board file the window cannot show (a .zip) is saved, as Safari does
+            mayDownload(file: navigationResponse.response.suggestedFilename) { decisionHandler($0 ? .download : .cancel) }   // a board file the window cannot show (a .zip) is saved, as Safari does
             return
         }
         if !navigationResponse.canShowMIMEType {
@@ -2864,6 +2867,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     fileprivate var allowedDownloadHosts: Set<String> = []
     private var refusedDownloadHosts: Set<String> = []
     fileprivate func resetDownloadAsks() { refusedDownloadHosts = [] }   // the selftest, between its arms
+    fileprivate func resetDownloadCap() { savesByHost = [:] }
     private var downloadAsks: [String: [(Bool) -> Void]] = [:]
 
     fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {
@@ -2886,7 +2890,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let ask = AppDelegate.downloadPermissionPresenter { ask(host, answer); return }
         let alert = NSAlert()
         alert.messageText = "Allow downloads from \(host)?"
-        let what = (file?.isEmpty == false && file != "/") ? "\u{201C}\(file!)\u{201D}" : "a file"
+        // Cleaned as a saved name is (no direction controls or separators): the page chose this text.
+        let clean = file.map { downloadDestination(dir: URL(fileURLWithPath: "/"), suggested: $0) { _ in false }.lastPathComponent }
+        let what = (clean.map { !$0.isEmpty && $0 != "Download" } ?? false) ? "\u{201C}\(clean!)\u{201D}" : "a file"
         alert.informativeText = "This Kosmos+ computer wants to save \(what) to your Downloads folder. Allow it only if it is one of your own computers. Your answer lasts until Kosmos quits; after Don't Allow, View > Reload asks again."
         alert.alertStyle = .warning
         let allow = alert.addButton(withTitle: "Allow")
@@ -2928,9 +2934,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var lastDownloadTold: Date?
     private var downloadAlertsUp = 0   // download alerts on screen; a count, since one can open inside another's modal loop
     private var pendingDownloadFailures = 0   // failures that arrived while an alert was up, said together after it
-    /// #5167: files saved since this page loaded. A page (even an allowed one) cannot fill the disk: past the
-    /// cap, View > Reload is needed to save more.
-    private var savesThisPage = 0
+    private var pendingIncludesFailure = false   // a real failure among them: that summary is always said
+    /// #5167: files saved from each Kosmos+ computer this run. An allowed computer cannot fill the disk: past
+    /// the cap, the person's View > Reload is needed to save more (a page reloading itself does not reset it).
+    /// This computer's own board, which this app loaded, has no cap.
+    private var savesByHost: [String: Int] = [:]
     static var savesPerPageCap = 50
     private var pendingSayScheduled = false   // one summary waiting at a time, however fast refusals come
     private var quietToldThisPage: Set<String> = []   // refusals already said for this page load, by their words
@@ -2953,8 +2961,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let n = pendingDownloadFailures
         pendingDownloadFailures = 0
-        // One summary per page load: a page looping refusals or failures cannot bring it back every few seconds.
-        if let page = committedPageURL, summaryToldForPage == page {
+        let anyFailure = pendingIncludesFailure
+        pendingIncludesFailure = false
+        // One summary of refusals per page load: a page looping refusals cannot bring it back every few seconds.
+        // A real failure of a download the app took on is always said (at most once per quiet window).
+        if !anyFailure, let page = committedPageURL, summaryToldForPage == page {
             logLine("#5167: \(n) more downloads not saved (summary already said for this page)")
             return
         }
@@ -2973,6 +2984,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // Counted, not stacked: a page that loops failing downloads cannot pile up alerts the person
             // cannot get out of. They are said together a few seconds after this alert is dismissed.
             pendingDownloadFailures += 1
+            pendingIncludesFailure = true
             logLine("#5167: said with the next summary: \(detail)")
             if downloadAlertsUp == 0 {   // none up to schedule it on dismissal
                 schedulePendingSay()
@@ -3083,9 +3095,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let namedPage = ["html", "htm"].contains((suggestedFilename as NSString).pathExtension.lowercased())
         let sentAsAttachment = ((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? "")
             .lowercased().hasPrefix("attachment")
-        // Over Kosmos+ even a .html is taken only when the board sends it as an attachment: a signed-out
-        // computer answers with its sign-in page, which never is one.
-        let wantsPage = namedPage && (sentAsAttachment || !(committedPageURL.map(isKosmosPlusURL) ?? false))
+        // A web page sent as an attachment is the file (the board's attachments are); otherwise only a .html
+        // off Kosmos+. Over Kosmos+ a signed-out computer answers with its sign-in page, never an attachment.
+        let wantsPage = sentAsAttachment || (namedPage && !(committedPageURL.map(isKosmosPlusURL) ?? false))
         if response.mimeType?.lowercased() == "text/html", !wantsPage {
             logLine("#5167: a download answered with a web page, not a file, so nothing was saved")
             downloadsTold.add(download)
@@ -3100,14 +3112,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             completionHandler(nil)
             return
         }
-        if savesThisPage >= AppDelegate.savesPerPageCap {
-            logLine("#5167: \(savesThisPage) files already saved from this page, so no more until it is reloaded")
-            downloadsTold.add(download)
-            tellDownloadFailed("This page has already saved \(savesThisPage) files. Reload it (View > Reload) to save more.", quiet: true)
-            completionHandler(nil)
-            return
+        if let page = committedPageURL, let host = page.host?.lowercased(),
+           isKosmosPlusURL(page) || host == AppDelegate.askAboutHostForSelftest {
+            let n = savesByHost[host, default: 0]
+            if n >= AppDelegate.savesPerPageCap {
+                logLine("#5167: \(n) files already saved from \(host), so no more until the person reloads")
+                downloadsTold.add(download)
+                tellDownloadFailed("\(host) has already saved \(n) files. Reload the page (View > Reload) to save more.", quiet: true)
+                completionHandler(nil)
+                return
+            }
+            savesByHost[host] = n + 1
         }
-        savesThisPage += 1
         let taken = Set(downloadsInFlight.values.map { $0.standardizedFileURL.path.lowercased() })   // Downloads is case-insensitive
         let dest = downloadDestination(dir: dir, suggested: suggestedFilename) {
             // The entry itself, not what it points to: a dangling symlink is taken, never written through.
@@ -4606,7 +4622,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         voice?.hostCancel("new page loaded")
         committedPageURL = webView.backForwardList.currentItem?.url   // #5167: the origin a download must share (moves only at a commit)
         quietToldThisPage = []   // a new load may be told once again
-        savesThisPage = 0
         summaryToldForPage = nil
     }
 
@@ -4693,7 +4708,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc func reloadBoard(_ sender: Any?) {
         refusedDownloadHosts = []   // #5167: the person's Reload asks again about a computer they refused
         quietToldThisPage = []
-        savesThisPage = 0
+        savesByHost = [:]
         summaryToldForPage = nil
         // #4356: a connect computer has no board to start, so Reload reloads the page it is on, or
         // goes back to sign-in when there is none or the last load failed.
@@ -5250,10 +5265,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        computer that runs agents (computerMode stays unset, which the policy treats as run); a connect computer is
        not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
-    /* Above the worst case of a run where NOTHING saves (seven 5s file waits, nine 2s ones counting the
-       burst, sixteen page loads; measured 106s), so a product that saves nothing is judged, not timed out. */
+    /* Above the worst case of a run where NOTHING saves (every expected-file wait runs out, then the 10s settle;
+       measured 146s, 2026-10-03), so a product that saves nothing is judged, not timed out. A passing run: ~55s. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
-    DispatchQueue.main.asyncAfter(deadline: .now() + 200) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
         try? FileManager.default.removeItem(at: dl)
         print("download selftest TIMED OUT"); exit(1)
     }
@@ -5370,11 +5385,18 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     func capArm(then: @escaping () -> Void) {
         let before = AppDelegate.savesPerPageCap
         AppDelegate.savesPerPageCap = 1
+        // The cap is for Kosmos+ computers (this computer's board has none): the probe stands in for one, allowed.
+        AppDelegate.askAboutHostForSelftest = "127.0.0.1"
+        AppDelegate.downloadPermissionPresenter = { _, answer in answer(true) }
         click("cap1", expect: "cap1.txt") {   // a fresh load: the first save is this page's one
             web.evaluateJavaScript("document.getElementById('cap2').click()") { _, _ in }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 capSaved = saved("cap2.txt")
                 AppDelegate.savesPerPageCap = before
+                AppDelegate.askAboutHostForSelftest = nil
+                AppDelegate.downloadPermissionPresenter = nil
+                d.allowedDownloadHosts = []
+                d.resetDownloadCap()
                 then()
             }
         }
@@ -5392,9 +5414,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     }
     var liveAsked: [String] = []
     /* Before the rows are read, the messages are waited for (up to 10s), so a busy build box cannot fail a good
-       product on a message that came late. Eleven are expected; a run that says fewer is judged as it stands. */
+       product on a message that came late. Ten come from the arms (the eleventh is said by the rows' own direct questions); a run that says fewer is judged as it stands. */
     func settled(_ go: @escaping () -> Void, tries: Int = 100) {
-        if told.count >= 11 || tries == 0 { go(); return }
+        if told.count >= 10 || tries == 0 { go(); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled(go, tries: tries - 1) }
     }
     /* The per-computer question through a real click: the probe page is treated as a Kosmos+ computer that
@@ -5511,7 +5533,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("pack2.zip") && !leftBoard.contains("foreignzip"), "A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED, and the board stays")
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
-            row(!capSaved && told.contains { $0.contains("already saved 1 files") }, "PAST THE PER-PAGE CAP A PAGE SAVES NOTHING MORE, and says so")
+            row(!capSaved && told.contains { $0.contains("has already saved 1 files") }, "PAST THE CAP A KOSMOS+ COMPUTER SAVES NOTHING MORE THIS RUN, and says so")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "cap1.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             row(told.filter { $0.contains("answer was 500") }.count == 1 && told.contains { $0.contains("One more download was not saved") },
                 "TWO FAILURES AT ONCE: the first is said, the second is counted and said as a summary, never dropped")
