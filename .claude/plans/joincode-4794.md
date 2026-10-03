@@ -94,3 +94,9 @@ Shots for Mona: both screens, light and dark, plus 390.
 - NIT fixed: Off then On after the read on load hid a still-up code until reload; the reset re-owes the read.
 - NIT fixed: "Matched with <name>." could be lost if a paint nulled PLUS_JOIN during the confirm request; the handler
   keeps the answer it started from.
+
+## Review 8 (blind Sonnet, every fixture checked against kosmos-relay pairing.rs): CONVERGED, 0 blockers, 0 warnings
+- NITs left: sas_pending also covers "no code yet", so a code withdrawn just before the click reads as "ran out" (true
+  enough, the person gets a new one); an old tunnel with no join verb is asked every 5 s while waiting-allow (one
+  spawn, exit 2, nothing shown; Kitty's tunnel half ships the verb with this); the read on load is one signed round
+  per Settings load (accepted in review 5); "Matched with <name>." stays until reload, a new wait, or Off.
