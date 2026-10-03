@@ -3956,7 +3956,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
    a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
    reuses the crumb's Open project path); on Documents in the consolidated view (the tab view keeps
-   its "<- name" back, except under the new look, #4470). The title takes the free space, so the chevron sits against it, not across the row. */
+   its "<- name" back, except under the new look, #4470). The title takes the free space, so the chevron
+   sits against it, not across the row. */
 .sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
             color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
@@ -10497,6 +10498,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    pjView('one'). The In the project folder | From this conversation switch is a grey pill like the look's other
    toggles; the chosen segment stays GOLD (Josh, 2026-08-17: "selected is gold, not ink"). */
 :root[data-look="new"] body:not(.consolidated) #docs-back { display: none; }
+/* 40px with a 14px gap in the tab view (the project page's back under the look); the consolidated view keeps the
+   32px chevron its own sub-view headers use. The two sizes are deliberate. */
 :root[data-look="new"] body:not(.consolidated) #docs-chev { display: grid; width: 40px; height: 40px; margin-right: 14px; }
 :root[data-look="new"] body:not(.consolidated) #docs-seg { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
 :root[data-look="new"] body:not(.consolidated) #docs-seg button + button { border-left-color: transparent; }

@@ -989,7 +989,7 @@ const AGENTS_LOOK = `(() => {
         for (const w of [320, 360]) {
           const ds = await docsPhoneSeg(browser, URL, w, proj.id);
           chk(ds.found && ds.look === 'new' && ds.radius === '999px' && ds.segs.length === 2 && !ds.clipped && !ds.wide,
-            `${tag} On, Documents at ${w} on a touch phone: the switch's words fit inside the pill, nothing clipped`, JSON.stringify(ds));
+            `${tag} On, Documents at ${w} on a touch phone: the switch's words fit each segment (the round corners are judged by eye: NL_SHOTS)`, JSON.stringify(ds));
         }
       }
       chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevSize === 40 && dcOn.chevGap === '14px' && dcOn.chevBack === true,
