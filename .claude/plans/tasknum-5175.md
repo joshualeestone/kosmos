@@ -7,7 +7,7 @@ Ask: #5175 (from #5152 slice 0 review round 3). Splinter 2026-10-03 15:04: Mona 
   stored. The board answers {"task":{"number":N,...}}, number as the task's first key (engine/tasks.js).
 - An answer with no usable number (missing, a string, 0, a fraction, a number only inside the sentence) keeps the
   old sentence, "Task added to ...", never a wrong or blank number.
-  - Mac reads only the fixed leading position, digits starting 1-9.
+  - Mac reads only the fixed leading position: digits starting 1-9 and ending the value (followed by , or }).
   - Windows needs a positive integer.
 - cli.task-number-5175.test.js: both CLIs against a real board (the number said = the stored one, counting up, with
   and without --who), and against a stand-in board for the odd answers.
