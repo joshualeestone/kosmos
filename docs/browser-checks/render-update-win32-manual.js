@@ -151,9 +151,13 @@ async function readCard(pg) {
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];
     pg.on('pageerror', (e) => errs.push(e.message));
-    await pg.route('**/api/update/check', (route) => route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify(answers.check),
-    }));
+    await pg.route('**/api/update/check', (route) => {
+      /* #5183: on a real board a press and the status poll read ONE cache (engine/update.js checkNow and lastLook),
+         so after a press the poll reports the press's look. Mirror that here, or a poll landing after the press
+         repaints the card with the pre-press look (the could-not-read flake under load). */
+      answers.status.updateLook = { reached: answers.check.reached, readable: answers.check.readable, looked: true };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answers.check) });
+    });
     await pg.route('**/api/status', async (route) => {
       /* Guarded for the reason render-updates-stale.js records: a route callback that loses its
          page must not kill node after every assertion printed PASS. */
@@ -209,6 +213,13 @@ async function readCard(pg) {
       const after = await readCard(pg);
       chk(after.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', JSON.stringify(after.line));
       chk(!/Up to date/.test(after.line), 'unread: never "Up to date."', JSON.stringify(after.line));
+      /* #5183: the card is repainted on every /api/status poll. A poll that lands after the press must not take the line
+         back to could-not-read (the flake: under load a poll landed between the press and the read). Wait for one more
+         poll after the press, then read again: it must still say could-not-reach. */
+      await pg.waitForResponse((r) => r.url().includes('/api/status'), { timeout: 20000 });
+      await pg.waitForTimeout(400);
+      const afterPoll = await readCard(pg);
+      chk(afterPoll.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', JSON.stringify(afterPoll.line));
       const box = await pg.$('#s-sec-updates');
       if (box) await box.screenshot({ path: path.join(OUT, 'update-win32-unread.png') });
     } else if (state === 'rollback') {
