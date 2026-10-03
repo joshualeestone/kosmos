@@ -439,12 +439,15 @@ async function mergeProviders(wanted, today, byDay, byFolder, scan = (o) => requ
   }
   if (missing.length) {
     const sorted = [...missing].sort();
-    let res = { days: {}, folders: {} };
+    let res = { days: {}, folders: {}, complete: false };
     try { res = await scan({ sinceDay: sorted[0], untilDay: sorted[sorted.length - 1] }); }
     catch (err) { console.error('usage: could not read Codex, Gemini or Grok usage:', (err && err.message) || err); }
+    /* Shown either way, FROZEN only when every home and file was read: a passing error must not fix a past day at zero. */
+    const freeze = !!(res && res.complete);
+    if (!freeze) console.error('usage: Codex, Gemini or Grok usage was only partly read; not saving it, it is read again next time');
     for (const day of missing) {
       got[day] = { models: (res.days && res.days[day]) || {}, folders: (res.folders && res.folders[day]) || {} };
-      if (day !== today) {
+      if (day !== today && freeze) {
         try { await ensureUsageDir(); await fsp.writeFile(frozenProvidersPath(day), JSON.stringify(got[day]), 'utf8'); }
         catch (err) { console.error('usage: could not freeze Codex, Gemini and Grok usage for ' + day + ':', (err && err.message) || err); }
       }
