@@ -24,4 +24,9 @@ docs/browser-checks/render-snav-head-4979.js: `waitForFunction(body.classList.co
   with this wait in place, the cause is something else and this is not the fix.
 
 ## Validation
-- render-snav-head-4979 passes locally with the wait (2026-10-02 23:55, exit 0).
+- render-snav-head-4979 passes locally with the wait (2026-10-02 23:55, exit 0; that run was headed).
+- Headless (HEADED=0, as CI and the cut run it) on Mortals under load, Baron, 2026-10-03: 3/3 at f00426d72 and 3/3 at
+  798a873b5, each with the three webkit consolidated-1280 PASS lines and 0 FAIL.
+- A/B before this branch (Baron, Mortals, headless): main with #5089 7/7 and the commit before #5089 5/5, so the CI red
+  was not #5089's. This branch does not claim to have reproduced the CI red; it removes one way for the click to miss.
+- Reviews: 2 blind (sonnet), both CLEAN; review 1's NIT taken (the wait's timeout names the arm).
