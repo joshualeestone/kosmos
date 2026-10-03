@@ -141,4 +141,14 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - tools/check-block-delivery.js knows the `language` block: something to deliver only on a sure non-English read.
   Run with the override es-MX against this Mac's workers: 22 entitled, 0 delivered (the branch is not deployed).
 - create reports the step failed when pasted instructions already hold two language blocks.
-- The seam trims \r?\n, so a CRLF file keeps one style.
+- The seam trims \r?\n before rejoining; the rejoin itself writes LF, so a CRLF file can end up with mixed endings
+  at the seam (the person's own lines are unchanged).
+
+## Review 12 (blind, sonnet)
+- Deferred, with reasons. (1) No opt-out: a person who deletes the block, or wants English agents on a Spanish Mac,
+  gets it back at the next boot; every managed block (connections, dmfiles) is re-asserted the same way, the block
+  tells the agent to follow a person who writes in another language (the behaviour April measured), and the Settings
+  picker is the named follow-up that gives the opt-out. (2) The first boot after upgrade on a non-English Mac marks
+  every agent "running on older instructions" (a restart prompt), as any new managed block does. (3) The `defaults`
+  stall: a duplicate of review 4.
+- The CRLF note above is corrected (the rejoin writes LF).
