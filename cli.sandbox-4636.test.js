@@ -1,0 +1,629 @@
+'use strict';
+/**
+ * #4636 (#4580 item 10, the sandbox half): a shell whose sandbox may not connect even to 127.0.0.1 cannot reach the
+ * board, and nothing in the CLI changes that. What it can do is say what is true. Before: `status` said "Kosmos is
+ * not running. Start it with: kosmos start" to a running board, and `start` said another app held the port (the
+ * ownership read needs ps, which such a sandbox denies). Now a refused connect while lsof shows a listener is
+ * "running, but this shell cannot connect to it": status exits 5, start changes nothing, post says why.
+ *   - A truly HUNG board (accepts the connection, never answers) is still recovered by the watchdog's start
+ *     (KOSMOS_RECLAIM_BUSY=1): a hang is a timeout, not a refused connect.
+ *   - CONTROL: the same CLI without the new guard gives the old wrong answers in the sandbox arm.
+ *   - A stopped board outside the sandbox is still "not running" at once.
+ * (The proxy half, #4635, is #4622's loopback NO_PROXY/no_proxy and its own tests.)
+ * These drive the REAL install/kosmos under macOS sandbox-exec against stub boards in their own processes, at a
+ * path that reads as a Kosmos server, with a throwaway KOSMOS_HOME, store roots and port. AGENT_WORKFORCE_LAUNCH is
+ * set, so a start never goes through launchd.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFile, spawn } = require('node:child_process');
+
+const CLI = path.join(__dirname, 'install', 'kosmos');
+const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4636-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(ROOT, 'data');
+test.after(() => fs.rmSync(ROOT, { recursive: true, force: true }));
+const STUB = path.join(ROOT, 'server.js');
+fs.writeFileSync(STUB, `'use strict';
+const http = require('node:http');
+const hang = process.argv[2] === 'hang';
+http.createServer((req, res) => {
+  if (hang) return;   // takes the connection, never answers
+  if (req.url.startsWith('/api/health')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos","ok":true}'); return; }
+  if (req.method === 'POST' && req.url.startsWith('/api/post')) {
+    req.resume();
+    req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"delivery":{"state":"placed"}}'); });
+    return;
+  }
+  res.writeHead(200, { 'content-type': 'text/html' }); res.end('<title>Kosmos</title>Agent Workforce');
+}).listen(0, '127.0.0.1', function () { process.stdout.write(this.address().port + '\\n'); });
+`);
+// The control: the same CLI with the #4636 guard taken out (a refused connect reads as down again).
+const SRC = fs.readFileSync(CLI, 'utf8');
+const GUARD = 'if [ -z "$_pc" ]; then HEALTH_STATE=down; return; fi';
+if (!SRC.includes(GUARD)) throw new Error('install/kosmos no longer has the #4636 guard the control takes out');
+const UNFIXED = path.join(ROOT, 'kosmos-unfixed');
+fs.writeFileSync(UNFIXED, SRC.replace(GUARD, 'HEALTH_STATE=down; return'), { mode: 0o755 });
+
+// The stricter seatbelt (Sonya, m3799): process-info denied too. curl is killed by a signal there and lsof is refused,
+// so this shell can see nothing of the board. BLINDLESS is install/kosmos with the "cannot check" reading taken out.
+// Two hooks, one per route: the health curl killed by a signal (STRICT reaches it), and lsof refused (LISTPIDS
+// reaches it). Each has its own control: BLINDLESS takes out both, LSOFLESS only the second.
+const BLIND_HOOKS = [['_health_blind "$_rc" && return; ', ''],
+  ['if [ -z "$_pc" ] && [ "$_lrc" = 2 ] && _shell_is_sandboxed; then', 'if false; then']];
+let blindless = SRC;
+for (const [a, b] of BLIND_HOOKS) {
+  if (!blindless.includes(a)) throw new Error('install/kosmos no longer has the #4636 "cannot check" hook the control takes out: ' + a);
+  blindless = blindless.replace(a, b);
+}
+const BLINDLESS = path.join(ROOT, 'kosmos-blindless');
+fs.writeFileSync(BLINDLESS, blindless, { mode: 0o755 });
+// Only the "lsof refused" hook taken out (the curl-signal route kept), for the LISTPIDS control.
+const LSOFLESS = path.join(ROOT, 'kosmos-lsofless');
+fs.writeFileSync(LSOFLESS, SRC.replace(BLIND_HOOKS[1][0], BLIND_HOOKS[1][1]), { mode: 0o755 });
+
+const DEAD_PROXY = 'http://127.0.0.1:9';   // nothing listens on the discard port; #4622 routes loopback around it
+const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
+// Not only present: it must run here (it cannot nest inside another sandbox, where every sandboxed arm should skip).
+// And lsof must work inside it: every sandboxed arm rests on it (measured on macOS; a stricter sandbox is a skip).
+const HAVE_SANDBOX = fs.existsSync('/usr/bin/sandbox-exec')
+  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/bin/true'], { timeout: 20000 }).status === 0
+  && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/usr/sbin/lsof', '-nP', '-p', String(process.pid)], { timeout: 20000 }).status === 0;
+const STRICT = '(version 1)(allow default)(deny network-outbound)(deny process-info*)';
+// Runs here, and really is the shape measured: lsof refused ("Operation not permitted") and ps denied inside it.
+const HAVE_STRICT = fs.existsSync('/usr/bin/sandbox-exec') && (() => {
+  const cp = require('node:child_process');
+  if (cp.spawnSync('/usr/bin/sandbox-exec', ['-p', STRICT, '/usr/bin/true'], { timeout: 20000 }).status !== 0) return false;
+  const l = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', STRICT, '/usr/sbin/lsof', '-nP', '-iTCP', '-sTCP:LISTEN'], { timeout: 20000 });
+  const ps = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', STRICT, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 });
+  return l.status !== 0 && /Operation not permitted/.test(String(l.stderr)) && ps.status !== 0;
+})();
+// A profile where curl is REFUSED normally (exit 7) but lsof is refused and ps denied (round 23's measurement): the
+// only way into the "lsof refused" route, which STRICT never reaches (curl dies first there).
+const LISTPIDS = '(version 1)(allow default)(deny network-outbound)(deny process-info-listpids)';
+const HAVE_LISTPIDS = fs.existsSync('/usr/bin/sandbox-exec') && (() => {
+  const cp = require('node:child_process');
+  if (cp.spawnSync('/usr/bin/sandbox-exec', ['-p', LISTPIDS, '/usr/bin/true'], { timeout: 20000 }).status !== 0) return false;
+  const c = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', LISTPIDS, '/usr/bin/curl', '-s', '-m', '2', 'http://127.0.0.1:1/'], { timeout: 20000 });
+  const l = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', LISTPIDS, '/usr/sbin/lsof', '-nP', '-iTCP', '-sTCP:LISTEN'], { timeout: 20000 });
+  const ps = cp.spawnSync('/usr/bin/sandbox-exec', ['-p', LISTPIDS, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 });
+  return c.status === 7 && l.status !== 0 && /Operation not permitted/.test(String(l.stderr)) && ps.status !== 0;
+})();
+// The CLI stops a board it launched from a blocked shell only on this evidence of a sandbox (ps denied).
+const PS_DENIED_IN_SANDBOX = HAVE_SANDBOX && require('node:child_process').spawnSync('/usr/bin/sandbox-exec', ['-p', SANDBOX, '/bin/ps', '-p', String(process.pid)], { timeout: 20000 }).status !== 0;
+
+function env(port, extra = {}, homeOut, pid) {
+  const e = { ...process.env, AGENT_WORKFORCE_DATA: path.join(ROOT, 'data') };
+  for (const k of ['KOSMOS_AGENT_TOKEN', 'KOSMOS_AGENT_SESSION', 'TMUX_PANE', 'KOSMOS_RECLAIM_BUSY', 'http_proxy', 'HTTP_PROXY',
+    'https_proxy', 'HTTPS_PROXY', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']) delete e[k];
+  const home = fs.mkdtempSync(path.join(ROOT, 'home-'));
+  if (homeOut) homeOut.home = home;
+  // A real board's pid is in board.pid (board-run writes it); the unreachable words say "Kosmos" only for it.
+  if (pid) fs.writeFileSync(path.join(home, 'board.pid'), String(pid));
+  return { ...e, KOSMOS_PORT: String(port), KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_HOME: home,
+    AGENT_WORKFORCE_DATA: path.join(home, 'data'), AGENT_WORKFORCE_WORKERS: path.join(home, 'workers'),
+    AGENT_WORKFORCE_LAUNCH: path.join(home, 'launch'), AGENT_WORKFORCE_PROJECTS: path.join(home, 'projects'),
+    KOSMOS_BUSY_WAIT: '4', ...extra };
+}
+function run(cli, args, e, sandboxed) {   // sandboxed: true (SANDBOX) or a profile string
+  const prof = sandboxed === true ? SANDBOX : sandboxed;
+  const [file, argv] = prof ? ['/usr/bin/sandbox-exec', ['-p', prof, cli, ...args]] : [cli, args];
+  return new Promise((resolve, reject) => execFile(file, argv, { env: e, timeout: 60000 }, (err, so, se) => {
+    if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + ') ' + se)); return; }
+    resolve({ code: err ? err.code : 0, out: (so + se).replace(/\s+/g, ' ').trim() });
+  }));
+}
+/** A stub board in its own process; fn(port) runs while it is up. Returns fn's result and whether the board died. */
+async function withBoard(mode, fn) {
+  // exit code not read (#3628): this is the stub BOARD, not the CLI under test; an early exit is caught below.
+  const child = spawn(process.execPath, [STUB, mode], { stdio: ['ignore', 'pipe', 'ignore'] });
+  let died = false;
+  child.on('exit', () => { died = true; });
+  try {
+    const port = await new Promise((resolve, reject) => {
+      child.stdout.once('data', (d) => resolve(Number(String(d).trim())));
+      child.once('exit', (c) => reject(new Error('the stub board exited before listening: ' + c)));
+    });
+    const r = await fn(port, child.pid);
+    await new Promise((ok) => setTimeout(ok, 300));   // a kill lands before we look
+    return { ...r, died };
+  } finally { if (!died) child.kill('SIGKILL'); }
+}
+async function freePort() {
+  const srv = require('node:net').createServer();
+  await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
+  const { port } = srv.address();
+  await new Promise((ok) => srv.close(ok));
+  return port;
+}
+/* A throwaway install for a start that really launches: its runtime is this node, its app a stub that listens on the
+   PORT it is given (and exits on its own after a minute, so a start that failed to stop it cannot leak it), its
+   tmux a no-op. */
+async function makeInstall() {
+  const h = {};
+  const e = env(await freePort(), {}, h);
+  fs.mkdirSync(path.join(h.home, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(h.home, 'runtime', 'bin', 'node'));
+  fs.mkdirSync(path.join(h.home, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(h.home, 'app', 'server.js'),
+    "require('node:http').createServer((q, r) => r.end('ok')).listen(Number(process.env.PORT), '127.0.0.1');\n"
+    + "setTimeout(() => process.exit(0), 60000);\n");
+  fs.mkdirSync(path.join(h.home, 'tmux', 'bin'), { recursive: true });
+  fs.symlinkSync('/usr/bin/true', path.join(h.home, 'tmux', 'bin', 'tmux'));
+  return { h, e };
+}
+const START_ADVICE = /Start it with|kosmos start|kosmos restart/;
+
+test('a truly HUNG board is still reclaimed by the watchdog start, with or without a proxy', async () => {
+  for (const extra of [{}, { http_proxy: DEAD_PROXY }]) {
+    const r = await withBoard('hang', (p) => run(CLI, ['start'], env(p, { KOSMOS_RECLAIM_BUSY: '1', ...extra })));
+    assert.equal(r.died, true, JSON.stringify(extra) + ': a hung board was not recovered: ' + r.out);
+    assert.match(r.out, /stale Kosmos/);
+  }
+});
+
+test('a person\'s start on a hung board still says busy and leaves it alone (the #4466 rule, unchanged)', async () => {
+  const r = await withBoard('hang', (p) => run(CLI, ['start'], env(p)));
+  assert.equal(r.died, false, r.out);
+  assert.match(r.out, /busy/);
+});
+
+test('a sandboxed shell: status exits 5 and says running but unreachable; start starts and stops nothing', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(CLI, ['status'], env(p, {}, null, pid), true));
+  assert.equal(s.code, 5, s.out);
+  assert.match(s.out, /Kosmos is running at .*this shell cannot connect to it/);
+  const plain = await withBoard('ok', (p) => run(CLI, ['status'], env(p)));   // a stub board, read from an ordinary shell
+  assert.equal(plain.code, 0, plain.out);
+  assert.doesNotMatch(s.out, START_ADVICE);
+  for (const extra of [{}, { KOSMOS_AGENT_SESSION: 'test-agent' }]) {
+    const r = await withBoard('ok', (p, pid) => run(CLI, ['start'], env(p, extra, null, pid), true));
+    assert.equal(r.died, false, r.out);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /this shell cannot connect to it/);
+    assert.doesNotMatch(r.out, /another app|stale/i);
+  }
+  const post = await withBoard('ok', (p) => run(CLI, ['post', 'proj', 'hello'], env(p, { TMUX_PANE: '%42' }), true));
+  assert.notEqual(post.code, 0, post.out);
+  assert.match(post.out, /this shell cannot connect to it \(.*\), so nothing can be posted/);
+  assert.doesNotMatch(post.out, START_ADVICE);
+});
+
+test('a sandboxed shell: stop and open change nothing, board-run launches nothing, none says "not running"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const h = {};
+  // No board.pid: this arm is stop's no-pidfile branch (with one, see the board.pid arm below).
+  const stop = await withBoard('ok', (p) => run(CLI, ['stop'], env(p, {}, h), true));
+  assert.equal(stop.died, false, stop.out);
+  assert.notEqual(stop.code, 0, stop.out);
+  assert.match(stop.out, /this shell cannot connect to it/);
+  assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false, 'stop wrote the deliberate-stop marker for a running board');
+  const open = await withBoard('ok', (p) => run(CLI, ['open'], env(p), true));
+  assert.equal(open.code, 5, open.out);
+  assert.match(open.out, /this shell cannot connect to it/);
+  // NOT coverage of board-run's own branch: without it board-run still exits 0 here (lsof finds the listener).
+  // It only pins that board-run from a blocked shell launches nothing and says nothing wrong.
+  const boardRun = await withBoard('ok', (p) => run(CLI, ['board-run'], env(p), true));
+  assert.equal(boardRun.died, false, boardRun.out);
+  assert.equal(boardRun.code, 0, boardRun.out);
+  for (const r of [stop, open, boardRun]) assert.doesNotMatch(r.out, /not running|another app/i);
+});
+
+test('a sandboxed shell: restart refuses before stopping anything', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it (restart then goes ahead by the pid, which is right there)' }, async () => {
+  const restart = await withBoard('ok', (p, pid) => run(CLI, ['restart'], env(p, {}, null, pid), true));
+  assert.equal(restart.died, false, restart.out);
+  assert.notEqual(restart.code, 0, restart.out);
+  assert.match(restart.out, /cannot be restarted from here\. Nothing was stopped/);
+  assert.doesNotMatch(restart.out, /not running|another app/i);
+});
+
+test('a sandboxed shell: the watchdog start (KOSMOS_RECLAIM_BUSY=1) FAILS loudly, and kills nothing', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const r = await withBoard('ok', (p, pid) => run(CLI, ['start', '--force'], env(p, { KOSMOS_RECLAIM_BUSY: '1' }, null, pid), true));
+  assert.equal(r.died, false, r.out);
+  assert.notEqual(r.code, 0, 'an update would report success while the old board keeps serving: ' + r.out);
+  assert.match(r.out, /Nothing was started or stopped/);
+});
+
+// The non-node listener is /usr/bin/nc (lsof names it "nc"), not /usr/bin/python3: on a Mac without the command
+// line tools, or with Xcode's license not yet accepted, python3 is a stub that fails or raises a dialog.
+const HAVE_NC = fs.existsSync('/usr/bin/nc');
+test('a sandboxed shell, a listener that is NOT node: never called Kosmos, and start does not say it is running', { skip: (!HAVE_SANDBOX && 'no sandbox-exec on this computer') || (!HAVE_NC && 'no /usr/bin/nc for the non-node listener') }, async () => {
+  const port = await freePort();
+  // exit code not read (#3628): background listener stub, not the CLI under test
+  const lst = spawn('/usr/bin/nc', ['-lk', '127.0.0.1', String(port)], { stdio: ['ignore', 'ignore', 'ignore'] });
+  try {
+    // Listening once lsof shows it (a connect would use up nc's one accept).
+    let seen = '';
+    for (let i = 0; i < 30 && !/cnc/.test(seen); i++) {
+      await new Promise((ok) => setTimeout(ok, 100));
+      seen = String(require('node:child_process').spawnSync('/usr/sbin/lsof', ['-nP', '-i4TCP:' + port, '-sTCP:LISTEN', '-Fpc']).stdout);
+    }
+    assert.match(seen, /cnc/, 'nc never showed as listening on ' + port);
+    const s = await run(CLI, ['status'], env(port), true);
+    assert.equal(s.code, 5, s.out);
+    assert.match(s.out, /Something \(.+\) is listening on port/);
+    assert.doesNotMatch(s.out, /Kosmos is running/);
+    const r = await run(CLI, ['start'], env(port), true);
+    assert.notEqual(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /already running/);
+  } finally { lst.kill('SIGKILL'); }
+});
+
+test('a sandboxed shell, a node listener that is NOT this install\'s recorded board: "something (node)", never "Kosmos"', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const s = await withBoard('ok', (p) => run(CLI, ['status'], env(p), true));   // no board.pid written
+  assert.equal(s.code, 5, s.out);
+  assert.match(s.out, /Something \(node\) is listening on port/);
+  assert.doesNotMatch(s.out, /Kosmos is running/);
+  const r = await withBoard('ok', (p) => run(CLI, ['start'], env(p), true));
+  assert.equal(r.died, false, r.out);
+  assert.notEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /already running/);
+});
+
+test('a sandboxed shell, the board STOPPED: the board it launches would be sandboxed too, so it is stopped again and the start fails', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { h, e } = await makeInstall();
+  try {
+    const t0 = Date.now();
+    const r = await run(CLI, ['start'], e, true);
+    assert.notEqual(r.code, 0, 'a start from a blocked shell reported success: ' + r.out);
+    assert.match(r.out, /Kosmos cannot be started from this shell: .*so it was stopped again\. Start it from a normal Terminal/);
+    assert.doesNotMatch(r.out, /did not come up/);
+    assert.ok(Date.now() - t0 < 30000, 'it waited out the whole start loop: ' + (Date.now() - t0) + ' ms');
+    assert.equal(fs.existsSync(path.join(h.home, 'board.pid')), false, 'the pidfile of the stopped board was left behind');
+    // From outside the sandbox, nothing answers on the port any more: the board it launched is gone.
+    const gone = await new Promise((resolve) => {
+      const sock = require('node:net').connect(Number(e.KOSMOS_PORT), '127.0.0.1');
+      sock.once('connect', () => { sock.destroy(); resolve(false); });
+      sock.once('error', (err) => resolve(err.code === 'ECONNREFUSED'));
+    });
+    assert.equal(gone, true, 'the board launched from the blocked shell is still listening');
+  } finally {
+    // The launched stub is killed whatever happened above, if a pidfile is left to name it.
+    let pid = null;
+    try { pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null; } catch { /* never written */ }
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  }
+});
+
+test('a sandboxed RESTART of a stopped board: fails, and leaves no deliberate-stop marker behind (restart\'s own stop wrote one)', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { h, e } = await makeInstall();
+  try {
+    const r = await run(CLI, ['restart'], e, true);
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /so it was stopped again/);
+    assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false,
+      'a crashed board was left "deliberately stopped" by a failed sandboxed restart, so the watchdog would not recover it');
+  } finally {
+    let pid = null;
+    try { pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null; } catch { /* never written */ }
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  }
+});
+
+test('a person\'s deliberate stop stands when a sandboxed start refuses: launched-and-stopped-again, and a listener that is not ours', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { h, e } = await makeInstall();
+  fs.writeFileSync(path.join(h.home, 'board.stopped'), '');
+  try {
+    const r = await run(CLI, ['start'], e, true);
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /so it was stopped again/);
+    assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), true, 'the refusing start dropped the person\'s stop marker');
+  } finally {
+    let pid = null;
+    try { pid = Number(fs.readFileSync(path.join(h.home, 'board.pid'), 'utf8')) || null; } catch { /* never written */ }
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  }
+  const h2 = {};
+  const r2 = await withBoard('ok', (p) => {
+    const e2 = env(p, {}, h2);
+    fs.writeFileSync(path.join(h2.home, 'board.stopped'), '');
+    return run(CLI, ['start'], e2, true);   // no board.pid: a node listener that is not ours
+  });
+  assert.notEqual(r2.code, 0, r2.out);
+  assert.equal(fs.existsSync(path.join(h2.home, 'board.stopped')), true, 'the refusing start dropped the person\'s stop marker');
+});
+
+/* The kill-or-keep decision after a launch, driven with the real _await_board_up and stubbed readings: healthy()
+   reports "unreachable" with the launched pid as the listener, and _shell_is_sandboxed says what the arm needs. The
+   "board" is a real sleep process, so a kill is a real kill. */
+function awaitWith(sandboxed, passPid, ours = false, reclaim = false, killFails = false, freshOther = false) {
+  const script = `
+set -euo pipefail
+source "${CLI}"
+sleep 30 & SP=$!
+trap 'builtin kill "$SP" 2>/dev/null || true' EXIT   # the stand-in board never outlives this script (builtin: an arm stubs kill)
+healthy() { HEALTH_STATE=unreachable; _UNREACH_PID="$SP"; _UNREACH_CMD=node; return 1; }
+_shell_is_sandboxed() { return ${sandboxed ? 0 : 1}; }
+_ipv4_listener() { builtin kill -0 "$SP" 2>/dev/null && printf '%s node' "${freshOther ? '99999' : '$SP'}"; }   # the stand-in listens while it lives
+_unreachable_is_ours() { return ${ours ? 0 : 1}; }
+${reclaim ? 'export KOSMOS_RECLAIM_BUSY=1' : ''}
+${killFails ? 'kill() { case "$1" in -0) builtin kill "$@" ;; *) return 0 ;; esac; }   # signals do nothing' : ''}
+echo "$SP" > "$PIDFILE"
+sleep() { command sleep 0.05; }   # short pauses, but real ones: the kill path waits on the process between checks
+rc=0; ( _await_board_up ${passPid ? '"$SP"' : '""'} ) || rc=$?
+if [ -f "$PIDFILE" ]; then pf=kept; else pf=removed; fi
+if builtin kill -0 "$SP" 2>/dev/null; then echo "board=alive rc=$rc pidfile=$pf"; builtin kill "$SP"; else echo "board=gone rc=$rc pidfile=$pf"; fi
+`;
+  // exit code not read (#3628): asserts stdout / stderr output of bash script, not its exit code
+  return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: env(1), timeout: 60000 },
+    (err, so, se) => resolve((so + se).replace(/\s+/g, ' ').trim())));
+}
+
+test('after a launch the listener is unreachable: kept without sandbox evidence, stopped with it, and launchd ends the wait', async () => {
+  const keep = await awaitWith(false, true);
+  assert.match(keep, /Kosmos started at .*so this shell cannot use it/, keep);
+  assert.match(keep, /board=alive rc=0/, 'without sandbox evidence the board it launched must be left running: ' + keep);
+  const stop = await awaitWith(true, true);
+  assert.match(stop, /so it was stopped again/, stop);
+  assert.match(stop, /board=gone rc=1 pidfile=removed/, 'with sandbox evidence the board it launched must be stopped and the start fail: ' + stop);
+  // The fresh reading right before the kill names another pid (the launched one exited, its pid reused): no signal.
+  const moved = await awaitWith(true, true, false, false, false, true);
+  assert.doesNotMatch(moved, /stopped again|could not be stopped/, moved);
+  assert.match(moved, /board=alive/, 'a pid lsof no longer names was signalled: ' + moved);
+  // The stop does not take: the board lives, so its pidfile (the only handle on it) must stay.
+  const stuck = await awaitWith(true, true, false, false, true);
+  assert.match(stuck, /could not be stopped again/, stuck);
+  assert.match(stuck, /board=alive rc=1 pidfile=kept/, 'a board that survived the stop lost its pidfile: ' + stuck);
+  const launchd = await awaitWith(true, false);
+  // Not this install's recorded board (stubbed): the words do not claim it started, only that launchd was asked.
+  assert.match(launchd, /launchd was asked to start Kosmos, and this shell cannot confirm it did/, launchd);
+  assert.match(launchd, /board=alive rc=1/, 'under launchd nothing is killed, and an unconfirmed start is not a success: ' + launchd);
+  // This install's recorded board: it started, at once.
+  const oursLaunchd = await awaitWith(true, false, true);
+  assert.match(oursLaunchd, /It was started under launchd/, oursLaunchd);
+  assert.match(oursLaunchd, /board=alive rc=0/, oursLaunchd);
+  // The watchdog's or the installer's start (KOSMOS_RECLAIM_BUSY=1) does not count an unconfirmed one as a success.
+  const reclaim = await awaitWith(true, false, false, true);
+  assert.match(reclaim, /does not count as a success/, reclaim);
+  assert.match(reclaim, /board=alive rc=1/, reclaim);
+  // ...even when the listener IS this install's recorded board (the first-reading shortcut).
+  const reclaimOurs = await awaitWith(true, false, true, true);
+  assert.match(reclaimOurs, /does not count as a success/, reclaimOurs);
+  assert.match(reclaimOurs, /board=alive rc=1/, reclaimOurs);
+});
+
+/* The listener lookup on its own, with /usr/sbin/lsof stubbed: several processes, a non-loopback address first, a
+   *:PORT match, and the IPv4 filter (the stub answers an IPv6-only listener unless it is asked for -i4TCP). */
+function listener(lsofOut) {
+  const script = `
+set -euo pipefail
+source "${CLI}"
+/usr/sbin/lsof() {
+  case " $* " in *" -i4TCP:"*) printf '%s' "$LSOF_OUT" ;; *) printf 'p999\\ncnode\\nn*:%s\\n' "$PORT" ;; esac
+}
+_lsof_present() { return 0; }
+if o="$(_ipv4_listener)"; then echo "found=[$o]"; else echo "none"; fi
+`;
+  // exit code not read (#3628): asserts stdout / stderr output of bash script, not its exit code
+  return new Promise((resolve) => execFile('/bin/bash', ['-c', script], { env: { ...env(4636), LSOF_OUT: lsofOut } },
+    (err, so, se) => resolve((so + se).trim())));
+}
+
+test('the listener lookup: finds the loopback or wildcard IPv4 listener among others, asks lsof for IPv4 only', async () => {
+  assert.equal(await listener('p100\ncpython3\nn192.168.1.5:4636\np200\ncnode\nn127.0.0.1:4636\n'), 'found=[200 node]');
+  assert.equal(await listener('p300\ncnode\nn*:4636\n'), 'found=[300 node]');
+  assert.equal(await listener('p100\ncnode\nn127.0.0.1:9999\n'), 'none');   // another port
+  assert.equal(await listener(''), 'none');
+});
+
+test('a person\'s start from a blocked shell on this install\'s running board: exit 0, and the stop marker stays cleared (by decision)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const h = {};
+  const r = await withBoard('ok', (p, pid) => {
+    const e = env(p, {}, h, pid);
+    fs.writeFileSync(path.join(h.home, 'board.stopped'), '');
+    return run(CLI, ['start'], e, true);
+  });
+  assert.equal(r.died, false, r.out);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /already running .*Nothing was started/);
+  // Starting means "I want it running", and it is (#2955's early clear, kept for this case: see the plan).
+  assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false);
+});
+
+test('the CLI\'s exit 5 and the watchdog\'s branch for it stay one contract', () => {
+  const cli = fs.readFileSync(CLI, 'utf8');
+  const wd = fs.readFileSync(path.join(__dirname, 'bin', 'board-watchdog.sh'), 'utf8');
+  const status = cli.slice(cli.indexOf('cmd_status() {'), cli.indexOf('\ncmd_open() {'));
+  assert.match(status, /elif \[ "\$HEALTH_STATE" = unreachable \]; then[\s\S]*?exit 5/, 'kosmos status no longer exits 5 for unreachable');
+  assert.match(wd, /if \[ "\$STATUS_RC" -eq 5 \]; then/, 'the watchdog no longer handles status exit 5');
+});
+
+/* The re-probe, driven in bash 3.2 with the real functions: /usr/bin/curl and the lsof listener lookup are
+   stubbed (bash allows a function named /usr/bin/curl), so the arms decide the exact sequence of answers. */
+function probe(curlAnswers, listeners) {
+  const script = `
+set -euo pipefail
+source "${CLI}"
+# The probe calls curl inside $( ), a subshell, so the call count lives in a file, not a variable.
+_cf="$(mktemp)"; echo 0 > "$_cf"; trap 'rm -f "$_cf"' EXIT
+calls() { cat "$_cf"; }
+/usr/bin/curl() {   # the probe's curl: answers from the list, one per call
+  local _n; _n=$(( $(cat "$_cf") + 1 )); echo "$_n" > "$_cf"
+  case "$(echo "$ANSWERS" | cut -d, -f$_n)" in
+    refuse) return 7 ;;
+    *) printf '%s\\n%s\\n%s' '{"app":"kosmos","ok":true}' 0.01 200; return 0 ;;
+  esac
+}
+_lf="$(mktemp)"; echo 0 > "$_lf"; trap 'rm -f "$_cf" "$_lf"' EXIT
+_ipv4_listener() {   # the lsof lookup: answers from LISTENERS, one per call ("none" is no listener)
+  local _n; _n=$(( $(cat "$_lf") + 1 )); echo "$_n" > "$_lf"
+  case "$(echo "\${LISTENERS:-yes,yes,yes,yes}" | cut -d, -f$_n)" in none) return 1 ;; *) printf '%s' "4242 node" ;; esac
+}
+_health_probe 2; echo "first=$HEALTH_STATE flag=[\${_HEALTH_REPROBE:-}] pid=[$_UNREACH_PID] calls=$(calls)"
+_health_probe 2; echo "second=$HEALTH_STATE flag=[\${_HEALTH_REPROBE:-}] calls=$(calls)"
+`;
+  return new Promise((resolve, reject) => execFile('/bin/bash', ['-c', script], { env: { ...env(1), ANSWERS: curlAnswers, ...(listeners ? { LISTENERS: listeners } : {}) } },
+    (err, so, se) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + ') ' + se)); return; }
+      resolve({ code: err ? err.code : 0, out: (so + se).trim() });
+    }));
+}
+
+test('the one re-probe: a board that answers on the second try is up; one that never does is unreachable; the flag resets', async () => {
+  const late = await probe('refuse,answer,answer');
+  assert.match(late.out, /first=up flag=\[\] pid=\[\] calls=2/, late.out);
+  assert.match(late.out, /second=up flag=\[\] calls=3/, late.out);
+  const never = await probe('refuse,refuse,answer');
+  assert.match(never.out, /first=unreachable flag=\[\] pid=\[4242\] calls=2/, never.out);
+  // The flag was reset, so the next probe starts clean (and a board now answering reads up).
+  assert.match(never.out, /second=up flag=\[\] calls=3/, never.out);
+  // A listener that exits during the half second: the re-probe's refusal looks again and reads down.
+  const gone = await probe('refuse,refuse,refuse', 'yes,none,none');
+  assert.match(gone.out, /first=down flag=\[\]/, gone.out);
+});
+
+test('a board whose connection queue is FULL (wedged) is not "unreachable": the OS drops the connect, curl times out', async (t) => {
+  // Measured on macOS: a full accept queue drops new connects silently (curl 28), never refuses them (curl 7).
+  // A node listener with a backlog of 1 that then blocks its own event loop, so it never accepts (the port goes out
+  // with a synchronous write first); it exits on its own after 30 s.
+  // exit code not read (#3628): background listener stub held open to fill connection backlog
+  const lst = spawn(process.execPath, ['-e', 'const s = require("net").createServer().listen({ port: 0, host: "127.0.0.1", backlog: 1 }, () => {'
+    + ' require("fs").writeSync(1, s.address().port + "\\n"); const end = Date.now() + 30000; while (Date.now() < end) {} process.exit(0); });'],
+    { stdio: ['ignore', 'pipe', 'ignore'] });
+  const held = [];
+  try {
+    const port = await new Promise((resolve, reject) => {
+      lst.stdout.once('data', (d) => resolve(Number(String(d).trim())));
+      lst.once('error', reject);
+      lst.once('exit', (c) => reject(new Error('the node listener exited before listening: ' + c)));
+    });
+    for (let i = 0; i < 4; i++) { const c = require('node:net').connect(port, '127.0.0.1'); c.on('error', () => {}); held.push(c); }
+    await new Promise((ok) => setTimeout(ok, 500));
+    // The queue really is full: one more raw connect is neither accepted nor refused within a second.
+    const extra = await new Promise((resolve) => {
+      const c = require('node:net').connect(port, '127.0.0.1');
+      const t = setTimeout(() => { c.destroy(); resolve('pending'); }, 1000);
+      c.once('connect', () => { clearTimeout(t); c.destroy(); resolve('connected'); });
+      c.once('error', (err) => { clearTimeout(t); resolve(err.code); });
+    });
+    // A kernel that does not fill the queue this way says nothing about the product: skip, and say why.
+    if (extra !== 'pending') { t.skip('the accept queue did not fill here (a further connect was ' + extra + '), so there is nothing to measure'); return; }
+    // exit code not read (#3628): asserts echoed state string, not bash exit code
+    const r = await new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; _health_probe 2; echo "state=$HEALTH_STATE"'],
+      { env: env(port) }, (err, so) => resolve(String(so).trim())));
+    assert.doesNotMatch(r, /state=unreachable/, r);
+    assert.match(r, /state=(busy|stranger)/, r);
+  } finally { held.forEach((c) => c.destroy()); lst.kill('SIGKILL'); }
+});
+
+test('a sandboxed shell, stop with this install\'s board.pid: "cannot be stopped from here", board left alone', { skip: !PS_DENIED_IN_SANDBOX && 'ps works in this sandbox, so stop goes by the pid (and stops it), which is right there' }, async () => {
+  const h = {};
+  const r = await withBoard('ok', (p, pid) => run(CLI, ['stop'], env(p, {}, h, pid), true));
+  assert.equal(r.died, false, r.out);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /Kosmos is running at .*so it cannot be stopped from here and was left alone/);
+  assert.doesNotMatch(r.out, /not started by this command/);
+  assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false, 'stop wrote the deliberate-stop marker');
+});
+
+test('CONTROL: without the guard, the sandboxed status says "not running" and start blames another app (the #4636 bug)', { skip: !HAVE_SANDBOX && 'no sandbox-exec on this computer' }, async () => {
+  const s = await withBoard('ok', (p) => run(UNFIXED, ['status'], env(p), true));
+  assert.equal(s.code, 1, s.out);
+  assert.match(s.out, /Kosmos is not running\. Start it with: kosmos start/);
+  const r = await withBoard('ok', (p) => run(UNFIXED, ['start'], env(p), true));
+  assert.match(r.out, /Another app on this computer is already using port/);
+});
+
+const NO_STRICT = !HAVE_STRICT && 'no stricter sandbox here (sandbox-exec missing, or lsof and ps are not both refused under process-info denial)';
+
+test('a STRICTER sandbox (lsof refused, curl killed): status exits 5, "may be running, cannot check", never "another app"', { skip: NO_STRICT }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(CLI, ['status'], env(p, {}, null, pid), STRICT));
+  assert.equal(s.code, 5, s.out);
+  assert.match(s.out, /Kosmos may be running at .*this shell cannot check/);
+  assert.doesNotMatch(s.out, /another app|not running/i);
+  assert.doesNotMatch(s.out, START_ADVICE);
+  // With nothing listening this shell still cannot tell, so it says the same: never "not running" and a start.
+  const free = await run(CLI, ['status'], env(await freePort()), STRICT);
+  assert.equal(free.code, 5, free.out);
+  assert.doesNotMatch(free.out, START_ADVICE);
+});
+
+test('a STRICTER sandbox: start and stop on a running board kill nothing, blame no app, write no stop marker', { skip: NO_STRICT }, async () => {
+  const r = await withBoard('ok', (p, pid) => run(CLI, ['start'], env(p, {}, null, pid), STRICT));
+  assert.equal(r.died, false, r.out);
+  assert.match(r.out, /this shell cannot check/);
+  assert.doesNotMatch(r.out, /another app|stale|Bringing the board up/i);
+  const h = {};
+  const st = await withBoard('ok', (p, pid) => run(CLI, ['stop'], env(p, {}, h, pid), STRICT));
+  assert.equal(st.died, false, st.out);
+  assert.doesNotMatch(st.out, /another app|not running|not started by this command/i);
+  assert.match(st.out, /cannot be stopped from here and was left alone/);
+  assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false, 'stop wrote the deliberate-stop marker');
+});
+
+test('a STRICTER sandbox: restart refuses before stopping, open exits 5, neither says "not running" or "another app"', { skip: NO_STRICT }, async () => {
+  const rs = await withBoard('ok', (p, pid) => run(CLI, ['restart'], env(p, {}, null, pid), STRICT));
+  assert.equal(rs.died, false, rs.out);
+  assert.notEqual(rs.code, 0, rs.out);
+  assert.doesNotMatch(rs.out, /another app|not running/i);
+  const op = await withBoard('ok', (p, pid) => run(CLI, ['open'], env(p, {}, null, pid), STRICT));
+  assert.equal(op.died, false, op.out);
+  assert.equal(op.code, 5, op.out);
+  assert.match(op.out, /this shell cannot check/);
+  assert.doesNotMatch(op.out, /another app|not running/i);
+});
+
+const NO_LISTPIDS = !HAVE_LISTPIDS && 'no lsof-refusing sandbox here (curl must be refused with 7 while lsof and ps are refused)';
+test('a sandbox that REFUSES lsof (curl refused normally): status exits 5, "cannot check", on a live board and a free port', { skip: NO_LISTPIDS }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(CLI, ['status'], env(p, {}, null, pid), LISTPIDS));
+  assert.equal(s.code, 5, s.out);
+  assert.match(s.out, /Kosmos may be running at .*this shell cannot check/);
+  assert.doesNotMatch(s.out, START_ADVICE);
+  const free = await run(CLI, ['status'], env(await freePort()), LISTPIDS);
+  assert.equal(free.code, 5, free.out);
+  assert.doesNotMatch(free.out, START_ADVICE);
+});
+
+test('CONTROL: without the "lsof refused" hook, that sandbox says "not running" with the start advice', { skip: NO_LISTPIDS }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(LSOFLESS, ['status'], env(p, {}, null, pid), LISTPIDS));
+  assert.equal(s.code, 1, s.out);
+  assert.match(s.out, /Kosmos is not running\. Start it with: kosmos start/);
+});
+
+test('CONTROL: without the "cannot check" reading, the STRICTER sandbox says another app holds the port (Sonya\'s m3799)', { skip: NO_STRICT }, async () => {
+  const s = await withBoard('ok', (p, pid) => run(BLINDLESS, ['status'], env(p, {}, null, pid), STRICT));
+  assert.equal(s.code, 1, s.out);
+  assert.match(s.out, /another app is using port/);
+});
+
+test('a curl killed by a signal is "cannot check" only with sandbox evidence; otherwise the old reading stands', async () => {
+  // exit code not read (#3628): asserts echoed state string, not bash exit code
+  const probe = (sandboxed) => new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
+    + '_shell_is_sandboxed() { return ' + (sandboxed ? 0 : 1) + '; }; '
+    + 'if _health_blind 133; then echo "rc=0 state=$HEALTH_STATE blind=$_UNREACH_BLIND"; else echo "rc=1 state=$HEALTH_STATE"; fi; '
+    + 'if _health_blind 7; then echo "seven=blind"; else echo "seven=no"; fi'],
+    { env: env(1) }, (err, so, se) => resolve(String(so).trim() + String(se).trim())));
+  const yes = await probe(true);
+  assert.match(yes, /rc=0 state=unreachable blind=1/, yes);
+  assert.match(yes, /seven=no/, yes);   // an ordinary refusal is never read as blind
+  const no = await probe(false);
+  assert.match(no, /rc=1 state=down/, no);
+});
+
+test('an lsof REFUSED is "cannot check" only with sandbox evidence; otherwise a stopped board reads down (the watchdog can recover it)', async () => {
+  // exit code not read (#3628): asserts echoed state string, not bash exit code
+  const probe = (sandboxed) => new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
+    + '_shell_is_sandboxed() { return ' + (sandboxed ? 0 : 1) + '; }; _ipv4_listener() { return 2; }; '
+    + '_health_refused 2; echo "state=$HEALTH_STATE blind=${_UNREACH_BLIND:-}"'],
+    { env: env(1) }, (err, so, se) => resolve(String(so).trim() + String(se).trim())));
+  assert.match(await probe(false), /state=down blind=$/);
+  assert.match(await probe(true), /state=unreachable blind=1/);
+});
+
+test('each probe starts clean: a "cannot check" reading does not carry into the next one', async () => {
+  // exit code not read (#3628): asserts echoed state string, not bash exit code
+  const r = await new Promise((resolve) => execFile('/bin/bash', ['-c', 'source "' + CLI + '"; '
+    + '_shell_is_sandboxed() { return 0; }; _health_blind 133; echo "first=$HEALTH_STATE/${_UNREACH_BLIND:-}"; '
+    + '_health_probe 1; echo "next=$HEALTH_STATE/${_UNREACH_BLIND:-}"'],
+    { env: env(1) }, (err, so, se) => resolve(String(so).trim() + String(se).trim())));
+  assert.match(r, /first=unreachable\/1/, r);
+  assert.match(r, /next=down\/$/m, r);   // port 1: nothing listens, curl is refused, lsof names none
+});
+
+test('CONTROL: outside the sandbox, a stopped board is still "not running" at once, with the start advice', async () => {
+  const t0 = Date.now();
+  const s = await run(CLI, ['status'], env(1));   // port 1: nothing listens
+  assert.ok(Date.now() - t0 < 5000, 'a stopped board took ' + (Date.now() - t0) + ' ms to read as not running');
+  assert.equal(s.code, 1, s.out);
+  assert.match(s.out, /Kosmos is not running\. Start it with: kosmos start/);
+});
