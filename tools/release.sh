@@ -368,6 +368,7 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # builds on). Sourced here, before the freeze, like the libs above.
 . "$REPO/tools/lib/connector-provenance.sh"
 . "$REPO/tools/lib/connector-currency.sh"
+. "$REPO/tools/lib/coordinator-floor.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -642,6 +643,14 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 # build-kosmos-bundle.sh reads at step 4. KOSMOS_ALLOW_STALE_TUNNEL=1 ships it on purpose.
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
+
+step "== 1d2. the coordinator serving traffic carries what that connector needs (#5037) =="
+# Some relay changes need the coordinator deployed BEFORE a connector carrying them ships, and never
+# rolled back below them (#4869, 534f36980, is the first). 1d makes the connector match relay main, so
+# without this the cut would ship such a connector while the coordinator lagged. tools/coordinator-floor
+# lists those commits; refused here, before the bump. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway.
+coordinator_floor_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
+  "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1
 
 step "== 1e. no browser-check quarantine expires at $V (#4160) =="
 # A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
