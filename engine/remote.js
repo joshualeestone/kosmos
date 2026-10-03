@@ -1312,8 +1312,9 @@ function allowSelfQuietly() {
 /* kosmos#4794: the reasons kosmos-tunnel's devices.rs gives for a joining computer's empty code (pairing.rs wait_reason,
    plus was_a_computer). Anything else is dropped rather than shown. */
 const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer']);
-/* kosmos#4794: a computer's pairing code is six digits (pairsas::sas); a phone's match code never is. */
-const JOIN_CODE = /^\d{6}$/;
+/* kosmos#4794: a computer's pairing code is two groups of three digits with one space, "482 915" (kosmos-relay
+   crates/proto/src/pairsas.rs sas(): format!("{:03} {:03}")); the tunnel compares it exactly. A phone's match code never is. */
+const JOIN_CODE = /^\d{3} \d{3}$/;
 /** What is waiting for this Mac's Allow. A missing snapshot is an empty
     list, not an error: the tunnel writes it only once it is up, and a
     board with Plus off has nothing waiting. `snapshot` says which. */

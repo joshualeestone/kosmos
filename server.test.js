@@ -11519,7 +11519,7 @@ test('kosmos#4794: the pairing routes are served: GET join answers not-held when
   assert.equal(bad.status, 400);
   assert.match(JSON.parse(bad.body).error, /not the code on this screen/);
   /* A six-digit code reaches joinConfirm's own gate (this board is not enrolled), which proves the route is wired to it. */
-  const wired = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: '482915' }) });
+  const wired = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: '482 915' }) });
   assert.equal(wired.status, 400);
   assert.match(JSON.parse(wired.body).error, /finish the Plus sign-up first/);
 });
@@ -11671,7 +11671,7 @@ test('the sign-up succeeds end to end through the routes, with the fake binary (
     assert.equal(started.status, 200, started.body);
     const done = await req('/api/remote/setup-complete', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: '123456', name: 'my-mac' }),
+      body: JSON.stringify({ code: '123 456', name: 'my-mac' }),
     });
     assert.equal(done.status, 200, done.body);
     assert.equal(JSON.parse(done.body).ok, true);
@@ -11753,7 +11753,7 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
     assert.match(JSON.parse(early.body).error, /finish the code steps first/);
     assert.equal(seen.length, 0, 'called the coordinator with no sign-in');
     await postJson('/api/remote/signin-start', { email: 'person@example.com' });
-    const v = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    const v = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123 456' });
     assert.equal(JSON.parse(v.body).stage, 'session', v.body);
     const got = await req('/api/remote/signin-addresses');
     assert.equal(got.status, 200, got.body);
@@ -11829,7 +11829,7 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     assert.equal(started.status, 200, started.body);
     assert.equal(JSON.parse(started.body).stage, 'code_sent');
 
-    const verified = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    const verified = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123 456' });
     assert.equal(verified.status, 200, verified.body);
     const vbody = JSON.parse(verified.body);
     assert.equal(vbody.stage, 'session');
@@ -11850,7 +11850,7 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
     assert.equal(sbody.second_kind, 'sms', 'the route dropped the account\'s factor: ' + second.body);
     assert.equal(sbody.sent_to, '\u2022\u2022\u2022 4321', second.body);
     assert.ok(!second.body.includes('ch_route_fake'), 'the challenge crossed the HTTP boundary: ' + second.body);
-    const again = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    const again = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123 456' });
     assert.equal(JSON.parse(again.body).stage, 'session', again.body);
 
     const done = await postJson('/api/remote/signin-register', { name: 'srv-mac' });
@@ -11938,7 +11938,7 @@ test('the in-app enrol flow runs end to end through the routes, and no enrol tok
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(sb, 'state');
   try {
     await postJson('/api/remote/signin-start', { email: 'person@example.com' });
-    const verified = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123456' });
+    const verified = await postJson('/api/remote/signin-verify', { email: 'person@example.com', code: '123 456' });
     const vbody = JSON.parse(verified.body);
     assert.equal(vbody.stage, 'enrol_second_factor');
     assert.equal(vbody.sms_available, true);
@@ -11963,7 +11963,7 @@ test('the in-app enrol flow runs end to end through the routes, and no enrol tok
     assert.ok(!('token' in sbody), 'the enrol token crossed the boundary via enrol: ' + started.body);
     assert.ok(!started.body.includes('kst1.'), 'a token value crossed the boundary via enrol: ' + started.body);
 
-    const confirmed = await postJson('/api/remote/signin-confirm-enrol', { code: '123456' });
+    const confirmed = await postJson('/api/remote/signin-confirm-enrol', { code: '123 456' });
     assert.equal(confirmed.status, 200, confirmed.body);
     const cbody = JSON.parse(confirmed.body);
     assert.equal(cbody.stage, 'session');
@@ -11995,7 +11995,7 @@ test('the sign-in routes refuse malformed input at the boundary before anything 
 
   // verify validates the email shape identically to start (not just presence),
   // so the two steps cannot drift: '@' is refused as an email, not as a code.
-  const badVerifyEmail = await postJson('/api/remote/signin-verify', { email: '@', code: '123456' });
+  const badVerifyEmail = await postJson('/api/remote/signin-verify', { email: '@', code: '123 456' });
   assert.equal(badVerifyEmail.status, 400);
   assert.match(JSON.parse(badVerifyEmail.body).error, /does not look like an email/);
 

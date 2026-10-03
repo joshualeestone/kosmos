@@ -44297,7 +44297,8 @@ function paintAsk() {
        a code_changed refusal keeps Allow waiting for the new code (pressing it on the same code only refuses again). */
     const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many');
     const staleTag = tagged && e.code !== d.code;
-    const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed');
+    /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
+    const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
     const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
       : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
@@ -44316,7 +44317,7 @@ function paintAsk() {
       '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
-      (d.code && !waitLine ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split('-').filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
+      (d.code && !waitLine ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
@@ -44874,7 +44875,7 @@ var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: plusJoinShows is hoisted and may r
    block must outlive waiting-allow until it is confirmed or runs out (review 3). */
 function plusJoinShows(j) {
   if (!j || j.supported !== true) return false;
-  const code = /^\d{6}$/.test(String(j.join_code || '')) ? j.join_code : '';
+  const code = /^\d{3} \d{3}$/.test(String(j.join_code || '')) ? j.join_code : '';
   return j.held === true || (!!code && !j.confirmed && Date.now() - PLUS_JOIN_CODE_AT < PLUS_JOIN_CODE_MS);
 }
 /* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). */
@@ -44895,8 +44896,10 @@ async function plusJoinTick() {
   PLUS_JOIN_BUSY = false; PLUS_JOIN_AT = Date.now();
   paintPlusJoin();
 }
+/* Read out a character at a time, a pause between the two groups, as the Allow card reads its code: "4 8 2, 9 1 5". */
+function plusJoinSpoken(code) { return String(code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', '); }
 function plusJoinCode(code) {
-  return '<p class="askcodebig" role="img" aria-label="' + askEsc([...code].join(' ')) + '">' + askEsc(code) + '</p>';
+  return '<p class="askcodebig" role="img" aria-label="' + askEsc(plusJoinSpoken(code)) + '">' + askEsc(code) + '</p>';
 }
 function paintPlusJoin() {
   const el = document.getElementById('plus-join');
@@ -44909,13 +44912,13 @@ function paintPlusJoin() {
   const st = document.getElementById('plus-status'); if (st && st.textContent) st.textContent = '';
   const name = askEsc(j.on || (Array.isArray(j.asked_of) && j.asked_of[0]) || 'your other computer');
   const stale = PLUS_JOIN_CODE_AT && Date.now() - PLUS_JOIN_CODE_AT >= PLUS_JOIN_CODE_MS && !j.confirmed;
-  const code = !stale && /^\d{6}$/.test(String(j.join_code || '')) ? j.join_code : '';
+  const code = !stale && /^\d{3} \d{3}$/.test(String(j.join_code || '')) ? j.join_code : '';
   if (code !== PLUS_JOIN_LAST_CODE) { PLUS_JOIN_MSG = ''; PLUS_JOIN_LAST_CODE = code; }   // a new code: an old refusal is not about it
   let html;
   if (j.failed) html = '<p class="plus-join-say">Too many tries. On ' + name + ', press Not me on this request, then sign this computer in again.</p>';
   else if (code && j.confirmed) html = '<p class="plus-join-say">Matched. Now press Allow on ' + name + '.</p>' + plusJoinCode(code);
   else if (code) html = '<p class="plus-join-say">Check that ' + name + ' shows this same code.</p>' + plusJoinCode(code) +
-    '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc([...code].join(' ')) + '">The codes match</button></div>' +
+    '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   else if (j.confirm_expired || stale) html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
   else html = '<p class="plus-join-say">Working out the code with ' + name + '...</p>';

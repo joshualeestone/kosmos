@@ -14,7 +14,7 @@ Card: joshualeestone/kosmos#4794 (Kitty: server and trust; Pete: the app). Relay
 A side (the computer already in):
 1. engine/remote.js pendingDevices: pass `code_wait` (allowlisted values only).
 2. deviceAllow(id, name, code): for a joining computer row, pass `--code`; server's allow route takes body.code.
-3. Page: a joining-computer row shows its six-digit code ("check it matches the code on <name>") or the wait
+3. Page: a joining-computer row shows its "ddd ddd" code ("check it matches the code on <name>") or the wait
    reason; Allow sends the shown code.
 B side (the computer waiting to be allowed):
 4. engine/remote.js joinStatus() (spawn, parse, page-safe fields) and joinConfirm(code); server GET/POST routes.

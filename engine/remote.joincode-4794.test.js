@@ -34,10 +34,10 @@ fs.appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(args) + '\\n');
 const flag = (name) => { const i = args.indexOf(name); return i === -1 ? null : args[i + 1]; };
 const mode = process.env.FAKE_JOIN || '';
 if (args[0] === 'devices' && args[1] === 'allow') {
-  if (flag('--code') === '111111') { process.stderr.write('Error: sas_mismatch: the code given is not the code this computer shows now; compare the screens again\\n'); process.exit(1); }
-  if (flag('--code') === '222222') { process.stderr.write('Error: sas_pending: the code to compare is not worked out yet; wait for it on both screens, then allow\\n'); process.exit(1); }
-  if (flag('--code') === '444444') { process.stderr.write('Error: sas_mismatch: more than one computer is showing a code; Deny the ones you do not recognise\\n'); process.exit(1); }
-  if (flag('--code') === '333333') { process.stderr.write('Error: the coordinator is unreachable\\n'); process.exit(1); }
+  if (flag('--code') === '111 111') { process.stderr.write('Error: sas_mismatch: the code given is not the code this computer shows now; compare the screens again\\n'); process.exit(1); }
+  if (flag('--code') === '222 222') { process.stderr.write('Error: sas_pending: the code to compare is not worked out yet; wait for it on both screens, then allow\\n'); process.exit(1); }
+  if (flag('--code') === '444 444') { process.stderr.write('Error: sas_mismatch: more than one computer is showing a code; Deny the ones you do not recognise\\n'); process.exit(1); }
+  if (flag('--code') === '333 333') { process.stderr.write('Error: the coordinator is unreachable\\n'); process.exit(1); }
   console.log(JSON.stringify({ allowed: true }));
   process.exit(0);
 }
@@ -46,15 +46,15 @@ if (args[0] === 'join') {
   if (args[1] === 'status') {
     /* The real tunnel logs to stdout before its JSON line (main.rs tracing, step()'s warnings). */
     console.log('2026-10-03T05:00:00Z  WARN kosmos_tunnel::pairing: a round met a busy lock { "noise": true }');
-    if (mode === 'shape') console.log(JSON.stringify({ held: true, join_code: '482915', join_codes: [{ on: 'HomeMac', code: '482915' }, { on: '<b>x</b>', code: '1' }],
+    if (mode === 'shape') console.log(JSON.stringify({ held: true, join_code: '482 915', join_codes: [{ on: 'HomeMac', code: '482 915' }, { on: '<b>x</b>', code: '1' }],
       asked_of: ['HomeMac', '<script>', 'ok-name'], failed: 'yes', confirmed: false, confirm_expired: true, secret: 'not for the page' }));
     else if (mode === 'badcode') console.log(JSON.stringify({ held: true, join_code: 'AB-12', join_codes: [], asked_of: [] }));
     else console.log(JSON.stringify({ held: false, join_code: '', join_codes: [], asked_of: [], failed: false, confirmed: false, confirm_expired: false }));
     process.exit(0);
   }
   if (args[1] === 'confirm') {
-    if (flag('--code') === '482915') { console.log(JSON.stringify({ confirmed: true, with: 'HomeMac' })); process.exit(0); }
-    if (flag('--code') === '000001') { process.stderr.write('Error: sas_pending: that code has expired; a new one is worked out while this computer waits\\n'); process.exit(1); }
+    if (flag('--code') === '482 915') { console.log(JSON.stringify({ confirmed: true, with: 'HomeMac' })); process.exit(0); }
+    if (flag('--code') === '000 001') { process.stderr.write('Error: sas_pending: that code has expired; a new one is worked out while this computer waits\\n'); process.exit(1); }
     process.stderr.write('Error: sas_mismatch: that is not the code this computer shows\\n'); process.exit(1);
   }
 }
@@ -83,7 +83,7 @@ test('#4794: a pending row passes code_wait only from the fixed list', () => {
   fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
     { device_id: 'dev-a', name: 'laptop', first_seen: 1756000000, code: '', joining_computer: 'laptop', code_wait: 'daily_limit' },
     { device_id: 'dev-b', name: 'laptop2', first_seen: 1756000000, code: '', joining_computer: 'laptop2', code_wait: '<b>bad</b>' },
-    { device_id: 'dev-c', name: 'laptop3', first_seen: 1756000000, code: '482915', joining_computer: 'laptop3' },
+    { device_id: 'dev-c', name: 'laptop3', first_seen: 1756000000, code: '482 915', joining_computer: 'laptop3' },
   ] }));
   remote.setOn(true);
   const by = Object.fromEntries(remote.pendingDevices().devices.map((d) => [d.device_id, d.code_wait]));
@@ -92,25 +92,25 @@ test('#4794: a pending row passes code_wait only from the fixed list', () => {
 
 test('#4794: Allow sends a six-digit code with --code, and nothing for anything else', async () => {
   enrol();
-  assert.equal((await remote.deviceAllow('dev-1', 'laptop', '482915')).ok, true);
+  assert.equal((await remote.deviceAllow('dev-1', 'laptop', '482 915')).ok, true);
   assert.equal((await remote.deviceAllow('dev-2', 'iPhone', 'K7-4M')).ok, true);
   assert.equal((await remote.deviceAllow('dev-3', 'iPhone')).ok, true);
   const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow');
   const codeOf = (id) => { const c = calls.find((a) => a[a.indexOf('--device-id') + 1] === id); assert.ok(c, id + ' never reached the binary'); return c.includes('--code') ? c[c.indexOf('--code') + 1] : null; };
-  assert.equal(codeOf('dev-1'), '482915');
+  assert.equal(codeOf('dev-1'), '482 915');
   assert.equal(codeOf('dev-2'), null, "a phone's letter code reached --code");
   assert.equal(codeOf('dev-3'), null);
 });
 
 test("#4794: the tunnel's pairing refusals are worded as code_changed / code_pending; any other failure keeps its own reason", async () => {
   enrol();
-  const changed = await remote.deviceAllow('dev-1', 'laptop', '111111');
+  const changed = await remote.deviceAllow('dev-1', 'laptop', '111 111');
   assert.deepEqual([changed.ok, changed.because], [false, 'code_changed']);
-  const pending = await remote.deviceAllow('dev-1', 'laptop', '222222');
+  const pending = await remote.deviceAllow('dev-1', 'laptop', '222 222');
   assert.deepEqual([pending.ok, pending.because], [false, 'code_pending']);
-  const many = await remote.deviceAllow('dev-1', 'laptop', '444444');
+  const many = await remote.deviceAllow('dev-1', 'laptop', '444 444');
   assert.deepEqual([many.ok, many.because], [false, 'code_many']);
-  const other = await remote.deviceAllow('dev-1', 'laptop', '333333');
+  const other = await remote.deviceAllow('dev-1', 'laptop', '333 333');
   assert.equal(other.ok, false);
   assert.notEqual(other.because, 'code_changed');
   assert.notEqual(other.because, 'code_pending');
@@ -121,7 +121,7 @@ test('#4794: join status hands the page only checked fields', async () => {
   process.env.FAKE_JOIN = 'shape';
   const got = await remote.joinStatus();
   assert.equal(got.ok, true, got.because);
-  assert.deepEqual(got.data, { supported: true, held: true, join_code: '482915', on: 'homemac', asked_of: ['homemac', 'ok-name'],
+  assert.deepEqual(got.data, { supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac', 'ok-name'],
     failed: false, confirmed: false, confirm_expired: true });
   const call = recorded().find((a) => a[0] === 'join' && a[1] === 'status');
   assert.ok(call && call.includes('--coordinator') && call.includes('--state-dir'), JSON.stringify(call));
@@ -149,28 +149,29 @@ test('#4794: not enrolled is not joining, and the binary is not asked', async ()
 
 test('#4794: The codes match passes the code to join confirm and answers the other computer', async () => {
   enrol();
-  const ok = await remote.joinConfirm('482915');
+  const ok = await remote.joinConfirm('482 915');
   assert.deepEqual(ok, { ok: true, because: null, data: { confirmed: true, with: 'homemac' } });
   const call = recorded().find((a) => a[0] === 'join' && a[1] === 'confirm');
-  assert.equal(call[call.indexOf('--code') + 1], '482915');
+  assert.equal(call[call.indexOf('--code') + 1], '482 915');
   assert.ok(!call.includes('--coordinator'), 'join confirm is local only');
-  const wrong = await remote.joinConfirm('123456');
+  const wrong = await remote.joinConfirm('123 456');
   assert.deepEqual([wrong.ok, wrong.because], [false, 'code_changed'], 'a mismatch is tagged for the page, not relayed raw');
-  const expired = await remote.joinConfirm('000001');
+  const expired = await remote.joinConfirm('000 001');
   assert.deepEqual([expired.ok, expired.because], [false, 'code_expired'], 'an expired code is tagged for the page');
 });
 
 test('#4794: join confirm on a tunnel with no join verb says so in words', async () => {
   enrol();
   process.env.FAKE_JOIN = 'unsupported';
-  const r = await remote.joinConfirm('482915');
+  const r = await remote.joinConfirm('482 915');
   assert.equal(r.ok, false);
   assert.match(r.because, /cannot pair computers yet/);
 });
 
 test('#4794: a confirm code that is not six digits is refused without spawning', async () => {
   enrol();
-  for (const bad of ['12345', 'AB-12', '', '1234567', null]) {
+  /* '482915' is six digits with no space: the tunnel's code is "482 915" (pairsas.rs) and it compares exactly. */
+  for (const bad of ['12345', 'AB-12', '', '1234567', '482915', '482  915', null]) {
     const r = await remote.joinConfirm(bad);
     assert.equal(r.ok, false, String(bad));
   }

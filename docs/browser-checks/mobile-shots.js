@@ -175,7 +175,7 @@ const consAgentsStill = (want) => async (page) => {
 /* #4637: two waiting requests for the connect screens, and an Allow that answers. */
 async function connectPending(page) {
   let devices = [
-    { device_id: 'd-sample-pc', name: 'windowsbox', code: '482915', first_seen: Math.floor(Date.now() / 1000) - 30, denied_at: 0, joining_computer: 'windowsbox' },
+    { device_id: 'd-sample-pc', name: 'windowsbox', code: '482 915', first_seen: Math.floor(Date.now() / 1000) - 30, denied_at: 0, joining_computer: 'windowsbox' },
     { device_id: 'd-sample-ph', name: 'iPhone', code: 'K7-4M', first_seen: Math.floor(Date.now() / 1000) - 90, denied_at: 0, joining_computer: null }];
   await page.route('**/api/remote/pending', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ email: 'owner@example.com', snapshot: true, devices }) }));
   await page.route('**/api/remote/devices/allow', (r) => { devices = devices.filter((d) => d.device_id !== 'd-sample-pc'); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
@@ -185,7 +185,7 @@ async function joinWaiting(page) {
   const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
   await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
   await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
-    body: JSON.stringify({ supported: true, held: true, join_code: '482915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
+    body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
 }
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
