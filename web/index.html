@@ -1239,7 +1239,7 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 /* Mona Lisa, 2026-10-03: the Claude-unreachable line (#conn) is a warning too, and it shows on the same day as an
    expiring login, so it moves down the same way. Only when the Allow card is hidden: a showing Allow card already
    moved down and #conn follows it in the flow. The agent talk view gives #conn its own top gap, plus the stack. */
-#askcard[hidden] + #conn { margin-top: var(--topnotes-h, 0px); }
+#askcard[hidden] + #conn { margin-top: var(--topnotes-clear, 0px); }
 body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard[hidden] + #conn:not([hidden]) {
   margin-top: calc(var(--space-6) + var(--topnotes-h, 0px)); }
 /* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
@@ -21256,7 +21256,11 @@ function paintLoginAdvisories(advs) {
   const stack = document.getElementById('topnotes');
   if (!stack) return;
   new ResizeObserver(() => {
-    document.documentElement.style.setProperty('--topnotes-h', Math.ceil(stack.getBoundingClientRect().height) + 'px');
+    const h = Math.ceil(stack.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--topnotes-h', h + 'px');
+    /* What a warning in the page flow moves down by to clear the stack: its height plus the 8px it floats below the
+       header plus 8px of air, and 0 when nothing shows, so no notice means no shift (Mona Lisa, #conn, 2026-10-03). */
+    document.documentElement.style.setProperty('--topnotes-clear', (h ? h + 16 : 0) + 'px');
   }).observe(stack);
 })();
 function loginAdvDismissed() {

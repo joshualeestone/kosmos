@@ -150,6 +150,14 @@ async function measure(page, view, notice) {
       else if (c.connTop < c.stackBottom) problems.push(`${where}: the line starts at ${c.connTop}, under the notice (stack bottom ${c.stackBottom}); it must move below it`);
       else console.log(`  PASS  ${where}: the line starts at ${c.connTop}, below the notice stack (bottom ${c.stackBottom})`);
       await page.evaluate(() => { const c = document.getElementById('conn'); c.hidden = true; c.textContent = ''; });
+      // And with no notice the line does not move at all (the clearance is 0, not a fixed gap).
+      await measure(page, view, false);
+      await page.evaluate(() => { const c = document.getElementById('conn'); c.hidden = false; c.textContent = 'Kosmos cannot reach a Claude subscription.'; });
+      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+      const mt = await page.evaluate(() => getComputedStyle(document.getElementById('conn')).marginTop);
+      if (mt !== '0px') problems.push(`${width}px ${view} with no notice: the Claude-unreachable line is pushed down by ${mt}; with nothing floating it must not move`);
+      else console.log(`  PASS  ${width}px ${view} with no notice: the line keeps its place (margin-top 0px)`);
+      await page.evaluate(() => { const c = document.getElementById('conn'); c.hidden = true; c.textContent = ''; });
     }
     await page.close();
   }
