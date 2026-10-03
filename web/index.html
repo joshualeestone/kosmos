@@ -4539,9 +4539,15 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjfaces {
   grid-column: 3; grid-row: 1; justify-self: end; align-self: center; margin: 0; min-width: 0; overflow: visible; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 4; grid-row: 1; justify-self: end; }
-/* #5070: "Done not set" on the Roadmap row's one line, in its own track before the count, at its own size: the same
-   place on every row, and the row stays one line (the outline stays dense, the fold caret stays centred on the name). */
+/* #5070: "Done not set" on the Roadmap row's one line, in its own track at the start of the right-hand cluster (just
+   left of the count when there is one), at its own size; the row stays one line on a desktop (the outline stays dense,
+   the fold caret stays centred on the name). */
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 2; grid-row: 1; justify-self: end; align-self: center; margin-top: 0; }
+/* #5070 round 2: on a phone the tag, the count and the status would leave the name almost no room (the auto tracks take
+   theirs first), so there the tag goes under the name, at its own size; the name is what a person reads first. */
+@media (max-width: 40rem) {
+  body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; grid-row: 2; justify-self: start; }
+}
 
 /* The fold caret, shown for any parent row (the base `#pj-list .pjtreefold`
    display:none is out-specified here). Absolute in the reserved gutter so leaves and
@@ -8488,7 +8494,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   display: flex; flex-direction: column; gap: 4px; }
 .orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
 /* #4583: "Done not set" on a project's row: a small outlined tag in the row's secondary ink, readable, not an alarm. */
-.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px;
+.pj-doneunset { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 100px; white-space: nowrap;
   border: 1px solid var(--border-strong); color: var(--label-2); font: var(--text-footnote, 600 .75rem/1.4 var(--font-ui)); }
 /* #4559: each previewed person can be put under someone else, and a line the reader was not sure of
    says why and waits for "Looks right" before Create is allowed. */

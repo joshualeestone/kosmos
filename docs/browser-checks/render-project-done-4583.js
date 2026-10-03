@@ -148,18 +148,24 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
         const head = row.querySelector('.pjcard-h') || row;
         const added = [];
         if (!row.querySelector('.pjfaces')) { const f = document.createElement('span'); f.className = 'pjfaces'; f.innerHTML = '<span class="pjcount">3 agents</span>'; head.appendChild(f); added.push(f); }
-        if (!row.querySelector('.pjpill')) { const s = document.createElement('span'); s.className = 'pjpill'; s.textContent = 'Working'; head.appendChild(s); added.push(s); }
+        // The pill as pjPillOf draws Working: its three-dot glyph, then the label (round 2: without the glyph it was ~20 px narrow).
+        if (!row.querySelector('.pjpill')) { const s = document.createElement('span'); s.className = 'pjpill'; s.innerHTML = '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>Working'; head.appendChild(s); added.push(s); }
         const full = { tag: box(tag), name: box(name), faces: box(row.querySelector('.pjfaces')), pill: box(row.querySelector('.pjpill')), rowH: Math.round(row.getBoundingClientRect().height) };
         for (const el of added) el.remove();
         return { found: true, roadmap: document.body.classList.contains('pj-roadmap'), added: added.length, plain, full };
       });
-      const onLine = (x) => Math.abs(x.mid - m.full.name.mid) <= 4;
-      ok(`#5070 roadmap @${vw}: with an agent count and a status, "Done not set" keeps its size and place, on the name's line`,
-        m.found && m.roadmap && m.added === 2 && onLine(m.full.faces) && onLine(m.full.pill)
-          && m.full.tag.w === m.plain.tag.w && m.full.tag.w < 200
-          && m.full.tag.r <= m.full.faces.l && m.full.faces.l - m.full.tag.r <= 16 && m.full.tag.l > m.full.name.l
-          && onLine(m.full.tag) && Math.abs(m.plain.tag.mid - m.plain.name.mid) <= 4 && m.full.rowH === m.plain.rowH,
-        JSON.stringify(m));
+      const onLine = (x) => Math.abs(x.mid - m.full.name.mid) <= 3;
+      // Both widths: the injected cells are on the name's line (else the arm tests nothing), the tag keeps its size, and
+      // the NAME keeps room to be read (round 2: on a phone the right-hand tracks could squeeze it to nothing).
+      const common = m.found && m.roadmap && m.added === 2 && onLine(m.full.faces) && onLine(m.full.pill)
+        && m.full.tag.w === m.plain.tag.w && m.full.tag.w < 200 && m.full.name.w >= 60;
+      // Desktop: on the name's line, directly left of the count (one 12 px gap), the row still one line.
+      // Phone: under the name, at the name's left edge.
+      const placed = vw > 640
+        ? onLine(m.full.tag) && Math.abs((m.full.faces.l - m.full.tag.r) - 12) <= 1 && m.full.rowH === m.plain.rowH
+        : Math.abs(m.full.tag.l - m.full.name.l) <= 2 && m.full.tag.mid > m.full.name.mid + 8;
+      ok(`#5070 roadmap @${vw}: with an agent count and a status, "Done not set" keeps its size and its place, and the name keeps room`,
+        common && placed, JSON.stringify(m));
     }
     await p.setViewportSize({ width: 1400, height: 900 });
     await p.evaluate((l) => layoutApply('projects', l), layoutBefore);
