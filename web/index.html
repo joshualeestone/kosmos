@@ -48065,13 +48065,22 @@ async function changeProviderNow(say) {
       const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '' };
       if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
       /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
-      CURRENT.modelName = null; CURRENT.plannedModelName = null;
+      CURRENT.modelName = null;
+      // Round 5: Claude starts on its own default model, said in the server's own words (markGuide), never "Unknown Model".
+      CURRENT.plannedModelName = want === 'anthropic' ? 'Claude (its default model)' : null;
       /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
          would disable Move for an agent that is on main. */
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
       CURRENT.account = want === 'anthropic'
         ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (mainClaude ? { dir: mainClaude.dir } : null))
-        : null;
+        : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null);   // round 5: OpenAI/Gemini/Grok keep the sent account too
+      /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
+      {
+        const drun = document.getElementById('d-runson');
+        const row = CURRENT.account && (ACCOUNTS || []).find((x) => x && x.dir === CURRENT.account.dir);
+        const who = row ? (row.email || row.label || '') : '';
+        if (drun) { drun.textContent = 'Right now: '; const b = document.createElement('b'); b.textContent = runsOnWord || ''; drun.appendChild(b); if (who) drun.appendChild(document.createTextNode(' (' + who + ')')); }
+      }
       accountsDropped();
       try { await paintAccountPicker(CURRENT); } catch { /* the switch's own sentence is the answer */ }
       try { if (CURRENT && CURRENT.sessionName === forAgent) await paintModelPicker(CURRENT); } catch { /* same */ }

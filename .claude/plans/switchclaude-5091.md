@@ -76,12 +76,18 @@ account and need a second restart.
   Measured 23:06 (light turn): the browser check 16/16 on the branch. My first post-switch arm expected the picked account
   among the Move menu's DESTINATIONS; the menu's first option names the account it is ON and lists the others, so the arm
   now asserts that (on b@example.com, main offered). Engine 8/8, guards 25/25.
-- Round 4 (sonnet, blind): 1 BLOCKER, 3 SHOULD-FIX, 2 NIT. BLOCKER (my round-3 fix was wrong): I nulled `CURRENT.model`, a
-  field rows do not have; modelName/plannedModelName kept the old runner's model, so the model menu led with "Claude GPT 5.6
+- Round 4 (sonnet, blind): 1 BLOCKER, 3 SHOULD-FIX, 2 NIT. BLOCKER (my round-3 fix was wrong): I nulled `CURRENT.model`, which no page
+  reader uses [CORRECTED round 5: rows do carry `model` (engine/status.js); it is unread here]; modelName/plannedModelName kept the old runner's model, so the model menu led with "Claude GPT 5.6
   Sol". Both are nulled now; the check seeds a stale modelName and asserts the model row drops it (mutant without the fix
   reproduces exactly "Claude GPT 5.6 Sol", red; the branch green). SF3 taken: a partial, or no account sent, put the agent
   on account null and disabled Move; it is now the main Claude account. Not taken, recorded: SF4 the next poll replaces the
   patched CURRENT with polled data (stale for a few seconds while the runner restarts; the panel is not repainted by the
   poll either way); NIT5 a machine with NO Claude rows gets no picker and no refusal (pre-existing behaviour); NIT6 the
   partial route reply is covered at the engine level only (the browser mock answers 'changed').
-- Round 5: PENDING.
+- Round 5 (opus, blind): 0 BLOCKER, 3 SHOULD-FIX, 2 NIT; taken but NIT2. SF1 (measured by lifting acctMoveWorld): after a switch
+  to OpenAI/Gemini/Grok on a picked account the Move row named the default; the sent account is kept for those too. SF2:
+  "Right now: <name> (<account>)" kept the OLD account in brackets; rebuilt from the new account. SF3 (measured): the Claude
+  model row said "Unknown Model" (rejected wording, #3739/#4569); plannedModelName is "Claude (its default model)", the
+  server's own words. NIT1: the check asserts that first option and the Right now line. Not taken: NIT2 (after a switch to
+  Gemini/Grok the model menu says "picks its own model" until reopened, while the card names Kosmos's pinned default).
+- Round 6: PENDING.
