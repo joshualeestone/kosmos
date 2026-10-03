@@ -21,3 +21,9 @@ converged: true
 - [STRENGTH] The #5195 line cannot double: a repeat hello takes the pinned-peer branch, concurrent hellos are serialised by sealStep and re-checked, and a second member finds hasKey already true. A crash between setRoomState and say loses the line rather than doubling it (named in the plan).
 - [STRENGTH] The pre-key wording stays covered by the existing test "while an owner waits for someone to join, a post says exactly that".
 - [NIT] On the refused-edge (exit 3) waiting path, "now" is no less accurate than the old "yet" was. Kept, pre-existing.
+
+### Author's controls
+- Against main's engine/fedseats.js: both new tests red (#5195: no sealed line on the owner; #5194: the "has joined yet" wording after a revoke). Restored, 72/72.
+- The #5195 test asserts 0 sealed lines before any hello, 1 after the first, and still 1 after a repeat hello, so it reds on a missing line and on a doubled one.
+- The #5194 test asserts the new sentence is present AND the old "nobody outside has joined" is absent.
+- web.fed-plus-gate and web.federation-3312 first failed with ENOENT web/index.html when run from outside the repo. That is a relative-path read, the same on main; from the repo root they pass 23/23.
