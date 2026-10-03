@@ -92,14 +92,27 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Not changed: in connect mode a cross-origin `<a download>` keeps the connect link policy (it opens
   in the browser, or on the other Kosmos+ computer), which is visible, not silent.
 
+## Review round 7 changes
+- Kosmos+'s own sites (login, community, www) are not board pages. Every other Kosmos+ computer is:
+  the tunnel only forwards for devices admitted to the person's own account (kosmos-relay
+  crates/tunnel), so the computers this window can reach are the person's own. Reasoned, not
+  measured; would change my mind: a Kosmos+ page reachable without admission.
+- The unmarked-file message has its own title (it was saved).
+- Live selftest: a page that is not the board (localhost) asking for its own same-origin download is
+  refused, said, and stays (sabotage: board check removed turns 3 rows red); the board's real
+  `filename*=UTF-8''` header is measured with a non-ASCII name. 15 rows.
+- -999 is read only in NSURLErrorDomain; more invisible characters dropped; the selftest does not
+  bounce the build box's Dock.
+- Not changed: the redirect-then-navigate case (#5169).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
 (Content-Disposition passthrough) are reasoned, not observed.
 
 ## Tests (current)
-- Pure functions: `--kosmos-app-mode-selftest`, 75 rows in all (the #5167 ones: same-origin, board
+- Pure functions: `--kosmos-app-mode-selftest`, 77 rows in all (the #5167 ones: same-origin, board
   page, destination name).
-- Live: 13 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
+- Live: 15 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
 - Wiring: `native-app.download-5167.test.js`.

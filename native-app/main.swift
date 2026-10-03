@@ -321,8 +321,7 @@ func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
 /// #5167: PURE, for --kosmos-app-mode-selftest. Whether a download the page asked for (an `<a download>`
 /// click, or a response sent as an attachment) is SAVED by this app. Only from the page's own origin: the
 /// board's files over Kosmos+ (#4930's attachments, #5165's Files lists) or on this computer. Scheme, host
-/// and port must all match; a missing port is
-/// the scheme's default, so `https://x.kosmosplus.com:443` is the same origin as `https://x.kosmosplus.com`.
+/// and port must all match; a missing port is the scheme's default, so `https://x.kosmosplus.com:443` is the same origin as `https://x.kosmosplus.com`.
 func isSameOriginDownload(_ target: URL, page: URL?) -> Bool {
     guard let page = page else { return false }
     func origin(_ u: URL) -> (String, String, Int)? {
@@ -341,7 +340,11 @@ func isSameOriginDownload(_ target: URL, page: URL?) -> Bool {
 /// ends up in the window is neither, so it cannot save its own files.
 func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
     guard let page = page else { return false }
-    if isKosmosPlusURL(page) { return true }
+    if isKosmosPlusURL(page) {
+        // Kosmos+'s own sites (sign-in, the public community feed) are not a computer's board.
+        let label = page.host?.lowercased().split(separator: ".").first.map(String.init) ?? ""
+        return !["login", "community", "www"].contains(label)
+    }
     guard let board = board, page.user == nil, let scheme = page.scheme?.lowercased(),
           scheme == "http" || scheme == "https", let host = page.host?.lowercased()
     else { return false }
@@ -359,8 +362,8 @@ func downloadDestination(dir: URL, suggested: String, exists: (URL) -> Bool) -> 
         if s.value < 0x20 || s.value == 0x7f { return " " }
         return Character(s)
     }.filter { c in   // direction controls would let "x\u{202E}fdp.app" show as a .pdf in Finder
-        !c.unicodeScalars.contains { (0x200B...0x200F).contains($0.value) || (0x202A...0x202E).contains($0.value)
-                                     || (0x2060...0x2069).contains($0.value) || $0.value == 0xFEFF }
+        !c.unicodeScalars.contains { (0x200B...0x200F).contains($0.value) || (0x2028...0x202E).contains($0.value)
+                                     || (0x2060...0x2069).contains($0.value) || [0xFEFF, 0x061C, 0x00AD].contains($0.value) }
     }).trimmingCharacters(in: .whitespacesAndNewlines)
     while name.hasPrefix(".") { name.removeFirst() }
     name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2709,9 +2712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         /* #5167: a download the page asked for (`<a download>`: #4930's attachments, #5165's Files lists
-           over Kosmos+) is SAVED, on any computer. WebKit saves nothing without this: `.allow` on such a
-           click did nothing at all. Only from the page's own origin (isSameOriginDownload); anything else
-           falls through to the policy below unchanged. */
+           over Kosmos+) is SAVED when the page is a board and the file is from its origin. */
         if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
             decisionHandler(.download)
@@ -2741,9 +2742,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    /* #5167: a response sent as an attachment (`Content-Disposition: attachment`) from the committed
-       page's own origin is saved rather than shown. Any other response is shown if WebKit can show its
-       type and cancelled if not.
+    /* #5167: what each response does, in the order below: an attachment from the board's origin is saved,
+       one from anywhere else is refused and said; a board file the window cannot show is saved; anything
+       else is shown if WebKit can show its type and cancelled if not.
        📌 PINNED selector, as above: a near-miss Swift signature compiles and is never called. */
     @objc(webView:decidePolicyForNavigationResponse:decisionHandler:)
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
@@ -2797,10 +2798,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
     private var downloadsTold: Set<ObjectIdentifier> = []
 
-    private func tellDownloadFailed(_ detail: String) {
+    private func tellDownloadFailed(_ detail: String, title: String = "Kosmos could not save that file") {
         if let present = AppDelegate.downloadAlertPresenter { present(detail); return }
         let alert = NSAlert()
-        alert.messageText = "Kosmos could not save that file"
+        alert.messageText = title
         alert.informativeText = detail
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
@@ -2880,10 +2881,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         do { try marked.setResourceValues(values) } catch {
             // Kept, as Safari keeps a download it cannot mark (a Downloads folder on a disk without the mark).
             logLine("#5167: could not mark \(dest.lastPathComponent) as downloaded: \(error.localizedDescription)")
-            tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.")
+            tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.",
+                               title: "Kosmos saved that file without its download mark")
         }
-        DistributedNotificationCenter.default().post(name: Notification.Name("com.apple.DownloadFileFinished"),
-                                                     object: dest.path)
+        if AppDelegate.downloadsDirOverride == nil {   // the selftest does not bounce the build box's Dock
+            DistributedNotificationCenter.default().post(name: Notification.Name("com.apple.DownloadFileFinished"),
+                                                         object: dest.path)
+        }
     }
 
     @objc(download:didFailWithError:resumeData:)
@@ -2893,7 +2897,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
         // it did not start (WebKit refusing a download on its own) is said like any other failure.
         if downloadsTold.remove(ObjectIdentifier(download)) == nil {
-            if dest == nil && (error as NSError).code == NSURLErrorCancelled {
+            if dest == nil && (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled {
                 // WebKit stopped it before it had anywhere to go: measured for a redirect to another origin.
                 tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.")
             } else {
@@ -4999,12 +5003,17 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=redir2 href=/redir2 download>g</a>"
                 + "<a id=missing href=/missing download=missing.txt>h</a>"
                 + "<a id=zip href=/pack.zip>i</a>"
+                + "<a id=attstar href=/attstar>j</a>"
                 + "<a id=foreign href=http://localhost:\(port)/foreign.txt download>d</a>"
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
                 + "<a id=last href=/last.txt download>f</a>"
                 + "<script>window.__probeReady = 1;</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
+        case "/attstar": return ok("Content-Disposition: attachment; filename*=UTF-8''%E6%96%87.txt\r\n")   // the board's own shape (server.js)
+        case "/elsewhere":
+            let page = "<!doctype html><meta charset=utf-8><a id=nb href=/nb.txt download>x</a><script>window.__probeReady = 1;</script>"
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att2": return ok("Content-Disposition: attachment; filename=\"att2.txt\"\r\n")
         case "/pack.zip":
             let z = "PK not really a zip"
@@ -5046,6 +5055,27 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         poll(150)
     }
     var leftBoard: [String] = []
+    var notBoardStayed = false
+    /* A page that is not the board (localhost on the same port: not the host the board was loaded as)
+       asking for a download from its own origin: refused, said, and the page stays. */
+    func notBoard(then: @escaping () -> Void) {
+        web.load(URLRequest(url: URL(string: "http://localhost:\(port)/elsewhere")!))
+        func poll(_ tries: Int) {
+            web.evaluateJavaScript("window.__probeReady === 1 && location.host === 'localhost:\(port)'") { r, _ in
+                if (r as? Bool) == true {
+                    web.evaluateJavaScript("document.getElementById('nb').click()") { _, _ in }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        notBoardStayed = web.url?.path == "/elsewhere"
+                        then()
+                    }
+                    return
+                }
+                guard tries > 0 else { print("download selftest TIMED OUT: the non-board page never loaded"); exit(1) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
+            }
+        }
+        poll(150)
+    }
     func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
     /* A click that should save a file waits for that file (up to 10s), so a busy build box cannot fail a
        good product on a fixed sleep. One that should save nothing waits 2s, and a same-origin download
@@ -5069,7 +5099,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             row(saved("same.txt"), "a same-origin <a download> is saved")
@@ -5083,8 +5113,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             let q = getxattr(dl.appendingPathComponent("same.txt").path, "com.apple.quarantine", nil, 0, 0, 0)
             row(q > 0, "a saved file carries the quarantine mark")
             let all = (try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []
-            row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 3, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment), and nothing else is (told: \(told.count))")
+            row(saved("\u{6587}.txt"), "the board's own attachment header (filename*=UTF-8'') is saved under its decoded name")
+            row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
+            row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
+            row(told.count == 4, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, not-the-board page), and nothing else is (told: \(told.count))")
             row(told.contains { $0.contains("answered 404") } && told.contains { $0.contains("does not save from") },
                 "and each is said in its own words")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
@@ -5092,11 +5124,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (left the board on: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 13
+            let expected = 15
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } }
+        } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
@@ -5887,6 +5919,8 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         print((got == want ? "PASS  " : "FAIL  ") + (got ? "board" : "not").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
     }
     board("https://josh.kosmosplus.com/#kst=abc", true, "a Kosmos+ computer is a board page")
+    board("https://login.kosmosplus.com/", false, "KOSMOS+ SIGN-IN IS NOT A BOARD")
+    board("https://community.kosmosplus.com/", false, "THE PUBLIC COMMUNITY FEED IS NOT A BOARD")
     board("http://127.0.0.1:16180/", true, "this computer's own board is a board page")
     board("https://stripe.com/pay", false, "A FOREIGN SITE IN THE WINDOW CANNOT SAVE ITS OWN FILES")
     board("http://example.com/", false, "nor can a foreign http site")
@@ -5939,7 +5973,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
     try? FileManager.default.removeItem(at: dir)
-    let expected = 75
+    let expected = 77
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
