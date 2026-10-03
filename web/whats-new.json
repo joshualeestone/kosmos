@@ -4,7 +4,7 @@
     {
       "icon": "chat",
       "title": "A sign-in notice you can close",
-      "line": "The notice that an agent's sign-in expired now floats over the page instead of pushing it down, names the account, and has an X."
+      "line": "The warning that your agents' sign-in is ending now floats over the page instead of pushing it down, names the account, and has an X."
     },
     {
       "icon": "shield",

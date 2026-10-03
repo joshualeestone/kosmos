@@ -31,3 +31,7 @@ main for 0.7.20 (tools/whats-new-check.js).
 - 22:00: #5018 re-land line ADDED as line 1 against PR #5089 (head 61141e5ed, NOT yet merged): "The notice that an agent's
   sign-in expired now floats over the page instead of pushing it down, names the account, and has an X." This PR merges
   only after #5089 merges; re-check the line against the merged diff then.
+- Review vs PR #5089 (sonnet): FIXED W: "sign-in expired" overclaimed (the notice also shows BEFORE expiry, warn and urgent
+  states, and can cover several agents on one account); now "The warning that your agents' sign-in is ending now floats
+  over the page instead of pushing it down, names the account, and has an X." Checked: floats in .topnotes under the
+  header; names provider, email and agents; the X persists per browser until the state changes.
