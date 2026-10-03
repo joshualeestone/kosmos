@@ -26,6 +26,15 @@ instruction-only, measured before merge; editable checks and a home for no-proje
   - given as task 3: 2/2 added none, messaged the checks, and marked task 3 built
   - small talk 1/1 filed nothing
 
+- v4 text (review round 3 added single quotes for a check with a backtick or $, one task between agents asked in one
+  room, and work outside every project going in the reply):
+  - a work request 1/1 listed first, filed with Done when, and marked built reporting each check
+  - given as task 3: 1/1 added none, messaged the checks onto task 3, marked it built
+  - small talk 1/1 filed nothing
+  - work outside every project (a wedding toast) 1/1 filed no task; whether its reply held checks is not visible to the
+    stand-in (the reply goes over stdin)
+- Content test proven able to fail: a mutant ("add a task each") reds the #5152 test and the fingerprint.
+
 ## Steps
 - [x] Section text, measured; rewrapped to the block's width.
 - [x] Version 24, log entry, pin, doctrine-past rows.
@@ -37,4 +46,6 @@ instruction-only, measured before merge; editable checks and a home for no-proje
 - The agent cannot read its checks back later: `kosmos task list` shows only the task's first line; the checks are in
   its detail. An agent restarted mid-task loses them. A `task show` verb, or the editable-checks slice, closes it.
 - Codex and Gemini agents not measured.
+- `kosmos task add` does not print the new task's number (install/kosmos and tools/windows/kosmos-cli.js), so the
+  section has the agent run `kosmos task list` right after. Follow-up for both CLIs to print it; routed to Splinter.
 - tools/doctrine-past.js regenerated here drops two v21 rows that main carries; kept main's rows by hand. Worth a card.
