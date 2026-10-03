@@ -49,7 +49,7 @@ test('#5167: only a same-origin attachment response is saved; every other respon
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
   assert.match(b, /\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)\n\s+\} else \{[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
     'an attachment is saved without the exact-token, board-page and same-origin checks, or a refused one loads in the window');
-  assert.equal((b.match(/decisionHandler\(/g) || []).length, 4, 'the response policy has a path that never answers, or a new one');
+  assert.equal((b.match(/decisionHandler\(/g) || []).length, 5, 'the response policy has a path that never answers, or a new one');
   // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
   // would fail a provisional load (a "cannot show" error reaching handleNavigationFailure) instead.
   assert.match(b, /decisionHandler\(navigationResponse\.canShowMIMEType \? \.allow : \.cancel\)\n\s+\}$/,
@@ -136,7 +136,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
   assert.match(hatch, /AppDelegate\.downloadsDirOverride = dl/, 'the selftest would write into the real Downloads');
   assert.match(hatch, /d\.webView = web/, 'the hatch does not wire webView as the app does; a provisional failure would crash it');
   for (const row of ['A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING', 'a download link to another origin saves nothing',
-    'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries the quarantine mark', 'a same-origin <a download> is saved']) {
+    'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
   assert.match(hatch, /let expected = 15\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
@@ -180,4 +180,16 @@ test('#5167 review 7: Kosmos+ service sites are not boards; the unmarked-file me
   assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String = "Kosmos could not save that file"\)/);
   assert.match(body('@objc(downloadDidFinish:)'), /title: "Kosmos saved that file without its download mark"/,
     'a kept file is reported under a title saying it was not saved');
+});
+
+test('#5167 review 9: a frame cannot save by loading; refusals are said at most once in a quiet window; the unmarked alert needs no mark at all', () => {
+  const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
+  const guardAt = b.indexOf('guard navigationResponse.isForMainFrame else {');
+  assert.ok(guardAt !== -1 && guardAt < b.indexOf('"attachment"'), 'a subframe response can be saved, or refused with an alert, just by loading');
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String');
+  assert.match(tell, /if let last = lastDownloadTold, Date\(\)\.timeIntervalSince\(last\) < AppDelegate\.downloadQuietSeconds \{/, 'a page clicking in a loop can stack sheets');
+  assert.ok(tell.indexOf('lastDownloadTold = Date()') < tell.indexOf('downloadAlertPresenter'), 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
+  assert.match(SRC, /static var downloadQuietSeconds: TimeInterval = 5\n/);
+  assert.match(body('@objc(downloadDidFinish:)'), /guard getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 else \{ return \}/,
+    'the person is told a file is unmarked when WebKit\'s own mark is on it');
 });
