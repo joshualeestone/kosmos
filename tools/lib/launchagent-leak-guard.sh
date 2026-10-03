@@ -61,8 +61,11 @@ launchagent_snapshot() {
 #     expected to sandbox AGENT_WORKFORCE_WORKERS into a temp dir; that is a per-test convention, not enforced
 #     here (run-tests.sh exports none), so the real backstop is #3605, below.
 # <live_root> is the optional 4th argument, default $HOME/work/workers (the product's default,
-# store.workersRootFor); "/" turns the skip off (an empty root matches nothing). Each skip is written to the
-# optional 3rd argument (a file) so the runner can say so.
+# store.workersRootFor); an empty 4th argument also means the default (${4:-...}), and "/" turns the skip off
+# (it trims to an empty root, which launchagent_live_owned refuses). Each skip is written to the optional 3rd
+# argument (a file) so the runner can say so. The WorkingDirectory is read by launchagent_leak_origin, which
+# takes the one-line form create.js writes; a multi-line plist from another writer reads empty and is not
+# skipped (it reds, the safe direction).
 # Weakest premise: a writer that rewrites a REAL pre-existing plist AND keeps its real WorkingDirectory now
 # passes. #3605 refuses in-process fs writes into the real LaunchAgents under node --test (launch-guard.js) and
 # create.js refuses under NODE_TEST_CONTEXT; NOT covered: a child spawned with a scrubbed env and no preload, or

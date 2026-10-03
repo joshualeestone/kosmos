@@ -231,9 +231,12 @@ else
 fi
 rm -f "$D/com.kosmos.agent.offagent.plist"
 rm -f "$D/com.kosmos.agent.homeagent.plist" "$D/com.kosmos.agent.liukang.plist" "$NOTES"
-printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_leak_check[^)]*_la_live_notes' \
-  && pass "#5092: run-tests.sh passes a notes file to the leak check" \
-  || fail "#5092: run-tests.sh does not pass the notes file, so a live skip would be silent"
+printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_leak_check[^)]*_la_live_notes[^)]*_la_live_root' \
+  && pass "#5092: run-tests.sh passes the notes file and the live root to the leak check" \
+  || fail "#5092: run-tests.sh does not pass the notes file and live root, so a live skip could be silent"
+printf '%s\n' "$RT_CODE" | grep -qE 'la-live-notes[^|]*\|\|[[:space:]]*\{[[:space:]]*_la_live_notes=""[[:space:]]*;[[:space:]]*_la_live_root="/"' \
+  && pass "#5092: when run-tests.sh cannot make the notes file it passes live root / (the skip is off, never silent)" \
+  || fail "#5092: run-tests.sh's no-notes fallback no longer turns the skip off"
 
 # FAIL-SOFT: an empty/absent dir or missing baseline returns clean rather than reddening
 # the suite on its own bookkeeping. Both arms of the guard clause are exercised.

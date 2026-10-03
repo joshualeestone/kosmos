@@ -23,8 +23,9 @@ launch-guard.js refuses any test's write into the real LaunchAgents under node -
 Also: a live install with AGENT_WORKFORCE_WORKERS set elsewhere is not covered (the default root only).
 
 ## Tests
-`tools/test-launchagent-leak-guard-3011.sh`: + 10 legs (skip + note; NEW-under-live control; five modified
-shapes that must red: sandbox, nested, root, look-alike, `..`; default root from $HOME; runner passes notes).
+`tools/test-launchagent-leak-guard-3011.sh`: + 15 legs (skip + note; NEW-under-live control; six modified
+shapes that must red: sandbox, nested, root, look-alike, `..`, trailing slash; an XML-escaped root reds; default
+root from $HOME; "/" turns the skip off; runner passes notes + live root; runner's no-notes fallback is "/").
 Sabotages: S1 (drop "was in snapshot") -> the NEW control reds; S2 (everything live-owned) -> all five shapes
 and the original modify control red; S3 (no skip) -> the skip, note and default-root legs red.
 Replayed on the REAL Mortals liukang plist (copied read-only): live-owned under /Users/mortalkombat/work/workers,
@@ -42,3 +43,9 @@ not under another root. 10 shell tests touching run-tests.sh pass (test-install.
 - Sabotages on the final code: S1 drop "was in snapshot" -> the NEW control reds; S2 everything live-owned -> all
   shape controls red; S3 no skip -> skip, note and default-root legs red; S4 drop the empty-root check -> the "/"
   leg reds (it did NOT before the leg used a one-segment path; fixed).
+- Review 2 (sonnet, blind): 0 B, 2 W, 3 N. W1 the runner's no-notes fallback was untested -> a leg pins it (and
+  the live-root argument). W2 the note now names the other possible writer (a concurrent older checkout's suite).
+  N1 plan numbers; N2 the live-root argument is quoted (empty means the default either way) and the comment says
+  so; N3 the one-line WorkingDirectory read is stated (a multi-line plist reds, the safe direction).
+- Sabotage S5 (the runner's no-notes fallback removed) -> the fallback leg reds. S1 to S4 unchanged (lib untouched
+  in review 2 except comments).
