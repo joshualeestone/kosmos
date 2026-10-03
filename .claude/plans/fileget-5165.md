@@ -62,6 +62,10 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   Rejected: zipping a folder for download (new, large, and not asked for); hiding the buttons (a button that
   vanishes over Kosmos+ is a second layout to keep right; the sentence says why).
 - Not changed: the attachment preview's reveal (already Download over Kosmos+, #4930).
+- Not changed, by design: the first-run permission buttons (frFirePermission's settings fallbacks). First run happens
+  at the computer, and Kosmos+ access exists only after a Kosmos+ sign-in, which comes after it, so the first-run
+  screens are not reachable over Kosmos+ (review 9).
+- A refusal under a download says "download", not "open": fileInFolder takes the verb (`act`), open by default.
 - Known limit, not refused: a HARD LINK inside a folder to a file outside it downloads (realpath cannot see one).
   Only the same user can make one, and an agent that could make one can already copy the same file into its Files,
   so refusing nlink > 1 would buy nothing and would refuse legitimate files (Baron, NIT).
@@ -111,5 +115,5 @@ Windows; it is platform-free Node, and the Mac server test covers it.
 - server.file-download-5165.test.js: bytes and headers for a project file and an agent file; HEAD; every open
   gate refuses on download too (escape, a link out, absolute path, a folder, missing, no name) without leaking;
   POST is 405; open at the computer still calls the opener.
-- docs/browser-checks/render-remote-file-download-5165.js: R1/R2 over Kosmos+, L1 control at the computer;
+- docs/browser-checks/render-remote-file-download-5165.js: R1 to R3 over Kosmos+ (trusted clicks), L1 control at the computer;
   against origin/main's page R1 and R2 fail.

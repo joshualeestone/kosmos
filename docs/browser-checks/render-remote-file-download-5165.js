@@ -116,10 +116,12 @@ async function settle(ready, ms = 4000) {
   return ready();
 }
 
-/* A file row in one of the page's real lists, clicked: the delegated handler on the list answers. `until` (optional)
-   is waited for before the row is taken away; without it a short settle lets anything that would happen, happen. */
+/* A file row in one of the page's real lists, clicked: the delegated handler on the list answers. The click is a REAL
+   one (Playwright's mouse), so the download starts inside a user gesture as it does for a person; the row's hidden
+   ancestors are shown for the click and put back after. `until` (optional) is waited for before the row is taken
+   away; without it a short settle lets anything that would happen, happen. */
 async function clickRow(pg, listId, name, cls, until) {
-  const before = await pg.evaluate(({ listId, name, cls }) => {
+  const placed = await pg.evaluate(({ listId, name, cls }) => {
     const list = document.getElementById(listId);
     if (!list) return 'no #' + listId;
     const b = document.createElement('button');
@@ -128,13 +130,31 @@ async function clickRow(pg, listId, name, cls, until) {
     if (cls === 'refgo') b.dataset.ref = name; else b.dataset.doc = name;
     b.textContent = name;
     b.setAttribute('data-fileget-test', '');
+    b.style.cssText = 'position:fixed;left:8px;top:8px;z-index:2147483647;display:block;visibility:visible;';
     list.appendChild(b);
-    b.click();
+    window.__filegetShown = [];
+    for (let n = list; n && n !== document.documentElement; n = n.parentElement) {
+      if (n.hidden || getComputedStyle(n).display === 'none' || getComputedStyle(n).visibility === 'hidden') {
+        window.__filegetShown.push([n, n.hidden, n.getAttribute('style')]);
+        n.hidden = false;
+        n.style.setProperty('display', 'block', 'important');
+        n.style.setProperty('visibility', 'visible', 'important');
+      }
+    }
     return '';
   }, { listId, name, cls });
+  if (placed) return placed;
+  await pg.click('[data-fileget-test]', { timeout: 3000 });
   if (until) await settle(until); else await pg.waitForTimeout(400);
-  await pg.evaluate(() => document.querySelectorAll('[data-fileget-test]').forEach((n) => n.remove()));
-  return before;
+  await pg.evaluate(() => {
+    document.querySelectorAll('[data-fileget-test]').forEach((n) => n.remove());
+    for (const [n, hidden, style] of (window.__filegetShown || [])) {
+      n.hidden = hidden;
+      if (style === null) n.removeAttribute('style'); else n.setAttribute('style', style);
+    }
+    window.__filegetShown = [];
+  });
+  return '';
 }
 
 async function clickButton(pg, id, msgId) {
