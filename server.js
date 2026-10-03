@@ -6360,7 +6360,7 @@ const server = http.createServer(async (req, res) => {
           /* The remedy names THIS AGENT on purpose: re-authenticating the
              operator's own Claude does not touch this agent's config dir, which
              is the whole loop the tester was stuck in. */
-          remedy: connected === false ? 'Re-authenticate this agent from the Accounts tab in Settings (Sign in again).' : null,
+          remedy: connected === false ? 'Sign this agent in again from Settings, AI Models.' : null,
         });
       })
       .catch(() => sendJson(res, 200, {
