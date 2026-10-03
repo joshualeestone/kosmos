@@ -5240,6 +5240,22 @@ function createAgentInner(opts) {
         }
       } catch { /* the sync after the session is up still does it, the old way */ }
     }
+    /* #5050: the person's language, from this computer's language setting, so the agent starts and posts in it (an
+       English computer writes nothing). LAST, so it ends the file: that is where April measured it (#5050, 2/2), and a
+       block spliced after it would leave it mid-file, which nobody tested. Non-gating like the blocks above; the boot
+       sweep keeps it current when the setting changes. */
+    {
+      let langLanded = false;
+      try {
+        const plMod = require('./personlanguage');
+        const spliced = plMod.applyTo(text, plMod.detect());
+        const { MAX_BYTES } = require('./instructions');
+        if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; langLanded = true; }
+      } catch { /* reported below rather than swallowed */ }
+      if (!langLanded) {
+        steps.push({ label: 'could not add your language to its instructions, so it may start in English; edit its instructions or remake it', ok: false });
+      }
+    }
     // #2245: pass the in-scope runner -- the plist is not yet written, so the
     // birth brief must be routed to AGENTS.md (codex) or CLAUDE.md (claude) by
     // the runner we are creating with, not by reading it back.

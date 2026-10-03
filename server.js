@@ -967,6 +967,7 @@ const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
 const activity = require('./engine/activity');
 const connections = require('./engine/connections');
+const personlanguage = require('./engine/personlanguage'); // #5050: the person's language block
 const dmfiles = require('./engine/dmfiles');          // #3614: where an agent saves the files it makes in a DM
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
@@ -20314,6 +20315,18 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about connections: ${String(err && err.message)}\n`);
+  }
+  /* #5050: the person's language block, refreshed at boot for the same reason (an agent made before it existed, or the
+     computer's language setting changed): written when the setting is not English, removed when it is. */
+  try {
+    const told = personlanguage.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about your language; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about your language: ${String(err && err.message)}\n`);
   }
   /* #3614: the direct-message files block, refreshed at boot for the reason the two
      above give (#1649/#1676): a sweep that runs only on an unrelated form save reaches

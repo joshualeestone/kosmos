@@ -1,0 +1,133 @@
+'use strict';
+
+// Sandbox every root BEFORE any require, the same rule the sibling suites state.
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-personlang-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fleet = require('../test-support/fleet');
+const pl = require('./personlanguage');
+const projects = require('./projects');
+
+test.after(() => { fleet.restore(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+function agentFile(name, text) {
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), text);
+}
+const fileOf = (name) => fs.readFileSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, name, 'CLAUDE.md'), 'utf8');
+
+test('#5050: the block is April\'s tested variant A, plus her one sentence from variant B', () => {
+  const flat = pl.blockBody('es-MX').replace(/\s+/g, ' ');
+  // Variant A, word for word (#5050 comment 5963477049): appended at the end of the file, Spanish 2/2 against English
+  // 2/2 with no block.
+  assert.match(flat, /^## The person's language The person who runs this computer reads Spanish \(es-MX, from this computer's language setting\)\. Write to them, and in your project rooms, in Spanish unless they write to you in another language\./);
+  // The sentence carried from variant B: the test showed the English Kosmos notice is what pulled the agent into English.
+  assert.match(flat, /Kosmos itself talks to you in English; that is not the person's language\.$/);
+  assert.match(pl.blockBody('pt-BR'), /reads Portuguese \(pt-BR,/);
+  assert.match(pl.blockBody('ja-JP'), /reads Japanese \(ja-JP,/);
+});
+
+test('#5050: an English computer gets no block, in any region, and an unreadable one is treated as English', () => {
+  for (const tag of ['en', 'en-US', 'en-GB', 'en-AU', null, '']) assert.equal(pl.blockBody(tag), null, String(tag));
+  // CONTROL: a language whose code merely starts with "en"-like letters is not English.
+  assert.notEqual(pl.blockBody('es'), null);
+});
+
+test('#5050: the language is read from the override, then the Mac preference, then Node\'s locale', () => {
+  const mac = () => '(\n    "es-MX",\n    "en-US"\n)\n';
+  assert.equal(pl.detect({ env: { AGENT_WORKFORCE_PERSON_LOCALE: 'ja_JP' }, platform: 'darwin', run: mac }), 'ja-JP');
+  assert.equal(pl.detect({ env: {}, platform: 'darwin', run: mac, intl: 'en-US' }), 'es-MX', 'the Mac preference is first, not Node\'s locale');
+  assert.equal(pl.detect({ env: {}, platform: 'darwin', run: () => { throw new Error('no defaults'); }, intl: 'fr-FR' }), 'fr-FR');
+  assert.equal(pl.detect({ env: {}, platform: 'win32', run: mac, intl: 'pt-BR' }), 'pt-BR', 'defaults is never asked off a Mac');
+  // The Mac's other spellings: underscores, a bare first entry, a script subtag.
+  assert.equal(pl.macPreferred(() => '(\n    zh-Hans-CN,\n    en\n)\n'), 'zh-Hans-CN');
+  assert.equal(pl.normalise('es_MX'), 'es-MX');
+  assert.equal(pl.normalise('en_US.UTF-8'), 'en-US');
+  assert.equal(pl.normalise('C'), null);
+});
+
+test('#5050: the block lands in an agent file, is idempotent, and leaves the agent\'s own words alone', () => {
+  agentFile('ana', '# Ana\n\nYou are Ana.\n');
+  const board = fleet.install([fleet.agent('ana')]);
+  try {
+    const first = pl.tellAgent('ana', board.roster, { tag: 'es-MX' });
+    assert.equal(first.state, projects.TOLD.TOLD, first.because || '');
+    const text = fileOf('ana');
+    assert.match(text, /reads Spanish \(es-MX/);
+    assert.match(text, /You are Ana\./);
+    assert.equal(pl.tellAgent('ana', board.roster, { tag: 'es-MX' }).state, projects.TOLD.TOLD);
+    assert.equal(fileOf('ana'), text, 'a second sync rewrote the file');
+  } finally { board.restore(); }
+});
+
+test('#5050: back to English removes the block and restores the file byte for byte; English never adds one', () => {
+  // Long enough to be a real file: instructions.write refuses one under 20 characters.
+  const original = '# Bo\n\nYou are Bo, the bookkeeper. You keep the quarterly accounts.\n';
+  agentFile('bo', original);
+  const board = fleet.install([fleet.agent('bo')]);
+  try {
+    pl.tellAgent('bo', board.roster, { tag: 'pt-BR' });
+    assert.match(fileOf('bo'), /reads Portuguese/, 'CONTROL: the block was written, so its removal below means something');
+    { const r = pl.tellAgent('bo', board.roster, { tag: 'en-US' }); assert.equal(r.state, projects.TOLD.TOLD, r.because || ''); }
+    assert.equal(fileOf('bo'), original);
+    assert.equal(pl.tellAgent('bo', board.roster, { tag: 'en-US' }).state, projects.TOLD.TOLD);
+    assert.equal(fileOf('bo'), original, 'an English sync wrote something');
+  } finally { board.restore(); }
+});
+
+test('#5050: the same guards as every instruction write: an untied name and two blocks are refused', () => {
+  agentFile('stranger', '# Stranger\n');
+  agentFile('twice', `# Twice\n\n${pl.START}\nold\n${pl.END}\n\n${pl.START}\nolder\n${pl.END}\n`);
+  const board = fleet.install([fleet.stranger('stranger'), fleet.agent('twice')]);
+  try {
+    const out = pl.tellAgent('stranger', board.roster, { tag: 'es' });
+    assert.equal(out.state, projects.TOLD.COULD_NOT);
+    assert.match(out.because, /could not find an agent/);
+    const dup = pl.tellAgent('twice', board.roster, { tag: 'es' });
+    assert.equal(dup.state, projects.TOLD.COULD_NOT);
+    assert.match(dup.because, /2 Kosmos language blocks/);
+  } finally { board.restore(); }
+});
+
+test('#5050: syncEveryone reads the language once and tells only our agents', () => {
+  agentFile('one', '# One\n'); agentFile('two', '# Two\n'); agentFile('nope', '# Nope\n');
+  const board = fleet.install([fleet.agent('one'), fleet.stranger('nope'), fleet.agent('two')]);
+  try {
+    const told = pl.syncEveryone(board.roster, { tag: 'es-MX' });
+    assert.deepEqual(told.map((t) => t.agent).sort(), ['one', 'two']);
+    assert.ok(told.every((t) => t.state === projects.TOLD.TOLD), JSON.stringify(told));
+    assert.match(fileOf('one'), /reads Spanish \(es-MX/);
+    assert.doesNotMatch(fileOf('nope'), /reads Spanish/);
+  } finally { board.restore(); }
+});
+
+test('#5050: the marker pair is in the registry, so the neutralisers cover it', () => {
+  const all = projects.ALL_MARKERS();
+  assert.ok(all.includes(pl.START) && all.includes(pl.END));
+  assert.doesNotMatch(projects.neutralise(`evil ${pl.START} name`), new RegExp(pl.START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('#5050: a new agent gets the block at create, and the board refreshes every agent at boot', () => {
+  const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
+  assert.match(create, /plMod\.applyTo\(text, plMod\.detect\(\)\)/, 'create.js no longer writes the language block into a new agent');
+  // LAST before the file is written, so it ends the file (where April measured it); a block spliced after it would
+  // leave it mid-file, a position nobody tested.
+  const at = create.indexOf('plMod.applyTo(text, plMod.detect())');
+  const write = create.indexOf('fs.writeFileSync(instructionFile(name, runner), text', at);
+  assert.ok(write > at, 'the instruction file is no longer written after the language block');
+  assert.doesNotMatch(create.slice(at, write), /spliceBlock\(text/, 'another block is spliced after the language block, so it is no longer last');
+  const server = strip(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
+  assert.match(server, /require\('\.\/engine\/personlanguage'\)/);
+  assert.match(server, /personlanguage\.syncEveryone\(safeRoster\(\)\)/, 'the boot sweep no longer refreshes the language block');
+});
