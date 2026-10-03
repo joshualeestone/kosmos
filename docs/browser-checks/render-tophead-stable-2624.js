@@ -162,6 +162,40 @@ async function measure(page, view, notice) {
     await page.close();
   }
 
+  // The same for an agent's Talk section (its own #conn gap, rule scoped to the talk view) at 1440 and on a phone,
+  // and the phone tab view: with a notice the line is below the stack; with none it keeps the gap it had.
+  for (const [width, talk] of [[1440, true], [390, true], [390, false]]) {
+    const page = await browser.newPage({ viewport: { width, height: 844 } });
+    await page.goto('file://' + PAGE);
+    const where = `${width}px ${talk ? 'agent Talk view' : 'tab view'}`;
+    const read = async (notice) => {
+      await measure(page, 'tabs', notice);
+      await page.evaluate((talk) => {
+        const ask = document.getElementById('askcard'); if (ask) ask.hidden = true;
+        if (talk) { document.getElementById('panel-detail').hidden = false; document.getElementById('d-sec-talk').hidden = false; }
+        const c = document.getElementById('conn'); c.hidden = false; c.textContent = 'Kosmos cannot reach a Claude subscription on this computer.';
+      }, talk);
+      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+      return page.evaluate(() => {
+        const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+        const conn = box(document.getElementById('conn')); const stack = box(document.getElementById('topnotes'));
+        const talkOn = !!document.querySelector('#panel-detail:not([hidden]) #d-sec-talk:not([hidden])');
+        return { connTop: conn ? Math.round(conn.top) : null, stackBottom: stack ? Math.round(stack.bottom) : null,
+          mt: getComputedStyle(document.getElementById('conn')).marginTop, talkOn };
+      });
+    };
+    const on = await read(true);
+    if (talk && !on.talkOn) problems.push(`CONTROL failed: ${where}: the Talk section is not showing`);
+    if (on.connTop === null || on.stackBottom === null) problems.push(`CONTROL failed: ${where}: ${on.connTop === null ? '#conn' : 'the notice stack'} did not render`);
+    else if (on.connTop < on.stackBottom) problems.push(`${where}: the line starts at ${on.connTop}, under the notice (stack bottom ${on.stackBottom})`);
+    else console.log(`  PASS  ${where} with a notice: the line starts at ${on.connTop}, below the stack (bottom ${on.stackBottom})`);
+    const off = await read(false);
+    const want = talk ? '16px' : '0px';   // the talk view's own --space-6 gap; elsewhere none
+    if (off.mt !== want) problems.push(`${where} with no notice: the line's margin-top is ${off.mt}, it must stay ${want}`);
+    else console.log(`  PASS  ${where} with no notice: the line keeps margin-top ${off.mt}`);
+    await page.close();
+  }
+
   // CONTROL, below 960px: only the tab view exists there and it keeps its own spacing
   // (the fix is scoped to where views can be switched). If this reads the wide numbers,
   // the scope leaked and the narrow header changed with nobody asking.

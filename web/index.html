@@ -1240,8 +1240,12 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    expiring login, so it moves down the same way. Only when the Allow card is hidden: a showing Allow card already
    moved down and #conn follows it in the flow. The agent talk view gives #conn its own top gap, plus the stack. */
 #askcard[hidden] + #conn { margin-top: var(--topnotes-clear, 0px); }
-body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard[hidden] + #conn:not([hidden]) {
-  margin-top: calc(var(--space-6) + var(--topnotes-h, 0px)); }
+/* Scoped to the two ranges where the talk view's own #conn gap applies (the rules beside #3708's), so between them
+   nothing changes with no notice. */
+@media (min-width: 56.01rem), (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) > #askcard[hidden] + #conn:not([hidden]) {
+    margin-top: calc(var(--space-6) + var(--topnotes-h, 0px)); }
+}
 /* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
    page, where the sticky project rail (z-index 4) comes later and would paint over it. Above the rail, below the
    reaction picker (20) and the header menus (40). */
