@@ -22,10 +22,21 @@ converged: true
 Reviewer model per iteration: unknown (not recorded at the time; recorded here as unknown rather than reconstructed).
 Self-generated: not recorded.
 
-- Iteration 1 to 6: fixes in 662a936ce, c990fcf54, 1d194f888, 4d8869374, c2a31774d, 1b5b4a899 (iteration 6: the pause's real routing arms for each refusal).
-- Iteration 7 [CHALLENGE] WARNING: our stop can write board.stopped in a launchd-restart gap and then meet our board answering; the our-board refusal now takes the marker back too (14e7c91fc). This overturned the iteration-3 decision.
-- Iteration 8 [CHALLENGE] WARNING: a signal during the pause's stop left the marker; the take-back is armed before the stop, and a hang-up arm pins it (c90160426).
-- Iteration 9 [CHALLENGE] NIT: plan wording (29b3d0137). Converged.
+#### Iterations 1 to 6
+**Reviewer model:** unknown
+Fixes in 662a936ce, c990fcf54, 1d194f888, 4d8869374, c2a31774d, 1b5b4a899 (iteration 6: the pause's real routing arms for each refusal).
+
+#### Iteration 7
+**Reviewer model:** unknown
+[WARNING] our stop can write board.stopped in a launchd-restart gap and then meet our board answering; the our-board refusal now takes the marker back too (14e7c91fc). This overturned the iteration-3 decision.
+
+#### Iteration 8
+**Reviewer model:** unknown
+[WARNING] a signal during the pause's stop left the marker; the take-back is armed before the stop, and a hang-up arm pins it (c90160426).
+
+#### Iteration 9
+**Reviewer model:** unknown
+[NIT] plan wording (29b3d0137). No code finding: converged.
 
 ### Validation
 
