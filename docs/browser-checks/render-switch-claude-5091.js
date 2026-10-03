@@ -120,9 +120,11 @@ const CODEX_OUT_OF_CREDITS = [
     const after = await page.evaluate(() => { const c = document.getElementById('d-current-rows'); return { current: !!c && !c.hidden, menu: document.getElementById('d-provider').value }; });
     chk(after.current === true, "#5091: after the switch the agent's rows are back (a reset menu does not count as a switch being set up)", JSON.stringify(after));
     // Round 3: and they speak for the NEW provider: the Move row lists the Claude accounts, on the one picked.
-    const rows = await page.evaluate(() => { const s = document.getElementById('d-account'); return { opts: [...s.options].map((o) => o.value), sel: s.value, msg: document.getElementById('d-account-msg').textContent }; });
-    chk(rows.sel === ACCOUNTS[1].dir && rows.opts.includes(ACCOUNTS[1].dir) && !/OpenAI|Codex|Antigravity|Gemini/.test(rows.msg),
-      "#5091: after the switch the account row speaks for Claude, on the picked account", JSON.stringify(rows));
+    // The Move menu's first option ("") names the account it is ON; the rest are the Claude accounts it could move to.
+    const rows = await page.evaluate(() => { const s = document.getElementById('d-account'); return { here: (s.options[0] || {}).textContent || '', opts: [...s.options].slice(1).map((o) => o.value), msg: document.getElementById('d-account-msg').textContent }; });
+    chk(/b@example\.com|account-b/.test(rows.here) && !rows.opts.includes(ACCOUNTS[1].dir) && rows.opts.includes(ACCOUNTS[0].dir)
+        && !/OpenAI|Codex|Antigravity|Gemini/.test(rows.msg + rows.here),
+      "#5091: after the switch the account row speaks for Claude: on the picked account, the other Claude accounts to move to", JSON.stringify(rows));
 
     await page.goto(URL + '/?tab=detail&agent=liu', { waitUntil: 'load' }); await page.waitForTimeout(800);
     await page.click('#d-nav [data-go="model"]'); await page.waitForTimeout(400);
