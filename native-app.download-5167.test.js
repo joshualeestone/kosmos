@@ -141,7 +141,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 20\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 21\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -261,12 +261,15 @@ test('#5167 review 17: a Kosmos+ computer is asked about before it can save (its
     'a place that saves a download does not ask first');
   assert.equal((SRC.match(/decisionHandler\(\.download\)/g) || []).length, 0, 'a download is saved without going through mayDownload');
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
-  assert.match(may, /guard let page = committedPageURL, isKosmosPlusURL\(page\), let host = page\.host\?\.lowercased\(\) else \{ then\(true\); return \}/);
+  assert.match(may, /guard let page = committedPageURL, let host = page\.host\?\.lowercased\(\),\n\s+isKosmosPlusURL\(page\) \|\| host == AppDelegate\.askAboutHostForSelftest\n\s+else \{ then\(true\); return \}/);
+  assert.doesNotMatch(may, /UserDefaults|downloadDefaults/, 'an Allow is kept past this run, so a later holder of the same name inherits it');
+  assert.match(may, /if yes \{ self\.allowedDownloadHosts\.insert\(host\) \} else \{ self\.refusedDownloadHosts\.insert\(host\) \}/);
   assert.match(may, /if refusedDownloadHosts\.contains\(host\) \{/, 'a refused computer can ask again and again');
   assert.match(may, /alert\.addButton\(withTitle: "Allow"\)\n\s+alert\.addButton\(withTitle: "Don't Allow"\)/);
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
-  assert.match(hatch, /AppDelegate\.downloadDefaults = UserDefaults\(suiteName: suite\)!/, 'the selftest writes the build box\'s own defaults');
-  assert.match(hatch, /removePersistentDomain\(forName: suite\)/);
+  assert.match(hatch, /"THROUGH A REAL CLICK: a computer that must be asked saves nothing on Don't Allow, and saves on Allow/,
+    'the question is only driven directly, so a policy path that skips it still passes');
+  assert.equal((SRC.match(/askAboutHostForSelftest = /g) || []).length, 2, 'something outside the selftest sets the ask-about seam');
   assert.match(body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)'), /if committedPageURL != nil \{ tellDownloadFailed\(/,
     'a start-up load the window cannot show is reported as a refused file');
 });

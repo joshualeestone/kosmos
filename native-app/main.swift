@@ -2834,18 +2834,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #5167: whoever holds a Kosmos+ name runs that name's tunnel, so a Kosmos+ computer's page is only as
     /// trusted as its holder. The first time one asks to save a file, the person is asked, as Safari asks per
-    /// site; Allow is kept (UserDefaults), Don't Allow for this run of the app, so a page cannot ask again and
-    /// again. This computer's own board, which this app loaded, is never asked about.
+    /// site. Either answer holds for this run of the app only: nothing is kept that a later holder of the
+    /// same name could inherit, and a page cannot ask again and again. This computer's own board, which this
+    /// app loaded, is never asked about.
     static var downloadPermissionPresenter: ((String, @escaping (Bool) -> Void) -> Void)?
-    static let allowedDownloadHostsKey = "KosmosAllowedDownloadHosts"
-    static var downloadDefaults = UserDefaults.standard   // the selftest swaps in a throwaway suite
+    /// Only --kosmos-app-download-selftest sets this: a loopback host to treat as a Kosmos+ computer, so the
+    /// question can be driven through a real click.
+    static var askAboutHostForSelftest: String?
+    fileprivate var allowedDownloadHosts: Set<String> = []
     private var refusedDownloadHosts: Set<String> = []
+    fileprivate func resetDownloadAsks() { refusedDownloadHosts = [] }   // the selftest, between its arms
     private var downloadAsks: [String: [(Bool) -> Void]] = [:]
 
     fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {
-        guard let page = committedPageURL, isKosmosPlusURL(page), let host = page.host?.lowercased() else { then(true); return }
-        let allowed = AppDelegate.downloadDefaults.stringArray(forKey: AppDelegate.allowedDownloadHostsKey) ?? []
-        if allowed.contains(host) { then(true); return }
+        guard let page = committedPageURL, let host = page.host?.lowercased(),
+              isKosmosPlusURL(page) || host == AppDelegate.askAboutHostForSelftest
+        else { then(true); return }
+        if allowedDownloadHosts.contains(host) { then(true); return }
         if refusedDownloadHosts.contains(host) {
             logLine("#5167: downloads from \(host) were not allowed this time")
             then(false); return
@@ -2854,18 +2859,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         downloadAsks[host] = [then]
         let answer: (Bool) -> Void = { [weak self] yes in
             guard let self = self else { return }
-            if yes {
-                AppDelegate.downloadDefaults.set(allowed + [host], forKey: AppDelegate.allowedDownloadHostsKey)
-            } else {
-                self.refusedDownloadHosts.insert(host)
-            }
+            if yes { self.allowedDownloadHosts.insert(host) } else { self.refusedDownloadHosts.insert(host) }
             logLine("#5167: downloads from \(host) \(yes ? "allowed" : "not allowed")")
             for waiting in self.downloadAsks.removeValue(forKey: host) ?? [] { waiting(yes) }
         }
         if let ask = AppDelegate.downloadPermissionPresenter { ask(host, answer); return }
         let alert = NSAlert()
         alert.messageText = "Allow downloads from \(host)?"
-        alert.informativeText = "This Kosmos+ computer wants to save a file to your Downloads folder. Allow it only if it is one of your own computers."
+        alert.informativeText = "This Kosmos+ computer wants to save a file to your Downloads folder. Allow it only if it is one of your own computers. Kosmos asks again the next time it opens."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Allow")
         alert.addButton(withTitle: "Don't Allow")
@@ -2921,8 +2922,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var downloadsInFlight: [ObjectIdentifier: URL] = [:]
     private var downloadPages: [ObjectIdentifier: URL] = [:]
 
-    /// #5167: a download's redirect to another origin is refused, so the same-origin rule holds for
-    /// every hop, not only the first.
+    /// #5167: a download's redirect to another origin is refused. A backstop: WebKit itself stops a download
+    /// redirected to another origin before asking (measured on WebKit 21624); this keeps the rule if it ever
+    /// asks. Same-origin redirects do reach it (the selftest's same-origin redirect row).
     @objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)
     func download(_ download: WKDownload, willPerformHTTPRedirection response: HTTPURLResponse,
                   newRequest request: URLRequest, decisionHandler: @escaping (WKDownload.RedirectPolicy) -> Void) {
@@ -5134,6 +5136,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=foreign href=http://localhost:\(port)/foreign.txt download>d</a>"
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
                 + "<a id=last href=/last.txt download>f</a>"
+                + "<a id=askno href=/asked-no.txt download>m</a>"
+                + "<a id=askyes href=/asked-yes.txt download>n</a>"
                 + "<script>window.__probeReady = 1;</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
@@ -5195,6 +5199,26 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     }
     var leftBoard: [String] = []
     var notBoardStayed = false
+    var liveAsked: [String] = []
+    /* The per-computer question through a real click: the probe page is treated as a Kosmos+ computer that
+       must be asked. Don't Allow saves nothing (and holds); then, asked fresh, Allow saves. */
+    func askArm(then: @escaping () -> Void) {
+        AppDelegate.askAboutHostForSelftest = "127.0.0.1"
+        var reply = false
+        AppDelegate.downloadPermissionPresenter = { host, answer in liveAsked.append(host); answer(reply) }
+        click("askno") {
+            d.allowedDownloadHosts = []
+            reply = true
+            d.resetDownloadAsks()
+            click("askyes", expect: "asked-yes.txt") {
+                AppDelegate.askAboutHostForSelftest = nil
+                AppDelegate.downloadPermissionPresenter = nil
+                d.allowedDownloadHosts = []
+                d.resetDownloadAsks()
+                then()
+            }
+        }
+    }
     /* A page that is not the board (localhost on the same port: not the host the board was loaded as)
        asking for a download from its own origin: refused, said, and the page stays. */
     func notBoard(then: @escaping () -> Void) {
@@ -5246,13 +5270,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
             // computer can be served here. A throwaway defaults suite, never the build box's own.
-            let suite = "kosmos-download-selftest-\(getpid())"
-            AppDelegate.downloadDefaults = UserDefaults(suiteName: suite)!
             var asked: [String] = []
             var reply = false
             AppDelegate.downloadPermissionPresenter = { host, answer in asked.append(host); answer(reply) }
@@ -5269,10 +5291,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             d.committedPageURL = URL(string: "https://josh.kosmosplus.com/#kst=x")
             d.mayDownload { got.append($0) }
             d.mayDownload { got.append($0) }
-            let kept = AppDelegate.downloadDefaults.stringArray(forKey: AppDelegate.allowedDownloadHostsKey) ?? []
-            row(asked.count == 2 && got.suffix(2) == [true, true] && kept == ["josh.kosmosplus.com"],
-                "Allow is kept for that computer only, and not asked again (kept \(kept))")
-            UserDefaults.standard.removePersistentDomain(forName: suite)
+            row(asked.count == 2 && got.suffix(2) == [true, true] && d.allowedDownloadHosts == ["josh.kosmosplus.com"],
+                "Allow holds for that computer only, for this run, and is not asked again (\(d.allowedDownloadHosts))")
+            row(liveAsked == ["127.0.0.1", "127.0.0.1"] && !saved("asked-no.txt") && saved("asked-yes.txt"),
+                "THROUGH A REAL CLICK: a computer that must be asked saves nothing on Don't Allow, and saves on Allow (asked \(liveAsked))")
             row(saved("same.txt"), "a same-origin <a download> is saved")
             row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
             row(saved("ok2.txt"), "a same-origin redirect is followed and saved")
@@ -5291,7 +5313,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("pack2.zip") && !leftBoard.contains("foreignzip"), "A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED, and the board stays")
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
-            row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
+            row(all.sorted() == ["asked-yes.txt", "att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             row(told.count == 5, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, foreign .zip, a BURST of three from a not-the-board page; frames say nothing), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
             row(told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("did not save that file to Downloads") }
                 && told.contains { $0.contains("not opened or saved") } && told.contains { $0.contains("not a board") },
@@ -5301,11 +5323,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 20
+            let expected = 21
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } }
+        } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
