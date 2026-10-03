@@ -3,13 +3,13 @@
   "highlights": [
     {
       "icon": "spark",
-      "title": "Points to the right place",
-      "line": "When an agent cannot start without a Claude or OpenAI account, Kosmos now sends you to Settings, AI Models, where you add one."
+      "title": "Setup points to the right place",
+      "line": "Creating an agent with no AI account now points you to Settings, AI Models, not an Accounts tab that does not exist."
     },
     {
       "icon": "chat",
       "title": "Agents speak your language",
-      "line": "On a Mac set to another language, a new agent now starts and posts in that language instead of English."
+      "line": "On a Mac set to another language, your agents now start and post in that language instead of English."
     },
     {
       "icon": "swarm",

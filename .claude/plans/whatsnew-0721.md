@@ -50,3 +50,10 @@ AI Models, and an agent's AI Settings." (re-check against their merged text). #5
 newcomer has a fresh sign-in). #5124 teamcopy-4554 and #5092/#5094: no line.
 Reasoning, weakest premise: #5101 above #5104 assumes a newcomer switches providers on day one more often than they meet
 Claude Code's safeguards menu; both are plausible, neither measured.
+
+## Review 2 (sonnet, blind, 05:09, the five file lines vs main): NOT CONVERGED; 2 WARNINGs, both taken (verified in code first)
+- Line 1 said "Claude or OpenAI" and "cannot start": the refusals also cover Gemini and Grok (create.js expiredSignIn /
+  rejected-key remedies are per provider) and the case is CREATING an agent. Now: "Creating an agent with no AI account
+  now points you to Settings, AI Models, not an Accounts tab that does not exist." Title "Setup points to the right place".
+- Line 2 said "a new agent": the boot sweep (server.js #5050 block) refreshes EXISTING agents too. Now "your agents".
+- NITs left: #5101 title implies it was broken (it was, per Josh's live report); #5104 does not say "no buttons".
