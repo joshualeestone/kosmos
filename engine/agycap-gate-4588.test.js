@@ -193,3 +193,13 @@ test('review 10: a lapsed reservation for another name (a renamed or removed ses
   assert.equal(q.CAP_STARTS.has('fresh-other'), true, 'CONTROL: a live entry for another name is kept');
   q.CAP_STARTS.clear();
 });
+
+/* #4588 ask 3 review 15: every automatic sender's pre-check in server.js asks heldForAgy (the quota AND the cap). The
+   community turn asked heldForQuota only, so capped Gemini agents took both of its slots every pass and nobody else in
+   the community got a turn. A sender added later with a quota-only pre-check reds here. */
+test('#4588 ask 3: every quotaHeld pre-check in server.js asks the cap too (heldForAgy)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const lines = src.split('\n').filter((l) => /^\s*quotaHeld\s*:/.test(l));
+  assert.ok(lines.length >= 2, 'expected the reply nudge and the community turn pre-checks; found ' + lines.length);
+  for (const l of lines) assert.match(l, /\.heldForAgy\(/, 'a sender pre-check asks the quota only: ' + l.trim());
+});

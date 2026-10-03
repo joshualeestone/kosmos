@@ -19826,7 +19826,7 @@ function start(port = PORT) {
          the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
          gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
          Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
-         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause). unref'd;
+         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause and by the Gemini cap). unref'd;
          first run one interval after boot. */
       const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
@@ -19842,7 +19842,7 @@ function start(port = PORT) {
           readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
           sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
           idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
-          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForAgy(session, roster, Date.now()) !== null,   // #4588 ask 3 (review 15): the cap too, or capped agents fill every slot each pass
           inCommunity: (session) => {
             const cur = instructions.read(session);
             if (!cur || !cur.exists) return false;
