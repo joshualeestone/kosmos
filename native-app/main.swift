@@ -369,7 +369,7 @@ func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
 func downloadDestination(dir: URL, suggested: String, exists: (URL) -> Bool) -> URL {
     var name = String(suggested.unicodeScalars.map { s -> Character in
         if s == "/" || s == ":" || s == "\\" { return "-" }
-        if s.value < 0x20 || s.value == 0x7f { return " " }
+        if s.value < 0x20 || (0x7f...0x9f).contains(s.value) { return " " }
         return Character(s)
     }.filter { c in   // direction controls would let "x\u{202E}fdp.app" show as a .pdf in Finder
         !c.unicodeScalars.contains { (0x200B...0x200F).contains($0.value) || (0x2028...0x202E).contains($0.value)
@@ -2777,6 +2777,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
             return
         }
+        // A 204 or 205 has nothing to show or save; WebKit leaves the page as it is.
+        if let http = navigationResponse.response as? HTTPURLResponse, http.statusCode == 204 || http.statusCode == 205 {
+            decisionHandler(.allow)
+            return
+        }
         if let http = navigationResponse.response as? HTTPURLResponse, let url = http.url,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
            String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
@@ -2790,11 +2795,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true)
                 decisionHandler(.cancel)
             }
-            return
-        }
-        // A 204 or 205 has nothing to show or save; WebKit leaves the page as it is.
-        if let http = navigationResponse.response as? HTTPURLResponse, http.statusCode == 204 || http.statusCode == 205 {
-            decisionHandler(.allow)
             return
         }
         if !navigationResponse.canShowMIMEType, let url = navigationResponse.response.url,
@@ -2876,11 +2876,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Allow")
         alert.addButton(withTitle: "Don't Allow")
-        if let window = webView?.window {
-            alert.beginSheetModal(for: window) { answer($0 == .alertFirstButtonReturn) }
-        } else {
-            answer(alert.runModal() == .alertFirstButtonReturn)
-        }
+        // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
+        // sheet can be dropped (#2807), which would leave them waiting for good.
+        answer(alert.runModal() == .alertFirstButtonReturn)
     }
 
     /// #5167: a policy refusal (`quiet: true`) is not said while one is on screen, nor for this many seconds
@@ -2913,11 +2911,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         // The quiet window starts when the person dismisses it, not when it appears.
-        if quiet { downloadSheetShownAt = Date() }
+        downloadSheetShownAt = Date()   // any download sheet holds back the quiet ones
         let dismissed = { [weak self] in
-            guard quiet, let self = self else { return }
+            guard let self = self else { return }
             self.downloadSheetShownAt = nil
-            self.lastDownloadTold = Date()
+            if quiet { self.lastDownloadTold = Date() }
         }
         if let window = webView?.window {
             alert.beginSheetModal(for: window) { _ in dismissed() }
@@ -3029,7 +3027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if dest == nil && (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled {
                 // WebKit stopped it before it had anywhere to go (measured for a redirect to another origin, where
                 // the window may then show the file: #5169). Quiet, so one click cannot put up two sheets.
-                tellDownloadFailed("Kosmos did not save that file to Downloads.", quiet: true)
+                tellDownloadFailed("It stopped before it began.", quiet: true)
             } else {
                 tellDownloadFailed("The file could not be saved to Downloads (\(error.localizedDescription)).")
             }
@@ -5109,7 +5107,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        the quarantine mark. The page is served over HTTP on 127.0.0.1 (an ephemeral port); "another
        origin" is `localhost` on the same port. Files go to a temporary folder (downloadsDirOverride), never
        the real Downloads. Offscreen, and driven from JavaScript, like the filepanel selftest. It runs as a
-       computer that runs agents (the default mode); a connect computer is not driven live here. */
+       computer that runs agents (computerMode stays unset, which the policy treats as run); a connect computer is
+       not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
     /* Above the worst case of a run where NOTHING saves (seven 5s file waits, eight 2s ones counting the
        burst, fifteen page loads; measured 106s), so a product that saves nothing is judged, not timed out. */
@@ -5165,7 +5164,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         case "/pack.zip":
             let z = "PK not really a zip"
             return "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: \(z.utf8.count)\r\nConnection: close\r\n\r\n" + z
-        case "/empty": return "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        case "/empty": return "HTTP/1.1 204 No Content\r\nContent-Disposition: attachment; filename=\"empty.txt\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/missing": return "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found"
         case "/redir2": return "HTTP/1.1 302 Found\r\nLocation: /ok2.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/redir": return "HTTP/1.1 302 Found\r\nLocation: http://localhost:\(port)/redirected.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -5310,7 +5309,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(saved("same.txt"), "a same-origin <a download> is saved")
             row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
             row(saved("ok2.txt"), "a same-origin redirect is followed and saved")
-            row(!saved("missing.txt"), "AN ERROR PAGE (404) IS NOT SAVED under the file's name")
+            row(!saved("missing.txt") && !saved("empty.txt"), "AN ERROR PAGE (404) IS NOT SAVED under the file's name, nor an empty 204 sent as an attachment")
             row(saved("pack.zip"), "a board file the window cannot show (a plain link to a .zip) is saved, not dropped")
             row(!saved("redirected.txt"), "A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING")
             row(!saved("foreign.txt"), "a download link to another origin saves nothing (WebKit treats it as a plain link)")
@@ -5327,7 +5326,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             row(told.count == 6, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, foreign .zip, a BURST of three from a not-the-board page, a computer already refused; frames say nothing), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
-            row(told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("did not save that file to Downloads") }
+            row(told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("stopped before it began") }
                 && told.contains { $0.contains("not opened or saved") } && told.contains { $0.contains("not a board") }
                 && told.contains { $0.contains("amy.kosmosplus.com were not allowed") },
                 "and each is said in its own words")
@@ -6168,6 +6167,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     dest(". .", [], "Download", "NOR CAN A NAME BECOME . (the Downloads folder itself)")
     dest("a:b", [], "a-b", "a colon is a separator to Finder")
     dest("a\nb.txt", [], "a b.txt", "control characters become spaces")
+    dest("a\u{85}b.txt", [], "a b.txt", "so do C1 controls (invisible in Finder)")
     dest("invoice\u{202E}fdp.app", [], "invoicefdp.app", "A DIRECTION CONTROL CANNOT DISGUISE AN APP AS A PDF")
     dest("\u{200B}\u{FEFF}", [], "Download", "a name of invisible characters only gets one")
     dest("", [], "Download", "an empty name gets one")
@@ -6193,7 +6193,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
     try? FileManager.default.removeItem(at: dir)
-    let expected = 81
+    let expected = 82
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
