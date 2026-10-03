@@ -16,5 +16,8 @@ Rewording the rest of the card or the Team screen: they already agree with each 
 That "people" was not chosen on purpose. Nothing in #4554, #4556 or the markup's comments says it was.
 
 ## Checks
-No unit or browser check reads this sentence (searched: only an engine comment says "people who report to it").
-The surface gate maps render-newagent-paths-4556 to the card; it runs on this head for the trailer.
+Before this branch no unit or browser check read this sentence. web.teamcopy-4554.test.js now pins it: the Team card's
+description, and that the Team screen's hint opens with the same words (red on main's page, measured). The engine
+comment in engine/teamseed.js that said "people" says "agents" too.
+The web/ surface gate maps render-newagent-paths-4556 to the card. That check does not read the sentence; it is run on
+this branch's head, and a Browser-check-surface trailer commit records the run, so the gate is satisfied.
