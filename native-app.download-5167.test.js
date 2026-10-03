@@ -47,7 +47,7 @@ test('#5167: a same-origin <a download> becomes a download, BEFORE the connect-o
 test('#5167: the response policy saves only board files from a board page, refuses foreign attachments, and otherwise keeps WebKit\'s default', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
-  assert.match(b, /\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+mayDownload \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+\} else \{[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
+  assert.match(b, /\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+mayDownload \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+\} else \{[\s\S]*?tellDownloadFailed\([\s\S]*?decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
     'an attachment is saved without the exact-token, board-page and same-origin checks, or a refused one loads in the window');
   assert.equal((b.match(/decisionHandler\(/g) || []).length, 6, 'the response policy has a path that never answers, or a new one');
   // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
@@ -72,8 +72,7 @@ test('#5167: a download\'s redirect to another origin is refused (pinned selecto
 
 test('#5167: a saved file is marked as downloaded, so Gatekeeper checks it when opened', () => {
   const b = body('@objc(downloadDidFinish:)');
-  assert.match(b, /values\.quarantineProperties = props/);
-  assert.match(b, /kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload/);
+  assert.match(b, /values\.quarantineProperties = \[kLSQuarantineAgentNameKey as String: "Kosmos",\n\s+kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String\]/);
   assert.match(b, /try marked\.setResourceValues\(values\)/);
 });
 
@@ -157,9 +156,7 @@ test('#5167 review 5: refused downloads stay out of the window, quarantine recor
   assert.match(act, /if navigationAction\.shouldPerformDownload \{\n[\s\S]*?tellDownloadFailed\([\s\S]*?\n\s+\}\n\s+decisionHandler\(\.cancel\)\n\s+return\n\s+\}/,
     'a download this app will not save falls through to .allow and loads in the window');
   const fin = body('@objc(downloadDidFinish:)');
-  assert.match(fin, /c\.query = nil; c\.fragment = nil/, 'the quarantine record keeps the page\'s query or fragment, which carry the board token');
-  assert.match(fin, /if let page = originOnly\(fromPage\)/);
-  assert.match(fin, /if let from = originOnly\(download\.originalRequest\?\.url\)/);
+  assert.doesNotMatch(fin, /kLSQuarantine(Data|Origin)URLKey/, 'the quarantine mark carries an address, which can carry the board token');
   assert.match(body('private func switchToConnect(home: String)'), /badgeOrigin = nil/, 'a computer switched to connect still treats its old board as one');
   assert.match(BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest')),
     /\*"rows ran, so this proved nothing"\*\)[\s\S]*?\*"download-check: all good"\*\)[\s\S]*?\*"download-check:"\*\)/,
@@ -230,12 +227,10 @@ test('#5167 review 12: a foreign file the window cannot show is said; an early s
   assert.ok(hatch.includes('"A FRAME LOADING AN ATTACHMENT SAVES NOTHING') && hatch.includes('"A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED'));
 });
 
-test('#5167 review 13: response refusals name their cause; the mark records the page the download came from', () => {
+test('#5167 review 13: response refusals name their cause', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.equal((b.match(/tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? /g) || []).length, 2,
     'a response refusal blames the file when the page is the cause');
-  assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'), /downloadPages\[ObjectIdentifier\(download\)\] = committedPageURL/);
-  assert.match(body('@objc(downloadDidFinish:)'), /if let page = originOnly\(fromPage\)/, 'the mark names whatever page is on screen at the end');
 });
 
 test('#5167 review 14: the board downloads are saved from is set only where the board is chosen, cleared on connect', () => {
@@ -247,7 +242,7 @@ test('#5167 review 14: the board downloads are saved from is set only where the 
     'isBoardPage lost its doc comment');
 });
 
-test('#5167 review 16: a refused download that opens a new window is said; every early exit of the live selftest cleans up', () => {
+test('#5167 review 16: every early exit of the live selftest cleans up', () => {
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'),
     SRC.indexOf('// kosmos#1032: the + button opens a file picker'));
   const exits = hatch.split('exit(1)').length - 1;
@@ -285,7 +280,7 @@ test('#5167 review 19: a computer already refused is said (quietly), refusals ca
     'a dangling symlink in Downloads reads as free');
 });
 
-test('#5167 review 20: a 204 or 205 says nothing; a sheet that never reports its dismissal stops counting', () => {
+test('#5167 review 20: a 204 or 205 says nothing; an alert on screen holds back the quiet ones', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.ok(b.indexOf('http.statusCode == 204 || http.statusCode == 205') !== -1
     && b.indexOf('http.statusCode == 204 || http.statusCode == 205') < b.indexOf('if !navigationResponse.canShowMIMEType'),
@@ -314,8 +309,15 @@ test('#5167 review 22: every download alert is modal (a sheet over a sheet can b
 test('#5167 review 23: Return never grants downloads; the question holds back quiet alerts; the committed page moves only at a commit', () => {
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
   assert.match(may, /allow\.keyEquivalent = ""\n\s+refuse\.keyEquivalent = "\\r"/, 'Return (a keypress meant for the composer) answers Allow');
-  assert.match(may, /downloadAlertsUp \+= 1[^\n]*\n\s+let yes = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+downloadAlertsUp -= 1/,
+  assert.match(may, /downloadAlertsUp \+= 1[^\n]*\n\s+let yes = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+wake\.invalidate\(\)\n\s+downloadAlertsUp -= 1/,
     'a quiet refusal can open over the question');
   assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'), /\.path\.lowercased\(\)/,
     'Report.pdf and report.pdf at once collide on a case-insensitive Downloads');
+});
+
+test('#5167 review 25: Allow cannot be clicked in the first second (the page times the question)', () => {
+  const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
+  assert.match(may, /allow\.isEnabled = false\n\s+let wake = Timer\(timeInterval: 1, repeats: false\) \{ _ in allow\.isEnabled = true \}\n\s+RunLoop\.main\.add\(wake, forMode: \.modalPanel\)/,
+    'a timed click lands on Allow the moment the question appears');
+  assert.match(may, /wake\.invalidate\(\)/);
 });

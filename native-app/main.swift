@@ -2791,9 +2791,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 mayDownload { decisionHandler($0 ? .download : .cancel) }
             } else {
                 logLine("#5167: refused an attachment that is not from this board")
-                tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
+                if committedPageURL != nil { tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
                     ? "The file came from somewhere Kosmos does not save from, so it was not saved."
-                    : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true)
+                    : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true) }
                 decisionHandler(.cancel)
             }
             return
@@ -2881,10 +2881,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // composer must never grant it.
         allow.keyEquivalent = ""
         refuse.keyEquivalent = "\r"
+        // Allow wakes after a second: the page also decides where the person's pointer is when this appears.
+        allow.isEnabled = false
+        let wake = Timer(timeInterval: 1, repeats: false) { _ in allow.isEnabled = true }
+        RunLoop.main.add(wake, forMode: .modalPanel)
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
         downloadAlertsUp += 1   // nothing quiet is said over the question
         let yes = alert.runModal() == .alertFirstButtonReturn
+        wake.invalidate()
         downloadAlertsUp -= 1
         answer(yes)
     }
@@ -2932,7 +2937,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #5167: where each running download is being saved, so its end can be told to the Dock.
     private var downloadsInFlight: [ObjectIdentifier: URL] = [:]
-    private var downloadPages: [ObjectIdentifier: URL] = [:]
 
     /// #5167: a download's redirect to another origin is refused. A backstop: WebKit itself stops a download
     /// redirected to another origin before asking (measured on WebKit 21624); this keeps the rule if it ever
@@ -2976,7 +2980,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             (try? FileManager.default.attributesOfItem(atPath: $0.path)) != nil || taken.contains($0.standardizedFileURL.path.lowercased())
         }
         downloadsInFlight[ObjectIdentifier(download)] = dest
-        downloadPages[ObjectIdentifier(download)] = committedPageURL   // the page it came from, for its mark
         logLine("#5167: saving a download to Downloads as \(dest.lastPathComponent)")
         completionHandler(dest)
     }
@@ -2986,24 +2989,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(downloadDidFinish:)
     func downloadDidFinish(_ download: WKDownload) {
         downloadsTold.remove(ObjectIdentifier(download))
-        let fromPage = downloadPages.removeValue(forKey: ObjectIdentifier(download))
         guard let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download)) else { return }
         logLine("#5167: download saved: \(dest.lastPathComponent)")
         /* Marked as downloaded, as Safari marks its own, so Gatekeeper checks it when it is opened: the
            file came from another computer or an agent, and may be an app or a script. */
         var values = URLResourceValues()
-        var props: [String: Any] = [kLSQuarantineAgentNameKey as String: "Kosmos",
-                                    kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String]
-        // Origins only: the page's address carries the board token (?token=, #kst=), and LaunchServices
-        // keeps these in a long-lived record.
-        func originOnly(_ u: URL?) -> URL? {
-            guard let u = u, var c = URLComponents(url: u, resolvingAgainstBaseURL: false) else { return nil }
-            c.user = nil; c.password = nil; c.path = "/"; c.query = nil; c.fragment = nil
-            return c.url
-        }
-        if let from = originOnly(download.originalRequest?.url) { props[kLSQuarantineDataURLKey as String] = from }
-        if let page = originOnly(fromPage) { props[kLSQuarantineOriginURLKey as String] = page }
-        values.quarantineProperties = props
+        // No addresses: a page's address carries the board token (?token=, #kst=).
+        values.quarantineProperties = [kLSQuarantineAgentNameKey as String: "Kosmos",
+                                       kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String]
         var marked = dest
         do { try marked.setResourceValues(values) } catch {
             // Kept, as Safari keeps a download it cannot mark (a Downloads folder on a disk without the mark).
@@ -3023,7 +3016,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(download:didFailWithError:resumeData:)
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
-        downloadPages.removeValue(forKey: ObjectIdentifier(download))
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
         // it did not start (WebKit refusing a download on its own) is said as a quiet refusal; any other
@@ -5115,8 +5107,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        computer that runs agents (computerMode stays unset, which the policy treats as run); a connect computer is
        not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
-    /* Above the worst case of a run where NOTHING saves (seven 5s file waits, eight 2s ones counting the
-       burst, fifteen page loads; measured 106s), so a product that saves nothing is judged, not timed out. */
+    /* Above the worst case of a run where NOTHING saves (seven 5s file waits, nine 2s ones counting the
+       burst, sixteen page loads; measured 106s), so a product that saves nothing is judged, not timed out. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
     DispatchQueue.main.asyncAfter(deadline: .now() + 200) {
         try? FileManager.default.removeItem(at: dl)
