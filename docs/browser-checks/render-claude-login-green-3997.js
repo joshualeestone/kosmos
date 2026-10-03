@@ -9,6 +9,8 @@
  *   - boss (the default account): login good for 20 days  -> GREEN, "Signed in · login good until <date>"
  *   - aria: login good for 20 days, but Anthropic rejected it (recorded for its folder) -> NOT green, says Not connected
  *   - cleo: login ran out yesterday -> NOT green, and no "login good" date
+ *   - dana (#5168): login ran out at dawn, the access token works 5 more hours -> "Signed in · stops working at about
+ *     <time>" (cleo, the same ended login with no live token, is the control: it says no stop time)
  *   - then boss's Check now FAILS (a 403 refusal) -> the row is NOT green at once, and its button says so
  *
  * Control, measured: on main (the switch off, ruling C) boss renders the grey "acct-loginok" pill, so the first arm
@@ -34,11 +36,13 @@ const HOME = process.env.AGENT_WORKFORCE_HOME;
 const BOSS = 'boss3997@example.com';
 const ARIA = 'aria3997@example.com';
 const CLEO = 'cleo3997@example.com';
+const DANA = 'dana5168@example.com';
 fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: BOSS } }));
 fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
 const ARIA_DIR = path.join(HOME, '.claude-aria');
 const CLEO_DIR = path.join(HOME, '.claude-cleo');
-for (const [dir, email] of [[ARIA_DIR, ARIA], [CLEO_DIR, CLEO]]) {
+const DANA_DIR = path.join(HOME, '.claude-dana');
+for (const [dir, email] of [[ARIA_DIR, ARIA], [CLEO_DIR, CLEO], [DANA_DIR, DANA]]) {
   fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: email } }));
 }
@@ -57,7 +61,9 @@ const claudeloginlive = require('../../engine/claudeloginlive');
 const observed = require('../../engine/observed');
 const create = require('../../engine/create');
 const DAY = 86400000;
-claudeloginlive.setReaderForTests((ccd) => (ccd === CLEO_DIR ? Date.now() - DAY : Date.now() + 20 * DAY));
+claudeloginlive.setReaderForTests((ccd) => (ccd === CLEO_DIR ? Date.now() - DAY
+  : ccd === DANA_DIR ? { until: Date.now() - 6 * 3600000, works: Date.now() + 5 * 3600000 }   // #5168: ended, token alive
+  : Date.now() + 20 * DAY));
 const srv = require('../../server.js');
 
 const ALL_ENGINES = ['chromium', 'webkit'];
@@ -96,8 +102,8 @@ async function rows(page) {
   const end = Date.now() + 8000;
   let got = {};
   while (Date.now() < end) {
-    got = { boss: await pill(page, BOSS), aria: await pill(page, ARIA), cleo: await pill(page, CLEO) };
-    if (got.boss && got.aria && got.cleo && got.boss.cls !== 'no pill') break;
+    got = { boss: await pill(page, BOSS), aria: await pill(page, ARIA), cleo: await pill(page, CLEO), dana: await pill(page, DANA) };
+    if (got.boss && got.aria && got.cleo && got.dana && got.boss.cls !== 'no pill' && /stops working/.test(got.dana.text || '')) break;
     await page.waitForTimeout(150);
   }
   return got;
@@ -138,6 +144,11 @@ async function rows(page) {
         chk(r.aria && /Not connected/.test(r.aria.text), `${tag} control: the rejected account says why`, JSON.stringify(r.aria && r.aria.text));
         chk(r.cleo && r.cleo.cls !== 'acct-connected' && !/login good/.test(r.cleo.text),
           `${tag} control: an expired login is NOT green and claims no good date`, JSON.stringify(r.cleo));
+        // #5168: the ended login whose token still works says when it stops, in the board notice's words; cleo does not.
+        chk(r.dana && r.dana.cls !== 'acct-connected' && /^Signed in · stops working (tomorrow )?at about \d{1,2}:\d{2}\s?[AP]M$/.test(r.dana.text),
+          `${tag} #5168 an ended login with a live token says when its agents stop`, JSON.stringify(r.dana));
+        chk(r.dana && /Sign in again before then to keep them running\./.test(r.dana.title), `${tag} #5168 its title says what to do`, JSON.stringify(r.dana && r.dana.title));
+        chk(r.cleo && !/stops working/.test(r.cleo.text), `${tag} #5168 control: an ended login with no live token names no stop time`, JSON.stringify(r.cleo));
         /* Review 3: Check now that FAILS (a 403 refusal, not a dead sign-in and not capacity) takes the green away on
            the page too, at once, with the button saying so; not green beside "Could not check". */
         create.setClaudeProbe(async () => ({ exitCode: 1, out: 'API Error: 403 {"type":"error","error":{"type":"permission_error","message":"This organization has been disabled."}}' }));

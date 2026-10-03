@@ -25610,7 +25610,14 @@ async function paintAccounts(opts) {
     /* Review 1: a login-green row with no date to show is not claimed as "a real request succeeded"; it falls back to
        the unverified state, the honest reading of what the server knows. */
     const loginGreenNoDate = badge === 'working' && a.connection && a.connection.observedFrom === 'login' && !loginDate;
-    if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
+    /* #5168 (after #5164): the login has ended, and the agents still work on the access token they hold until this time,
+       then stop. The same fact the board's notice says, in the same words; it outranks "Signed in · active", which is
+       true now and wrong in a few hours. The page's own clock decides it has passed. */
+    const stopsAt = a.connection && Number.isFinite(a.connection.loginStopsAt) && a.connection.loginStopsAt > Date.now() ? a.connection.loginStopsAt : null;
+    if (stopsAt) {
+      const when = loginAdvWhen(stopsAt);
+      connBadge = '<span class="acct-unverified acct-stopsat" title="' + esc('This account\'s sign-in has run out. Its agents keep working on the access they already hold until ' + when.replace(/^at /, '') + ', then stop. Sign in again before then to keep them running.') + '"><span class="dot" aria-hidden="true"></span>Signed in · stops working ' + esc(when) + '</span>';
+    } else if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
       connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
       connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';

@@ -34,7 +34,8 @@ let reader = null;
 /** Tests only: inject the expiry reader, ccd -> number | null (or a promise of one). */
 function setReaderForTests(fn) { reader = typeof fn === 'function' ? fn : null; }
 
-const cache = new Map();      // service name -> { at, until, gen }: gen is the login generation it was read under (#5018)
+const cache = new Map();      // service name -> { at, until, works, gen }: gen is the login generation it was read under (#5018);
+                              // works (#5168) is when the access token Claude Code holds runs out
 const inflight = new Map();   // service name -> { gen, read }: the read under way and its generation
 function _clearForTest() { cache.clear(); inflight.clear(); refusedChecks.clear(); }
 
@@ -55,20 +56,39 @@ function validUntil(row, now = Date.now()) {
   inflight.set(service, entry);
   entry.read = (async () => {
     let until = null;
+    let works = null;
     try {
-      if (reader) until = await reader(ccd);
-      else if (process.platform === 'darwin' && !process.env.NODE_TEST_CONTEXT) {
+      if (reader) {
+        /* A test reader returns the login date, or (#5168) { until, works } with the access token's date too. */
+        const got = await reader(ccd);
+        if (got && typeof got === 'object') { until = got.until; works = got.works; } else until = got;
+      } else if (process.platform === 'darwin' && !process.env.NODE_TEST_CONTEXT) {
         const body = await loginexpiry.readCredAsync(service);
-        until = loginexpiry.refreshExpiryFor(ccd, { readCred: () => body });
+        const t = loginexpiry.loginTimesFor(ccd, { readCred: () => body });   // #5168: both dates, one read
+        until = t.refreshExpiresAt; works = t.accessExpiresAt;
       }
-    } catch { until = null; }
+    } catch { until = null; works = null; }
     until = Number.isFinite(until) ? until : null;
+    works = Number.isFinite(works) ? works : null;
     const prev = cache.get(service);
-    if (!prev || !(prev.gen > gen)) cache.set(service, { at: now, until, gen });   // an older read never overwrites a newer one
+    if (!prev || !(prev.gen > gen)) cache.set(service, { at: now, until, works, gen });   // an older read never overwrites a newer one
     if (inflight.get(service) === entry) inflight.delete(service);
     return until;
   })();
   return entry.read;
+}
+
+/* #5168 (after #5164): a login that has ENDED while the access token Claude Code holds still works. Its agents keep
+   working until that token runs out (at most 8 hours, measured), then stop. Returns that time (epoch ms) from the
+   last read of this row's credential, or null: not ended, already stopped, or not read yet. No read of its own: the
+   row's validUntil read (above) fills the cache this answers from, in the same request. */
+function worksUntil(row, now = Date.now()) {
+  if (!row || row.apiKey) return null;
+  const ccd = row.isDefault ? undefined : row.dir;
+  if (!row.isDefault && !ccd) return null;
+  const hit = cache.get(loginexpiry.serviceNameFor(ccd));
+  if (!hit || hit.gen !== loginexpiry.loginGeneration()) return null;
+  return Number.isFinite(hit.until) && hit.until <= now && Number.isFinite(hit.works) && hit.works > now ? hit.works : null;
 }
 
 /* validUntil, waited on for at most budgetMs: null when the read has not answered by then (it goes on). */
@@ -106,5 +126,5 @@ function checkRefused(dir, newerOutcomeAt = null) {
 /* Whether that good login also turns the row green: only with the switch on. */
 function greenFromLogin(args) { return GREEN_FROM_LOGIN && loginGood(args); }
 
-module.exports = { validUntil, validUntilWithin, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, _clearForTest,
+module.exports = { validUntil, validUntilWithin, worksUntil, loginGood, greenFromLogin, noteCheck, checkRefused, setReaderForTests, _clearForTest,
   GREEN_FROM_LOGIN, CACHE_MS, MISS_CACHE_MS, READ_BUDGET_MS };
