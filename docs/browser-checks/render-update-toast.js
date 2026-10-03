@@ -278,18 +278,19 @@ const RELPORT = freePort();
     // welcome is completed, the way a person finishes it, and New agent must render (CONTROL) before "not covered" counts.
     await p.evaluate(async () => { await fetch('/api/first-run/complete', { method: 'POST' }).then((r) => r.text()); });
     await p.evaluate(() => localStorage.removeItem('kosmos-update-later'));
-    await p.reload({ waitUntil: 'networkidle' });
+    // The passes above end in Settings > Updates and a reload keeps that page; a new user lands on the agents board.
+    await p.goto(`http://127.0.0.1:${PORT}/?tab=agents`, { waitUntil: 'networkidle' });
     await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
     const empty = await p.evaluate(() => {
       const box = (el) => { if (!el || !el.getClientRects().length) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
       const na = box(document.getElementById('new-agent')); const chip = box(document.querySelector('.uchip'));
       const hit = na ? document.elementFromPoint(na.left + na.width / 2, na.top + na.height / 2) : null;
       const cover = na && chip && na.left < chip.right && chip.left < na.right && na.top < chip.bottom && chip.top < na.bottom;
-      return { welcomeShown: !document.getElementById('firstrun').hidden, newAgent: na && [Math.round(na.left), Math.round(na.top), Math.round(na.width), Math.round(na.height)],
+      return { tab: new URLSearchParams(location.search).get('tab'), boardShown: !document.getElementById('boardbar').hidden, welcomeShown: !document.getElementById('firstrun').hidden, newAgent: na && [Math.round(na.left), Math.round(na.top), Math.round(na.width), Math.round(na.height)],
         chip: chip && [Math.round(chip.left), Math.round(chip.top), Math.round(chip.width), Math.round(chip.height)], cover: !!cover,
         takesClick: !!(hit && document.getElementById('new-agent').contains(hit)) };
     });
-    if (empty.welcomeShown || !empty.newAgent || !empty.chip) die('CONTROL #5140: past the welcome on an empty board at 375, New agent and the update notice must both render ' + JSON.stringify(empty));
+    if (!empty.boardShown || empty.welcomeShown || !empty.newAgent || !empty.chip) die('CONTROL #5140: past the welcome on an empty board at 375, New agent and the update notice must both render, on the agents board ' + JSON.stringify(empty));
     if (empty.cover || !empty.takesClick) die('#5140: on an empty board at 375 the update notice covers New agent, a new user\'s first action ' + JSON.stringify(empty));
     console.log('PASS  #5140: empty board at 375, the update notice clears New agent and New agent takes the click ' + JSON.stringify(empty));
     await p.screenshot({ path: path.join(OUT, 'update-toast-375-empty.png') });
