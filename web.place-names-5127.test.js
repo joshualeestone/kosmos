@@ -5,15 +5,15 @@
  * legitimate, since the Mac box is headed "This agent's Terminal".
  * - There is no "Terminal tab": an agent's screen is a box under the AI Settings pill on its page ("This agent's
  *   Terminal" on a Mac, "Live output" on Windows), so sentences point at AI Settings, which both platforms show.
- *   The Codex hook refusals are shown ON the agent's page, so they say "on this page"; the not-running message can
- *   show elsewhere, so it says "on its page".
+ *   The Codex hook refusals are shown ON the agent's page and say where its screen is ("on this page"); the
+ *   not-running message can show elsewhere, with no session, so it names only the place ("on its page").
  * - "Add a provider" lives under Settings, AI Models; a hint that says "Settings: Add a provider" skips the section.
  *
  * Scope, stated so the guard is not read as wider than it is:
  * - WHAT: the spellings in OLD (a Terminal tab, pill, section or page; "Settings" then ":", ">", "->" or "," then
  *   "Add a provider"), any case.
  * - WHERE: (1) quoted strings, one line at a time (a line starting with * or // is a comment line and skipped,
- *   so a string on such a line is not read), escaped quotes included, in web/index.html, server.js,
+ *   so a string on such a line is not read; a stray apostrophe earlier on a line can mis-pair the quotes), escaped quotes included, in web/index.html, server.js,
  *   engine/*.js (not tests), the Windows CLI and the Mac CLI; (2) the text between tags in web/index.html's markup
  *   (scripts, styles and HTML comments removed). Whole comment lines are skipped. A name split across two quoted
  *   pieces is not seen.

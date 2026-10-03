@@ -11,7 +11,8 @@ section Add a provider is in ("Set up in Settings, AI Models").
 ## The thirteen sentences
 - server.js: the agent-not-running message ("if it stays off, look under AI Settings on its page").
 - engine/chat.js: ten refusals from answering a Codex hook question. They are shown in the question box ON the agent's
-  page, so they say "...; look under AI Settings on this page".
+  page, and are about its screen, so they say where that is: "...; its screen is under AI Settings on this
+  page" (a place, not a promise of what it shows).
 - web/index.html: the greyed Gemini (Antigravity) and Meta (Muse) provider hints.
 
 ## The sweep, so the next person does not redo it
@@ -29,8 +30,8 @@ site, or was a comment.
 - Naming the box itself ("its Terminal"): it is called something else on Windows; the pill is the same on both.
 
 ## Weakest premise
-That "under AI Settings" is enough to find it: the agent's screen is the third of four sections under that pill, and
-the sentence cannot name what is in it without over-promising.
+That naming "its screen" as the thing under AI Settings is enough to find the third of four sections there. The
+not-running sentence names only the place, since with no session there may be no screen to find.
 
 ## Checks
 - web.place-names-5127.test.js: quoted strings and the page markup's text; red on main (lists exactly the thirteen); an
