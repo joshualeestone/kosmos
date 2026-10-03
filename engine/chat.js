@@ -1293,45 +1293,45 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
   let first = true;
   for (let n = 0; n < 4; n += 1) {
     const step = steps[now.screen];
-    if (!step) return no('its screen went somewhere we have not measured, so nothing more was pressed; look under AI Settings on this page to see it');
+    if (!step) return no('its screen went somewhere we have not measured, so nothing more was pressed; you can see its screen under AI Settings on this page');
     /* Read again immediately before the key: it must still be this screen, and on the FIRST key it must be the dialog
        the person was shown (review round 4, checked on this same read, round 5). */
     const before = look();
-    if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; look under AI Settings on this page to see it');
+    if (before.unseen || before.screen !== now.screen) return no('its screen changed before we could answer, so nothing more was pressed; you can see its screen under AI Settings on this page');
     if (first && !sameCodexHooks(seen, status.codexHookSummary(before.text))) return no('its hook question changed since you read it, so nothing was pressed; read it again and choose');
     /* The table and one hook's page must have their exact measured shape before any key (review round 10: a bare
        table footer printed by an agent read as the table, and Trust pressed "t" there). */
     if ((now.screen === 'table' || now.screen === 'hook') && !status.codexHookScreenExact(before.text, now.screen)) {
-      return no('the hook question on its screen is not the one we know, so nothing was pressed; look under AI Settings on this page to see it');
+      return no('the hook question on its screen is not the one we know, so nothing was pressed; you can see its screen under AI Settings on this page');
     }
     let key = step[0];
     if (key === 'digit') {
       const mk = status.codexHookMenuKeys(before.text);
       key = choice === 'trust' ? mk.trust : mk.skip;
-      if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; look under AI Settings on this page to see it');
+      if (!key) return no('the hook question on its screen does not show that choice the way we know it, so nothing was pressed; you can see its screen under AI Settings on this page');
     }
-    if (!press(key)) return noAfter('we could not press the key; look under AI Settings on this page to see it');
+    if (!press(key)) return noAfter('we could not press the key; you can see its screen under AI Settings on this page');
     if (choice === 'trust' && (key === 't' || now.screen === 'menu')) trustPressed = true;
     first = false;
     await wait(CODEX_HOOK_SETTLE_MS);
     const after = look();
-    if (after.unseen) return noAfter('we answered, and then could not see its screen to check it; look under AI Settings on this page to see it');
-    if (after.screen === 'blank') return noAfter('we answered, and its screen was blank when we checked; look under AI Settings on this page to see it');
+    if (after.unseen) return noAfter('we answered, and then could not see its screen to check it; you can see its screen under AI Settings on this page');
+    if (after.screen === 'blank') return noAfter('we answered, and its screen was blank when we checked; you can see its screen under AI Settings on this page');
     if (after.screen !== step[1]) {
       if (after.screen === now.screen) {
         /* A slow redraw is not proof the key failed (review round 11): after a Trust key it may still have landed. */
         if (trustPressed && now.screen === 'trusted') return noAfter('its hooks are trusted and their list is still open; close the list');
         if (trustPressed) return Object.assign(no('we pressed Trust and its screen has not changed yet, so it may still take effect; check again in a moment'), { screen: readFirst });
-        return noAfter('its screen did not change after we answered; look under AI Settings on this page to see it');
+        return noAfter('its screen did not change after we answered; you can see its screen under AI Settings on this page');
       }
-      return noAfter('its screen went somewhere we have not measured, so nothing more was pressed; look under AI Settings on this page to see it');
+      return noAfter('its screen went somewhere we have not measured, so nothing more was pressed; you can see its screen under AI Settings on this page');
     }
     if (after.screen === 'gone') return { ok: true, choice, keys, screen: readFirst };
     /* Trust from one hook's page: the full list is up now; the person chooses again with every hook in view. */
     if (choice === 'list') return { ok: false, keys, because: 'the full list of hooks is showing now; read it and choose again', reread: true, screen: readFirst };
     now = after;
   }
-  return noAfter('its screen is still asking after four keys, so we stopped; look under AI Settings on this page to see it');
+  return noAfter('its screen is still asking after four keys, so we stopped; you can see its screen under AI Settings on this page');
 }
 
 /* #3564: what a paused swarm still accepts. */
