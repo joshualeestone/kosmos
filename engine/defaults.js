@@ -412,8 +412,13 @@ const BLOCK = [
   '',
   'Use the project the work belongs to, from Your projects. The one line holds 200',
   'characters; the checks can be longer. The person sees the task on that project.',
+  'If a check holds a backtick or a `$`, use single quotes, as in the trap above.',
   '**Right after adding it, run `kosmos task list <project-id>` and note your',
   "task's number:** you need it to mark the task built.",
+  '',
+  '**If several of you were asked in one room, add one task between you.** Run',
+  '`kosmos task list <project-id>` first; if the task is there, use it. Say its',
+  'number in the room.',
   '',
   '**If the work came to you as a task already, do not add another.** Put the',
   'checks on that one:',
@@ -426,8 +431,8 @@ const BLOCK = [
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
   'A question, a quick answer or small talk is not a task. If you are on no',
-  'project, write the checks in your reply before you start, and say how each went',
-  'when you finish.',
+  'project, or the work belongs to none of yours, do not guess another: write the',
+  'checks in your reply before you start, and say how each went when you finish.',
   '',
   '### Never wait silently',
   '',
@@ -888,8 +893,12 @@ function block() {
  *     when:" and reported each check when marking it built; the v23 block (control) 0/4; small talk 0/2 filed. Review
  *     then added the existing-task case and where the number comes from; that wording: work requests 11/13 filed and
  *     marked built (2 onboarding runs did the work without filing; 6 reruns of that request all filed), given a task
- *     3/3 added none and messaged the checks onto it, small talk 1/1 filed nothing. The final wording (the 200-character
- *     line, note the number) is re-measured on the PR. Claude only.
+ *     3/3 added none and messaged the checks onto it, small talk 1/1 filed nothing. The v3 wording (the 200-character
+ *     line, note the number): work requests 4/4 filed, listed and marked built; given a task 2/2 added none; small talk 1/1
+ *     filed nothing. Review round 3 then added single quotes for a check with a backtick or $, one task between agents
+ *     asked in one room, and work outside every project going in the reply. That wording: a work request 1/1 filed,
+ *     listed and marked built with each check; given a task 1/1 added none; small talk 1/1 filed nothing; work outside
+ *     every project 1/1 filed none (whether its reply held checks the stand-in cannot see). Claude only.
  *     WEAKEST PREMISE, NAMED: Codex and Gemini agents were not measured, and nothing yet lets the person edit the
  *     checks (the editable-checks slice waits until after the beta).
  */
