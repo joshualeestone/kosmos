@@ -1075,16 +1075,19 @@ run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/
 # an address planted in an agent's role by the page scan ("this screen shows
 # real data"). Exit 3 alone is not enough: the preflight firing first would
 # pass the page arm without the page scan ever running.
-# kosmos#5135: when an arm passes, its run's own "FAIL  " lines are the planted
-# failure it was meant to produce, so they print as "CONTROL (expected): " and a
-# person scanning the cut log for reds is not sent after them. An arm that does
-# not pass prints its output untouched, so a real red still reads as one. The
-# cover arms below do the same.
+# kosmos#5135: when an arm passes, the one FAIL line its guard was planted to
+# produce prints as "CONTROL (expected): ", so a person scanning the cut log for
+# reds is not sent after it. Any other FAIL line, and all output of an arm that
+# does not pass, prints untouched. The cover arms below do the same for their
+# one-shot summary line. tools.control-arms-expected-5135.test.js runs these bodies.
 for _arm in account:'the throwaway board lists' page:'this screen shows real data'; do
   run_one "mobile-shots-leak-${_arm%%:*}" bash -c 'out=$(MSHOTS_LEAK_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$3" \
       --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      3:*"$2"*) printf "%s\n" "$out" | sed "s/^FAIL  /CONTROL (expected): /"
+      3:*"$2"*) while IFS= read -r l; do case "$l" in
+          "FAIL  mobile-shots: LEAK GUARD: "*"$2"*) printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          *) printf "%s\n" "$l" ;;
+        esac; done <<<"$out"
         echo "leak control $1: stopped with exit 3 by its own guard, as it must"; exit 0 ;;
     esac
     printf "%s\n" "$out"
@@ -1105,7 +1108,10 @@ for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cov
   run_one "mobile-shots-cover-${_arm%%:*}" bash -c 'out=$(MSHOTS_COVER_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$4" \
       --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
-      2:*"$3"*) printf "%s\n" "$out" | sed "s/^FAIL  /CONTROL (expected): /"
+      2:*"$3"*) while IFS= read -r l; do case "$l" in
+          "FAIL  mobile-shots: 1 shot(s) could not be taken; see the ERROR lines above") printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          *) printf "%s\n" "$l" ;;
+        esac; done <<<"$out"
         echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;
     esac
     printf "%s\n" "$out"
