@@ -64,7 +64,14 @@ want="$(printf '%s\n' --force --entitlements "$WORK/a b.plist" -s "Developer ID 
 cs_ts_caps() { echo "$*" >> "$WORK/calls"; [ "$(calls)" -ge 2 ] && return 0; echo "x: THE TIMESTAMP SERVICE IS NOT AVAILABLE." >&2; return 1; }
 rc=$(run cs_ts_caps)
 { [ "$rc" = 0 ] && [ "$(calls)" = 2 ]; } && ok "an upper-case timestamp message is retried" || bad "upper-case message: exit $rc, $(calls) calls, want 0 and 2"
-shopt -q nocasematch && bad "codesign_ts_retry left nocasematch on in its caller" || ok "codesign_ts_retry leaves the caller's nocasematch as it found it"
+# Called DIRECTLY, not in $(...): a subshell would discard any shopt change and this could never fail.
+rm -f "$WORK/calls"; shopt -u nocasematch
+KOSMOS_CODESIGN_CMD=cs_ts_caps codesign_ts_retry -s x y >/dev/null 2>&1
+shopt -q nocasematch && bad "codesign_ts_retry turned nocasematch on in its caller" || ok "nocasematch off in the caller stays off"
+rm -f "$WORK/calls"; shopt -s nocasematch
+KOSMOS_CODESIGN_CMD=cs_ts_caps codesign_ts_retry -s x y >/dev/null 2>&1
+shopt -q nocasematch && ok "nocasematch on in the caller stays on" || bad "codesign_ts_retry turned the caller's nocasematch off"
+shopt -u nocasematch
 
 # 5c. Delays are words, never globs: a "*" stays a "*" (sleep refuses it), it does not become file names.
 rm -f "$WORK/calls"; ( cd "$WORK" && KOSMOS_CODESIGN_TS_DELAYS='*' KOSMOS_CODESIGN_CMD=cs_ts_always codesign_ts_retry -s x y >/dev/null 2>"$WORK/err" )
@@ -84,4 +91,4 @@ n=$(grep -E '(^|[^_[:alnum:]])codesign [^|]*--timestamp( |=|$)' "$B" | grep -vc 
 [ "$n" = 0 ] && ok "no bare timestamped codesign left in build-kosmos-bundle.sh" || bad "$n bare timestamped codesign line(s) in build-kosmos-bundle.sh"
 
 echo "test-codesign-retry-5149: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" = 20 ]
+[ "$fails" = 0 ] && [ "$passes" = 21 ]
