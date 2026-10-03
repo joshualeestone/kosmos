@@ -6,7 +6,7 @@
  *
  * What this pins, and why each line can fail:
  *  - another of the person's computers joining (#4773's joining_computer) reads "Your computer "windowsbox" wants to
- *    join", with "Allow it if you just signed it in, and it shows this code."; a phone beside it (the CONTROL) keeps its
+ *    join", with "Allow it if windowsbox shows this same code." (#4794); a phone beside it (the CONTROL) keeps its
  *    own name and the device-in-your-hand line;
  *  - each sheet carries the Kosmos+ brand, the code once as one large line read out a character at a time, then
  *    Allow and a quiet Not me (no Deny, no letter boxes);
