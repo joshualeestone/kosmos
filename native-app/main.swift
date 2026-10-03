@@ -365,7 +365,7 @@ func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
 /// itself: #5165's Files lists (kplusDownload) look at these two routes with ?check=1 and say the board's
 /// own sentence, on any board. Nothing else (an attachment, say) is looked at by the page.
 func pageSaysDownloadRefusal(_ url: URL?) -> Bool {
-    let path = url?.path ?? ""
+    let path = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath } ?? ""   // an encoded / stays one part
     let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
     // ["", "api", "agent", <name>, "files", "download"] or ["", "api", "project", <id>, "file-download"]
     if parts.count == 6, parts[1] == "api", parts[2] == "agent", !parts[3].isEmpty, parts[4] == "files", parts[5] == "download" { return true }
@@ -2993,11 +2993,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     fileprivate func resetDownloadQuiet() { lastDownloadTold = nil; quietToldThisPage = []; summaryToldForPage = nil }   // the selftest, between its arms
 
-    private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {
+    private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false, always: Bool = false) {
         // A refusal is Kosmos choosing not to save; anything else is a save that failed.
         let title = title ?? (quiet ? "Kosmos did not save that file" : "Kosmos could not save that file")
         let soSoon = lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false
-        if !quiet && (downloadAlertsUp > 0 || soSoon) {
+        if !quiet && !always && (downloadAlertsUp > 0 || soSoon) {
             // Counted, not stacked: a page that loops failing downloads cannot pile up alerts the person
             // cannot get out of. They are said together a few seconds after this alert is dismissed.
             pendingDownloadFailures += 1
@@ -3176,8 +3176,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("#5167: could not mark \(dest.lastPathComponent) as downloaded: \(error.localizedDescription)")
             // WebKit marks what it downloads too; the person is told only if the file carries no mark at all.
             if getxattr(dest.path, "com.apple.quarantine", nil, 0, 0, 0) <= 0 {
+                // Always on its own: it is the one warning about a file that WAS saved, so it cannot go into a
+                // summary of files that were not.
                 tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.",
-                                   title: "Kosmos saved that file without its download mark")
+                                   title: "Kosmos saved that file without its download mark", always: true)
             }
         }
         if AppDelegate.downloadsDirOverride == nil {   // the selftest does not bounce the build box's Dock
