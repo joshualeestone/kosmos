@@ -210,26 +210,40 @@ test('a zero-byte file and a file of many stream chunks both arrive whole', asyn
   assert.deepEqual(Buffer.from(await b.arrayBuffer()), big, 'a multi-chunk file arrived changed or short');
 });
 
-test('the ASCII filename= cannot carry a quote, a backslash or a line break into the header', async () => {
+test('the ASCII filename= replaces what a quoted string cannot carry (a quote, anything outside printable ASCII)', async () => {
+  // A backslash never reaches this header: fileInFolder's first gate refuses a name holding one.
   const files = path.join(SANDBOX, 'workers', 'asc', 'Files');
   fs.mkdirSync(files, { recursive: true });
-  fs.writeFileSync(path.join(files, 'caf\u00e9 "q" \\ x.txt'), 'x');
-  const r = await fetch(base + '/api/agent/asc/files/download?name=' + encodeURIComponent('caf\u00e9 "q" \\ x.txt'));
+  fs.writeFileSync(path.join(files, 'caf\u00e9 "q" x.txt'), 'x');
+  const r = await fetch(base + '/api/agent/asc/files/download?name=' + encodeURIComponent('caf\u00e9 "q" x.txt'));
   assert.equal(r.status, 200);
-  assert.equal(r.headers.get('content-disposition'), "attachment; filename=\"caf_ _q_ _ x.txt\"; filename*=UTF-8''caf%C3%A9%20%22q%22%20%5C%20x.txt");
+  assert.equal(r.headers.get('content-disposition'), "attachment; filename=\"caf_ _q_ x.txt\"; filename*=UTF-8''caf%C3%A9%20%22q%22%20x.txt");
 });
 
+/* A GET carrying a header fetch() will not send: undici sets Sec-Fetch-Mode itself, so a navigation has to be made by hand. */
+function rawGet(urlPath, headers) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(base + urlPath);
+    const req = require('node:http').request({ host: u.hostname, port: u.port, path: u.pathname + u.search, method: 'GET', headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 test('a refused download NAVIGATION is 204 with no body (nothing for a browser to save); the page\u2019s look gets the sentence', async () => {
-  const files = path.join(SANDBOX, 'workers', 'nav', 'Files');
-  fs.mkdirSync(files, { recursive: true });
-  const nav = await fetch(base + '/api/agent/nav/files/download?name=gone.pptx', { headers: { 'sec-fetch-mode': 'navigate' } });
+  fs.mkdirSync(path.join(SANDBOX, 'workers', 'nav', 'Files'), { recursive: true });
+  const nav = await rawGet('/api/agent/nav/files/download?name=gone.pptx', { 'sec-fetch-mode': 'navigate' });
   assert.equal(nav.status, 204);
-  assert.equal((await nav.arrayBuffer()).byteLength, 0);
-  const look = await fetch(base + '/api/agent/nav/files/download?check=1&name=gone.pptx', { headers: { 'sec-fetch-mode': 'navigate' } });
+  assert.equal(nav.body.length, 0);
+  const look = await rawGet('/api/agent/nav/files/download?check=1&name=gone.pptx', { 'sec-fetch-mode': 'navigate' });
   assert.equal(look.status, 404, 'the look must still carry the refusal');
-  assert.match((await look.json()).because, /not there any more/);
-  const plain = await fetch(base + '/api/agent/nav/files/download?name=gone.pptx');
-  assert.equal(plain.status, 404, 'CONTROL: without the navigation header the refusal is the sentence');
+  assert.match(JSON.parse(look.body.toString('utf8')).because, /not there any more/);
+  const plain = await rawGet('/api/agent/nav/files/download?name=gone.pptx', { 'sec-fetch-mode': 'cors' });
+  assert.equal(plain.status, 404, 'CONTROL: a non-navigation refusal is the sentence');
 });
 
 test('on a board that enforces its token, both download routes refuse without it and serve with it', async () => {
