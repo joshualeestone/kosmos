@@ -72,7 +72,7 @@ test('#1903/#1916: a Claude account whose sign-in is DEAD (real 401) is refused,
     const r = await create.accountConnectable({ provider: 'anthropic', accountDir: DEAD_CLAUDE });
     assert.equal(r.ok, false, 'a dead Claude account was accepted at create');
     assert.match(r.because, /sign-in is not working/);
-    assert.match(r.because, /Re-authenticate/);
+    assert.match(r.because, /Sign that account in again from Settings, AI Models/);   // #5114: the place the screen names
   } finally { create.setClaudeProbe(null); }
 });
 
