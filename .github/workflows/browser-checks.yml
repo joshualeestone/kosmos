@@ -53,7 +53,7 @@
 # and reports nothing on non-matching PRs by design; making it required needs a
 # companion always-runs job that reports a neutral success, or dropping the filter.
 #
-# ⚠️ THREE WAYS A CI-GREEN IS NOT IDENTICAL TO A CUT-TIME 3b GREEN (Baron, #2444/#2445,
+# ⚠️ WAYS A CI-GREEN IS NOT IDENTICAL TO A CUT-TIME 3b GREEN (Baron, #2444/#2445; a fourth, Linux, at the job's runs-on, #4601;
 # eyes-open -- neither blocks this, both are honest limits to carry):
 #   1) click-first-run (the full linear install-flow clickthrough, the heaviest
 #      check) was briefly dropped from the CI allowlist (2026-09-07) when it timed
@@ -339,7 +339,8 @@ jobs:
       - name: 'route each check to Linux or macOS (tools/bc-macos-only.txt, #4601)'
         id: route
         run: |
-          set -eu
+          # pipefail: GitHub runs a step as bash -e only, so a missing list would otherwise read as "nothing routed".
+          set -euo pipefail
           macos="$(grep -v '^#' tools/bc-macos-only.txt | cut -f1 | tr '\n' ' ')"
           full=""
           for n in $KOSMOS_BC_CI_ALLOWLIST ${KOSMOS_BC_PR_SELECTED:-}; do
@@ -405,7 +406,7 @@ jobs:
       # Say so here, so a skipped macOS job does not read as "nothing to run on macOS".
       - name: 'say the routed checks did not run (#4601)'
         if: failure() && steps.route.outcome != 'success'
-        run: echo "::error::this job failed before routing, so the checks in tools/bc-macos-only.txt that this PR selects did not run on macOS either; fix this job and rerun"
+        run: echo "::error::this job failed before or during routing, so the checks in tools/bc-macos-only.txt that this PR selects did not run on macOS either; fix this job and rerun"
 
   # #4601: the checks routed to macOS (tools/bc-macos-only.txt) that the Linux job named for this PR, run where their
   # result means something. Skipped when there are none (about 3 page PRs in 4, measured on #4601), so most page PRs

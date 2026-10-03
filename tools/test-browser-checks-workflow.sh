@@ -78,8 +78,8 @@ for p in 'web/index\.html' 'docs/browser-checks/' 'tools/browser-checks\.sh' 'to
 done
 pass "the paths filter LISTS every trigger surface (rendered page, checks, driver, runtime pin, test-support deps, self)"
 
-# 5. #4601: the PR job runs on ubuntu-latest, off the scarce hosted macOS pool. It runs only the
-#    DOM-state allowlist; the OS-family gate is the cut's 3b and browser-checks-full.yml (pinned to
+# 5. #4601: the PR job runs on ubuntu-latest, off the scarce hosted macOS pool. It runs the DOM-state
+#    allowlist and the checks the diff selects (#4119), less the ones routed to macOS; the OS-family gate is the cut's 3b and browser-checks-full.yml (pinned to
 #    macos-latest below), which is where shipping is decided.
 grep -qE 'runs-on:[[:space:]]*ubuntu-latest' "$WF" \
   || fail "the PR job is not on ubuntu-latest (#4601: it would queue on the hosted macOS pool again)"
@@ -254,7 +254,7 @@ fi
 # stubbed as a shell FUNCTION (never a freshly written executable).
 if command -v ruby >/dev/null 2>&1; then
   BT="$(mktemp -d)"
-  trap 'rm -rf "$BT"' EXIT
+  trap 'rm -rf "$BT" "${RT:-}"' EXIT
   ruby -ryaml -e '
     j = YAML.load_file(ARGV[0])["jobs"]
     File.write(ARGV[1], j["browser-checks-full"]["steps"].find { |s| s["id"] == "failed" }["run"])
@@ -598,7 +598,13 @@ if command -v ruby >/dev/null 2>&1; then
   # route <list-file-contents> <allowlist> <selected>: prints LINUX=<set>|MAC=<set>|OUT=<mac_set>|rc=<n>
   route() {
     printf '%b' "$1" > "$RT/tools/bc-macos-only.txt"; : > "$RT/env"; : > "$RT/out"
-    ( cd "$RT" && KOSMOS_BC_CI_ALLOWLIST="$2" KOSMOS_BC_PR_SELECTED="$3" GITHUB_ENV="$RT/env" GITHUB_OUTPUT="$RT/out" bash -eo pipefail route.sh ) >/dev/null 2>&1
+    # bash -e only: that is how GitHub runs a step in this workflow (no defaults.run.shell), so the step must bring
+    # its own pipefail. "__UNSET__" leaves KOSMOS_BC_PR_SELECTED unset (no selection step output at all).
+    if [ "$3" = __UNSET__ ]; then
+      ( cd "$RT" && unset KOSMOS_BC_PR_SELECTED && KOSMOS_BC_CI_ALLOWLIST="$2" GITHUB_ENV="$RT/env" GITHUB_OUTPUT="$RT/out" bash -e route.sh ) >/dev/null 2>&1
+    else
+      ( cd "$RT" && KOSMOS_BC_CI_ALLOWLIST="$2" KOSMOS_BC_PR_SELECTED="$3" GITHUB_ENV="$RT/env" GITHUB_OUTPUT="$RT/out" bash -e route.sh ) >/dev/null 2>&1
+    fi
     local rc=$?
     printf 'LINUX=%s|MAC=%s|OUT=%s|rc=%s' "$(sed -n 's/^KOSMOS_BC_LINUX_SET=//p' "$RT/env")" "$(sed -n 's/^KOSMOS_BC_MAC_SET=//p' "$RT/env")" "$(sed -n 's/^mac_set=//p' "$RT/out")" "$rc"
   }
@@ -611,14 +617,17 @@ if command -v ruby >/dev/null 2>&1; then
   # ...in both directions: a Linux name that is a prefix of a routed one must not be taken either.
   got="$(route 'abc\tcause #1\n' 'ab' '')"
   [ "$got" = "LINUX=ab|MAC=|OUT=|rc=0" ] || fail "route: a name that prefixes a routed one was treated as routed: $got"
-  # No selection at all (KOSMOS_BC_PR_SELECTED empty) under set -u.
-  got="$(route 'm1\tcause #1\n' 'a m1' '')"
+  # No selection at all: KOSMOS_BC_PR_SELECTED unset, under the step's set -u.
+  got="$(route 'm1\tcause #1\n' 'a m1' __UNSET__)"
   [ "$got" = "LINUX=a|MAC=m1|OUT=m1|rc=0" ] || fail "route: no-selection case gave $got"
   # Everything routed: the Linux set would be empty, which browser-checks.sh reads as "run every check", so refuse.
   got="$(route 'm1\tcause #1\n' 'm1' '')"
   case "$got" in *"|rc=0") fail "route: an empty Linux set was not refused: $got" ;; esac
-  rm -rf "$RT"
-  pass "the route step, run on fixtures: overlap, selection-only, prefix names, no selection, and an all-routed set refused"
+  # A missing list must stop the step (pipefail), not read as "nothing routed" and send every routed check to Linux.
+  printf 'x' > "$RT/tools/bc-macos-only.txt"; rm -f "$RT/tools/bc-macos-only.txt"; : > "$RT/env"
+  ( cd "$RT" && KOSMOS_BC_CI_ALLOWLIST='a m1' KOSMOS_BC_PR_SELECTED='' GITHUB_ENV="$RT/env" GITHUB_OUTPUT="$RT/out" bash -e route.sh ) >/dev/null 2>&1 \
+    && fail "route: a missing bc-macos-only.txt did not stop the step (under bash -e, as GitHub runs it)"
+  pass "the route step, run on fixtures under bash -e: overlap, selection-only, prefix names, no selection, an all-routed set refused, a missing list refused"
 elif [ -n "${CI:-}" ]; then
   fail "ruby is missing under CI, so the route step cannot be run"
 fi
