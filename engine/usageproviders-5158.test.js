@@ -102,7 +102,7 @@ test('Grok: each turn once, split per model, input without its cached and cache-
   assert.equal(r.folders['2026-10-02']['/w/bix'].rows, 1);
 });
 
-test('missing homes and unreadable files give an empty result, never a throw', async () => {
+test('homes that do not exist give an empty, complete result, never a throw', async () => {
   const r = await scanProviders({ homes: { codex: ['/nonexistent-5158'], gemini: ['/nonexistent-5158'], grok: ['/nonexistent-5158'] } });
   assert.deepEqual(r.days, {});
   assert.deepEqual(r.folders, {});
@@ -179,16 +179,45 @@ test('homes are found by folder name: signed-out and forgotten accounts too, a l
   assert.ok(!got.includes('.codexignored') && !got.includes('other'), 'only account folders by prefix');
 });
 
-test('a scan that could not read a file says so (complete: false), so it is not frozen', async () => {
-  const h = codexHome([tc('2026-10-01T10:00:05Z', 1, 0, 1)]);
-  const f = path.join(h, 'sessions', '2026', '10', '01', 'rollout-2026-10-01T10-00-00-aaa.jsonl');
-  const ok = await scanProviders({ homes: { codex: [h], gemini: [], grok: [] } });
-  assert.equal(ok.complete, true, 'CONTROL: a readable home is complete');
-  fs.chmodSync(f, 0o000);
-  try {
-    const bad = await scanProviders({ homes: { codex: [h], gemini: [], grok: [] } });
-    assert.equal(bad.complete, false, 'an unreadable file left the scan marked complete');
-  } finally { fs.chmodSync(f, 0o600); }
+test('a broken file blocks freezing while it is fresh; one that stayed broken is skipped and the scan is complete', async () => {
+  const h = tmp();
+  const sd = path.join(h, 'sessions', encodeURIComponent('/w/bix'), 'sess9');
+  fs.mkdirSync(sd, { recursive: true });
+  const f = path.join(sd, 'usage.json');
+  fs.writeFileSync(f, '{"sessionId":"sess9","turns":[{"turnNu');   // half written
+  const fresh = await scanProviders({ homes: { codex: [], gemini: [], grok: [h] } });
+  assert.equal(fresh.complete, false, 'a file being written right now left the scan complete');
+  const old = new Date(Date.now() - 30 * 60 * 1000);
+  fs.utimesSync(f, old, old);
+  const stale = await scanProviders({ homes: { codex: [], gemini: [], grok: [h] } });
+  assert.equal(stale.complete, true, 'a file broken for half an hour still blocks every freeze');
+});
+
+test('Codex: a fork that replays several of the parent\'s totals counts none of them', async () => {
+  const h = codexHome([
+    { timestamp: '2026-10-01T10:00:00Z', type: 'session_meta', payload: { cwd: '/w/roo', forked_from_id: 'p', timestamp: '2026-10-01T10:00:00Z' } },
+    { timestamp: '2026-10-01T10:00:00Z', type: 'turn_context', payload: { model: 'gpt-5.6-sol' } },
+    tc('2026-10-01T09:00:00Z', 1000, 0, 100),   // replayed, stamped before the fork
+    tc('2026-10-01T09:30:00Z', 2000, 0, 200),   // replayed, stamped before the fork
+    tc('2026-10-01T10:05:00Z', 2600, 0, 260),   // the fork's own first turn
+  ]);
+  const r = await scanProviders({ homes: { codex: [h], gemini: [], grok: [] } });
+  const b = r.days['2026-10-01']['gpt-5.6-sol'];
+  assert.equal(b.output_tokens, 60, 'only the fork\'s own growth is counted');
+  assert.equal(b.input_tokens, 600);
+});
+
+test('Codex: a session present in both sessions and archived_sessions is counted once', async () => {
+  const h = codexHome([
+    { timestamp: '2026-10-01T10:00:00Z', type: 'turn_context', payload: { model: 'gpt-5.6-sol' } },
+    tc('2026-10-01T10:00:05Z', 100, 0, 10),
+  ]);
+  const name = 'rollout-2026-10-01T10-00-00-aaa.jsonl';
+  const arch = path.join(h, 'archived_sessions');
+  fs.mkdirSync(arch, { recursive: true });
+  fs.copyFileSync(path.join(h, 'sessions', '2026', '10', '01', name), path.join(arch, name));
+  const r = await scanProviders({ homes: { codex: [h], gemini: [], grok: [] } });
+  assert.equal(r.days['2026-10-01']['gpt-5.6-sol'].output_tokens, 10, 'the copy was counted twice');
 });
 
 test('mergeProviders does not freeze a scan marked incomplete', async () => {

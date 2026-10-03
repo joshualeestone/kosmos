@@ -45,7 +45,7 @@ function utcDay(ts) {
    `.removed-codex-*`, ...), found by listing the home directory. Not the account modules' list(): that drops an account
    with no sign-in left, and a forgotten one, whose agents' past usage still happened (review 1). Deduped by real path, so
    a linked folder is not read twice. Never throws. */
-function homesByPrefix(homeDir, defaultDir, prefixes, storage = (d) => d) {
+function homesByPrefix(homeDir, defaultDir, prefixes, storage = (d) => d, problems = null) {
   const out = [];
   const seen = new Set();
   const add = (d) => {
@@ -57,7 +57,8 @@ function homesByPrefix(homeDir, defaultDir, prefixes, storage = (d) => d) {
   };
   add(defaultDir);
   let names = [];
-  try { names = fs.readdirSync(homeDir).sort(); } catch { names = []; }
+  try { names = fs.readdirSync(homeDir).sort(); }
+  catch (err) { names = []; if (problems && err && err.code !== 'ENOENT') problems.push(err.code || 'readdir'); }
   for (const name of names) if (prefixes.some((pre) => name.startsWith(pre))) add(path.join(homeDir, name));
   return out;
 }
@@ -79,13 +80,25 @@ async function walk(dir, re, out = [], acc = null) {
 /* A file last written before the first wanted day cannot hold a row on or after it (every row is stamped when it is
    written), so it is not read. This is what keeps the common call (only today missing) to the files touched today;
    NOT the Codex YYYY/MM/DD folders, which record the day a session started, and sessions run across days. */
-async function touchedSince(file, sinceDay) {
+async function touchedSince(file, sinceDay, acc = null) {
   if (!sinceDay) return true;
-  try { return (await fsp.stat(file)).mtimeMs >= Date.parse(sinceDay + 'T00:00:00Z'); } catch { return false; }
+  try { return (await fsp.stat(file)).mtimeMs >= Date.parse(sinceDay + 'T00:00:00Z'); }
+  catch (err) { if (acc && err && err.code !== 'ENOENT') acc.incomplete = true; return false; }
+}
+
+/* A file that cannot be read or parsed blocks freezing only while it is fresh (being written right now). One that has
+   stayed bad (a zero-byte file from a crashed session, a permanent permission error) is skipped and said once, or it
+   would keep every day in the window unfrozen and re-read on every request (review 2). */
+const FRESH_MS = 10 * 60 * 1000;
+async function badFile(acc, file, why) {
+  let fresh = true;
+  try { fresh = Date.now() - (await fsp.stat(file)).mtimeMs < FRESH_MS; } catch { fresh = true; }
+  if (fresh) acc.incomplete = true;
+  else console.error('usage: skipping an unreadable ' + why + ': ' + file);
 }
 
 class Acc {
-  constructor(sinceDay, untilDay) { this.days = {}; this.folders = {}; this.sinceDay = sinceDay; this.untilDay = untilDay; this.incomplete = false; }
+  constructor(sinceDay, untilDay) { this.days = {}; this.folders = {}; this.sinceDay = sinceDay; this.untilDay = untilDay; this.incomplete = false; this.codexSeen = new Set(); }
   inRange(day) { return day && !(this.sinceDay && day < this.sinceDay) && !(this.untilDay && day > this.untilDay); }
   add(day, model, folder, b) {
     if (!this.inRange(day)) return;
@@ -111,9 +124,13 @@ async function scanCodex(acc, codexHomes) {
     const rollouts = [];
     for (const sub of ['sessions', 'archived_sessions']) await walk(path.join(home, sub), /^rollout-.*\.jsonl$/, rollouts, acc);
     for (const file of rollouts.sort()) {
-      if (!(await touchedSince(file, acc.sinceDay))) continue;
+      /* One session, one file name (`rollout-<ts>-<uuid>.jsonl`): a copy in both places, or a copied home, is read once. */
+      const base = path.basename(file);
+      if (acc.codexSeen.has(base)) continue;
+      acc.codexSeen.add(base);
+      if (!(await touchedSince(file, acc.sinceDay, acc))) continue;
       let text;
-      try { text = await fsp.readFile(file, 'utf8'); } catch { acc.incomplete = true; continue; }
+      try { text = await fsp.readFile(file, 'utf8'); } catch { await badFile(acc, file, 'Codex session'); continue; }
       let cwd = '';
       let model = null;
       let prev = null;   // the previous running total in this file
@@ -122,6 +139,7 @@ async function scanCodex(acc, codexHomes) {
          the baseline, not usage (review 1; no fork exists on this fleet to measure, so this is from Codex's design: the
          cost is the first turn after a fork going uncounted, rather than the whole parent counted twice). */
       let forked = false;
+      let forkAt = NaN;   // when the fork was made: a replayed total is stamped before it
       for (const line of text.split('\n')) {
         if (!line) continue;
         let r;
@@ -129,14 +147,16 @@ async function scanCodex(acc, codexHomes) {
         const p = (r && r.payload) || {};
         if (r.type === 'session_meta') {
           if (!cwd && typeof p.cwd === 'string') cwd = p.cwd;
-          if (p.forked_from_id) forked = true;
+          if (p.forked_from_id) { forked = true; forkAt = Date.parse(p.timestamp || r.timestamp); }
         }
         if (r.type === 'turn_context' && typeof p.model === 'string') model = p.model;
         if (p.type !== 'token_count' || !p.info || !p.info.total_token_usage) continue;
         const t = p.info.total_token_usage;
         const cur = { in: n(t.input_tokens), cached: n(t.cached_input_tokens), cw: n(t.cache_write_input_tokens), out: n(t.output_tokens) };
         /* The change since the last event; a total that went down is a new run, counted from its own total. */
-        if (!prev && forked) { prev = cur; continue; }
+        /* Every total replayed from the parent is a baseline: by time when the replay kept the parent's timestamps, and
+           at least the first one when it did not (review 2: a fork can replay several totals, not one). */
+        if (forked && (!prev || Date.parse(r.timestamp) < forkAt)) { prev = cur; continue; }
         const reset = prev && (cur.in < prev.in || cur.out < prev.out || cur.cached < prev.cached || cur.cw < prev.cw);
         const base = prev && !reset ? prev : { in: 0, cached: 0, cw: 0, out: 0 };
         const d = { in: cur.in - base.in, cached: cur.cached - base.cached, cw: cur.cw - base.cw, out: cur.out - base.out };
@@ -153,6 +173,8 @@ async function scanCodex(acc, codexHomes) {
 }
 
 /* ---------- Gemini CLI: <storage home>/tmp/<slug>/chats/session-*.jsonl ---------- */
+/* A session whose folder has no readable `.project_root` keeps its tokens under the folder '' ("elsewhere" on the
+   per-agent split): counted in every total, just not given to an agent. */
 async function geminiProjectRoot(slugDir) {
   try { return (await fsp.readFile(path.join(slugDir, '.project_root'), 'utf8')).split('\n')[0].trim(); } catch { return ''; }
 }
@@ -166,9 +188,9 @@ async function scanGemini(acc, geminiHomes) {
       const slugDir = path.join(home, 'tmp', slug);
       const cwd = await geminiProjectRoot(slugDir);
       for (const file of (await walk(path.join(slugDir, 'chats'), /^session-.*\.jsonl$/, [], acc)).sort()) {
-        if (!(await touchedSince(file, acc.sinceDay))) continue;
+        if (!(await touchedSince(file, acc.sinceDay, acc))) continue;
         let text;
-        try { text = await fsp.readFile(file, 'utf8'); } catch { acc.incomplete = true; continue; }
+        try { text = await fsp.readFile(file, 'utf8'); } catch { await badFile(acc, file, 'Gemini session'); continue; }
         /* A reply can carry tokens but no model (measured: one on this fleet, 2026-09-28). It takes the model the same
            session names elsewhere, so it is not filed as "unknown" while the answer is in the file. */
         const fileModel = (text.match(/"model"\s*:\s*"(gemini[^"]*)"/) || [])[1] || null;
@@ -210,9 +232,9 @@ async function scanGrok(acc, grokHomes) {
     for (const file of (await walk(root, /^usage\.json$/, [], acc)).sort()) {
       /* Only <sessions>/<encoded cwd>/<session id>/usage.json: a deeper one would take its cwd from the wrong folder. */
       if (path.relative(root, file).split(path.sep).length !== 3) continue;
-      if (!(await touchedSince(file, acc.sinceDay))) continue;
+      if (!(await touchedSince(file, acc.sinceDay, acc))) continue;
       let d;
-      try { d = JSON.parse(await fsp.readFile(file, 'utf8')); } catch { acc.incomplete = true; continue; }
+      try { d = JSON.parse(await fsp.readFile(file, 'utf8')); } catch { await badFile(acc, file, 'Grok usage file'); continue; }
       if (!d || !Array.isArray(d.turns)) continue;
       const sessionDir = path.dirname(file);
       const sid = String(d.sessionId || path.basename(sessionDir));
@@ -244,19 +266,19 @@ async function scanGrok(acc, grokHomes) {
 
 /* The homes each provider's sessions live under. Lazy requires, so this module loads without the account modules
    (and a test can pass its own homes). */
-function defaultHomes() {
+function defaultHomes(problems = []) {
   const openai = require('./openaiaccounts');
   const gemini = require('./geminiaccounts');
   const grok = require('./grokaccounts');
   const home = process.env.AGENT_WORKFORCE_HOME || require('node:os').homedir();
   const geminiDefault = path.resolve(gemini.defaultDir());
   return {
-    codex: homesByPrefix(home, require('./codexupdate').defaultHome(), ['.codex-', openai.FORGOTTEN_PREFIX]),
+    codex: homesByPrefix(home, require('./codexupdate').defaultHome(), ['.codex-', openai.FORGOTTEN_PREFIX], undefined, problems),
     /* The Gemini CLI keeps its data in a `.gemini` folder BELOW a per-account home (create.js geminiStorageHome); the
        default home already is that folder. */
     gemini: homesByPrefix(home, geminiDefault, [gemini.DIR_PREFIX, gemini.FORGOTTEN_PREFIX],
-      (d) => (path.resolve(d) === geminiDefault ? d : path.join(d, '.gemini'))),
-    grok: homesByPrefix(home, grok.defaultDir(), [grok.DIR_PREFIX, grok.FORGOTTEN_PREFIX]),
+      (d) => (path.resolve(d) === geminiDefault ? d : path.join(d, '.gemini')), problems),
+    grok: homesByPrefix(home, grok.defaultDir(), [grok.DIR_PREFIX, grok.FORGOTTEN_PREFIX], undefined, problems),
   };
 }
 
@@ -267,7 +289,11 @@ function defaultHomes() {
 async function scanProviders({ sinceDay, untilDay, homes: h } = {}) {
   const acc = new Acc(sinceDay, untilDay);
   let hs = h;
-  if (!hs) { try { hs = defaultHomes(); } catch { hs = { codex: [], gemini: [], grok: [] }; acc.incomplete = true; } }
+  if (!hs) {
+    const problems = [];
+    try { hs = defaultHomes(problems); } catch { hs = { codex: [], gemini: [], grok: [] }; acc.incomplete = true; }
+    if (problems.length) acc.incomplete = true;   // a home directory that could not be listed: do not freeze zeros
+  }
   try { await scanCodex(acc, hs.codex || []); } catch { acc.incomplete = true; }   // one provider failing keeps the others
   try { await scanGemini(acc, hs.gemini || []); } catch { acc.incomplete = true; }
   try { await scanGrok(acc, hs.grok || []); } catch { acc.incomplete = true; }
