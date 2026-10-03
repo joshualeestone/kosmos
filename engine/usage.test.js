@@ -20,6 +20,10 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'usage-test-'));
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = nodePath.join(SANDBOX, 'claude');
+/* #5158: usage now also reads Codex, Gemini CLI and Grok sessions. Their homes are sandboxed too (an empty home each),
+   so this file's exact totals never depend on whatever those CLIs left on the machine running it. */
+process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
+for (const v of ['CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'GEMINI_CLI_HOME', 'AGENT_WORKFORCE_GEMINI_HOME', 'GROK_HOME', 'AGENT_WORKFORCE_GROK_HOME']) delete process.env[v];
 fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true });
 
 const usage = require('./usage');
