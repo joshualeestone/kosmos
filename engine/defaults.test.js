@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: '3723049af186a183' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -586,10 +586,17 @@ test('#5152: work goes on a task first, with Done when checks, and the built not
   assert.match(sec.text, /Right after adding it, run `kosmos task list <project-id>` and note your\s+task's number/);   // wraps in BLOCK
   assert.match(sec.text, /The one line holds 200\s+characters/);
   assert.match(sec.text, /A question, a quick answer or small talk is not a task\./);
-  assert.match(sec.text, /If you are on no\s+project, write the checks in your reply/);   // wrapped across a line in BLOCK
+  assert.match(sec.text, /If you are on no\s+project, or the work belongs to none of yours, do not guess another: write the\s+checks in your reply/);   // wraps in BLOCK
+  // Review round 3: a check with a backtick or $ is expanded by the shell inside double quotes (the block's own trap).
+  assert.match(sec.text, /If a check holds a backtick or a `\$`, use single quotes/);
+  // Review round 3: several agents asked in one room add one task, not one each.
+  assert.match(sec.text, /If several of you were asked in one room, add one task between you\./);
   // The person cannot edit a task's words yet (no edit path in engine/tasks.js), so the section must not say they can.
   assert.doesNotMatch(sec.text, /\b(change|edit)s? (it|the task|the checks|what it says)\b/i);
   // It sits right after "Knowing when you are finished", which tells the agent to write finished down first.
   const heads = defaults.sections().map((s) => s.heading);
   assert.equal(heads[heads.indexOf('### Knowing when you are finished') + 1], '### Put the work on a task first');
+  // A new heading, so an agent already holding every other section is offered this one (as #4873).
+  assert.deepEqual(defaults.missingFrom(defaults.block().replace(sec.text, '')).map((x) => x.heading), ['### Put the work on a task first'],
+    'an agent holding every other section would not be offered this one');
 });
