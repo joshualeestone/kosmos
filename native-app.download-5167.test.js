@@ -40,14 +40,14 @@ test('#5167: a same-origin <a download> becomes a download, BEFORE the connect-o
   assert.notEqual(dl, -1, 'the action policy never looks at shouldPerformDownload');
   assert.notEqual(guardAt, -1, 'the connect policy guard moved; re-read this test');
   assert.ok(dl < guardAt, 'the download check sits after the connect guard, so a computer that runs agents never saves one');
-  assert.match(b, /if navigationAction\.shouldPerformDownload, let url = navigationAction\.request\.url,\n\s+isBoardPage\(committedPageURL\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)\n\s+return\n\s+\}/,
+  assert.match(b, /if navigationAction\.shouldPerformDownload, let url = navigationAction\.request\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)\n\s+return\n\s+\}/,
     'a download is saved without the board-page and same-origin checks, or they no longer decide it');
 });
 
 test('#5167: only a same-origin attachment response is saved; every other response keeps WebKit\'s default', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
-  assert.match(b, /\.lowercased\(\) == "attachment" \}\) == true,\n\s+isBoardPage\(committedPageURL\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)/,
+  assert.match(b, /\.lowercased\(\) == "attachment" \}\) == true,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)/,
     'an attachment is saved without the exact-token, board-page and same-origin checks, so any site in the window can write to Downloads');
   assert.equal((b.match(/decisionHandler\(/g) || []).length, 2, 'the response policy has a path that never answers, or a new one');
   // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
@@ -77,11 +77,20 @@ test('#5167: a saved file is marked as downloaded, so Gatekeeper checks it when 
 
 test('#5167: a download that does not save is said to the person, once', () => {
   const fail = body('@objc(download:didFailWithError:resumeData:)');
-  assert.match(fail, /if downloadsTold\.remove\(ObjectIdentifier\(download\)\) == nil \{\n\s+tellDownloadFailed\(/,
-    'a failed download is only logged, or is said twice');
+  const unsaid = fail.slice(fail.indexOf('if downloadsTold.remove(ObjectIdentifier(download)) == nil {'));
+  assert.ok(unsaid.length < fail.length, 'a failed download is said whether or not it was already said');
+  assert.equal((unsaid.match(/tellDownloadFailed\(/g) || []).length, 2, 'a branch of an unsaid failure is only logged');
+  assert.equal((fail.match(/tellDownloadFailed\(/g) || []).length, 2, 'a failure already said is said again');
   assert.match(body('@objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)'),
     /downloadsTold\.insert\(ObjectIdentifier\(download\)\)\n\s+tellDownloadFailed\(/);
   assert.match(body('private func tellDownloadFailed(_ detail: String)'), /if let present = AppDelegate\.downloadAlertPresenter \{ present\(detail\); return \}/);
+});
+
+test('#5167: an error page is not saved as the file, and every refusal before a destination is said once', () => {
+  const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
+  assert.match(b, /!\(200\.\.<300\)\.contains\(http\.statusCode\)/, 'a 404 or 500 is saved under the file\'s name');
+  assert.equal((b.match(/downloadsTold\.insert\(ObjectIdentifier\(download\)\)/g) || []).length, 2,
+    'a refusal before a destination is not marked as said, so its cancel says it a second time');
 });
 
 test('#5167: two downloads of the same name at once never get the same destination', () => {
@@ -99,7 +108,7 @@ test('#5167: both ways a navigation becomes a download hand it to this delegate 
 test('#5167: the destination is Downloads through downloadDestination, never replacing a file', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /FileManager\.default\.urls\(for: \.downloadsDirectory, in: \.userDomainMask\)/);
-  assert.equal((b.match(/completionHandler\(/g) || []).length, 2, 'a destination path that never answers WebKit leaves the download hanging');
+  assert.equal((b.match(/completionHandler\(/g) || []).length, 3, 'a destination path that never answers WebKit leaves the download hanging');
   assert.doesNotMatch(b, /logLine\([^\n]*dest\.path/, 'the log line carries the full path, home folder and user name included');
 });
 
@@ -114,8 +123,8 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   assert.match(st, /downloadDestination\(dir: dir, suggested: suggested\)/, 'the mode selftest no longer drives downloadDestination');
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
-  assert.equal(dl + dest, 25, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 71\b/);
+  assert.equal(dl + dest, 26, 'the #5167 rows changed; update the expected count with them');
+  assert.match(st, /let expected = 75\b/);
 });
 
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
@@ -130,7 +139,8 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries the quarantine mark', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /all good \(9 rows\)/);
+  assert.match(hatch, /let expected = 11\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
   assert.equal((SRC.match(/downloadsDirOverride = /g) || []).length, 1, 'something outside the selftest redirects downloads');

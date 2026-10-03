@@ -58,12 +58,27 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   arrives at didFail with no destination). The method is live for same-origin redirects (sabotage:
   forced cancel turns "a same-origin redirect is followed and saved" red). It stays as defence.
 
+## Review round 4 changes
+- A board page on this computer is the board this app loaded (`badgeOrigin`, host and port), not
+  any loopback server; a connect computer has none, only Kosmos+ computers.
+- A non-2xx answer is not saved (an error page under the file's name looked like success).
+- If the quarantine mark cannot be set, the file is removed and the person is told.
+- Every refusal before a destination is marked said, so its cancel does not say it again; a
+  cancel WebKit made on its own with no destination is said as "pointed somewhere Kosmos does not
+  save from".
+- Invisible characters (U+200B..U+200F, U+2060..U+2069, U+FEFF) are dropped from names.
+- The live selftest counts its rows (11) and moved above the #1032 comment block it was splitting.
+- Not changed: a release cut on a box with no console skips this gate loudly (stderr), the same
+  bargain as the #1032 file-picker gate; the cut machines own a console.
+
 ## Weakest premise
-Measured in a real WKWebView on this Mac, served over plain HTTP on 127.0.0.1. Not measured over a
+Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
 (Content-Disposition passthrough) are reasoned, not observed.
 
-## Tests
-- Pure functions: 24 rows in `--kosmos-app-mode-selftest` (64 total).
-- Live: 7 rows in `--kosmos-app-download-selftest`, wired into tools/build-kosmos-bundle.sh.
+## Tests (current)
+- Pure functions: `--kosmos-app-mode-selftest`, 75 rows in all (the #5167 ones: same-origin, board
+  page, destination name).
+- Live: 11 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
+  waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
 - Wiring: `native-app.download-5167.test.js`.
