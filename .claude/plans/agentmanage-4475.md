@@ -33,7 +33,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - `engine/team.js` sets `createdByName` and `askedAt` on every member: the asking agent's token name and its request
   time when an agent (not the setup guide) asked on a named token, else null, so a member cannot set them.
   `engine/create.js` records them on the birth.
-- Tests: `server.agent-remove-4475.test.js` (34); `engine/remove.test.js` (a real removal ends the identity in the
+- Tests: `server.agent-remove-4475.test.js` (35); `engine/remove.test.js` (a real removal ends the identity in the
   history and a restore does not erase it); `engine/delete-leftover.test.js` (deleting a stopped, never-removed
   agent's leftovers ends it too); `server.team-agent-token-1279.test.js` (the agent path records the exact token name
   and askedAt for a creator whose sessionName differs; the board-token path records none; END TO END: an agent makes
@@ -105,7 +105,8 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - A history that cannot be read refuses, and so does a line in it that does not parse or whose time cannot be
   ordered (`endedSince` answers null: it cannot tell); each end is written on a fresh line, so a torn one cannot
   swallow the next. Refusals say their real reason (review 19): not yours; removing it would end another agent's
-  sign-in (a shared key); or Kosmos could not check (the history unreadable or damaged, also logged on the board).
+  sign-in (a named token of another spelling under the key); or Kosmos could not check (the history unreadable or
+  damaged, also logged on the board; or a token under the key with no name, or a token file it cannot read).
   A damaged line keeps refusing until the file is mended by hand; that is the safe direction.
 - A history that cannot be read refuses. A failed append is logged; it is caught by nothing else, so the residual is
   an agent ended on a full disk.
@@ -128,7 +129,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
   name (adopt mints without revoking), is not seen.
 
 ## Validation
-- `engine/boardkeychain-4491.test.js` 20/20 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 34/34, `server.team-agent-token-1279.test.js` 25/25, `engine/remove.test.js` 93/93,
+- `engine/boardkeychain-4491.test.js` 20/20 (the sender-token folder read- and write-denied, the trusted records write-denied), `server.agent-remove-4475.test.js` 35/35, `server.team-agent-token-1279.test.js` 25/25, `engine/remove.test.js` 93/93,
   `engine/delete-leftover.test.js` 15/15, `engine/team.newrole-4474.test.js` 22/22,
   `server.agent-token-gate-4491.test.js` 25/25, `server.agent-token-sender-570.test.js` 7/7.
 - Mutants, each failing only its own cases: revoke not writing the history (the delete-leftover and end-to-end tests),
@@ -138,6 +139,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
   birth time accepted, the birth's `slug` ignored, the `slug === target` check removed, `tookTokens` checking only the
   typed name's key, the launch hand-off deny removed, an empty name set read as nothing ended, an unreadable token
   file read as no other name, a torn history line skipped, the fresh-line write removed, the data-root launch
-  hand-off deny removed, the unchecked and shared-key refusals collapsed into "not yours", plus (re-run on this code at
+  hand-off deny removed, the unchecked and shared-key refusals collapsed into "not yours", an unnamed token read as
+  another agent's, plus (re-run on this code at
   b54ebe022) the createdByName presence check, the key-only refusal, the board-name check, a slug comparison of the
   creator, and the team route recording the sessionName in place of the token name.
