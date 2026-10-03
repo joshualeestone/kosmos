@@ -72,7 +72,9 @@ test('#5127 (Baron): the Claude-Code-missing create refusal names where to conne
   const src = fs.readFileSync(path.join(__dirname, 'engine', 'create.js'), 'utf8');
   assert.ok(src.includes("+ 'Connect a Claude account in Settings, AI Models, and Kosmos will set it up.'"),
     'the refusal a newcomer meets when Claude Code is not installed yet names no place to connect');
-  assert.ok(!src.includes("'Connect a Claude account and Kosmos will set it up'"), 'the placeless wording is back');
+  assert.ok(!/Connect a Claude account and Kosmos will set it up/.test(src), 'the placeless wording is back');
+  const runners = fs.readFileSync(path.join(__dirname, 'engine', 'runners.js'), 'utf8');
+  assert.ok(!/Connecting a Claude account will download/.test(runners), 'the install refusal names no place again');
 });
 
 test('#5114: the scan finds every spelling of the old name, and skips comments (control)', () => {
