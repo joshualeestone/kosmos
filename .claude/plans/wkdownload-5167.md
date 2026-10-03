@@ -263,6 +263,12 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   saved; live row). The early-stop says "It stopped before it began." (it repeated its title).
 - C1 controls in a name become spaces (82 pure rows); the selftest comment names the mode it runs in.
 
+## Review round 22 changes
+- Every download alert is modal (runModal), not a sheet: a sheet over another sheet can be dropped
+  (#2807), and a failure must be said. The "alert up" mark is set before and cleared after it.
+- Not changed: Don't Allow lasts the run and is said on each later click (round 19); connect mode is
+  not driven live (weakest premise below).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
