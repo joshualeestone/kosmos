@@ -8001,10 +8001,11 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
-          /* #5145: the account dir the switch landed on (the same `acct` the sentence names), so the page can name it
-             in "Right now" when the person sent none. Null when the engine named none (a Claude switch nobody
-             picked for, or a dry-run): the page then keeps its own fallback rather than inventing one. */
-          accountDir: acct && typeof acct.dir === 'string' && acct.dir ? acct.dir : null,
+          /* #5145: the dir of the account the switch landed on (the same `acct` the sentence names), resolved so it
+             compares with the listed rows. Null when the engine named none (a Claude switch nobody picked for,
+             Antigravity, a dry-run). For Gemini/Grok with no listed account it is the computed default ("this
+             computer's own key"), so the page uses it only when it matches a listed row. */
+          accountDir: acct && typeof acct.dir === 'string' && acct.dir ? path.resolve(acct.dir) : null,
           because: ok
             ? `${label} it is. Everything it knows and everything it has done stays. `
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')

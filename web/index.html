@@ -48344,12 +48344,17 @@ async function changeProviderNow(say) {
       /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
          would disable Move for an agent that is on main. */
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
-      /* #5145: with no account sent, the one the engine says it landed on (out.accountDir), so "Right now" names it
-         instead of an empty bracket; still never invented when the engine named none. */
-      const landedDir = (out && out.outcome !== 'partial' && typeof out.accountDir === 'string' && out.accountDir) ? out.accountDir : null;
+      /* #5145: the account the engine says it landed on (out.accountDir), so "Right now" names it instead of an empty
+         bracket. Only when it is a LISTED account (review 1 blocker): the Gemini/Grok default is "this computer's own
+         key", not a row, and recording it would read as an account that is gone ("cannot run"). An engine partial
+         carries no accountDir, so it never applies there. */
+      const landedDir = (out && typeof out.accountDir === 'string' && out.accountDir
+        && (ACCOUNTS || []).some((x) => x && x.dir === out.accountDir)) ? out.accountDir : null;
       CURRENT.account = want === 'anthropic'
         ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (landedDir ? { dir: landedDir } : (mainClaude ? { dir: mainClaude.dir } : null)))
-        : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (landedDir ? { dir: landedDir } : null));   // round 5: OpenAI/Gemini/Grok keep the sent account too
+        /* OpenAI/Gemini/Grok: where the engine actually landed wins over what was sent (review 1: codex can fall back
+           from an unpicked, unknown sent row to its first account, and its sentence names that one). */
+        : (landedDir ? { dir: landedDir } : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null));
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
