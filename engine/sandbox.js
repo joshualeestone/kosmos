@@ -71,7 +71,8 @@ function sentence(a) {
    (or the default) names, which is the one create.plistFor carries. So the board drops $TMUX at start and every tmux
    call it makes lands on the server its own agents are on. On a standard machine that is the same socket as before
    ($TMUX names the default socket there); only a board started inside a tmux on another socket changes, and that
-   board was reading the wrong server. TMUX_PANE is left: it names a pane, not a server, and nothing here reads it. */
+   board was reading the wrong server. TMUX_PANE is left: it names a pane, not a server, so it cannot move a tmux
+   call to another server; whether a board should carry it at all is a separate question. */
 function dropInheritedTmux(env) {
   if (!Object.prototype.hasOwnProperty.call(env, 'TMUX')) return false;
   delete env.TMUX;
