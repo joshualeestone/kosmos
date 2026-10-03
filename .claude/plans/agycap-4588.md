@@ -237,3 +237,9 @@ Left as accepted: one setting read per call.
   arm). Mutations: no mapping (1 red), mapping on every refusal (2 red). 315/315 across the 15 related files.
   NIT not taken: restore() lets a restored `^m5` replace a newer `@m5`; unreachable today (an id is held once per
   member and hold() keeps the stronger mark). Would change my mind: any second path that re-holds an existing id.
+- FIXED (review iteration 15, opus, 21:36) WARNING: the community turn's pre-check (server.js quotaHeld) asked
+  heldForQuota only. Its send is deliverAutomatic, which the cap refuses, and tickOnce does not book a held agent, so
+  the two capped Gemini agents with the oldest posts took both MAX_PER_PASS slots every pass and no one else got a
+  turn (reviewer's probe: a:held b:held three passes running, the claude agent typed 0 times). Now heldForAgy, as the
+  reply nudge already was; a pin requires every `quotaHeld:` in server.js to call heldForAgy (>= 2 sites, so it cannot
+  pass on zero); mutation back to heldForQuota reds it. 16 related files 342/342.
