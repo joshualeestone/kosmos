@@ -26,7 +26,7 @@ Also: a live install with AGENT_WORKFORCE_WORKERS set elsewhere is not covered (
 `tools/test-launchagent-leak-guard-3011.sh`: + 15 legs (skip + note; NEW-under-live control; six modified
 shapes that must red: sandbox, nested, root, look-alike, `..`, trailing slash; an XML-escaped root reds; default
 root from $HOME; "/" turns the skip off; runner passes notes + live root; runner's no-notes fallback is "/").
-Sabotages: S1 (drop "was in snapshot") -> the NEW control reds; S2 (everything live-owned) -> all five shapes
+Sabotages: S1 (drop "was in snapshot") -> the NEW control reds; S2 (everything live-owned) -> all six shapes
 and the original modify control red; S3 (no skip) -> the skip, note and default-root legs red.
 Replayed on the REAL Mortals liukang plist (copied read-only): live-owned under /Users/mortalkombat/work/workers,
 not under another root. 10 shell tests touching run-tests.sh pass (test-install.sh needs dist/, same on main);
@@ -49,3 +49,12 @@ not under another root. 10 shell tests touching run-tests.sh pass (test-install.
   so; N3 the one-line WorkingDirectory read is stated (a multi-line plist reds, the safe direction).
 - Sabotage S5 (the runner's no-notes fallback removed) -> the fallback leg reds. S1 to S4 unchanged (lib untouched
   in review 2 except comments).
+- Review 3 (opus, blind): 0 B, 1 W, 2 N. W the runner's print loop was untested -> moved into the lib as
+  launchagent_live_notes_report, called by run-tests.sh; behavioural legs (it names the plist and its folder;
+  empty/missing file prints nothing) plus a pin that the runner calls it. N baseline lookup by awk instead of
+  cut | grep -q (pipefail SIGPIPE false red on a huge baseline). N plan count.
+- ALL SABOTAGES RE-RUN on the review-3 code (each against restored files; THIS is the current record):
+  S1 drop "was in snapshot" -> NEW control; S2 everything live-owned -> 9 legs (original modify control, six
+  shapes, XML-escaped root, "/"); S3 no skip -> skip, note, default root; S4 drop the empty-root check -> "/";
+  S5 runner fallback removed -> fallback pin; S6 report prints nothing -> report leg; S7 runner never calls the
+  report -> the call pin.

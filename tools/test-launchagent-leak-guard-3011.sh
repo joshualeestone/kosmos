@@ -231,6 +231,23 @@ else
 fi
 rm -f "$D/com.kosmos.agent.offagent.plist"
 rm -f "$D/com.kosmos.agent.homeagent.plist" "$D/com.kosmos.agent.liukang.plist" "$NOTES"
+# The runner half of "never silent": the report prints one #5092 note per skipped plist, naming it and its folder.
+plist_wd "$D/com.kosmos.agent.noted.plist" noted "$LIVE/noted"
+printf '%s\n' "$D/com.kosmos.agent.noted.plist" > "$D/notes-in"
+rep="$(launchagent_live_notes_report "$D/notes-in" 2>&1 1>/dev/null)"
+if printf '%s' "$rep" | grep -q '#5092 note' && printf '%s' "$rep" | grep -qF "com.kosmos.agent.noted.plist" && printf '%s' "$rep" | grep -qF "$LIVE/noted"; then
+  pass "#5092: the notes report prints a #5092 note naming the skipped plist and its folder"
+else
+  fail "#5092: the notes report did not say what was skipped (got [$rep])"
+fi
+: > "$D/notes-in"
+[ -z "$(launchagent_live_notes_report "$D/notes-in" 2>&1)" ] && [ -z "$(launchagent_live_notes_report "" 2>&1)" ] \
+  && pass "#5092: an empty or missing notes file reports nothing" \
+  || fail "#5092: the notes report printed something for an empty or missing file"
+rm -f "$D/com.kosmos.agent.noted.plist" "$D/notes-in"
+printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_live_notes_report[[:space:]]+"?\$_la_live_notes' \
+  && pass "#5092: run-tests.sh reports the notes file after the check" \
+  || fail "#5092: run-tests.sh never calls launchagent_live_notes_report, so a skip would be silent"
 printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_leak_check[^)]*_la_live_notes[^)]*_la_live_root' \
   && pass "#5092: run-tests.sh passes the notes file and the live root to the leak check" \
   || fail "#5092: run-tests.sh does not pass the notes file and live root, so a live skip could be silent"

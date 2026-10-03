@@ -99,7 +99,8 @@ launchagent_leak_check() {
   if [ -n "$leaked" ]; then
     while IFS= read -r f; do
       [ -n "$f" ] || continue
-      if cut -f2- "$before" | grep -qxF -- "$f" && launchagent_live_owned "$f" "$live_root"; then
+      # awk, not cut | grep -q: under the runner's pipefail an early grep exit could SIGPIPE cut (review 3).
+      if awk -F'\t' -v p="$f" '$2==p{found=1} END{exit !found}' "$before" && launchagent_live_owned "$f" "$live_root"; then
         [ -n "$notes" ] && printf '%s\n' "$f" >> "$notes"
         continue
       fi
@@ -115,6 +116,18 @@ EOF_LEAKED
     return 1
   fi
   return 0
+}
+
+# launchagent_live_notes_report <notes_file> : #5092, one stderr line per plist the leak check skipped as the
+# live install's (the runner calls this after the check, so a skip is never silent). Nothing when the file is
+# missing or empty.
+launchagent_live_notes_report() {
+  local notes="$1" f
+  [ -n "$notes" ] && [ -s "$notes" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    echo "run-tests: #5092 note -- $f changed during the run but existed before the suite and points at a live agent folder ($(launchagent_leak_origin "$f")); assumed to be this machine's live Kosmos (or, less likely, a concurrent older checkout's suite), not counted as a leak" >&2
+  done < "$notes"
 }
 
 # launchagent_leak_origin <plist> -> the plist's WorkingDirectory, i.e. the sandbox the
