@@ -57588,12 +57588,6 @@ function tkActPhrase(ev, p) {
     default: return String(ev.kind);
   }
 }
-/* Draw the task's activity, oldest first (the way the record is written and the
-   way a conversation reads top-to-bottom). Fetched on open and re-fetched after
-   an in-app change (tkPartPost / the done button), NOT on the five-second poll:
-   a lifecycle event is rare, so a per-open + per-action read stays fresh without
-   a request every tick. `n` is checked against TK_OPEN after the await so a fetch
-   that lands after the person has left the task cannot paint the wrong page. */
 /* #5153: the receipt's words for one agent's row. Pure (node-testable): `a` is one entry of the receipt's `agents`,
    `name` its display name. Commands are a COUNT (their text is Josh's call); dollars come from usageApiCost, the one
    price table, and say "at API prices" because a subscription is not billed this. */
@@ -57615,11 +57609,11 @@ function tkReceiptAgentHtml(a, name) {
   const { cost, unpriced } = usageApiCost({ receipt: models });
   const nFiles = (a.files || []).length + (Number(a.filesMore) || 0);
   const bits = [
-    nFiles === 1 ? 'Changed 1 file' : 'Changed ' + usageNum(nFiles) + ' files',
+    nFiles === 1 ? 'Edited 1 file' : 'Edited ' + usageNum(nFiles) + ' files',
     a.commands === 1 ? 'ran 1 command' : 'ran ' + usageNum(Number(a.commands) || 0) + ' commands',
     usageAbbr(tokens) + ' tokens',
   ];
-  if (cost !== null) bits.push(usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + ', which has no published price)' : ''));
+  if (cost !== null) bits.push(usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + (unpriced.length > 1 ? ', which have' : ', which has') + ' no published price)' : ''));
   else if (unpriced.length) bits.push('no published price for ' + unpriced.join(', '));
   const list = (a.files || []).map((f) => '<li>' + esc(f) + '</li>').join('')
     + (a.filesMore ? '<li>and ' + usageNum(a.filesMore) + ' more</li>' : '');
@@ -57639,30 +57633,43 @@ function tkReceiptHtml(r, p) {
     ? agents.map((a) => tkReceiptAgentHtml(a, tkMemberName(p, a.who))).join('')
     : '<p class="dhint">Nobody held this task, so there is no work to show.</p>';
   return '<h4>Receipt</h4>'
-    + '<p class="dhint">What each agent did while it held this task. Anything else it did in that time is included.</p>'
+    + '<p class="dhint">What each agent did while it held this task. Anything else it did in that time is included. Files are the ones it edited directly; a change made by a command is counted as a command.</p>'
     + body
     + '<p class="dhint">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>';
 }
 /* #5153: fetch and draw the receipt for task `n` when it is closed; hidden otherwise. Same stale-page guards as the
    activity below. A failed read hides it rather than showing a receipt of nothing. */
+let TKR_SEQ = 0;
+function tkTaskClosed(n) {
+  const p = pjById(PJ_CURRENT);
+  const t = p && n != null && (p.tasks || []).find((x) => x.number === n);
+  // A task closed by closing its last part has no closedAt of its own: progress says closed (review 1).
+  return Boolean(t && (t.progress ? t.progress.closed : t.closedAt));
+}
 async function paintTaskReceipt(n) {
   const holder = document.getElementById('tk-receipt');
   if (!holder) return;
+  const seq = ++TKR_SEQ;   // only the newest call paints: a slow read must not paint over a reopen (review 1)
   const p = pjById(PJ_CURRENT);
-  const t = p && n != null && (p.tasks || []).find((x) => x.number === n);
-  if (!t || !t.closedAt) { holder.hidden = true; holder.innerHTML = ''; return; }
+  if (!p || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; return; }
   let r = null;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/receipt', { cache: 'no-store' });
-    if (n !== TK_OPEN) return;
+    if (seq !== TKR_SEQ || n !== TK_OPEN) return;
     if (!res.ok) throw new Error('not ok');
     r = await res.json();
   } catch { r = null; }
-  if (n !== TK_OPEN) return;
-  if (!r || r.ready === false) { holder.hidden = true; holder.innerHTML = ''; return; }
+  if (seq !== TKR_SEQ || n !== TK_OPEN) return;
+  if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; return; }
   holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
   holder.hidden = false;
 }
+/* Draw the task's activity, oldest first (the way the record is written and the
+   way a conversation reads top-to-bottom). Fetched on open and re-fetched after
+   an in-app change (tkPartPost / the done button), NOT on the five-second poll:
+   a lifecycle event is rare, so a per-open + per-action read stays fresh without
+   a request every tick. `n` is checked against TK_OPEN after the await so a fetch
+   that lands after the person has left the task cannot paint the wrong page. */
 async function paintTaskActivity(n) {
   const holder = document.getElementById('tk-activity');
   if (!holder) return;

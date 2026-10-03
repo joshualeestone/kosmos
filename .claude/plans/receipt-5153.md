@@ -32,3 +32,21 @@ available for that provider yet.
 That an agent's Claude transcripts for a task sit in its own folder's project directory. An agent that ran its session
 from another folder (a worktree launched by hand) is not seen, and the receipt then reads "no Claude Code activity found
 in this time", never a zero presented as fact.
+
+## Review 1 (opus): 1 BLOCKER, 3 WARNINGs, all taken
+- BLOCKER: a task finished by closing its last part has no closedAt of its own (tasks.progressOf), so it never showed a
+  receipt: the close time is now the task's closedAt or else, when every part is closed, its newest part's close
+  (engine closedAtOf; page tkTaskClosed reads progress.closed, as the rest of the page does). Tests both sides.
+- Heavy reads on the board's thread: transcripts are streamed a line at a time (no whole-file string, so no size limit
+  either), one computation per task runs at a time and a second request shares it, and a receipt is kept only when every
+  transcript was read through (a partial read is shown, then worked out again). A creation-time skip was tried and
+  dropped: creation times are not dependable across file systems (tests on Linux CI would differ from macOS).
+- A slow read could paint a receipt over a task just put back: a per-call counter and a re-check that the task is still
+  closed (either alone is enough; a test fails only with both removed, which is the point of having two).
+- "Changed N files" counted attempts: an edit now counts only when its result came back without an error, and the page
+  says "Edited" and that a change made by a command counts as a command.
+- NITs taken: only assistant rows count a session; a part added while the task is closed is held from the put-back;
+  part-added with no number is part 1 in both functions; paintTaskActivity's comment is back on it; "which have" for
+  several unpriced models; the route refuses an agent's token (it lists every holder's files and folder).
+- Not taken: kept receipts are not removed when a task or project is deleted (small JSON files under app data; a
+  follow-up if it matters).
