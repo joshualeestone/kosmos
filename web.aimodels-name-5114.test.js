@@ -68,6 +68,13 @@ test('#5114: no sentence a person sees names an Accounts tab, page, screen or Se
   assert.deepEqual(found, [], 'these send a person to a place the screen calls AI Models');
 });
 
+test('#5127 (Baron): the Claude-Code-missing create refusal names where to connect, as its siblings do', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'engine', 'create.js'), 'utf8');
+  assert.ok(src.includes("+ 'Connect a Claude account in Settings, AI Models, and Kosmos will set it up.'"),
+    'the refusal a newcomer meets when Claude Code is not installed yet names no place to connect');
+  assert.ok(!src.includes("'Connect a Claude account and Kosmos will set it up'"), 'the placeless wording is back');
+});
+
 test('#5114: the scan finds every spelling of the old name, and skips comments (control)', () => {
   for (const s of ["'Connect a Claude account from the Accounts tab in Settings'", '"open the accounts page"',
     '`see the Accounts section`', "'Settings > Accounts'", "'Settings -> Accounts'", "'in Settings, Accounts'",
