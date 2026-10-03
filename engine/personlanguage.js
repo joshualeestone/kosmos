@@ -42,8 +42,9 @@ function normalise(raw) {
 function macPreferred(run) {
   try {
     const out = (run || ((cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] })))('/usr/bin/defaults', ['read', '-g', 'AppleLanguages']);   // absolute, as machine.js does: never whatever is first on PATH
-    const m = String(out).match(/"?([A-Za-z]{2,3}(?:[-_][A-Za-z0-9]+)*)"?\s*,?\s*(?:\n|\))/);
-    return m ? normalise(m[1]) : null;
+    // The FIRST element of the array only (review 8): an entry that does not parse is not sure, never the second one.
+    const first = String(out).replace(/^\s*\(\s*/, '').split(/[,)\n]/)[0].trim().replace(/^"|"$/g, '');
+    return /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]+)*$/.test(first) ? normalise(first) : null;
   } catch { return null; }
 }
 

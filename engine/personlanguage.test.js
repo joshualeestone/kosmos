@@ -244,3 +244,12 @@ test('#5050 review 7: when only Kosmos blocks follow it, the move keeps a blank 
   assert.match(moved, /- item two\n\n<!-- kosmos:connections:start -->/, 'the blank line before the following block was lost');
   assert.match(moved, /<!-- kosmos:connections:end -->\n\n<!-- kosmos:language:start -->/);
 });
+
+test('#5050 review 8: only the FIRST preferred language is read; a malformed first entry is not sure', () => {
+  assert.equal(pl.macPreferred(() => '(\n    "???",\n    "es-MX"\n)\n'), null, 'a malformed first entry fell through to the second language');
+  assert.equal(pl.macPreferred(() => '()\n'), null);
+  assert.equal(pl.macPreferred(() => '(\n    es_419\n)'), 'es-419');
+  // CONTROL: the second entry is never taken when the first is good either.
+  assert.equal(pl.macPreferred(() => '(\n    "en-US",\n    "es-MX"\n)\n'), 'en-US');
+  assert.equal(pl.read({ env: {}, platform: 'darwin', run: () => '(\n    "???",\n    "es-MX"\n)\n', intl: 'en-US' }).sure, false);
+});

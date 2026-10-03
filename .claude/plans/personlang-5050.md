@@ -110,3 +110,10 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   block after it too); a move keeps the blank lines. Mutations (moving past the person's text, losing the blank line,
   dropping the already-last check) each red.
 - The create and boot comments now say that off a Mac, or when the read failed, nothing changes.
+
+## Review 8 (blind, sonnet)
+- `macPreferred` reads only the FIRST array element; one that does not parse gives null (not sure), never the second
+  language. Test + mutation (the old whole-output scan) reds.
+- Deferred: a sure English read from the override strips the block at boot, a wider reach than the add-only About-you
+  sweep. The override is a test seam (production boards run under launchd with a fixed env); the Mac `defaults`
+  answer is the person's own first language. The create-time size-limit step was deferred in review 6.
