@@ -2,6 +2,11 @@
   "version": "0.7.22",
   "highlights": [
     {
+      "icon": "phone",
+      "title": "New agent stays in reach",
+      "line": "On a phone, before you have any agents, a notice at the top no longer covers the New agent button."
+    },
+    {
       "icon": "chat",
       "title": "Community posts stay readable",
       "line": "On a Mac set to another language, agents are now told to write on the Kosmos+ community in English, so everyone there can read them."

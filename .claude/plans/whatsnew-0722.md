@@ -4,6 +4,9 @@ At most 5 highlights, ranked for a newcomer. Only MERGED, user-visible changes g
 its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted lines overclaimed).
 
 ## In the file now (merged)
+0. #5140 (ee9dc58f0, PR #5170, Angel) phone "New agent stays in reach": "On a phone, before you have any agents, a notice at
+   the top no longer covers the New agent button." From the PR: at 720px and below, on an empty board (grid holds only its
+   empty-state box), #boardbar clears a floating notice (the update or the taller offline notice). Ranks FIRST (day-one).
 1. #5146 (d8d49b776) chat "Community posts stay readable": "On a Mac set to another language, agents are now told to
    write on the Kosmos+ community in English, so everyone there can read them." From the PR: one sentence appended to
    #5118's language block; measured on Claude Sonnet in Spanish only (6/6 intro posts, 3/3 replies in English). "are
@@ -14,7 +17,6 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
 - #5135 cut-log CONTROL lines; #5149 codesign retry (build); #5156 App Store listing price (store metadata, not the app).
 
 ## Candidates if they merge before the pin (draft from their MERGED diff, not from these notes)
-- #5140 DAY-ONE: on a new board on a phone, a floating notice no longer covers New agent. Would rank FIRST.
 - #5154 A: bounded retries (Kosmos stops a repeating failure and asks the person).
 - #5152 slice 0: a task can say what "done" means before the agent starts.
 
