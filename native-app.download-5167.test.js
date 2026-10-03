@@ -141,7 +141,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 15\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 17\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -199,7 +199,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
 test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a sheet; the refusal names its cause', () => {
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String');
   assert.match(tell, /quiet: Bool = false\) \{\n\s+if quiet \{/, 'a real save failure can be swallowed by the quiet window');
-  assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 2, 'the quiet window covers something other than the two policy refusals');
+  assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 3, 'the quiet window covers something other than the three policy refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show)');
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
   assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame == true \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
     'a frame inside the page can put up the app\'s sheet, or the refusal blames the page when the file is the cause');
@@ -212,4 +212,14 @@ test('#5167 review 11: a run where nothing saves is judged, not timed out (the w
   assert.ok(watchdog >= 150, 'the watchdog (' + watchdog + 's) is under a nothing-saves run (measured 81s), so a total break reads as a timeout');
   assert.ok(alarm >= watchdog + 20, 'the gate\'s alarm (' + alarm + 's) does not sit above the hatch\'s own watchdog (' + watchdog + 's)');
   assert.match(hatch, /wait\(expect == nil \? 20 : 50\)/);
+});
+
+test('#5167 review 12: a foreign file the window cannot show is said; an early stop is not blamed on a cause', () => {
+  const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
+  assert.match(b, /if !navigationResponse\.canShowMIMEType \{\n[^\n]*\n\s+tellDownloadFailed\("That file came from somewhere Kosmos does not save from, so it was not opened or saved\.", quiet: true\)/,
+    'a foreign file the window cannot show is cancelled with nothing said');
+  assert.match(body('@objc(download:didFailWithError:resumeData:)'), /tellDownloadFailed\("The download stopped before it began, so nothing was saved\."\)/,
+    'an early stop is said with a cause it may not have');
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
+  assert.ok(hatch.includes('"A FRAME LOADING AN ATTACHMENT SAVES NOTHING') && hatch.includes('"A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED'));
 });
