@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fieldsettle-4734
-diff_hash: d904836d9db4a4b9e2c542fbcf53f7f5bb3802f0f70d6c5a0bee4edd0760b6d3
+diff_hash: 98e906aaab91ffe10ba21aa41b96832ce796c454321ec24074297350383ededb
 validation: full tools/run-tests.sh on Agent1s at 844103b7d (2026-10-02 21:34 CDT): 14469 tests, 14245 pass, 1 fail, the shared reason-grep emit-site count; fixed (rebased onto main, 233 -> 236 as measured) and that file passes 5/5; both browser-check gates rc 0. The PR's CI runs every suite on the merged tree before the watcher merges.
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
 timestamp: 2026-10-03T02:36:30Z
