@@ -73,4 +73,7 @@ account and need a second restart.
   (a Claude pick is validated by a read even under dry-run). NIT2: the partial reply carries restarted:true/false and the page
   keys on it, not on a sentence. Not taken: NIT3 (a setAccount job-write failure right after the switch's own write reads
   "is switched ... nothing changed"; vanishingly rare, the sentence is setAccount's own).
+  Measured 23:06 (light turn): the browser check 16/16 on the branch. My first post-switch arm expected the picked account
+  among the Move menu's DESTINATIONS; the menu's first option names the account it is ON and lists the others, so the arm
+  now asserts that (on b@example.com, main offered). Engine 8/8, guards 25/25.
 - Round 4: PENDING.
