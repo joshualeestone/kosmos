@@ -58,7 +58,7 @@ test('#5167: the response policy saves only board files from a board page, refus
 
 test('#5167: the origin a download must share is the COMMITTED page, set on every main-frame commit', () => {
   assert.match(SRC, /\n    fileprivate var committedPageURL: URL\?\n/);
-  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /committedPageURL = webView\.url/,
+  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /committedPageURL = webView\.backForwardList\.currentItem\?\.url/,
     'nothing records the committed page, so every download is refused (or a stale origin is trusted)');
   assert.equal((SRC.match(/(?<!d\.)committedPageURL = (?!nil)/g) || []).length, 1, 'something other than a main-frame commit sets the committed page');
   assert.match(body('private func switchToConnect(home: String)'), /committedPageURL = nil/, 'a computer switched to connect keeps judging downloads against its old board page');
@@ -265,7 +265,7 @@ test('#5167 review 17: a Kosmos+ computer is asked about before it can save (its
   assert.doesNotMatch(may, /UserDefaults|downloadDefaults/, 'an Allow is kept past this run, so a later holder of the same name inherits it');
   assert.match(may, /if yes \{ self\.allowedDownloadHosts\.insert\(host\) \} else \{ self\.refusedDownloadHosts\.insert\(host\) \}/);
   assert.match(may, /if refusedDownloadHosts\.contains\(host\) \{/, 'a refused computer can ask again and again');
-  assert.match(may, /alert\.addButton\(withTitle: "Allow"\)\n\s+alert\.addButton\(withTitle: "Don't Allow"\)/);
+  assert.match(may, /let allow = alert\.addButton\(withTitle: "Allow"\)\n\s+let refuse = alert\.addButton\(withTitle: "Don't Allow"\)/);
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.match(hatch, /"THROUGH A REAL CLICK: a computer that must be asked saves nothing on Don't Allow, and saves on Allow/,
     'the question is only driven directly, so a policy path that skips it still passes');
@@ -297,7 +297,7 @@ test('#5167 review 20: a 204 or 205 says nothing; a sheet that never reports its
 
 test('#5167 review 21: the per-computer question is modal (a dropped sheet would leave downloads waiting for good); every download sheet holds back the quiet ones', () => {
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
-  assert.match(may, /answer\(alert\.runModal\(\) == \.alertFirstButtonReturn\)/);
+  assert.match(may, /let yes = alert\.runModal\(\) == \.alertFirstButtonReturn/);
   assert.doesNotMatch(may, /beginSheetModal/, 'the question is a sheet, whose completion may never come');
   assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /downloadSheetShownAt = Date\(\)   \/\/ any download sheet/,
     'only quiet sheets hold back the quiet ones, so two can stack');
@@ -309,4 +309,13 @@ test('#5167 review 22: every download alert is modal (a sheet over a sheet can b
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.doesNotMatch(tell, /beginSheetModal/, 'a download failure is a sheet, which another sheet can drop');
   assert.match(tell, /alert\.runModal\(\)\n\s+dismissed\(\)/);
+});
+
+test('#5167 review 23: Return never grants downloads; the question holds back quiet alerts; the committed page moves only at a commit', () => {
+  const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
+  assert.match(may, /allow\.keyEquivalent = ""\n\s+refuse\.keyEquivalent = "\\r"/, 'Return (a keypress meant for the composer) answers Allow');
+  assert.match(may, /downloadSheetShownAt = Date\(\)[^\n]*\n\s+let yes = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+downloadSheetShownAt = nil/,
+    'a quiet refusal can open over the question');
+  assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'), /\.path\.lowercased\(\)/,
+    'Report.pdf and report.pdf at once collide on a case-insensitive Downloads');
 });

@@ -2730,7 +2730,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         /* #5167: a download the page asked for (`<a download>`: #4930's attachments, #5165's Files lists
-           over Kosmos+) is SAVED when the page is a board and the file is from its origin. */
+           over Kosmos+) is SAVED when the page is a board and the file is from its origin, after the person
+           allows it for a Kosmos+ computer (mayDownload). */
         if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
             mayDownload { decisionHandler($0 ? .download : .cancel) }
@@ -2766,7 +2767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /* #5167: what each response does, in the order below: an attachment from the board's origin, on a board
-       page, is saved; any other attachment is refused and said; a board file the window cannot show is saved; anything
+       page, is saved (for a Kosmos+ computer, after the person allows it); any other attachment is refused and said; a board file the window cannot show is saved; anything
        else is shown if WebKit can show its type and cancelled if not.
        📌 PINNED selector, as above: a near-miss Swift signature compiles and is never called. */
     @objc(webView:decidePolicyForNavigationResponse:decisionHandler:)
@@ -2874,11 +2875,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.messageText = "Allow downloads from \(host)?"
         alert.informativeText = "This Kosmos+ computer wants to save a file to your Downloads folder. Allow it only if it is one of your own computers. Kosmos asks again the next time it opens."
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Allow")
-        alert.addButton(withTitle: "Don't Allow")
+        let allow = alert.addButton(withTitle: "Allow")
+        let refuse = alert.addButton(withTitle: "Don't Allow")
+        // Return answers Don't Allow: the page decides when this appears, so a keypress meant for the
+        // composer must never grant it.
+        allow.keyEquivalent = ""
+        refuse.keyEquivalent = "\r"
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
-        answer(alert.runModal() == .alertFirstButtonReturn)
+        downloadSheetShownAt = Date()   // nothing quiet is said over the question
+        let yes = alert.runModal() == .alertFirstButtonReturn
+        downloadSheetShownAt = nil
+        answer(yes)
     }
 
     /// #5167: a policy refusal (`quiet: true`) is not said while one is on screen, nor for this many seconds
@@ -2962,10 +2970,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             completionHandler(nil)
             return
         }
-        let taken = Set(downloadsInFlight.values.map { $0.standardizedFileURL.path })
+        let taken = Set(downloadsInFlight.values.map { $0.standardizedFileURL.path.lowercased() })   // Downloads is case-insensitive
         let dest = downloadDestination(dir: dir, suggested: suggestedFilename) {
             // The entry itself, not what it points to: a dangling symlink is taken, never written through.
-            (try? FileManager.default.attributesOfItem(atPath: $0.path)) != nil || taken.contains($0.standardizedFileURL.path)
+            (try? FileManager.default.attributesOfItem(atPath: $0.path)) != nil || taken.contains($0.standardizedFileURL.path.lowercased())
         }
         downloadsInFlight[ObjectIdentifier(download)] = dest
         downloadPages[ObjectIdentifier(download)] = committedPageURL   // the page it came from, for its mark
@@ -4468,7 +4476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// listening must end with it. Main-frame commits only reach this delegate method.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         voice?.hostCancel("new page loaded")
-        committedPageURL = webView.url   // #5167: the origin a download must share
+        committedPageURL = webView.backForwardList.currentItem?.url   // #5167: the origin a download must share (moves only at a commit)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

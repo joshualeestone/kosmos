@@ -269,6 +269,15 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Not changed: Don't Allow lasts the run and is said on each later click (round 19); connect mode is
   not driven live (weakest premise below).
 
+## Review round 23 changes
+- Return answers Don't Allow on the per-computer question (the page decides when it appears, so a
+  keypress meant for the composer must never grant it); Allow needs a click.
+- The question sets the "alert up" mark, so no quiet refusal opens over it.
+- committedPageURL is read from the back-forward list's current item (moves only at a commit), not
+  webView.url (which can already name a pending load).
+- In-flight names are compared case-insensitively (Downloads is case-insensitive by default).
+- Policy comments say a Kosmos+ computer's save waits for the person's Allow.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
