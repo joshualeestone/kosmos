@@ -47,9 +47,9 @@ test('#5167: a same-origin <a download> becomes a download, BEFORE the connect-o
 test('#5167: only a same-origin attachment response is saved; every other response keeps WebKit\'s default', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
-  assert.match(b, /\.lowercased\(\) == "attachment" \}\) == true,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)/,
-    'an attachment is saved without the exact-token, board-page and same-origin checks, so any site in the window can write to Downloads');
-  assert.equal((b.match(/decisionHandler\(/g) || []).length, 2, 'the response policy has a path that never answers, or a new one');
+  assert.match(b, /\.lowercased\(\) == "attachment" \}\) == true \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)\n\s+\} else \{[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
+    'an attachment is saved without the exact-token, board-page and same-origin checks, or a refused one loads in the window');
+  assert.equal((b.match(/decisionHandler\(/g) || []).length, 3, 'the response policy has a path that never answers, or a new one');
   // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
   // would fail a provisional load (a "cannot show" error reaching handleNavigationFailure) instead.
   assert.match(b, /decisionHandler\(navigationResponse\.canShowMIMEType \? \.allow : \.cancel\)\n\s+\}$/,
@@ -139,7 +139,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries the quarantine mark', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 11\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 12\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -148,4 +148,18 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
   const gate = BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest'));
   assert.ok(gate.indexOf('*"download selftest TIMED OUT"*') < gate.indexOf('*"download-check: all good"*'),
     'a timeout must be read before any verdict, or a hang is judged on partial output');
+});
+
+test('#5167 review 5: refused downloads stay out of the window, quarantine records hold no token, connect forgets the board', () => {
+  const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
+  assert.match(act, /if navigationAction\.shouldPerformDownload, computerMode != \.connect \{\n[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+return\n\s+\}/,
+    'a download this app will not save falls through to .allow and loads in the window');
+  const fin = body('@objc(downloadDidFinish:)');
+  assert.match(fin, /c\.query = nil; c\.fragment = nil/, 'the quarantine record keeps the page\'s query or fragment, which carry the board token');
+  assert.match(fin, /if let page = originOnly\(committedPageURL\)/);
+  assert.match(fin, /if let from = originOnly\(download\.originalRequest\?\.url\)/);
+  assert.match(body('private func switchToConnect(home: String)'), /badgeOrigin = nil/, 'a computer switched to connect still treats its old board as one');
+  assert.match(BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest')),
+    /\*"rows ran, so this proved nothing"\*\)[\s\S]*?\*"download-check: all good"\*\)[\s\S]*?\*"download-check:"\*\)/,
+    'a short run is read as a product verdict');
 });

@@ -646,6 +646,9 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
     *"download selftest TIMED OUT"*)
       echo "the #5167 download gate did not finish (exit $_dl_rc). It could not judge downloads either way, so this is NOT a verdict on the product. Look at the output above before assuming either." >&2
       exit 1 ;;
+    *"rows ran, so this proved nothing"*)
+      echo "the #5167 download gate ran short, so it could not judge downloads either way. This is the gate, not a verdict on the product." >&2
+      exit 1 ;;
     *"download-check: all good"*)
       [ "$_dl_rc" -eq 0 ] || { echo "the #5167 download gate reported all good but exited $_dl_rc. Treat that as the gate being broken." >&2; exit 1; } ;;
     *"download-check:"*)
