@@ -33,16 +33,20 @@ const platformGate = require('./platform');
    behind in the cwd, the leak that made clean validations record "dirty". */
 const onWin = process.platform === 'win32';
 const cwdBefore = new Set(fs.readdirSync(process.cwd()));
+/* #5074: Windows can hold a just-run exe for a moment after it exits (the prove step runs a fresh copy of node.exe),
+   so removals go through removeTree's retry. Without it, a passing test went red on its own last line. */
+const { removeTree } = require('../test-support/remove-tree');
 test.after(() => {
-  fs.rmSync(SANDBOX, { recursive: true, force: true });
-  const leaked = fs.readdirSync(process.cwd()).filter((n) => !cwdBefore.has(n) && n.includes('\\'));
-  assert.deepEqual(leaked, [], 'win32-shaped paths leaked into the cwd as files');
+  try { removeTree(SANDBOX); } finally {
+    const leaked = fs.readdirSync(process.cwd()).filter((n) => !cwdBefore.has(n) && n.includes('\\'));
+    assert.deepEqual(leaked, [], 'win32-shaped paths leaked into the cwd as files');
+  }
 });
 test.afterEach(() => runners.resetForTests());
 
 const LEGACY_GEMINI = path.join(SANDBOX, 'legacy', 'gemini');
 const LEGACY_GROK = path.join(SANDBOX, 'legacy', 'grok');
-const clear = (p) => fs.rmSync(path.join(runners.managedRoot(), p), { recursive: true, force: true });
+const clear = (p) => removeTree(path.join(runners.managedRoot(), p));
 
 test('the keyed-runner gate lets Windows through for Gemini and Grok; the Claude link path stays darwin-only', () => {
   assert.equal(platformGate.canDownloadKeyedRunner('win32'), true);

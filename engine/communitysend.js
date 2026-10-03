@@ -90,11 +90,12 @@ function endpointDir() {
 }
 function stateFile() { return path.join(dir(), 'state.json'); }
 function keysFile() { return path.join(endpointDir(), 'keys.json'); }
-function sentFile() { return path.join(endpointDir(), 'sent.json'); } // written ONLY by the sweep
+function sentFile() { return path.join(endpointDir(), 'sent.json'); } // written ONLY inside an exclusive section (the sweep, #4994's retirements)
 function deletesFile() { return path.join(dir(), 'deletes.json'); } // written ONLY by requestDelete
 // #4373 part B: comments' own record, never sent.json: the delete, take-down and settle passes walk
 // sent.json as POSTS, and must never meet a comment row.
-function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.json'); } // written ONLY by the sweep
+// written inside an exclusive section (the sweep, #4994's retirements), and by markNotSent, which adds a row for a comment with none
+function commentsSentFile() { return path.join(endpointDir(), 'comments-sent.json'); }
 // #4801: the owner's removals of COMMENTS, beside deletes.json and never in it: sweepDeletes walks deletes.json as POSTS
 // (DELETE /posts/{id}), and a comment id there would ask the service to delete a post. Written ONLY by requestDelete.
 function commentDeletesFile() { return path.join(dir(), 'comment-deletes.json'); }
@@ -343,6 +344,11 @@ async function readCapped(r, cap) {
    anything is sent. Only agentCallNow passes a deadline, and it turns this into its busy answer. */
 class OverBudget extends Error {}
 
+/* #4885: a body sent as raw bytes with its own content type (an agent's picture), rather than as JSON. Made only by
+   rawBody, so a JSON body can never be mistaken for one. */
+const RAW = Symbol('raw body');
+function rawBody(bytes, type) { return Object.freeze({ [RAW]: { bytes, type } }); }
+
 async function request(method, pathname, { token, body, cap = SWEEP_RESPONSE_CAP, deadline = null } = {}) {
   if (deadline != null && deadline - Date.now() < timeoutMs) throw new OverBudget('over budget');
   const post = sender || ((url, init) => fetch(url, init));
@@ -350,12 +356,13 @@ async function request(method, pathname, { token, body, cap = SWEEP_RESPONSE_CAP
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const headers = { accept: 'application/json' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
+    const raw = body !== undefined && body !== null && body[RAW];
+    if (body !== undefined) headers['content-type'] = raw ? raw.type : 'application/json';
     if (token) headers.authorization = 'Bearer ' + token;
     const res = await post(endpoint() + pathname, {
       // A redirect would re-send the body (a key, on login) to wherever it points.
       method, headers, signal: ctl.signal, redirect: 'error',
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      ...(body !== undefined ? { body: raw ? raw.bytes : JSON.stringify(body) } : {}),
     });
     let json = null;
     /* #4774 review 1: read through a cap, never whole: a huge or endless answer must not sit in the board's memory.
@@ -415,6 +422,9 @@ const registerWaitWhy = new Map();
 const REGISTER_LOST_RECHECK_MS = 60 * 60 * 1000;
 const REGISTER_CLOCK_SKEW_MS = 10 * 60 * 1000;
 async function ensureRegistered(agentKey, keys, now, ctx = {}) {
+  // #4994: a name freed by deleting its leftover acts as nobody until its old identity is retired: not as the old
+  // account (whose key this pass may still hold), and not as a new one registered under the name.
+  if (retiring(agentKey)) return null;
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
   if ((registerRetryAt.get(agentKey) || 0) > now) return null;
   const reg = registration(agentKey);
@@ -428,6 +438,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
       return null;
     }
     const look = await request('GET', lookPath);
+    if (retiring(agentKey)) return null;   // #4994: the agent was deleted while the lookup was on the network
     /* Review 2: an account made well BEFORE our first try is somebody else's (a common name another install holds,
        and our try was lost before it reached the service). Then the mark is not ours: drop it and register as
        before, where the 409 takes a suffix. The margin allows for our clock and the service's to disagree. */
@@ -463,15 +474,19 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   }
   const base = reg.name;
   for (let i = 0; i < 3; i++) {
+    if (retiring(agentKey)) return null;   // #4994: or while an earlier try was (a name clash retries)
     // The wall clock at the POST, not the sweep's `now` (review 6): a sweep working through a slow backlog can reach
     // this register many minutes after it began, and the age check compares this time with the account's.
-    keys[agentKey] = { registering: { name: reg.name, at: new Date().toISOString() } };
+    const triedAt = new Date().toISOString();
+    keys[agentKey] = { registering: { name: reg.name, at: triedAt } };
     saveJson(keysFile(), keys);                       // written ahead, so a lost answer is looked up, not repeated
     const r = await request('POST', '/agents/register', { ...ctx, body: reg });
     if (r.status === 201 && r.json && typeof r.json.api_key === 'string' && typeof r.json.token === 'string') {
       keys[agentKey] = {
         remoteId: String(r.json.agent_id || ''), name: String(r.json.name || reg.name),
-        apiKey: r.json.api_key, token: r.json.token, registeredAt: new Date().toISOString(),
+        // #4994: triedAt is when the registration was asked for, so a retirement that landed while it was on the network
+        // still counts this account as the deleted agent's.
+        apiKey: r.json.api_key, token: r.json.token, registeredAt: new Date().toISOString(), triedAt,
         ...(reg.install_group ? { installGroupSent: reg.install_group } : {}),   // #4922: registered with it
       };
       saveJson(keysFile(), keys);
@@ -534,10 +549,57 @@ async function findExisting(agentKey, keys, body, sent) {
   return hit ? String(hit.id) : null;
 }
 
-async function sendPost(post, keys, sent, now) {
+/* #4939 review 4: registering an agent for the first time can take many seconds (a name lookup and up to three register
+   calls), and the person can switch Community off meanwhile. Status then truthfully says the item will not go, so it
+   must not: after registering and before the write-ahead, the switch and this sweep's ON period are read again. */
+function stillSending(from) {
+  if (!switchOn()) return false;
+  const cur = loadJson(stateFile());
+  return Boolean(cur && from && cur.since === from);
+}
+
+/* #4953: the service answers 429 for two reasons. Its daily cap (detail.error daily_post_limit / daily_comment_limit)
+   is waited out across sweeps in keys.json (retryAt, commentRetryAt), the waits that say an item goes later. Its
+   request limiter (rate_limit_exceeded, Retry-After 60), or a 429 whose reason cannot be read, is only a short pause
+   (Retry-After, held to 60..600 s), so it never reads as the day's cap. Two costs, accepted: a cap 429 whose body
+   cannot be read is also only a short pause (the service keeps refusing; one refused send per agent per pause), and
+   the pause is kept in memory like a register 429, so a board restarted inside it sends once more. Each retry after
+   a pause is itself counted by the limiter, a handful per agent per hour at most. willSend's `later` reads only
+   the daily cap: a comment held by this pause is still told it goes on a coming pass (the first sweep after the
+   pause, which the 5-minute timer or a sendSoon starts).
+   One pause per agent covers its post and comment SENDS (with a valid token the limiter counts every request in one
+   bucket per agent, refused ones included; a token it cannot resolve is counted in a bucket shared by the board's
+   address, which this per-agent pause does not model); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */
+const limiterPauseUntil = new Map();   // agentKey -> ms
+function dailyCap429(r, name) {
+  return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
+}
+/* An unreadable 429 (neither the cap nor the limiter) is said once per agent until the board restarts, so a service
+   that renamed its cap error is seen in the board's log, not only as quiet retries. */
+const unreadable429Said = new Set();
+function pauseFor429(r, agentKey, now, what) {
+  const limiter = Boolean(r && r.json && r.json.error === 'rate_limit_exceeded');
+  if (!limiter && !unreadable429Said.has(agentKey)) {
+    unreadable429Said.add(agentKey);
+    log(`${what} for ${agentKey}: the community answered 429 with a reason Kosmos cannot read; pausing a few minutes and trying again`);
+  }
+  limiterPauseUntil.set(agentKey, shortPause(r, now));
+}
+function shortPause(r, now) { return now + Math.min(600, Math.max(60, r.retryAfter || 60)) * 1000; }
+
+async function sendPost(post, keys, sent, now, from) {
   const agentKey = post.agent;
+  // #4994: a record that follows a retired account is the deleted agent's post, and must not go out as the new agent
+  // under the same name. One still `attempted` may be on the service: settleUnconfirmed decides it, not this.
+  if (sent[post.id] && String(sent[post.id].agent).startsWith(RETIRED_PREFIX)) {
+    if (sent[post.id].attempted) return;
+    sent[post.id] = settle(sent[post.id], { state: 'not_sent', reasons: ['agent_deleted'] });
+    return;
+  }
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
+  if ((limiterPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
   const k = await ensureRegistered(agentKey, keys, now);
+  if (retiring(agentKey)) return;   // #4994: the agent was deleted while ensureRegistered was on the network
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
   // #4800: held because an account under this agent's name exists with no key here: recorded, so statuses() says so.
   if (!k && keys[agentKey] && keys[agentKey].registering && keys[agentKey].registering.taken && !sent[post.id]) {
@@ -546,6 +608,10 @@ async function sendPost(post, keys, sent, now) {
   }
   if (k && k.refused) { sent[post.id] = rec; return; }  // recorded, so statuses() shows agentRefused on it
   if (!k) return;
+  if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
+  // #4939 review 4: and the owner's deletes, read again for the same window (an unreadable one sends nothing).
+  const lateDeletes = loadJson(deletesFile());
+  if (!lateDeletes || Object.prototype.hasOwnProperty.call(lateDeletes, post.id)) return;
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
@@ -569,10 +635,12 @@ async function sendPost(post, keys, sent, now) {
   } else if (r.status === 400) {
     sent[post.id] = settle(rec, { state: 'refused', reasons: ['rejected'] });
   } else if (r.status === 429) {
-    // The daily cap: nothing was stored. Wait as long as the server says, across sweeps.
+    // Nothing was stored. The daily cap is waited out across sweeps; anything else is a short pause (#4953).
     sent[post.id] = settle(rec, {});
-    k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
-    saveJson(keysFile(), keys);
+    if (dailyCap429(r, 'daily_post_limit')) {
+      k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+      saveJson(keysFile(), keys);
+    } else pauseFor429(r, agentKey, now, 'post');
   } else if (r.status === 401) {
     // The token was refused and a fresh login could not be had this sweep: nothing was stored.
     sent[post.id] = settle(rec, { lastStatus: 401 });
@@ -636,13 +704,21 @@ async function sweepTakedowns(keys, sent, now) {
  * comment is the worse failure; the record says what happened.
  */
 const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
-async function sendComment(c, keys, csent, now) {
+async function sendComment(c, keys, csent, now, from) {
   const agentKey = c.agent;
+  // #4994: as sendPost, including leaving an attempted record alone: it may be on the service.
+  if (csent[c.id] && String(csent[c.id].agent).startsWith(RETIRED_PREFIX)) {
+    if (csent[c.id].attempted) return;
+    csent[c.id] = settle(csent[c.id], { state: 'not_sent', reasons: ['agent_deleted'] });
+    return;
+  }
   // Comments wait on their OWN cap: the service counts posts (POSTS_PER_AGENT_PER_DAY, 3 by default) and comments
   // (COMMENTS_PER_AGENT_PER_DAY, 20 by default) apart, so a post's 429 must not hold this agent's comments back for a
   // day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
+  if ((limiterPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
   const k = await ensureRegistered(agentKey, keys, now);
+  if (retiring(agentKey)) return;   // #4994: as sendPost
   const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
   const rec = csent[c.id] || { state: 'pending', agent: agentKey, post: c.remotePostId };
   if (k && k.refused) { csent[c.id] = rec; return; }
@@ -661,6 +737,7 @@ async function sendComment(c, keys, csent, now) {
   const cdel = loadJson(commentDeletesFile());
   if (!cdel) return;
   if (Object.prototype.hasOwnProperty.call(cdel, c.id)) { csent[c.id] = settle(rec, { state: 'withheld' }); return; }
+  if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
   const body = { body: String(c.body || '') };
   // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
   // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.
@@ -696,10 +773,12 @@ async function sendComment(c, keys, csent, now) {
     const invalid = r.json && Array.isArray(r.json.detail) ? ['invalid_text'] : [];
     csent[c.id] = settle(rec, { state: 'refused', reasons: why.length ? why : (err.length ? err : (invalid.length ? invalid : ['rejected'])) });
   } else if (r.status === 429) {
-    // The daily comment cap: nothing was stored. Wait as long as the server says, across sweeps.
+    // Nothing was stored. The daily comment cap is waited out across sweeps; anything else is a short pause (#4953).
     csent[c.id] = settle(rec, {});
-    k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
-    saveJson(keysFile(), keys);
+    if (dailyCap429(r, 'daily_comment_limit')) {
+      k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+      saveJson(keysFile(), keys);
+    } else pauseFor429(r, agentKey, now, 'comment');
   } else if (r.status === 401) {
     csent[c.id] = settle(rec, { lastStatus: 401 });
     log(`comment for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
@@ -742,7 +821,7 @@ async function sweepComments(keys, from, now) {
         // Removed before it was sent: withheld, never sent (due only lists comments never attempted).
         csent[c.id] = settle(csent[c.id] || { agent: c.agent, post: c.remotePostId }, { state: 'withheld' });
       } else {
-        await sendComment(c, keys, csent, now);
+        await sendComment(c, keys, csent, now, from);
       }
       saveJson(commentsSentFile(), csent);
     } catch (e) {
@@ -865,7 +944,11 @@ async function sweepInstallGroup(keys, on) {
        back means it was restored. */
     const folderGone = !workerFolderExists(agentKey);
     if (removedUnreadable && !folderGone) continue;   // could be removed: nothing is sent to it, not even a clear
-    const removedNow = removedSet.has(clean(agentKey)) || folderGone;
+    // #4994: with the retire list unreadable, which names are being retired is unknown: as an unreadable removed list,
+    // nothing is sent and nothing cleared for an agent whose folder is there.
+    if (retireListUnreadable() && !folderGone) continue;
+    // #4994: a name being retired is the deleted agent's until its key moves: treated as removed, so cleared, never sent.
+    const removedNow = removedSet.has(clean(agentKey)) || folderGone || retiringListed(agentKey);
     if (k.refused) {
       // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
       if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
@@ -957,6 +1040,8 @@ async function sweepIndustry(keys, on) {
     if (!clearing && !switchOn()) break;
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
+    // #4994: a deleted agent's profile is only cleared, including one whose retirement lands during this pass.
+    if (!clearing && (agentKey.startsWith(RETIRED_PREFIX) || retiring(agentKey))) continue;
     if (k.refused) {
       // The service refused this agent's key, so its profile cannot be changed from here: a clear the owner asked
       // for cannot reach it. Said once in the log, so it is on record.
@@ -1024,6 +1109,158 @@ async function sweepIndustry(keys, on) {
   }
 }
 
+/**
+ * #4885: each registered agent's Kosmos picture on its community profile, posts and replies, as
+ * PUT /agents/me/avatar (the raw image) and DELETE /agents/me/avatar (kosmos-community v0.4.0, app/routers/home.py).
+ * The same shape as sweepIndustry above: what is wanted is the sha256 of the picture's bytes (or null for none), sent
+ * when it differs from `avatarSent`, written ahead as `avatarUnsure` so an unanswered request is sent again, retried
+ * on anything that is not an answer about the picture, and a picture the service refuses (422) not sent again until
+ * it changes. A removal goes out whatever the switch says, like an industry clear; a new picture only while ON.
+ */
+const AVATAR_MAX_BYTES = 60000;                     // the service's cap (app/avatars.py MAX_BYTES)
+const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const AVATAR_FAILS_BEFORE_WAIT = 3;
+const AVATAR_WAIT_MS = 60 * 60 * 1000;
+const AVATAR_WAIT_MAX_MS = 6 * 60 * 60 * 1000;
+
+/* The last picture read per agent, keyed by its file and its inode, size, mtime and ctime, so an unchanged picture is
+   not read and hashed again by every half of every sweep. In memory only: a restart reads each once more. */
+const avatarSeen = new Map();
+const sameFile = (a, b) => a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+
+/* The picture to send for `agentKey`: { id, type, bytes }, or { id: null, why } when there is none to send, or
+   { busy, why } when it cannot be told this sweep. A picture the community cannot take (too big, a GIF) is "none"
+   here, so one sent earlier is taken back rather than left showing a picture the person has since replaced. */
+function avatarWanted(agentKey) {
+  let found;
+  try { found = store.avatarLookup(agentKey); } catch { return { busy: true, why: 'name' }; }
+  // Only a confirmed absence is "no picture"; a folder that could not be read is not a reason to take anything down.
+  if (found.error) return { busy: true, why: 'unreadable:' + found.error };
+  const file = found.file;
+  if (!file) { avatarSeen.delete(agentKey); return { id: null, why: null }; }
+  let before;
+  // Gone between the lookup and here: looked at again next sweep rather than read as a removal.
+  try { before = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { busy: true } : { busy: true, why: 'unreadable:' + ((e && e.code) || 'stat') }; }
+  if (before.size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + before.size };
+  const memo = avatarSeen.get(agentKey);
+  if (memo && memo.file === file && sameFile(memo.stat, before)) return memo.wanted;
+  let bytes;
+  let after;
+  try { bytes = fs.readFileSync(file); after = fs.statSync(file); } catch (e) { return { busy: true, why: 'unreadable:' + ((e && e.code) || 'read') }; }
+  // Changed while it was read: left for the next sweep, neither sent nor read as "none".
+  if (!sameFile(after, before) || bytes.length !== before.size) return { busy: true };
+  // Empty is not "no picture": said once, and nothing is sent or taken down.
+  if (!bytes.length) return { busy: true, why: 'unreadable:empty' };
+  const type = store.imageTypeOf(bytes);
+  const wanted = AVATAR_TYPES.has(type)
+    ? { id: crypto.createHash('sha256').update(bytes).digest('hex'), type, bytes }
+    : { id: null, why: 'type:' + (type || 'unknown') };
+  avatarSeen.set(agentKey, { file, stat: before, wanted });
+  return wanted;
+}
+
+function serviceRefusedAvatar(r) {
+  const d = r.json && r.json.detail;
+  return r.status === 422 && Boolean(d) && typeof d === 'object' && d.error === 'bad_avatar';
+}
+
+/* `removals` true: only take pictures down (run before comments, like every other take-down); false: only send new
+   pictures (run last, so a failing picture route never holds back comments). */
+async function sweepAvatars(keys, on, { removals }) {
+  for (const agentKey of Object.keys(keys)) {
+    const k = keys[agentKey];
+    if (!k || !k.apiKey) continue;
+    const w = avatarWanted(agentKey);
+    if (w.busy) {
+      // A picture that cannot be read is said once, so an agent that never syncs again is not silent about why.
+      if (w.why && k.avatarSkipLogged !== w.why) {
+        k.avatarSkipLogged = w.why;
+        saveJson(keysFile(), keys);
+        log(w.why === 'name'
+          ? `picture for ${agentKey}: this agent's name cannot name a picture file, so its picture is not sent`
+          : `picture for ${agentKey}: could not be read (${w.why.slice('unreadable:'.length)}); nothing is sent or taken down until it can`);
+      }
+      continue;
+    }
+    const want = w.id;
+    if (k.refused) {
+      // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
+      // so it is on record (as sweepIndustry does for a clear).
+      const shown = (Object.prototype.hasOwnProperty.call(k, 'avatarSent') && k.avatarSent !== null) || k.avatarUnsure;
+      // The community may be showing a picture the person has removed or replaced, and nothing here can change it.
+      // Said once per picture the person wants (a later change is said again).
+      const stuckFor = want === null ? 'none' : want;
+      if (shown && want !== k.avatarSent && k.avatarRemoveUnreachable !== stuckFor) {
+        k.avatarRemoveUnreachable = stuckFor;
+        saveJson(keysFile(), keys);
+        log(`picture for ${agentKey}: the service refused this agent's key, so its community picture cannot be changed or taken down from here`);
+      }
+      continue;
+    }
+    if (!w.why && k.avatarSkipLogged) { delete k.avatarSkipLogged; saveJson(keysFile(), keys); }
+    if (w.why && k.avatarSkipLogged !== w.why) {
+      k.avatarSkipLogged = w.why;
+      saveJson(keysFile(), keys);
+      log(`picture for ${agentKey}: not sent (${w.why.startsWith('too-big') ? 'over ' + AVATAR_MAX_BYTES + ' bytes' : 'not a PNG, JPEG or WebP'}); the community shows its own mark`);
+    }
+    const sent = Object.prototype.hasOwnProperty.call(k, 'avatarSent') ? k.avatarSent : null;
+    // A picture the service refused is not sent again until it changes, and while it is wanted the community shows
+    // no picture rather than the one the person replaced: the target is then "none".
+    if (Object.prototype.hasOwnProperty.call(k, 'avatarRefused') && k.avatarRefused !== want) {
+      delete k.avatarRefused;
+      saveJson(keysFile(), keys);
+    }
+    const target = want !== null && k.avatarRefused === want ? null : want;
+    if (!k.avatarUnsure && sent === target) continue;
+    if ((target === null) !== removals) continue;          // this call's half: removals, or new pictures
+    if (target !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
+    // A new picture that keeps failing waits longer between tries (each is a full upload); a removal never waits.
+    if (k.avatarRetrying !== target) { delete k.avatarFails; delete k.avatarNextTry; }
+    if (target !== null && k.avatarNextTry && Date.now() < k.avatarNextTry) continue;
+    const wasUnsure = k.avatarUnsure === true;
+    if (!wasUnsure) { k.avatarUnsure = true; saveJson(keysFile(), keys); }
+    const r = target === null
+      ? await asAgent(agentKey, keys, 'DELETE', '/agents/me/avatar')
+      : await asAgent(agentKey, keys, 'PUT', '/agents/me/avatar', rawBody(w.bytes, w.type));
+    if (k.refused) {
+      // The service just refused this agent's key (a 401 that a login could not mend): the request did not land.
+      if (!wasUnsure) delete k.avatarUnsure;
+      saveJson(keysFile(), keys);
+      continue;
+    }
+    if (r.status >= 200 && r.status < 300) {
+      k.avatarSent = target;
+      delete k.avatarRetrying;
+      delete k.avatarFails;
+      delete k.avatarNextTry;
+      delete k.avatarUnsure;
+      saveJson(keysFile(), keys);
+    } else if (target !== null && serviceRefusedAvatar(r)) {
+      // This PUT changed nothing; an earlier unanswered one may still have landed, so the mark is put back as it was.
+      if (!wasUnsure) delete k.avatarUnsure;
+      delete k.avatarRetrying;
+      k.avatarRefused = want;
+      saveJson(keysFile(), keys);
+      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes${sent !== null || wasUnsure ? ', and the one it showed before will be taken down from the next sweep' : ''}`);
+    } else {
+      // An answer that says the request was not taken (a route that is not there, a body a proxy refused) puts the
+      // write-ahead mark back as it was; only a timeout, a 5xx, a 408 or a 429 may have landed.
+      if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429 && !wasUnsure) delete k.avatarUnsure;
+      const first = k.avatarRetrying !== target;
+      k.avatarRetrying = target;
+      if (target !== null) {
+        // Two more tries at once, then an hour, doubling to six hours.
+        k.avatarFails = (k.avatarFails || 0) + 1;
+        if (k.avatarFails >= AVATAR_FAILS_BEFORE_WAIT) {
+          k.avatarNextTry = Date.now() + Math.min(AVATAR_WAIT_MAX_MS, AVATAR_WAIT_MS * 2 ** (k.avatarFails - AVATAR_FAILS_BEFORE_WAIT));
+        }
+      }
+      saveJson(keysFile(), keys);
+      if (first) log(`picture for ${agentKey}: no usable answer (status ${r.status || 'none'}); trying again until it lands${target !== null ? ', less often after ' + AVATAR_FAILS_BEFORE_WAIT + ' tries' : ''}`);
+    }
+  }
+}
+
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
   const on = switchOn();
@@ -1054,9 +1291,14 @@ async function sweepOnce(now) {
     const due = communitystore.publishedPosts()
       .filter((p) => p.author && p.author.type === 'agent' && typeof p.agent === 'string' && p.agent)
       .filter((p) => from && String(p.releasedAt || p.receivedAt) >= from)
+      .filter((p) => p.notSent !== true)               // #4994: its agent was deleted
       .filter((p) => !sent[p.id] || sent[p.id].state === 'pending');
     for (const post of due) {
       if (!switchOn()) break;                         // switched off mid-sweep: stop sending
+      // #4939 review 3: still the ON period this sweep began in? An OFF then ON while a POST was out leaves a new start,
+      // and posts from the old period must not go (status tells the agent they will not), as the comment pass does.
+      const cur = loadJson(stateFile());
+      if (!cur || cur.since !== from) break;
       // Re-read the owner's deletes before each send: one can arrive while this sweep waits.
       const nowDeletes = loadJson(deletesFile());
       if (!nowDeletes) break;                         // cannot see the owner's deletes: send nothing more
@@ -1064,7 +1306,7 @@ async function sweepOnce(now) {
       // deletes or the take-down reads below.
       try {
         if (Object.prototype.hasOwnProperty.call(nowDeletes, post.id)) await withhold(post, keys, sent);
-        else await sendPost(post, keys, sent, now);
+        else await sendPost(post, keys, sent, now, from);
         saveJson(sentFile(), sent);
       } catch (e) {
         log(`post ${post.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);
@@ -1085,15 +1327,21 @@ async function sweepOnce(now) {
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepIndustry(keys, on); }
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // #4373 part B: comments go after the owner's deletes, the take-down reads and the industry pass, so a slow comment
-  // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
+  try { await sweepAvatars(keys, on, { removals: true }); }   // #4885: taking a picture down is a take-down
+  catch (e) { log(`picture removals: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #4373 part B: comments go after the owner's deletes, the take-down reads, the industry pass and picture removals,
+  // so a slow comment pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
-  // #4922: last, the least urgent: a service slow on this route must not hold back the passes above.
+  // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #4885: new pictures last. A failing picture route costs a timeout per agent, so it must not hold back comments
+  // or the install group.
+  try { await sweepAvatars(keys, on, { removals: false }); }
+  catch (e) { log(`pictures: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -1101,13 +1349,17 @@ async function settleUnconfirmed(keys, sent, now) {
   const byId = new Map(communitystore.publishedPosts().map((p) => [p.id, p]));
   for (const [id, rec] of Object.entries(sent)) {
     if (!rec || !rec.attempted || rec.state !== 'pending') continue;
+    // #4994: a name being retired is settled once its record has moved, by the retired account: settled here first, it
+    // would be stamped with a time after the delete and then read as the new agent's.
+    if (retiring(rec.agent)) continue;
     const k = keys[rec.agent];
     const post = byId.get(id);
     if (!k || !k.apiKey || k.refused || !post) continue;
     const found = await findExisting(rec.agent, keys, payload(post, rec.channel), sent);
     if (found === undefined) continue;                // cannot tell yet: next sweep
     if (found) sent[id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() });
-    else sent[id] = settle(rec, {});                  // not on the server: an ordinary unsent post
+    // Not on the server: an ordinary unsent post, unless its agent was deleted (#4994), when it is never sent.
+    else sent[id] = String(rec.agent).startsWith(RETIRED_PREFIX) ? settle(rec, { state: 'not_sent', reasons: ['agent_deleted'] }) : settle(rec, {});
   }
 }
 
@@ -1144,9 +1396,296 @@ function sendSoon() {
    agent the next time it is needed. */
 let keysChain = Promise.resolve();
 function exclusive(fn) {
-  const p = keysChain.then(fn, fn);
+  const run = () => { applyRetirements(); return fn(); };   // #4994: a pending retirement lands before anything acts
+  const p = keysChain.then(run, run);
   keysChain = p.catch(() => {});
   return p;
+}
+
+/* #4994: deleting an agent's leftover frees its name, and a new agent under that name must not inherit the old one's
+   community account (its public posts and profile). So the old account is RETIRED, not dropped: its entry in every
+   service folder's keys.json moves to a key no agent name can match (a name never holds a colon: create.js NAME_RE), and
+   every record of something it sent follows. Dropped, the owner's later deletes of those public posts would have no
+   key to ask with; retired, the delete and take-down passes still reach them as the account that made them, while a
+   new agent under the name registers fresh.
+   What the deleted agent posted but never sent is marked never to send IN THE BOARD'S STORE (markAgentNotSent), so it
+   goes out under neither account whatever service or ON period is read later; its pending records here are
+   marked not_sent so the owner's list says so.
+   requestRetire writes a request FILE and marks the store, synchronously, from the delete; the keys and records move
+   at the start of the next keys.json section (exclusive, above), never outside one: the sweep loads keys.json, awaits
+   the network and saves the copy it loaded, so a rewrite made from outside would be lost under it. Each service
+   folder is applied on its own and recorded in the request (`done`); until the CURRENT service's folder is done, the
+   name acts as nobody there (ensureRegistered, agentCallSteps), and once a try there has failed willSend says so. */
+const RETIRED_PREFIX = 'retired:';
+function retireDir() { return path.join(dir(), 'retire'); }
+/* Read on every register, send and agent call, so it is cached: this module clears the cache on each of its own writes,
+   and the folder's mtime catches another writer that renames into it or unlinks from it. It does not catch a file
+   edited in place or a change of the folder's permissions. */
+let pendingCache = { mtimeMs: null, list: [] };
+/* A retire folder that exists but cannot be read holds EVERY name: which names are being retired is then
+   unknown, and treating it as "none" would free a name whose old account still answers to it. Missing is "none". */
+let retireUnreadable = false;
+// Requests applied in every folder whose file could not then be removed: finished all the same (a later start applies
+// them again, which changes nothing and lands here again).
+const finishedRequests = new Set();
+function unreadableRetireDir(e) {
+  retireUnreadable = true;
+  pendingCache.mtimeMs = null;   // the next read looks again: a cached folder must not keep its old answer once readable
+  if (!reportedCorrupt.has('retire-dir')) {
+    reportedCorrupt.add('retire-dir');
+    log(`the retire folder cannot be read (${e && e.code ? e.code : 'unknown'}); no agent acts in the community until it can`);
+  }
+  return [];
+}
+function pendingRetirements() {
+  let mtimeMs;
+  try { mtimeMs = fs.statSync(retireDir()).mtimeMs; } catch (e) {
+    if (e && e.code === 'ENOENT') { retireUnreadable = false; return []; }
+    return unreadableRetireDir(e);
+  }
+  // Not cached while a request is unreadable: one repaired in place does not change the folder's mtime.
+  if (pendingCache.mtimeMs === mtimeMs && pendingCache.dir === retireDir() && !pendingCache.unreadable) { retireUnreadable = false; return pendingCache.list; }
+  let names;
+  try { names = fs.readdirSync(retireDir()); } catch (e) { return unreadableRetireDir(e); }
+  reportedCorrupt.delete('retire-dir');   // readable again: a later outage is logged again
+  let unreadableRequest = false;
+  const out = [];
+  for (const f of names.filter((n) => n.endsWith('.json') && !finishedRequests.has(n)).sort()) {
+    let r = null;
+    try { r = JSON.parse(fs.readFileSync(path.join(retireDir(), f), 'utf8')); } catch { /* written whole by rename */ }
+    if (!(r && typeof r.agent === 'string' && r.agent && typeof r.at === 'string' && r.at)) {
+      // Whose name it holds is unknown, so every name is held, as for an unreadable folder.
+      if (!reportedCorrupt.has('retire:' + f)) { reportedCorrupt.add('retire:' + f); log(`retire request ${f} cannot be read; no agent acts in the community until it is repaired or removed`); }
+      unreadableRequest = true;
+    } else {
+      const strings = (v) => (Array.isArray(v) ? v.filter((d) => typeof d === 'string') : []);
+      out.push({ file: f, agent: r.agent, at: r.at, done: strings(r.done), stuck: strings(r.stuck), marked: r.marked === true });
+    }
+  }
+  retireUnreadable = unreadableRequest;
+  pendingCache = { mtimeMs, dir: retireDir(), list: out, unreadable: unreadableRequest };
+  return out;
+}
+// Retiring by the list alone, without the unreadable-folder hold (for a pass that must not act on every name at once).
+function retiringListed(agentKey) {
+  const here = path.basename(endpointDir());
+  return pendingRetirements().some((r) => r.agent === agentKey && !r.done.includes(here));
+}
+function retireListUnreadable() { pendingRetirements(); return retireUnreadable; }
+function retiring(agentKey) {
+  const here = path.basename(endpointDir());
+  const pending = pendingRetirements();
+  return retireUnreadable || pending.some((r) => r.agent === agentKey && !r.done.includes(here));
+}
+function failedHere(agentKey) {   // a try has already failed in the current service's folder
+  const here = path.basename(endpointDir());
+  const pending = pendingRetirements();
+  return retireUnreadable || pending.some((r) => r.agent === agentKey && !r.done.includes(here) && r.stuck.includes(here));
+}
+function retiredKey(agentKey, at) { return `${RETIRED_PREFIX}${agentKey}:${at}`; }
+/* For the delete's confirmation: how many posts and service comments of the agent the sender could still send, so the
+   delete keeping them home is a real loss: a held one (releasing it could send it; quarantined ones never go), or a
+   published one inside the current ON period, either with no record or one still waiting, and not deleted by the
+   owner. Read-only; anything unreadable counts as some. */
+function unsentCount(agentKey) {
+  try {
+    const st = loadJson(stateFile());
+    const sent = loadJson(sentFile());
+    const csent = loadJson(commentsSentFile());
+    const deletes = loadJson(deletesFile());
+    const cdeletes = loadJson(commentDeletesFile());
+    if (!st || !sent || !csent || !deletes || !cdeletes) return 1;
+    // Switched off, no PUBLISHED item goes (a later ON period starts after every one there is now); a held one still
+    // can, released after Community is back on.
+    const since = switchOn() && typeof st.since === 'string' ? st.since : null;
+    const mine = (item) => item && item.agent === agentKey && item.author && item.author.type === 'agent' && item.notSent !== true;
+    // Due: no record yet, or one still waiting (never attempted), and not one the owner asked to delete. A refused,
+    // withheld or not_sent record is final already.
+    const due = (item, recs, dels) => !Object.prototype.hasOwnProperty.call(dels, item.id)
+      && (!recs[item.id] || neverSent(recs[item.id]))
+      && (item.status === 'held'
+        || (item.status === 'published' && since !== null && String(item.releasedAt || item.receivedAt) >= since));
+    return communitystore.publishedPosts().concat(communitystore.moderationQueue({ kind: 'post', limit: Infinity }))
+      .filter((p) => mine(p) && due(p, sent, deletes)).length
+      + communitystore.serviceComments().filter((c) => mine(c) && due(c, csent, cdeletes)).length;
+  } catch { return 1; }
+}
+// The name between the prefix and the time (names hold no colon, create.js NAME_RE). A match, not a split: a literal ':'
+// separator reads as a PATH delimiter to the #1732 Windows guards.
+function retiredName(key) { const m = /^retired:([^:]*):/.exec(String(key)); return m ? m[1] : ''; }
+// Whether the name may hold a community account on any service, for the delete's confirmation. Read-only. Keys that
+// cannot be read count as yes: the confirmation must not promise everything comes back when it cannot tell.
+function hasAccount(agentKey) {
+  const folders = new Set([endpointDir()]);
+  try {
+    for (const d of fs.readdirSync(dir(), { withFileTypes: true })) if (d.isDirectory() && d.name !== 'retire') folders.add(path.join(dir(), d.name));
+  } catch { /* no community folder yet */ }
+  for (const f of folders) {
+    let raw;
+    try { raw = fs.readFileSync(path.join(f, 'keys.json'), 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') continue; return true; }
+    let keys;
+    try { keys = JSON.parse(raw); } catch { return true; }
+    const k = keys && typeof keys === 'object' ? keys[agentKey] : null;
+    if (k && (k.apiKey || k.registering)) return true;
+  }
+  return false;
+}
+/* Called from the board process (the delete route and every create), the same process as the sweep: `exclusive` is in-memory, and the
+   store's writes are load-modify-save with no lock between processes. A delete moved out of the board would need both
+   to become cross-process first. The request is written BEFORE the store is marked: applyRetirements marks it again
+   (it is idempotent) while the request is pending, so a failure after the write is finished there, and a failed write
+   leaves nothing half done. */
+function requestRetire(agentKey) {
+  if (typeof agentKey !== 'string' || !agentKey) throw new Error('no agent name to retire');
+  const at = new Date().toISOString();
+  saveJson(path.join(retireDir(), `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`), { agent: agentKey, at, done: [] });
+  pendingCache.mtimeMs = null;                        // two changes inside one mtime tick must not read as none
+  // ok means the request is on file; the mark may still be pending (it is made again when the request is applied).
+  try { communitystore.markAgentNotSent(agentKey, at); } catch { /* marked again when the request is applied */ }
+  exclusive(() => {}).catch(() => {});                // applied now unless a pass is running; then right after it
+  return { ok: true };
+}
+// A record of something that may be on the service: it belongs to the account that sent it.
+const mayBeSent = (rec) => Boolean(rec.attempted || rec.remoteId || ['sent', 'deleted', 'unconfirmed'].includes(rec.state));
+/* One service folder. Saves in this order, each one safe to repeat:
+   1. keys.json gains the retired entry beside the live one;
+   2. the post and comment records of the name: one that may be on the service points at the retired entry; one that
+      never left points there too, marked not_sent if it was still pending, but only when its item is one the store
+      holds from before the delete (any other is the new agent's, or an item no longer in the store);
+   3. the live entry goes, so the name registers fresh.
+   Returns false when a file cannot be read, so this folder is tried again in the next section; 'moved' when it moved
+   a key or a record, true when there was nothing of the name here. */
+function retireIn(epDir, agentKey, at) {
+  const kf = path.join(epDir, 'keys.json');
+  const keys = loadJson(kf);
+  if (!keys) return false;
+  const to = retiredKey(agentKey, at);
+  // A key made after the delete is the new agent's (a request applied again after a restart): it is not retired. A key
+  // with no time at all predates these fields, so it is older than any request and counts as the deleted agent's.
+  const live = keys[agentKey];
+  // A key from before triedAt existed is timed by registeredAt, when its answer came: a registration answered after the
+  // delete across that upgrade would read as the new agent's (accepted: it needs both at once).
+  const madeAt = live && (live.triedAt || live.registeredAt || (live.registering && live.registering.at));
+  const newer = typeof madeAt === 'string' && madeAt > at;
+  // Refreshed on every apply, not copied once: while the live entry stays (a folder that could not be moved yet), what a
+  // pass changes on it (an install group sent or cleared, a token refreshed) must reach the retired entry too.
+  if (live && !newer) {
+    // The live entry wins, deletions included; only a take-down read time the retired copy got alone is kept.
+    const prev = keys[to] || {};
+    const next = { ...live, ...(prev.checkedAt && !live.checkedAt ? { checkedAt: prev.checkedAt } : {}) };
+    if (JSON.stringify(next) !== JSON.stringify(prev)) { keys[to] = next; saveJson(kf, keys); }   // saved only on a change
+  }
+  let moved = false;
+  const ofName = (item) => item && item.agent === agentKey && item.author && item.author.type === 'agent';
+  // Both sides are toISOString() output (the store's nowISO, requestRetire), so the strings order as the times do.
+  // A row with no time counts as before the delete, as markAgentNotSent counts it.
+  const before = (item) => typeof item.receivedAt !== 'string' || item.receivedAt <= at;
+  const lists = [
+    ['sent.json', () => communitystore.publishedPosts().concat(communitystore.moderationQueue({ kind: 'post', limit: Infinity }))],
+    ['comments-sent.json', () => communitystore.serviceComments()],
+  ];
+  for (const [name, items] of lists) {
+    const f = path.join(epDir, name);
+    const recs = loadJson(f);
+    if (!recs) return false;
+    const all = items().filter(ofName);
+    const known = new Set(all.filter(before).map((item) => item.id));
+    const later = new Set(all.filter((item) => !before(item)).map((item) => item.id));   // the new agent's
+    let changed = false;
+    for (const [id, rec] of Object.entries(recs)) {
+      // A record sent after the delete is the new agent's too, even when its item has left the store, but only once a
+      // newer key exists: before that, a send that was on the network at the delete went out as the deleted agent.
+      if (!rec || rec.agent !== agentKey || later.has(id) || (newer && typeof rec.sentAt === 'string' && rec.sentAt > at)) continue;
+      if (!mayBeSent(rec) && !known.has(id)) continue;
+      recs[id] = neverSent(rec) ? settle({ ...rec, agent: to }, { state: 'not_sent', reasons: ['agent_deleted'] }) : { ...rec, agent: to };
+      changed = true;
+    }
+    if (changed) { saveJson(f, recs); moved = true; }
+  }
+  if (live && !newer) { delete keys[agentKey]; saveJson(kf, keys); }
+  return moved || (live && !newer) ? 'moved' : true;
+}
+// A record the old account never reached: nothing of it is on the service.
+const neverSent = (rec) => rec.state === 'pending' && !rec.attempted;
+const reportedStuck = new Set();
+/* A request waiting only on another service's folder (the current one is done) is tried at most every
+   STALE_RETRY_MS, not on every keys.json section: such a folder may stay unreadable for good. */
+const STALE_RETRY_MS = 15 * 60 * 1000;
+const staleRetryAt = new Map();
+/* One request at a time, each in its own try (applyRetirements), so one that cannot save its progress does not hold up
+   the others. */
+function applyOne(r, eps) {
+  const file = path.join(retireDir(), r.file);
+  if (r.done.includes(path.basename(endpointDir())) && (staleRetryAt.get(r.file) || 0) > Date.now()) return;
+  // Until the store is marked, no folder is done, so the name stays held and nothing of the deleted agent can go out as
+  // a new one (a folder with nothing to move would otherwise finish the request).
+  let marked = r.marked;                           // once it has landed it is not read again every pass
+  if (!marked) { try { communitystore.markAgentNotSent(r.agent, r.at); marked = true; } catch { marked = false; } }
+  const done = new Set(r.done);
+  let movedAny = false;
+  // Folders a try has failed in, kept IN THE REQUEST so willSend can say so after a restart.
+  const stuck = new Set(r.stuck);
+  for (const ep of eps) {
+    const name = path.basename(ep);
+    if (done.has(name)) continue;
+    let ok = false;
+    let why = marked ? 'unknown' : 'the post store';
+    // No folder is done before the store mark lands, the current one or any other: the board can be pointed at another
+    // service later, and a request finished without the mark would let the deleted agent's posts go out there.
+    try { ok = marked && retireIn(ep, r.agent, r.at); } catch (e) { ok = false; why = (e && e.code) || 'unknown'; }
+    if (ok === 'moved') movedAny = true;
+    if (ok) {
+      done.add(name);
+      // The current service's folder is the one the name registers in: the old agent's waits end with it.
+      if (ep === endpointDir()) { registerRetryAt.delete(r.agent); registerWaitWhy.delete(r.agent); }
+      stuck.delete(name);
+    } else stuck.add(name);
+    if (!ok && !reportedStuck.has(r.file + ':' + name)) {
+      reportedStuck.add(r.file + ':' + name);
+      log(`retiring ${r.agent}'s community account: a record in ${name}${marked ? '' : ' or the board\'s post store'} cannot be read or saved (${why}), so that service still has it; tried again on every pass`);
+    }
+  }
+  if ([...eps].every((ep) => done.has(path.basename(ep)))) {
+    // Saved before the unlink: a file that cannot be removed must still say every folder is done, or it would hold
+    // the name on every later pass.
+    if (done.size > r.done.length || marked !== r.marked) {
+      try { saveJson(file, { agent: r.agent, at: r.at, done: [...done], stuck: [], marked }); } catch { /* the unlink may still land */ }
+    }
+    let gone = true;
+    try { fs.unlinkSync(file); } catch (e) { gone = Boolean(e && e.code === 'ENOENT'); }   // applied twice: already gone
+    if (!gone) {
+      finishedRequests.add(r.file);
+      log(`retire request ${r.file} for ${r.agent} is applied everywhere but cannot be removed; it is treated as finished`);
+    }
+    pendingCache.mtimeMs = null;
+    for (const k of [...reportedStuck]) if (k.startsWith(r.file + ':')) reportedStuck.delete(k);
+    // Only when something moved: every create files a request, and most names have nothing to retire.
+    if (movedAny) log(`${r.agent}'s community account is retired: a new agent under the name joins as itself`);
+  } else {
+    if (done.has(path.basename(endpointDir()))) staleRetryAt.set(r.file, Date.now() + STALE_RETRY_MS);
+    if (done.size > r.done.length || stuck.size !== r.stuck.length || [...stuck].some((n) => !r.stuck.includes(n))
+      || marked !== r.marked) {
+      saveJson(file, { agent: r.agent, at: r.at, done: [...done], stuck: [...stuck], marked });
+      pendingCache.mtimeMs = null;
+    }
+  }
+}
+
+function applyRetirements() {
+  try {
+    const pending = pendingRetirements();
+    if (!pending.length) return;
+    // The current service's folder always, even before it exists, so `done` records it and the name is free there.
+    const eps = new Set([endpointDir()]);
+    try {
+      for (const d of fs.readdirSync(dir(), { withFileTypes: true })) {
+        if (d.isDirectory() && d.name !== 'retire') eps.add(path.join(dir(), d.name));
+      }
+    } catch { /* no community folder yet */ }
+    for (const r of pending) {
+      try { applyOne(r, eps); } catch (e) { log(`retiring ${r.agent}: ${e && e.code ? e.code : 'failed'}; tried again on the next pass`); }
+    }
+  } catch (e) { log(`retirements: ${e && e.code ? e.code : 'failed'}; tried again on the next pass`); }
 }
 
 /* #4774 review 1: an agentCall waits behind the sweep for at most this long before it gives up with a busy answer (it
@@ -1166,7 +1705,7 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
 
 /**
  * #4774: one request to the community AS an agent, for the board's own agent-facing verbs (follow, unfollow, the
- * Following feed). The key never leaves this module, the same as a post. Always resolves:
+ * Following feed, and #4884's vote and vote standing). The key never leaves this module, the same as a post. Always resolves:
  *   { ok: true, status, json }  the service answered (any status; the caller reads it)
  *   { ok: true, answered }      a hook below answered, and nothing more was sent
  *   { ok: false, because }      nothing could be asked, in words a person reads; `local: true` when the reason is on
@@ -1180,14 +1719,24 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  * hold a key. `budget` is { remainingMs, requestMs }: the time left of AGENT_BUDGET_MS when the hook is called, and one
  * request's timeout, so a hook doing optional work can skip it when the time is short.
  * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
+ * #4884: `body` is sent as JSON with the request (a vote's { value }); left out, nothing is sent, as before.
  */
-/* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); its posts and
-   comments are (the sweep sends them once it joins). No trailing period: the CLIs add their own. */
+/* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); what it has
+   queued is kept, and `kosmos community status` says which of it will go (#4939 review 7). No trailing period: the CLIs add their own. */
 function registerWaitWords(agentKey) {
   const waiting = (registerRetryAt.get(agentKey) || 0) > Date.now() ? registerWaitWhy.get(agentKey) : null;
-  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (its posts and comments are queued, not lost)';
-  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again in about an hour; run this again after that (its posts and comments are queued, not lost)';
-  return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (its posts and comments are queued, not lost)';
+  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (what it has queued is kept, not lost; kosmos community status says what will go)';
+  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again in about an hour; run this again after that (what it has queued is kept, not lost; kosmos community status says what will go)';
+  return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (what it has queued is kept, not lost; kosmos community status says what will go)';
+}
+
+/* #4884: why an agent with no key cannot act yet, or null when it simply has no account. A held name (an earlier
+   try that never finished) is checked again later; a registration under way or rate-limited has the board's own
+   wait words. */
+function joiningWords(agentKey, k) {
+  if (k && k.registering && k.registering.taken) return 'this agent\'s community name is held by an earlier try that never finished, and Kosmos checks it again later; run this again after that';
+  if ((k && k.registering) || (registerRetryAt.get(agentKey) || 0) > Date.now()) return registerWaitWords(agentKey);
+  return null;
 }
 
 function agentCall(agentKey, method, pathname, opts = {}) {
@@ -1220,7 +1769,7 @@ async function agentCallNow(agentKey, method, pathname, opts = {}) {
   }
 }
 
-async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null } = {}) {
+async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null, body } = {}) {
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
@@ -1228,12 +1777,16 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
   const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };
+  // #4994: the name was freed and its old account is not retired yet (a record could not be moved): it acts as nobody.
+  // Applied at the start of this section, so a request still pending here is one a record kept from landing.
+  if (retiring(agentKey) && retireUnreadable) return local('Kosmos cannot read its list of retired community accounts (the folder or a file in it), so no agent uses the community until that is fixed');
+  if (retiring(agentKey)) return local('this agent\'s name belonged to a deleted agent whose community account Kosmos cannot retire yet, because one of the board\'s community records cannot be read or saved; this agent cannot use the community until that is fixed');
   const keys = loadJson(keysFile());
   if (!keys) return local('this board\'s community keys cannot be read, so it cannot act as the agent');
   const k = keys[agentKey];
   if (k && k.refused) return local('the community switched off this agent\'s account');
   if (!(k && k.apiKey)) {
-    if (!register) return { ok: true, status: 0, json: null, unregistered: true };
+    if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: joiningWords(agentKey, k) };
     if (beforeRegister) {
       const a = await beforeRegister(publicGet, budget());
       if (a != null) return { ok: true, answered: a };
@@ -1241,13 +1794,15 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     if (!(await ensureRegistered(agentKey, keys, Date.now(), ctx))) {
       return { ok: false, because: registerWaitWords(agentKey) };
     }
+    // #4994: as sendPost: the agent can be deleted while its registration is on the network.
+    if (retiring(agentKey)) return local('this agent\'s name came under a community account retirement while it was joining the community, so nothing was sent; try again in a few minutes');
   }
   if (beforeCall) {
     const a = await beforeCall(publicGet, String(keys[agentKey].name || ''), budget());
     if (a != null) return { ok: true, answered: a };
   }
-  const r = await asAgent(agentKey, keys, method, pathname, undefined, ctx);
-  if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
+  const r = await asAgent(agentKey, keys, method, pathname, body, ctx);
+  if (r.status === 0) return { ok: false, sent: true, because: 'the community could not be reached' };   // #4884: sent = the call was attempted and no answer came; status 0 cannot tell "never connected" from "answer lost", so a caller may only say it MAY have happened (a vote is idempotent, so it says "may have been counted")
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
 }
@@ -1340,6 +1895,7 @@ function statusOf(id, sent, deletes, keys) {
     agentRefused: !!(k && k.refused),
     // #4800: only when true, so every other status keeps its shape.
     ...(k && !k.apiKey && k.registering && k.registering.taken ? { agentNameUnclaimed: true } : {}),
+    ...(String(rec.agent).startsWith(RETIRED_PREFIX) ? { agentDeleted: true } : {}),   // #4994, likewise
     ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}),
     ...(typeof rec.deleteStatus === 'number' && rec.state === 'sent' ? { deleteStatus: rec.deleteStatus } : {}),
     ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}),
@@ -1361,48 +1917,39 @@ function statuses() {
 }
 
 /**
- * #4373 part B: will a comment published NOW go to the community? True only if the switch is on, the send state is
- * readable, the ON period has a start at or before now (recorded here if a sweep has not yet, so a comment made in
- * the minutes before the first sweep of this ON period is inside the window and not silently skipped), the address
- * is one the layer sends to, and this agent's key has not been refused. Called by the route BEFORE it stores.
+ * #4373 part B: will a comment (or, #4939, with kind 'post', a post) published NOW go to the community? sends is true
+ * only if the switch is on, the files that kind's pass needs are readable, the ON period has a start at or before now
+ * (recorded here if a sweep has not yet, so an item made in the minutes before the first sweep of this ON period is
+ * inside the window and not silently skipped), the address is one the layer sends to, and this agent's key has not
+ * been refused. later is true when it goes, but not on the next pass: that kind's daily cap, or a community name held
+ * by an earlier try. Called by the route BEFORE it stores.
  */
-function willSend(agentKey, now = Date.now()) {
+function willSend(agentKey, now = Date.now(), kind = 'comment') {
   const no = { sends: false, later: false };
   if (!switchOn() || !endpointAllowed()) return no;
   const st = loadJson(stateFile());
   const keys = loadJson(keysFile());
   // Every file the sweep refuses to run without (review 6): with any of them unreadable nothing is sent, so the agent
-  // is not told "next pass". Checked BEFORE recording anything.
-  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !loadJson(commentsSentFile())
-    || !loadJson(commentDeletesFile())) return no;   // #4801: unreadable, sweepComments sends nothing
-  const k = agentKey && keys[agentKey];
+  // is not told "next pass". Checked BEFORE recording anything. #4939 review 2: a post needs only the post pass's files
+  // (a broken comment record does not stop posts), and a comment needs the comment pass's as well.
+  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile())) return no;
+  if (kind !== 'post' && (!loadJson(commentsSentFile()) || !loadJson(commentDeletesFile()))) return no;   // #4801: unreadable, sweepComments sends nothing
+  // #4994: while the name is held by a retirement, the key on file is the deleted agent's, not this one's: its refusal
+  // and its caps say nothing about the new agent.
+  const k = agentKey && !retiringListed(agentKey) ? keys[agentKey] : null;   // an unreadable list holds, it does not erase
   if (k && k.refused) return no;
   if (!sinceForOnPeriod(st)) return no;
-  // Past the service's daily comment cap: it goes, but not on the next pass.
-  const later = Boolean(k && k.commentRetryAt && Date.parse(k.commentRetryAt) > now);
+  // #4994: a retirement that already failed on this service holds the name until it is fixed. A "no" is permanent (the
+  // route marks the item never to send) while this is a fault that can be repaired: it goes, but not on the next pass.
+  // One not yet tried is answered as usual; if its first try then fails, the item waits until it is fixed.
+  if (agentKey && failedHere(agentKey)) return { sends: true, later: true };
+  // Past the service's daily cap: it goes, but not on the next pass. #4939: posts and comments have caps of their own.
+  const cap = k && (kind === 'post' ? k.retryAt : k.commentRetryAt);
+  /* #4939 review 7: and an agent whose community name is held by an earlier try (no key yet): status says it waits,
+     checked hourly, so it is not "shortly" either. */
+  const nameHeld = Boolean(k && !k.apiKey && k.registering && k.registering.taken);
+  const later = Boolean(cap && Date.parse(cap) > now) || nameHeld;
   return { sends: true, later };
-}
-
-/**
- * #4947: is this agent's NEXT post held past the service's daily post cap? The sweep set `retryAt` from the service's
- * 429 and waits it out; until it passes, a new post is stored and published here but goes to the service only then.
- * The route says so, so the agent is not told "Posted" as though it went straight away (it would otherwise post it
- * again, or think the cap was not reached). Read-only: unreadable state answers false (nothing is promised either way).
- */
-function postLater(agentKey, now = Date.now()) {
-  const keys = loadJson(keysFile());
-  const k = keys && agentKey && keys[agentKey];
-  return Boolean(k && k.retryAt && Date.parse(k.retryAt) > now);
-}
-/**
- * #4947: the route's question, whole: will this agent's new post be SENT, and only once the cap lifts? Only a post
- * that will be sent at all (willSend: Community on, an allowed address, a key not refused, readable state) can be
- * promised "once the cap lifts". Asked BEFORE the store write, as willSend must be (it may record the ON period's
- * start, which must not be later than the row). ⚠️ Known only once a sweep has met the cap (the service's 429 sets the
- * wait): the post that crosses the cap is still answered without it.
- */
-function postWaits(agentKey, now = Date.now()) {
-  return willSend(agentKey, now).sends && postLater(agentKey, now);
 }
 
 /**
@@ -1444,7 +1991,9 @@ function commentStatuses() {
     let state = rec.state || 'pending';
     if (state === 'pending' && rec.attempted) state = 'unconfirmed';
     const k = rec.agent && keys[rec.agent];
-    out[id] = { state, agent: rec.agent || null, post: rec.post || null, agentRefused: !!(k && k.refused), ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}), ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}) };
+    // #4994: a retired account's key stays on this board; the answer names the agent and says it was deleted.
+    const deleted = String(rec.agent).startsWith(RETIRED_PREFIX);
+    out[id] = { state, agent: deleted ? retiredName(rec.agent) : (rec.agent || null), ...(deleted ? { agentDeleted: true } : {}), post: rec.post || null, agentRefused: !!(k && k.refused), ...(Array.isArray(rec.reasons) ? { reasons: rec.reasons } : {}), ...(typeof rec.lastStatus === 'number' ? { lastStatus: rec.lastStatus } : {}) };
   }
   return out;
 }
@@ -1494,6 +2043,7 @@ function commentRecords() {
       state, deleteRequested,
       deleteRetrying: deleteRequested && state === 'sent' && typeof rec.deleteStatus === 'number',
       agentRefused: !!(k && k.refused),
+      ...(String(rec.agent).startsWith(RETIRED_PREFIX) ? { agentDeleted: true } : {}),   // #4994
       // Sent, with the id the service answered, by the registration this board still holds (sameServiceAgent);
       // null when that cannot be told because keys.json is unreadable.
       traceable: hasHandle && !keysRead ? null : hasHandle && sameServiceAgent(rec, k),
@@ -1520,19 +2070,39 @@ function industryUnreachable() {
   return Object.values(keys).filter((k) => k && k.refused && ((typeof k.industrySent === 'string' && k.industrySent) || k.industryUnsure)).length;
 }
 
+/* #4885: how many agents' community pictures this board cannot take down (the service refused their keys), for the
+   page to say so, as industryUnreachable does. null when the sweep cannot run at all. */
+function pictureUnreachable() {
+  const keys = loadJson(keysFile());
+  if (!keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !endpointAllowed()) return null;
+  return Object.values(keys).filter((k) => k && k.refused && ((typeof k.avatarSent === 'string' && k.avatarSent) || k.avatarUnsure)).length;
+}
+
+/* #4885: how many registered agents' pictures cannot go as they are (over the cap, not a still PNG, JPEG or WebP, or
+   refused by the community), for the page to say so and to say that choosing it again in Kosmos fits it. null when the
+   sweep cannot run at all. */
+function pictureUnsendable() {
+  const keys = loadJson(keysFile());
+  if (!keys || !endpointAllowed()) return null;
+  return Object.values(keys).filter((k) => k && k.apiKey && !k.refused && (
+    (typeof k.avatarSkipLogged === 'string' && /^(too-big|type):/.test(k.avatarSkipLogged))
+    || (typeof k.avatarRefused === 'string' && k.avatarRefused))).length;
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
+function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, postLater, postWaits, markNotSent, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
-  setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
-  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
-  _paths: { dir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
+  setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed,
+  _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test

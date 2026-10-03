@@ -447,3 +447,13 @@ test('#4556 review: a downloaded role cannot redefine a built-in one, so a menu 
   assert.equal(roles.ROLES.filter((r) => r.key === 'pm').length, 1, 'the built-in key appears twice');
   for (const r of roles.BUILT_IN.filter((x) => x.menu !== false)) assert.ok(roles.byKey(r.key), 'a built-in role went missing: ' + r.key);
 });
+
+test('#5021: a team\'s group never makes the catalogue refused, whatever it holds (it only sets a menu heading)', async () => {
+  const withGroup = (g) => { const c = JSON.parse(TEXT); c.teams[0].group = g; return JSON.stringify(c, null, 2); };
+  let n = 30;
+  for (const g of ['Marketing and sales', '', '   ', 5, null]) {
+    const { signed } = fresh();
+    const st = await catalogue.refresh({ fetcher: server(signed(n++, withGroup(g))).fetcher, force: true });
+    assert.equal(st.loaded, true, 'a group of ' + JSON.stringify(g) + ' made the catalogue refused');
+  }
+});

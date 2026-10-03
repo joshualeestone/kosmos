@@ -769,8 +769,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    provider. Green (.acct-connected) = confirmed working. AMBER (.acct-unverified) = signed in, not confirmed yet,
    with Check now beside it. Red (.acct-none) = signed out, or a request was rejected. Muted grey (.acct-unknown) is
    left only for "we could not check at all". The pill stays a short "Signed in" (Josh 6.68, #3136); the reason is
-   in its title. Calm neutral (.acct-loginok, #3997 ruling C) = an idle Claude sign-in whose login date Kosmos read
-   from its stored login: not amber (nothing is wrong) and not green (nothing answered). */
+   in its title. Calm neutral (.acct-loginok, #3997 ruling C) was an idle Claude sign-in whose login date Kosmos read
+   from its stored login. Since ruling A (Josh, 2026-10-02) that sign-in is GREEN instead (the server's
+   GREEN_FROM_LOGIN), so .acct-loginok is drawn only if the switch is turned off again. */
 .acct-unverified { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
 .acct-unverified .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
@@ -1157,7 +1158,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    120px at 1440 through 440, then the header WRAPS -- 138px at 420, 154px
    at 400 -- so one value padded from one width put focus 22px under the
    bar at 400. */
-html { scroll-padding-top: 132px; }
+html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: plus the floating notices, see below */
   /* 🔑 RESERVE THE SCROLLBAR GUTTER SO THE LAYOUT DOES NOT MOVE (kosmos#1309).
      Josh, on 0.5.97: "when I hit Connections or This Computer, it is a slightly
      wider design and kicks the page over ... because the content scrolls off the
@@ -1177,35 +1178,30 @@ html { scroll-padding-top: 132px; }
      treats the symptom and the next Settings row that overflows brings it back. */
   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
   /* (The wide agent Talk view is exempted from this gutter, and wide headers are padded to match: see the #3497 block.) */
-/* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
-   case; the comment above says per width, and the notice changed the
-   heights): desktop stays 128 tall so 132 still clears; between 441 and
-   720 the notice wraps onto its own row (157 measured at 600); at 440 and
-   below the header wraps further (179 measured at 375). Padded to clear
-   the with-notice height; without a notice the rescue lands a little low,
-   which is harmless in the direction the guard cares about. */
-@media (max-width: 720px) { html { scroll-padding-top: 165px; } }
-@media (max-width: 440px) { html { scroll-padding-top: 187px; } }
+/* Measured 2026-08-17 with the then-inline update notice present: desktop 128, 157 at 600, 179 at 375. Since #5018
+   the notices float below the header instead, so these values now clear the header with room to spare, and
+   --topnotes-h (the floating stack's height, kept by topnotesTrack) adds whatever notices are showing, so a focused
+   element never lands under one. A little low without a notice is harmless in the direction the guard cares about,
+   and so is consolidated, where the header is not sticky and the stack scrolls away (the padding then over-shoots). */
+@media (max-width: 720px) { html { scroll-padding-top: calc(165px + var(--topnotes-h, 0px)); } }
+@media (max-width: 440px) { html { scroll-padding-top: calc(187px + var(--topnotes-h, 0px)); } }
 /* ⚠️ THE UPDATE NOTICE, ported from the frozen pack. The decisions it
    carries are the pack's, recorded there and not re-opened here: RED
    (Josh's call, twice, wanting it unmissable), and #b3261e specifically
    (the app's one attention red; a second red would be permanent drift).
-   PLACEMENT superseded 2026-08-17 (Josh; pack 2e4e100): it sits IN THE
-   FLOW of the header's left group beside the mark. The old absolute float
-   -- whose own comment called absolute "the requirement" -- carried a
-   measured offset and a history of covering the agent-status stamp; in
-   the flow it cannot overlap anything, the row's x-positions are pinned
-   unshifted by the toast drive, and the header growing ~8px taller while
-   a notice waits is the accepted trade (the pack's mobile note blessed
-   exactly that direction). The Install button is gold (#e3b341, the
+   PLACEMENT: since #5018 it floats with the other notices (.topnotes, below).
+   HISTORY: 2026-08-17 (Josh; pack 2e4e100) to #5018 it sat in the flow of the
+   header's left group beside the mark, because an older absolute float had
+   covered the agent-status stamp. The Install button is gold (#e3b341, the
    pack's --gold-bright): gold is the primary ACTION colour, and an
    all-red notice would read as an error rather than something waiting. */
 .utoast {
   --utone: #b3261e;
-  /* IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100). The old
-     absolute float carried a measured top:79 offset and a history of
-     covering the agent-status stamp; an element in the flow cannot overlap
-     anything, so the measurement and its bug class both retire. */
+  /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
+     old float covered the agent-status stamp. Since #5018 (Josh 2026-10-02) the
+     notices float again, over the page centred under the navigation (.topnotes),
+     anchored to the header rather than a measured offset, so the header never
+     grows. */
   display: flex; align-items: center; gap: 11px;
   padding: 7px 8px 7px 12px; border-radius: 11px;
   background: var(--bg-elevated); border: 1px solid var(--utone);
@@ -1228,6 +1224,26 @@ html { scroll-padding-top: 132px; }
 .utoast.login-adv.notice .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
+/* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
+   header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
+   Centred, not under the K mark: the left column holds the page's primary actions (New agent, the agents rail), and
+   a notice there covered New agent (render-update-toast). */
+.apphead header { position: relative; }
+.apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 4;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content;
+  max-width: min(460px, 100%); pointer-events: none; }
+.apphead .topnotes > div > * { pointer-events: auto; }   /* a notice goes in a slot div, never straight in #topnotes */
+/* The Allow card (#567) sits right under the header and is a security decision (the device and the code to compare):
+   a floating notice must never paint over it, so it moves down by the stack's height (0 with no notice). */
+#askcard { margin-top: calc(10px + var(--topnotes-h, 0px)); }
+/* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
+   page, where the sticky project rail (z-index 4) comes later and would paint over it. Above the rail, below the
+   reaction picker (20) and the header menus (40). */
+html[data-layout="consolidated"] body.consolidated > .apphead .topnotes { z-index: 10; }
+.utoast .ux { flex: 0 0 auto; width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 7px; cursor: pointer;
+  background: none; color: var(--label-2); font-size: 1.125rem; line-height: 1; }
+.utoast .ux:hover { background: var(--bg); color: var(--label); }
+.utoast .ux:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
@@ -1335,16 +1351,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .sfoot-live { align-items: center; gap: var(--space-4); }
 #pjs-save-live { margin: 0; min-height: 0; }
 #pjs-save-live:empty { display: none; }
-/* Narrow screens: in-flow like everywhere else now (the float this rule
-   used to break against is retired). The version line hides and the left
-   group wraps the notice onto its own row -- "the header grows when an
-   update is waiting" is the harm a person can live with, per the original
-   trade. */
+/* Narrow screens drop the update notice's version line. */
 @media (max-width: 720px) {
-  /* Inline everywhere now; narrow screens just drop the version line and
-     let the header's left group wrap the notice onto its own row. */
   .headleft { flex-wrap: wrap; }
   .utoast .utxt small { display: none; }
+  /* #5018: the login notice's line is who and which account, the point of it; it floats, so it costs no header room. */
+  .utoast.login-adv .utxt small { display: block; }
 }
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
@@ -1413,11 +1425,10 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
-     so the navy bar is the whole header (the mock). A notice that shows still takes its own row. */
+     so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }
   html.kremote .apphead header { padding: 0; gap: 0; }
   html.kremote .apphead header .headleft { gap: 8px; }
-  html.kremote .apphead header:has(.headleft > [id$="-slot"]:not(:empty)) { padding: 8px 0; }
 }
 /* #4823: the phone menu, Josh's navigation-mock.png ("copied almost identically from Apple's website"): full screen,
    Kosmos+ navy in both themes, large white type, red bubbles, an X where the two lines were. Settings goes one level
@@ -1540,7 +1551,9 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
    view's bottom padding makes its bottom rule land where consolidated's does (y=50).
    Measured after, both widths, notices on and off: K mark top 8, switcher and You 9,
    rule at 50, in both views. render-tophead-stable-2624 pins it. Below 960px there is
-   only the tab view, so nothing there can jump and it keeps its own spacing. */
+   only the tab view, so nothing there can jump and it keeps its own spacing.
+   Since #5018 the notices float over the page (.topnotes), so they no longer sit in this
+   row or grow the bar; the top alignment stays. */
 @media (min-width: 960px) {
   body:not(.consolidated) > .apphead { padding-top: 0; }
   body:not(.consolidated) > .apphead header { padding-top: 8px; padding-bottom: 4px; }
@@ -2005,7 +2018,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #uabort-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -2038,7 +2051,6 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
      and the name WRAPPED to a second row (main red after #4848, run 36821115449). With no floor it can only shrink. */
   .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 0; }
   .apphead .headleft > .worldsw > .worldsw-btn { max-width: min(220px, 100%); min-width: 0; }
-  .apphead .headleft > [id$="-slot"]:not(:empty) { flex-basis: 100%; }
   /* #4847: on a phone the person's menu shows just their face (and the arrow): their name, which they know, gives its
      room to the computer's name, which is the one that tells them where they are. The name stays the button's
      accessible name (hidden visually as .vh does, not removed). On a phone it is then shown nowhere on screen; their
@@ -3271,7 +3283,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    by what the back row used to occupy. Pinned by docs/browser-checks/render-talk-fill-2622.js. */
 @media (min-width: 56.01rem) {
   /* The body becomes a viewport-tall flex column and the panel takes what is left under the
-     header, so a taller header (a wrapped notice, other fonts) shrinks the box instead of
+     header, so a taller header (a wrap, other fonts) shrinks the box instead of
      pushing it past the bottom. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; height: 100vh; padding-bottom: 0; }
@@ -3326,6 +3338,23 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    max-width:100% so it cannot overflow a narrow column (render-settings-nav.js confirms no
    overflow at 420px). */
 #s-nav { width: max-content; max-width: 100%; }
+/* #4979: on the Settings tab the app header (.apphead) is sticky too and drawn above the page, so a
+   nav stuck 16px from the window's top sat under it on any long section and its first pill could
+   not be clicked. Stick 16px below the header there. Its height is not one value (51px on a wide
+   window, 77px at 900px where it wraps), so it is measured into --apphead-h; unmeasured, this is the
+   old 16px. Not in the consolidated view (body.consolidated): Settings is its own scroll box inside
+   Projects there and the header does not stick, so the nav keeps 16px from the panel's top. Below
+   56rem .snav is static and none of this applies.
+   #5018: notices no longer grow the header; they float 8px below it (.topnotes). So the nav also clears a showing
+   stack: its height is --topnotes-h (topnotesTrack), 0 with no notice, and the stack's 8px gap sits inside the 16px. */
+body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + var(--topnotes-h, 0px) + 16px); }
+/* #4979: on a window too short to hold the whole nav below the header, a stuck nav hangs its last
+   pills off the bottom and, at the page's end, pushes its first ones back under the header. There
+   it scrolls with the page instead, as the agent page's does. Whether it fits is measured, not a
+   fixed height: the header grows with the Kosmos+ bar or a wrap, and (#5018) a floating notice stack below it adds
+   its own height, so the script beside the #s-nav handler sets snav-loose on the root when the header, the stack,
+   the nav and 16px above and below it are taller than the window. */
+html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 /* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
    side padding, because that centered full-width pill was the longest label and word-wrapped.
    #3500 supersedes it: the pill is relabelled "AI Settings" (shorter), the buttons are flex
@@ -3350,6 +3379,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    large default box; since #4550 the pack (.dnav-pack) is a PAIR, Profile and AI Settings side by
    side (see the .dnav-pack rule below). */
 #d-nav.dnav-boxed { gap: 10px; }
+/* #4961: the agent page's nav scrolls with its column. `.snav` is sticky (#350, when the nav was
+   alone in its column); here the Files card (#3614) sits below it in the same column, so a sticky
+   nav slid over the card's header on a scroll, and its 16px top tucked it under the app header.
+   Settings keeps the sticky .snav: nothing sits below #s-nav. */
+#d-nav { position: static; }
 /* #3500 follow-up (Josh, 2026-09-24): icon over label, centred, in every box (was icon
    beside a left-aligned label). Stacking gives the label the whole tile width back, which is
    what makes the 2x2 pack below fit without the label wrapping. */
@@ -3416,13 +3450,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the match here the right column would sit 6px above the avatar/name. */
 #panel-detail .dsecs { padding-top: 6px; }
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
-/* #2916 group-reveal shows two sibling .dsec cards at once (Model+Memory,
-   Instructions+Skills, which are DOM-adjacent). .dsec only spaces its OWN
-   children, so two visible siblings would render flush. Add separation only
-   when a .dsec directly follows another VISIBLE .dsec: the :not([hidden]) on
-   the left side means a lone section (its preceding sibling hidden) gets no
-   stray top margin, so single-section pills are unaffected. */
-.dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
+/* #2916 group-reveal shows several .dsec cards at once. .dsec only spaces its
+   OWN children, so two visible sections would render flush. Separate any
+   visible .dsec that has an earlier VISIBLE sibling; the first one shown gets
+   no top margin, so single-section pills are unaffected. #4961: `~`, not `+`.
+   A group's sections are not always DOM-adjacent (AI Settings shows Memory
+   then Terminal, with Profile, Instructions and Skills hidden between them),
+   and `+` left Fresh start flush against the terminal card. */
+.dsec:not([hidden]) ~ .dsec:not([hidden]) { margin-top: 24px; }
 /* #4961: detailGo and settingsGo move focus INTO a section, so a keyboard user's next Tab lands
    inside. The ring that marks where they landed (#350) is drawn only when that move followed a
    key press (`kbd-landed`, set from DSEC_KEYBOARD), never after a pointer press. Keyed on
@@ -3926,18 +3961,37 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
-#panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+/* #5053: never wrapped as a row. With flex-wrap a project name too long for the row moved the TITLE to the next
+   line and left the back chevron alone above it (29px of room at 390 on a Mac with a short name). On a wide screen
+   the title shrinks and wraps inside its own box; at phone width the grid below takes over. */
+#panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: nowrap; }
 /* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
    a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
-   reuses the crumb's Open project path); on Documents only in the consolidated view (the tab view keeps
-   its "<- name" back). The title takes the free space, so the chevron sits against it, not across the row. */
+   reuses the crumb's Open project path); on Documents in the consolidated view (the tab view keeps
+   its "<- name" back, except under the new look, #4470). The title takes the free space, so the chevron
+   sits against it, not across the row. */
 .sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
             color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
 .sub-back[hidden] { display: none; }
-#panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
-#panel-tasks .tsk-head > #tsk-title { margin-right: auto; }
+/* #5053: at the row's top, so beside a wrapped title it marks the first line, not the middle of the block. */
+#panel-tasks .tsk-head > .sub-back { align-self: flex-start; margin-right: -4px; }
+/* .panel h2's 20px line-height was set for 15px text; at this title's 24px, wrapped lines would touch. A wrapped title
+   is now possible at any width (the row no longer moves it to the next line), so this holds everywhere. The row is
+   already at least the button's height (34px, 44px on touch), so a one-line title does not make the head taller. */
+#panel-tasks .tsk-head > #tsk-title { margin-right: auto; min-width: 0; overflow-wrap: anywhere; line-height: 1.2; }
+#panel-tasks .tsk-head > #tsk-new { flex: none; }
+/* #5053, at phone width (Mona Lisa's design call): the chevron and the title share the first row, the title taking
+   all the width it has left, and "+ New task" ALWAYS sits on its own row below, left-aligned with the title's text,
+   so it stays in one place whatever the name's length. The chevron top-aligns with the title's first line. No
+   column gap: the chevron carries its own margin, so with the chevron hidden (all projects) the title is not indented. */
+@media (max-width: 40rem) {
+  #panel-tasks .tsk-head { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 0; row-gap: 10px; align-items: start; }
+  #panel-tasks .tsk-head > .sub-back { grid-column: 1; grid-row: 1; align-self: start; margin: 0 12px 0 0; }
+  #panel-tasks .tsk-head > #tsk-title { grid-column: 2; grid-row: 1; margin-right: 0; }
+  #panel-tasks .tsk-head > #tsk-new { grid-column: 2; grid-row: 2; justify-self: start; }
+}
 #pj-docs-view .pjtitle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
 #pj-docs-view .pjtitle > .sub-back { grid-column: 1; grid-row: 1; margin-right: 12px; }
 #pj-docs-view .pjtitle > :not(.sub-back) { grid-column: 2; }
@@ -4749,7 +4803,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      by later source order, so the slot stays gone whenever consolidated is active. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { display: none; }
   /* The header gives way (Josh, 15:32: "header gone is what I'm going
-     for"). Its notice slots stay in the flow, so an update note or the
+     for"). Its notice slots stay (floating since #5018), so an update note or the
      offline warning still has somewhere to appear; the tabs, the K link,
      the status line and the theme pill are elsewhere in this view. */
   /* 🛑 margin MUST be reset here, and its absence was a shipped clip.
@@ -4784,10 +4838,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
       /* #2282: the consolidated-only notice-slot bottom-margins are GONE. They existed
          for the OLD collapsed-header design, where a shown update/offline notice was the
          only visible header content and its margin separated it from the board. The
-         header is now a real bar with its own border-bottom, and the notices ride inside
-         it exactly as they do in the tab view -- so a consolidated-only bottom margin
-         made a shown notice the tallest item in the header's flex row, growing and
-         misaligning the bar. Dropping them keeps the notices consistent across views
+         header is now a real bar with its own border-bottom, and (until #5018 floated them
+         over the page) the notices rode inside it as they do in the tab view -- so a
+         consolidated-only bottom margin made a shown notice the tallest item in the
+         header's flex row, growing and misaligning the bar. Dropping them keeps the notices consistent across views
          (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
          :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
   /* 🔑 `margin: 0` IS WHY THERE IS NO GREY BAND (kosmos#1303 A, HISTORY -- since
@@ -7369,15 +7423,15 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    GLYPH span (not .emojibtn) so the hover/focus/expanded affordance backgrounds stay at
    full strength. Same technique as the `.pmark.dim svg` precedent below. */
 .emojibtn-glyph { filter: grayscale(1) opacity(.6); }
-/* #4409: the mic in the composers, drawn only where on-device dictation exists (the Mac app sets
-   html.has-voice). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
+/* #4409: the mic in the composers, drawn only where html.has-voice says a voice bridge exists (the Mac app's
+   on-device one, or on a phone the browser's recognizer, slice 3). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
    aria-pressed says so to a screen reader. */
-.micbtn { display: none; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
+.micbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
 /* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
    one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
-   no box changes size where the mic is not drawn; the box gets room on the right only where it is (the Mac app). */
+   no box changes size where the mic is not drawn; the box gets room on the right only where it is (html.has-voice). */
 .micwrap { position: relative; }
 .frow > .micwrap { flex: 1; min-width: 220px; }   /* the input's .frow flex sizing, which has no effect now it is not the flex item */
 .micwrap.line > input { width: 100%; box-sizing: border-box; }
@@ -7386,6 +7440,11 @@ html.has-voice .micbtn { display: grid; }
 .micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
 .micwrap > textarea { resize: vertical; }   /* a box dragged narrower would leave the mic outside it */
 #nt-voice-msg:empty { display: none; }   /* takes no room unless the mic says something (and never without a mic) */
+/* #4409 slice 3: the phone's who-hears-the-audio bar (voiceWho), above everything at the top of the visible screen. */
+#voice-who { position: fixed; left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top, 0px)); z-index: 10000;
+  margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--k-ink); color: var(--k-bg);
+  font-size: .875rem; line-height: 1.35; box-shadow: 0 4px 16px rgba(0,0,0,.25); pointer-events: none; }
+#voice-who:empty { padding: 0; box-shadow: none; background: transparent; }   /* in the tree, so it is heard, but nothing shows */
 html.has-voice .micwrap > textarea:not(:disabled), html.has-voice .micwrap > input:not(:disabled),
 html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: 44px; }   /* the two ID rules set their own padding */
 html.has-voice .micwrap:not(.line) > textarea:not(:disabled),
@@ -10074,6 +10133,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   --k-rule: #e8e8ed;
   --nl-grey: #f5f5f7; --nl-ink-3: #6e6e73; --nl-ink-4: #aeaeb2;
   --nl-green: #2e9a5a;
+  --nl-raise: #ffffff; --nl-raise-hover: #ffffff;   /* a button's fill on the grey box: above it, never the field's */
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"])[data-look="new"] {
@@ -10084,6 +10144,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366;
     --nl-green: #30d158;
+    --nl-raise: #3a3a3c; --nl-raise-hover: #48484a;
   }
 }
 /* #4470: the top bar in the new look (every page): tabs are plain words, the current one in full
@@ -10143,6 +10204,108 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg .msg-bd::after { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox { border: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox:not(.dragging) { background: var(--nl-grey); }
+/* #4470, an agent's page, slice 2: the left column in the project page's language. One grey box (as the
+   project page's) holds the name, the section buttons and Files, at the project page's column width on a
+   desktop. The buttons lie flat on the box with no edge and no gold; the open one is a tile in the page's
+   ground with its label in full ink, so it differs in shape as well as colour. Files drops its card and its
+   spaced capitals for the project page's heading under a hairline. The swarm button keeps its state tint.
+   The wider column starts where this page stops being one column (56rem), not at the project page's 68rem:
+   at 220px the box's padding left the file names a few letters each. */
+@media (min-width: 56.01rem) {
+  :root[data-look="new"] body:not(.consolidated) #panel-detail .dbody { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 40px; }
+}
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dleft { background: var(--nl-grey); border-radius: 28px; padding: 24px 28px; }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm) { border-color: transparent; background: none; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm):not(.on):hover { background: color-mix(in srgb, var(--k-bg) 55%, transparent); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on { background: var(--k-bg); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on .dnav-ico { color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #panel-detail #d-files.pjcard { border: 0; border-radius: 0; background: none; padding: 22px 0 0; margin-top: 22px; border-top: 1px solid var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #d-files .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
+/* #4470, an agent's page, slice 3: the boxes of every section but the conversation (Profile, AI Settings and the
+   rest; the conversation's box stays edge to edge, #3414). They take the left column's dress, the one grey with no
+   edge and its 28px corners. Their headings take the project page's grey sentence case, as Files did, and their field
+   labels lose the spaced capitals for sentence case in full ink (a label, not a heading). Buttons and fields are the
+   whole app's and are left for their own slice. */
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox { border-color: transparent; border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
+/* #4470, Settings in the new look: the agent page's dress. The section nav is one grey box (on a wider screen; on a
+   phone it stays today's sideways scroller with its fade) with its items flat, no edge and no gold, the current one a
+   tile in the page's ground (on a phone, where there is no box, a grey tile) in full ink and today's heavier weight.
+   The boxes have no edge and 28px corners, headings take the grey sentence case and field labels sentence case in
+   full ink. Buttons and fields are the whole app's and are left for their own slice. The Kosmos+ section repaints
+   the page navy (body.plus-active), which the look's greys know nothing of, so it keeps today's chrome. The needs-you
+   dot on the current item takes --warn-ink, as on the agent page: the dark red was tuned for the gold. */
+@media (min-width: 40.01rem) {
+  :root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav { background: var(--nl-grey); border-radius: 28px; padding: 12px; }
+}
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button { border-color: transparent; background: none; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button:not(.on):hover { background: color-mix(in srgb, var(--k-bg) 55%, transparent); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on { background: var(--k-bg); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on .dot { background: var(--warn-ink); }
+@media (max-width: 40rem) {
+  :root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on { background: var(--nl-grey); }
+}
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox { border-color: transparent; border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
+/* #4470, the controls in the new look, in the agent page's boxes and Settings' (not the conversation, not Kosmos+'s navy
+   page): as Josh's drawing draws them (Files/kosmos-project-two-col-v9), a button is a pill. A plain or quiet button
+   has no edge ("Use the left", "Use the right"), the main one keeps its gold ("Post"), a danger button keeps its edge,
+   which says what it does. The Terminal's send button keeps today's corners, as its composer does. Fields keep today's
+   edge: a white field on the grey box has no other boundary. A button stays raised and a field recessed (the ruling
+   above .dbox .btn): a button's fill is --nl-raise, above the box (white with a hairline shadow in light, a step
+   lighter than the box in dark, where a shadow cannot show), a field's is the page's ground with its edge. Under the
+   pointer a button lifts further, never toward the box. A disabled plain button is an outlined pill, so it reads as
+   unavailable rather than missing. ⚠️ Today's gold edge on a plain button is the one control boundary that clears WCAG
+   1.4.11's 3:1 (see .dbox .btn above); the pill's label identifies it instead, as in the drawing. */
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.cpost) { border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn) { background: var(--nl-raise); border-color: transparent; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):not(:disabled):hover { background: var(--nl-raise-hover); box-shadow: 0 2px 6px rgba(0, 0, 0, .18); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):disabled { background: transparent; border-color: currentColor; box-shadow: none; }
+/* #4470, the last page in the card's order, the phone (and what it showed on a desktop too). An agent's message has
+   no bubble in the new look, so its avatar no longer sits beside a bubble's tail: it goes to the top, beside the name
+   and time, as Josh's drawing draws it (Files/kosmos-project-two-col-v9). Your own messages keep their bubble and
+   today's foot-aligned avatar, and so does an outside sender's message, which keeps its drawn box. Tasks' "+ New task"
+   is the drawing's main action, a gold pill ("Post"). Up to 60rem, where the project header stacks (the 60rem block
+   for .pjmidhead), the project's gear sits in the crumb's row instead of a line of its own; "Made by" stays below. */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg:not(.you):not(.ext) { align-items: flex-start; }   /* .ext keeps its drawn box, so its foot avatar */
+:root[data-look="new"] body:not(.consolidated) #panel-tasks #tsk-new { border-radius: 999px; }
+@media (max-width: 60rem) {
+  /* placeLook moves the crumb row into .pjmidhead beside .pjhead, so the gear (in .pjhead > .pjtitle > .pjtitle-row)
+     is not the crumb's sibling, and up to 60rem .pjmidhead is a column: it becomes a wrapping row and the two
+     wrappers dissolve, so the gear's row joins the crumb's line. ⚠️ With .pjhead and .pjtitle dissolved, a rule that
+     sizes either box does nothing here, under the look. */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjhead,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle { display: contents; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .pjmidhead > .pj-crumbrow { flex: 1 1 0; min-width: 0; }   /* .pjmid: outweighs the look's later flex: 1 1 auto */
+  /* 4px of room on the right: on touch the cog's tap area is 36px centred on its 28px (#4663, "room all round"),
+     and at the row's end it would reach 4px past the page. */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
+}
+/* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
+   step's) lose their hairline at rest (the look's cards have none; the grey bounds them on the white page): a chosen
+   card keeps its ink outline and check mark (the choice is marked by shape, not colour), and an enabled card under
+   the pointer keeps today's edge as its feedback (on touch a tapped card can keep :hover until the next tap; the
+   chosen card's own outline still marks the choice). Every button in the create flow is a pill, as every button in
+   the look is (the controls slice): the gold ones, main and inline, Single's and Team's alike (Josh, #4935: Team
+   matches Single), and the plain ones beside them (Cancel, Back, Keep them), which keep their fill and edge because
+   here they sit on the white page, not on a grey box. Unchanged on purpose: the cards' size (#737, Josh), their order
+   (Josh, 2026-08-22), the Recommended pill (#737: Josh asked for it back after the pack), and the role menu's own
+   edged box (it holds fields, which keep their edge everywhere in the look). A resting card on white is about 1.09:1,
+   under WCAG 1.4.11's 3:1, as the controls slice records for buttons: its label identifies it, and the chosen card's
+   2px outline is the state. */
+:root[data-look="new"] body:not(.consolidated) #panel-create :is(.pick2:not(:has(input:checked)), .nak-btn):not(:hover:not(:disabled)) { border-color: transparent; }
+:root[data-look="new"] body:not(.consolidated) #panel-create :is(.btn, .btn-quiet) { border-radius: 999px; }
+/* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
+   there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { background: none; border-radius: 0; padding: 0; }
+  :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button:not(.dnav-swarm).on { background: var(--nl-grey); }
+}
 /* #4470: the header in the new look: the back chevron as a round button, then "Projects /
    <ancestors> / <name>" large, as the conversation's own header. The project name's h2 is
    visually hidden (still the page's heading for a screen reader), since the crumb now shows it. */
@@ -10307,6 +10470,56 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    solid could-not-read board note already uses, on the list and on the cards alike. */
 :root[data-look="new"] body:not(.consolidated) #alist .lrow.unk,
 :root[data-look="new"] body:not(.consolidated) #grid .acard.unk { border-color: var(--border-strong); }
+/* #4470, the Projects list in the new look: the Agents page's language, since the Projects list is drawn in the
+   same grammar (count tiles, the dashed add tile, the sort menu and view toggle, then cards). No drawing exists for
+   this page; this is that approved language applied, not a new design.
+   The count tiles (Projects, Messages) do nothing when pressed, so like the Agents page's inert tiles they never show
+   a box. The Issue tile keeps its red outline (#4470 Agents rule: an alert keeps what it says). Add Project becomes the
+   round grey button with its words beside it, as New agent did; the sort menu and the grid / roadmap toggle are grey
+   pills and the current view stays GOLD (Josh, 2026-08-17: "selected is gold, not ink").
+   A plain project card loses its border and shadow at rest (its grey ground is the separation, as on the Agents
+   cards) and KEEPS today's hover border and lift, as the
+   Agents list rows do. A needs-you card is left as today (its red edge and resting shadow). The tiles,
+   Add Project and the two pills are the same in both views; the roadmap ROWS are left as they are (render-newlook-4470 compares them with the look off):
+   they are already flat rows with no border, with Josh's stripes (#4730) and a red ring for needs-you.
+   The tile rule has no [role="button"] exclusion (the Agents page needs one for its Messages filter) because no tile
+   here is clickable; a tile made clickable later needs one. */
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .statsrow .stats .stat:not(.alert) { border-color: transparent; background: transparent; padding-inline: 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-new { border: 0; background: transparent; padding: 0; gap: 12px; min-height: 44px; }
+:root[data-look="new"] body:not(.consolidated) #pj-new .plus { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--nl-grey); color: var(--k-ink); font-size: 1.375rem; }
+:root[data-look="new"] body:not(.consolidated) #pj-new:hover .plus { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: nowrap; }
+/* #718 on a phone: Add Project keeps its narrowest width (its words on two lines) so the sort and the view toggle
+   fit beside it down to 320; on one line the new look would use up the margin #718 left there. */
+@media (max-width: 30rem) {
+  :root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: normal; }
+}
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select:hover { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .vt + .vt { border-left-color: transparent; }
+/* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the toggle already clips
+   its fill), as on the Agents page. */
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:last-child { border-radius: 0 999px 999px 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row { border-radius: 24px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row:not(.attn):not(:hover) { border-color: transparent; box-shadow: none; }
+/* #4470, a project's Documents screen in the new look, in the project page's language (no drawing of this screen):
+   back is the round chevron beside the title, as on the project page this screen opens from (Josh's #4586 chevron,
+   which the consolidated view already shows; the tab view's text link hides under the look). Both run the same
+   pjView('one'). The In the project folder | From this conversation switch is a grey pill like the look's other
+   toggles; the chosen segment stays GOLD (Josh, 2026-08-17: "selected is gold, not ink"). */
+:root[data-look="new"] body:not(.consolidated) #docs-back { display: none; }
+/* 40px with a 14px gap in the tab view (the project page's back frame under the look); the consolidated view keeps the
+   32px chevron its own sub-view headers use. The two sizes are deliberate. */
+:root[data-look="new"] body:not(.consolidated) #docs-chev { display: grid; width: 40px; height: 40px; margin-right: 14px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg { border-color: transparent; border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button + button { border-left-color: transparent; }
+/* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the switch already
+   clips its fill). */
+:root[data-look="new"] body:not(.consolidated) #docs-seg button:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button:last-child { border-radius: 0 999px 999px 0; }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -10496,6 +10709,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366;
     --nl-green: #30d158;
+    --nl-raise: #3a3a3c; --nl-raise-hover: #48484a;
   }
 
 :root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
@@ -11297,16 +11511,14 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
     </div>
-    <!-- ⚠️ THE UPDATE NOTICE SITS BESIDE THE MARK, Josh 2026-08-17: "make
-         that appear to the right of the icon in the upper left corner...
-         so that it is right in line with everything else." It used to be
-         absolutely positioned over the header, which is why it once covered
-         the agent-status stamp and needed an 8px nudge. Inline is the
-         structural fix rather than a better offset: an element in the flow
-         CANNOT overlap anything, so the whole class of bug stops being
-         possible instead of being avoided by a number (the pack's own
-         reasoning, drawn 2e4e100). Renders only when a newer version is
-         published; role=status per the pack. -->
+    <!-- HISTORY: from 2026-08-17 (Josh, pack 2e4e100) to #5018 the update notice sat in the flow beside the mark,
+         because an earlier absolute float covered the agent-status stamp. The current placement is the next
+         comment. The update chip renders only when a newer version is published; role=status per the pack. -->
+    <!-- #5018 (Josh, 2026-10-02): "i hate that these push the navigation down.. i would much rather they appear over
+         the content". The four notice slots float together just under the header, over the page, so the header
+         never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the stack is
+         centred under the navigation, clear of the left column's primary actions. -->
+    <div class="topnotes" id="topnotes">
     <div id="utoast-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
@@ -11322,6 +11534,7 @@ window.kosmosMeasureScrollbarWidth();
          since #3955 the post-update message is the "Kosmos has been updated" window,
          and this line must not overwrite the update chip. -->
     <div id="uoffline-slot"></div>
+    </div>
   </div>
   <!-- The pack's centre column: the nav lives IN the header grid, centred,
        and collapses behind the burger under 56rem. THREE tabs, the pack's,
@@ -11872,7 +12085,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3744 (Josh, 2026-09-25 09:29: "We need emoji support in the agent DM."): the room's
            grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
            of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
-      <!-- #4409: the mic. Drawn only in the Mac app, where the on-device dictation bridge exists (html.has-voice). -->
+      <!-- #4409: the mic. Drawn only where a voice bridge exists (html.has-voice): the Mac app, or a phone (slice 3). -->
       <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
@@ -13102,6 +13315,13 @@ window.kosmosMeasureScrollbarWidth();
           </div>
           <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="acct-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
         </div>
+        <!-- #4960: Antigravity's terms, asked HERE: the links, and its optional data-sharing box as Antigravity has it.
+             Kosmos presses nothing on them until the person answers. -->
+        <div id="acct-gemini-sub-terms-row" hidden style="margin-top:8px;">
+          <p class="dhint" id="acct-gemini-sub-terms-intro" tabindex="-1" style="margin:0 0 6px;outline:none;">Antigravity asks you to accept Google's <a id="acct-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="acct-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
+          <label class="dhint" for="acct-gemini-sub-terms-share" style="display:flex;gap:8px;align-items:flex-start;margin:0;"><input type="checkbox" id="acct-gemini-sub-terms-share" style="margin-top:3px;"><span>Also let Google collect and use my Antigravity interactions to improve it. Optional: you can change this later in Antigravity's settings.</span></label>
+          <div class="frow" style="margin-top:8px;"><button class="btn uprime" id="acct-gemini-sub-terms-go" type="button">Agree and continue</button></div>
+        </div>
         <div class="frow" id="acct-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-show" type="button">Show the sign-in window</button></div>
         <div class="frow" id="acct-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
       </div>
@@ -14226,6 +14446,13 @@ window.kosmosMeasureScrollbarWidth();
                       <button class="btn uprime" id="fr-gemini-sub-paste-go" type="button">Continue</button>
                     </div>
                     <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="fr-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+                  </div>
+                  <!-- #4960: Antigravity's terms, asked HERE: the links, and its optional data-sharing box as Antigravity has it.
+                       Kosmos presses nothing on them until the person answers. -->
+                  <div id="fr-gemini-sub-terms-row" hidden style="margin-top:8px;">
+                    <p class="dhint" id="fr-gemini-sub-terms-intro" tabindex="-1" style="margin:0 0 6px;outline:none;">Antigravity asks you to accept Google's <a id="fr-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="fr-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
+                    <label class="dhint" for="fr-gemini-sub-terms-share" style="display:flex;gap:8px;align-items:flex-start;margin:0;"><input type="checkbox" id="fr-gemini-sub-terms-share" style="margin-top:3px;"><span>Also let Google collect and use my Antigravity interactions to improve it. Optional: you can change this later in Antigravity's settings.</span></label>
+                    <div class="frow" style="margin-top:8px;"><button class="btn uprime" id="fr-gemini-sub-terms-go" type="button">Agree and continue</button></div>
                   </div>
                   <div class="frow" id="fr-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-show" type="button">Show the sign-in window</button></div>
                   <div class="frow" id="fr-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
@@ -16007,7 +16234,8 @@ window.kosmosMeasureScrollbarWidth();
       <div class="pjtitle">
         <!-- #4586 (Josh, 2026-09-29 11:35): the back chevron beside the title, straight back to the
              project's room. #3502 hid #docs-back in the consolidated view; Josh reversed that. The tab
-             view keeps its own "<- name" back above, so this one shows only in the consolidated view. -->
+             view keeps its own "<- name" back above, so this one shows only in the consolidated view, and in the
+             tab view under the new look (#4470), which hides that link. -->
         <button class="sub-back" id="docs-chev" type="button" aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
@@ -17339,7 +17567,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos+ community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one. Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one. Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
@@ -17350,8 +17578,12 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
+      <!-- #4885: a picture the community shut an agent out with stays up, and only the board's log knew. -->
+      <p class="dhint" id="community-picture-stuck" style="margin:4px 0 0;" hidden></p>
+      <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
+      <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -17671,7 +17903,7 @@ window.kosmosMeasureScrollbarWidth();
         <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a1.9 1.9 0 003.4 0"/></svg></span><div><b>Know when you're needed</b><span>Get notified when an agent finishes, hits a blocker, or asks a question.</span></div></li>
         <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.7-5 5.5-5s5.5 2 5.5 5"/><path d="M18.5 8.5v5M16 11h5"/></svg></span><div><b>Work with others</b><span>Invite people and their agents into selected projects. Remove access at any time.</span></div></li>
       </ul>
-      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval.</span></div></div>
+      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval. One exception: talking to type on a phone, where the browser's speech service (Apple's or Google's) hears it, and Kosmos says so while it listens.</span></div></div>
       <!-- #476, #567: the door is the trust sentence and it is BUILT, so
            it is said as a fact. "Nothing to install" left this paragraph
            on 2026-08-24: the installer ships no connector yet, and the
@@ -20949,21 +21181,42 @@ function paintUpdateAbort(ab) {
 }
 
 /* #3532: paint the per-account login-expiry advisories from the /api/status poll.
-   data.loginAdvisories is an array of { agents, daysLeft, severity, expired } (one per
-   credential near expiry); empty/absent clears the slot. dataset.v is a signature so an
+   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, service, provider, email, names }
+   (one per credential near expiry; #5018 added the last four, and service keys the X's dismissals); empty/absent clears the slot. dataset.v is a signature so an
    unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
+/* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
+   the notice for this page's life, and it comes back on reload. */
+const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';
+let loginAdvHiddenMem = [];
 function paintLoginAdvisories(advs) {
   const slot = document.getElementById('login-adv-slot');
   if (!slot) return;
-  const list = Array.isArray(advs) ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length) : [];
+  /* #5018 (Josh): a small X hides a notice until it says something new (fewer days, other agents, another account,
+     or expired). The key is the notice's own state, kept per viewer in this browser. */
+  /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
+     bring a closed notice back. */
+  /* Expired counts as one state: its days count keeps falling, but a closed expired notice says nothing new. */
+  const advKey = (a) => [a.severity || '', a.expired ? 'x' : a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
+  /* A dismissal lives while its account still has a notice: a reply with NO notice for that credential (the login was
+     renewed, or its date could not be read this time) forgets it, so a later expiry of the same account is never born
+     hidden. Keyed on the account, not the exact notice, so one agent's pane read failing for a moment does not bring a
+     closed notice back; a failed read of the account's own date can, once. */
+  if (Array.isArray(advs)) loginAdvPrune(advs.filter((a) => a && a.service).map((a) => a.service));
+  const hidden = loginAdvDismissed();
+  const list = Array.isArray(advs)
+    ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
-  const sig = list.map((a) => (a.severity || '') + ':' + a.daysLeft + ':' + a.agents.join(',')).join('|');
+  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')).join('|');   // repaint on a new name or email too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
     const sev = (a.severity === 'urgent' || a.severity === 'warn') ? a.severity : 'notice';
     const n = a.agents.length;
-    const who = a.agents.map(esc).join(', ');
+    // #5018: the names the person gave the agents (the board sends them as names, same order as agents).
+    const names = (Array.isArray(a.names) && a.names.length === n) ? a.names : a.agents;
+    const who = names.map(esc).join(', ');
+    // #5018: which provider and account they run under; when the email could not be read, the provider only, never a guess.
+    const acct = 'On ' + esc(a.provider || 'Claude') + (a.email ? ', ' + esc(a.email) : '') + ': ';
     const head = a.expired
       ? (n === 1 ? 'An agent’s login has expired' : n + ' agents’ login has expired')
       : (a.daysLeft <= 0
@@ -20972,11 +21225,56 @@ function paintLoginAdvisories(advs) {
     const tail = a.expired
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
-    return '<div class="utoast login-adv ' + sev + '" role="status">'
+    // role=status on the words, not the notice, so the close button is not read out with every announcement.
+    return '<div class="utoast login-adv ' + sev + '">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + esc(head) + '</b><small>' + who + '. ' + esc(tail) + '</small></div>'
+      + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
+      + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
+  slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
+    loginAdvDismiss(btn.getAttribute('data-adv-key'));
+    delete slot.dataset.v;   // always repaint, so an X that did not stick shows as a notice still there, never a dead button
+    paintLoginAdvisories(advs);
+    // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
+    // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
+    const next = slot.querySelector('.ux')
+      || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    if (next) next.focus();
+  }));
+}
+/* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
+   notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
+(function topnotesTrack() {
+  if (typeof document === 'undefined' || typeof ResizeObserver !== 'function') return;
+  const stack = document.getElementById('topnotes');
+  if (!stack) return;
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--topnotes-h', Math.ceil(stack.getBoundingClientRect().height) + 'px');
+  }).observe(stack);
+})();
+function loginAdvDismissed() {
+  try { const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]'); if (Array.isArray(v)) return v.concat(loginAdvHiddenMem); } catch { /* refused */ }
+  return loginAdvHiddenMem.slice();
+}
+function loginAdvPrune(liveServices) {
+  // A key's 4th field is its credential (advKey); a credential name carries no colon. A key with no credential (an
+  // advisory without one) is never forgotten here, since no reply can say its account was renewed.
+  const keep = (k) => { const svc = String(k).split(':')[3]; return !svc || liveServices.includes(svc); };
+  loginAdvHiddenMem = loginAdvHiddenMem.filter(keep);
+  try {
+    const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
+    if (Array.isArray(v) && v.some((k) => !keep(k))) localStorage.setItem(LOGIN_ADV_HIDE_KEY, JSON.stringify(v.filter(keep)));
+  } catch { /* refused: nothing stored to prune */ }
+}
+function loginAdvDismiss(key) {
+  if (!key) return;
+  loginAdvHiddenMem = loginAdvHiddenMem.concat(key);
+  try {
+    let v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
+    if (!Array.isArray(v)) v = [];
+    localStorage.setItem(LOGIN_ADV_HIDE_KEY, JSON.stringify(v.concat(key).slice(-40)));
+  } catch { /* refused: the in-memory copy still hides it */ }
 }
 
 /* #3955: reload an old page by itself, but only when that cannot lose anything: the window is in the
@@ -25126,7 +25424,8 @@ async function paintAccounts(opts) {
     const connectedWhy = 'this account is signed in. That does not prove a request would succeed, because a rejected token is not visible from here';
     /* #1921: the badge renders VERIFIED liveness from the last OBSERVED real call
        (server-side engine/observed), not the stored-login state alone. `working` is
-       the ONLY green and it means we SAW a request succeed -- so the pulsing dot's
+       the ONLY green and it means we SAW a request succeed, or (#3997 ruling A, observedFrom 'login') that a
+       Claude sign-in's own login is valid and unexpired with no rejection or failed check on record -- so the pulsing dot's
        "actively connected" (Josh, #864) is finally true rather than merely "a
        credential exists". A credential that only EXISTS is `signed_in_unverified`:
        amber since #3997 (it was muted grey), NOT green, which is the say-what-you-know half #874 could not reach.
@@ -25156,20 +25455,27 @@ async function paintAccounts(opts) {
     /* An expired key cannot be checked until Grok runs, so that title does not point at Check now (the server's
        structured verdict, not a match on its sentence: review round 4). */
     const unverifiedTitle = grokWhy ? ((a.connection.liveVerdict === 'expired' || a.connection.liveVerdict === 'pending') ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
-    /* #3997 (ruling C): an idle Claude sign-in whose login date Kosmos read from its stored login. Calm and
-       neutral, with the date; it turns green when an agent uses it or Check now answers. */
+    /* #3997: an idle Claude sign-in whose login date Kosmos read from its stored login. Ruling A (Josh, 10-02): green,
+       with the date (below). The calm neutral pill (ruling C) is drawn only if the server's switch is turned off. */
     const loginUntil = a.connection && Number.isFinite(a.connection.loginValidUntil) ? a.connection.loginValidUntil : null;
     // The year too when it is not this one (review iteration 3): a login can run for close to a year. The viewer's
     // own calendar on purpose, so it can read a day off near midnight UTC (see the plan); not a UTC string.
     const loginDate = loginUntil ? new Date(loginUntil).toLocaleDateString(undefined, new Date(loginUntil).getFullYear() === new Date().getFullYear()
       ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' }) : '';
     const loginOkWhy = loginDate ? 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. It turns green the first time an agent uses it, or when you press Check now.' : '';
+    /* #3997 ruling A (Josh, 10-02): the server's switch is on, so a good login is green. Its title says what the green
+       rests on, the sign-in itself, and that Check now asks Anthropic directly; not "turns green later", which it is. */
+    const loginGreenWhy = loginDate ? 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. Press Check now to ask Anthropic directly.' : '';
     let connBadge;
+    /* Review 1: a login-green row with no date to show is not claimed as "a real request succeeded"; it falls back to
+       the unverified state, the honest reading of what the server knows. */
+    const loginGreenNoDate = badge === 'working' && a.connection && a.connection.observedFrom === 'login' && !loginDate;
     if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
-      // Only with the server's switch on (Josh's call): the same words, in green.
-      connBadge = '<span class="acct-connected" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+      connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
       connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+    } else if (loginGreenNoDate) {
+      connBadge = '<span class="acct-unverified" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? (fromCheck ? ' · checked ' : ' · active ') + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
@@ -25535,9 +25841,15 @@ async function paintAccounts(opts) {
         state = res.ok ? (j.state || 'unknown') : 'unknown';
       } catch { state = 'unknown'; }
       if (state === 'unknown') {
-        btn.textContent = 'Could not check, try again';
-        btn.disabled = false;
-        setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);
+        /* #3997 review 3: a failed check can take this row's login-green away on the server, so repaint before
+           saying so; otherwise the row stays green beside "Could not check". The repaint rebuilds the row, so the
+           sentence goes on the NEW button for this folder (or on the old one if the repaint failed). */
+        try { await paintAccounts(); } catch { /* the old row stays; the sentence still goes on its button */ }
+        const fresh = [...box.querySelectorAll('[data-check-claude]')].find((b) => b.dataset.checkClaude === dir) || btn;
+        const freshLabel = fresh === btn ? label : fresh.textContent;
+        fresh.textContent = 'Could not check, try again';
+        fresh.disabled = false;
+        setTimeout(() => { if (fresh.isConnected) fresh.textContent = freshLabel; }, 4000);
         return;
       }
       /* connected -> green, none -> the honest "not connected": both recorded, so
@@ -29060,6 +29372,9 @@ function agySubDriver(pre, onReady) { return {
   sendingCode: false,   // #3998: a code is on its way (a second press is ignored)
   codeError: '',   // #3998: why the last pasted code was refused, until the person types again
   windowOpen: false,   // #3998 round 26: the sign-in's window is open and the person is driving it
+  termsFor: '',    // #4960: the sign-in whose terms the box was last set for (set once, then it is the person's)
+  answeredFor: '', // #4960 round 2: the sign-in whose terms the person answered (a late poll does not ask again)
+  sendingTerms: false,   // #4960: an answer to the terms is on its way
   /* Round 28: the person pressed Stop this sign-in. That stops it even with its window open (only the
      passive ways out, closing the dialog or switching provider, leave an open window running). */
   stop() {
@@ -29080,19 +29395,20 @@ function agySubDriver(pre, onReady) { return {
     this.winLeave();   // #3568 (Windows): its own sign-in ends the same way
   },
   /* #3998: the paste box (with "Open Google's page again") and the last-resort window button. */
-  rows(paste, show, url) {
-    const pr = this.el('paste-row'); const sr = this.el('show-row');
+  rows(paste, show, url, terms) {
+    const pr = this.el('paste-row'); const sr = this.el('show-row'); const tr = this.el('terms-row');
     /* A row hidden with focus inside it would drop focus to the page behind the dialog (round 8): move
        it to Stop, or to the step itself. */
     const active = typeof document !== 'undefined' ? document.activeElement : null;
     const leaving = (row, keep) => row && !keep && active && typeof row.contains === 'function' && row.contains(active);
-    if (leaving(pr, paste) || leaving(sr, show)) {
+    if (leaving(pr, paste) || leaving(sr, show) || leaving(tr, terms)) {
       const cancel = this.el('cancel'); const cr = this.el('cancel-row');
       const to = cancel && cr && !cr.hidden ? cancel : this.el('step');
       if (to) { if (to !== cancel && to.setAttribute && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); if (to.focus) to.focus(); }
     }
     if (pr) pr.hidden = !paste;
     if (sr) sr.hidden = !show;
+    if (tr) tr.hidden = !terms;
     const pg = this.el('page'); if (pg) { pg.hidden = !url; pg.setAttribute('href', url || '#'); }
     // Its paragraph too (round 18): an empty paragraph keeps its margin in the layout.
     const pgp = pg && pg.closest ? pg.closest('p') : null; if (pgp) pgp.hidden = !url;
@@ -29127,11 +29443,33 @@ function agySubDriver(pre, onReady) { return {
            same as the first and must bring the cursor back too (round 7). */
         const refusalMark = String(st.refusals || 0) + '|' + (st.because || '');
         if (focusedFor === null || refusalMark !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = refusalMark; }
+      } else if (state === 'terms' && this.answeredFor === this.signinId) {
+        this.rows(false, false);   // answered: a poll that left before the answer landed does not ask again (round 2)
+      } else if (state === 'terms') {
+        /* #4960: Antigravity's terms, asked here. The box starts as Antigravity has it, once per sign-in; after that it
+           is the person's (a poll never overwrites what they ticked). */
+        this.rows(false, false, '', true);
+        const tm = (st && st.terms) || {};
+        /* A link Kosmos would not open is plain words, and its "(opens in your browser)" goes with it (round 2). */
+        const link = (a, href) => {
+          if (!a) return;
+          if (href) a.setAttribute('href', href); else if (a.removeAttribute) a.removeAttribute('href');
+          const vh = a.querySelector ? a.querySelector('.vh') : null; if (vh) vh.hidden = !href;
+        };
+        link(this.el('terms-tos'), tm.termsUrl); link(this.el('terms-privacy'), tm.privacyUrl);
+        if (this.termsFor !== this.signinId) {
+          this.termsFor = this.signinId;
+          const box = this.el('terms-share'); if (box) box.checked = tm.dataUse === true;
+          /* Focus the terms' first words, not Agree (round 1): one Enter must not accept them for a keyboard user who
+             has not yet reached the links or the optional box. */
+          const intro = this.el('terms-intro'); if (intro && intro.focus) intro.focus();
+        }
+        this.say('Almost done. One last step from Google:', '', false);   // the details are the row below (one sentence, not two)
       } else if (state === 'checking' || state === 'setup') {
         this.rows(false, false);
         // "checking" is also Kosmos asking Antigravity whether it is signed in (round 9): the code only after one was sent.
         this.say(state === 'checking' ? (st.step === 'code-sent' ? 'Checking the code with Google…' : 'Checking with Antigravity…')
-          : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
+          : "Finishing Antigravity's setup…", '', false);
       } else if (state === 'stuck' && st.shown && st.showFailed) {
         // The window did not open: say so and offer it again (round 10).
         this.rows(false, true);
@@ -29178,6 +29516,18 @@ function agySubDriver(pre, onReady) { return {
     this.codeError = frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.';
     this.say(this.codeError, '', false);
   },
+  /* #4960: the person's answer to Antigravity's terms, with their choice for the optional data sharing. */
+  async agreeTerms() {
+    if (this.sendingTerms) return;
+    const box = this.el('terms-share');
+    const mine = this.gen; const id = this.signinId;
+    this.sendingTerms = true;
+    const r = await this.post('/api/antigravity/signin/agree', { id, dataUse: !!(box && box.checked) });
+    this.sendingTerms = false;
+    if (mine !== this.gen || id !== this.signinId) return;   // the step was left, or another sign-in began (round 2)
+    if (r && r.ok) { this.answeredFor = id; this.rows(false, false); this.say("Finishing Antigravity's setup…", '', false); return; }
+    this.say(frCap((r && r.error) || 'Kosmos could not pass your answer on just now') + '.', '', false);
+  },
   async showWindow() {
     const r = await this.post('/api/antigravity/signin/show', { id: this.signinId });
     if (!(r && r.ok)) this.say(frCap((r && r.error) || 'Kosmos could not open the sign-in window') + '.', '', false);
@@ -29187,6 +29537,7 @@ function agySubDriver(pre, onReady) { return {
     const i = this.el('paste'); if (i) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.sendCode(); } });
     if (i) i.addEventListener('input', () => { this.codeError = ''; });   // typing again retires the refusal
     const sh = this.el('show'); if (sh) sh.addEventListener('click', () => this.showWindow());
+    const tg = this.el('terms-go'); if (tg) tg.addEventListener('click', () => this.agreeTerms());
     return this;
   },
   /* #3568 on Windows: no Terminal. Kosmos runs agy's sign-in out of sight (POST
@@ -30445,6 +30796,16 @@ function industryPaint(r, keepMsg) {
   }
   sel.value = unread ? '__unknown' : (r.industry || '');
   sel.hidden = false;
+  const stuck = document.getElementById('community-picture-stuck');
+  const ns = r && Number.isInteger(r.picturesStuck) && r.picturesStuck > 0 ? r.picturesStuck : 0;
+  stuck.hidden = !ns;
+  stuck.textContent = !ns ? '' : (ns === 1 ? 'One agent\u2019s picture' : ns + ' agents\u2019 pictures')
+    + ' may still show in the community. The community shut ' + (ns === 1 ? 'that agent' : 'those agents') + ' out, so Kosmos can no longer take ' + (ns === 1 ? 'it' : 'them') + ' down.';
+  const unsendable = document.getElementById('community-picture-unsendable');
+  const nu = r && Number.isInteger(r.picturesUnsendable) && r.picturesUnsendable > 0 ? r.picturesUnsendable : 0;
+  unsendable.hidden = !nu;
+  unsendable.textContent = !nu ? '' : (nu === 1 ? 'One agent\u2019s picture' : nu + ' agents\u2019 pictures')
+    + ' cannot go to the community as ' + (nu === 1 ? 'it is' : 'they are') + '. Choose a different picture, or the same one again, on the agent\u2019s page and Kosmos will fit it if it can.';
   // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
   if (keepMsg) return;
   // Said by case: with the list here, any choice sets it again; without it, only None is offered.
@@ -30452,15 +30813,19 @@ function industryPaint(r, keepMsg) {
     : (list.length ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
       : 'We could not read which business your profiles show just now. Try again in a moment.');
 }
-async function refreshIndustry(keepMsg) {
+/* #4885: `quiet` (a re-read when Settings' Automation section opens) leaves what is on screen alone when the read
+   fails, rather than turning a readable setting into "could not be read" over a momentary blip. Only when something
+   is already on screen: a page that opens straight onto Automation still says the read failed. */
+async function refreshIndustry(keepMsg, quietIfShown) {
   const mine = ++INDUSTRY_EPOCH;
+  const quiet = quietIfShown && !document.getElementById('community-industry').hidden;
   try {
     const res = await fetch('/api/community-industry');
-    if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true); return; }
+    if (!res.ok) { if (mine === INDUSTRY_EPOCH && !quiet) industryPaint(null, keepMsg === true); return; }
     const r = await res.json();
     if (mine === INDUSTRY_EPOCH) industryPaint(r, keepMsg === true);
   } catch {
-    if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true);
+    if (mine === INDUSTRY_EPOCH && !quiet) industryPaint(null, keepMsg === true);
   }
 }
 /* A change while a save is out is not dropped: arrow keys on a closed select fire `change` at every step, and the
@@ -30522,6 +30887,7 @@ function communityMineWord(r) {
      true after the delete lands, and checking it first would say "Deleting" forever. */
   if (r.state === 'deleted') return 'Deleted from the community';
   if (r.state === 'withheld') return 'Deleted before it was sent';
+  if (r.state === 'not_sent') return 'Not sent. It stayed on this computer.';
   if (r.state === 'refused') return 'Not accepted by the community';
   /* refused agent before deleteRequested: the send layer sends nothing for a refused agent
      (no DELETE, no settling), so a delete asked for on its post would otherwise promise
@@ -30871,6 +31237,8 @@ function communityHeldPaint(rows, full) {
          line promises no more than that. A comment on this board's own post goes no further. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+        /* #4994: its agent was deleted, and the store marked it never to send: releasing it keeps it on this board. */
+        : r.notSent === true && !stopped ? '. Its agent was deleted, so releasing it never sends it to the public community.'
         : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community. Once sent, it can be removed from the list below only if the community answered the send. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
@@ -37280,6 +37648,9 @@ function settingsGo(section, opts) {
      taken before the save landed. */
   if (section === 'automation' && typeof refreshCommunity === 'function' && !COMMUNITY_SAVING) refreshCommunity();
   if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
+  /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
+     repaints the industry row too, so an earlier save message there is cleared. */
+  if (section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING) refreshIndustry(false, true);
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
@@ -37911,6 +38282,39 @@ function settingsOpen(sec, opts) {
   if (sec === 'connect') { paintConnLive(); paintConnShelf(); }
   if (sec === 'usage') paintUsage();
 }
+/* #4979: the app header's height, for the sticky Settings nav's top, and whether the whole nav
+   fits below it (see the #s-nav rules). Observers on the header's, the nav's and (#5018) the floating notice stack's
+   border boxes and a window resize recompute both, so a header that wraps or gains a bar, or a notice that shows,
+   moves the nav, and a window too short for it lets the nav scroll with the page. */
+(() => {
+  const head = document.querySelector('.apphead');
+  const nav = document.getElementById('s-nav');
+  const notes = document.getElementById('topnotes');   // #5018: floats below the header, outside its height
+  if (!head || !nav || typeof head.getBoundingClientRect !== 'function' || typeof nav.getBoundingClientRect !== 'function') return;
+  const root = document.documentElement;
+  const write = () => {
+    try {
+      const h = head.getBoundingClientRect().height;
+      if (typeof h !== 'number' || !Number.isFinite(h)) return;
+      root.style.setProperty('--apphead-h', h + 'px');
+      const n = nav.getBoundingClientRect().height;   // 0 while Settings is not showing: nothing to fit
+      let t = 0;
+      try { t = notes && typeof notes.getBoundingClientRect === 'function' ? notes.getBoundingClientRect().height : 0; } catch { t = 0; }
+      if (typeof t !== 'number' || !Number.isFinite(t)) t = 0;
+      root.classList.toggle('snav-loose', n > 0 && h + t + n + 32 > window.innerHeight);   // 16px above the nav and 16px below it
+    } catch { /* unmeasured: the nav keeps the old 16px and stays sticky */ }
+  };
+  write();
+  try {
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(write);
+      ro.observe(head, { box: 'border-box' });
+      ro.observe(nav, { box: 'border-box' });
+      if (notes) ro.observe(notes, { box: 'border-box' });
+    }
+    if (typeof window.addEventListener === 'function') window.addEventListener('resize', write);
+  } catch { /* not a real element (a test harness's stub): the one measurement above stands */ }
+})();
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
@@ -39786,6 +40190,131 @@ document.getElementById('detail-back').addEventListener('click', () => {
   else showTab('agents');
 });
 
+/* #4885: an agent's picture travels with it to the Kosmos+ community, which takes a still PNG, JPEG or WebP of at most
+   60,000 bytes with each side from 16 to 2,048 px (kosmos-community app/avatars.py). A still PNG that already meets
+   all of that is kept exactly as chosen. Anything else (a big photo, a GIF, an animated picture, a tiny or huge one,
+   every WebP, and every JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is
+   redrawn: longest side at most 512 px, short side at least 16 px (padded, never stretched), as WebP, then PNG (both
+   keep transparency, and a picture with transparency tries every size in them first), then JPEG on white, stepping
+   down until it fits. Every agent picture the person chooses comes through here. Never throws: a picture that
+   cannot be redrawn is kept as it was (the board then does not send it and the
+   community shows its mark). */
+const PICTURE_MAX_BYTES = 60000;
+const PICTURE_MIN_SIDE = 16;
+const PICTURE_MAX_SIDE = 2048;
+let PICTURE_WEBP = null;   // whether this browser can write WebP (WebKit cannot); asked once
+// Every blob fitPicture vouches for (kept or redrawn to fit); one it returns unchanged after failing is not in here.
+const PICTURE_FITS = new WeakSet();
+/* Whether EXIF data (a TIFF header and its first directory) carries an Orientation other than 1, upright. */
+function pictureTurned(exif) {
+  // Some writers put JPEG's "Exif\0\0" before the TIFF header in a PNG eXIf too.
+  if (exif.length >= 6 && exif[0] === 0x45 && exif[1] === 0x78 && exif[2] === 0x69 && exif[3] === 0x66 && !exif[4] && !exif[5]) exif = exif.subarray(6);
+  if (exif.length < 8) return false;
+  const le = exif[0] === 0x49 && exif[1] === 0x49;
+  if (!le && !(exif[0] === 0x4d && exif[1] === 0x4d)) return false;
+  const u16 = (at) => (le ? exif[at] + (exif[at + 1] << 8) : (exif[at] << 8) + exif[at + 1]);
+  const u32 = (at) => (le ? u16(at) + u16(at + 2) * 65536 : u16(at) * 65536 + u16(at + 2));
+  const dir = u32(4);
+  if (dir + 2 > exif.length) return false;
+  const n = u16(dir);
+  for (let i = 0; i < n; i++) {
+    const e = dir + 2 + i * 12;
+    if (e + 12 > exif.length) return false;
+    if (u16(e) === 0x0112) return u16(e + 8) > 1;   // 0 and 1 are upright, as the community reads them
+  }
+  return false;
+}
+/* Whether `bytes` are a still PNG fitPicture may keep as chosen, read from the bytes (never the file name), the way
+   the community reads one (app/avatars.py _png): IHDR first and 13 bytes long, picture data, no acTL, fcTL or fdAT
+   chunk anywhere, and no eXIf chunk that turns the picture (the community drops eXIf, and with it the turn, so such a
+   PNG is redrawn upright; WebKit writes an eXIf with no turn into every PNG it makes). Anything else, or anything cut
+   short, is not kept. Every WebP and JPEG is redrawn, so neither is read here. */
+function pictureStill(bytes) {
+  const tag = (at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+  const u32be = (at) => ((bytes[at] << 24) >>> 0) + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3];
+  const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= 8 && PNG_SIG.every((b, i) => bytes[i] === b)) {
+    if (bytes.length < 33 || tag(12) !== 'IHDR' || u32be(8) !== 13) return false;   // IHDR first, 13 bytes long
+    let idat = false;
+    for (let at = 8; at + 8 <= bytes.length;) {
+      const kind = tag(at + 4);
+      const end = at + 12 + u32be(at);
+      if (end > bytes.length) return false;   // a chunk cut short
+      if (kind === 'acTL' || kind === 'fcTL' || kind === 'fdAT') return false;
+      if (kind === 'eXIf' && pictureTurned(bytes.subarray(at + 8, at + 8 + u32be(at)))) return false;
+      if (kind === 'IDAT') idat = true;
+      if (kind === 'IEND') return idat;
+      at = end;
+    }
+    return false;
+  }
+  return false;
+}
+async function fitPicture(blob) {
+  let bmp = null;
+  try {
+    if (!blob) return blob;
+    // An engine that does not know the option throws on it; current engines turn the picture by default.
+    try { bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(blob); }
+    const sidesOk = (w, h) => Math.min(w, h) >= PICTURE_MIN_SIDE && Math.max(w, h) <= PICTURE_MAX_SIDE;
+    // Only a still PNG is kept as chosen: a WebP is always redrawn, so the community's WebP checks only ever see this
+    // browser's own encoder output. The bytes are read only when the size could allow keeping it.
+    if (blob.size <= PICTURE_MAX_BYTES && sidesOk(bmp.width, bmp.height) && pictureStill(new Uint8Array(await blob.arrayBuffer()))) {
+      PICTURE_FITS.add(blob);
+      return blob;
+    }
+    if (PICTURE_WEBP === null) {
+      const one = document.createElement('canvas');
+      one.width = one.height = 1;
+      const b = await new Promise((r) => one.toBlob(r, 'image/webp'));
+      PICTURE_WEBP = Boolean(b && b.type === 'image/webp');
+    }
+    const keepAlpha = (PICTURE_WEBP ? ['image/webp'] : []).concat(['image/png']);
+    const big = Math.max(bmp.width, bmp.height) || 1;
+    // Sides to try, largest first; a picture smaller than a step is tried once at its own size.
+    const sides = [...new Set([512, 384, 256, 192, 128].map((x) => Math.min(x, big)))];
+    // A picture with transparency tries every size in a format that keeps it before any JPEG on white; one without
+    // tries each size in every format before going smaller, so a photo stays as large as the cap allows.
+    const pk = Math.min(1, 512 / big);
+    const probe = document.createElement('canvas');
+    probe.width = Math.max(1, Math.round(bmp.width * pk));
+    probe.height = Math.max(1, Math.round(bmp.height * pk));
+    const pctx = probe.getContext('2d');
+    pctx.drawImage(bmp, 0, 0, probe.width, probe.height);
+    const px = pctx.getImageData(0, 0, probe.width, probe.height).data;
+    let alpha = false;
+    for (let i = 3; i < px.length && !alpha; i += 4) alpha = px[i] < 255;
+    const tries = [];
+    if (alpha) {
+      for (const type of keepAlpha) for (const side of sides) tries.push([side, type]);
+      for (const side of sides) tries.push([side, 'image/jpeg']);
+    } else {
+      for (const side of sides) for (const type of keepAlpha.concat(['image/jpeg'])) tries.push([side, type]);
+    }
+    for (const [side, type] of tries) {
+      const k = Math.min(1, side / big);
+      const w = Math.max(1, Math.round(bmp.width * k));
+      const h = Math.max(1, Math.round(bmp.height * k));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(PICTURE_MIN_SIDE, w);
+      cv.height = Math.max(PICTURE_MIN_SIDE, h);
+      const ctx = cv.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      // JPEG has no transparency: on white, or a transparent picture comes out with a black background.
+      if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); }
+      ctx.drawImage(bmp, Math.floor((cv.width - w) / 2), Math.floor((cv.height - h) / 2), w, h);
+      for (const q of type === 'image/png' ? [undefined] : [0.86, 0.72]) {
+        const out = await new Promise((r) => cv.toBlob(r, type, q));
+        // A browser that cannot write a type hands back a PNG instead; only a blob of the asked-for type counts.
+        if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) { PICTURE_FITS.add(out); return out; }
+      }
+    }
+    return blob;
+  } catch { return blob; } finally {
+    try { if (bmp) bmp.close(); } catch { /* already released */ }
+  }
+}
+
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
@@ -39799,13 +40328,18 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
   const forAgent = CURRENT.sessionName;
   msg.textContent = 'Saving…';
   try {
+    const pic = await fitPicture(f);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar',
-      { method: 'PUT', headers: { 'content-type': f.type }, body: f });
+      { method: 'PUT', headers: { 'content-type': pic.type || f.type }, body: pic });
     const out = await res.json();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     // Say what to do, never surface an exception name.
     if (!res.ok) throw new Error(out.error || 'that did not work');
-    msg.textContent = 'Saved.';
+    // #4885: a picture that could not be fitted is kept as chosen, but the community will not take it.
+    // Said only when the board will not send it (over the cap, or not a PNG, JPEG or WebP), so the sentence is true.
+    const unsendable = !PICTURE_FITS.has(pic)
+      && (pic.size > PICTURE_MAX_BYTES || !['image/png', 'image/jpeg', 'image/webp'].includes(pic.type));
+    msg.textContent = unsendable ? 'Saved. Kosmos could not fit this picture for the community, so it will not show there.' : 'Saved.';
     await tick();
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.
@@ -49670,6 +50204,7 @@ async function tcPortrait(name, image, shown, team, slot) {
       blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
       if (!blob) return 'failed';
     }
+    blob = await fitPicture(blob);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': blob.type || 'image/webp' }, body: blob });
     return res.ok ? 'set' : 'failed';
   } catch { return 'failed'; }
@@ -49776,6 +50311,7 @@ async function loadSeededTeams() {
       if (!res.ok) throw new Error('status ' + res.status);
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data && Array.isArray(data.teams) ? data.teams : []);
+      // The menu's order comes from seededTeamGroups (#5021); this rank order is only the list's own.
       const teams = list.filter((t) => t && typeof t.key === 'string' && typeof t.label === 'string')
         .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
       SEEDED_TEAMS = teams.length ? teams : null;   // round 3: an empty list is asked again next visit, like a 404
@@ -49799,11 +50335,35 @@ async function loadSeededTeams() {
     return;
   }
   const chosen = sel.value;   // a revisit keeps the team they had picked, while it is still offered
-  sel.innerHTML = '<option value="">Choose a team</option>'
-    + SEEDED_TEAMS.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
+  sel.innerHTML = '<option value="">Choose a team</option>' + seededTeamGroups(SEEDED_TEAMS).map((g) =>
+    '<optgroup label="' + esc(g.name) + '">'
+    + g.teams.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('')
+    + '</optgroup>').join('');
   if (chosen && SEEDED_TEAMS.some((t) => t.key === chosen)) sel.value = chosen;
   sel.disabled = false;
   paintSeededTeam();
+}
+/* #5021 (Josh, 0.7.17 staging: "categorized by something, at minimum alpha, but ... grouping like we have on picking
+   another role"): the ready-made teams under headings, A to Z inside each. The heading is the team's catalogue
+   `group` when it has one (the role picker's way), else its kind: Business, or Personal and family. Business
+   headings come before personal ones, each run A to Z. (Ranks restart per kind, so ordering by rank alone, as
+   before, interleaved the two kinds.) */
+const SEEDED_KIND_HEADING = { business: 'Business', personal: 'Personal and family' };
+function seededTeamGroups(teams) {
+  const kindOrder = (k) => { const i = ['business', 'personal'].indexOf(k); return i === -1 ? 2 : i; };
+  const byName = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+  // Headings merge by their exact text, so two teams share one only when the catalogue spells it the same; a heading
+  // takes its kind (and so its place) from the first team under it, business first as the route sends them.
+  const groups = new Map();
+  for (const t of teams || []) {
+    const named = typeof t.group === 'string' && t.group.trim();
+    const name = named || SEEDED_KIND_HEADING[t.kind] || 'Other teams';
+    if (!groups.has(name)) groups.set(name, { name, kind: kindOrder(t.kind), teams: [] });
+    groups.get(name).teams.push(t);
+  }
+  const out = [...groups.values()].sort((a, b) => a.kind - b.kind || byName(a.name, b.name));
+  for (const g of out) g.teams.sort((a, b) => byName(a.label, b.label));
+  return out;
 }
 document.getElementById('team-seeded').addEventListener('change', paintSeededTeam);
 document.getElementById('team-seeded-go').addEventListener('click', () => {
@@ -52399,9 +52959,10 @@ function paintMade(steps, watching, projectOutcomes, revealed) {
  * throws, never gates the flow.
  */
 async function uploadPendingAvatar(name) {
-  const up = PENDING_AVATAR;
+  const chosen = PENDING_AVATAR;
   PENDING_AVATAR = null;
-  if (!up || !name) return false;
+  if (!chosen || !name) return false;
+  const up = await fitPicture(chosen);   // #4885
   const put = async (blob) => {
     for (let i = 0; i < 2; i++) {
       if (i) await new Promise((r) => setTimeout(r, 2000)); // between attempts, never after the last
@@ -52424,7 +52985,7 @@ async function uploadPendingAvatar(name) {
      person assumes their agent now has no picture). If even the mark fails,
      silence: the detail panel's uploader is the recovery path, and a
      reassurance nobody verified is worse than none. */
-  if (up === AVATAR_FILE && AVATAR_FILE) {
+  if (chosen === AVATAR_FILE && AVATAR_FILE) {
     try {
       const cv = document.createElement('canvas');
       cv.width = 144; cv.height = 144;
@@ -61222,17 +61783,18 @@ function repaintReactions(box, list) {
 
 /* ===== #4409: voice. Talk to an agent (the mic in each composer) and hear an agent (read aloud). =====
    Josh, 2026-09-28 15:02: "it would be so great to be able to get an agent to speak and to be able to speak
-   to them through Kosmos". Built-in engines only, no paid service, no audio kept.
+   to them through Kosmos". Built-in engines only, no paid service. On the Mac app the audio stays on the Mac and none is
+   kept; on a phone (slice 3) the browser's speech service (Apple's or Google's) hears it, and the bar says so.
 
    TALKING: the Mac app's on-device recognizer (native-app/main.swift VoiceBridge), reached through the
-   `kosmosVoice` bridge. The mic is drawn only where that bridge exists. 🛑 NOT the page's own
-   webkitSpeechRecognition as a fallback in a browser: in Chrome it sends the audio to Google, which is the
-   one thing this feature promises not to do. The words land in the box at the caret for the person to
-   read and send; nothing is sent by talking.
+   `kosmosVoice` bridge. The mic is drawn only where a bridge exists: the Mac app's, or (slice 3) on a phone the
+   browser's own recognizer (voicePhoneBridge), which sends the audio to Apple or Google and says so. A computer's
+   browser gets no mic. The words land in the box at the caret for the person to read and send; nothing is sent by
+   talking.
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, heard: false, dlgSaid: '', stopping: false };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -61265,8 +61827,180 @@ const VOICE_SAYS = {
   'nothing-heard': 'Nothing was heard.',
   'recognizer': 'Listening stopped because of an error. Try again.',
 };
+/* Slice 3: on a phone the refusals point at the phone's settings, not the Mac's. */
+const VOICE_SAYS_PHONE = {
+  'mic-denied': 'This browser is not allowed to use the microphone. Allow it in this browser\'s settings for this site, or in this device\'s Settings app under the browser.',
+  'speech-denied': 'Speech recognition is turned off for this browser (allow it in this device\'s Settings app under the browser), or not available in a page added to the home screen (open it in the browser instead).',
+  network: 'The speech service could not be reached. Check the connection and try again.',
+  // On an iPhone or iPad the refusal is Dictation switched off, a device setting, not one per browser (round 20).
+  'speech-denied-apple': 'Dictation is turned off on this device. Turn it on in the Settings app (General, Keyboard), then try again. In a page added to the home screen, open it in Safari instead.',
+  'last-words-missing': 'Listening stopped, but the last words may not have come back. Check the box before you send.',
+  // A phone always has a microphone: it is held by something else (a call, a voice memo, another app).
+  'no-mic': 'The microphone is in use by something else, such as a call or another app. Try again when it is free.',
+};
 function voiceBridge() {
-  try { return (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosVoice) || null; } catch { return null; }
+  try {
+    const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosVoice;
+    if (native) return native;
+  } catch { /* fall through */ }
+  return voicePhoneBridge();
+}
+/* #4409 slice 3 (Josh, 2026-10-01 17:16: "Can we do it in mobile too?"): on a PHONE with no app bridge, the browser's
+   own recognizer, behind the same interface as the Mac's (postMessage {op} in, kosmosVoiceEvent out), so tapping and
+   the dialogs work unchanged (holding does not: on a phone the mic is a tap, see the pointerdown handler). On iPhone Safari Apple hears the audio; on Android Chrome, Google. Slice 1 kept browser
+   recognition out on privacy grounds, an agent's call. Sending phone audio to Apple or Google is Splinter's call, in
+   the card's comment of 2026-10-01 17:16 (it cites its own grounds there; Josh may override it, and if he says to keep
+   phone audio on the phone only this shim goes). Josh's 17:16 question asked for voice on phones, not for this. The
+   bar says who hears it, and the Kosmos+ privacy line names the exception. The Mac app keeps its
+   on-device bridge, and a computer's browser (a fine pointer) gets no mic. */
+const VOICE_PHONE_STOP_MS = 5000;   // as long as the Mac app waits for the last words after a stop
+const VOICE_PHONE_CAP_MS = 300000;   // as the Mac app: a mic left on by mistake does not listen forever (its audio leaves the phone)
+let VOICE_PHONE = undefined;   // the shim, built once at load and never rebuilt: an iPad that later gains a trackpad keeps it, and one that starts with a trackpad never gets it, until the page reloads; null where none
+function voicePhoneWho() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer),
+     except in the EU, where iOS 17.4 allows other engines, and on Android only Chrome itself is Google's. Another Android browser
+     (Samsung Internet, Edge, Opera, Firefox, Brave, DuckDuckGo, Vivaldi) may send the audio elsewhere, so it gets no
+     mic rather than a guess. */
+  // Brave sends Chrome's exact user agent; navigator.brave tells it apart (on Android the brand check below would too).
+  // On iOS Brave is WebKit and Apple would be honest, but this fails closed on purpose: no mic beats an unchecked name.
+  try { if (navigator.brave) return ''; } catch { /* no navigator */ }
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) {
+    // WebKit does not expose navigator.userAgentData and Blink does: an iOS browser that has it is another engine (the
+    // EU allows them since iOS 17.4) whose audio may go elsewhere, so it gets no mic rather than the name Apple.
+    try { if (navigator.userAgentData) return ''; } catch { /* as WebKit */ }
+    return 'Apple';
+  }
+  if (/Android/i.test(ua) && /Chrome\//.test(ua) && !/SamsungBrowser|EdgA|OPR|Firefox|YaBrowser|UCBrowser|DuckDuckGo|Vivaldi|; wv\)/i.test(ua)) {
+    /* And the browser says it is Google Chrome. A rebranded Chromium sends Chrome's user agent but not Chrome's brand,
+       so this fails closed: no brand list, no mic. */
+    try {
+      const brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
+      if (brands.some((x) => x && x.brand === 'Google Chrome')) return 'Google';
+    } catch { /* no brands */ }
+  }
+  return '';
+}
+function voicePhoneBridge() {
+  if (VOICE_PHONE !== undefined) return VOICE_PHONE;
+  VOICE_PHONE = null;
+  try {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const phone = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    if (!Rec || !phone) return null;
+    /* A phone, not a touch-screen computer (a Windows tablet's Edge would send the audio to Microsoft): an iPhone, an iPad
+       (which says Macintosh, with touch) or Android. And a secure page: elsewhere the recognizer refuses every start,
+       which would read as a refused microphone. */
+    if (voicePhoneWho() === '' || window.isSecureContext === false) return null;
+    let rec = null, id = null, stopTimer = 0, capTimer = 0;
+    const unwait = () => {
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = 0; }
+      if (capTimer) { clearTimeout(capTimer); capTimer = 0; }
+    };
+    const emit = (ev) => { if (typeof window.kosmosVoiceEvent === 'function') window.kosmosVoiceEvent(Object.assign({ id }, ev)); };
+    const REASON = { 'not-allowed': 'mic-denied', 'service-not-allowed': 'speech-denied', 'audio-capture': 'no-mic', 'no-speech': 'nothing-heard', network: 'network' };
+    VOICE_PHONE = {
+      phone: true,
+      postMessage(m) {
+        const op = m && m.op;
+        if (op === 'start') {
+          unwait();
+          if (rec) { try { rec.abort(); } catch { /* already ended */ } }
+          id = m.id;
+          let mine;
+          /* This session's words: the finished results kept so far, and how far into the recognizer's current list they
+             reach. Kept here, not rebuilt from the list each time, so a list that starts again (iOS after a pause is
+             reported to) cannot take back words already said. */
+          const finals = [];
+          const raw = [];   // the current list's final results as they arrived, by position, before any repeat merge
+          let doneIdx = 0;
+          const fail = () => { rec = null; emit({ kind: 'error', reason: 'recognizer' }); emit({ kind: 'stopped' }); };
+          try {
+            mine = new Rec();
+            mine.continuous = true;
+            mine.interimResults = true;
+          } catch { fail(); return; }   // a recognizer that cannot be built leaves the mic off, not half on
+          rec = mine;
+          try { mine.lang = navigator.language || 'en-US'; } catch { /* the default */ }
+          mine.onstart = () => { if (rec === mine) emit({ kind: 'listening' }); };
+          mine.onresult = (e) => {
+            if (rec !== mine) return;
+            const tidy = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+            const fold = (t) => tidy(t).toLowerCase().replace(/[.,!?;:]+/g, '');
+            /* The Web Speech way: a result is final once and stays so, and resultIndex is the first one that changed. A
+               resultIndex below what is kept means a new list (or the old one sent again): keep what was said, read on. */
+            const from = typeof e.resultIndex === 'number' ? e.resultIndex : 0;
+            if (from < doneIdx) {
+              /* A list that starts again. Results it sends back that match, position by position, the finals this list
+                 already gave us (as they arrived, not as merged) are ours already: skip them. The first that differs
+                 starts a fresh list, and what came before it is kept as said. A result said again, word for word, as the
+                 first thing after a restart cannot be told from one sent back, and is taken as sent back: a known loss
+                 of that result (in practice a short one: "no", "okay"). */
+              let j = from;
+              while (j < e.results.length && j < raw.length && e.results[j].isFinal && fold((e.results[j][0] || {}).transcript) === raw[j]) j += 1;
+              raw.length = j;
+              doneIdx = j;
+            }
+            const repeats = (part) => {
+              const fl = fold(finals.length ? finals[finals.length - 1] : ''), fp = fold(part);
+              return fl.includes(' ') && fp.startsWith(fl) && (fp.length === fl.length || fp[fl.length] === ' ');
+            };
+            const interim = [];
+            for (let i = doneIdx; i < e.results.length; i += 1) {
+              const part = tidy((e.results[i][0] || {}).transcript);
+              if (!part) { if (e.results[i].isFinal && i === doneIdx) { raw[i] = ''; doneIdx = i + 1; } continue; }
+              if (e.results[i].isFinal && i === doneIdx) {
+                /* Android Chrome is reported to repeat the previous result inside the next ("call the", then "call the
+                   client"). Compared with the PREVIOUS result only, never with everything so far, so one miss cannot
+                   cascade; at a word boundary, punctuation aside; and only when that result is two words or more: "a"
+                   then "apple pie", "no" then "no thanks", and "no" then "no" are real speech and are kept.
+                   KNOWN DEFECT, chosen: under that Android pattern a ONE-word first result lands twice ("call" then "call
+                   the client" gives "call call the client"). Merging it would drop real one-word speech instead; a
+                   doubled word is visible and easy to delete, a dropped one is not. */
+                if (repeats(part)) finals[finals.length - 1] = part; else finals.push(part);
+                raw[i] = fold(part);
+                doneIdx = i + 1;
+              } else interim.push(part);   // a phone does not always lead a later result with a space: joined below
+            }
+            // Shown, not kept: words still being heard that repeat the last kept result stand in for it, as they will.
+            const shown = interim.length && repeats(interim[0]) ? finals.slice(0, -1) : finals;
+            emit({ kind: interim.length ? 'partial' : 'final', text: tidy(shown.concat(interim).join(' ')) });
+          };
+          /* An error ends the session here and now: a browser need not follow it with onend, and without a stopped the mic
+             would stay on and who-hears-the-audio would stay up. A late onend is then not ours (rec !== mine). */
+          mine.onerror = (e) => {
+            if (rec !== mine) return;   // ours to ignore: our own cancel or a newer start set rec first, aborted included
+            /* An error that is still ours came from the browser or the phone (a call, another app taking the mic) and is
+               said. The one exception: during our own stop's wait, an 'aborted' answers that stop and is not a failure.
+               Every other code is said there too (round 22: an allow-list of real errors let an unlisted one pass silent). */
+            const ownStop = !!stopTimer && e.error === 'aborted';
+            unwait();
+            rec = null;
+            try { mine.abort(); } catch { /* already ended */ }
+            if (!ownStop) emit({ kind: 'error', reason: REASON[e.error] || 'recognizer' });
+            emit({ kind: 'stopped' });
+          };
+          mine.onend = () => { if (rec === mine) { unwait(); rec = null; emit({ kind: 'stopped' }); } };
+          try { mine.start(); } catch { fail(); return; }   // in the tap's click: a phone starts the microphone only from a gesture
+          // Left armed through a stop's wait; firing then, its stop finds the stop already waiting (stopTimer) and does nothing.
+          capTimer = setTimeout(() => { capTimer = 0; if (rec === mine) voiceStop(VOICE_PHONE); }, VOICE_PHONE_CAP_MS);
+        } else if (op === 'stop') {
+          const was = rec;
+          if (!was || stopTimer) return;   // already stopping: one wait, not one per tap
+          /* Round 22: when the browser never answers the stop, the last words may still have been on their way to the
+             speech service and never come back, so the person is told before the bar goes. */
+          const end = (timedOut) => { stopTimer = 0; if (rec === was) { rec = null; try { was.abort(); } catch { /* ended */ } if (timedOut) emit({ kind: 'error', reason: 'last-words-missing' }); emit({ kind: 'stopped' }); } };
+          try { was.stop(); } catch { end(); return; }   // the last words come as a final result, then stopped
+          stopTimer = setTimeout(() => end(true), VOICE_PHONE_STOP_MS);   // a browser that never sends onend after a stop does not keep the mic on
+        } else if (op === 'cancel') {
+          unwait();
+          const was = rec; rec = null;
+          if (was) { try { was.abort(); } catch { /* already ended */ } }
+        }
+      },
+    };
+  } catch { VOICE_PHONE = null; }
+  return VOICE_PHONE;
 }
 /* Where the heard words go: between what was before the caret and what was after it, with one space on
    each side where the neighbours need it. PURE, for the node suite. */
@@ -61298,31 +62032,101 @@ function voicePaint(btn, state) {
   btn.classList.toggle('asking', state === 'asking');
   btn.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
   const name = btn.getAttribute('data-voice-name');   // #4409 slice 2: a dialog has several, each named for its box
-  const label = (state === 'off' ? 'Talk instead of typing' : 'Stop listening') + (name ? ': ' + name : '');
+  const b = voiceBridge();
+  const label = (state === 'off' ? 'Talk instead of typing' : 'Stop listening') + (name ? ': ' + name : '')
+    + (b && b.phone ? ' (' + voicePhoneWho() + ' hears the audio)' : '');   // slice 3: said before the first tap too
   btn.setAttribute('aria-label', label);
   btn.title = label;
 }
 function voiceSay(btn, line) {
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
-  if (el) el.textContent = line;
+  if (el) { el.textContent = line; VOICE.dlgSaid = ''; }   // the line is no longer the bar's, so the bar must not clear it later
 }
 /* The listening line is ours to clear; an error line said after it is not. */
 const VOICE_LISTENING = 'Listening. Press Escape to stop.';
+/* On a phone there is no Escape, and the person is told who hears the audio (slice 3). */
+function voiceListeningLine() {
+  const b = voiceBridge();
+  return b && b.phone ? 'Listening. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.' : VOICE_LISTENING;
+}
 function voiceMsgEl(btn) { return btn && document.getElementById(btn.getAttribute('data-voice-msg') || ''); }
 function voiceMsgEmpty(btn) { const el = voiceMsgEl(btn); return !!el && !el.textContent; }
 /* At a new start: the mic's own earlier words (a refusal, the listening line) go; anything else the page said stays. */
 function voiceUnsayOwn(btn) {
   const el = voiceMsgEl(btn);
-  if (el && (el.textContent === VOICE_LISTENING || Object.values(VOICE_SAYS).includes(el.textContent))) el.textContent = '';
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine() || Object.values(VOICE_SAYS).includes(el.textContent) || Object.values(VOICE_SAYS_PHONE).includes(el.textContent))) el.textContent = '';
 }
 function voiceUnsay(btn) {
+  voiceWho('', btn);   // also on a switch between mics (voiceToggle cancels first); the new start says it again at once
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
-  if (el && el.textContent === VOICE_LISTENING) el.textContent = '';
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine())) el.textContent = '';
+}
+/* Slice 3: on a phone, who hears the audio is said in a bar of its own at the top of the visible screen, from the tap (before
+   any audio can be sent) until listening ends. Not in the box's message line: that line belongs to whatever else the
+   page is saying, and covering it hides that (or, put back after, revives a line its owner has since retired). */
+/* At the top of what is visible: the composer and the mic to tap are at the foot, and so is an on-screen keyboard (iOS
+   pans the page under it, so the visible top is the visual viewport's, not the layout viewport's). Placed again whenever
+   the visible area moves while the bar says something: a scroll, the keyboard coming or going. */
+function voiceWhoPlace() {
+  const bar = document.getElementById('voice-who');
+  if (!bar) return;
+  try { bar.style.top = 'calc(' + Math.round((window.visualViewport && window.visualViewport.offsetTop) || 0) + 'px + 12px + env(safe-area-inset-top, 0px))'; } catch { /* the default */ }
+}
+let VOICE_WHO_FOLLOW = false;
+/* The hidden status a dialog mic speaks through when its visible line is taken (voiceWho). Made empty and filled a moment
+   later: a live region born with its text is not announced. With no dialog, every one is emptied. */
+function voiceWhoHidden(dlg, line) {
+  if (!dlg) { document.querySelectorAll('.voice-who-dlg').forEach((h) => { h.dataset.want = ''; h.textContent = ''; }); return; }   // want too: a fill still pending must not revive it
+  let h = dlg.querySelector('.voice-who-dlg');
+  const fresh = !h;
+  if (fresh) {
+    h = document.createElement('p');
+    h.className = 'voice-who-dlg';
+    h.setAttribute('role', 'status');
+    h.setAttribute('aria-live', 'polite');
+    h.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';
+    dlg.appendChild(h);
+  }
+  h.dataset.want = line;
+  if (fresh) setTimeout(() => { h.textContent = h.dataset.want || ''; }, 0); else h.textContent = line;
+}
+function voiceWho(line, forBtn) {
+  const bar = document.getElementById('voice-who');   // made at load on a phone, empty, so a screen reader hears each line
+  if (!bar) return;
+  /* In a modal dialog a screen reader cannot reach the bar, so a dialog mic's own line says it too: only a line that is
+     empty or one the bar put there, never over another message. When the line holds the page's own message (a failed
+     Create or Save), a hidden status inside the dialog says it instead, so a screen reader is still told who hears. */
+  const btn = forBtn || VOICE.btn, dlg = btn && btn.closest && btn.closest('[aria-modal="true"]'), el = dlg && voiceMsgEl(btn);
+  if (el && (!el.textContent || el.textContent === VOICE.dlgSaid)) { el.textContent = line || ''; VOICE.dlgSaid = line || ''; voiceWhoHidden(null, ''); }
+  else if (el && line) voiceWhoHidden(dlg, line);
+  if (!line) voiceWhoHidden(null, '');
+  const vv = window.visualViewport;
+  if (line && !VOICE_WHO_FOLLOW && vv) { vv.addEventListener('scroll', voiceWhoPlace); vv.addEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = true; }
+  if (!line && VOICE_WHO_FOLLOW && vv) { vv.removeEventListener('scroll', voiceWhoPlace); vv.removeEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = false; }
+  voiceWhoPlace();
+  bar.textContent = line || '';
+}
+/* Every stop the person asks for goes through here (a second tap, letting go of a hold, Escape), and so does the phone's
+   300 s cap; on a phone, a further press while already Finishing cancels instead (voiceToggle). Slice 3: on a phone the audio may still be
+   on its way until the last words come back, so the bar stays, saying so. */
+function voiceStop(h) {
+  VOICE.stopping = true;   // a late 'listening' (a stop before the recognizer said it started) must not undo this line
+  if (h.phone) voiceWho('Finishing. ' + voicePhoneWho() + ' is turning the last of this audio into words.');
+  h.postMessage({ op: 'stop' });
 }
 function voiceToggle(btn) {
   const h = voiceBridge();
   if (!h || !btn) return;
-  if (VOICE.btn === btn) { h.postMessage({ op: 'stop' }); return; }   // the second press: stop, keep the words
+  if (VOICE.btn === btn) {   // the second press: stop, keep the words
+    /* On a phone, a press while already Finishing (waiting up to 5 s for the last words) ends listening now: the person
+       has asked twice, and the bar must not keep saying audio is being turned into words. The words in the box stay.
+       Phone only (round 25): on the Mac a cancel throws away the recognizer's final corrected words, and there is no
+       bar to keep honest, so a further press there is one more stop, as before. */
+    if (VOICE.stopping && h.phone) { voiceCancel(); return; }
+    voiceStop(h);
+    return;
+  }
+  if (h.phone && !document.getElementById('voice-who')) return;   // slice 3: nowhere to say who hears the audio, so no audio
   if (VOICE.btn) voiceCancel();
   const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
   if (!box || box.disabled || box.readOnly) return;   // review 5: a read-only box (an ended Guide chat) takes no words, spoken ones included
@@ -61330,13 +62134,15 @@ function voiceToggle(btn) {
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
   VOICE.seq += 1;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false });
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false, stopping: false, heard: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
   voicePaint(btn, 'asking');
+  if (h.phone) voiceWho('Starting the microphone. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.');   // before a word can be sent
   h.postMessage({ op: 'start', id: VOICE.id });
   /* #4409 (review 4): clicking the mic moves focus to the button, and Escape stops only from the box, so give the box
      focus back (its caret was read above and focusing does not move it). Typing then also takes the box back. */
-  try { box.focus({ preventScroll: true }); } catch { /* a stub box in the node suite */ }
+  /* Not on a phone: focusing the box there opens the on-screen keyboard over the thread on every tap (slice 3). */
+  try { if (!h.phone) box.focus({ preventScroll: true }); } catch { /* a stub box in the node suite */ }
   voiceSpeakWatch();
 }
 /* Stop and drop whatever is still coming: the person sent, typed, or left. What is already in the box stays. */
@@ -61356,8 +62162,16 @@ function voiceOnEvent(ev) {
      page started with; an app from before the id carries none, and is taken as it always was. */
   if (ev.id != null && ev.id !== VOICE.id) return;
   const btn = VOICE.btn;
-  if (ev.kind === 'listening') { VOICE.listening = true; voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, VOICE_LISTENING); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
+  if (ev.kind === 'listening') {
+    VOICE.listening = true;
+    voicePaint(btn, 'on');
+    const hb = voiceBridge();
+    if (hb && hb.phone) { if (!VOICE.stopping) voiceWho(voiceListeningLine()); }   // slice 3: the bar (and a dialog's line)
+    else if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());   // never over another message's line
+    return;
+  }
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
+    if (String(ev.text || '').trim()) VOICE.heard = true;
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
        conversation that is gone, so they go nowhere and the mic stops. What is already in the box stays. */
@@ -61373,7 +62187,15 @@ function voiceOnEvent(ev) {
     box.dispatchEvent(new Event('input', { bubbles: true }));   // the box grows, the counter and the @ mirror follow
     return;
   }
-  if (ev.kind === 'error') { voiceSay(btn, VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer); return; }
+  if (ev.kind === 'error') {
+    // #4409 slice 3: Android's recognizer ends a long silence with no-speech even after words landed; that is not
+    // "Nothing was heard", and the words are in the box, so it says nothing.
+    if (ev.reason === 'nothing-heard' && VOICE.heard) return;
+    const b = voiceBridge();
+    const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
+    voiceSay(btn, (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer);
+    return;
+  }
   if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); voiceUnsay(btn); }
 }
 window.kosmosVoiceEvent = voiceOnEvent;
@@ -61401,6 +62223,11 @@ let VOICE_PRESSED = null;   // { mic, until }
 document.addEventListener('pointerdown', (e) => {
   const mic = e.button === 0 && !e.ctrlKey && e.isPrimary !== false && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
   if (!mic) return;
+  /* Slice 3: on a phone the mic is a tap, started from the click. A touch press is not a user activation (only its
+     release is), a phone browser may refuse to start the microphone outside one, and a held finger on a phone opens the
+     long-press menu and drifts into a scroll. */
+  const pb = voiceBridge();
+  if (pb && pb.phone) return;
   /* One press at a time: a second pointer does not take over the first. A press whose release the page never heard (let
      go over a menu or the title bar) does not block for good: the same pointer pressing again, or 10 s, ends it. */
   if (VOICE_PRESS && VOICE_PRESS.pointer !== e.pointerId && Date.now() - VOICE_PRESS.at < 10000) return;
@@ -61423,7 +62250,7 @@ function voiceRelease(e) {
      would drop the start, so it is taken as a tap, and the next tap stops. */
   if (!VOICE.listening) return;
   const h = voiceBridge();
-  if (h) h.postMessage({ op: 'stop' });   // a hold: let go and it stops, keeping what it heard
+  if (h) voiceStop(h);   // a hold: let go and it stops, keeping what it heard
 }
 /* Keep focus (and the caret) in the box: the mic's own mousedown is prevented (a real or a touch-emulated one), which
    stops the focus move and nothing else, so the document's close-on-mousedown-outside listeners (the emoji panel, a custom select) still run. Preventing
@@ -61473,7 +62300,7 @@ document.addEventListener('click', (e) => {
 }, true);
 document.addEventListener('keydown', (e) => {
   if (!VOICE.btn || e.target !== VOICE.box) return;
-  if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); const h = voiceBridge(); if (h) h.postMessage({ op: 'stop' }); return; }
+  if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); const h = voiceBridge(); if (h) voiceStop(h); return; }
   if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(e.key)) return;
   voiceCancel();   // typing (or Enter to send) takes the box back; the words heard so far stay
 }, true);
@@ -61484,7 +62311,20 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { voi
 window.addEventListener('pagehide', () => voiceCancel());
 window.addEventListener('hashchange', () => voiceCancel());
 window.addEventListener('popstate', () => voiceCancel());
-try { if (voiceBridge()) document.documentElement.classList.add('has-voice'); } catch { /* no page root (the node harnesses): nothing to draw */ }
+try {
+  const vb = voiceBridge();
+  // Slice 3: on a phone every mic's label says who hears the audio from the start, not only once it is used, and the
+  // bar that says it while listening is built FIRST: no bar, no mic (voiceToggle also refuses to start without it).
+  if (vb && vb.phone) {
+    const bar = document.createElement('p');   // voiceWho's bar, empty (and so invisible) until a mic is tapped
+    bar.id = 'voice-who';
+    bar.setAttribute('role', 'status');
+    bar.setAttribute('aria-live', 'polite');
+    document.body.appendChild(bar);
+    document.querySelectorAll('.micbtn').forEach((m) => voicePaint(m, 'off'));
+  }
+  if (vb) document.documentElement.classList.add('has-voice');
+} catch { /* no page root (the node harnesses): nothing to draw */ }
 
 /* ---- read aloud ---- */
 const SPEAK = { btn: null, text: '', where: '', seq: 0, nth: 0 };
@@ -71548,6 +72388,8 @@ function asbLayerEnsure() {
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
   document.body.appendChild(layer);
+  // #4409 slice 3: built after the page's mics were labelled, so label this one too (on a phone it says who hears).
+  try { if (typeof voicePaint === 'function' && voiceBridge()) voicePaint(document.getElementById('asp-mic'), 'off'); } catch { /* no voice */ }
   document.getElementById('asb').addEventListener('click', () => asbOpen());
   asbCloseWire();
   document.getElementById('asb-nudge-go').addEventListener('click', () => asbOpen());

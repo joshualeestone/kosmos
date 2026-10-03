@@ -105,10 +105,50 @@ HF="$(mktemp "${TMPDIR:-/tmp}/staging-exp-auth.XXXXXXXX")" || { say "mktemp fail
 chmod 600 "$HF" 2>/dev/null || true
 printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
 NONCE="$(curl -sS -m 15 -H @"$HF" -X POST "$URL/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' | head -1)"
+# #5084: WHICH release this board runs, read from the board itself through GET /api/version (read-only: a
+# constant, no update check). A pass describes THIS version, so an operator never reads "a fresh session can use
+# 0.7.19" off a board still on 0.7.18 (it happened on the 0.7.19 promote). NEVER POST /api/update/check for this:
+# it can start an install (round 1 of #5084, measured). A board too old to have the route reads as "cannot read",
+# which is the truth: it cannot speak for the candidate, which has the route. Same off-argv token header, parsed
+# with node (not a sed over the line).
+BOARD_VERSION=""; VERSION_WHY=""
+if [ -n "$NONCE" ]; then
+  VNODE="${NODE:-}"; [ -n "$VNODE" ] && [ -x "$VNODE" ] || VNODE="$(command -v node 2>/dev/null || true)"
+  if [ -z "$VNODE" ]; then
+    VERSION_WHY="no node on this machine to read its answer"
+  else
+    # The HTTP code says WHICH cannot-read it is (Baron's review): 404 is a board older than this route.
+    VRESP="$(curl -sS -m 15 -H @"$HF" -w '\n%{http_code}' "$URL/api/version" 2>/dev/null || true)"
+    VCODE="${VRESP##*$'\n'}"; VBODY="${VRESP%$'\n'*}"
+    case "$VCODE" in
+      200) VERSION_WHY="GET /api/version answered no version we could read" ;;
+      404) VERSION_WHY="GET /api/version: HTTP 404, a board older than this route (#5084)" ;;
+      000|"") VERSION_WHY="GET /api/version got no answer (no reply in 15 s, or the connection dropped)" ;;
+      *) VERSION_WHY="GET /api/version: HTTP $VCODE" ;;
+    esac
+    [ "$VCODE" = 200 ] && BOARD_VERSION="$(printf '%s' "$VBODY" | "$VNODE" -e 'let b="";process.stdin.on("data",(d)=>{b+=d}).on("end",()=>{try{const v=JSON.parse(b).running;if(typeof v==="string"&&/^[0-9][0-9A-Za-z.+-]*$/.test(v))process.stdout.write(v)}catch{}})' 2>/dev/null || true)"
+  fi
+fi
 rm -f "$HF"; HF=""   # cleared so the EXIT trap's rm is exact, not a no-op on a stale path
 if [ -z "$NONCE" ]; then
   say "FAIL: could not mint a browser-open nonce (board not answering on :$PORT, or the token was refused)."
   exit 1
+fi
+# #5084: KOSMOS_GATE_EXPECT_VERSION (promote-channel sets it to the version it is promoting). A board on
+# another version, or one whose version cannot be read, cannot speak for the candidate: cannot-tell, so
+# a promote HOLDS (forceable only after a hand check) instead of passing on the previous release.
+if [ -n "${KOSMOS_GATE_EXPECT_VERSION:-}" ] && [ "$BOARD_VERSION" != "$KOSMOS_GATE_EXPECT_VERSION" ]; then
+  if [ -z "$BOARD_VERSION" ]; then
+    say "cannot-tell: could not read which version the board on :$PORT runs ($VERSION_WHY), so this check cannot speak for $KOSMOS_GATE_EXPECT_VERSION."
+  else
+    say "cannot-tell: the board on :$PORT runs $BOARD_VERSION, not $KOSMOS_GATE_EXPECT_VERSION: this check would test another release, not the one being promoted."
+  fi
+  # What the operator can actually do (Baron's review: a prod-channel fleet board cannot take the candidate before
+  # the promote, so "update it first" sent them nowhere).
+  say "  To check $KOSMOS_GATE_EXPECT_VERSION here: point a board at staging (AGENT_WORKFORCE_UPDATE_CHANNEL=staging, or"
+  say "  KOSMOS_UPDATE_CHANNEL=staging on a fresh install). Or verify by hand, promote with --force, and once this board"
+  say "  reports $KOSMOS_GATE_EXPECT_VERSION run: KOSMOS_GATE_EXPECT_VERSION=$KOSMOS_GATE_EXPECT_VERSION bash $(cd "$(dirname "$0")" && pwd)/staging-experience-check.sh $PORT"
+  exit 2
 fi
 
 # 2. Redeem it the way the browser's first navigation does: GET /?boot=<nonce> must
@@ -162,6 +202,6 @@ if [ "$SEEDED_BEFORE" = 0 ] && [ ! -f "$ROOT/.reauth-seeded" ]; then
   say "warn: session is usable but the redemption did NOT write .reauth-seeded (the #2030 marker) - the board may predate #2030; worth a look."
 fi
 
-say "USABLE: a fresh session minted a nonce, redeemed the durable cookie, and reached /api/accounts (HTTP $API_CODE)."
+say "USABLE on ${BOARD_VERSION:-an unread version}: a fresh session minted a nonce, redeemed the durable cookie, and reached /api/accounts (HTTP $API_CODE)."
 say "  The post-update board experience works - the #2023 class is not present."
 exit 0

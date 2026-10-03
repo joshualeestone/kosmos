@@ -6,7 +6,7 @@
  * `node --test` can prove the seven sections exist in the markup and that each
  * box is inside the right one. It cannot prove that clicking a pill puts that
  * section on screen and takes the others off it, that the pill reads as "on",
- * or that the page still draws in both themes with a sticky column beside it.
+ * or that the page still draws in both themes with the nav column beside it.
  * This can.
  *
  * ⚠️ THE SERVER RUNS IN THIS PROCESS WITH A FIXTURE FLEET, and every state root

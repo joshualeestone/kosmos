@@ -1,6 +1,6 @@
 'use strict';
-/* #3997 (reopened, ruling C): an idle, signed-in Claude account shows its login as good ("Signed in · login good
-   until <date>", calm and neutral), read from its own login date, and never turns green from that alone.
+/* #3997: an idle, signed-in Claude account shows its login as good ("Signed in · login good until <date>"), read
+   from its own login date. Ruling C (09-28) drew it neutral; ruling A (Josh, 10-02) draws it green.
    The login-date reader is injected (claudeloginlive.setReaderForTests): no keychain is read. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -95,13 +95,16 @@ async function rows() {
   return map;
 }
 
-test('#3997: an idle sign-in with a login ahead carries its date, and stays unverified (not green)', async () => {
+test('#3997 ruling A: an idle sign-in with a login ahead carries its date and is GREEN, from its login', async () => {
   const m = await rows();
   for (const email of ['boss@example.com', 'aria@example.com']) {
-    assert.equal(m.get(email).badge, 'signed_in_unverified', email + ' changed badge: ' + JSON.stringify(m.get(email)));
+    assert.equal(m.get(email).badge, 'working', email + ' is not green: ' + JSON.stringify(m.get(email)));
+    assert.equal(m.get(email).observedFrom, 'login', email + ' was not marked green from its login');
     assert.equal(m.get(email).loginValidUntil, FUTURE, email + ' did not carry its login date');
   }
+  // CONTROL: a login that has run out stays unverified (not green, no date), the honest state.
   assert.equal(m.get('cleo@example.com').badge, 'signed_in_unverified');
+  assert.notEqual(m.get('cleo@example.com').observedFrom, 'login');
   assert.equal(m.get('cleo@example.com').loginValidUntil, undefined, 'a login that has run out was shown as good');
 });
 
@@ -119,6 +122,10 @@ test('#3997: a rejection on record, fresh or old, is never shown as a good login
   assert.equal(m.get('aria@example.com').badge, 'rejected');
   assert.equal(m.get('aria@example.com').loginValidUntil, undefined, 'a fresh rejection still showed the login as good');
   assert.equal(m.get('boss@example.com').loginValidUntil, undefined, 'an old rejection was overridden by the login date');
+  for (const email of ['aria@example.com', 'boss@example.com']) {
+    assert.notEqual(m.get(email).badge, 'working', email + ' with a rejection on record was shown green');
+    assert.notEqual(m.get(email).observedFrom, 'login', email + ' with a rejection on record was greened by its login');
+  }
 });
 
 test('#3997: a real request still turns a row green the usual way, and that row is not also a "login good" row', async () => {
@@ -129,8 +136,51 @@ test('#3997: a real request still turns a row green the usual way, and that row 
   assert.notEqual(m.get('boss@example.com').observedFrom, 'login');
 });
 
-test('#3997 ruling C: with the switch off, a login alone never turns a row green', async () => {
-  assert.equal(claudeloginlive.GREEN_FROM_LOGIN, false, 'the switch is on, which Liu Kang ruled against until Josh says otherwise');
+test('#3997 ruling A: the switch is on (Josh, 10-02), and only rows whose login is good are greened by it', async () => {
+  assert.equal(claudeloginlive.GREEN_FROM_LOGIN, true, 'the switch is off, so a signed-in Claude account stays grey (Josh, 10-02)');
   const m = await rows();
-  for (const [email, c] of m) assert.notEqual(c.observedFrom, 'login', email + ' was greened by its login');
+  for (const [email, c] of m) {
+    if (c.observedFrom === 'login') assert.ok(Number.isFinite(c.loginValidUntil) && c.loginValidUntil > Date.now(), email + ' was greened without a good login: ' + JSON.stringify(c));
+  }
+});
+
+/* #3997 review 1: a Check now that Anthropic refuses without the dead-sign-in words (a 403, a disabled organisation)
+   records no outcome, so the login-green must not outlive it; capacity is not a failure and keeps the green. */
+async function checkNow(dir) {
+  const res = await fetch(base + '/api/accounts/claude/check', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }),
+  });
+  return { status: res.status, body: await res.json() };
+}
+test('#3997 review 1: a failed Check now (non-zero, not capacity, not a dead sign-in) takes the login-green away until a later check answers', async () => {
+  const before = await rows();
+  assert.equal(before.get('aria@example.com').observedFrom, 'login', 'premise: aria starts green from its login');
+  create.setClaudeProbe(async () => ({ exitCode: 1, out: 'API Error: 403 {"type":"error","error":{"type":"permission_error","message":"This organization has been disabled."}}' }));
+  try {
+    const r = await checkNow(ARIA_DIR);
+    assert.equal(r.body.state, 'unknown');
+    const m = await rows();
+    assert.notEqual(m.get('aria@example.com').badge, 'working', 'a refused Check now left the row green: ' + JSON.stringify(m.get('aria@example.com')));
+    assert.notEqual(m.get('aria@example.com').observedFrom, 'login');
+    // Per-row: boss, never checked, keeps its login-green.
+    assert.equal(m.get('boss@example.com').observedFrom, 'login', 'the refusal leaked to another account');
+  } finally { create.setClaudeProbe(null); }
+  // A later Check now that answers connected clears it (green from the check itself).
+  create.setClaudeProbe(async () => ({ exitCode: 0, out: 'ok' }));
+  try {
+    await checkNow(ARIA_DIR);
+    const m = await rows();
+    assert.equal(m.get('aria@example.com').badge, 'working', 'a good check after a refusal did not turn the row green');
+    // Review 3: the green above would show from the fresh check alone; the mark itself must be gone too.
+    assert.equal(claudeloginlive.checkRefused(ARIA_DIR), false, 'a connected Check now did not clear the failed-check mark');
+  } finally { create.setClaudeProbe(null); }
+});
+test('#3997 review 1 control: capacity is not a failure, and keeps the login-green', async () => {
+  create.setClaudeProbe(async () => ({ exitCode: 1, out: 'API Error: 429 rate_limit_error: usage limit reached' }));
+  try {
+    const r = await checkNow(ARIA_DIR);
+    assert.equal(r.body.state, 'unknown');
+    const m = await rows();
+    assert.equal(m.get('aria@example.com').observedFrom, 'login', 'a capacity answer took the green away: ' + JSON.stringify(m.get('aria@example.com')));
+  } finally { create.setClaudeProbe(null); }
 });

@@ -137,7 +137,8 @@ a running exe and a folder holding a loaded DLL (measured on the box).
 
 **Off on main.** `FirstRunChoice` in `KosmosLauncher.cs` is the release switch, the twin of the
 Mac's `kosmosFirstRunChoice`. Off, the mode file is never read and every computer runs agents
-exactly as before. It turns on with #4382, once a connect computer can update itself.
+exactly as before. The Mac's turned on with #4382, its connect computers' update look. This one
+turns on once a connect Windows computer can update itself (the Windows half of #4382, in #4381).
 
 With it on, the choice is one word in `%LOCALAPPDATA%\Kosmos\mode` (`run`, `connect` or `both`),
 read with the Mac's rules byte for byte: no file is `unset`, anything else (a `\r\n` ending, a byte

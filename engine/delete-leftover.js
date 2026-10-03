@@ -21,8 +21,11 @@
  *
  * What it touches, and nothing else: `<WORKERS_DIR>/<name>`,
  * `<AGENTS_DIR>/<label>.plist` (both resolved by `create.js`, one definition
- * of where an agent lives), the agent's SENDER TOKENS, and (#5000) its
- * community moderation standing, which goes back to the start.
+ * of where an agent lives), the agent's SENDER TOKENS, its failed-restart
+ * record, its community moderation standing (#5000, which goes back to the
+ * start), and (#4994) its COMMUNITY ACCOUNT, which is retired: a request file
+ * under the community folder, and a never-send mark on its posts and comments
+ * in the board's community store.
  *
  * 🛑 ON WINDOWS THE SECOND OF THOSE IS NOT A FILE (#570). The job is a Scheduled
  * Task, so this module -- which exists to say a name is FREE -- was looking for a
@@ -169,6 +172,40 @@ function trashCanTake(p) {
   } catch { return false; }
 }
 
+/* #5003: the agent's own spelling of `asked`, read from the disk, on a case-blind platform, and only when the two differ
+   in case alone. In order:
+   1. (Mac) the name inside its auto-start file's real name: that file IS the launchd label the delete must stop, so
+      when it exists its spelling wins and the folder is NOT read at all (the early return is deliberate).
+   2. its folder's real name, but only when no folder is recorded for the agent, so the folder is the default one in
+      the workers folder (workerDir answers a recorded folder or that, nothing else). A connected agent's recorded
+      folder can be named anything (discover.connect lets a person type the name), so its name says nothing.
+   A linked folder is not read here (plan() refuses it). Anything unreadable leaves `asked`.
+   ⚠️ KNOWN GAP: a Windows leftover with ONLY its startup task. Task Scheduler ignores case, so the task is removed,
+   but the board's other records keep the asked spelling. Reading the task's real name means parsing schtasks
+   output, which this Mac-built change cannot test against a real Windows answer. */
+function realCaseName(asked, platform) {
+  if (platform !== 'darwin' && platform !== 'win32') return asked;
+  const sameButCase = (real) => (typeof real === 'string' && real !== asked && real.toLowerCase() === asked.toLowerCase() ? real : null);
+  if (platform === 'darwin') {
+    try {
+      const real = path.basename(fs.realpathSync.native(create.plistPath(asked)), '.plist');
+      const parsed = create.parseServiceLabel(real);
+      const named = sameButCase(parsed && parsed.name);
+      if (parsed) return named || asked;
+    } catch { /* no auto-start file: try the folder */ }
+  }
+  let recorded = null;
+  try { recorded = require('./store').readProfile(asked).dir || null; } catch { recorded = null; }
+  if (recorded) return asked;
+  try {
+    const dir = create.workerDir(asked);
+    const st = fs.lstatSync(dir);
+    if (!st.isDirectory() || st.isSymbolicLink()) return asked;
+    const real = fs.realpathSync.native(dir);
+    return sameButCase(path.basename(real)) || asked;
+  } catch { return asked; }
+}
+
 /**
  * What deleting would do, in the engine's words. `ok: false` with a `because`
  * when it must not be offered. The confirmation paints THESE words, never its
@@ -183,17 +220,31 @@ function plan(name, opts) {
      The default is the real platform, so production is unchanged; the parameter
      is what lets the fleet's Macs drive the win32 arm. */
   const platform = (opts && opts.platform) || process.platform;
-  const clean = create.cleanName(name);
+  /* #5003: on a case-blind disk the leftover may be asked for in a case other than its own ('miles' for Miles). The
+     files are found either way, but launchd's label, the removed-list record and the board's other records are
+     keyed by the agent's OWN spelling, so every later step uses the name as it is on disk. */
+  const clean = realCaseName(create.cleanName(name), platform);
   const unsafe = remove.unsafeToActOn(clean);
   if (unsafe) return { ok: false, because: unsafe };
   const shown = status.readIdentity(clean).displayName || clean;
 
   let live = null;
-  try { live = status.paneRoster().find((c) => c.sessionName === clean) || null; }
+  /* #5003: a Mac's or a Windows disk does not tell case apart, so workerDir('miles') and plistPath('miles') find the
+     files of an agent named Miles. The running check must be just as blind to case, or a delete asked as 'miles'
+     while Miles runs finds no live session and moves the RUNNING agent's folder and job. Case-blind here is the safe
+     side: on a rare case-sensitive disk it refuses a delete that would have been fine, and the sentence says Kosmos took
+     the two names as one. */
+  const caseBlind = platform === 'darwin' || platform === 'win32';
+  const sameName = (a) => (caseBlind ? String(a).toLowerCase() === clean.toLowerCase() : a === clean);
+  try { live = status.paneRoster().find((c) => sameName(c.sessionName)) || null; }
   catch {
     return { ok: false, because: `we could not check whether ${shown} is running right now, so we have not offered to delete anything. Try again in a moment.` };
   }
-  if (live) return { ok: false, because: `${shown} is running, so there is nothing left over to delete. Remove it first if you want it gone.` };
+  if (live) {
+    const who = live.sessionName === clean ? shown : (status.readIdentity(live.sessionName).displayName || live.sessionName);
+    const same = live.sessionName === clean ? '' : ` (Kosmos treats ${clean} and ${live.sessionName} as the same name here)`;
+    return { ok: false, because: `${who} is running${same}, so there is nothing left over to delete. Remove it first if you want it gone.` };
+  }
 
   const folderPath = create.workerDir(clean);
   /* On the Mac the job is a FILE, and freeing the name means moving it to the
@@ -257,15 +308,27 @@ function plan(name, opts) {
       ? 'Its startup job, so nothing tries to start it again'
       : 'Its auto-start file, so nothing tries to start it again');
   }
+  /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
+     rather than promising everything can be got back. */
+  let community = false;
+  try { community = require('./communitysend').hasAccount(clean); } catch { community = true; }   // cannot tell: say it
+  if (community) loses.push('Its community account: anything it posted there stays up, and a new agent with this name joins as a new account, under a changed public name if the old one is still taken');
+  /* What it wrote for the community and has not sent is marked never to send by the delete, and a folder brought back
+     from the Trash does not undo that, so it is named even when there is no account. */
+  let waiting = 0;
+  try { waiting = require('./communitysend').unsentCount(clean); } catch { waiting = 1; }
+  if (waiting) loses.push('Anything it wrote for the community that has not gone out yet: it never goes, even if you bring its folder back');
   const question = `Delete what is left of ${shown}?`;
   /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
      not the "gone for good" case the Trash sentence is written for. */
   const jobOnlyTask = jobIsTask && !folder;
   const reassurance = toTrash
-    ? `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`
+    ? (community || waiting
+      ? `Its files go to the Trash, where you can get them back until you empty it. ${community ? 'Its community account does not come back' : 'Anything it wrote for the community that has not gone out stays unsent'}. After this, the name ${shown} is free for a new agent.`
+      : `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`)
     : jobOnlyTask
-      ? `Nothing you can lose is stored in it. After this, the name ${shown} is free for a new agent.`
-      : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good. After this, the name ${shown} is free for a new agent.`;
+      ? `Nothing you can lose is stored in it${community ? ', but its community account does not come back' : waiting ? ', but anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
+      : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
     : jobIsTask ? 'Remove its startup job'
@@ -394,10 +457,34 @@ function del(name, opts) {
     stuck.push('its sender tokens');
     steps.push({ step: 'its sender tokens', ok: false, because: (tokens && tokens.because) || 'no reason given' });
   }
+  /* #4994: the name's community account. NOT best-effort, for the same reason as the tokens above: a new agent
+     under the freed name would otherwise post as the old one, with its public posts and profile. The account is
+     retired, not dropped (communitysend.requestRetire says why); this only records the request, which is applied
+     before the community sender next acts. Only once the folder and the job are gone: retiring cannot be undone,
+     and while either is left the agent can still start. A stuck token alone does not hold it back, because a retry
+     is refused once the folder and job are gone, so this is the only chance to retire it. */
+  if (!stuck.some((s) => s !== 'its sender tokens')) {
+    try {
+      require('./communitysend').requestRetire(p.name);
+      steps.push({ step: 'its community account', ok: true });
+    } catch (err) {
+      stuck.push('its community account');
+      steps.push({ step: 'its community account', ok: false, because: String((err && err.message) || err) });
+    }
+  }
   if (stuck.length) {
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
-      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.join(' or ')}. ` + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`),
+      /* #4994: the community account is retired, not moved or deleted, and only once everything else is gone, so a
+         failure there is its own sentence: the old account still answers to the name. #5000's standing reset has
+         already run by here (it is unconditional and early-returns on failure), so the all-stuck tail says so. */
+      because: (stuck.length === 1 && stuck[0] === 'its community account' && gone.length)
+        ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone, but we could not retire its community account yet. Making a new agent with this name retires it first, or refuses.`
+        : (stuck.some((x) => x !== 'its community account')
+          ? `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.filter((x) => x !== 'its community account').join(' or ')}`
+            + (stuck.includes('its community account') ? ', or retire its community account yet' : '')
+          : 'we could not retire its community account yet. Making a new agent with this name retires it first, or refuses')
+          + '. ' + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`),
       steps,
     };
   }

@@ -2163,6 +2163,13 @@ KOSMOS_SWEEP_LIST
     printf '  ~/.claude/settings.json (agents skip per-action permission prompts).\n'
     printf '  Delete that line there if you want the question back.\n\n'
   fi
+  # #5039: the same rule for the model-switch setting Kosmos's agents write beside it (the person may also have set
+  # it with "Switch automatically"; an uninstaller cannot tell). The value, as above.
+  if [ -f "$HOME/.claude/settings.json" ] && grep -Eq '"switchModelsOnFlag": *true' "$HOME/.claude/settings.json" 2>/dev/null; then
+    printf '  A setting was left in place: switchModelsOnFlag in ~/.claude/settings.json\n'
+    printf '  (Claude switches to another model when Opus safeguards flag a message).\n'
+    printf '  Set it to false there if you want to be asked instead.\n\n'
+  fi
   # #3946: the status line Kosmos adds to record weekly usage is ours by its marker,
   # but the bundled Node that could edit the JSON is gone by now, so it is NAMED, as
   # the header's rule asks. Left in place it points at files this uninstall removed,
@@ -2722,9 +2729,26 @@ _kosmos_put_board_back() {
     printf '  Kosmos was paused for this update and could not be started again. Open the Kosmos app, or run: kosmos start\n\n' >&2
   fi
 }
+# #5033: the three refusals at the pause (our board would not pause, another Kosmos or another app on the port) die
+# BEFORE the put-back is armed, because starting our board there would collide. But our own `kosmos stop` may already
+# have written board.stopped, and launchd's KeepAlive, `kosmos board-run` and the watchdog all obey it, so once the port
+# was free the board still stayed off. So: on any failed exit in that window (a refusal, or a signal during the probe),
+# when the board was meant to run and had no marker before the run, the marker is taken away (one written by a person
+# in the seconds between our stop and the exit goes with it). This script starts nothing; what supervises the board is
+# no longer held off by the marker, as before the run (board-run exits quietly while a stranger holds the port, so
+# launchd's retries until the port is free are silent). Disarmed where the put-back is armed.
+_kosmos_marker_ours=no
+_kosmos_clear_own_marker() {
+  [ "$_kosmos_marker_ours" = yes ] || return 0
+  _kosmos_marker_ours=no
+  # As the put-back does: a computer switched to connect elsewhere during the run keeps its board off.
+  _kosmos_board_decide 2>/dev/null || true
+  [ "${_kosmos_board_off:-no}" = yes ] && return 0
+  rm -f "$KOSMOS_HOME/board.stopped" 2>/dev/null || true
+}
 _kosmos_on_exit() {
   _kosmos_exit_rc=$?
-  if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; fi
+  if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; _kosmos_clear_own_marker || true; fi
 }
 trap '_kosmos_on_exit' EXIT
 # Review 2: a hang-up (the Terminal window closed during the download) or a TERM ran the EXIT trap with status 0, so the
@@ -2743,6 +2767,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   if ! _kosmos_mode_keeps_board_off && [ ! -e "$KOSMOS_HOME/board.stopped" ]; then
     _kosmos_was_running=yes
   fi
+  _kosmos_marker_ours="$_kosmos_was_running"   # #5033: armed before the stop, which writes the marker and then waits
   "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true
   # Did the stop actually work? A POST-CONDITION of the line above, which is
   # why it needs the binary to exist. Fresh installs get their own check far
@@ -2836,6 +2861,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   # used to leave the board off with board.stopped written. Not armed on the three dies above: our board still running,
   # another install's board, or another app on the port (starting ours there would collide).
   _kosmos_paused_board="$_kosmos_was_running"
+  _kosmos_marker_ours=no   # #5033: the take-back covers only the refusals above
   # ⚠️ GONE BY PORT, not merely quiet over HTTP: a listener that stopped
   # answering the probe (mid-shutdown, wedged, or simply not speaking
   # HTTP) still holds the port, and the final start would then find a
