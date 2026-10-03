@@ -54934,6 +54934,11 @@ function memberDotClass(row) {
  * never as something healthy, and never as nothing at all.
  */
 function pjMember(m, suppressTold, withMinus, hideState) {
+  /* #5154: the crash loop. The projection carries it (projects.js, from safeRoster); one that never had the field (`in`)
+     borrows it from the latest /api/status, so the members row and the card agree. Before liveM, which keeps its shape. */
+  if (m && typeof m === 'object' && !('crashLoop' in m) && typeof LAST !== 'undefined' && Array.isArray(LAST)) {
+    m = Object.assign({}, m, { crashLoop: ((LAST.find((a) => a && a.sessionName === m.sessionName)) || {}).crashLoop || null });
+  }
   /* #3410: where the automatic reconnect stands. #3726: the member projection now carries it
      (m.reconnect, from the same /api/projects answer the project's Issue pill counts from), so the
      row reads that FIRST and the pill and the row agree by construction; the latest /api/status
