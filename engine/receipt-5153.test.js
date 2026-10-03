@@ -337,3 +337,53 @@ test('a Grok agent is still not read (not in this slice), never a guessed zero',
   const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
   assert.deepEqual([a.provider, a.available, a.because, a.models], ['grok', false, 'provider', undefined]);
 });
+
+test('a forked Codex session: the parent\'s replayed calls are not this hold\'s; calls after the fork are', async () => {
+  const project = 'p' + (++pn);
+  const nia = worker('nia');
+  store.writeProfile('nia', { provider: 'openai' });
+  activity(project, 1, [{ at: '09:00', kind: 'created', who: 'nia' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  const ev = (at, type, payload) => ({ timestamp: T(at), type, payload });
+  const call = (at, id) => ev(at, 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: id, input: 'await tools.exec_command({cmd:"x"});' });
+  const tc = (at, i, o) => ev(at, 'event_msg', { type: 'token_count', info: { total_token_usage: { input_tokens: i, cached_input_tokens: 0, output_tokens: o } } });
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-30-00-nia.jsonl'), jl([
+    ev('10:30', 'session_meta', { cwd: fs.realpathSync(nia), forked_from_id: 'parent', timestamp: T('10:30') }),
+    call('09:30', 'parent-1'),            // replayed from the parent, stamped before the fork
+    tc('09:31', 500, 50),                 // the parent's total: a baseline
+    call('10:40', 'own-1'),               // after the fork
+    tc('10:41', 700, 70),
+  ]));
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.equal(a.commands, 1, 'only the call made after the fork');
+});
+
+test('a receipt kept by slice 1 with no Codex or Gemini agent is kept as it was, not worked out again', async () => {
+  const project = 'p' + (++pn);
+  worker('oz');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'oz' }, { at: '11:00', kind: 'closed' }]);
+  const kept = { version: 1, closedAt: T('11:00'), retries: { reopened: 0, handoffs: 0 },
+    agents: [{ who: 'oz', provider: 'claude', available: true, commands: 7, files: ['a.md'], models: {}, transcriptsWithWork: 1 }] };
+  const f = receipt.receiptFile(project, 1);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(kept));
+  assert.equal((await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('12:00') })).agents[0].commands, 7,
+    'a good slice 1 receipt was thrown away (its transcripts may be gone)');
+  kept.agents[0] = { who: 'oz', provider: 'codex', available: false, because: 'provider' };   // one slice 2 can now read
+  fs.writeFileSync(f, JSON.stringify(kept));
+  assert.equal((await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('12:00') })).agents[0].available, true);
+});
+
+test('a malformed Codex session marks that agent partial; the receipt still answers', async () => {
+  const project = 'p' + (++pn);
+  const pip = worker('pip');
+  store.writeProfile('pip', { provider: 'openai' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'pip' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-pip.jsonl'), 'null\n');
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:00') + receipt.SETTLE_MS });
+  assert.equal(r.agents[0].complete, false);
+  assert.equal(fs.existsSync(receipt.receiptFile(project, 1)), false, 'a partial receipt is not kept');
+});

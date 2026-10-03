@@ -29,3 +29,13 @@ are exported. The receipt gives the readers an accumulator of its own that keeps
 That a Codex patch whose output does not begin "Script completed" changed nothing. Only completed outputs (and one
 abort) exist here; a partial failure inside a script that still reports completed would count its patch. Shown as
 "Edited", which errs toward an attempted edit only in that unmeasured case.
+
+## Review 1 (opus): CLEAN, 2 conditional WARNINGs, both taken; NITs
+- A forked Codex rollout replays the parent's tool calls: skipped by the token count's own rule (stamped at or before
+  the fork, or before the first total), the reader passing { forked, forkAt, totals } to the hook. Test and mutant.
+- The VERSION bump would rework a good slice 1 receipt kept before its transcripts were pruned: a VERSION 1 receipt
+  with no Codex or Gemini agent is kept as it was (one with such an agent is worked out again). Tests both ways.
+- NITs taken: a bad session file marks that agent partial instead of failing every agent's receipt; a relative patch
+  path is resolved against the session's folder. Not taken (recorded): commands are counted from the script text (a
+  loop is one, a quoted mention is one); an id-less Gemini call is not counted (no way to count it once); old tasks
+  re-read the providers' files from the first hold's day until kept.
