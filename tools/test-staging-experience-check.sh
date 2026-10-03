@@ -28,9 +28,55 @@ KOSMOS_STORE_ROOT="$TMPROOT2" bash "$CHECK" 19998 >/dev/null 2>&1
 rc=$?; rm -rf "$TMPROOT2"
 [ "$rc" = 1 ] && pass "enforcing but board unreachable -> alarm (exit 1)" || bad "unreachable board should exit 1, got $rc"
 
-# The exit-0 USABLE path requires a live enforcing board. Stated so its absence here
-# is not misread as missing coverage (it is validated by hand against a running board).
-pass "note: the exit-0 USABLE path is validated by hand against a live enforcing board (CI has none)"
+# #5084: WHICH version the gate checked. A fake enforcing board (node, loopback, a free port) answers the
+# four requests the gate makes, and reports a version of our choosing from POST /api/update/check. It
+# proves: a board on another version than KOSMOS_GATE_EXPECT_VERSION is cannot-tell (2) and says so; a
+# board whose version cannot be read is cannot-tell too; a matching board passes and names its version;
+# and with no expected version the gate behaves as before (back-compatible for a hand run).
+FAKE="$(mktemp -d "${TMPDIR:-/tmp}/staging-exp-fake.XXXXXXXX")"
+printf 'feedfacefeedface\n' > "$FAKE/board.token"
+cat > "$FAKE/board.js" <<'JS'
+const http = require('node:http');
+const [tok, ver] = [process.argv[2], process.argv[3]];
+const s = http.createServer((q, r) => {
+  const u = new URL(q.url, 'http://x'); const ok = q.headers['x-kosmos-board-token'] === tok;
+  const cookie = /kosmos_board=1/.test(q.headers.cookie || '');
+  const j = (c, o) => { r.writeHead(c, { 'content-type': 'application/json' }); r.end(JSON.stringify(o)); };
+  if (q.method === 'POST' && u.pathname === '/api/board-nonce') return ok ? j(200, { nonce: 'abcdef12' }) : j(403, {});
+  if (q.method === 'POST' && u.pathname === '/api/update/check') return ok ? j(200, ver ? { running: ver, latest: null } : { latest: null }) : j(403, {});
+  if (u.pathname === '/' && u.searchParams.get('boot') === 'abcdef12') { r.writeHead(302, { location: '/', 'set-cookie': 'kosmos_board=1; Path=/; HttpOnly' }); return r.end(); }
+  if (u.pathname === '/api/accounts') return cookie ? j(200, []) : j(403, {});
+  j(404, {});
+});
+s.listen(0, '127.0.0.1', () => process.stdout.write(String(s.address().port) + '\n'));
+JS
+fake_gate() {   # $1 board version ("" = none reported), $2 expected ("" = unset); prints rc then the output
+  node "$FAKE/board.js" feedfacefeedface "$1" > "$FAKE/port" 2>/dev/null & local pid=$!
+  local i=0; while [ ! -s "$FAKE/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+  local port; port="$(head -1 "$FAKE/port")"
+  local out rc
+  if [ -n "$2" ]; then out="$(KOSMOS_GATE_EXPECT_VERSION="$2" KOSMOS_STORE_ROOT="$FAKE" bash "$CHECK" "$port" 2>&1)"; rc=$?
+  else out="$(env -u KOSMOS_GATE_EXPECT_VERSION KOSMOS_STORE_ROOT="$FAKE" bash "$CHECK" "$port" 2>&1)"; rc=$?; fi
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -f "$FAKE/port"
+  printf '%s\n%s\n' "$rc" "$out"
+}
+r="$(fake_gate 0.7.18 0.7.19)"
+[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"runs 0.7.18, not 0.7.19"*"PREVIOUS release"*) true;; *) false;; esac \
+  && pass "#5084: a board on the previous release is cannot-tell (exit 2) and says which version it runs" || bad "#5084 previous-release board: $r"
+r="$(fake_gate "" 0.7.19)"
+[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"could not read which version"*) true;; *) false;; esac \
+  && pass "#5084: a board whose version cannot be read is cannot-tell (exit 2)" || bad "#5084 unreadable version: $r"
+r="$(fake_gate 0.7.19 0.7.19)"
+[ "$(printf '%s' "$r" | head -1)" = 0 ] && case "$r" in *"USABLE on 0.7.19:"*) true;; *) false;; esac \
+  && pass "#5084: a board on the expected version passes and names it (USABLE on 0.7.19)" || bad "#5084 matching board: $r"
+r="$(fake_gate 0.7.18 "")"
+[ "$(printf '%s' "$r" | head -1)" = 0 ] && case "$r" in *"USABLE on 0.7.18:"*) true;; *) false;; esac \
+  && pass "#5084: with no expected version the gate passes as before and names what it checked" || bad "#5084 no expectation: $r"
+rm -rf "${FAKE:?}"
+
+# The exit-0 USABLE path is also exercised above against the #5084 fake board (the four requests the gate
+# makes); a REAL board is still validated by hand, since the fake answers what the gate asks, not what Kosmos does.
+pass "note: the exit-0 path runs here against a fake board; a real board is validated by hand"
 
 if [ "$fail" = 0 ]; then
   echo "test-staging-experience-check: all CI-runnable arms passed"

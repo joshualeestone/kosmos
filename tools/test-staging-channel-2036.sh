@@ -34,7 +34,7 @@ make_site() {
 jget() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$1" "$2" 2>/dev/null; }
 # A stub gate that echoes its received port (arg1) and exits with $GATE_RC_WANT, so promote's
 # three arms run with no board AND a test can assert the [port] was forwarded to the gate.
-STUB="$T/stub-gate.sh"; printf '#!/usr/bin/env bash\nprintf "gate-arg1:%%s\\n" "${1:-}"\nexit "${GATE_RC_WANT:-0}"\n' > "$STUB"; chmod +x "$STUB"
+STUB="$T/stub-gate.sh"; printf '#!/usr/bin/env bash\nprintf "gate-arg1:%%s\\n" "${1:-}"\nprintf "gate-expect:%%s\\n" "${KOSMOS_GATE_EXPECT_VERSION:-}"\nexit "${GATE_RC_WANT:-0}"\n' > "$STUB"; chmod +x "$STUB"
 GATE="bash $STUB"
 # #2036/#2129: promote now runs a SECOND gate (the agent-spawn gate) after the experience
 # gate passes. Stub it too, defaulting to PASS (0) so every existing experience-gate case is
@@ -90,6 +90,11 @@ out="$(bash "$PUBLISH" "$S4" 2>&1)"; rc=$?
 Sp="$(make_site)"; bash "$PUBLISH" "$Sp" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Sp" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && pass "promote: gate 0 -> exit 0" || bad "promote gate0 exit (rc=$rc, out=$out)"
+# #5084: promote tells the gate WHICH version it must find on the board, so a board on the previous
+# release can never pass for the candidate; and the pass line says the gate checked that version.
+has "$out" "gate-expect:$V" && pass "promote: hands the gate the version being promoted (gate-expect:$V)" || bad "promote did not pass KOSMOS_GATE_EXPECT_VERSION=$V to the gate (out=$out)"
+! has "$out" "is not a check of" && pass "#5084: a normal pass carries no not-a-check note" || bad "#5084: the note printed on a normal pass (out=$out)"
+has "$out" "the gate checked a board running $V" && pass "promote: the pass line names the version the gate checked" || bad "promote pass line does not name the checked version (out=$out)"
 [ -f "$Sp/dist/latest.json" ] && pass "promote: wrote the prod pointer latest.json" || bad "promote did not write latest.json"
 [ "$(jget "$Sp/dist/latest.json" artifact)" = "$ART" ] && [ "$(jget "$Sp/dist/latest.json" sha256)" = "$(jget "$Sp/dist/latest-staging.json" sha256)" ] && pass "promote: latest.json names the SAME bytes as staging (pointer copy, no rebuild)" || bad "promote did not match staging"
 # The atomic write (temp + rename) must leave no temp file behind.
@@ -117,6 +122,7 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$Sh" 2>&1
 [ "$rc" = 2 ] && [ ! -f "$Sh/dist/latest.json" ] && pass "promote: gate 2 (cannot-tell) -> HOLD (exit 2), prod pointer untouched" || bad "promote gate2 hold (rc=$rc)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$Sh" --force 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "NOT automatically verified" && [ -f "$Sh/dist/latest.json" ] && pass "promote: gate 2 + --force -> promote with a hand-verified warning" || bad "promote gate2 --force (rc=$rc, out=$out)"
+has "$out" "this agent-spawn pass is not a check of $V" && pass "#5084: after a forced cannot-tell, the agent-spawn pass says it is not a check of $V" || bad "#5084: forced cannot-tell, agent pass not qualified (out=$out)"
 
 # same-bytes invariant: a staging pointer whose sha does not match the served artifact is refused BEFORE the gate
 Sm="$(make_site)"; bash "$PUBLISH" "$Sm" >/dev/null 2>&1

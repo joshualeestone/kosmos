@@ -162,9 +162,10 @@ if [ "$FAMILY" = mac ]; then
   # the fresh staging board's real port here is what keeps a wrong-port HOLD from pushing an
   # operator toward --force. When no port is given the gate falls back to KOSMOS_PORT/16180.
   echo "promote-channel: running the experience gate: $GATE_CMD${PORT:+ (port $PORT)}"
-  $GATE_CMD ${PORT:+"$PORT"}; GATE_RC=$?
+  # #5084: the gate refuses to speak for $V from a board on another version (cannot-tell, exit 2).
+  KOSMOS_GATE_EXPECT_VERSION="$V" $GATE_CMD ${PORT:+"$PORT"}; GATE_RC=$?
   case "$GATE_RC" in
-    0) echo "promote-channel: gate PASSED - a fresh session can use $V." ;;
+    0) echo "promote-channel: gate PASSED - a fresh session can use $V (the gate checked a board running $V)." ;;
     1) echo "promote-channel: gate FAILED (exit 1) - the board is broken for a fresh session (the #2023 class). REFUSING to promote; --force does not override a provably-broken board." >&2; exit 1 ;;
     2)
       if [ "$FORCE" = 1 ]; then
@@ -188,7 +189,11 @@ if [ "$FAMILY" = mac ]; then
   echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
   $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
   case "$AGENT_RC" in
-    0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online (the #2129 class is not present)." ;;
+    0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online (the #2129 class is not present)."
+       # #5084: it ran on the same board. When the experience gate could not tie that board to $V (cannot-tell,
+       # then --force), this pass is not a check of $V either; say so beside it rather than let it read as one.
+       [ "$GATE_RC" = 2 ] && echo "promote-channel: NOTE: that board was not shown to run $V (the experience gate above could not tell), so this agent-spawn pass is not a check of $V." >&2
+       ;;
     1) echo "promote-channel: agent-spawn gate FAILED (exit 1) - the CLAUDE agent did not come online (trust wedge/auth/timeout, the #2129 class). REFUSING to promote; --force does not override a provably-broken build." >&2; exit 1 ;;
     2)
       if [ "$FORCE" = 1 ]; then
