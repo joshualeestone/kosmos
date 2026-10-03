@@ -1,4 +1,4 @@
-# #5070: "Done not set" keeps its own size, under the name, on every list/Roadmap row
+# #5070: "Done not set" keeps its own size on every Roadmap row: on the name's line on a desktop, under the name on a phone
 
 ## Measured first
 The card's reasoning blamed a sentence under the name (and a 1 / -1 span). Measured on main (a sandboxed board, both
@@ -50,4 +50,15 @@ measures a row the page no longer draws.
   desktop gap is asserted at 12 px (+-1) and the line at 3 px. NIT3/4: comments corrected. Residual: on a phone's two-line row the
   fold caret centres on the whole row (top: 50%), a little low; desktop rows stay one line.
   Measured 21:59 (light turn): main 20 passed, 2 FAILED (both arms; 1162 px); branch 22/22.
-- Round 3: PENDING.
+- Round 3 (opus, blind, no browsers): 0 BLOCKER, 1 SHOULD-FIX, 4 NIT. The 40rem breakpoint is right (the consolidated layout
+  exists only at >= 960 px; below it the tab Roadmap shows). SF taken (my round-1 "NIT7 moot" was false after round 2): an
+  orphan row's ancestry chip had no Roadmap placement and the new empty track pulled it onto the name's line, squeezing the
+  name; pinned to column 1, and the arm asserts the chip stays off the line with the name >= 60 px. NIT3 taken: the arm runs
+  at 1400, 660 (the tightest desktop case) and 390, and reads the breakpoint from matchMedia, not a second copy of 640.
+  NIT4 taken: the heading. NIT2 (the rail elbow on a phone two-line row) joins the residual with the caret. NIT5: the tag's
+  size does not depend on the theme, so the arm runs light only.
+  Measured 22:05-22:09 (light turns): main 22 passed, 4 FAILED (the tag arms at all three widths, and main's own chip
+  arm at 390, where the stretched tag leaves the name 0 px); branch 29/29 after a second chip arm on a row with NO tag
+  (the first only tested a tag row, where the tag fills track 2 on a desktop; the mutant without the pin was red only at
+  390 until the no-tag arm made it red at all three widths: 25 passed, 4 FAILED). File restored byte-identical (cmp).
+- Round 4: PENDING.
