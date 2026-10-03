@@ -56,3 +56,18 @@ from a complete scan, as slice 1 does: a db that cannot be opened while fresh ke
   conversations. Test: an appended call counts once, and a cold read agrees with the cached one.
 - NITs taken: steps read ORDER BY idx and the earliest time kept; a step with no 20.3 names no call except through
   type 15 (so call 0 is not dated by the user's turn). The failed-call test is commented as pinning the outcome only.
+
+## Review 2 (sonnet): 2 WARNINGs, both taken
+- The cache's "rows from the last one read" cursor could not see a call committed late BELOW others, a rewound
+  (deleted) call, or a step changed after it was read: now every read lists each call's idx and size (no blobs) and
+  decodes only a call that is new, changed size, or the newest; a call gone from the file is dropped; steps are read in
+  full every time (small) so a step time is never cached. Tests: a late lower call, a rewrite, an append and a deleted
+  call each equal a cold read; a spy proves a decoded call is not decoded again. Residual, stated in the code: an older
+  call rewritten at exactly the same byte length (none measured; agy writes a call once it completes).
+- A call committed before its step would be frozen on the fallback day and move when the step lands: a scan with an
+  undated call that has tokens, in a conversation written in the last 10 minutes, is shown but not frozen.
+- Found while re-checking on the real copies: the measured failed call HAS a usage message (only the constant field,
+  zero tokens), so "no usage" alone did not skip it; a call with no tokens is skipped before dating. Test reshaped to
+  the measured failed call; its mutant fails it.
+- NITs taken: a conversation deleted from a listed folder is forgotten. Not taken: a type-15 step whose 20.3 is not yet
+  written is read as call 0 (proto3 cannot tell absent from 0); it can only touch call 0's day when call 0 has no step.
