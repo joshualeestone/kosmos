@@ -39,3 +39,11 @@ abort) exist here; a partial failure inside a script that still reports complete
   path is resolved against the session's folder. Not taken (recorded): commands are counted from the script text (a
   loop is one, a quoted mention is one); an id-less Gemini call is not counted (no way to count it once); old tasks
   re-read the providers' files from the first hold's day until kept.
+
+## Review 2 (sonnet): 1 WARNING, taken; NITs taken
+- The fork skip also waited for the file's first total, which drops the first real turn's calls and edits (a turn's
+  calls come before its total; for tokens that rule costs only one turn's usage): with a known fork time the skip is by
+  time alone; the first-total rule is only the fallback when the fork's time is unknown (NaN no longer skips everything).
+  The fork test now has no replayed total and a real call before the first total; the review-1 rule, the first-total
+  rule alone and no skip each fail it.
+- NIT taken: a file inside the agent's folder is shown by its short path under either spelling of the folder.

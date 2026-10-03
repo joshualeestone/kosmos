@@ -351,12 +351,12 @@ test('a forked Codex session: the parent\'s replayed calls are not this hold\'s;
   fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-30-00-nia.jsonl'), jl([
     ev('10:30', 'session_meta', { cwd: fs.realpathSync(nia), forked_from_id: 'parent', timestamp: T('10:30') }),
     call('09:30', 'parent-1'),            // replayed from the parent, stamped before the fork
-    tc('09:31', 500, 50),                 // the parent's total: a baseline
-    call('10:40', 'own-1'),               // after the fork
+    call('10:20', 'parent-2'),            // replayed, still stamped before the fork; the replay carries no total
+    call('10:40', 'own-1'),               // after the fork, BEFORE this file's first post-fork total
     tc('10:41', 700, 70),
   ]));
   const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
-  assert.equal(a.commands, 1, 'only the call made after the fork');
+  assert.equal(a.commands, 1, 'only the call made after the fork: not a replayed one, and not dropped for coming before a total');
 });
 
 test('a receipt kept by slice 1 with no Codex or Gemini agent is kept as it was, not worked out again', async () => {
