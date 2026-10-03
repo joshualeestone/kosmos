@@ -37,3 +37,9 @@ launchd agents are; before, it read their private one and saw none of its agents
 - worldenv.launchEnv() notes it is not a spawn env (taken before the drop, still carries $TMUX).
 - The source-order test anchors the call at line start and asserts exactly one.
 - Left: a SIGKILLed test run leaves two private tmux servers under /tmp/k5112*; t.after covers failures and timeouts.
+
+## Review 2 (blind Sonnet): CONVERGED, 0 blockers, 0 warnings
+- Every TMUX_PANE reader checked: board-side tmux calls take the pane from the request (from_pane), client-side
+  readers use the agent's own env, launchd agents never had the board's. Nothing needed the board's TMUX_PANE.
+- NITs left: the order test pins the drop before engine/status only (no other tmux module loads earlier today);
+  the comment could also say board-side calls always pass an explicit -t.
