@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #5167: the Mac app saves a download the page asks for. Without this, an `<a download>` click (#4930's
+ * #5167: the macOS app saves a download the page asks for. Without this, an `<a download>` click (#4930's
  * attachments, #5165's Files lists over Kosmos+) did nothing in the app's window: WebKit saves nothing
  * without a download delegate.
  *
@@ -135,7 +135,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
   assert.ok(hatch.length > 1000, 'the --kosmos-app-download-selftest hatch is gone');
   assert.match(hatch, /AppDelegate\.downloadsDirOverride = dl/, 'the selftest would write into the real Downloads');
   assert.match(hatch, /d\.webView = web/, 'the hatch does not wire webView as the app does; a provisional failure would crash it');
-  for (const row of ['A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING', 'A LINK TO ANOTHER ORIGIN SAVES NOTHING',
+  for (const row of ['A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING', 'a download link to another origin saves nothing',
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries the quarantine mark', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
@@ -152,7 +152,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
 
 test('#5167 review 5: refused downloads stay out of the window, quarantine records hold no token, connect forgets the board', () => {
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
-  assert.match(act, /if navigationAction\.shouldPerformDownload, computerMode != \.connect \{\n[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+return\n\s+\}/,
+  assert.match(act, /if navigationAction\.shouldPerformDownload \{\n[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+return\n\s+\}/,
     'a download this app will not save falls through to .allow and loads in the window');
   const fin = body('@objc(downloadDidFinish:)');
   assert.match(fin, /c\.query = nil; c\.fragment = nil/, 'the quarantine record keeps the page\'s query or fragment, which carry the board token');

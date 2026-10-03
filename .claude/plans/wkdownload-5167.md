@@ -1,6 +1,19 @@
-# wkdownload-5167: the Mac app saves a download the page asks for
+# wkdownload-5167: the macOS app saves a download the page asks for
 
 Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
+
+## Current behaviour (what holds now; the round sections below are history)
+- Saved: a download (`<a download>`, a board attachment, a board file the window cannot show, a
+  same-origin redirect) only while the committed page is a board (`isBoardPage`: a Kosmos+ computer
+  other than login/community/www, or the board this app loaded) and the file is from its origin.
+- Refused and said once: a download from a page that is not the board (any mode), an attachment
+  from anywhere else, a non-2xx answer, a download WebKit stops before it has a destination.
+- Destination: ~/Downloads, safe unique name; quarantine mark with origin-only URLs; a file that
+  cannot be marked is kept and the person is told.
+- Measured live: `--kosmos-app-download-selftest`, 15 rows, run at bundle build (loud skip without
+  a console). Pure rules: `--kosmos-app-mode-selftest`, 77 rows.
+- Known and filed: on a computer that runs agents, a plain link or a refused cross-origin redirect
+  still navigates the window (#5169).
 
 ## Problem
 In connect mode the Mac app's WKWebView loads a board over Kosmos+, where the page hands files over
@@ -90,7 +103,8 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   keeps such a file; deleting it would make downloads never work on a disk without the mark).
 - The attachment token is read up to the first `;`, without dropping an empty leading piece.
 - Not changed: in connect mode a cross-origin `<a download>` keeps the connect link policy (it opens
-  in the browser, or on the other Kosmos+ computer), which is visible, not silent.
+  in the browser, or on the other Kosmos+ computer), which is visible, not silent. (Round 8: a
+  same-origin one on a non-board Kosmos+ page is now refused and said in every mode.)
 
 ## Review round 7 changes
 - Kosmos+'s own sites (login, community, www) are not board pages. Every other Kosmos+ computer is:
