@@ -160,9 +160,16 @@ if command -v zsh >/dev/null 2>&1; then
     '-  <p id="tsk-crumb">3</p>' '+  <p id="tsk-crumb">4</p>' > "$TMP/wd-4811"
   : > "$TMP/f-4811"; : > "$TMP/m-4811"
   BCDIR_ABS="$(cd "$HERE/.." && pwd)/docs/browser-checks"
-  # Every check in the REAL folder that claims tsk-crumb (#5072: a second check, render-subback-4586, now does). The
-  # compliant-change arms below update, or excuse, all of them, so a new honest annotation cannot turn them red.
-  CRUMB_CHECKS="$(command grep -l -E '^// Browser-check-surface:(.*[[:space:]])?tsk-crumb([[:space:]]|$)' "$BCDIR_ABS"/*.js | while read -r f; do basename "$f"; done)"
+  # Every check in the REAL folder the gate itself maps to this change (#5072: a second check, render-subback-4586,
+  # now claims tsk-crumb). Selected with the gate's own parser (bc_surface_tokens_of, bc_surface_token_hits), so the
+  # compliant-change arms below update, or excuse, exactly the checks the gate would ask for.
+  WD4811_CHANGED="$(command grep -E '^[-+][^-+]' "$TMP/wd-4811")"
+  CRUMB_CHECKS="$(for f in "$BCDIR_ABS"/*.js; do
+    [ -f "$f" ] || continue
+    for tok in $(bc_surface_tokens_of "$f"); do
+      if bc_surface_token_hits "$tok" "$WD4811_CHANGED"; then basename "$f"; break; fi
+    done
+  done)"
   case "$CRUMB_CHECKS" in
     *render-alltasks.js*) pass "#4811 setup: the checks that claim tsk-crumb were found ($(printf '%s' "$CRUMB_CHECKS" | tr '\n' ' '))" ;;
     *) fail "#4811 setup: render-alltasks.js no longer claims tsk-crumb, so the arms below test nothing" ;;
@@ -232,7 +239,7 @@ if command -v zsh >/dev/null 2>&1; then
   else
     fail "#4811: a plain zsh KOSMOS_BCSG_DIR did not reach the re-run"
   fi
-  # KOSMOS_BCG_MSGS: a per-check override trailer in the given messages excuses render-alltasks.js.
+  # KOSMOS_BCG_MSGS: per-check override trailers in the given messages excuse every check in CRUMB_CHECKS.
   { printf 'x\n\n'; printf '%s\n' "$CRUMB_CHECKS" | while read -r c; do printf 'Browser-check-surface: %s excused for this test\n' "$c"; done; } > "$TMP/m-4811ok"
   if zsh -c '. "$1" && KOSMOS_BCSG_WEBDIFF="$2"; KOSMOS_BCG_FILES="$3"; KOSMOS_BCG_MSGS="$4"; KOSMOS_BCSG_DIR="$5"; kosmos_browser_check_surface_gate' _ \
        "$HERE/lib/browser-check-surface-gate.sh" "$TMP/wd-4811" "$TMP/f-4811" "$TMP/m-4811ok" "$BCDIR_ABS" >/dev/null 2>&1; then

@@ -58,3 +58,5 @@ rebased onto main (the proof's diff_hash is against main), and a free test slot.
 - Fix: the arms now list every check that claims tsk-crumb (a setup arm asserts render-alltasks.js is among them, so
   the arms cannot go vacuous). Green here (both checks found) and on an origin/main control (one found).
 - Rejected: dropping tsk-crumb from my annotation. It would make the map less true to pass a test that read live state.
+- Review 9 (blind Opus): converged, 0/0, 2 NITs, both fixed: the arms now pick checks with the gate's own parser
+  (bc_surface_tokens_of + bc_surface_token_hits against the fixture's changed lines), and a stale comment.
