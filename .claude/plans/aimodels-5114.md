@@ -24,12 +24,8 @@ That "Sign ... in again from Settings, AI Models" is clear without naming the bu
 again)" as the button's label; the sentence now says the action itself.
 
 ## Checks
-- web.aimodels-name-5114.test.js: every quoted string in web/index.html, server.js, engine/*.js (not tests), the
-  Windows CLI and the Mac CLI (install/kosmos), with comments removed first, is free of the old name in any of its
-  likely spellings (Accounts tab/screen/page/section/panel, any case; a Settings path ending in Accounts). Red on main,
-  where it lists exactly these seven at their real lines; a control proves each spelling is found and each comment
-  kind is skipped; an arm checks the nav still says AI Models.
-  Known residual: a string containing "/*" could start a stripped "comment" and hide text after it. None does today.
+- web.aimodels-name-5114.test.js: red on main, where it lists exactly these seven at their real lines. Its docblock
+  states what it reads and what it cannot see; its control arm holds a fixture for each case it claims to handle.
 - Tests that read the reworded sentences, updated: engine/create.account-connectable-1903.test.js and
   server.create-live-1903.test.js (the broken-Claude-sign-in refusal, now pinned to "Sign that account in again from
   Settings, AI Models"); server.agent-account-status-1885.test.js (the remedy still names the agent). In
