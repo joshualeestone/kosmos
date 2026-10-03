@@ -159,6 +159,7 @@ test('#4382: a running board updates itself; the verb does nothing', async () =>
   reset({ prod: '1.2.0' });
   // A process whose command line carries app/server.js, as running_pid checks.
   const { spawn } = require('node:child_process');
+  // exit code not read (#3628): a stand-in held open for its pid and command line; it is killed below.
   const fake = spawn(process.execPath, ['-e', 'setTimeout(()=>{},30000)', path.join(HOME, 'app', 'server.js')], { stdio: 'ignore' });
   try {
     fs.writeFileSync(path.join(HOME, 'board.pid'), String(fake.pid));
@@ -223,6 +224,7 @@ test('#4382: the look never starts the board\'s own install, even with Updates o
   const env = { ...process.env, KOSMOS_HOME: HOME, AGENT_WORKFORCE_DATA: DATA, KOSMOS_RELEASE_BASE: 'file://' + DIST };
   for (const k of ['AGENT_WORKFORCE_RELEASE_BASE', 'AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_UPDATE_CHANNEL', 'KOSMOS_SOURCE_CHANNEL']) delete env[k];
   const out = await new Promise((resolve, reject) => {
+    // exit code not read (#3628): any failure, a non-zero exit included, rejects with the error and stderr.
     execFile(path.join(HOME, 'runtime', 'bin', 'node'), ['-e', script], { env, timeout: 30000 }, (err, stdout, stderr) => {
       if (err) reject(new Error(String(err) + stderr)); else resolve(stdout);
     });

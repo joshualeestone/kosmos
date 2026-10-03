@@ -2331,7 +2331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 guard self.computerMode == .connect else { return }
                 self.loadConnect()
                 if outcome == .failed { self.showBoardStillRunning() }
-                self.startUpdateLooks()   // #4382: from now on this app, not a board, keeps this Mac current
+                self.startUpdateLooks()   // #4382: from now on this app, not a board, keeps this computer current
             }
         }
     }
