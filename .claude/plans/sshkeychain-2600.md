@@ -78,3 +78,7 @@ Next: full validation, proof, PR, merge.
 - install.this-computer-1290: "this Mac's Keychain" and "signed in on this Mac" -> "this computer's Keychain" and
   "signed in on this computer" (the app's one word; the sentence is not about macOS itself). "in Terminal on the Mac"
   stays (it names where to act). Re-run green: own test all arms, 4466 53/53, 1290 3/3.
+
+## Final validation (2026-10-03 01:55, Agent1s, LANG set)
+Rebased onto main for #5068 (the cx5054 leak fix). Full validation PASSED at a0d177f0b: 14389 pass, 0 fail, no leak
+lines. Merges clean onto main. Rides 0.7.21: a note only, on the direct-path start, suppressed on the installer's line.
