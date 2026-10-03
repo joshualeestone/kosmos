@@ -66,7 +66,10 @@ function read(o) {
   if (!o) { const got = read(source || {}); cached = got; fallbackAt = got.sure ? 0 : Date.now(); return got; }
   const opts = o;
   const env = opts.env || process.env;
-  const forced = normalise(env.AGENT_WORKFORCE_PERSON_LOCALE);
+  // A 2 or 3 letter language subtag, as the Mac read requires: BCP 47 also allows 5 to 8 letters, so "english" would be
+  // a (wrong) tag that reads as a sure non-English language (review 11).
+  const forcedRaw = normalise(env.AGENT_WORKFORCE_PERSON_LOCALE);
+  const forced = forcedRaw && /^[a-z]{2,3}(-|$)/i.test(forcedRaw) ? forcedRaw : null;
   if (forced) return { tag: forced, sure: true };
   if ((opts.platform || process.platform) === 'darwin') {
     const mac = macPreferred(opts.run);
@@ -111,7 +114,14 @@ function applyTo(text, tag, opts) {
   const body = blockBody(tag);
   // A read that is not sure changes nothing, in either direction (see read()).
   if (opts && opts.keep) return String(text == null ? '' : text);
-  if (!body) return projects.removeBlock(text, START, END);
+  if (!body) {
+    const str0 = String(text == null ? '' : text);
+    const at0 = projects.findBlock(str0, START, END);
+    // With the person's (or anyone's) text after it, cut exactly the block and keep one blank line between what remains
+    // (review 11: removeBlock joins the paragraphs across the gap). Last in the file: removeBlock, byte for byte.
+    if (at0 && !at0.ambiguous && str0.slice(at0.end).trim()) return cutOut(str0, at0);
+    return projects.removeBlock(str0, START, END);
+  }
   const str = String(text == null ? '' : text);
   const at = projects.findBlock(str, START, END);
   // Not there yet, or two of them (refused by the caller): spliceBlock appends, or returns the text unchanged.
@@ -121,11 +131,17 @@ function applyTo(text, tag, opts) {
      wrote anything after it, it stays where it is and is replaced in place: the board never reorders their words
      (review 7). In place is byte-equal when nothing changed, so no write. */
   if (!after.trim() || !onlyManaged(after)) return projects.spliceBlock(str, body, START, END);   // already last, or the person's words follow
-  // Cut exactly the block, then rejoin what was before and after it with one blank line, and append it again.
-  const before = str.slice(0, at.start).replace(/\n+$/, '');   // newlines only: the person's last line stays exactly as written
-  const rest = after.replace(/^\s+/, '');
-  const joined = (before + (rest ? (before ? '\n\n' : '') + rest : '')).replace(/\s+$/, '') + '\n';
-  return projects.spliceBlock(joined, body, START, END);
+  // Cut exactly the block, then append it again.
+  return projects.spliceBlock(cutOut(str, at), body, START, END);
+}
+
+/* `str` without the block at `at`, what was before and after it rejoined with one blank line. Only line breaks are
+   trimmed at the seam, so the person's last line before it and first line after it stay exactly as written. */
+function cutOut(str, at) {
+  const before = str.slice(0, at.start).replace(/(\r?\n)+$/, '');
+  const rest = str.slice(at.end).replace(/^(\r?\n)+/, '');
+  const joined = before + (rest ? (before ? '\n\n' : '') + rest : '');
+  return joined.replace(/(\r?\n)+$/, '') + '\n';
 }
 
 /* Whether `text` holds nothing but whitespace and complete Kosmos blocks (any registered marker pair). */

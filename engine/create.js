@@ -5250,7 +5250,9 @@ function createAgentInner(opts) {
         const got = plMod.read();
         const spliced = plMod.applyTo(text, got.tag, { keep: !got.sure });
         const { MAX_BYTES } = require('./instructions');
-        if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; langLanded = true; }
+        // Two language blocks (custom instructions pasted from another agent) leave the text unchanged: say so.
+        const twice = got.sure && plMod.blockBody(got.tag) && require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous;
+        if (!twice && Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; langLanded = true; }
       } catch { /* reported below rather than swallowed */ }
       if (!langLanded) {
         steps.push({ label: 'could not add your language to its instructions, so it may start in English; edit its instructions or remake it', ok: false });

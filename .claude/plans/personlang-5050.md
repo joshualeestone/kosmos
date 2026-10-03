@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (19 after the reviews below), plus one create test in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (23 after the reviews below), plus one create test in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -131,3 +131,14 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   block appended after it, left in place when the person wrote after it; and that every measured position held (end,
   top, 64%), so none depends on the move. Rewrapped.
 - Duplicates of deferred items: the size-limit drop and its boot log (review 6), the `defaults` stall (review 4).
+
+## Review 11 (blind, opus)
+- Removing the block with the person's text after it now cuts exactly the block and keeps one blank line (removeBlock
+  joined their paragraphs, the defect review 7 fixed on the move path). Last in the file it is still removeBlock,
+  byte for byte. Test with their text on both sides; mutation (back to removeBlock) reds.
+- The override must be a 2 or 3 letter language, as the Mac read requires: "english" or "garbage" are well-formed BCP
+  47 tags and would have read as a sure non-English language. Mutation reds.
+- tools/check-block-delivery.js knows the `language` block: something to deliver only on a sure non-English read.
+  Run with the override es-MX against this Mac's workers: 22 entitled, 0 delivered (the branch is not deployed).
+- create reports the step failed when pasted instructions already hold two language blocks.
+- The seam trims \r?\n, so a CRLF file keeps one style.

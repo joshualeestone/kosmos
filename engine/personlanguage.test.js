@@ -253,3 +253,33 @@ test('#5050 review 8: only the FIRST preferred language is read; a malformed fir
   assert.equal(pl.macPreferred(() => '(\n    "en-US",\n    "es-MX"\n)\n'), 'en-US');
   assert.equal(pl.read({ env: {}, platform: 'darwin', run: () => '(\n    "???",\n    "es-MX"\n)\n', intl: 'en-US' }).sure, false);
 });
+
+test('#5050 review 11: removing the block with the person\'s text after it keeps their paragraphs apart', () => {
+  const withBlock = pl.applyTo('# Hal\n\nmine\n', 'es-MX') + '\nafter, also mine\n- a list item\n';
+  const out = pl.applyTo(withBlock, 'en-US');
+  assert.ok(!out.includes(pl.START), 'CONTROL: the block was removed');
+  assert.equal(out, '# Hal\n\nmine\n\nafter, also mine\n- a list item\n', 'the person\'s paragraphs were joined or changed');
+  // Last in the file: still byte for byte.
+  const last = '# Hal\n\nmine\n';
+  assert.equal(pl.applyTo(pl.applyTo(last, 'es-MX'), 'en-US'), last);
+});
+
+test('#5050 review 11: an override that is not a 2 or 3 letter language is ignored, never read as sure', () => {
+  for (const bad of ['english', 'garbage', 'spanish']) {
+    const got = pl.read({ env: { AGENT_WORKFORCE_PERSON_LOCALE: bad }, platform: 'linux', intl: 'en-US' });
+    assert.equal(got.sure, false, bad + ' was taken as a sure language');
+  }
+  assert.deepEqual(pl.read({ env: { AGENT_WORKFORCE_PERSON_LOCALE: 'es' }, platform: 'linux' }), { tag: 'es', sure: true });
+});
+
+test('#5050 review 11: the block-delivery report knows the language block (nothing to deliver unless a sure non-English read)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'tools', 'check-block-delivery.js'), 'utf8');
+  assert.match(src, /case 'language':[^\n]*personlanguage\.js[^\n]*got\.sure && pl\.blockBody\(got\.tag\)/);
+});
+
+test('#5050 review 11: a new agent whose pasted instructions already hold two language blocks reports the step failed', () => {
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
+  assert.match(create, /findBlock\(text, plMod\.START, plMod\.END\)\?\.ambiguous/);
+  assert.match(create, /if \(!twice && Buffer\.byteLength\(spliced, 'utf8'\) <= MAX_BYTES\)/);
+});
