@@ -3764,18 +3764,26 @@ function statusForSibling(json) {
 
 /* #5165: hand a file that passed projects.fileInFolder back as a DOWNLOAD, streamed, the way an attachment is
    (#4930): over Kosmos+ the person is on another device, so opening it on this computer shows them nothing.
-   Whatever the type it is an attachment, and it never renders on the board's origin. */
-function sendFileDownload(req, res, found) {
-  const base = path.basename(found.given);
-  res.writeHead(200, {
-    'content-type': 'application/octet-stream', 'content-length': found.st.size, 'x-content-type-options': 'nosniff',
-    'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(base),
+   Whatever the type it is an attachment, and it never renders on the board's origin. The file is opened BEFORE
+   the headers go out and sized from that open descriptor, so a file that went or was locked since the gates
+   checked it is `refuse()`d rather than sent as a 200 that stops short; `pipeline` closes the file when the
+   person cancels or the relay drops. */
+function sendFileDownload(req, res, found, refuse) {
+  const headersFor = (size) => ({
+    'content-type': 'application/octet-stream', 'content-length': size, 'x-content-type-options': 'nosniff',
+    'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(path.basename(found.given)),
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
-  if (req.method === 'HEAD') { res.end(); return; }
+  if (req.method === 'HEAD') { res.writeHead(200, headersFor(found.st.size)); res.end(); return; }
   const stream = fs.createReadStream(found.target);
-  stream.on('error', () => res.destroy());
-  stream.pipe(res);
+  stream.once('error', () => { if (!res.headersSent) refuse(); else res.destroy(); });
+  stream.once('open', (fd) => {
+    fs.fstat(fd, (err, st) => {
+      if (err || !st.isFile()) { stream.destroy(); refuse(); return; }
+      res.writeHead(200, headersFor(st.size));
+      require('node:stream').pipeline(stream, res, () => {});
+    });
+  });
 }
 
 function crossSiteRead(req) {
@@ -6222,8 +6230,8 @@ const server = http.createServer(async (req, res) => {
       let named = '';
       try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
       const found = projects.fileInFolder(folder, named, 'this agent\u2019s Files folder');
-      if (!found.ok) { sendJson(res, 409, { ok: false, because: found.because }); return; }
-      sendFileDownload(req, res, found);
+      if (!found.ok) { sendJson(res, 404, { ok: false, because: found.because }); return; }
+      sendFileDownload(req, res, found, () => sendJson(res, 404, { ok: false, because: 'that file is not there any more, or it was moved' }));
       return;
     }
     if (verb === 'reveal' && req.method === 'POST') {
@@ -17229,10 +17237,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #5165: a project file as a download (?name=, the same name open-file takes), for a page reached over
-     Kosmos+, where opening it on this computer would show the person nothing. Same gates as open-file. */
-  const getOne = pathname.match(/^\/api\/project\/([^/]+)\/download$/);
-  if (getOne && (req.method === 'GET' || req.method === 'HEAD')) {
-    const id = decodeSegment(getOne[1]);
+     Kosmos+, where opening it on this computer would show the person nothing. Same gates as open-file.
+     The path and the refusal shape (404 { ok: false, because }) are #4997's (PR #5119, April), so the two
+     land as ONE route rather than two. */
+  const downloadOne = pathname.match(/^\/api\/project\/([^/]+)\/file-download$/);
+  if (downloadOne && (req.method === 'GET' || req.method === 'HEAD')) {
+    const id = decodeSegment(downloadOne[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     let record;
     try {
@@ -17245,8 +17255,8 @@ const server = http.createServer(async (req, res) => {
     let named = '';
     try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
     const found = projects.fileInFolder(record.folder, named);
-    if (!found.ok) { sendJson(res, 409, { error: found.because }); return; }
-    sendFileDownload(req, res, found);
+    if (!found.ok) { sendJson(res, 404, { ok: false, because: found.because }); return; }
+    sendFileDownload(req, res, found, () => sendJson(res, 404, { ok: false, because: 'that file is not there any more, or it was moved' }));
     return;
   }
 

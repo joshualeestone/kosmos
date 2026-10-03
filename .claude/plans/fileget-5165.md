@@ -7,9 +7,19 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   127.0.0.1 / localhost / ::1). At the computer nothing changes.
 - File clicks over Kosmos+ (project rail, Documents view, a cited file in the thread, an agent's Files) become a
   download: an `<a download>` to a new GET route, the way an attachment card is (#4930).
-- New routes: `GET /api/project/:id/download?name=` and `GET /api/agent/:name/files/download?name=`. Both pass
+- New routes: `GET /api/project/:id/file-download?name=` and `GET /api/agent/:name/files/download?name=`. Both pass
   `projects.fileInFolder`, the gates `openFile` used (moved out of it, so open and download share ONE copy), and
   stream the file as `application/octet-stream`, `content-disposition: attachment`, nosniff, sandbox CSP, no-store.
+  The file is opened before the headers go out and sized from that descriptor; `pipeline` closes it on a cancel.
+- The PATHS and the refusal shape (404 `{ ok: false, because }`) are April's from #4997 (PR #5119, after Monday),
+  which adds the same two download routes for the Files-list preview. Same URL, same shape, so when #5119 rebases
+  onto this one route body survives and the page's calls keep working. Not taken from #5119: its body reads the
+  whole file into memory and passes `crossSiteRead`, whose referer arm (by my reading) refuses a page reached at
+  `<name>.kosmosplus.com`; raised with April rather than decided here.
+- A refused download is SAID: the page asks with HEAD first, and on a refusal reads the board's sentence with one
+  small GET and shows it under the list, rather than leaving it to the browser's downloads.
+- Open Terminal over Kosmos+ (it opens a Terminal window on the board's computer) says where it opens and asks
+  nothing (review iteration 1 found it).
 - Folder buttons over Kosmos+ (project folder from Documents and settings, an agent's Files folder, the two
   conversations folders, the Kosmos folder from Settings and the update offer) ask the board for nothing and say
   "That folder is on the computer Kosmos runs on, not on this device, so it opens only there."
@@ -19,6 +29,12 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   settings buttons (setup steps at the computer, not files).
 - No cross-site check on the GET routes, matching `/api/attachment/:id`: `crossSiteRead`'s referer arm only knows
   loopback and AGENT_WORKFORCE_ALLOWED_HOSTS, so it would refuse the very page this is for.
+
+## Not covered, filed separately
+- The Mac app in connect mode loads the board from a Kosmos+ address, so kplusRemote() is true there too, and its
+  WKWebView has no download handling (native-app/main.swift: no WKDownload, no .download policy). A download link
+  there most likely does nothing. #4930's attachment Download has the same gap. It is Swift and needs an app build,
+  so it has its own card (#5167) rather than riding this day-one web fix.
 
 ## Weakest premise
 That `kplusRemote()` is true exactly when the person is on another device. A person at the computer who opens the

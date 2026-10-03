@@ -1576,13 +1576,10 @@ function listFiles(folder, limit, opts) {
 }
 
 /**
- * Open ONE file from a project's folder with the system opener.
- *
- * 🛑 THIS IS THE MOST DANGEROUS PRIMITIVE IN THIS MODULE and it is written to
- * refuse rather than to sanitise, the same rule `folderNameFor` follows and for
- * the same reason: this string becomes a path, and a path quietly changed into
- * a different path opens something nobody asked for. `open` will happily launch
- * an application or a script.
+ * #5165: the gates a named file in a folder must pass before Kosmos hands it to anyone: `openFile` (open it
+ * on this computer) and the download routes (stream it to the device the person is on, over Kosmos+). One
+ * copy, so the two can never disagree about what is inside the folder. Refuses rather than sanitises: this
+ * string becomes a path, and a path quietly changed into a different path hands out something nobody asked for.
  *
  * Three independent gates, and the third is the one a name check cannot do:
  *
@@ -1593,19 +1590,15 @@ function listFiles(folder, limit, opts) {
  *      (isScratchName: a dot-name, an Office `~$` file and the like, #3965), because the
  *      list never shows a hidden entry, so a caller never legitimately has one.
  *      This gate only narrows the string. It is NOT what stops an escape: gate 3 is.
- *   2. The project's folder must be READABLE, by the same folderState every
+ *   2. The folder must be READABLE, by the same folderState every
  *      other folder-touching route already goes through.
  *   3. The RESOLVED target must still sit inside the RESOLVED folder, and must
  *      be a regular file. A symlink planted inside the folder passes gate 1
  *      untouched and points wherever it likes; only resolving both sides and
  *      comparing can see that, which is why this gate exists separately from
  *      the first rather than being folded into it.
- */
-/* `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project). */
-/**
- * #5165: the gates a named file in a folder must pass before Kosmos hands it to anyone, shared by
- * `openFile` (open it on this computer) and the download routes (stream it to the device the person is
- * on, over Kosmos+). One copy, so the two can never disagree about what is inside the folder.
+ *
+ * `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project).
  * Returns { ok: true, target, st, given } or { ok: false, because }.
  */
 function fileInFolder(folder, name, where = 'this project') {
@@ -1636,6 +1629,12 @@ function fileInFolder(folder, name, where = 'this project') {
   return { ok: true, target, st, given };
 }
 
+/**
+ * Open ONE file from a folder with the system opener, once it passes `fileInFolder`.
+ *
+ * 🛑 THIS IS THE MOST DANGEROUS PRIMITIVE IN THIS MODULE: `open` will happily launch an
+ * application or a script, which is why every name goes through fileInFolder's gates first.
+ */
 function openFile(folder, name, where = 'this project') {
   const found = fileInFolder(folder, name, where);
   if (!found.ok) return found;
