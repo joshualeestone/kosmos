@@ -651,6 +651,38 @@ const SCREENS = [
     for (const want of ['Not sent. It stayed on this computer.', LEFTOVER.claim + ' (deleted agent)']) {
       if (!t.includes(want)) throw new Error('the community list does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
     }
+  } },  /* #5153: a closed task's change receipt. Task 1 is closed through the board's own route (a repeat close is harmless;
+     LAST in this list so no earlier screen sees it closed); only the receipt's answer is faked, since the throwaway
+     board has no agent transcripts to read. The folder is an invented path, never this Mac's. */
+  { name: 'task-receipt', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    const b = (i, o, cw, cr) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, rows: 40 });
+    const receipt = { version: 1, closedAt: new Date(Date.now() - 3600e3).toISOString(), retries: { reopened: 1, handoffs: 1 }, agents: [
+      { who: data.chatAgent, provider: 'claude', available: true, sessions: 2, commands: 14, filesMore: 0,
+        folder: '/Users/ada/Kosmos/spring-catalogue', models: { 'claude-fable-5': b(48210, 21877, 310224, 4180552) },
+        files: ['copy/home.md', 'copy/linen-range.md', 'copy/checkout.md', 'prices/spring.csv'] },
+      { who: data.askAgent, provider: 'codex', available: false, because: 'provider' },
+    ] };
+    await page.route('**/api/project/*/task/*/receipt', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(receipt) }));
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async (id) => {
+      await fetch('/api/project/' + encodeURIComponent(id) + '/task/1/close', { method: 'POST' });
+      await pjReload();
+      openTaskPage(1);
+    }, data.projectId);
+    await page.waitForSelector('#tk-receipt:not([hidden]) .tkr-agent', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => {
+      const d = document.querySelector('#tk-receipt details');
+      if (d) d.open = true;
+      document.getElementById('tk-receipt').scrollIntoView({ block: 'start' });
+    });
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => document.getElementById('tk-receipt').innerText);
+    for (const want of ['Receipt', 'ran 14 commands', 'at API prices', 'not available for Codex agents yet', 'put back 1 time']) {
+      if (!t.includes(want)) throw new Error('the receipt does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
+    }
   } },
 ];
 
