@@ -13,8 +13,8 @@ native-app/main.swift had no download handling, so WebKit saved nothing and the 
   (`isSameOriginDownload`: scheme, host, port with default ports, no user part) returns `.download`,
   on every computer mode, BEFORE the connect-only policy. A cross-origin download falls through to
   the policy it had.
-- Response policy: `Content-Disposition: attachment` returns `.download`; everything else `.allow`
-  (identical to having no such method).
+- Response policy: see "Review round 1 changes" (same-origin attachment only; otherwise
+  `canShowMIMEType ? .allow : .cancel`).
 - `WKDownloadDelegate` on AppDelegate: destination is ~/Downloads via `downloadDestination`
   (separators and colon to `-`, control chars to space, leading dots stripped, empty/`..` to
   "Download", 200-byte cap keeping the extension, " (2)" numbering, UUID fallback after 10000;
@@ -45,6 +45,18 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - committedPageURL moves only on a main-frame commit, so during a navigation a download is judged
   against the page still on screen. Intended: a response for an in-flight foreign navigation must not
   be judged against its own origin.
+
+## Review round 3 changes
+- Downloads are saved only while the committed page is a board (`isBoardPage`: a Kosmos+ computer
+  or loopback http), so a foreign site that ends up in the window cannot save its own files.
+- Two same-named downloads at once get different names (in-flight destinations count as taken).
+- A download that does not save is said to the person once (`tellDownloadFailed`, a sheet).
+- Names lose bidi direction controls; the attachment token is matched exactly; the quarantine mark
+  records the page as its origin.
+- Measured: WebKit itself refuses a download's redirect to another origin before
+  `willPerformHTTPRedirection` runs (sabotage: method removed, row still passes; the -999 cancel
+  arrives at didFail with no destination). The method is live for same-origin redirects (sabotage:
+  forced cancel turns "a same-origin redirect is followed and saved" red). It stays as defence.
 
 ## Weakest premise
 Measured in a real WKWebView on this Mac, served over plain HTTP on 127.0.0.1. Not measured over a
