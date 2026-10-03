@@ -278,6 +278,16 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - In-flight names are compared case-insensitively (Downloads is case-insensitive by default).
 - Policy comments say a Kosmos+ computer's save waits for the person's Allow.
 
+## Review round 24 changes
+- The "alert up" mark is a count, not one timestamp: an alert opened inside another's modal loop
+  (runModal keeps serving the main queue) no longer clears it while the outer one is still up. With
+  every download alert modal, the 60s staleness guard is gone.
+- The action comment no longer claims a no-target (new window) download is said: `target=_blank`
+  never reaches this policy (createWebViewWith returns nil and opens it in the browser; existing
+  behaviour, not changed here).
+- Not changed (decided earlier): no user-gesture rule (round 2), Don't Allow lasts the run (rounds
+  19, 22), one quiet window for all causes (round 12), the no-console skip (round 4).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers

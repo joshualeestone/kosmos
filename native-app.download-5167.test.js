@@ -196,7 +196,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.match(tell, /if sheetUp \|\| \(lastDownloadTold\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < AppDelegate\.downloadQuietSeconds \} \?\? false\) \{/, 'a page clicking in a loop can stack sheets');
   assert.match(tell, /if let present = AppDelegate\.downloadAlertPresenter \{[^}]*if quiet \{ lastDownloadTold = Date\(\) \}/, 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
-  assert.match(tell, /self\.downloadSheetShownAt = nil\n\s+if quiet \{ self\.lastDownloadTold = Date\(\) \}/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
+  assert.match(tell, /self\.downloadAlertsUp -= 1\n\s+if quiet \{ self\.lastDownloadTold = Date\(\) \}/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
   assert.match(SRC, /static var downloadQuietSeconds: TimeInterval = 5\n/);
   assert.match(body('@objc(downloadDidFinish:)'), /if getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 \{\n\s+tellDownloadFailed\(/,
     'the person is told a file is unmarked when WebKit\'s own mark is on it');
@@ -291,15 +291,15 @@ test('#5167 review 20: a 204 or 205 says nothing; a sheet that never reports its
     && b.indexOf('http.statusCode == 204 || http.statusCode == 205') < b.indexOf('if !navigationResponse.canShowMIMEType'),
     'a 204 is reported as a file the window cannot show');
   assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'),
-    /let sheetUp = downloadSheetShownAt\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < 60 \} \?\? false/,
-    'a sheet whose dismissal never arrives silences every later refusal for the rest of the run');
+    /let sheetUp = downloadAlertsUp > 0/,
+    'an alert opened inside another\'s modal loop clears the mark while the outer one is still up');
 });
 
 test('#5167 review 21: the per-computer question is modal (a dropped sheet would leave downloads waiting for good); every download sheet holds back the quiet ones', () => {
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
   assert.match(may, /let yes = alert\.runModal\(\) == \.alertFirstButtonReturn/);
   assert.doesNotMatch(may, /beginSheetModal/, 'the question is a sheet, whose completion may never come');
-  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /downloadSheetShownAt = Date\(\)   \/\/ any download sheet/,
+  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /downloadAlertsUp \+= 1   \/\/ any download alert/,
     'only quiet sheets hold back the quiet ones, so two can stack');
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.ok(b.indexOf('http.statusCode == 204') < b.indexOf('"attachment"'), 'a 204 sent as an attachment is saved as an empty file');
@@ -314,7 +314,7 @@ test('#5167 review 22: every download alert is modal (a sheet over a sheet can b
 test('#5167 review 23: Return never grants downloads; the question holds back quiet alerts; the committed page moves only at a commit', () => {
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
   assert.match(may, /allow\.keyEquivalent = ""\n\s+refuse\.keyEquivalent = "\\r"/, 'Return (a keypress meant for the composer) answers Allow');
-  assert.match(may, /downloadSheetShownAt = Date\(\)[^\n]*\n\s+let yes = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+downloadSheetShownAt = nil/,
+  assert.match(may, /downloadAlertsUp \+= 1[^\n]*\n\s+let yes = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+downloadAlertsUp -= 1/,
     'a quiet refusal can open over the question');
   assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'), /\.path\.lowercased\(\)/,
     'Report.pdf and report.pdf at once collide on a case-insensitive Downloads');
