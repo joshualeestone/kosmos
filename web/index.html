@@ -48344,9 +48344,12 @@ async function changeProviderNow(say) {
       /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
          would disable Move for an agent that is on main. */
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
+      /* #5145: with no account sent, the one the engine says it landed on (out.accountDir), so "Right now" names it
+         instead of an empty bracket; still never invented when the engine named none. */
+      const landedDir = (out && out.outcome !== 'partial' && typeof out.accountDir === 'string' && out.accountDir) ? out.accountDir : null;
       CURRENT.account = want === 'anthropic'
-        ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (mainClaude ? { dir: mainClaude.dir } : null))
-        : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null);   // round 5: OpenAI/Gemini/Grok keep the sent account too
+        ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (landedDir ? { dir: landedDir } : (mainClaude ? { dir: mainClaude.dir } : null)))
+        : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (landedDir ? { dir: landedDir } : null));   // round 5: OpenAI/Gemini/Grok keep the sent account too
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
