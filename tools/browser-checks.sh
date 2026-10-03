@@ -1079,7 +1079,7 @@ run_one "mobile-shots" node docs/browser-checks/mobile-shots.js --out "$RUN_DIR/
 # produce prints as "CONTROL (expected): ", so a person scanning the cut log for
 # reds is not sent after it. Any other FAIL line, and all output of an arm that
 # does not pass, prints untouched. The cover arms below do the same for their
-# one-shot summary line. tools.control-arms-expected-5135.test.js runs these bodies.
+# single summary line. tools.control-arms-expected-5135.test.js runs these bodies.
 for _arm in account:'the throwaway board lists' page:'this screen shows real data'; do
   run_one "mobile-shots-leak-${_arm%%:*}" bash -c 'out=$(MSHOTS_LEAK_CONTROL="$1" node docs/browser-checks/mobile-shots.js --out "$3" \
       --screens home --sizes se --themes light --engines chromium 2>&1); rc=$?
@@ -1109,7 +1109,7 @@ for _arm in overlay:allow-card:'the Allow button is not seen: covered by div#cov
       --screens "$2" --sizes se --themes light --engines chromium 2>&1); rc=$?
     case "$rc:$out" in
       2:*"$3"*) while IFS= read -r l; do case "$l" in
-          "FAIL  mobile-shots: 1 shot(s) could not be taken; see the ERROR lines above") printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
+          "FAIL  mobile-shots: "[0-9]*" shot(s) could not be taken; see the ERROR lines above") printf "CONTROL (expected): %s\n" "${l#FAIL  }" ;;
           *) printf "%s\n" "$l" ;;
         esac; done <<<"$out"
         echo "control $1: its shot failed with exit 2, as it must"; exit 0 ;;

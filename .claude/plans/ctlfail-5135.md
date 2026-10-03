@@ -12,8 +12,10 @@ Card: kosmos#5135. Branch: ctlfail-5135.
 ## Steps
 - [x] tools/browser-checks.sh: in both arm loops, move the `printf "%s\n" "$out"` after the case match;
       relabel with sed only in the passing branch.
-- [x] tools.control-arms-expected-5135.test.js: lift each arm's real bash -c body, run it with a stand-in node,
-      four cases (pass relabels, fail stays raw, for leak and cover). Control: the relabel cases red on origin/main's script.
+- [x] tools.control-arms-expected-5135.test.js: lift each arm's real bash -c body, run it with a stand-in node:
+      a passing arm relabels only its planted line (any shot count for cover), an unrelated FAIL stays raw, and a
+      failing arm (wrong message, or clean exit) prints raw and reds. Control: the relabel cases red on origin/main's script.
+- [x] Review round 1: relabel only the planted line, not every FAIL line. Round 2: cover summary accepts any shot count.
 - [x] Real browser run on Agent1s (cut running on Mortals): the four arms, KOSMOS_BC_CI_ALLOWLIST, HEADED=0, head 88996c975:
       all four PASS, four CONTROL (expected) lines, zero `^FAIL` lines, "all page checks passed".
 

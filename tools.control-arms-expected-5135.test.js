@@ -95,3 +95,11 @@ test('a cover arm with the right exit but the other arm\'s message keeps its out
   assert.match(r.stdout, /^FAIL  control spill: exit 2/m);
   assert.doesNotMatch(r.stdout, /CONTROL \(expected\)/);
 });
+
+test('a passing cover arm relabels its summary line whatever the shot count', () => {
+  const two = COVER.replace('1 shot(s)', '2 shot(s)');
+  const r = runArm(armBody('mobile-shots-cover-'), ['overlay', 'allow-card', COVER_MSG], [`row: ERROR ${COVER_MSG}`, two], 2);
+  assert.equal(r.status, 0, r.stdout);
+  assert.doesNotMatch(r.stdout, /^FAIL /m);
+  assert.match(r.stdout, /^CONTROL \(expected\): mobile-shots: 2 shot\(s\) could not be taken/m);
+});
