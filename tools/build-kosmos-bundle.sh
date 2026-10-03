@@ -208,8 +208,9 @@ _tunnel_staged="$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}
 # cert, and a silent ad-hoc fallback would build fine and fail notarisation
 # later -- the same defect one layer down.
 . "$REPO/tools/lib/signing-identity.sh"   # the one place the signing team is named (#3643)
+. "$REPO/tools/lib/codesign-retry.sh"      # kosmos#5149: a timestamp-service blip is retried, nothing else
 _codesign_id="${KOSMOS_CODESIGN_ID:-$KOSMOS_SIGN_APP_DEFAULT}"
-codesign --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || {
+codesign_ts_retry --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-tunnel" || {
   printf '%s\n' "could not Developer ID sign the Plus connector as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-tunnel" 2>&1 | sed 's/^/    /' || { echo "the connector's signature did not verify after signing" >&2; exit 1; }
 # ⚠️ RUN IT, not just verify the signature. Under hardened runtime a binary can
@@ -266,7 +267,7 @@ swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/nat
 # com.apple.security.device.audio-input, and a signature without it fails silently: the mic button
 # shows, the person presses it, and nothing is ever heard. Read back from the SIGNATURE below, because
 # the file existing proves nothing about what was signed.
-codesign --force --options runtime --timestamp --entitlements "$REPO/native-app/kosmos-app.entitlements" -s "$_codesign_id" "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || {
+codesign_ts_retry --force --options runtime --timestamp --entitlements "$REPO/native-app/kosmos-app.entitlements" -s "$_codesign_id" "$STAGE/app/bin/kosmos-app" || {
   printf '%s\n' "could not Developer ID sign the native app as \"$_codesign_id\" (is this the machine holding the cert? set KOSMOS_CODESIGN_ID to override). NOT falling back to ad-hoc." >&2; exit 1; }
 codesign -v "$STAGE/app/bin/kosmos-app" 2>&1 | sed 's/^/    /' || { echo "the native app's signature did not verify after signing" >&2; exit 1; }
 _app_ents="$(codesign -d --entitlements - --xml "$STAGE/app/bin/kosmos-app" 2>/dev/null)" || _app_ents=""
