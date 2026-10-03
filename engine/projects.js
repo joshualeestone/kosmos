@@ -1598,10 +1598,11 @@ function listFiles(folder, limit, opts) {
  *      comparing can see that, which is why this gate exists separately from
  *      the first rather than being folded into it.
  *
- * `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project).
+ * `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project), and `act` the verb
+ * (open, or download for the download routes, so a refusal under a download never talks about opening).
  * Returns { ok: true, target, st, given } or { ok: false, because }.
  */
-function fileInFolder(folder, name, where = 'this project') {
+function fileInFolder(folder, name, where = 'this project', act = 'open') {
   const given = String(name == null ? '' : name);
   if (!given) return { ok: false, because: 'no file was named' };
   const segs = given.split('/');
@@ -1611,7 +1612,7 @@ function fileInFolder(folder, name, where = 'this project') {
   }
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
-    return { ok: false, because: (state && state.because) || 'we cannot find that folder right now, so there is nothing to open' };
+    return { ok: false, because: (state && state.because) || 'we cannot find that folder right now, so there is nothing to ' + act };
   }
   let target;
   try {
@@ -1621,11 +1622,11 @@ function fileInFolder(folder, name, where = 'this project') {
   }
   const root = state.real.endsWith(path.sep) ? state.real : state.real + path.sep;
   if (!target.startsWith(root)) {
-    return { ok: false, because: 'that file lives outside ' + where + ', so we will not open it' };
+    return { ok: false, because: 'that file lives outside ' + where + ', so we will not ' + act + ' it' };
   }
   let st;
   try { st = statOfFolderPath(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
-  if (!st.isFile()) return { ok: false, because: 'that is not a file we can open' };
+  if (!st.isFile()) return { ok: false, because: 'that is not a file we can ' + act };
   return { ok: true, target, st, given };
 }
 

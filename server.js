@@ -3812,7 +3812,8 @@ function sendFileDownload(req, res, found, recheck) {
       res.writeHead(200, headersFor(st.size));
       if (req.method === 'HEAD' || st.size === 0) { fs.close(fd, () => {}); res.end(); return; }
       const stream = fs.createReadStream(null, { fd, start: 0, end: st.size - 1 });   // autoClose closes fd
-      // A read that ends short of the declared length is a reset, never a response ended short.
+      // A read that ends short of the declared length is a reset, never a response ended short. This listener must be
+      // registered BEFORE pipeline() below, so it runs before the pipe's own end handler ends the response.
       stream.once('end', () => { if (stream.bytesRead < st.size) res.destroy(); });
       require('node:stream').pipeline(stream, res, () => {});
     });
@@ -6265,7 +6266,7 @@ const server = http.createServer(async (req, res) => {
       // #5165: the same gates as open (projects.fileInFolder), then streamed to the device asking.
       let named = '';
       try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
-      const gate = () => projects.fileInFolder(folder, named, 'this agent\u2019s Files folder');
+      const gate = () => projects.fileInFolder(folder, named, 'this agent\u2019s Files folder', 'download');
       const found = gate();
       if (!found.ok) { refuse(404, found.because); return; }
       sendFileDownload(req, res, found, gate);
@@ -17291,7 +17292,7 @@ const server = http.createServer(async (req, res) => {
     if (!record) { refuseDownload(req, res, 'there is no project by that name'); return; }
     let named = '';
     try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
-    const gate = () => projects.fileInFolder(record.folder, named);
+    const gate = () => projects.fileInFolder(record.folder, named, 'this project', 'download');
     const found = gate();
     if (!found.ok) { refuseDownload(req, res, found.because); return; }
     sendFileDownload(req, res, found, gate);
