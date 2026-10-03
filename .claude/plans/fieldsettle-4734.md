@@ -47,3 +47,9 @@ fields late. The board adds BUTTONS late (measured), which the same settle cover
   nothing else. NITs taken (comment wording only): the 20 s limit applies to the poll wait and the counts window separately (up to
   about 40 s); "what paints the late controls" softened to "probably" (timing measured, cause not). NIT not taken: the control's
   1.2 s timer against the 1.5 s window could misfire under extreme starvation; it fails loud (INSTRUMENT FAILED), never false-passes.
+- Full validation (Agent1s, 21:30-21:34 CDT, at 844103b7d): 14469 tests, 14245 pass, 1 FAIL: browser-checks-reason-grep's exact
+  emit-site count (235 matched, 232 expected). My miss: the branch added three counted lines to render-fields.js and never bumped
+  the shared counter (#5071's race). Rebased onto main (233) and set 236 as measured; the three are the INSTRUMENT FAILED
+  SELF-CHECK line, the top-level catch's FAIL line and the closing FAILED: summary, all quotable (the bad list is empty).
+  [CORRECTED: my first note on the count named a "floor" line that is not one; fixed in 76ce7fac6.] The test file passes 5/5.
+  Both browser-check gates were rc 0 in the same run.
