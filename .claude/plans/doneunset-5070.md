@@ -42,4 +42,12 @@ measures a row the page no longer draws.
   Roadmap now (nothing goes to row 2). My first rewrite of the arm demanded the same x on both rows; wrong for this
   design (the tag sits before the cluster, so its x moves with the cluster) and corrected to "directly left of the count".
   Measured 21:56 (light turns): main 20 passed, 2 FAILED (both new arms: 1181 px and off the name's line); branch 22/22.
-- Round 2: PENDING.
+- Round 2 (sonnet, blind, no browsers): 0 BLOCKER, 2 SHOULD-FIX, 3 NIT, taken. SF1 (reasoned): on a phone the tag, the count
+  and a real status pill (with its glyph) take their tracks first and could squeeze the name to nothing (worse on child rows);
+  at 40rem and narrower the tag now goes under the name (the row is two lines there: on a phone the name matters more than
+  density), and the tag never wraps (nowrap). SF2: the injected pill lacked pjPillOf's three-dot glyph (~20 px narrow), and
+  nothing asserted the name keeps room; the pill is now the real markup and both widths assert name >= 60 px. NIT5 taken: the
+  desktop gap is asserted at 12 px (+-1) and the line at 3 px. NIT3/4: comments corrected. Residual: on a phone's two-line row the
+  fold caret centres on the whole row (top: 50%), a little low; desktop rows stay one line.
+  Measured 21:59 (light turn): main 20 passed, 2 FAILED (both arms; 1162 px); branch 22/22.
+- Round 3: PENDING.
