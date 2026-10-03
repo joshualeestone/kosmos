@@ -967,6 +967,7 @@ const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
 const activity = require('./engine/activity');
 const connections = require('./engine/connections');
+const personlanguage = require('./engine/personlanguage'); // #5050: the person's language block
 const dmfiles = require('./engine/dmfiles');          // #3614: where an agent saves the files it makes in a DM
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
@@ -20375,6 +20376,25 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
+  }
+  /* #5050: the person's language block, refreshed at boot (an agent made before it existed, or the computer's language
+     setting changed): written when the Mac's setting is not English, removed when it is; off a Mac, or when the read
+     failed, nothing changes. Last of the boot sweeps, so an agent made before the block existed gets it appended
+     after the blocks the sweeps above may add. */
+  try {
+    /* Review 17: a Mac whose language could not be read changes nothing (see personlanguage.read), which would otherwise
+       look exactly like an English Mac. Say it once. */
+    if (process.platform === 'darwin' && !personlanguage.read().sure) {
+      process.stderr.write('Kosmos could not read this computer\'s language setting; agents\' language blocks were left as they are (it is read again at the next start)\n');
+    }
+    const told = personlanguage.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about your language; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about your language: ${String(err && err.message)}\n`);
   }
   /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
      hands itself to its headless logon task and leaves, so the launcher is never

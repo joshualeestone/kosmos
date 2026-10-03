@@ -239,6 +239,9 @@ const POLICY_END = '<!-- kosmos:policy:end -->';
 /* #4289: the Kosmos community block (engine/communityblock.js), written at birth and at restart. */
 const COMMUNITY_START = '<!-- kosmos:community:start -->';
 const COMMUNITY_END = '<!-- kosmos:community:end -->';
+/* #5050: the person's language (engine/personlanguage.js), from this computer's language setting; absent in English. */
+const LANGUAGE_START = '<!-- kosmos:language:start -->';
+const LANGUAGE_END = '<!-- kosmos:language:end -->';
 // #4557: a seeded team member's own brief, layered INTO its role's standard instructions at birth
 // (Josh: never written raw in place of them). Defined beside the others for the same reason.
 const TEAM_START = '<!-- kosmos:team:start -->';
@@ -277,7 +280,7 @@ function teamBlockState(text) {
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, mm.START, mm.END];
 }
 
 /**
@@ -3366,7 +3369,7 @@ function toldOverride(verdict, sessionName, known) {
 
 module.exports = {
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
