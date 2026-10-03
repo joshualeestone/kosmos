@@ -47,3 +47,12 @@ abort) exist here; a partial failure inside a script that still reports complete
   The fork test now has no replayed total and a real call before the first total; the review-1 rule, the first-total
   rule alone and no skip each fail it.
 - NIT taken: a file inside the agent's folder is shown by its short path under either spelling of the folder.
+
+## Review 3 (sonnet): code CLEAN; 2 test-gap WARNINGs, taken; NIT taken
+- Tests added: a fork with no recorded time (the first-total fallback; its mutant fails it); a linked agent folder whose
+  sessions record the real spelling (short path), a same-prefix sibling (full path), a `..cache` folder inside (short).
+- Found while adding them: #5158's Codex reader threw on a line that parses to null or a number, which ended the whole
+  Codex scan. For Token Usage that only left the day unsaved (an incomplete scan is never frozen), but every later
+  rollout went unread; for a receipt every Codex agent after it read partial. The reader now skips such a line (the
+  Gemini and Grok readers already did). Test: a file of `null` and `7` sorting first, the next file still read; mutant.
+- The providerWork try/catch stays as a defence for other throws; it no longer has a fixture that reaches it.

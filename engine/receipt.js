@@ -369,7 +369,7 @@ function shownPath(dir, file) {
   try { canon = require('./trust').canonicalOnDisk(dir); } catch { /* the recorded spelling only */ }
   for (const base of [...new Set([dir, canon])]) {
     const rel = path.relative(base, file);
-    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+    if (rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)) return rel;   // '..cache/x' is inside
   }
   return file;
 }
