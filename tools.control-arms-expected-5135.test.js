@@ -1,7 +1,7 @@
 'use strict';
 /* kosmos#5135: the mobile-shots leak and cover control arms in tools/browser-checks.sh. When an arm passes, the
- * planted "FAIL  " lines its run printed must reach the cut log as "CONTROL (expected): ", so nobody chases them as
- * reds. When an arm does NOT pass, its output must print untouched, so a real red still reads as one. This lifts each
+ * one FAIL line its guard was planted to produce must reach the cut log as "CONTROL (expected): ", so nobody chases
+ * it as a red, and any other FAIL line prints raw. When an arm does NOT pass, its output must print untouched, so a real red still reads as one. This lifts each
  * arm's real bash -c body out of the script and runs it with a stand-in `node` on PATH, so no browser is needed. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -59,7 +59,7 @@ test('a leak arm whose guard does not fire keeps the raw FAIL lines and reds', (
   assert.match(r.stdout, /^FAIL  leak control page: exit 3/m);
 });
 
-test('a cover arm that fires relabels its FAIL lines and passes', () => {
+test('a cover arm that fires relabels its summary line and passes', () => {
   const r = runArm(armBody('mobile-shots-cover-'), ['overlay', 'allow-card', COVER_MSG], [`row: ERROR ${COVER_MSG}`, COVER], 2);
   assert.equal(r.status, 0, r.stdout);
   assert.doesNotMatch(r.stdout, /^FAIL /m);
@@ -102,4 +102,20 @@ test('a passing cover arm relabels its summary line whatever the shot count', ()
   assert.equal(r.status, 0, r.stdout);
   assert.doesNotMatch(r.stdout, /^FAIL /m);
   assert.match(r.stdout, /^CONTROL \(expected\): mobile-shots: 2 shot\(s\) could not be taken/m);
+});
+
+test('the page leak arm relabels its own guard line too', () => {
+  const page = 'FAIL  mobile-shots: LEAK GUARD: this screen shows real data (1 hits, e.g. an email address (30 chars)). Stopping with no further shots.';
+  const r = runArm(armBody('mobile-shots-leak-'), ['page', 'this screen shows real data'], [page], 3);
+  assert.equal(r.status, 0, r.stdout);
+  assert.doesNotMatch(r.stdout, /^FAIL /m);
+  assert.match(r.stdout, /^CONTROL \(expected\): mobile-shots: LEAK GUARD: this screen shows real data/m);
+});
+
+test('a leak arm with its own message but the wrong exit keeps its output raw and reds', () => {
+  const r = runArm(armBody('mobile-shots-leak-'), ['account', 'the throwaway board lists'], [LEAK], 2);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^FAIL  mobile-shots: LEAK GUARD/m);
+  assert.match(r.stdout, /^FAIL  leak control account: exit 2/m);
+  assert.doesNotMatch(r.stdout, /CONTROL \(expected\)/);
 });
