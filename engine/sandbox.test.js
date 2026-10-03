@@ -79,3 +79,60 @@ test('server.js as a program refuses a half-sandboxed environment with exit 2 an
   assert.match(r.stderr, /AGENT_WORKFORCE_WORKERS/);
   assert.doesNotMatch(r.stdout, /Kosmos on http/, 'it must refuse before it listens');
 });
+
+/* #5112: an inherited $TMUX outranks TMUX_TMPDIR, so a sandboxed board started from a fleet agent's terminal read the
+   real fleet's tmux. The board drops $TMUX at start (server.js); these pin the function, the effect on a real tmux, and
+   the call. */
+const { dropInheritedTmux } = require('./sandbox');
+
+test('#5112: dropInheritedTmux removes TMUX only, and says whether it did', () => {
+  const env = { TMUX: '/private/tmp/tmux-501/default,990,33', TMUX_PANE: '%7', TMUX_TMPDIR: '/tmp/sb', PATH: '/bin' };
+  assert.equal(dropInheritedTmux(env), true);
+  assert.deepEqual(env, { TMUX_PANE: '%7', TMUX_TMPDIR: '/tmp/sb', PATH: '/bin' });
+  assert.equal(dropInheritedTmux(env), false, 'nothing to drop the second time');
+});
+
+function tmuxPath() {
+  for (const d of ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']) {
+    const p = path.join(d, 'tmux');
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch { /* next */ }
+  }
+  return null;
+}
+
+/* Two private tmux servers, neither the machine's: "fleet" stands in for the server the starter's $TMUX names, and
+   "sandbox" is the one TMUX_TMPDIR names. Short dirs under /tmp: a long socket path fails ("File name too long"). */
+test('#5112: with $TMUX dropped, tmux answers from the TMUX_TMPDIR server, not the inherited one (control: kept, it answers from the inherited one)', { skip: tmuxPath() ? false : 'no tmux on this machine' }, (t) => {
+  const tmux = tmuxPath();
+  const fleetDir = fs.mkdtempSync('/tmp/k5112f-');
+  const sandDir = fs.mkdtempSync('/tmp/k5112s-');
+  const uid = process.getuid();
+  const fleetSock = path.join(fleetDir, 'tmux-' + uid, 'default');
+  const base = { PATH: path.dirname(tmux) + ':/usr/bin:/bin', HOME: os.homedir(), LANG: 'en_US.UTF-8' };
+  const run = (env, args) => spawnSync(tmux, args, { env, encoding: 'utf8', timeout: 10000 });
+  t.after(() => {
+    run({ ...base, TMUX_TMPDIR: fleetDir }, ['kill-server']);
+    run({ ...base, TMUX_TMPDIR: sandDir }, ['kill-server']);
+    fs.rmSync(fleetDir, { recursive: true, force: true });
+    fs.rmSync(sandDir, { recursive: true, force: true });
+  });
+  for (const [dir, name] of [[fleetDir, 'fleet'], [sandDir, 'sandbox']]) {
+    const r = run({ ...base, TMUX_TMPDIR: dir }, ['-f', '/dev/null', 'new-session', '-d', '-s', name]);
+    assert.equal(r.status, 0, `could not start the ${name} server: ${r.stderr}`);
+  }
+  const ask = (env) => run(env, ['list-sessions', '-F', '#{session_name}']).stdout.trim();
+  const inherited = { ...base, TMUX: fleetSock + ',1,0', TMUX_TMPDIR: sandDir };
+  assert.equal(ask(inherited), 'fleet', 'control: an inherited $TMUX outranks TMUX_TMPDIR (the #5112 bug)');
+  const dropped = { ...inherited };
+  assert.equal(dropInheritedTmux(dropped), true);
+  assert.equal(ask(dropped), 'sandbox', 'with $TMUX dropped, the board reads the server its own agents are on');
+});
+
+test('#5112: the board drops $TMUX on its real start, before the first engine module that asks tmux anything', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const call = src.indexOf("if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);");
+  assert.ok(call > 0, 'server.js calls dropInheritedTmux on the real-start path only');
+  const status = src.search(/require\(['"]\.\/engine\/status['"]\)/);
+  assert.ok(status > 0, 'control: the scan finds the status require');
+  assert.ok(call < status, 'the drop comes before engine/status (the roster reader) is loaded');
+});

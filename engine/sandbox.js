@@ -64,4 +64,18 @@ function sentence(a) {
     + '. A board like this has typed into real agents and rewritten real files (#634). Sandbox all of them, or set none.';
 }
 
-module.exports = { audit, sentence, DIRS };
+/* #5112: an inherited $TMUX would point this board at whatever tmux server its starter was inside. tmux prefers $TMUX's
+   socket over TMUX_TMPDIR, so a board sandboxed with its own TMUX_TMPDIR and started from a fleet agent's terminal
+   attached to the REAL fleet's server (measured 2026-10-03: it counted 20 real agents on an empty data store and tried
+   to refresh all of them). Its agents never use $TMUX: launchd starts them with no $TMUX, on the socket TMUX_TMPDIR
+   (or the default) names, which is the one create.plistFor carries. So the board drops $TMUX at start and every tmux
+   call it makes lands on the server its own agents are on. On a standard machine that is the same socket as before
+   ($TMUX names the default socket there); only a board started inside a tmux on another socket changes, and that
+   board was reading the wrong server. TMUX_PANE is left: it names a pane, not a server, and nothing here reads it. */
+function dropInheritedTmux(env) {
+  if (!Object.prototype.hasOwnProperty.call(env, 'TMUX')) return false;
+  delete env.TMUX;
+  return true;
+}
+
+module.exports = { audit, sentence, DIRS, dropInheritedTmux };
