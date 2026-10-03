@@ -12,7 +12,7 @@ const path = require('node:path');
    merge test below writes only into this temp folder, never into a real board's usage folder. */
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'up5158-data-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
-const { scanProviders } = require('./usageproviders');
+const { scanProviders, homesByPrefix } = require('./usageproviders');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'up5158-'));
 const jl = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
@@ -122,7 +122,7 @@ test('the merge keeps Claude\'s saved days byte-identical and freezes the provid
   try {
     const byDay = { [day]: JSON.parse(before) };
     const byFolder = { [day]: {} };
-    const scan = async () => ({ days: { [day]: { 'gpt-5.6-sol': { input_tokens: 1, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 3, rows: 1 } } },
+    const scan = async () => ({ complete: true, days: { [day]: { 'gpt-5.6-sol': { input_tokens: 1, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 3, rows: 1 } } },
       folders: { [day]: { '/w/roo': { input_tokens: 1, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 3, rows: 1 } } } });
     await usage.mergeProviders([day], '2999-01-01', byDay, byFolder, scan);
     assert.equal(fs.readFileSync(claudeModel, 'utf8'), before, 'Claude\'s saved day was not rewritten');
@@ -138,4 +138,68 @@ test('the merge keeps Claude\'s saved days byte-identical and freezes the provid
   } finally {
     for (const f of [claudeModel, claudeFolders, providersFile]) fs.rmSync(f, { force: true });
   }
+});
+
+test('Codex: a forked rollout\'s first total is the parent\'s, so it is the baseline, not usage', async () => {
+  const h = codexHome([
+    { timestamp: '2026-10-01T10:00:00Z', type: 'session_meta', payload: { cwd: '/w/roo', forked_from_id: 'parent-1' } },
+    { timestamp: '2026-10-01T10:00:00Z', type: 'turn_context', payload: { model: 'gpt-5.6-sol' } },
+    tc('2026-10-01T10:00:01Z', 50000, 20000, 900),   // the replayed parent total
+    tc('2026-10-01T10:00:09Z', 51000, 20500, 950),
+  ]);
+  const r = await scanProviders({ homes: { codex: [h], gemini: [], grok: [] } });
+  const b = r.days['2026-10-01']['gpt-5.6-sol'];
+  assert.equal(b.output_tokens, 50, 'only the growth after the fork is counted');
+  assert.equal(b.input_tokens, 1000 - 500);
+  assert.equal(b.rows, 1);
+});
+
+test('a file last written before the first wanted day is not read; with no day limit it is', async () => {
+  const h = codexHome([
+    { timestamp: '2026-09-01T10:00:00Z', type: 'turn_context', payload: { model: 'gpt-5.6-sol' } },
+    tc('2026-09-01T10:00:05Z', 100, 0, 10),
+  ]);
+  const f = path.join(h, 'sessions', '2026', '10', '01', 'rollout-2026-10-01T10-00-00-aaa.jsonl');
+  const old = new Date('2026-09-01T12:00:00Z');
+  fs.utimesSync(f, old, old);
+  const skipped = await scanProviders({ sinceDay: '2026-09-02', untilDay: '2026-09-30', homes: { codex: [h], gemini: [], grok: [] } });
+  assert.deepEqual(skipped.days, {}, 'the old file was read');
+  const all = await scanProviders({ homes: { codex: [h], gemini: [], grok: [] } });
+  assert.equal(all.days['2026-09-01']['gpt-5.6-sol'].output_tokens, 10, 'CONTROL: the same file is read with no day limit');
+});
+
+test('homes are found by folder name: signed-out and forgotten accounts too, a linked folder once', () => {
+  const home = tmp();
+  for (const d of ['.codex', '.codex-work', '.removed-codex-old', '.codexignored', 'other']) fs.mkdirSync(path.join(home, d));
+  fs.symlinkSync(path.join(home, '.codex-work'), path.join(home, '.codex-link'));
+  const got = homesByPrefix(home, path.join(home, '.codex'), ['.codex-', '.removed-codex-']).map((p) => path.basename(p));
+  assert.equal(got.length, 3, 'default + one of the linked pair + the forgotten account: ' + got.join(','));
+  assert.ok(got.includes('.codex') && got.includes('.removed-codex-old'), 'the default and the forgotten account are read');
+  assert.equal(got.filter((g) => g === '.codex-work' || g === '.codex-link').length, 1, 'the folder and its link are read once');
+  assert.ok(!got.includes('.codexignored') && !got.includes('other'), 'only account folders by prefix');
+});
+
+test('a scan that could not read a file says so (complete: false), so it is not frozen', async () => {
+  const h = codexHome([tc('2026-10-01T10:00:05Z', 1, 0, 1)]);
+  const f = path.join(h, 'sessions', '2026', '10', '01', 'rollout-2026-10-01T10-00-00-aaa.jsonl');
+  const ok = await scanProviders({ homes: { codex: [h], gemini: [], grok: [] } });
+  assert.equal(ok.complete, true, 'CONTROL: a readable home is complete');
+  fs.chmodSync(f, 0o000);
+  try {
+    const bad = await scanProviders({ homes: { codex: [h], gemini: [], grok: [] } });
+    assert.equal(bad.complete, false, 'an unreadable file left the scan marked complete');
+  } finally { fs.chmodSync(f, 0o600); }
+});
+
+test('mergeProviders does not freeze a scan marked incomplete', async () => {
+  const usage = require('./usage');
+  assert.ok(usage.USAGE_DIR.startsWith(SANDBOX + path.sep), 'CONTROL: sandboxed usage folder');
+  const day = '2001-01-03';
+  const file = usage.frozenProvidersPath(day);
+  fs.rmSync(file, { force: true });
+  const byDay = {};
+  await usage.mergeProviders([day], '2999-01-01', byDay, {}, async () => ({ complete: false,
+    days: { [day]: { 'gpt-5.6-sol': { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 1 } } }, folders: { [day]: {} } }));
+  assert.equal(byDay[day]['gpt-5.6-sol'].output_tokens, 1, 'still shown');
+  assert.ok(!fs.existsSync(file), 'an incomplete scan was frozen');
 });
