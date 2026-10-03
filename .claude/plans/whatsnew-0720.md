@@ -28,3 +28,6 @@ main for 0.7.20 (tools/whats-new-check.js).
   word the app uses (it says removed agents / "Delete its files..."): line 3 and its title reworded. Line 2 true in both
   layouts. Nothing important left out.
 - Round 2 (sonnet): all three JSON lines true (agysignin passes the terms and data box to the panel and never ticks or agrees for the person; s-nav below the measured header, static under 56rem; plan() case-blind on darwin/win32). One W on the release ENTRY draft (outside this repo): its 'instead of stopping on a screen Kosmos did not recognise' described the old failure wrongly; clause removed. The JSON is CONVERGED at 016e42db.
+- 22:00: #5018 re-land line ADDED as line 1 against PR #5089 (head 61141e5ed, NOT yet merged): "The notice that an agent's
+  sign-in expired now floats over the page instead of pushing it down, names the account, and has an X." This PR merges
+  only after #5089 merges; re-check the line against the merged diff then.

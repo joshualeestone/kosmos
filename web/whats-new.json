@@ -2,6 +2,11 @@
   "version": "0.7.20",
   "highlights": [
     {
+      "icon": "chat",
+      "title": "A sign-in notice you can close",
+      "line": "The notice that an agent's sign-in expired now floats over the page instead of pushing it down, names the account, and has an X."
+    },
+    {
       "icon": "shield",
       "title": "Gemini sign-in asks about your data",
       "line": "On a Mac, signing Gemini in with a Google subscription shows Antigravity's terms in Kosmos, and you choose if Google may use your data."
