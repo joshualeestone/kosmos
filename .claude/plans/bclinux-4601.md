@@ -102,11 +102,23 @@ on the nightly full set (macOS), not on this PR.
 
 ## Review round 3 (Sonnet, 19:42) and the end-to-end proof of the macOS job
 - The macOS job (the mac_set hand-off, its tmux install, the routed run, and the hand-off when the Linux job ends red)
-  is not exercised by a workflow-only PR. DECISION: the PR carries one MEASUREMENT commit that touches a routed check
+  is not exercised by a workflow-only PR. DECISION (NOT YET DONE: it is the PR-opening step): the PR carries one MEASUREMENT commit that touches a routed check
   (a comment line in docs/browser-checks/render-tasks-view-3559.js), so the PR's first CI run selects it and the macOS
   job runs for real. Reverted before merge, paired the same way as the earlier measurement commits; the check before
   the PR is `git log origin/main..HEAD -- docs/browser-checks/render-tasks-view-3559.js` showing the pair and an empty
   diff against main for that file.
 - Fixed: the header's caveat 2 names Linux; the all-routed fixture asserts rc=1 and no Linux set written; a nil guard
   in the step-order check; labels matched with grep -F; tmux pinned after install-deps.
+
+## PR-opening steps, in order (review round 4)
+1. Merge origin/main into the branch (it is about 48 commits behind; #5056's fix and newer page changes come in).
+   Re-run tools/test-browser-checks-workflow.sh unswapped.
+2. Add the MEASUREMENT commit (a comment line in docs/browser-checks/render-tasks-view-3559.js) in the SAME push
+   that opens the PR, so the first CI run selects a routed check.
+3. Push the revert ONLY after that run's browser-checks-macos job has FINISHED: the workflow has
+   cancel-in-progress, so a revert pushed while the macOS job waits in the hosted queue cancels the measurement.
+4. Before merge: `git log origin/main..HEAD -- docs/browser-checks/render-tasks-view-3559.js` shows the pair, and the
+   diff against main for that file is empty; the same check for browser-checks-full.yml.
+5. Round 4 fixes also in: a comments-only list routes nothing (grep exit 1 is not an error; a missing file still
+   stops the step); the label lookup avoids a SIGPIPE-prone pipe; the font pin is pinned after install-deps.
 

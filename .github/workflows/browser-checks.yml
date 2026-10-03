@@ -54,7 +54,7 @@
 # companion always-runs job that reports a neutral success, or dropping the filter.
 #
 # ⚠️ WAYS A CI-GREEN IS NOT IDENTICAL TO A CUT-TIME 3b GREEN (Baron, #2444/#2445; a fourth, Linux, at the job's runs-on, #4601;
-# eyes-open -- neither blocks this, both are honest limits to carry):
+# eyes-open -- none of them blocks this, all are honest limits to carry):
 #   1) click-first-run (the full linear install-flow clickthrough, the heaviest
 #      check) was briefly dropped from the CI allowlist (2026-09-07) when it timed
 #      out on the runner: page.click('#fr-next') "element is not visible". That was
@@ -342,7 +342,9 @@ jobs:
         run: |
           # pipefail: GitHub runs a step as bash -e only, so a missing list would otherwise read as "nothing routed".
           set -euo pipefail
-          macos="$(grep -v '^#' tools/bc-macos-only.txt | cut -f1 | tr '\n' ' ')"
+          # grep exits 1 for a list with no entries (only comments), which is "nothing routed", not an error; a missing
+          # file is exit 2 and still stops the step.
+          macos="$({ grep -v '^#' tools/bc-macos-only.txt || [ $? -eq 1 ]; } | cut -f1 | tr '\n' ' ')"
           full=""
           for n in $KOSMOS_BC_CI_ALLOWLIST ${KOSMOS_BC_PR_SELECTED:-}; do
             case " $full " in *" $n "*) ;; *) full="$full $n" ;; esac
