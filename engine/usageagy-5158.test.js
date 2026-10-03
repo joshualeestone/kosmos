@@ -201,6 +201,18 @@ test('an error reading the steps that is not a missing table keeps the scan from
   db.close();
   const r = await only(c.home);
   assert.equal(r.complete, false, 'a day filed under the fallback over a read error must not be frozen');
+  assert.deepEqual(r.days, {}, 'the conversation was treated as unreadable, not as one with no steps');
+});
+
+test('a conversation that cannot be opened while agy writes its -wal holds the scan open, though the db itself is old', async () => {
+  const home = path.join(SB, 'agy-busy');
+  fs.mkdirSync(path.join(home, 'conversations'), { recursive: true });
+  const file = path.join(home, 'conversations', 'beefbeef-0000-0000-0000-000000000000.db');
+  fs.writeFileSync(file, 'not a sqlite file at all, just text long enough to be read as a header');
+  const old = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(file, old, old);
+  fs.writeFileSync(file + '-wal', 'frames being written now');
+  assert.equal((await only(home)).complete, false);
 });
 
 function varintOf(n) {
