@@ -657,7 +657,7 @@ const SCREENS = [
   { name: 'task-receipt', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
     const b = (i, o, cw, cr) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, rows: 40 });
     const receipt = { version: 1, closedAt: new Date(Date.now() - 3600e3).toISOString(), retries: { reopened: 1, handoffs: 1 }, agents: [
-      { who: data.chatAgent, provider: 'claude', available: true, sessions: 2, commands: 14, filesMore: 0,
+      { who: data.chatAgent, provider: 'claude', available: true, transcriptsWithWork: 2, commands: 14, filesMore: 0,
         folder: '/Users/ada/Kosmos/spring-catalogue', models: { 'claude-fable-5': b(48210, 21877, 310224, 4180552) },
         files: ['copy/home.md', 'copy/linen-range.md', 'copy/checkout.md', 'prices/spring.csv'] },
       { who: data.askAgent, provider: 'codex', available: false, because: 'provider' },

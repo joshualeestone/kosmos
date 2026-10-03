@@ -37,7 +37,7 @@ test('a Claude agent: files, a command count, tokens and an at-API-prices figure
   const models = { 'claude-fable-5': buckets(1e6, 0, 0, 0) };
   const priced = B.usageApiCost({ receipt: models }).cost;
   assert.ok(priced > 0, 'control: the fixture model is priced in the page\'s table');
-  const html = B.tkReceiptAgentHtml({ who: 'ann', available: true, sessions: 1, models, files: ['src/a.js', 'b.md'], filesMore: 3, commands: 1, folder: '/w/ann' }, 'Ann');
+  const html = B.tkReceiptAgentHtml({ who: 'ann', available: true, transcriptsWithWork: 1, models, files: ['src/a.js', 'b.md'], filesMore: 3, commands: 1, folder: '/w/ann' }, 'Ann');
   const t = text(html);
   assert.match(t, /Edited 5 files, ran 1 command, 1(\.0)?M tokens, \$10 at API prices\./);
   assert.match(t, /src\/a\.js b\.md and 3 more/);
@@ -46,19 +46,19 @@ test('a Claude agent: files, a command count, tokens and an at-API-prices figure
 });
 
 test('an unpriced model is named, never guessed', () => {
-  const t = text(B.tkReceiptAgentHtml({ available: true, sessions: 1, models: { 'claude-unknown-9': buckets(10, 10, 0, 0) }, files: [], commands: 0 }, 'Ann'));
+  const t = text(B.tkReceiptAgentHtml({ available: true, transcriptsWithWork: 1, models: { 'claude-unknown-9': buckets(10, 10, 0, 0) }, files: [], commands: 0 }, 'Ann'));
   assert.match(t, /no published price for claude-unknown-9/);
   assert.doesNotMatch(t, /\$/);
 });
 
 test('another provider, no activity, and a missing folder each say so in words, never as zeros', () => {
   assert.match(text(B.tkReceiptAgentHtml({ available: false, because: 'provider', provider: 'codex' }, 'Bob')), /not available for Codex agents yet/);
-  assert.match(text(B.tkReceiptAgentHtml({ available: true, sessions: 0, models: {}, files: [], commands: 0 }, 'Cy')), /No Claude Code activity found while it held this task/);
+  assert.match(text(B.tkReceiptAgentHtml({ available: true, transcriptsWithWork: 0, models: {}, files: [], commands: 0 }, 'Cy')), /No Claude Code activity found while it held this task/);
   assert.match(text(B.tkReceiptAgentHtml({ available: false, because: 'no-folder' }, 'Dee')), /nothing to read/);
 });
 
 test('the whole receipt: names escaped, the basis stated, put-backs and hand-offs counted', () => {
-  const html = B.tkReceiptHtml({ retries: { reopened: 1, handoffs: 2 }, agents: [{ who: 'ann', available: true, sessions: 0, models: {} }] }, {});
+  const html = B.tkReceiptHtml({ retries: { reopened: 1, handoffs: 2 }, agents: [{ who: 'ann', available: true, transcriptsWithWork: 0, models: {} }] }, {});
   assert.ok(html.includes('Ann &lt;Lee&gt;'), 'the display name is escaped');
   assert.match(text(html), /Anything else it did in that time is included/);
   assert.match(text(html), /This task was put back 1 time and handed on 2 times\./);
@@ -66,7 +66,7 @@ test('the whole receipt: names escaped, the basis stated, put-backs and hand-off
 });
 
 test('two unpriced models read "which have"', () => {
-  const t = text(B.tkReceiptAgentHtml({ available: true, sessions: 1, models: { 'claude-fable-5': buckets(1e6, 0, 0, 0), 'x-one': buckets(1, 1, 0, 0), 'x-two': buckets(1, 1, 0, 0) }, files: [], commands: 0 }, 'Ann'));
+  const t = text(B.tkReceiptAgentHtml({ available: true, transcriptsWithWork: 1, models: { 'claude-fable-5': buckets(1e6, 0, 0, 0), 'x-one': buckets(1, 1, 0, 0), 'x-two': buckets(1, 1, 0, 0) }, files: [], commands: 0 }, 'Ann'));
   assert.match(t, /not counting x-one, x-two, which have no published price/);
 });
 
@@ -121,4 +121,40 @@ test('the poll paints the receipt only when the open task or its closed state ch
   state.closed = false;         // put back from another window: the next poll hides it
   sync();
   assert.deepEqual(calls, [4, 4, 4]);
+});
+
+test('a receipt read that fails is tried again on the next poll, not left hidden while the page stays open', async () => {
+  const holder = { hidden: true, innerHTML: '' };
+  let fails = 1;
+  let reads = 0;
+  // eslint-disable-next-line no-new-func
+  const sync = new Function('document', 'pjById', 'fetch', 'tkReceiptHtml',
+    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null; var TKR_SEQ = 0;\n'
+    + lift('tkTaskClosed') + '\n' + lift('paintTaskReceipt') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
+  )({ getElementById: () => holder }, () => ({ id: 'p1', tasks: [{ number: 4, closedAt: '2026-10-01T12:00:00Z' }] }),
+    async () => { reads += 1; if (fails-- > 0) throw new Error('board restarting'); return { ok: true, json: async () => ({ agents: [] }) }; },
+    () => 'RECEIPT');
+  sync();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(holder.hidden, true, 'control: the first read failed');
+  sync();                       // the next poll
+  await new Promise((r) => setImmediate(r));
+  assert.equal(reads, 2, 'the failed read was not tried again');
+  assert.equal(holder.hidden, false);
+  sync();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(reads, 2, 'a good read is not repeated on every poll');
+});
+
+test('closed, put back and closed again between two polls repaints for the new close', () => {
+  const calls = [];
+  const task = { number: 4, closedAt: '2026-10-01T12:00:00Z' };
+  // eslint-disable-next-line no-new-func
+  const sync = new Function('pjById', 'paintTaskReceipt',
+    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null;\n' + lift('tkTaskClosed') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
+  )(() => ({ id: 'p1', tasks: [task] }), (n) => calls.push(n));
+  sync();
+  task.closedAt = '2026-10-01T12:04:00Z';
+  sync();
+  assert.equal(calls.length, 2);
 });

@@ -58013,7 +58013,7 @@ function tkReceiptAgentHtml(a, name) {
       : 'Not an agent with a folder on this computer, so there is nothing to read.';
     return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">' + esc(why) + '</div></div>';
   }
-  if (!a.sessions) {
+  if (!a.transcriptsWithWork) {
     return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">No Claude Code activity found while it held this task.</div></div>';
   }
   const models = a.models || {};
@@ -58064,7 +58064,10 @@ function tkTaskClosed(n) {
    every tick (review 2). openTaskPage forgets the last key, so a task opened again is painted again. */
 let TKR_SHOWN = null;
 function tkReceiptSync() {
-  const key = PJ_CURRENT + ':' + TK_OPEN + ':' + tkTaskClosed(TK_OPEN);
+  const p = pjById(PJ_CURRENT);
+  const t = p && TK_OPEN != null && (p.tasks || []).find((x) => x.number === TK_OPEN);
+  /* The close time is in the key, so closed, put back and closed again between two polls paints the new close (review 3). */
+  const key = PJ_CURRENT + ':' + TK_OPEN + ':' + tkTaskClosed(TK_OPEN) + ':' + ((t && t.closedAt) || (t && t.progress ? t.progress.done : ''));
   if (key === TKR_SHOWN) return;
   TKR_SHOWN = key;
   paintTaskReceipt(TK_OPEN);
@@ -58083,6 +58086,7 @@ async function paintTaskReceipt(n) {
     r = await res.json();
   } catch { r = null; }
   if (seq !== TKR_SEQ || n !== TK_OPEN) return;
+  if (!r) TKR_SHOWN = null;   // a failed read is tried again on the next poll, not left hidden (review 3)
   if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; return; }
   holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
   holder.hidden = false;
