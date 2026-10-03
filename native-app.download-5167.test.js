@@ -125,7 +125,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 82\b/);
+  assert.match(st, /let expected = 86\b/);
 });
 
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
@@ -140,7 +140,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 22\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 23\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -192,7 +192,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
   assert.ok(guardAt !== -1 && guardAt < b.indexOf('"attachment"'), 'a subframe response can be saved, or refused with an alert, just by loading');
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.match(tell, /if sheetUp \|\| \(lastDownloadTold\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < AppDelegate\.downloadQuietSeconds \} \?\? false\) \{/, 'a page clicking in a loop can stack sheets');
-  assert.match(tell, /if let present = AppDelegate\.downloadAlertPresenter \{[^}]*if quiet \{ lastDownloadTold = Date\(\) \}/, 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
+  assert.match(tell, /if let present = AppDelegate\.downloadAlertPresenter \{[^\n]*\n\s+lastDownloadTold = Date\(\)/, 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
   assert.match(tell, /self\.downloadAlertsUp -= 1\n\s+self\.lastDownloadTold = Date\(\)/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
   assert.match(SRC, /static var downloadQuietSeconds: TimeInterval = 5\n/);
   assert.match(body('@objc(downloadDidFinish:)'), /if getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 \{\n\s+tellDownloadFailed\(/,
@@ -350,9 +350,18 @@ test('#5167 review 28: failures counted while the question was up are said after
 test('#5167 review 29: a sign-in page is not saved as the file; a 4xx over Kosmos+ is said once (by the page); Reload asks again', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /if response\.mimeType\?\.lowercased\(\) == "text\/html", !wantsPage \{/, 'an expired sign-in\'s page is saved under the file\'s name');
-  assert.match(b, /if \(400\.\.<500\)\.contains\(http\.statusCode\), let page = committedPageURL, isKosmosPlusURL\(page\) \{\n\s+completionHandler\(nil\)/,
-    'a refused file over Kosmos+ is said twice, once by the page and once by the app');
+  assert.match(b, /if \(400\.\.<500\)\.contains\(http\.statusCode\), pageSaysDownloadRefusal\(http\.url \?\? download\.originalRequest\?\.url\) \{\n\s+completionHandler\(nil\)/,
+    'a Files-list refusal is said twice (the page says it), or an attachment\'s by nobody');
   assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /refusedDownloadHosts = \[\]/, 'a mistaken Don\'t Allow can only be undone by quitting');
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.ok(hatch.includes('nor a sign-in page answered for a .pptx'));
+});
+
+test('#5167 review 30: a quiet refusal in the window is counted into the summary, never dropped; the presenter keeps the real bookkeeping', () => {
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
+  assert.doesNotMatch(tell, /not said again so soon/, 'a quiet refusal inside the window is dropped');
+  assert.match(tell, /if let present = AppDelegate\.downloadAlertPresenter \{[^\n]*\n\s+lastDownloadTold = Date\(\)\n/,
+    'the selftest presenter skips the window bookkeeping a real dismissal does, so the summary path is never measured');
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
+  assert.ok(hatch.includes('"TWO FAILURES AT ONCE: the first is said, the second is counted and said as a summary, never dropped"'));
 });
