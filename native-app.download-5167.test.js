@@ -47,9 +47,9 @@ test('#5167: a same-origin <a download> becomes a download, BEFORE the connect-o
 test('#5167: only a same-origin attachment response is saved; every other response keeps WebKit\'s default', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
-  assert.match(b, /\.lowercased\(\) == "attachment" \}\) == true \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)\n\s+\} else \{[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
+  assert.match(b, /\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)\n\s+\} else \{[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
     'an attachment is saved without the exact-token, board-page and same-origin checks, or a refused one loads in the window');
-  assert.equal((b.match(/decisionHandler\(/g) || []).length, 3, 'the response policy has a path that never answers, or a new one');
+  assert.equal((b.match(/decisionHandler\(/g) || []).length, 4, 'the response policy has a path that never answers, or a new one');
   // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
   // would fail a provisional load (a "cannot show" error reaching handleNavigationFailure) instead.
   assert.match(b, /decisionHandler\(navigationResponse\.canShowMIMEType \? \.allow : \.cancel\)\n\s+\}$/,
@@ -139,7 +139,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries the quarantine mark', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 12\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 13\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -162,4 +162,14 @@ test('#5167 review 5: refused downloads stay out of the window, quarantine recor
   assert.match(BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest')),
     /\*"rows ran, so this proved nothing"\*\)[\s\S]*?\*"download-check: all good"\*\)[\s\S]*?\*"download-check:"\*\)/,
     'a short run is read as a product verdict');
+});
+
+test('#5167 review 6: a board file the window cannot show is saved; an unmarkable one is kept and said', () => {
+  const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
+  assert.match(b, /if !navigationResponse\.canShowMIMEType, let url = navigationResponse\.response\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)/,
+    'a board file the window cannot show is cancelled with nothing said');
+  assert.match(b, /String\(disposition\[\.\.<\(disposition\.firstIndex\(of: ";"\) \?\? disposition\.endIndex\)\]\)/, 'the attachment token is not read up to the first ;');
+  const fin = body('@objc(downloadDidFinish:)');
+  assert.doesNotMatch(fin, /removeItem/, 'a finished download is deleted when it cannot be marked');
+  assert.match(fin, /could not be marked as downloaded, so macOS will not check it/);
 });

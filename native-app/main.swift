@@ -2750,8 +2750,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         if let http = navigationResponse.response as? HTTPURLResponse, let url = http.url,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
-           disposition.split(separator: ";", maxSplits: 1).first
-               .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() == "attachment" }) == true {
+           String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
+               .trimmingCharacters(in: .whitespaces).lowercased() == "attachment" {
             if isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
                 decisionHandler(.download)
             } else {
@@ -2761,8 +2761,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
             return
         }
+        if !navigationResponse.canShowMIMEType, let url = navigationResponse.response.url,
+           isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
+            decisionHandler(.download)   // a board file the window cannot show (a .zip) is saved, as Safari does
+            return
+        }
         if !navigationResponse.canShowMIMEType {
-            logLine("#5167: a response this window cannot show was not loaded (not sent as an attachment)")
+            logLine("#5167: a response this window cannot show, not from this board, was not loaded")
         }
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
     }
@@ -2873,10 +2878,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         values.quarantineProperties = props
         var marked = dest
         do { try marked.setResourceValues(values) } catch {
-            logLine("#5167: could not mark \(dest.lastPathComponent) as downloaded, so it was removed: \(error.localizedDescription)")
-            try? FileManager.default.removeItem(at: dest)
-            tellDownloadFailed("\(dest.lastPathComponent) could not be marked as downloaded, so macOS would not check it when opened. Kosmos removed it.")
-            return
+            // Kept, as Safari keeps a download it cannot mark (a Downloads folder on a disk without the mark).
+            logLine("#5167: could not mark \(dest.lastPathComponent) as downloaded: \(error.localizedDescription)")
+            tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.")
         }
         DistributedNotificationCenter.default().post(name: Notification.Name("com.apple.DownloadFileFinished"),
                                                      object: dest.path)
@@ -4994,6 +4998,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=redir href=/redir download>c</a>"
                 + "<a id=redir2 href=/redir2 download>g</a>"
                 + "<a id=missing href=/missing download=missing.txt>h</a>"
+                + "<a id=zip href=/pack.zip>i</a>"
                 + "<a id=foreign href=http://localhost:\(port)/foreign.txt download>d</a>"
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
                 + "<a id=last href=/last.txt download>f</a>"
@@ -5001,6 +5006,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
         case "/att2": return ok("Content-Disposition: attachment; filename=\"att2.txt\"\r\n")
+        case "/pack.zip":
+            let z = "PK not really a zip"
+            return "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: \(z.utf8.count)\r\nConnection: close\r\n\r\n" + z
         case "/missing": return "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found"
         case "/redir2": return "HTTP/1.1 302 Found\r\nLocation: /ok2.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/redir": return "HTTP/1.1 302 Found\r\nLocation: http://localhost:\(port)/redirected.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -5061,20 +5069,21 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             row(saved("same.txt"), "a same-origin <a download> is saved")
             row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
             row(saved("ok2.txt"), "a same-origin redirect is followed and saved")
             row(!saved("missing.txt"), "AN ERROR PAGE (404) IS NOT SAVED under the file's name")
+            row(saved("pack.zip"), "a board file the window cannot show (a plain link to a .zip) is saved, not dropped")
             row(!saved("redirected.txt"), "A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING")
             row(!saved("foreign.txt"), "A LINK TO ANOTHER ORIGIN SAVES NOTHING")
             row(!saved("att2.txt"), "AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING")
             let q = getxattr(dl.appendingPathComponent("same.txt").path, "com.apple.quarantine", nil, 0, 0, 0)
             row(q > 0, "a saved file carries the quarantine mark")
             let all = (try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []
-            row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "same.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
+            row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             row(told.count == 3, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment), and nothing else is (told: \(told.count))")
             row(told.contains { $0.contains("answered 404") } && told.contains { $0.contains("does not save from") },
                 "and each is said in its own words")
@@ -5083,11 +5092,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (left the board on: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 12
+            let expected = 13
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } }
+        } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
