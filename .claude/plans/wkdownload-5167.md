@@ -196,6 +196,17 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   click silent).
 - Wording: a non-2xx says "the answer was N" (over Kosmos+ the relay may answer, not the board).
 
+## Review round 16 changes
+- A refused download with no target frame (a new window) is said; only a frame inside the page stays
+  silent (logged).
+- Every early exit of the live selftest removes its temporary folder.
+- Measured 2026-10-03 on macOS 26.7.1, WebKit 21624.5.1.11.3: a passing live selftest takes 25s
+  (adds that to a cut on a console box); a run where nothing saves 81s. The WebKit behaviours this
+  plan cites as measured (download ignored on a cross-origin link, a cross-origin download redirect
+  cancelled before the delegate) are as of that version.
+- Not changed: the reserved-name copy is checked by count in this repo, not against kosmos-relay
+  (no cross-repo check runs here); a skipped no-console run is said on stderr only (rounds 4, 7).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
