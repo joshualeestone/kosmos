@@ -154,6 +154,65 @@ else
   fail "#4392: the reserved live-check prefix appears in $used (a test must never name an agent with it)"
 fi
 
+# #5092: the machine's LIVE Kosmos rewriting one of its OWN agents' plists during the run is not a leak, but only
+# for a plist that already existed (MODIFIED) and whose WorkingDirectory is <live_root>/<name>. Every other shape
+# still fires. LIVE is a temp stand-in for the live workers root, passed as the 4th argument.
+LIVE="$D/live-workers"
+NOTES="$(mktemp "${TMPDIR:-/tmp}/la-guard-notes.XXXXXXXXXX")"
+plist_wd() { printf '  <key>Label</key><string>com.kosmos.agent.%s</string>\n  <key>WorkingDirectory</key><string>%s</string>\n' "$2" "$3" > "$1"; }
+rm -f "$D"/com.kosmos.agent.*.plist
+plist_wd "$D/com.kosmos.agent.liukang.plist" liukang "$LIVE/liukang"
+launchagent_snapshot "$D" > "$BEFORE"
+touch -t 203701010000 "$D/com.kosmos.agent.liukang.plist"
+: > "$NOTES"
+if launchagent_leak_check "$D" "$BEFORE" "$NOTES" "$LIVE" 2>/dev/null; then
+  pass "#5092: a pre-existing live-install plist (WorkingDirectory <live>/liukang) rewritten during the run does NOT trip the guard"
+else
+  fail "#5092: the live install restarting its own agent still reds the suite"
+fi
+grep -qxF "$D/com.kosmos.agent.liukang.plist" "$NOTES" \
+  && pass "#5092: the skipped plist is written to the notes file, so the runner says so" \
+  || fail "#5092: the skip was silent (notes: [$(cat "$NOTES")])"
+# CONTROL (Splinter's): a NEW plist pointing at the live workers root is the leak shape and still fires.
+launchagent_snapshot "$D" > "$BEFORE"
+plist_wd "$D/com.kosmos.agent.newcomer.plist" newcomer "$LIVE/newcomer"
+out="$(launchagent_leak_check "$D" "$BEFORE" "$NOTES" "$LIVE" 2>&1)"; rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'com.kosmos.agent.newcomer.plist'; then
+  pass "#5092 control: a NEW plist pointing at the live workers root still trips the guard"
+else
+  fail "#5092: a new plist under the live root was skipped (rc=$rc, out=[$out])"
+fi
+rm -f "$D/com.kosmos.agent.newcomer.plist"
+# CONTROLS: modified plists whose WorkingDirectory is NOT exactly <live_root>/<name> still fire.
+for shape in "sandbox:/tmp/kosmos-test-AbC/workers/x" "nested:$LIVE/x/deeper" "root:$LIVE" "lookalike:${LIVE}-evil/x" "dotdot:$LIVE/.."; do
+  nm="${shape%%:*}"; wd="${shape#*:}"
+  plist_wd "$D/com.kosmos.agent.m-$nm.plist" "m-$nm" "$wd"
+  launchagent_snapshot "$D" > "$BEFORE"
+  touch -t 203801010000 "$D/com.kosmos.agent.m-$nm.plist"
+  out="$(launchagent_leak_check "$D" "$BEFORE" "$NOTES" "$LIVE" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "com.kosmos.agent.m-$nm.plist"; then
+    pass "#5092 control: a MODIFIED plist with WorkingDirectory '$nm' ($wd) still trips the guard"
+  else
+    fail "#5092: a modified plist with WorkingDirectory '$nm' was skipped (rc=$rc, out=[$out])"
+  fi
+  rm -f "$D/com.kosmos.agent.m-$nm.plist"
+done
+# The default live root is $HOME/work/workers (store.workersRootFor's default) when no 4th argument is given.
+HOME_SAVED="$HOME"; HOME="$D/fakehome"
+plist_wd "$D/com.kosmos.agent.homeagent.plist" homeagent "$D/fakehome/work/workers/homeagent"
+launchagent_snapshot "$D" > "$BEFORE"
+touch -t 203901010000 "$D/com.kosmos.agent.homeagent.plist"
+if launchagent_leak_check "$D" "$BEFORE" "" 2>/dev/null; then
+  pass "#5092: with no live root given, \$HOME/work/workers is the live root"
+else
+  fail "#5092: the default live root is not \$HOME/work/workers"
+fi
+HOME="$HOME_SAVED"
+rm -f "$D/com.kosmos.agent.homeagent.plist" "$D/com.kosmos.agent.liukang.plist" "$NOTES"
+printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_leak_check[^)]*_la_live_notes' \
+  && pass "#5092: run-tests.sh passes a notes file to the leak check" \
+  || fail "#5092: run-tests.sh does not pass the notes file, so a live skip would be silent"
+
 # FAIL-SOFT: an empty/absent dir or missing baseline returns clean rather than reddening
 # the suite on its own bookkeeping. Both arms of the guard clause are exercised.
 if launchagent_leak_check "$D/does-not-exist" "$BEFORE" 2>/dev/null; then

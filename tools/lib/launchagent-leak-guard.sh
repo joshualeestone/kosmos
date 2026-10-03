@@ -51,8 +51,33 @@ launchagent_snapshot() {
 # PATH to stderr and returns 1 if any com.kosmos.agent.* was created or modified during
 # the run; returns 0 (clean) otherwise. Fail-soft: if the args are unusable it returns
 # 0 rather than reddening the suite on its own bookkeeping.
+#
+# #5092: the machine's LIVE Kosmos restarting one of its OWN agents during the run is not a leak. On Mortals
+# (2026-10-02 22:11) Josh switched Liu Kang mid-suite; the live board rewrote com.kosmos.agent.liukang.plist
+# (born Sep 11) and the full run of an unrelated branch went red. So a changed plist is skipped when BOTH hold:
+#   - it was already in the pre-suite snapshot (MODIFIED, never NEW: a new plist is the #3011 leak shape and
+#     always reds, whatever it points at), and
+#   - its WorkingDirectory is directly under the live install's workers root (<live_root>/<name>), which a
+#     test's agent never is: tests sandbox AGENT_WORKFORCE_WORKERS into a temp dir.
+# <live_root> is the optional 4th argument, default $HOME/work/workers (the product's default,
+# store.workersRootFor). Each skip is written to the optional 3rd argument (a file) so the runner can say so.
+# Weakest premise: a test that rewrites a REAL pre-existing plist AND keeps its real WorkingDirectory would now
+# pass the guard. #3605's launch-guard.js already refuses any test's write into the real LaunchAgents under
+# node --test, so that test would fail on its own line first.
+launchagent_live_owned() {   # <plist> <live_root> -> 0 when its WorkingDirectory is <live_root>/<one name>
+  local wd root="${2%/}"
+  [ -n "$root" ] || return 1
+  wd="$(launchagent_leak_origin "$1")"
+  case "$wd" in
+    "$root"/*) ;;
+    *) return 1 ;;
+  esac
+  local rest="${wd#"$root"/}"
+  case "$rest" in ''|*/*|.|..) return 1 ;; esac
+  return 0
+}
 launchagent_leak_check() {
-  local dir="$1" before="$2" after leaked
+  local dir="$1" before="$2" notes="${3:-}" live_root="${4:-${HOME:-}/work/workers}" after leaked kept="" f
   [ -n "$dir" ] && [ -f "$before" ] || return 0
   after="$(mktemp "${TMPDIR:-/tmp}/la-leak-after.XXXXXXXXXX")" || return 0
   launchagent_snapshot "$dir" > "$after"
@@ -60,6 +85,21 @@ launchagent_leak_check() {
   # Both inputs are LC_ALL=C-sorted by launchagent_snapshot. cut drops the mtime column.
   leaked="$(LC_ALL=C comm -13 "$before" "$after" | cut -f2-)"
   rm -f "$after"
+  # #5092: drop a MODIFIED plist the live install owns (see above); keep everything else.
+  if [ -n "$leaked" ]; then
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if cut -f2- "$before" | grep -qxF -- "$f" && launchagent_live_owned "$f" "$live_root"; then
+        [ -n "$notes" ] && printf '%s\n' "$f" >> "$notes"
+        continue
+      fi
+      kept="${kept}${f}
+"
+    done <<EOF_LEAKED
+$leaked
+EOF_LEAKED
+    leaked="$(printf '%s' "$kept" | sed '/^$/d')"
+  fi
   if [ -n "$leaked" ]; then
     printf '%s\n' "$leaked" >&2
     return 1

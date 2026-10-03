@@ -509,7 +509,9 @@ fi
 # The whole-suite guard for the leak class (a test missing its AGENT_WORKFORCE_LAUNCH
 # sandbox). Runs regardless of the test verdict, so a leak is reported even beside a red.
 if [ -n "$_la_guard_before" ]; then
-  if ! _la_leaked="$(launchagent_leak_check "$_la_guard_dir" "$_la_guard_before" 2>&1)"; then
+  # #5092: plists the machine's LIVE Kosmos rewrote for its own agents during the run are skipped, and said.
+  _la_live_notes="$(mktemp "${TMPDIR:-/tmp}/la-live-notes.XXXXXXXXXX")" || _la_live_notes=""
+  if ! _la_leaked="$(launchagent_leak_check "$_la_guard_dir" "$_la_guard_before" "$_la_live_notes" 2>&1)"; then
     # #3605: print each leaked plist WITH the sandbox it points into. The check sees the
     # shared folder, not this run, so a concurrent suite from another checkout lands here
     # too; the working dir (usually the writer's test sandbox) is how you tell.
@@ -520,7 +522,12 @@ if [ -n "$_la_guard_before" ]; then
     echo "run-tests: #3011 LEAK -- a real com.kosmos.agent.* plist was created or modified in ~/Library/LaunchAgents while this suite ran (listed above). Move them out (launchctl bootout gui/\$(id -u)/<label> first if loaded). Either a test here is missing 'process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, \"LaunchAgents\")', or ANOTHER checkout that predates #3011/#3605 ran its suite at the same time: this tree's create.js refuses such writes under node --test, so if no test here failed on a #3605 refusal, look for an older worktree. Rerun alone to confirm." >&2
     [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
   fi
-  rm -f "$_la_guard_before"
+  if [ -n "$_la_live_notes" ] && [ -s "$_la_live_notes" ]; then
+    while IFS= read -r _la_f; do
+      [ -n "$_la_f" ] && echo "run-tests: #5092 note -- $_la_f was rewritten during the run by this machine's live Kosmos (it existed before the suite, and points at its own agent folder $(launchagent_leak_origin "$_la_f")), so it is not counted as a leak" >&2
+    done < "$_la_live_notes"
+  fi
+  rm -f "$_la_guard_before" "$_la_live_notes"
 fi
 # --- #4273: refuse a launchd job, a process or a new temp family the suite left --
 # Runs regardless of the verdict, like #3011, so a leak is reported beside a red. A
