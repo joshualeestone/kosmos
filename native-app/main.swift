@@ -2755,11 +2755,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
             let boardPage = isBoardPage(committedPageURL, board: badgeOrigin)
-            // A page that is not a board is told about once per load, then only logged: a foreign page clicking in
-            // a loop cannot keep bringing an alert back (Reload reloads that same page).
-            let alreadyToldThisPage = !boardPage && notBoardToldForPage != nil && notBoardToldForPage == committedPageURL
-            if !boardPage { notBoardToldForPage = committedPageURL }
-            if navigationAction.targetFrame?.isMainFrame != false, !alreadyToldThisPage {
+            if navigationAction.targetFrame?.isMainFrame != false {
                 tellDownloadFailed(boardPage
                     ? "That file is not from this board, so it was not saved."
                     : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true)
@@ -2832,9 +2828,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #5167: only --kosmos-app-download-selftest sets this, so a measured run never writes to the real Downloads.
     static var downloadsDirOverride: URL?
-
-    /// #5167: the page that is not a board already told about its refused downloads (once per load).
-    private var notBoardToldForPage: URL?
 
     /// #5167: the page on screen, as of its last main-frame commit. fileprivate for the download selftest.
     fileprivate var committedPageURL: URL?
@@ -2912,9 +2905,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         wake.invalidate()
         downloadAlertsUp -= 1
         if pendingDownloadFailures > 0 {   // failures that arrived while it was asked
-            DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
-                self?.sayPendingDownloadFailures()
-            }
+            schedulePendingSay()
         }
         // The page may have changed while it was asked (a switch to connect clears it): the waiting downloads
         // are not saved, and nothing is recorded, since the person answered for a page no longer there.
@@ -2935,21 +2926,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var lastDownloadTold: Date?
     private var downloadAlertsUp = 0   // download alerts on screen; a count, since one can open inside another's modal loop
     private var pendingDownloadFailures = 0   // failures that arrived while an alert was up, said together after it
+    private var pendingSayScheduled = false   // one summary waiting at a time, however fast refusals come
+    private var quietToldForPage: URL?        // a refusal already said for this page load
+    private var summaryToldForPage: URL?      // a summary already said for this page load
+
+    private func schedulePendingSay() {
+        guard !pendingSayScheduled else { return }
+        pendingSayScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
+            self?.pendingSayScheduled = false
+            self?.sayPendingDownloadFailures()
+        }
+    }
+
     private func sayPendingDownloadFailures() {
         guard pendingDownloadFailures > 0, downloadAlertsUp == 0 else { return }   // an alert up: its dismissal comes back here
         if let last = lastDownloadTold, Date().timeIntervalSince(last) < AppDelegate.downloadQuietSeconds {
-            DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
-                self?.sayPendingDownloadFailures()
-            }
+            schedulePendingSay()
             return
         }
         let n = pendingDownloadFailures
         pendingDownloadFailures = 0
+        // One summary per page load: a page looping refusals or failures cannot bring it back every few seconds.
+        if let page = committedPageURL, summaryToldForPage == page {
+            logLine("#5167: \(n) more downloads not saved (summary already said for this page)")
+            return
+        }
+        summaryToldForPage = committedPageURL
         tellDownloadFailed(n == 1 ? "One more download was not saved." : "\(n) more downloads were not saved.",
                            title: "Some downloads were not saved")
     }
 
-    fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
+    fileprivate func resetDownloadQuiet() { lastDownloadTold = nil; quietToldForPage = nil; summaryToldForPage = nil }   // the selftest, between its arms
 
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {
         // A refusal is Kosmos choosing not to save; anything else is a save that failed.
@@ -2961,10 +2969,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             pendingDownloadFailures += 1
             logLine("#5167: said with the next summary: \(detail)")
             if downloadAlertsUp == 0 {   // none up to schedule it on dismissal
-                DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
-                    self?.sayPendingDownloadFailures()
-                }
+                schedulePendingSay()
             }
+            return
+        }
+        if quiet, let page = committedPageURL, quietToldForPage == page {
+            // One refusal per page load is said; the rest are logged (Reload, or a new page, can say again).
+            logLine("#5167: already said for this page: \(detail)")
             return
         }
         if quiet {
@@ -2974,13 +2985,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 logLine("#5167: said with the next summary: \(detail)")
                 pendingDownloadFailures += 1
                 if downloadAlertsUp == 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
-                        self?.sayPendingDownloadFailures()
-                    }
+                    schedulePendingSay()
                 }
                 return
             }
         }
+        if quiet { quietToldForPage = committedPageURL }
         if let present = AppDelegate.downloadAlertPresenter {   // the selftest: dismissed as soon as said
             lastDownloadTold = Date()
             present(title + ": " + detail)
@@ -2998,9 +3008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             self.downloadAlertsUp -= 1
             self.lastDownloadTold = Date()   // the quiet window follows every download alert
             if self.pendingDownloadFailures > 0 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
-                    self?.sayPendingDownloadFailures()
-                }
+                schedulePendingSay()
             }
         }
         // Modal, never a sheet: a sheet over another sheet can be dropped (#2807), and a failure must be said.
@@ -3071,7 +3079,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 completionHandler(nil)
                 return
             }
-            tellDownloadFailed("The answer was a web page, not the file, so nothing was saved. If this is a Kosmos+ computer, you may need to sign in again.")
+            tellDownloadFailed(committedPageURL.map(isKosmosPlusURL) == true
+                ? "The answer was a web page, not the file, so nothing was saved. You may need to sign in to Kosmos+ again."
+                : "The answer was a web page, not the file, so nothing was saved.")
             completionHandler(nil)
             return
         }
@@ -4572,7 +4582,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         voice?.hostCancel("new page loaded")
         committedPageURL = webView.backForwardList.currentItem?.url   // #5167: the origin a download must share (moves only at a commit)
-        notBoardToldForPage = nil   // a new load may be told once again
+        quietToldForPage = nil   // a new load may be told once again
+        summaryToldForPage = nil
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -4657,6 +4668,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     //     too recovers on a single press, not two.
     @objc func reloadBoard(_ sender: Any?) {
         refusedDownloadHosts = []   // #5167: the person's Reload asks again about a computer they refused
+        quietToldForPage = nil
+        summaryToldForPage = nil
         // #4356: a connect computer has no board to start, so Reload reloads the page it is on, or
         // goes back to sign-in when there is none or the last load failed.
         if computerMode == .connect {

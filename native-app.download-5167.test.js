@@ -204,7 +204,7 @@ test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a
   assert.match(tell, /quiet: Bool = false\) \{\n[\s\S]*?\n\s+if quiet \{\n\s+let sheetUp/, 'a real save failure can be swallowed by the quiet window');
   assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 6, 'the quiet window covers something other than the six refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show, a download WebKit stopped, a computer already refused, the page changed during the question)');
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
-  assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame != false, !alreadyToldThisPage \{\n\s+tellDownloadFailed\(boardPage\n\s+\? "That file is not from this board/,
+  assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame != false \{\n\s+tellDownloadFailed\(boardPage\n\s+\? "That file is not from this board/,
     'a frame inside the page can put up the app\'s sheet, or the refusal blames the page when the file is the cause');
 });
 
@@ -331,7 +331,7 @@ test('#5167 review 27: failures during an alert are counted and said together la
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.match(tell, /if !quiet && \(downloadAlertsUp > 0 \|\| soSoon\) \{\n[\s\S]*?pendingDownloadFailures \+= 1\n[\s\S]*?\n\s+return\n\s+\}/,
     'a failure that arrives while an alert is up opens another, so a looping page can stack them');
-  assert.match(tell, /asyncAfter\(deadline: \.now\(\) \+ AppDelegate\.downloadQuietSeconds\) \{ \[weak self\] in\n\s+self\?\.sayPendingDownloadFailures\(\)/,
+  assert.match(tell, /schedulePendingSay\(\)/,
     'counted failures are never said, or are said the instant the alert closes');
   assert.match(body('private func sayPendingDownloadFailures() {'), /guard pendingDownloadFailures > 0, downloadAlertsUp == 0 else \{ return \}/);
   assert.match(body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {'),
@@ -343,7 +343,7 @@ test('#5167 review 27: failures during an alert are counted and said together la
 
 test('#5167 review 28: failures counted while the question was up are said after it', () => {
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
-  assert.match(may, /downloadAlertsUp -= 1\n\s+if pendingDownloadFailures > 0 \{[^\n]*\n\s+DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ AppDelegate\.downloadQuietSeconds\)/,
+  assert.match(may, /downloadAlertsUp -= 1\n\s+if pendingDownloadFailures > 0 \{[^\n]*\n\s+schedulePendingSay\(\)/,
     'a failure that arrived while the question was up is never said');
 });
 
@@ -372,10 +372,7 @@ test('#5167 review 31: the board\'s 204 refusal of a download is not saved as an
   assert.ok(at204 !== -1 && at204 < b.indexOf('!(200..<300).contains(http.statusCode)'), 'a 204 download (the board\'s refusal) is saved as an empty file under the real name');
   assert.match(b, /if pageSaysDownloadRefusal\(response\.url \?\? download\.originalRequest\?\.url\) \{\n\s+completionHandler\(nil\)/,
     'a signed-out Files-list download is said twice (the page says it too)');
-  const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
-  assert.match(act, /let alreadyToldThisPage = !boardPage && notBoardToldForPage != nil && notBoardToldForPage == committedPageURL/,
-    'a foreign page clicking in a loop brings an alert back every few seconds for good');
-  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /notBoardToldForPage = nil/);
+  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /quietToldForPage = nil[^\n]*\n\s+summaryToldForPage = nil/);
   assert.match(body('private func sayPendingDownloadFailures() {'), /title: "Some downloads were not saved"/);
 });
 
@@ -383,4 +380,15 @@ test('#5167 review 32: the live rows are read only once the messages have arrive
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.match(hatch, /askArm \{ settled \{/, 'the verdict is read before late messages arrive, so a busy build box fails a good product');
   assert.match(hatch, /if told\.count >= 9 \|\| tries == 0 \{ go\(\); return \}/);
+});
+
+test('#5167 review 33: one refusal and one summary per page load, on every path; one summary waiting at a time', () => {
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
+  assert.match(tell, /if quiet, let page = committedPageURL, quietToldForPage == page \{\n[^\n]*\n\s+logLine/,
+    'a page looping refusals (any path, any page) brings an alert back every few seconds');
+  assert.match(body('private func sayPendingDownloadFailures() {'), /if let page = committedPageURL, summaryToldForPage == page \{/,
+    'a page looping failures brings the summary back every few seconds');
+  assert.match(body('private func schedulePendingSay() {'), /guard !pendingSayScheduled else \{ return \}/, 'every refusal starts its own timer chain');
+  assert.equal((SRC.match(/asyncAfter\(deadline: \.now\(\) \+ AppDelegate\.downloadQuietSeconds\)/g) || []).length, 1, 'a summary is scheduled somewhere other than schedulePendingSay');
+  assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /quietToldForPage = nil\n\s+summaryToldForPage = nil/);
 });
