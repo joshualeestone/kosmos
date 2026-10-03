@@ -57603,7 +57603,8 @@ function tkReceiptAgentHtml(a, name) {
     return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">' + esc(why) + '</div></div>';
   }
   if (!a.transcriptsWithWork) {
-    return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">No Claude Code activity found while it held this task.</div></div>';
+    const tool = a.provider === 'claude' || !a.provider ? 'Claude Code' : (TKR_PROVIDER[a.provider] || a.provider);
+    return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">' + esc('No ' + tool + ' activity found while it held this task.') + '</div></div>';
   }
   const models = a.models || {};
   let tokens = 0;

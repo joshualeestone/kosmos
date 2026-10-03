@@ -35,8 +35,11 @@ const BUCKET_FIELDS = ['input_tokens', 'output_tokens', 'cache_creation_input_to
 const SYNTHETIC_ROW = /"model":"<[^"]*>"/;
 const FILE_TOOLS = { Edit: 'file_path', Write: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 const COMMAND_TOOLS = new Set(['Bash']);
-/* Bumped when the receipt's shape or counting changes, so a kept receipt from an older build is worked out again. */
-const VERSION = 1;
+/* Bumped when the receipt's shape or counting changes, so a kept receipt from an older build is worked out again.
+   2: Codex and Gemini CLI agents are read (slice 2). */
+const VERSION = 2;
+/* Slice 2: the providers read besides Claude, by the agent's recorded runner. */
+const OTHER_PROVIDERS = new Set(['codex', 'gemini']);
 
 /**
  * Each agent's holds on the task, from its activity rows (oldest first): { [who]: [{ from, to }] } in ms, merged.
@@ -246,6 +249,105 @@ async function claudeWork(dir, holds) {
   return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands, transcriptsWithWork: withWork, transcriptsRead: read, complete };
 }
 
+/**
+ * #5153 slice 2: one Codex or Gemini CLI agent's work inside its holds. Tokens are counted by engine/usageproviders.js's
+ * own readers and rules (a Codex running total counted by its change, forks and resets; a Gemini reply written twice
+ * counted once), through an accumulator of the receipt's own that keeps only rows from the agent's folder inside a hold.
+ * The tool calls are read in the same pass (the readers' onRow), by these rules, measured on this Mac 2026-10-03:
+ *   - Codex runs a script through one `exec` tool (a custom_tool_call); each `tools.exec_command(` in it is a command,
+ *     and each `*** Add|Update|Delete File: <path>` of a `tools.apply_patch(` in it is a file edited, counted only when
+ *     the call's output begins "Script completed" (the only outcome measured, 62 of 63; the other was an abort).
+ *     Older Codex calls (`shell`, `exec_command`, `local_shell_call`) are counted as commands; an older standalone
+ *     apply_patch is not counted as an edit, because how it reports success was not measured here.
+ *   - Gemini CLI writes each tool call with an id, a time and a status: run_shell_command is a command; write_file and
+ *     replace are a file edited when their status is success. A reply written twice is read once per call id, keeping
+ *     the latest status.
+ */
+const CODEX_COMMAND_FUNCS = new Set(['shell', 'exec_command', 'container.exec']);
+const GEMINI_EDIT_TOOLS = new Set(['write_file', 'replace']);
+const GEMINI_COMMAND_TOOLS = new Set(['run_shell_command']);
+
+async function providerWork(runner, dir, holds) {
+  const up = require('./usageproviders');
+  const { canonicalOnDisk } = require('./trust');
+  const mine = canonicalOnDisk(dir);
+  const sameFolderMemo = new Map();
+  const sameFolder = (folder) => {
+    if (!folder) return false;
+    if (!sameFolderMemo.has(folder)) sameFolderMemo.set(folder, folder === dir || folder === mine || canonicalOnDisk(folder) === mine);
+    return sameFolderMemo.get(folder);
+  };
+  const inHold = (t) => Number.isFinite(t) && holds.some((h) => t >= h.from && t <= h.to);
+  const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const acc = new up.Acc(day(Math.min(...holds.map((h) => h.from))), day(Math.max(...holds.map((h) => h.to))));
+  const models = {};
+  const withWork = new Set();
+  acc.add = (d, model, folder, b, ts) => {
+    if (!sameFolder(folder) || !inHold(Date.parse(ts))) return;
+    if (!BUCKET_FIELDS.some((f) => b[f] > 0)) return;
+    const m = model || 'unknown';
+    const into = models[m] || (models[m] = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 });
+    for (const f of BUCKET_FIELDS) into[f] += Number(b[f]) || 0;
+    into.rows += 1;
+  };
+  const commandIds = new Set();
+  const pendingPatches = new Map();   // Codex call id -> [paths]
+  const edits = new Map();            // call id -> [shown paths], once the call is known to have succeeded
+  const gemini = new Map();           // Gemini call id -> { edit, path, status }
+  let unnamed = 0;
+  acc.onRow = (provider, row, file, folder) => {
+    if (!sameFolder(folder)) return;
+    if (inHold(Date.parse(row && row.timestamp))) withWork.add(file);   // any row of the agent's inside a hold
+    if (provider === 'codex') {
+      const p = (row && row.payload) || {};
+      if (p.type === 'custom_tool_call' || p.type === 'function_call' || p.type === 'local_shell_call') {
+        if (!inHold(Date.parse(row.timestamp))) return;
+        const id = p.call_id || p.id || ('#' + (unnamed += 1));
+        if (commandIds.has(id) || pendingPatches.has(id) || edits.has(id)) return;
+        if (p.type === 'custom_tool_call' && p.name === 'exec') {
+          const src = String(p.input || '');
+          for (let i = 0; i < (src.match(/tools\.exec_command\(/g) || []).length; i += 1) commandIds.add(id + ':' + i);
+          if (/tools\.apply_patch\(/.test(src)) {
+            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ([^\n\\"]+)/g)].map((x) => x[1].trim()).filter(Boolean);
+            if (paths.length) pendingPatches.set(id, paths);
+          }
+        } else if (p.type === 'local_shell_call' || (p.type === 'function_call' && CODEX_COMMAND_FUNCS.has(p.name))) {
+          commandIds.add(id);
+        }
+      } else if (p.type === 'custom_tool_call_output' && pendingPatches.has(p.call_id)) {
+        const out = Array.isArray(p.output) ? p.output : [];
+        const head = String((out[0] && out[0].text) || (typeof p.output === 'string' ? p.output : '')).split('\n')[0];
+        if (head.startsWith('Script completed')) edits.set(p.call_id, pendingPatches.get(p.call_id).map((f) => shownPath(dir, f)));
+        pendingPatches.delete(p.call_id);
+      }
+      return;
+    }
+    if (provider === 'gemini') {
+      for (const tc of Array.isArray(row && row.toolCalls) ? row.toolCalls : []) {
+        if (!tc || typeof tc !== 'object' || !tc.id) continue;
+        if (!inHold(Date.parse(tc.timestamp || row.timestamp))) continue;
+        if (GEMINI_COMMAND_TOOLS.has(tc.name)) commandIds.add(tc.id);
+        const fp = tc.args && typeof tc.args.file_path === 'string' ? tc.args.file_path : '';
+        if (GEMINI_EDIT_TOOLS.has(tc.name) && fp) gemini.set(tc.id, { path: shownPath(dir, fp), ok: tc.status === 'success' });
+      }
+    }
+  };
+  const problems = [];
+  let homes;
+  try { homes = up.defaultHomes(problems); } catch { homes = { codex: [], gemini: [] }; problems.push('homes'); }
+  if (runner === 'codex') await up.scanCodex(acc, homes.codex || []);
+  else await up.scanGemini(acc, homes.gemini || []);
+  const files = new Map();
+  for (const list of edits.values()) for (const f of list) files.set(f, true);
+  for (const g of gemini.values()) if (g.ok) files.set(g.path, true);
+  const all = [...files.keys()];
+  return {
+    models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN),
+    commands: commandIds.size, transcriptsWithWork: withWork.size,
+    complete: !acc.incomplete && !problems.length,
+  };
+}
+
 /* A file inside the agent's folder by its path there; anything else in full (it is this person's own computer). */
 function shownPath(dir, file) {
   const rel = path.relative(dir, file);
@@ -312,6 +414,7 @@ async function work(projectId, task, { now = Date.now() } = {}) {
     try { runner = create.recordedRunner(who); } catch { runner = null; }
     if (!dir) { agents.push({ ...entry, available: false, because: 'no-folder' }); continue; }
     entry.folder = dir;
+    if (runner && OTHER_PROVIDERS.has(runner)) { agents.push({ ...entry, provider: runner, available: true, ...(await providerWork(runner, dir, spans)) }); continue; }
     if (runner && runner !== 'claude') { agents.push({ ...entry, provider: runner, available: false, because: 'provider' }); continue; }
     agents.push({ ...entry, provider: 'claude', available: true, ...(await claudeWork(dir, spans)) });
   }
@@ -325,4 +428,4 @@ async function work(projectId, task, { now = Date.now() } = {}) {
   return receipt;
 }
 
-module.exports = { forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, SETTLE_MS, FILES_SHOWN, VERSION };
+module.exports = { forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, providerWork, SETTLE_MS, FILES_SHOWN, VERSION };

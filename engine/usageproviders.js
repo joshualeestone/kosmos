@@ -150,6 +150,7 @@ async function scanCodex(acc, codexHomes) {
           if (p.forked_from_id) { forked = true; forkAt = Date.parse(p.timestamp || r.timestamp); }
         }
         if (r.type === 'turn_context' && typeof p.model === 'string') model = p.model;
+        if (acc.onRow) acc.onRow('codex', r, file, cwd);   // #5153: a receipt reads the tool calls in the same pass
         if (p.type !== 'token_count' || !p.info || !p.info.total_token_usage) continue;
         const t = p.info.total_token_usage;
         const cur = { in: n(t.input_tokens), cached: n(t.cached_input_tokens), cw: n(t.cache_write_input_tokens), out: n(t.output_tokens) };
@@ -166,7 +167,7 @@ async function scanCodex(acc, codexHomes) {
           output_tokens: d.out,
           cache_creation_input_tokens: d.cw,
           cache_read_input_tokens: d.cached,
-        });
+        }, r.timestamp);   // #5153: the row's own time, for a receipt
       }
     }
   }
@@ -202,6 +203,7 @@ async function scanGemini(acc, geminiHomes) {
           const msgs = r && r.type === 'gemini' ? [r]
             : (r && r.$set && Array.isArray(r.$set.messages) ? r.$set.messages.filter((m) => m && m.type === 'gemini') : []);
           for (const m of msgs) {
+            if (acc.onRow) acc.onRow('gemini', m, file, cwd);   // #5153: a receipt reads the tool calls in the same pass
             const t = m.tokens;
             if (!t || typeof t !== 'object') continue;
             /* A message with no id cannot be de-duplicated and is still counted (dropping it would be a silent
@@ -214,7 +216,7 @@ async function scanGemini(acc, geminiHomes) {
               output_tokens: n(t.output) + n(t.thoughts),
               cache_creation_input_tokens: 0,
               cache_read_input_tokens: n(t.cached),
-            });
+            }, m.timestamp);
           }
         }
       }
@@ -258,7 +260,7 @@ async function scanGrok(acc, grokHomes) {
             output_tokens: n(u.outputTokens),
             cache_creation_input_tokens: n(u.cacheCreationTokens),
             cache_read_input_tokens: n(u.cachedReadTokens),
-          });
+          }, t.endedAt || d.updatedAt);
         }
       }
     }
@@ -303,4 +305,6 @@ async function scanProviders({ sinceDay, untilDay, homes: h } = {}) {
   return { days: acc.days, folders: acc.folders, homesRead: hs, complete: !acc.incomplete };
 }
 
-module.exports = { scanProviders, defaultHomes, homesByPrefix, BUCKET_FIELDS };
+/* #5153: the readers and their accumulator, so a task's receipt counts tokens by exactly these rules, from an accumulator
+   of its own (its add() takes the row's time as a fifth argument) and an optional onRow(provider, row, file, folder). */
+module.exports = { scanProviders, defaultHomes, homesByPrefix, BUCKET_FIELDS, Acc, scanCodex, scanGemini };
