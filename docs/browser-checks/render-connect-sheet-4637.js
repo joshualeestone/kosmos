@@ -236,8 +236,9 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       let confirmRefuse = '';  // review 1: a confirm the tunnel refuses (code_expired)
       let joinGets = 0;        // review 6: each GET is a signed pairing round, so the endings must not poll
       let joinFailOnce = false; // review 6: a failed round on load must not spend the read on load
+      let joinFailAlways = false; // a board whose every round fails (no connector, coordinator down)
       await page.route('**/api/remote/join', async (route) => { joinGets += 1; if (joinDelayMs) await new Promise((r) => setTimeout(r, joinDelayMs));
-        if (joinFailOnce) { joinFailOnce = false; return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'busy' }) }); }
+        if (joinFailAlways || joinFailOnce) { joinFailOnce = false; return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ error: 'busy' }) }); }
         return route.fulfill(json(join)); });
       await page.route('**/api/remote/join/confirm', (route, req) => { confirmBody = JSON.parse(req.postData() || '{}');
         if (confirmRefuse) { const why = confirmRefuse; confirmRefuse = ''; return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: why }) }); }
@@ -325,7 +326,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
          only said for a pairing this page watched). */
       join = { ...join, held: false, confirmed: true, confirm_expired: false, join_code: '246 810' };
       remoteNow = REMOTE;
-      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_PROBED = false; PLUS_JOIN_CODE_AT = 0; });
+      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_CODE_AT = 0; });
       jr = await readJoin(); jr = await readJoin();
       chk(!jr.shown && jr.pill === 'Connected', `${tag} #4794 CONTROL: connected, no pairing block`, JSON.stringify(jr));
       /* Review 5: a page loaded AFTER the other computer's Allow, with the code still up. Nothing earlier on this page has
@@ -334,7 +335,15 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_PROBED = true; PLUS_JOIN_CODE_AT = 0; });
       jr = await readJoin(); jr = await readJoin();
       chk(!jr.shown, `${tag} #4794 CONTROL: without the read on load, a reloaded page never finds the code (review 5)`, JSON.stringify(jr));
-      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_PROBED = false; PLUS_JOIN_CODE_AT = 0; });
+      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_CODE_AT = 0; });
+      /* Every round fails (no connector, or the coordinator is down): the read on load gives up after three tries
+         rather than spawning a signed round every few seconds for as long as the page is open. */
+      joinFailAlways = true;
+      const getsBefore = joinGets;
+      for (let i = 0; i < 5; i += 1) jr = await readJoin();
+      joinFailAlways = false;
+      chk(!jr.shown && joinGets - getsBefore === 3, `${tag} #4794: a read on load that always fails stops after three tries`, JSON.stringify({ rounds: joinGets - getsBefore }));
+      await page.evaluate(() => { PLUS_JOIN_PROBE_TRIES = 0; });
       /* Review 6: the first read on load fails (a busy round): it is not spent, and the next paint reads again. */
       joinFailOnce = true;
       jr = await readJoin();

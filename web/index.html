@@ -44843,10 +44843,12 @@ async function paintPlus() {
       paintPlusJoin();
       /* Review 5: a page loaded after the other computer's Allow has no last answer, so the gate above never opens and a
          code still up would never show. Read the pairing on load, and count it only once a real answer came back
-         (review 6: a busy or failed round must not spend it). A live answer opens the block at once. */
-      if (!PLUS_JOIN_PROBED && r.on === true && r.enrolled === true) {
+         (review 6: a busy or failed round must not spend it), at most three tries: a missing connector or a coordinator
+         outage fails every round, and each try is a spawn and a signed round. A live answer opens the block at once. */
+      if (!PLUS_JOIN_PROBED && PLUS_JOIN_PROBE_TRIES < 3 && r.on === true && r.enrolled === true) {
         plusJoinTick().then((answered) => {
-          if (!answered) return;
+          if (answered === 'paced') return;
+          if (!answered) { PLUS_JOIN_PROBE_TRIES += 1; return; }
           PLUS_JOIN_PROBED = true;
           if (!PLUS_JOIN_WAITING && plusJoinLive(PLUS_JOIN)) { PLUS_JOIN_WAITING = true; paintPlusJoin(); }
         });
@@ -44883,6 +44885,7 @@ var PLUS_JOIN_LAST_CODE = '';
 var PLUS_JOIN_GEN = 0;         // bumped by a confirm (and when waiting ends): a round that began before it is stale
 var PLUS_JOIN_CODE_AT = 0;     // when the current code first showed, by this page's clock
 var PLUS_JOIN_PROBED = false;  // the read on page load got a real answer (review 5)
+var PLUS_JOIN_PROBE_TRIES = 0; // failed reads on load; it stops after three
 var PLUS_JOIN_NOTE = null;     // {kind: 'ranout' | 'matched', name}: how a pairing ended after the Allow, said once (review 6)
 /* The tunnel withdraws an unconfirmed code REVEAL_TIMEOUT_SECS (600 s) after it appeared, but only during a round that
    succeeds; by the page's own clock a code that old is treated as run out, even if rounds keep failing (review 3). */
@@ -44903,9 +44906,9 @@ function plusJoinRanOut(j) {
   return !!j && j.held !== true && j.confirm_expired === true && j.confirmed !== true && j.failed !== true;
 }
 /* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). Resolves true
-   when a real answer came back. */
+   when a real answer came back, false when the round failed, 'paced' when none ran. */
 async function plusJoinTick() {
-  if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < 4000) { paintPlusJoin(); return false; }
+  if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < 4000) { paintPlusJoin(); return 'paced'; }
   PLUS_JOIN_BUSY = true;
   const gen = PLUS_JOIN_GEN;
   /* Only a real answer replaces the last one: a round that failed (the tunnel's round lock, a Forget in progress, a
