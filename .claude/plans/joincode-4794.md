@@ -81,3 +81,16 @@ Shots for Mona: both screens, light and dark, plus 390.
   walks away and comes back never learns it. Slice 2, when trust starts to matter, should own a recovery and a durable
   notice.
 - New line for Mona: E (matched after the Allow): "Matched with <name>."
+
+## Review 7 (blind Opus, static against kosmos-relay d1216d79): 1 blocker, 1 warning, 3 nits, all fixed
+- BLOCKER fixed: the past-10-minutes held arm edited the route fixture then called paintPlusJoin, which never fetches;
+  the page still held the earlier not-held answer and painted the ran-out ending. The arm now sets PLUS_JOIN.held.
+- WARNING fixed: a Forget never cleared the pairing (paintPlus returns early when not enrolled, before the clearing),
+  so a fresh sign-in could show the old ending or the old code. plusJoinReset() runs on a real not-enrolled answer and
+  on Off. A failed /api/remote read (no answer) does not reset (my call after the review, so a board blip keeps an
+  ending said once).
+- NIT fixed: two fixtures paired on:'homemac' with no code, a shape the tunnel cannot emit (on comes only from
+  join_codes); now on:null, so the page's own fallback name is exercised.
+- NIT fixed: Off then On after the read on load hid a still-up code until reload; the reset re-owes the read.
+- NIT fixed: "Matched with <name>." could be lost if a paint nulled PLUS_JOIN during the confirm request; the handler
+  keeps the answer it started from.

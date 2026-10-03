@@ -280,7 +280,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} #4794 waiting: "The codes match" posts the code shown; then "Matched. Now press Allow on homemac." and the code stays`, JSON.stringify({ confirmBody, jr }));
       /* Review 5: the tunnel reports a code that ran out unconfirmed only once this computer is no longer held (a held
          round restarts and clears it, pairing.rs owe_commitment), so the shape is connected, not held, no code. */
-      join = { ...join, held: false, join_code: '', confirmed: false, confirm_expired: true };
+      join = { ...join, held: false, join_code: '', on: null, confirmed: false, confirm_expired: true };   // no code, so no join_codes, so no on (review 7)
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
       chk(jr.shown && jr.text === 'This computer is connected, but the code ran out before it was matched here, so it does not trust homemac yet.' && !jr.button && !jr.code && jr.pill === 'Connected',
@@ -294,7 +294,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       jr = await readJoin();
       chk(jr.shown && /relay cannot be reached/.test(jr.status), `${tag} #4794: an outage after the ending is still said (review 6)`, JSON.stringify(jr));
       /* Too many tries: still held, every attempt used, no code (the tunnel's failed). */
-      join = { ...join, held: true, failed: true };
+      join = { ...join, held: true, failed: true, on: null };
       remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
       jr = await readJoin();
       chk(jr.text === 'Too many tries. On homemac, press Not me on this request, then sign this computer in again.' && !jr.button,
@@ -307,7 +307,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(jr.shown && /^If homemac showed this same code when you allowed it, press The codes match\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
         `${tag} #4794: allowed but not yet confirmed: the code and The codes match stay (the pill says Connected, the sentence stays away)`, JSON.stringify(jr));
       /* By the page's clock a code older than the tunnel's 10 minutes is shown as run out, even if rounds keep failing. */
-      await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; });
+      await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; PLUS_JOIN.held = true; });   // review 7: paintPlusJoin reads the page's answer, not the route
       remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting' } };
       join = { ...join, held: true };
       await page.evaluate(() => paintPlusJoin());
@@ -319,7 +319,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       remoteNow = REMOTE;
       jr = await readJoin();
       chk(jr.shown && jr.text === 'This computer is connected, but the code ran out before it was matched here, so it does not trust homemac yet.' && !jr.button, `${tag} #4794: allowed and past 10 minutes: the ending, not "a new one is on its way" (review 6)`, JSON.stringify(jr));
-      join = { ...join, join_code: '', confirm_expired: true };
+      join = { ...join, join_code: '', on: null, confirm_expired: true };
       jr = await readJoin(); jr = await readJoin();
       chk(jr.shown && jr.text === 'This computer is connected, but the code ran out before it was matched here, so it does not trust homemac yet.', `${tag} #4794: the tunnel's ran-out answer keeps the ending up (review 6)`, JSON.stringify(jr));
       /* CONTROL: a fresh page, connected and confirmed: the read on load answers and the block stays away (an ending is

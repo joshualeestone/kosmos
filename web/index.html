@@ -44763,6 +44763,9 @@ async function paintPlus() {
      machine at state1 (no switch). state2's paid sign-in still has no signal and stays
      hidden; an already-enrolled machine keeps the flow so it can still turn Plus OFF. */
   if (!r || r.enrolled !== true) {
+    /* #4794 review 7: not enrolled (a Forget, or never signed in) ends any pairing this page knew; this return skips the
+       pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
+    if (r && typeof plusJoinReset === 'function') plusJoinReset();
     state1.hidden = false;
     state2.hidden = true;
     flow.hidden = true;
@@ -44834,8 +44837,10 @@ async function paintPlus() {
   if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
     /* Waiting to be allowed, or allowed with a code still up and unconfirmed. Otherwise the pairing is over: forget the
        last answer, so a later wait (a Forget and a fresh sign-in) never shows this one's state (review 3). */
-    /* An ending said after the Allow (review 6) belongs to the pairing it ended: a new wait, Off, or a Forget clears it. */
-    if (r.on !== true || r.enrolled !== true || stat.state === 'waiting-allow') PLUS_JOIN_NOTE = null;
+    /* Off ends any pairing this page knew, and a later On reads afresh (review 7). An ending said after the Allow
+       (review 6) belongs to the pairing it ended: a new wait clears it too. */
+    if (r.on !== true) plusJoinReset();
+    else if (stat.state === 'waiting-allow') PLUS_JOIN_NOTE = null;
     PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
     if (PLUS_JOIN_WAITING) plusJoinTick();
     else {
@@ -44890,6 +44895,14 @@ var PLUS_JOIN_NOTE = null;     // {kind: 'ranout' | 'matched', name}: how a pair
 /* The tunnel withdraws an unconfirmed code REVEAL_TIMEOUT_SECS (600 s) after it appeared, but only during a round that
    succeeds; by the page's own clock a code that old is treated as run out, even if rounds keep failing (review 3). */
 var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: paintPlusJoin may run before this line
+/* Forget, Off, or never enrolled: nothing of an earlier pairing may show, and the read on load is owed again. A round in
+   flight is dropped (GEN). Only acts when something is set, so the 5-second repaint does not churn GEN. */
+function plusJoinReset() {
+  if (!PLUS_JOIN && !PLUS_JOIN_NOTE && !PLUS_JOIN_WAITING && !PLUS_JOIN_PROBED && !PLUS_JOIN_PROBE_TRIES) return;
+  PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_WAITING = false; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0;
+  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = '';
+  paintPlusJoin();
+}
 /* Whether the pairing is live (the block shows, polls, and stands in for the coordinator's sentence). Held, OR a code is
    up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
    the other computer first and confirm here after"), so the block must outlive waiting-allow (review 3). A code past the
@@ -44974,15 +44987,17 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   const b = e.target.closest('#plus-join-match');
   if (!b || b.disabled) return;
   b.disabled = true;
+  const before = PLUS_JOIN;   // review 7: a paint during the request may clear PLUS_JOIN; the note still needs the name
   let res = null;
   try { res = await fetch('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: b.getAttribute('data-code') }) }); } catch { res = null; }
   PLUS_JOIN_GEN += 1;
   if (res && res.ok) {
     PLUS_JOIN_MSG = '';
-    if (PLUS_JOIN) {
-      PLUS_JOIN.confirmed = true;
+    const j = PLUS_JOIN || before;
+    if (j) {
+      j.confirmed = true;
       /* Already allowed: the pairing is complete, and the block (no longer live) says so once (review 6). */
-      if (PLUS_JOIN.held !== true) PLUS_JOIN_NOTE = { kind: 'matched', name: PLUS_JOIN.on || '' };
+      if (j.held !== true) PLUS_JOIN_NOTE = { kind: 'matched', name: j.on || '' };
     }
   }
   else {
