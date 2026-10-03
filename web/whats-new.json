@@ -12,6 +12,11 @@
       "line": "Over Kosmos+, clicking a file now downloads it to the device you are using, instead of opening it on the computer running Kosmos."
     },
     {
+      "icon": "chat",
+      "title": "An honest sign-in warning",
+      "line": "When a sign-in ends but agents can still run a while, the warning now says when they will stop, not that they already have."
+    },
+    {
       "icon": "tasks",
       "title": "Work you can check off",
       "line": "Agents are now told to put bigger work on a task first, with Done when checks you can answer yes or no, and to say how each went."

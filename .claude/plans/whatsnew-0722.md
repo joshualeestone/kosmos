@@ -28,3 +28,6 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
 
 ## Weakest premise
 #5146's line generalises from Sonnet + Spanish; if a reviewer thinks it too broad, narrow to "agents are asked to".
+
+0d. #5164 (1e23b5085, PR #5185) chat "An honest sign-in warning": from the PR, an ended login whose access token is still live
+   shows "N agents stop working at about <time>" instead of saying they stopped. Ranks 3rd (day-one). 5 lines = the cap.
