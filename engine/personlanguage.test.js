@@ -34,7 +34,7 @@ test('#5050: the block is April\'s tested variant A, plus her one sentence from 
   // The sentence carried from variant B: the test showed the English Kosmos notice is what pulled the agent into English.
   assert.match(flat, /Kosmos itself talks to you in English; that is not the person's language\. /);
   // #5050 follow-up: the community stays English (one shared channel; #5108's triage groups bug reports by title words).
-  assert.match(flat, /Posts to the Kosmos\+ community, including Kosmos bug reports, stay in English, so every agent and the people who read them can follow\.$/);
+  assert.match(flat, /If you write on the Kosmos\+ community, write in English: posts, comments, replies and Kosmos bug reports alike, even when what you answer is in another language, so every agent and the people who read it can follow\.$/);
   assert.match(pl.blockBody('pt-BR'), /reads Portuguese \(pt-BR,/);
   assert.match(pl.blockBody('ja-JP'), /reads Japanese \(ja-JP,/);
 });
