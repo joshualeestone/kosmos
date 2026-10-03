@@ -6,7 +6,7 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
 - Saved: a download (`<a download>`, a board attachment, a board file the window cannot show, a
   same-origin redirect) only while the committed page is a board (`isBoardPage`: a Kosmos+ computer
   other than login/community/www, or the board this app loaded) and the file is from its origin.
-- Refused and said once: a download from a page that is not the board (any mode), an attachment
+- Refused and said (at most once in 5 seconds): a download from a page that is not the board (any mode), an attachment
   from anywhere else, a non-2xx answer, a download WebKit stops before it has a destination.
 - Destination: ~/Downloads, safe unique name; quarantine mark with origin-only URLs; a file that
   cannot be marked is kept and the person is told.
@@ -22,10 +22,8 @@ every file click in the Files lists (`kplusDownload`, a synchronously clicked `<
 native-app/main.swift had no download handling, so WebKit saved nothing and the click did nothing.
 
 ## Decision
-- Action policy: `navigationAction.shouldPerformDownload` from the page's own origin
-  (`isSameOriginDownload`: scheme, host, port with default ports, no user part) returns `.download`,
-  on every computer mode, BEFORE the connect-only policy. A cross-origin download falls through to
-  the policy it had.
+- Action policy: `navigationAction.shouldPerformDownload` is decided first, on every computer mode
+  (see "Current behaviour" for what is saved and what is refused).
 - Response policy: see the review round changes below (board, same-origin attachment or
   unshowable file is saved; a foreign attachment is refused and said; otherwise shown if WebKit can
   show it, cancelled if not).
@@ -33,7 +31,7 @@ native-app/main.swift had no download handling, so WebKit saved nothing and the 
   (separators and colon to `-`, control chars to space, leading dots stripped, empty/`..` to
   "Download", 200-byte cap keeping the extension, " (2)" numbering, UUID fallback after 10000;
   never an existing file). Finish bounces the Dock Downloads stack
-  (`com.apple.DownloadFileFinished`); failure is logged.
+  (`com.apple.DownloadFileFinished`); a failure is said to the person (see "Current behaviour").
 
 Rejected: asking where to save (an NSSavePanel per click). Safari's default is Downloads with no
 prompt, and the page already tells the person the file went to their device.
@@ -118,6 +116,18 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - -999 is read only in NSURLErrorDomain; more invisible characters dropped; the selftest does not
   bounce the build box's Dock.
 - Not changed: the redirect-then-navigate case (#5169).
+
+## Review round 9 changes
+- WebKit marks every download itself (measured: its agent `com.apple.WebKit.Networking`), so the live
+  row now reads THIS app's mark (agent `Kosmos`); sabotage (setResourceValues removed) turns it red.
+  The "unmarked" alert is said only when the file carries no mark at all.
+- Refusals are said at most once in 5 seconds (`downloadQuietSeconds`), the rest logged; live burst
+  arm: three refusals, one said (sabotage: window off gives 6 said).
+- Only main-frame responses can save or refuse; a frame loading cannot.
+- Not changed: every Kosmos+ computer except its service sites counts as a board. The tunnel
+  resolves the person's session before anything (kosmos-relay crates/tunnel/src/proxy.rs module doc,
+  step 2: "No session, no board"), so another account's computer serves its gate page, not its board.
+  Reasoned from source; an allowlist of the person's own computers would remove the premise.
 
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
