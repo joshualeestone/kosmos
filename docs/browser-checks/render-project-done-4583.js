@@ -174,7 +174,8 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
       const onLine = (x) => Math.abs(x.mid - m.full.name.mid) <= 3;
       // Both widths: the injected cells are on the name's line (else the arm tests nothing), the tag keeps its size, and
       // the NAME keeps room to be read (round 2: on a phone the right-hand tracks could squeeze it to nothing).
-      const common = m.found && m.roadmap && m.added === 5 && onLine(m.full.faces) && onLine(m.full.pill)
+      // The page's own breakpoint must agree with the widths this arm means as phone and desktop.
+      const common = m.found && m.roadmap && m.added === 5 && m.phone === (vw === 390) && onLine(m.full.faces) && onLine(m.full.pill)
         && m.full.tag.w === m.plain.tag.w && m.full.tag.w < 200 && m.full.name.w >= 60;
       // Desktop: on the name's line, directly left of the count (one 12 px gap), the row still one line.
       // Phone: under the name, at the name's left edge.
@@ -183,6 +184,7 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
         : Math.abs(m.full.tag.l - m.full.name.l) <= 2 && m.full.tag.mid > m.full.name.mid + 8;
       ok(`#5070 roadmap @${vw}: with an agent count and a status, "Done not set" keeps its size and its place, and the name keeps room`,
         common && placed, JSON.stringify(m));
+      // On a tag row the four tracks are full on a desktop, so this one bites at 390; the no-tag arm below covers the desktop.
       ok(`#5070 roadmap @${vw}: an orphan row's ancestry chip stays off the name's line and the name keeps room`,
         m.found && m.withChip.chip.mid > m.withChip.name.mid + 8 && m.withChip.name.w >= 60, JSON.stringify(m.withChip));
       ok(`#5070 roadmap @${vw}: on a row with no "Done not set", the orphan chip stays off the name's line too`,
