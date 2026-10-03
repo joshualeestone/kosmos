@@ -202,7 +202,7 @@ test('install-flow-9screen: the S3 Next go() guard reads fr-next.disabled and dr
      leaves a button that renders and silently does nothing. */
   assert.match(step3, /label: 'Check again'/,
     'S3 no longer supplies the nav Check-again control (#2647)');
-  assert.match(step3, /hint: 'Turned it on\? Click to check\.'/,
+  assert.match(step3, /hint: 'Turned it on\? Tap to check\.'/,
     'S3 no longer supplies the Check-again hint copy (#2647)');
   assert.match(step3, /frGateStart\(pane\)/,
     'S3 starts the permission-gate poll (frGateStart), which drives the disabled state');
