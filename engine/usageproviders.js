@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #5158: token usage for the providers that are not Claude (Codex, Gemini CLI, Grok), in the SAME shape as
+ * #5158: token usage for the providers that are not Claude (Codex, Gemini CLI, Grok, Antigravity), in the SAME shape as
  * usage.js's Claude scan: `{ days: { [day]: { [model]: buckets } }, folders: { [day]: { [launchCwd]: buckets } } }`,
  * so the per-day, per-model and per-agent views take them without a second code path.
  *
@@ -265,6 +265,84 @@ async function scanGrok(acc, grokHomes) {
   }
 }
 
+/* ---------- Antigravity: <agy home>/conversations/<id>.db (SQLite, one per conversation) ---------- */
+/* Read raw and checked on 25 conversations (109 model calls) on this Mac, 2026-10-03; agysession.js has the field map.
+   A model call (`gen_metadata`, one protobuf per call, keyed by idx) carries NO time. Its time is on the STEP the call
+   produced: `steps.metadata` 1.1 is a protobuf Timestamp's seconds, and the step of type 15 carries the call's idx at
+   20.3 (absent = 0). The folder is `trajectory_metadata_blob` 1.1, a file:// URI (`last_conversations.json` names only
+   a folder's latest conversation, so it cannot place older ones). */
+const AGY_STEP = { CALL_TYPE: 15, TIME: [1, 1], CALL_IDX: [20, 3] };
+const AGY_WORKSPACE = [[1, 1], [7]];
+
+function agyWorkspace(agy, blob) {
+  if (!blob) return '';
+  const buf = Buffer.from(blob);
+  for (const at of AGY_WORKSPACE) {
+    const b = agy.messageAt(buf, at);
+    const s = b ? b.toString('utf8') : '';
+    if (s.startsWith('file://')) { try { return require('node:url').fileURLToPath(s); } catch { /* not a file path */ } }
+  }
+  return '';
+}
+
+async function scanAntigravity(acc, agyHomes) {
+  const agy = require('./agysession');
+  for (const home of agyHomes) {
+    let files;
+    try { files = (await fsp.readdir(path.join(home, 'conversations'))).filter((f) => /^[0-9a-f-]{8,64}\.db$/i.test(f)).sort(); }
+    catch (err) { if (err && err.code !== 'ENOENT') acc.incomplete = true; continue; }
+    for (const name of files) {
+      const file = path.join(home, 'conversations', name);
+      /* agy commits into <db>-wal while it runs and leaves the db's own mtime alone: either being recent counts. */
+      if (!(await touchedSince(file, acc.sinceDay, acc)) && !(await touchedSince(file + '-wal', acc.sinceDay))) continue;
+      let calls;
+      let steps;
+      let meta;
+      let db = null;
+      try {
+        const { DatabaseSync } = require('node:sqlite');
+        db = new DatabaseSync(file, { readOnly: true });   // agy's live file: read-only, no write lock (agysession.js)
+        calls = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx').all();
+        /* The time and the folder are extras: a conversation without these tables still counts every call. */
+        try { steps = db.prepare('SELECT step_type, metadata FROM steps').all(); } catch { steps = []; }
+        try { meta = db.prepare("SELECT data FROM trajectory_metadata_blob WHERE id = 'main'").get(); } catch { meta = null; }
+      } catch {
+        await badFile(acc, file, 'Antigravity conversation');
+        continue;
+      } finally {
+        try { if (db) db.close(); } catch { /* already closed */ }
+      }
+      const cwd = agyWorkspace(agy, meta && meta.data);
+      /* Each call's time: its type-15 step's, else the earliest step naming its idx, else the conversation's last write
+         (never earlier than the call). */
+      const byCall = new Map();
+      const anyStep = new Map();
+      for (const st of steps) {
+        const m = Buffer.from(st.metadata || []);
+        const secs = agy.numberAt(m, AGY_STEP.TIME);
+        if (!secs) continue;
+        const idx = agy.numberAt(m, AGY_STEP.CALL_IDX) || 0;
+        if (st.step_type === AGY_STEP.CALL_TYPE && !byCall.has(idx)) byCall.set(idx, secs);
+        if (!anyStep.has(idx) || secs < anyStep.get(idx)) anyStep.set(idx, secs);
+      }
+      let lastWrite = 0;
+      for (const f of [file, file + '-wal']) { try { lastWrite = Math.max(lastWrite, (await fsp.stat(f)).mtimeMs); } catch { /* absent */ } }
+      for (const c of calls) {
+        const u = agy.generationUsage(c.data);
+        if (!u.found) continue;
+        const secs = byCall.get(c.idx) || anyStep.get(c.idx);
+        const when = secs ? new Date(secs * 1000).toISOString() : (lastWrite ? new Date(lastWrite).toISOString() : null);
+        acc.add(utcDay(when), u.model, cwd, {
+          input_tokens: u.uncached,
+          output_tokens: u.reply + u.thoughts,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: u.cached,
+        });
+      }
+    }
+  }
+}
+
 /* The homes each provider's sessions live under. Lazy requires, so this module loads without the account modules
    (and a test can pass its own homes). */
 function defaultHomes(problems = []) {
@@ -280,24 +358,27 @@ function defaultHomes(problems = []) {
     gemini: homesByPrefix(home, geminiDefault, [gemini.DIR_PREFIX, gemini.FORGOTTEN_PREFIX],
       (d) => (path.resolve(d) === geminiDefault ? d : path.join(d, '.gemini')), problems),
     grok: homesByPrefix(home, grok.defaultDir(), [grok.DIR_PREFIX, grok.FORGOTTEN_PREFIX], undefined, problems),
+    /* agy keeps one home (no per-account folders): agytrust.agyHome, the one derivation a sandbox moves. */
+    antigravity: [require('./agytrust').agyHome()],
   };
 }
 
 /**
- * Codex, Gemini CLI and Grok usage between sinceDay and untilDay (UTC, inclusive), as usage.js's scan returns it.
- * `opts.homes` = { codex: [...], gemini: [...], grok: [...] } overrides discovery (tests). Never throws.
+ * Codex, Gemini CLI, Grok and Antigravity usage between sinceDay and untilDay (UTC, inclusive), as usage.js's scan returns it.
+ * `opts.homes` = { codex: [...], gemini: [...], grok: [...], antigravity: [...] } overrides discovery (tests). Never throws.
  */
 async function scanProviders({ sinceDay, untilDay, homes: h } = {}) {
   const acc = new Acc(sinceDay, untilDay);
   let hs = h;
   if (!hs) {
     const problems = [];
-    try { hs = defaultHomes(problems); } catch { hs = { codex: [], gemini: [], grok: [] }; acc.incomplete = true; }
+    try { hs = defaultHomes(problems); } catch { hs = { codex: [], gemini: [], grok: [], antigravity: [] }; acc.incomplete = true; }
     if (problems.length) acc.incomplete = true;   // a home directory that could not be listed: do not freeze zeros
   }
   try { await scanCodex(acc, hs.codex || []); } catch { acc.incomplete = true; }   // one provider failing keeps the others
   try { await scanGemini(acc, hs.gemini || []); } catch { acc.incomplete = true; }
   try { await scanGrok(acc, hs.grok || []); } catch { acc.incomplete = true; }
+  try { await scanAntigravity(acc, hs.antigravity || []); } catch { acc.incomplete = true; }
   /* `complete: false` when anything could not be read: the caller shows these numbers but must not FREEZE them, or a
      passing error on the first read after an update would fix a past day's provider usage at zero forever (review 1). */
   return { days: acc.days, folders: acc.folders, homesRead: hs, complete: !acc.incomplete };
