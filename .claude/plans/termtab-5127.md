@@ -11,8 +11,9 @@ section Add a provider is in ("Set up in Settings, AI Models").
 ## The thirteen sentences
 - server.js: the agent-not-running message ("if it stays off, look under AI Settings on its page").
 - engine/chat.js: ten refusals from answering a Codex hook question. They are shown in the question box ON the agent's
-  page, and are about its screen, so they say where that is: "...; its screen is under AI Settings on this
-  page" (a place, not a promise of what it shows).
+  page, and are about its screen, so they say what to look for and where: "...; look for its screen under AI
+  Settings on this page". This meets every review ask on the wording at once: an action (iteration 6), the thing to
+  find (iterations 2 and 5), and no promise that it shows anything (iteration 3; "look for" is not "you can see").
 - web/index.html: the greyed Gemini (Antigravity) and Meta (Muse) provider hints.
 
 ## The sweep, so the next person does not redo it
