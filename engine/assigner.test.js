@@ -374,11 +374,10 @@ const folderOf = (pid) => projects.readAll().find((p) => p.id === pid).folder;
 const writeBrief = (pid, text) => fs.writeFileSync(path.join(folderOf(pid), 'BRIEF.md'), text);
 
 /* tick on real reads, with the REAL goal reader; asks and gives recorded. */
-function goalTick(w, prev, now, answer = DELIVERY.PLACED, posts = []) {
+function goalTick(w, prev, now, answer = DELIVERY.PLACED) {
   const calls = { asks: [], gives: [] };
   const out = a.tick({
     prev, now, DELIVERY,
-    readPosts: () => posts,
     readSetting: () => ON,
     readRoster: () => w.cards,
     readRecords: () => projects.readAll(),
@@ -475,24 +474,27 @@ test('once per project per day; a COULD_NOT ask is retried after ASK_RETRY_MS, n
 
 /* ---- #5161: ask once per state of the project, and remember it across a restart ---- */
 
-const post = (id, project, from) => ({ kind: 'post', id, project, from, to: [], text: 'x', at: '2026-10-02T19:44:00.000Z' });
-
-test('#5161: the agent\'s own "nothing to add" post does not re-arm the ask; a post by the person does', () => {
-  const w = world([{ name: 'gpost' }]);
+test('#5161: a newly added agent lets an unchanged project be asked again (it was never asked); nothing else changed, it is not', () => {
+  const w = world([{ name: 'gmember' }, { name: 'gnewcomer', member: false }]);
   try {
     writeBrief(w.pid, '## Goal\n\nA real goal.\n');
     const asked = idleTicks(w);
     assert.equal(asked.calls.asks.length, 1);
     const later = T0 + a.IDLE_MS + a.GOAL_ASK_MS + 60000;
-    const own = goalTick(w, asked.out.next, later, DELIVERY.PLACED, [post('m1', w.pid, w.key.gpost)]);
-    assert.equal(own.calls.asks.length, 0, 'the agent\'s answer to the last ask re-armed the same ask');
-    const person = goalTick(w, own.out.next, later + 60000, DELIVERY.PLACED, [post('m1', w.pid, w.key.gpost), post('m2', w.pid, 'josh')]);
-    assert.equal(person.calls.asks.length, 1, 'control: a new post by the person did not let the project be asked again');
-    // ...and a post in ANOTHER project's room is not this project's change.
-    const elsewhere = goalTick(w, person.out.next, later + 60000 + a.GOAL_ASK_MS, DELIVERY.PLACED,
-      [post('m1', w.pid, w.key.gpost), post('m2', w.pid, 'josh'), post('m3', 'someotherproject', 'josh')]);
-    assert.equal(elsewhere.calls.asks.length, 0, 'a post in another project\'s room re-armed this one');
+    const same = goalTick(w, asked.out.next, later);
+    assert.equal(same.calls.asks.length, 0, 'asked again with nothing changed');
+    projects.addAgent(w.pid, w.key.gnewcomer, w.cards);
+    const joined = goalTick(w, same.out.next, later + 60000);
+    assert.equal(joined.calls.asks.length, 1, 'a project with a new member was never asked again');
   } finally { w.restore(); }
+});
+
+test('#5161: projectSig: member order does not matter; a removed member or a new goal changes it', () => {
+  const p1 = { tasks: [], agents: ['b', 'a'] };
+  const p2 = { tasks: [], agents: ['a', 'b'] };
+  assert.equal(a.projectSig(p1, 'g'), a.projectSig(p2, 'g'), 'the same members in another order changed the signature');
+  assert.notEqual(a.projectSig(p1, 'g'), a.projectSig({ tasks: [], agents: ['a'] }, 'g'), 'control: a removed member did not change it');
+  assert.notEqual(a.projectSig(p1, 'g'), a.projectSig(p1, 'h'), 'control: a new goal did not change it');
 });
 
 test('#5161: a task added and closed since the last ask lets the project be asked again; still within the day, it does not', () => {

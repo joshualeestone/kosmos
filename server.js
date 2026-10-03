@@ -19723,7 +19723,6 @@ function start(port = PORT) {
             readRecords: () => projects.readAll(),
             readCommitment: (session) => commitments.read(session),
             readGoal: (project) => brief.readGoal(project && project.folder),
-            readPosts: () => messages.readLog(), // #5161: a person's room post lets an unchanged project be asked again
             give: (projectId, n, partId, who, roster) => givePart(projectId, n, partId, who, { assigner: true, roster }),
             ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
             DELIVERY: chat.DELIVERY,

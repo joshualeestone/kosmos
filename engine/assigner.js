@@ -166,32 +166,20 @@ function emptyMemory() {
 /* #5161: what a goal ask is about, as one short string. Two installs (and the Feedback and Community project here) were
    asked the same question again with nothing changed since the last ask, and answered "nothing to add" each time. A
    project whose signature still matches the one recorded when its goal was last put to an agent is not asked again,
-   however long ago that was: the person's own change (a task added, closed, edited, put on hold or given out, a new
-   goal in BRIEF.md, or a post in the room by anyone not on the project) is what lets the question be asked again.
-   Posts by the project's own agents do not count, because the answer to the last ask ("nothing to add") is one of
-   them, and counting it would re-arm the very ask it answered. */
-function projectSig(p, goal, roomMark) {
+   however long ago that was. What re-arms it is a change the ask is about: the goal in BRIEF.md, a task (added, edited,
+   closed, put on hold, given out), or who is on the project (a newly added agent has never been asked).
+   Room posts are deliberately NOT in it (review of this change): the posts that follow an ask are the agent's
+   "nothing to add" and the person's "ok, thanks", and either would re-arm the very ask it answered; and a person's post
+   is already delivered to the project's agents, so asking them again adds nothing it did not. */
+function projectSig(p, goal) {
   const ts = (Array.isArray(p && p.tasks) ? p.tasks : []).map((t) => {
     const prog = tasks.progressOf(t);
     return [t.number, t.sentence || '', t.detail || '', prog.closed ? 1 : 0, tasks.isOnHold(t) ? 1 : 0, t.builtAt || '',
       t.addedVia || '', prog.parts.map((x) => [x.who || '', x.closedAt || ''])];
   });
-  const body = JSON.stringify([String(goal || ''), ts, roomMark == null ? '' : String(roomMark)]);
+  const agents = (Array.isArray(p && p.agents) ? p.agents : []).map(String).sort();
+  const body = JSON.stringify([String(goal || ''), ts, agents]);
   return crypto.createHash('sha256').update(body).digest('hex').slice(0, 16);
-}
-
-/* #5161: the newest room post in each listed project by anyone who is NOT one of that project's agents (the person,
-   or a guest). One pass over the message record, which the messages module caches by offset. Rows are the record's
-   shape-validated rows. */
-function roomMarksFrom(rows, projects) {
-  const members = new Map((Array.isArray(projects) ? projects : []).map((p) => [p.id, new Set(Array.isArray(p.agents) ? p.agents : [])]));
-  const marks = new Map();
-  for (const r of Array.isArray(rows) ? rows : []) {
-    if (!r || r.kind !== 'post' || !members.has(r.project)) continue;
-    if (members.get(r.project).has(r.from)) continue;
-    marks.set(r.project, r.id);
-  }
-  return marks;
 }
 
 /* #5161: the goal-ask memory survives a board restart. It lived only in the runner's variable, so every restart (each
@@ -247,7 +235,7 @@ function saveMemory(mem, last) {
 /* A live project this agent belongs to, with NO open task at all (not merely none free), a goal,
    and not asked about within GOAL_ASK_MS. First by project order. (A project chosen earlier in
    the same step is already in `asked`, so a second agent in it is not asked.) */
-function goalProject(session, projects, goals, asked, now, askedSig, roomMarks) {
+function goalProject(session, projects, goals, asked, now, askedSig) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session) || aloneOnItsOwn(p, session)) continue;
     /* #4771: a paused project is not asked about. (A task on hold still counts as open work here: the project is
@@ -260,7 +248,7 @@ function goalProject(session, projects, goals, asked, now, askedSig, roomMarks) 
     const open = (Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk);
     if (open) continue;
     // #5161: asked before, and nothing has changed since: not asked again.
-    const sig = projectSig(p, goal, roomMarks instanceof Map ? roomMarks.get(p.id) : null);
+    const sig = projectSig(p, goal);
     if (askedSig instanceof Map && askedSig.get(p.id) === sig) continue;
     // Webhook tasks waiting for a person do not stop the ask (blocksGoalAsk), but the ask must not
     // then say the project has none: it says how many wait, and that they are not the agent's.
@@ -299,11 +287,10 @@ function askText(item) {
  * @param {Map<string,string>} o.commitments  session -> commitments state for idle cards, or 'free'
  *   (tick's commitmentsFree: nothing stated), which counts like 'clear'
  * @param {Map<string,string>} [o.goals]  project id -> BRIEF.md goal (phase 3); absent = none
- * @param {Map<string,string>} [o.roomMarks]  #5161: project id -> newest room post id by a non-member (roomMarksFrom)
  * @param {number} o.now  ms clock
  * @returns {{toAssign: Array<object>, toAsk: Array<object>, next: object}}
  */
-function step({ prev, roster, setting, records, commitments, goals, roomMarks, now }) {
+function step({ prev, roster, setting, records, commitments, goals, now }) {
   const base = prev && prev.idleSince instanceof Map ? prev : emptyMemory();
   if (!setting || setting.on !== true) return { toAssign: [], toAsk: [], next: emptyMemory() };
   // A null roster is a READ FAILURE, not an empty fleet: keep the memory, do nothing.
@@ -349,7 +336,7 @@ function step({ prev, roster, setting, records, commitments, goals, roomMarks, n
     // projects has no open task and a goal, within the ask caps.
     if (askLog.length >= MAX_ASKS_PER_HOUR) continue;
     if (askLog.filter((e) => e.session === session).length >= MAX_ASKS_PER_AGENT_PER_HOUR) continue;
-    const g = goalProject(session, projects, goals, asked, now, askedSig, roomMarks);
+    const g = goalProject(session, projects, goals, asked, now, askedSig);
     if (!g) continue;
     asked.set(g.projectId, now);
     // #5161: what the project looked like when asked; runOnce puts the previous one back if the ask never landed.
@@ -367,8 +354,8 @@ function step({ prev, roster, setting, records, commitments, goals, roomMarks, n
  * charge back off the budget, so a refusal does not spend an hour's allowance.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, records, commitments, goals, roomMarks, now, give, ask, DELIVERY }) {
-  const out = step({ prev, roster, setting, records, commitments, goals, roomMarks, now });
+function runOnce({ prev, roster, setting, records, commitments, goals, now, give, ask, DELIVERY }) {
+  const out = step({ prev, roster, setting, records, commitments, goals, now });
   /* #5161: an ask that did not land must not record the project as asked-about-in-this-state, or a pane that refused
      once would silence that project until something changed. */
   const unrecord = (item) => {
@@ -435,11 +422,11 @@ function runOnce({ prev, roster, setting, records, commitments, goals, roomMarks
  * Goals (phase 3) are read only for live projects with no open task that an idle agent
  * belongs to, and a goal read that throws is no goal.
  * @param {object} o  prev, now, readSetting, readRoster, readRecords, readCommitment(session)->
- *   {state}, readGoal(project)->string|null, readPosts()->message record rows (#5161, for roomMarksFrom), give(projectId, n, partId, who, roster),
+ *   {state}, readGoal(project)->string|null, give(projectId, n, partId, who, roster),
  *   ask(session, text, roster), DELIVERY
  * @returns {{next: object, acted: Array<object>, asks: Array<object>}}
  */
-function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, readPosts, give, ask, DELIVERY }) {
+function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment, readGoal, give, ask, DELIVERY }) {
   const setting = readSetting();
   const roster = setting && setting.on === true ? readRoster() : null;
   const records = setting && setting.on === true ? readRecords() : [];
@@ -458,17 +445,11 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
       try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }
-  /* #5161: the room marks, read only when some goal could be asked about this tick (one pass over the cached record).
-     A read that throws gives no marks: a person's post then does not re-arm an ask, the quiet direction. */
-  let roomMarks = new Map();
-  if (goals.size && typeof readPosts === 'function') {
-    try { roomMarks = roomMarksFrom(readPosts(), liveProjects(records).filter((p) => goals.has(p.id))); } catch { roomMarks = new Map(); }
-  }
-  return runOnce({ prev, roster, setting, records, commitments: states, goals, roomMarks, now, DELIVERY,
+  return runOnce({ prev, roster, setting, records, commitments: states, goals, now, DELIVERY,
     give: (projectId, n, partId, who) => give(projectId, n, partId, who, roster),
     ask: typeof ask === 'function' ? (session, text) => ask(session, text, roster) : undefined });
 }
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
-  projectSig, roomMarksFrom, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
+  projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
   IDLE_MS, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS };
