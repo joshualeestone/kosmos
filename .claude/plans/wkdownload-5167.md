@@ -5,18 +5,20 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
 ## Current behaviour (what holds now; the round sections below are history)
 - Saved: a download (`<a download>`, a board attachment, a board file the window cannot show, a
   same-origin redirect) only while the committed page is a board (`isBoardPage`: a Kosmos+ computer
-  other than login/community/www, or the board this app loaded) and the file is from its origin.
-- Refused and said (at most once in 5 seconds): a download from a page that is not the board (any mode), an attachment
-  from anywhere else, a non-2xx answer, a download WebKit stops before it has a destination.
+  whose name is not one the coordinator reserves (`kosmosPlusReservedLabels`, a copy of kosmos-relay
+  RESERVED_NAMES, 45 names), or the board this app loaded) and the file is from its origin.
+- Refused and said: a download from a page that is not the board (any mode), an attachment or an
+  unshowable file from anywhere else (these three at most once in 5 seconds), a non-2xx answer, a
+  download WebKit stops before it has a destination (these always).
 - Destination: ~/Downloads, safe unique name; quarantine mark with origin-only URLs; a file that
   cannot be marked is kept and the person is told.
 - Measured live: `--kosmos-app-download-selftest`, 17 rows, run at bundle build (loud skip without
-  a console). Pure rules: `--kosmos-app-mode-selftest`, 77 rows.
+  a console). Pure rules: `--kosmos-app-mode-selftest`, 79 rows.
 - Known and filed: on a computer that runs agents, a plain link or a refused cross-origin redirect
   still navigates the window (#5169).
 
 ## Problem
-In connect mode the Mac app's WKWebView loads a board over Kosmos+, where the page hands files over
+In connect mode the macOS app's WKWebView loads a board over Kosmos+, where the page hands files over
 as downloads: #4930's attachment links (`<a href=/api/attachment/.. download>`) and, with #5165,
 every file click in the Files lists (`kplusDownload`, a synchronously clicked `<a download>`).
 native-app/main.swift had no download handling, so WebKit saved nothing and the click did nothing.
@@ -165,6 +167,17 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - The quiet window is one for all policy refusals, not one per cause (said in its comment).
 - Not changed: the Kosmos+ service-host denylist (see round 9).
 - Live selftest: 17 rows.
+
+## Review round 13 changes
+- Kosmos+ service sites: the hand list (login, community, www) is replaced by a copy of the
+  coordinator's RESERVED_NAMES (45 names, diffed IDENTICAL against kosmos-relay origin/main c91521c1,
+  with a control that a missing name is caught). It caught `coordinator.kosmosplus.com`, a live alias
+  of sign-in. A test pins the count, so a change to the copy is seen. Residual: a computer that held a
+  name before it was reserved keeps it, and its downloads are refused (said).
+- Response refusals name the cause (not-a-board page vs a file from elsewhere), like the action's.
+- The quarantine origin is the page the download came from (captured at its destination), not the
+  page on screen when it ends.
+- Selftest budget comment corrected; the temporary folder is removed on a timeout.
 
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
