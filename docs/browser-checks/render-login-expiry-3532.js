@@ -13,6 +13,8 @@
  *   warn      2 agents, 2 days  -> "2 agents' login expires in 2 days", .login-adv.warn
  *   urgent    1 agent,  0 days  -> "An agent's login expires today", .login-adv.urgent
  *   expired   1 agent, expired  -> "An agent's login has expired", .login-adv.urgent
+ *   stopsat   #5164: expired, access token alive -> "2 agents stop working at about <time>"
+ *   stoppedpast #5164: expired, access token already ran out -> "has expired" (control)
  *   none      []                -> the slot is EMPTY (the control: the pill shows ONLY
  *                                  when there is an advisory, so the three above prove
  *                                  a real render and not a permanent banner)
@@ -46,6 +48,12 @@ const CASES = [
     text: /An agent’s login expires today/, cls: 'urgent', who: /leo/ },
   { key: 'expired', adv: [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true }],
     text: /An agent’s login has expired/, cls: 'urgent', who: /mona/ },
+  /* #5164 (account-e, 2026-10-03): the login ended at 06:58 but its agents worked until 13:18 on the access token they
+     held. While that time is ahead, the notice says when they stop; once it has passed, "has expired" (the control). */
+  { key: 'stopsat', adv: [{ agents: ['mona', 'echo'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: Date.now() + 5 * 3600000 }],
+    text: /2 agents stop working (tomorrow )?at about \d{1,2}:\d{2}\s?[ap]\.?m\.?[\s\S]*The login has run out\. Sign in again before then to keep them working\./, cls: 'urgent', who: /mona, echo/ },
+  { key: 'stoppedpast', adv: [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: Date.now() - 60000 }],
+    text: /An agent’s login has expired[\s\S]*Sign in again to bring it back\./, cls: 'urgent', who: /mona/ },
   { key: 'none', adv: [], text: null, cls: null, who: null },
 ];
 
