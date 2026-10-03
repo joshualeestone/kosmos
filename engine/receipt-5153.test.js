@@ -47,6 +47,9 @@ const assistant = (at, { id, model = 'claude-sonnet-5-5', usage, tools = [] }) =
   message: { id, model, role: 'assistant', usage,
     content: tools.map((t) => ({ type: 'tool_use', id: t.id, name: t.name, input: t.input || {} })) },
 });
+/* A tool's result, as Claude Code writes it on a user row. */
+const result = (at, id, isError = false) => JSON.stringify({ type: 'user', timestamp: T(at),
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, is_error: isError, content: isError ? 'failed' : 'ok' }] } });
 const use = (i, o, cw = 0, cr = 0) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr });
 
 test('holds: a hand-off ends one hold and starts the next; a close ends all; a put-back resumes the last holder', () => {
@@ -108,22 +111,28 @@ test('a closed task: files, a command COUNT, tokens once per message, only insid
     JSON.stringify({ type: 'user', timestamp: T('10:01'), cwd: ann, message: { role: 'user', content: 'go' } }),
     assistant('10:05', { id: 'm1', usage: use(100, 50, 10, 1000), tools: [{ id: 't1', name: 'Edit', input: { file_path: path.join(ann, 'src/a.js') } }, { id: 't0', name: 'Bash', input: { command: 'make' } }] }),
     assistant('10:05', { id: 'm1', usage: use(100, 50, 10, 1000), tools: [{ id: 't1', name: 'Edit', input: { file_path: path.join(ann, 'src/a.js') } }, { id: 't0', name: 'Bash', input: { command: 'make' } }] }),   // the same message restated
+    result('10:05', 't1'),
     assistant('10:06', { id: 'm2', usage: use(5, 5), tools: [{ id: 't2', name: 'Bash', input: { command: 'rm -rf secret' } }, { id: 't3', name: 'Bash', input: { command: 'ls' } }] }),
     assistant('10:07', { id: 'm3', model: '<synthetic>', usage: use(999, 999) }),
+    assistant('10:08', { id: 'm6', usage: use(0, 1), tools: [{ id: 't6', name: 'Edit', input: { file_path: path.join(ann, 'refused.js') } }] }),
+    result('10:08', 't6', true),   // the edit failed: it changed nothing
+    assistant('10:09', { id: 'm7', usage: use(0, 1), tools: [{ id: 't7', name: 'Write', input: { file_path: path.join(ann, 'unanswered.js') } }] }),   // no result came back
     assistant('11:30', { id: 'm4', usage: use(7777, 7777), tools: [{ id: 't4', name: 'Write', input: { file_path: path.join(ann, 'late.js') } }] }),   // after ann's hold
+    result('11:30', 't4'),
   ].join('\n') + '\n');
   fs.mkdirSync(path.join(d, 's1', 'subagents'), { recursive: true });
   fs.writeFileSync(path.join(d, 's1', 'subagents', 'agent-x.jsonl'),
-    assistant('10:40', { id: 'm5', usage: use(1, 2), tools: [{ id: 't5', name: 'Write', input: { file_path: '/elsewhere/notes.md' } }] }) + '\n');
+    assistant('10:40', { id: 'm5', usage: use(1, 2), tools: [{ id: 't5', name: 'Write', input: { file_path: '/elsewhere/notes.md' } }] }) + '\n'
+    + result('10:40', 't5') + '\n');
 
   const r = await receipt.forTask(project, { number: 1, closedAt: T('12:00') }, { now: ms('12:01') });
   assert.deepEqual(r.retries, { reopened: 0, handoffs: 1 });
   const a = r.agents.find((x) => x.who === 'ann');
   assert.equal(a.available, true);
-  assert.deepEqual(a.files, ['src/a.js', '/elsewhere/notes.md'], 'files inside the hold, by path in the agent folder when inside it');
+  assert.deepEqual(a.files, ['src/a.js', '/elsewhere/notes.md'], 'edits that succeeded inside the hold, by path in the agent folder when inside it; not a failed or unanswered one');
   assert.equal(a.commands, 3, 'a count of commands, each tool call once though its message is restated');
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
-  assert.deepEqual(a.models['claude-sonnet-5-5'], { input_tokens: 100 + 5 + 1, output_tokens: 50 + 5 + 2, cache_creation_input_tokens: 10, cache_read_input_tokens: 1000, rows: 3 });
+  assert.deepEqual(a.models['claude-sonnet-5-5'], { input_tokens: 100 + 5 + 1, output_tokens: 50 + 5 + 2 + 1 + 1, cache_creation_input_tokens: 10, cache_read_input_tokens: 1000, rows: 5 });
   assert.equal(Object.keys(a.models).length, 1, 'a synthetic row is not a model');
   assert.equal(a.sessions, 2, 'the session and its subagent');
   assert.equal(a.folder, ann);
@@ -167,4 +176,49 @@ test('an agent with no Claude activity while it held the task says so rather tha
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
   assert.equal(r.agents[0].sessions, 0);
   assert.equal(r.agents[0].transcriptsRead, 0, 'a transcript last written before the hold is not read');
+});
+
+test('a task closed by closing its last part (no closedAt of its own) has a receipt, dated by that part\'s close', async () => {
+  const project = 'p' + (++pn);
+  const fay = worker('fay');
+  activity(project, 1, [
+    { at: '10:00', kind: 'created', who: 'fay' },
+    { at: '11:00', kind: 'part-closed', partId: 1 },
+    { at: '11:00', kind: 'closed' },
+  ]);
+  fs.writeFileSync(path.join(claudeDir(fay), 's.jsonl'), assistant('10:30', { id: 'f1', usage: use(3, 3), tools: [{ id: 'ft1', name: 'Bash' }] }) + '\n');
+  const task = { number: 1, closedAt: null, parts: [{ id: 1, who: 'fay', closedAt: T('11:00') }] };
+  assert.equal(receipt.closedAtOf(task), T('11:00'));
+  const r = await receipt.forTask(project, task, { now: ms('11:01') });
+  assert.equal(r.closedAt, T('11:00'));
+  assert.equal(r.agents[0].commands, 1);
+  assert.equal(receipt.closedAtOf({ number: 2, closedAt: null, parts: [{ id: 1, who: 'fay', closedAt: T('11:00') }, { id: 2, who: 'fay', closedAt: null }] }), null, 'a part still open: the task is open');
+});
+
+test('a part added while the task is closed is held from the put-back, not from when it was added', () => {
+  const h = receipt.holdsFrom([
+    { at: T('10:00'), kind: 'created', who: 'ann' },
+    { at: T('11:00'), kind: 'closed' },
+    { at: T('12:00'), kind: 'part-added', partId: 2, who: 'gus' },
+    { at: T('13:00'), kind: 'reopened' },
+    { at: T('14:00'), kind: 'closed' },
+  ], ms('14:00'));
+  assert.deepEqual(h.gus, [{ from: ms('13:00'), to: ms('14:00') }]);
+});
+
+test('a transcript that cannot be read through is shown as far as read but never kept', { skip: (process.getuid && process.getuid() === 0) || process.platform === 'win32' ? 'permissions do not bind here' : false }, async () => {
+  const project = 'p' + (++pn);
+  const hal = worker('hal');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'hal' }, { at: '11:00', kind: 'closed' }]);
+  const d = claudeDir(hal);
+  fs.writeFileSync(path.join(d, 'ok.jsonl'), assistant('10:10', { id: 'h1', usage: use(1, 1) }) + '\n');
+  const locked = path.join(d, 'locked.jsonl');
+  fs.writeFileSync(locked, assistant('10:20', { id: 'h2', usage: use(1, 1) }) + '\n');
+  fs.chmodSync(locked, 0o000);
+  try {
+    const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:00') + receipt.SETTLE_MS });
+    assert.equal(r.agents[0].complete, false);
+    assert.equal(r.agents[0].models['claude-sonnet-5-5'].rows, 1, 'what could be read is shown');
+    assert.equal(fs.existsSync(receipt.receiptFile(project, 1)), false, 'a partial read is not kept');
+  } finally { fs.chmodSync(locked, 0o600); }
 });

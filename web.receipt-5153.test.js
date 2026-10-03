@@ -39,7 +39,7 @@ test('a Claude agent: files, a command count, tokens and an at-API-prices figure
   assert.ok(priced > 0, 'control: the fixture model is priced in the page\'s table');
   const html = B.tkReceiptAgentHtml({ who: 'ann', available: true, sessions: 1, models, files: ['src/a.js', 'b.md'], filesMore: 3, commands: 1, folder: '/w/ann' }, 'Ann');
   const t = text(html);
-  assert.match(t, /Changed 5 files, ran 1 command, 1(\.0)?M tokens, \$10 at API prices\./);
+  assert.match(t, /Edited 5 files, ran 1 command, 1(\.0)?M tokens, \$10 at API prices\./);
   assert.match(t, /src\/a\.js b\.md and 3 more/);
   assert.match(t, /In \/w\/ann/);
   assert.doesNotMatch(t, /undo/i, 'no undo is offered in this slice');
@@ -63,4 +63,44 @@ test('the whole receipt: names escaped, the basis stated, put-backs and hand-off
   assert.match(text(html), /Anything else it did in that time is included/);
   assert.match(text(html), /This task was put back 1 time and handed on 2 times\./);
   assert.match(text(B.tkReceiptHtml({ retries: {}, agents: [] }, {})), /Nobody held this task.*Done without being put back or handed on\./);
+});
+
+test('two unpriced models read "which have"', () => {
+  const t = text(B.tkReceiptAgentHtml({ available: true, sessions: 1, models: { 'claude-fable-5': buckets(1e6, 0, 0, 0), 'x-one': buckets(1, 1, 0, 0), 'x-two': buckets(1, 1, 0, 0) }, files: [], commands: 0 }, 'Ann'));
+  assert.match(t, /not counting x-one, x-two, which have no published price/);
+});
+
+/* paintTaskReceipt against stubs: the real function, with its page globals passed in. */
+function painter(state) {
+  const holder = { hidden: true, innerHTML: '' };
+  // eslint-disable-next-line no-new-func
+  const make = new Function('document', 'pjById', 'fetch', 'tkReceiptHtml', 'S',
+    'var PJ_CURRENT = "p1"; var TKR_SEQ = 0; Object.defineProperty(globalThis, "TK_OPEN", { get: () => S.open, configurable: true });\n'
+    + lift('tkTaskClosed') + '\n' + lift('paintTaskReceipt') + '\nreturn paintTaskReceipt;');
+  const paint = make({ getElementById: () => holder }, () => ({ id: 'p1', tasks: [state.task] }), state.fetch, () => 'RECEIPT', state);
+  return { paint, holder };
+}
+
+test('a task closed by closing its last part shows its receipt (its progress says closed, it has no closedAt)', async () => {
+  const state = { open: 4, task: { number: 4, closedAt: null, progress: { closed: true } },
+    fetch: async () => ({ ok: true, json: async () => ({ agents: [] }) }) };
+  const { paint, holder } = painter(state);
+  await paint(4);
+  assert.equal(holder.hidden, false);
+  assert.equal(holder.innerHTML, 'RECEIPT');
+});
+
+test('a slow receipt read that lands after the task was put back does not paint it', async () => {
+  let release;
+  const slow = new Promise((ok) => { release = ok; });
+  const state = { open: 4, task: { number: 4, closedAt: '2026-10-01T12:00:00Z' },
+    fetch: async () => { await slow; return { ok: true, json: async () => ({ agents: [] }) }; } };
+  const { paint, holder } = painter(state);
+  const first = paint(4);                                   // opened while closed: the read is slow
+  state.task = { number: 4, closedAt: null };               // the person puts it back
+  await paint(4);                                           // the reopen's repaint hides it
+  release();
+  await first;
+  assert.equal(holder.hidden, true, 'the old read painted a receipt on a reopened task');
+  assert.equal(holder.innerHTML, '');
 });

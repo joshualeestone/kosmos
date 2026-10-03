@@ -24,6 +24,7 @@
 const fs = require('node:fs');
 const fsp = fs.promises;
 const path = require('node:path');
+const readline = require('node:readline');
 const store = require('./store');
 const taskchat = require('./taskchat');
 
@@ -67,7 +68,10 @@ function holdsFrom(events, closedAt) {
         if (ev.who) start(1, ev.who, at);
         break;
       case 'part-added':
-        if (ev.who) start(part, ev.who, at); else lastWho.delete(part);
+        /* A part added while the task is closed is held from the put-back, not from now (review 1). */
+        if (!ev.who) lastWho.delete(part);
+        else if (taskOpen) start(part, ev.who, at);
+        else lastWho.set(part, ev.who);
         break;
       case 'assigned':
         if (taskOpen && !closedParts.has(part)) start(part, ev.who, at);
@@ -126,7 +130,7 @@ function retriesFrom(events) {
     if (!ev) continue;
     if (ev.kind === 'reopened') reopened += 1;
     else if (ev.kind === 'created') give(1, ev.who);
-    else if (ev.kind === 'part-added') give(Number(ev.partId), ev.who);
+    else if (ev.kind === 'part-added') give(ev.partId == null ? 1 : Number(ev.partId), ev.who);
     else if (ev.kind === 'assigned' && give(ev.partId == null ? 1 : Number(ev.partId), ev.who)) handoffs += 1;
   }
   return { reopened, handoffs };
@@ -166,54 +170,80 @@ async function transcriptsIn(projectDir) {
   return out.sort();
 }
 
-/** One agent's Claude work inside its holds. */
+/** One agent's Claude work inside its holds. Streams each transcript a line at a time (review 1: a long session can be
+    hundreds of MB, more than one string can hold, and reading it whole held the board up), so the board keeps answering.
+    `complete` is false when a transcript could not be read through: such a receipt is shown but never kept. */
 async function claudeWork(dir, holds) {
   const inHold = (t) => holds.some((h) => t >= h.from && t <= h.to);
   const first = Math.min(...holds.map((h) => h.from));
   const models = {};
-  const files = new Map();     // shown path -> true, in first-seen order
+  const edits = new Map();     // tool_use id -> shown path, for file-editing calls inside a hold
+  const failed = new Set();    // tool_use ids whose result was an error
+  const answered = new Set();  // tool_use ids with any result
   let commands = 0;
   let sessions = 0;
   let read = 0;
+  let complete = true;
   const seenMsg = new Set();
   const seenTool = new Set();
-  const files_ = [];
-  for (const d of transcriptDirs(dir)) files_.push(...await transcriptsIn(d));
-  for (const file of [...new Set(files_)]) {
-    try { if ((await fsp.stat(file)).mtimeMs < first) continue; } catch { continue; }
-    let text;
-    try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
+  const found = [];
+  for (const d of transcriptDirs(dir)) found.push(...await transcriptsIn(d));
+  for (const file of [...new Set(found)]) {
+    let st;
+    try { st = await fsp.stat(file); } catch { continue; }
+    if (st.mtimeMs < first) continue;                                   // last written before the first hold
     read += 1;
     let counted = false;
-    for (const line of text.split('\n')) {
-      if (!line || !line.includes('"assistant"') || SYNTHETIC_ROW.test(line)) continue;
-      let row;
-      try { row = JSON.parse(line); } catch { continue; }
-      const t = Date.parse(row && row.timestamp);
-      if (!Number.isFinite(t) || !inHold(t)) continue;
-      const message = row.message;
-      if (!message || typeof message !== 'object') continue;
-      counted = true;
-      if (message.usage && !(message.id && seenMsg.has(message.id))) {
-        if (message.id) seenMsg.add(message.id);
-        const m = message.model || 'unknown';
-        const b = models[m] || (models[m] = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 });
-        for (const f of BUCKET_FIELDS) b[f] += Number(message.usage[f]) || 0;
-        b.rows += 1;
+    try {
+      const rl = readline.createInterface({ input: fs.createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity });
+      for await (const line of rl) {
+        if (!line || SYNTHETIC_ROW.test(line)) continue;
+        const isAssistant = line.includes('"assistant"');
+        const isResult = line.includes('"tool_result"');
+        if (!isAssistant && !isResult) continue;
+        let row;
+        try { row = JSON.parse(line); } catch { continue; }
+        const message = row && row.message;
+        if (!message || typeof message !== 'object') continue;
+        const blocks = Array.isArray(message.content) ? message.content : [];
+        if (row.type !== 'assistant') {
+          /* A tool's result comes back on a user row: an edit counts only if it did not fail (review 1). */
+          for (const block of blocks) {
+            if (!block || block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
+            answered.add(block.tool_use_id);
+            if (block.is_error) failed.add(block.tool_use_id);
+          }
+          continue;
+        }
+        const t = Date.parse(row.timestamp);
+        if (!Number.isFinite(t) || !inHold(t)) continue;
+        counted = true;
+        if (message.usage && !(message.id && seenMsg.has(message.id))) {
+          if (message.id) seenMsg.add(message.id);
+          const m = message.model || 'unknown';
+          const bk = models[m] || (models[m] = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, rows: 0 });
+          for (const f of BUCKET_FIELDS) bk[f] += Number(message.usage[f]) || 0;
+          bk.rows += 1;
+        }
+        for (const block of blocks) {
+          if (!block || block.type !== 'tool_use') continue;
+          if (block.id) { if (seenTool.has(block.id)) continue; seenTool.add(block.id); }
+          const input = block.input || {};
+          if (COMMAND_TOOLS.has(block.name)) commands += 1;
+          const key = FILE_TOOLS[block.name];
+          if (key && block.id && typeof input[key] === 'string' && input[key]) edits.set(block.id, shownPath(dir, input[key]));
+        }
       }
-      for (const block of Array.isArray(message.content) ? message.content : []) {
-        if (!block || block.type !== 'tool_use') continue;
-        if (block.id) { if (seenTool.has(block.id)) continue; seenTool.add(block.id); }
-        const input = block.input || {};
-        if (COMMAND_TOOLS.has(block.name)) commands += 1;
-        const key = FILE_TOOLS[block.name];
-        if (key && typeof input[key] === 'string' && input[key]) files.set(shownPath(dir, input[key]), true);
-      }
+    } catch {
+      complete = false;   // a transcript that could not be read through: show what was read, keep nothing
     }
     if (counted) sessions += 1;
   }
+  /* An edit counts when its result came back and was not an error: a refused or failed edit changed nothing. */
+  const files = new Map();
+  for (const [id, shown] of edits) if (answered.has(id) && !failed.has(id)) files.set(shown, true);
   const all = [...files.keys()];
-  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands, sessions, transcriptsRead: read };
+  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands, sessions, transcriptsRead: read, complete };
 }
 
 /* A file inside the agent's folder by its path there; anything else in full (it is this person's own computer). */
@@ -231,15 +261,40 @@ function receiptFile(projectId, number) {
  * The receipt for task `number` of project `projectId`, or `{ ready: false, because }` when there is none to give
  * ('no-task', 'open'). `task` is the task as tasks.byNumber returns it. Never throws for a missing transcript.
  */
-async function forTask(projectId, task, { now = Date.now() } = {}) {
+/* When the task closed, or null while it is open. A task closed by closing its last part has no closedAt of its own
+   (tasks.progressOf says so): its close is its newest part's close (review 1). */
+function closedAtOf(task) {
+  if (!task) return null;
+  if (task.closedAt) return task.closedAt;
+  const { progressOf } = require('./tasks');
+  const pr = progressOf(task);
+  if (!pr.closed) return null;
+  let best = null;
+  for (const part of pr.parts) if (part.closedAt && (!best || Date.parse(part.closedAt) > Date.parse(best))) best = part.closedAt;
+  return best;
+}
+
+/* One computation per task at a time: a second request while the first is reading shares its answer. */
+const inFlight = new Map();
+
+async function forTask(projectId, task, opts = {}) {
+  const key = String(projectId) + '\0' + (task && task.number) + '\0' + closedAtOf(task);
+  if (inFlight.has(key)) return inFlight.get(key);
+  const p = work(projectId, task, opts).finally(() => inFlight.delete(key));
+  inFlight.set(key, p);
+  return p;
+}
+
+async function work(projectId, task, { now = Date.now() } = {}) {
   if (!task) return { ready: false, because: 'no-task' };
-  const closedAt = Date.parse(task.closedAt);
+  const closedIso = closedAtOf(task);
+  const closedAt = Date.parse(closedIso);
   if (!Number.isFinite(closedAt)) return { ready: false, because: 'open' };
   const keep = receiptFile(projectId, task.number);
   if (keep) {
     try {
       const kept = JSON.parse(fs.readFileSync(keep, 'utf8'));
-      if (kept && kept.version === VERSION && kept.closedAt === task.closedAt) return kept;
+      if (kept && kept.version === VERSION && kept.closedAt === closedIso) return kept;
     } catch { /* none kept yet */ }
   }
   const events = taskchat.read(projectId, task.number);
@@ -258,13 +313,14 @@ async function forTask(projectId, task, { now = Date.now() } = {}) {
     if (runner && runner !== 'claude') { agents.push({ ...entry, provider: runner, available: false, because: 'provider' }); continue; }
     agents.push({ ...entry, provider: 'claude', available: true, ...(await claudeWork(dir, spans)) });
   }
-  const receipt = { version: VERSION, closedAt: task.closedAt, retries: retriesFrom(events), agents };
-  /* Kept only once the close has settled: a transcript can still be written for a few seconds after it. */
-  if (keep && now - closedAt >= SETTLE_MS) {
+  const receipt = { version: VERSION, closedAt: closedIso, retries: retriesFrom(events), agents };
+  /* Kept only once the close has settled (a transcript can still be written for a few seconds after it), and only when
+     every transcript was read through: a partial read is shown, then worked out again next time. */
+  if (keep && now - closedAt >= SETTLE_MS && agents.every((a) => a.complete !== false)) {
     try { fs.mkdirSync(path.dirname(keep), { recursive: true }); fs.writeFileSync(keep, JSON.stringify(receipt)); }
     catch { /* worked out again next time */ }
   }
   return receipt;
 }
 
-module.exports = { forTask, holdsFrom, retriesFrom, receiptFile, SETTLE_MS, FILES_SHOWN, VERSION };
+module.exports = { forTask, holdsFrom, retriesFrom, closedAtOf, receiptFile, SETTLE_MS, FILES_SHOWN, VERSION };

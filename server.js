@@ -17981,6 +17981,9 @@ const server = http.createServer(async (req, res) => {
      the activity route and gated the same way. An open task answers { ready: false, because: 'open' }. */
   const taskReceipt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/receipt$/);
   if (taskReceipt && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* For the person's page: it names every holding agent's files and folder, more than the activity route shows, so a
+       caller presenting an agent's token is refused (review 1). */
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'a task\'s receipt is for the person, not for agents' }); return; }
     const id = decodeSegment(taskReceipt[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     let task = null;
