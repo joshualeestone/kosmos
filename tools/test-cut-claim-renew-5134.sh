@@ -85,9 +85,10 @@ cut_run '
   cut_record_done 0
   kosmos_release_machine
   echo "$_CUT_RENEWER" > "'"$T"'/arm4"
+  sleep 3   # review 1: the cut stays ALIVE after its release, so the renewer'"'"'s own cut-alive check cannot hide a missing stop
+  [ -f "'"$CLAIM"'" ] && echo back > "'"$T"'/arm4b" || true
 '
-sleep 2.5
-if [ ! -f "$CLAIM" ]; then pass "after the cut ends and releases, no renewal brings the claim back (2.5 s later)"
+if [ ! -f "$CLAIM" ] && [ ! -f "$T/arm4b" ]; then pass "after the cut ends and releases, no renewal brings the claim back (the cut alive 3 s more)"
 else fail "the claim came back after the release: $(cat "$CLAIM")"; fi
 if [ -z "$(cat "$T/arm4" 2>/dev/null)" ]; then pass "cut_record_done clears the renewer"
 else fail "cut_record_done left a renewer recorded: $(cat "$T/arm4")"; fi
@@ -128,6 +129,47 @@ if [ -n "$r6" ] && ! kill -0 "$r6" 2>/dev/null; then pass "and the renewer proce
 else fail "the renewer ${r6:-?} is still running after its cut was killed"; kill "$r6" 2>/dev/null || true; fi
 kill "$(cat "$T/arm6s" 2>/dev/null)" 2>/dev/null || true   # the killed cut's own sleep, orphaned by the kill -9
 wait 2>/dev/null || true
+
+# Arm 7 (review 1): someone else's claim is never written over. Mid-step, a foreign claim replaces ours (as when ours
+# lapsed across a sleep and a queued run took the box); the renewer must leave it and stop.
+rm -f "$CLAIM"
+cut_run '
+  step "== foreign =="
+  sleep 0.3
+  printf "%s %s %s %s %s\n" "foreign-cookie" "$$" "$(( $(date +%s) + 1800 ))" "$(hostname -s)" "queued run (not a cut): someone" > "'"$CLAIM"'"
+  sleep 3
+  awk "{print \$1}" "'"$CLAIM"'" > "'"$T"'/arm7"
+  kill -0 "$_CUT_RENEWER" 2>/dev/null && echo alive >> "'"$T"'/arm7" || echo gone >> "'"$T"'/arm7"
+  cut_record_done 0
+  kosmos_release_machine
+'
+c7="$(sed -n 1p "$T/arm7" 2>/dev/null)"; s7="$(sed -n 2p "$T/arm7" 2>/dev/null)"
+if [ "$c7" = foreign-cookie ]; then pass "a foreign claim is left alone (still foreign-cookie after 3 renew intervals)"
+else fail "the renewer wrote over someone else's claim (cookie now ${c7:-none})"; fi
+if [ "$s7" = gone ]; then pass "and the renewer stops once it sees the claim is not ours"
+else fail "the renewer kept running beside a foreign claim (${s7:-?})"; fi
+if [ -f "$CLAIM" ] && [ "$(awk '{print $1}' "$CLAIM")" = foreign-cookie ]; then pass "and the cut's release does not remove the foreign claim"
+else fail "the foreign claim did not survive the cut's release"; fi
+
+# Arm 8 (review 1): a renewal IN FLIGHT when the step ends is reaped before the release, so it cannot land after it.
+# A slow claim (a marker, then 1.5 s) holds the renewer inside kosmos_claim_machine; the cut waits for the marker and
+# then ends. Without the wait in _cut_renew_stop the renewal lands after the release and the claim is back.
+rm -f "$CLAIM" "$T/inclaim"
+cut_run '
+  eval "$(declare -f kosmos_claim_machine | sed "1s/kosmos_claim_machine/_real_claim_machine/")"
+  kosmos_claim_machine() { if [ "${KOSMOS_CLAIM_KEEP_LABEL:-0}" = 1 ]; then : > "'"$T"'/inclaim"; sleep 1.5; fi; _real_claim_machine "$@"; }
+  step "== inflight =="
+  for _ in $(seq 1 50); do [ -f "'"$T"'/inclaim" ] && break; sleep 0.1; done
+  cut_record_done 0
+  kosmos_release_machine
+  sleep 2.5
+  [ -f "'"$CLAIM"'" ] && echo back > "'"$T"'/arm8" || echo gone > "'"$T"'/arm8"
+'
+r8="$(cat "$T/arm8" 2>/dev/null)"
+if [ -f "$T/inclaim" ] && [ "$r8" = gone ]; then pass "a renewal in flight at the end is reaped before the release (the claim stays gone)"
+elif [ ! -f "$T/inclaim" ]; then fail "arm 8 never caught the renewer inside a renewal; it checked nothing"
+else fail "a renewal in flight landed after the release: the claim came back"; fi
+rm -f "$CLAIM"
 
 if [ "$fails" -eq 0 ]; then echo "test-cut-claim-renew-5134: all passed"; else echo "test-cut-claim-renew-5134: $fails failed"; fi
 [ "$fails" -eq 0 ]

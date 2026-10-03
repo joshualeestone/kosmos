@@ -120,18 +120,39 @@ _cut_renew_stop() {
 }
 _cut_renew_start() {
   command -v kosmos_claim_machine >/dev/null 2>&1 || return 0
-  local _crs_every="${KOSMOS_CUT_RENEW_SECS:-600}" _crs_max="${KOSMOS_CUT_RENEW_MAX:-12}" _crs_cut=$$
+  local _crs_every="${KOSMOS_CUT_RENEW_SECS:-600}" _crs_max="${KOSMOS_CUT_RENEW_MAX:-12}" _crs_cut=$$ _crs_cap
   case "$_crs_every" in ''|*[!0-9]*) _crs_every=600 ;; esac
   case "$_crs_max" in ''|*[!0-9]*) _crs_max=12 ;; esac
+  # Review 1: never let the claim run out between renewals. At most a third of the claim's length (30 min -> 600 s).
+  _crs_cap="${KOSMOS_MACHINE_CLAIM_MINUTES:-30}"; case "$_crs_cap" in ''|*[!0-9]*) _crs_cap=30 ;; esac
+  _crs_cap=$(( 10#$_crs_cap * 60 / 3 )); [ "$_crs_cap" -ge 1 ] || _crs_cap=1
+  _crs_every=$(( 10#$_crs_every )); [ "$_crs_every" -ge 1 ] || _crs_every=1
+  [ "$_crs_every" -le "$_crs_cap" ] || _crs_every=$_crs_cap
   (
     trap - EXIT
     _crs_sp=""
     trap '[ -n "$_crs_sp" ] && kill "$_crs_sp" 2>/dev/null; exit 0' TERM INT
     _crs_n=0
     while [ "$_crs_n" -lt "$_crs_max" ]; do
-      sleep "$_crs_every" & _crs_sp=$!
-      wait "$_crs_sp" || true; _crs_sp=""
-      kill -0 "$_crs_cut" 2>/dev/null || exit 0
+      # Review 1: sleep in slices of at most 30 s and look for the cut after each, so a cut killed with -9 leaves a
+      # renewer for seconds, not ten minutes (it carries release.sh's command line, which the cut-live guard reads).
+      _crs_waited=0
+      while [ "$_crs_waited" -lt "$_crs_every" ]; do
+        _crs_slice=$(( _crs_every - _crs_waited )); [ "$_crs_slice" -le 30 ] || _crs_slice=30
+        sleep "$_crs_slice" & _crs_sp=$!
+        wait "$_crs_sp" || true; _crs_sp=""
+        kill -0 "$_crs_cut" 2>/dev/null || exit 0
+        _crs_waited=$(( _crs_waited + _crs_slice ))
+      done
+      # Review 1: renew only OUR claim, or an empty slot (ours lapsed, for example across a sleep). A claim with
+      # another cookie belongs to whoever took the box meanwhile; writing over it would hide them from the queue.
+      _crs_cur="$(_kosmos_machine_claim_active 2>/dev/null || true)"
+      if [ -n "$_crs_cur" ] && [ "$(printf '%s' "$_crs_cur" | awk '{print $1}')" != "${KOSMOS_MACHINE_CLAIM_COOKIE:-}" ]; then
+        echo "   (#5134: the machine claim is held by someone else now, so this cut stops renewing it: $_crs_cur)" >&2 || true
+        exit 0
+      fi
+      # The temp file kosmos_claim_machine writes is named for $$, the same as the cut's; safe because step() and
+      # cut_record_done stop and reap this renewer before the cut itself claims or releases.
       KOSMOS_CLAIM_KEEP_LABEL=1 kosmos_claim_machine >/dev/null 2>&1 || true
       _crs_n=$((_crs_n + 1))
     done
