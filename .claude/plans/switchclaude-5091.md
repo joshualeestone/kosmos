@@ -76,4 +76,12 @@ account and need a second restart.
   Measured 23:06 (light turn): the browser check 16/16 on the branch. My first post-switch arm expected the picked account
   among the Move menu's DESTINATIONS; the menu's first option names the account it is ON and lists the others, so the arm
   now asserts that (on b@example.com, main offered). Engine 8/8, guards 25/25.
-- Round 4: PENDING.
+- Round 4 (sonnet, blind): 1 BLOCKER, 3 SHOULD-FIX, 2 NIT. BLOCKER (my round-3 fix was wrong): I nulled `CURRENT.model`, a
+  field rows do not have; modelName/plannedModelName kept the old runner's model, so the model menu led with "Claude GPT 5.6
+  Sol". Both are nulled now; the check seeds a stale modelName and asserts the model row drops it (mutant without the fix
+  reproduces exactly "Claude GPT 5.6 Sol", red; the branch green). SF3 taken: a partial, or no account sent, put the agent
+  on account null and disabled Move; it is now the main Claude account. Not taken, recorded: SF4 the next poll replaces the
+  patched CURRENT with polled data (stale for a few seconds while the runner restarts; the panel is not repainted by the
+  poll either way); NIT5 a machine with NO Claude rows gets no picker and no refusal (pre-existing behaviour); NIT6 the
+  partial route reply is covered at the engine level only (the browser mock answers 'changed').
+- Round 5: PENDING.
