@@ -197,6 +197,15 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const dl = await waitCase('daily_limit');
       chk(dl && dl.wait === 'This computer has added as many computers as it can today. Try again tomorrow.' && !dl.code && dl.allowOff && dl.denyOn,
         `${tag} #4794: no code yet (daily_limit): Mona's line, no code, Allow disabled, Not me enabled`, JSON.stringify(dl));
+      const wac = await (async () => {   // was_a_computer comes on a row with no joining_computer (devices.rs)
+        pending = [{ device_id: 'd-wac', name: 'oldbox', code: '', first_seen: now() - 10, joining_computer: null, code_wait: 'was_a_computer' }];
+        await page.evaluate(() => pollAsk());
+        await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-wac"]', { timeout: 5000 }).catch(() => {});
+        return page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); const a = r && r.querySelector('[data-ask="allow"]');
+          return r ? { wait: (r.querySelector('.askwait') || {}).textContent || '', allowOff: !!(a && a.disabled) } : null; });
+      })();
+      chk(wac && wac.wait === 'This started as a computer and now shows as a device, so it cannot be allowed. Press Not me.' && wac.allowOff,
+        `${tag} #4794: was_a_computer (no joining_computer): its line shows and Allow is disabled (review 1)`, JSON.stringify(wac));
       const unk = await waitCase(null);
       chk(unk && unk.wait === 'Working out the code with laptop3. It shows here in a moment.' && unk.allowOff,
         `${tag} #4794: no code and no reason: the default line, Allow disabled`, JSON.stringify(unk));
@@ -215,8 +224,12 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       let join = { supported: true, held: true, join_code: '', on: null, asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false };
       let confirmBody = null;
       remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
-      await page.route('**/api/remote/join', (route) => route.fulfill(json(join)));
-      await page.route('**/api/remote/join/confirm', (route, req) => { confirmBody = JSON.parse(req.postData() || '{}'); join = { ...join, confirmed: true }; return route.fulfill(json({ ok: true, confirmed: true, with: 'homemac' })); });
+      let joinDelayMs = 0;     // review 1: hold the pairing round open, as the tunnel's real round can take seconds
+      let confirmRefuse = '';  // review 1: a confirm the tunnel refuses (code_expired)
+      await page.route('**/api/remote/join', async (route) => { if (joinDelayMs) await new Promise((r) => setTimeout(r, joinDelayMs)); return route.fulfill(json(join)); });
+      await page.route('**/api/remote/join/confirm', (route, req) => { confirmBody = JSON.parse(req.postData() || '{}');
+        if (confirmRefuse) { const why = confirmRefuse; confirmRefuse = ''; return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: why }) }); }
+        join = { ...join, confirmed: true }; return route.fulfill(json({ ok: true, confirmed: true, with: 'homemac' })); });
       const readJoin = async () => { await page.evaluate(() => { PLUS_JOIN_AT = 0; return paintPlus(); }); await page.waitForTimeout(700);
         return page.evaluate(() => { const j = document.getElementById('plus-join'), b = document.getElementById('plus-join-match'), c = j && j.querySelector('.askcodebig');
           return { shown: !!(j && !j.hidden), text: (j && j.innerText || '').replace(/\s+/g, ' ').trim(), code: c ? c.textContent : '', label: c ? c.getAttribute('aria-label') : '',
@@ -229,6 +242,18 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       jr = await readJoin();
       chk(jr.shown && /^Check that homemac shows this same code\./.test(jr.text) && jr.code === '482915' && jr.label === '4 8 2 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2 9 1 5',
         `${tag} #4794 waiting: the code large (as on the Allow card) and "The codes match"`, JSON.stringify(jr));
+      /* Review 1: while a pairing round is in flight the coordinator's sentence must not come back beside the block. */
+      joinDelayMs = 2500;
+      const midRound = await page.evaluate(async () => { PLUS_JOIN_AT = 0; const p = paintPlus(); await new Promise((r) => setTimeout(r, 1200));
+        const st = document.getElementById('plus-status').textContent; await p; return st; });
+      joinDelayMs = 0;
+      chk(midRound === '', `${tag} #4794: during a pairing round the coordinator's sentence stays away (one wait message)`, JSON.stringify(midRound));
+      /* Review 1: a confirm the tunnel refuses (the code ran out) is worded, not relayed raw. */
+      confirmRefuse = 'code_expired';
+      await page.click('#plus-join-match');
+      await page.waitForFunction(() => /ran out/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
+      const refused = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' '));
+      chk(/That code ran out\. A new one is on its way\./.test(refused) && !/code_expired/.test(refused), `${tag} #4794: a refused confirm (expired) is worded`, refused);
       await page.click('#plus-join-match');
       await page.waitForFunction(() => /Matched\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       jr = await readJoin();

@@ -1309,14 +1309,14 @@ function allowSelfQuietly() {
     .finally(() => { if (epoch === selfEpoch) selfAllowing = false; });
   return true;
 }
-/** What is waiting for this Mac's Allow. A missing snapshot is an empty
-    list, not an error: the tunnel writes it only once it is up, and a
-    board with Plus off has nothing waiting. `snapshot` says which. */
 /* kosmos#4794: the reasons kosmos-tunnel's devices.rs gives for a joining computer's empty code (pairing.rs wait_reason,
    plus was_a_computer). Anything else is dropped rather than shown. */
 const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer']);
 /* kosmos#4794: a computer's pairing code is six digits (pairsas::sas); a phone's match code never is. */
 const JOIN_CODE = /^\d{6}$/;
+/** What is waiting for this Mac's Allow. A missing snapshot is an empty
+    list, not an error: the tunnel writes it only once it is up, and a
+    board with Plus off has nothing waiting. `snapshot` says which. */
 function pendingDevices() {
   const settings = read();
   if (!settings.on || !enrolled()) return { devices: [], snapshot: false, email: settings.email || '' };
@@ -1426,6 +1426,7 @@ async function deviceAllow(id, name, code) {
      of them; any other failure keeps the tunnel's own reason, as before. */
   if (!r.ok) {
     const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bsas_mismatch: more than one computer/.test(said)) return { ok: false, because: 'code_many' };
     if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
     if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_pending' };
   }
@@ -1490,8 +1491,11 @@ function joinUnsupported(r) {
 /** One pairing round, then what the page may show: held, the code (or ""), whom it was asked of, and the
     failed / confirmed / confirm_expired states. Not enrolled means not joining, without asking the binary. */
 async function joinStatus() {
+  /* A pairing round signs with this computer's key and writes pairing state, so it is a tracked signed call (#3827): a
+     Forget or a register in flight waits for it, and it does not start during one. */
+  { const b = busy(); if (b) return b; }
   if (!enrolled()) return { ok: true, because: null, data: { supported: true, held: false } };
-  const r = await setupRun(['join', 'status', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()]);
+  const r = await tracked(setupRun(['join', 'status', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
   if (joinUnsupported(r)) return { ok: true, because: null, data: { supported: false, held: false } };
   const got = parseSaid(r);
   if (!got.ok) return got;
@@ -1517,6 +1521,13 @@ async function joinConfirm(code) {
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const r = await tracked(setupRun(['join', 'confirm', '--state-dir', STATE_DIR(), '--code', code], null, retireTimeoutMs()));
   if (joinUnsupported(r)) return { ok: false, because: 'this version of Kosmos cannot pair computers yet' };
+  /* The tunnel's refusals (pairing.rs confirm_joining), tagged for the page to word: the code ran out, or it is not the
+     code this computer shows now. */
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_expired' };
+    if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
+  }
   const got = parseSaid(r);
   if (!got.ok) return got;
   const d = got.data || {};

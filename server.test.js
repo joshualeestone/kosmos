@@ -11509,6 +11509,21 @@ test('kosmos#4648: /api/remote/computers is served, and when no signed list can 
   assert.match(body.because, /\w/, 'no reason given');
 });
 
+test('kosmos#4794: the pairing routes are served: GET join answers not-held when not enrolled, HEAD runs no round, confirm checks the code first', async () => {
+  const st = await req('/api/remote/join');
+  assert.equal(st.status, 200, st.body);
+  assert.deepEqual(JSON.parse(st.body), { supported: true, held: false }, 'an unenrolled board is not joining');
+  const head = await req('/api/remote/join', { method: 'HEAD' });
+  assert.equal(head.status, 200);
+  const bad = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: 'AB-12' }) });
+  assert.equal(bad.status, 400);
+  assert.match(JSON.parse(bad.body).error, /not the code on this screen/);
+  /* A six-digit code reaches joinConfirm's own gate (this board is not enrolled), which proves the route is wired to it. */
+  const wired = await req('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: '482915' }) });
+  assert.equal(wired.status, 400);
+  assert.match(JSON.parse(wired.body).error, /finish the Plus sign-up first/);
+});
+
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
   const pending = JSON.parse((await req('/api/remote/pending')).body);
   assert.deepEqual(pending.devices, [], 'a board with Plus off has something waiting');

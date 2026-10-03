@@ -8890,6 +8890,8 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#4794 slice 1: this computer joining. GET runs one pairing round and answers the page-safe status; POST
      is the person's "The codes match", with the code this screen showed. */
   if (pathname === '/api/remote/join' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* A HEAD runs no pairing round: each GET is a signed round with side effects. */
+    if (req.method === 'HEAD') { sendJson(res, 200, {}); return; }
     remote.joinStatus()
       .then((got) => { if (!got.ok) { sendJson(res, 502, { error: got.because }); return; } sendJson(res, 200, got.data); })
       .catch(() => sendJson(res, 500, { error: 'we could not read the pairing' }));

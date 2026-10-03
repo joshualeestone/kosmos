@@ -5,7 +5,8 @@
  *  - pendingDevices passes code_wait only from the fixed list;
  *  - deviceAllow sends --code for a six-digit code (and never anything else), and words the tunnel's sas_mismatch and
  *    sas_pending refusals as code_changed / code_pending;
- *  - joinStatus hands the page only checked fields, and answers supported:false for a tunnel with no join verb;
+ *  - joinStatus hands the page only checked fields (its JSON read past the tunnel's log lines), and answers
+ *    supported:false for a tunnel with no join verb;
  *  - joinConfirm refuses a code that is not six digits without spawning, and passes the tunnel's answer through.
  */
 require('../test-support/tmpscope');
@@ -35,6 +36,7 @@ const mode = process.env.FAKE_JOIN || '';
 if (args[0] === 'devices' && args[1] === 'allow') {
   if (flag('--code') === '111111') { process.stderr.write('Error: sas_mismatch: the code given is not the code this computer shows now; compare the screens again\\n'); process.exit(1); }
   if (flag('--code') === '222222') { process.stderr.write('Error: sas_pending: the code to compare is not worked out yet; wait for it on both screens, then allow\\n'); process.exit(1); }
+  if (flag('--code') === '444444') { process.stderr.write('Error: sas_mismatch: more than one computer is showing a code; Deny the ones you do not recognise\\n'); process.exit(1); }
   if (flag('--code') === '333333') { process.stderr.write('Error: the coordinator is unreachable\\n'); process.exit(1); }
   console.log(JSON.stringify({ allowed: true }));
   process.exit(0);
@@ -42,6 +44,8 @@ if (args[0] === 'devices' && args[1] === 'allow') {
 if (args[0] === 'join') {
   if (mode === 'unsupported') { process.stderr.write("error: unrecognized subcommand 'join'\\n"); process.exit(2); }
   if (args[1] === 'status') {
+    /* The real tunnel logs to stdout before its JSON line (main.rs tracing, step()'s warnings). */
+    console.log('2026-10-03T05:00:00Z  WARN kosmos_tunnel::pairing: a round met a busy lock { "noise": true }');
     if (mode === 'shape') console.log(JSON.stringify({ held: true, join_code: '482915', join_codes: [{ on: 'HomeMac', code: '482915' }, { on: '<b>x</b>', code: '1' }],
       asked_of: ['HomeMac', '<script>', 'ok-name'], failed: 'yes', confirmed: false, confirm_expired: true, secret: 'not for the page' }));
     else if (mode === 'badcode') console.log(JSON.stringify({ held: true, join_code: 'AB-12', join_codes: [], asked_of: [] }));
@@ -50,6 +54,7 @@ if (args[0] === 'join') {
   }
   if (args[1] === 'confirm') {
     if (flag('--code') === '482915') { console.log(JSON.stringify({ confirmed: true, with: 'HomeMac' })); process.exit(0); }
+    if (flag('--code') === '000001') { process.stderr.write('Error: sas_pending: that code has expired; a new one is worked out while this computer waits\\n'); process.exit(1); }
     process.stderr.write('Error: sas_mismatch: that is not the code this computer shows\\n'); process.exit(1);
   }
 }
@@ -103,6 +108,8 @@ test("#4794: the tunnel's pairing refusals are worded as code_changed / code_pen
   assert.deepEqual([changed.ok, changed.because], [false, 'code_changed']);
   const pending = await remote.deviceAllow('dev-1', 'laptop', '222222');
   assert.deepEqual([pending.ok, pending.because], [false, 'code_pending']);
+  const many = await remote.deviceAllow('dev-1', 'laptop', '444444');
+  assert.deepEqual([many.ok, many.because], [false, 'code_many']);
   const other = await remote.deviceAllow('dev-1', 'laptop', '333333');
   assert.equal(other.ok, false);
   assert.notEqual(other.because, 'code_changed');
@@ -148,7 +155,17 @@ test('#4794: The codes match passes the code to join confirm and answers the oth
   assert.equal(call[call.indexOf('--code') + 1], '482915');
   assert.ok(!call.includes('--coordinator'), 'join confirm is local only');
   const wrong = await remote.joinConfirm('123456');
-  assert.equal(wrong.ok, false);
+  assert.deepEqual([wrong.ok, wrong.because], [false, 'code_changed'], 'a mismatch is tagged for the page, not relayed raw');
+  const expired = await remote.joinConfirm('000001');
+  assert.deepEqual([expired.ok, expired.because], [false, 'code_expired'], 'an expired code is tagged for the page');
+});
+
+test('#4794: join confirm on a tunnel with no join verb says so in words', async () => {
+  enrol();
+  process.env.FAKE_JOIN = 'unsupported';
+  const r = await remote.joinConfirm('482915');
+  assert.equal(r.ok, false);
+  assert.match(r.because, /cannot pair computers yet/);
 });
 
 test('#4794: a confirm code that is not six digits is refused without spawning', async () => {

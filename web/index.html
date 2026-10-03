@@ -44288,14 +44288,18 @@ function paintAsk() {
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
     /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
        worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
-    const name = d.joining_computer ? askEsc(d.joining_computer) : '';
-    const waitLine = d.joining_computer && !d.code ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
+    const name = d.joining_computer ? askEsc(d.joining_computer) : askEsc(d.name || 'this computer');
+    /* Keyed on code_wait too: was_a_computer comes on a row with no joining_computer (the tunnel's devices.rs). */
+    const waitLine = (d.joining_computer || d.code_wait) && !d.code ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
     const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
       : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
-    const errWords = !(e && e.state === 'error') ? ''
-      : e.because === 'code_changed' && d.joining_computer ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
-        : e.because === 'code_pending' && d.joining_computer ? 'Working out the code with ' + name + '. It shows here in a moment.'
-          : askEsc(e.because);
+    /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
+       happening, so an earlier refusal is not repeated beside it (review 1). */
+    const errWords = !(e && e.state === 'error') || waitLine ? ''
+      : e.because === 'code_changed' ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
+        : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
+          : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
+            : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
@@ -44336,8 +44340,9 @@ async function askAct(act, id) {
     const why = said && said.error;
     /* #4794: code_changed / code_pending are the tunnel's pairing refusals, worded on the card; the list is read again so a
        new code repaints. */
-    ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: why === 'code_changed' || why === 'code_pending' ? why : plusWords(why || 'We could not save that. Try again.') };
-    if ((why === 'code_changed' || why === 'code_pending') && typeof pollAsk === 'function') pollAsk();
+    const tag = why === 'code_changed' || why === 'code_pending' || why === 'code_many';
+    ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: tag ? why : plusWords(why || 'We could not save that. Try again.') };
+    if (tag && typeof pollAsk === 'function') pollAsk();
   }
   /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no
      announcement and no sign the press did anything. Forget the last write so the answer is said again. */
@@ -44808,15 +44813,20 @@ async function paintPlus() {
   if (!up && st.dataset && st.dataset.copyFail) delete st.dataset.copyFail;
   // A standing copy-failure note is left untouched (not rewritten), so a screen reader does not re-read it every poll.
   if (!(up && st.dataset && st.dataset.copyFail)) {
-    st.textContent = up
+    /* #4794: while the pairing block shows (held), its line is the one wait message: the sentence stays empty, so it does
+       not come back for the length of each pairing round and get read out again (review 1). */
+    const joinHeld = r.on === true && stat.state === 'waiting-allow' && typeof PLUS_JOIN !== 'undefined' && !!PLUS_JOIN && PLUS_JOIN.supported === true && PLUS_JOIN.held === true;
+    st.textContent = (up || joinHeld)
       ? ''
       : (stat.state === 'up' ? 'Connected. Your address is on its way.'
         : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
   }
   /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
      coordinator's sentence (paintPlusJoin). Anything else hides it. */
-  PLUS_JOIN_WAITING = r.on === true && stat.state === 'waiting-allow';
-  if (PLUS_JOIN_WAITING) plusJoinTick(); else paintPlusJoin();
+  if (typeof plusJoinTick === 'function') {   // the page tests lift paintPlus alone
+    PLUS_JOIN_WAITING = r.on === true && stat.state === 'waiting-allow';
+    if (PLUS_JOIN_WAITING) plusJoinTick(); else paintPlusJoin();
+  }
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
@@ -44837,12 +44847,13 @@ async function paintPlus() {
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
    code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
    still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */
-let PLUS_JOIN = null;          // the last /api/remote/join answer, or null
-let PLUS_JOIN_WAITING = false; // paintPlus: on, and the tunnel says waiting-allow
-let PLUS_JOIN_BUSY = false;
-let PLUS_JOIN_AT = 0;
-let PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
-let PLUS_JOIN_LAST_CODE = '';
+/* var, not let: paintPlus reads these, and a call before this line runs must not hit the temporal dead zone. */
+var PLUS_JOIN = null;          // the last /api/remote/join answer, or null
+var PLUS_JOIN_WAITING = false; // paintPlus: on, and the tunnel says waiting-allow
+var PLUS_JOIN_BUSY = false;
+var PLUS_JOIN_AT = 0;
+var PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
+var PLUS_JOIN_LAST_CODE = '';
 /* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). */
 async function plusJoinTick() {
   if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < 4000) { paintPlusJoin(); return; }
@@ -44884,7 +44895,13 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   let res = null;
   try { res = await fetch('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: b.getAttribute('data-code') }) }); } catch { res = null; }
   if (res && res.ok) { PLUS_JOIN_MSG = ''; if (PLUS_JOIN) PLUS_JOIN.confirmed = true; }
-  else { const said = res ? await res.json().catch(() => null) : null; PLUS_JOIN_MSG = plusWords((said && said.error) || 'That did not go through. Try again.'); }
+  else {
+    const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
+    /* The tunnel's confirm refusals, worded (engine joinConfirm tags them). */
+    PLUS_JOIN_MSG = why === 'code_expired' ? 'That code ran out. A new one is on its way.'
+      : why === 'code_changed' ? 'That is not the code on this screen any more. Check the new one, then press The codes match again.'
+        : plusWords(why || 'That did not go through. Try again.');
+  }
   PLUS_JOIN_AT = 0;   // read the pairing again now, not in a few seconds
   paintPlusJoin(); plusJoinTick();
 });
