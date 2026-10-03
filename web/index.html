@@ -67657,7 +67657,7 @@ function frGo(step) {
        connection; this bar is always visible. */
     frActions(
       { label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(frStepAfter(3)); } },
-      { label: 'Check again', go: (e) => frRecheckPress(e && e.currentTarget), hint: 'Turned it on? Tap to check.' },
+      { label: 'Check again', go: (e) => frRecheckPress(e && e.currentTarget), hint: 'Turned it on? Click to check.' },   // #5111: a desktop screen, so click
     );
     frGateStart(pane);
   } else if (step === 4) {
@@ -67812,7 +67812,8 @@ async function frPaintYou() {
     // for white-collar business workers". The spoken instruction survives,
     // invisible: a screen-reader user must not have to guess why the step
     // will not advance (SC 3.3.2); the fields carry aria-required too.
-    '<p class="vh">The first two answers are needed before Continue.</p>' +
+    // #5111: the button here reads Next, so the spoken instruction names Next (it named a Continue that is not there).
+    '<p class="vh">The first two answers are needed before Next.</p>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-name">What should your agents call you?</label>' +
     /* An example name (grey placeholder, not a filled value). #683 changed this
        away from "Josh" to "Alex" because a real first name in the box can read as

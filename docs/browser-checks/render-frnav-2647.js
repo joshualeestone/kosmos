@@ -32,7 +32,7 @@ catch {
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
 const TOP_COPY = 'To get the most out of your agents we need to ensure they can stay awake and access the computer.';
-const HINT = 'Turned it on? Tap to check.';
+const HINT = 'Turned it on? Click to check.';   // #5111: a desktop screen, so click
 
 (async () => {
   let browser;
