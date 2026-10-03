@@ -13,8 +13,9 @@ Agents pane's scroll start, so it still tests the repaint loop it was written fo
 - Before #5063 (2da73952): the pane scrolls up to 928 and not from 936. The check's band (920..940 by 4) straddled it.
 - With #5063 (main before the revert): scrolls up to 912 and not from 920. The band 920..940 never scrolls, so the
   precondition fails; every behaviour assertion (no loop, one width, the chart fits after a poll) still passes.
-- #5063 moved the header's notices (and their slots) into a floating stack, so the header no longer holds them and the
-  pane gained about 16px. The check's control is what went stale, not the chart's loop guard.
+- So with #5063 the pane's scroll start moved about 16px down. What in #5063 shifted it was not isolated (it moved the
+  header's notices into a floating stack; a notice showing on the file:// page may be what used to take the room). The
+  check's control is what went stale, not the chart's loop guard.
 
 ## Change
 - Revert of the revert: 1953dc19b undone (only the code commit; the revert PR's own plan and proof stay).
@@ -40,5 +41,5 @@ Agents pane's scroll start, so it still tests the repaint loop it was written fo
   navigation, taking no header room), and the measured shift is the expected result of it.
 - Rejected: a self-calibrating sweep (search for the scroll start first). More machinery; the fixed band with a
   precondition that proves it straddles the start fails loudly the next time the layout moves, which is what it did.
-- Weakest premise: that 904..924 keeps a margin on both sides of the start in CI's browser (Chromium, same version
+- Weakest premise: that 900..932 keeps a margin on both sides of the start in CI's browser (Chromium, same version
   pin as here); the precondition will say so if not.
