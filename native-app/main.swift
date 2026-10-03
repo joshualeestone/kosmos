@@ -375,8 +375,13 @@ func downloadDestination(dir: URL, suggested: String, exists: (URL) -> Bool) -> 
         !c.unicodeScalars.contains { (0x200B...0x200F).contains($0.value) || (0x2028...0x202E).contains($0.value)
                                      || (0x2060...0x2069).contains($0.value) || [0xFEFF, 0x061C, 0x00AD].contains($0.value) }
     }).trimmingCharacters(in: .whitespacesAndNewlines)
-    while name.hasPrefix(".") { name.removeFirst() }
-    name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Until it stops changing: ". .zshrc" must not end as ".zshrc", nor ". ." as "." (Downloads itself).
+    var before = ""
+    while name != before {
+        before = name
+        while name.hasPrefix(".") { name.removeFirst() }
+        name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     if name.isEmpty { name = "Download" }
     if name.utf8.count > 200 {   // HFS+/APFS cap a name at 255 bytes; leave room for " (999)"
         var ext = (name as NSString).pathExtension
@@ -2732,7 +2737,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         // A download this app will not save is refused, not loaded in the window instead. Said only when it
-        // targets the page's own frame (a frame's own download is only logged).
+        // targets the page's own frame; a frame's own download, or one with no target frame, is only logged.
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
             if navigationAction.targetFrame?.isMainFrame == true {
@@ -2759,8 +2764,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    /* #5167: what each response does, in the order below: an attachment from the board's origin is saved,
-       one from anywhere else is refused and said; a board file the window cannot show is saved; anything
+    /* #5167: what each response does, in the order below: an attachment from the board's origin, on a board
+       page, is saved; any other attachment is refused and said; a board file the window cannot show is saved; anything
        else is shown if WebKit can show its type and cancelled if not.
        📌 PINNED selector, as above: a near-miss Swift signature compiles and is never called. */
     @objc(webView:decidePolicyForNavigationResponse:decisionHandler:)
@@ -2825,29 +2830,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
     private var downloadsTold: Set<ObjectIdentifier> = []
 
-    /// #5167: a policy refusal (`quiet: true`) is said at most once in this many seconds, whatever its cause
-    /// (one window for all of them, not one per cause); the rest are logged,
+    /// #5167: a policy refusal (`quiet: true`) is not said while one is on screen, nor for this many seconds
+    /// after the person dismisses it, whatever its cause (one window for all, not one per cause); the rest are logged,
     /// so a page clicking in a loop cannot stack sheets. Failures of a download the app took on are always
     /// said. The selftest sets it to 0 except for its burst arm.
     static var downloadQuietSeconds: TimeInterval = 5
     private var lastDownloadTold: Date?
+    private var downloadSheetUp = false
     fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
 
     private func tellDownloadFailed(_ detail: String, title: String = "Kosmos could not save that file", quiet: Bool = false) {
         if quiet {
-            if let last = lastDownloadTold, Date().timeIntervalSince(last) < AppDelegate.downloadQuietSeconds {
+            if downloadSheetUp || (lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false) {
                 logLine("#5167: not said again so soon: \(detail)")
                 return
             }
-            lastDownloadTold = Date()
         }
-        if let present = AppDelegate.downloadAlertPresenter { present(detail); return }
+        if let present = AppDelegate.downloadAlertPresenter {   // the selftest: nothing to dismiss
+            if quiet { lastDownloadTold = Date() }
+            present(detail)
+            return
+        }
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = detail
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
-        if let window = webView?.window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        // The quiet window starts when the person dismisses it, not when it appears.
+        if quiet { downloadSheetUp = true }
+        let dismissed = { [weak self] in
+            guard quiet, let self = self else { return }
+            self.downloadSheetUp = false
+            self.lastDownloadTold = Date()
+        }
+        if let window = webView?.window {
+            alert.beginSheetModal(for: window) { _ in dismissed() }
+        } else {
+            alert.runModal()
+            dismissed()
+        }
     }
 
     /// #5167: where each running download is being saved, so its end can be told to the Dock.
@@ -2885,7 +2906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             logLine("#5167: a download answered \(http.statusCode), so nothing was saved")
             downloadsTold.insert(ObjectIdentifier(download))
-            tellDownloadFailed("The file is not available (the board answered \(http.statusCode)), so nothing was saved.")
+            tellDownloadFailed("The file is not available (the answer was \(http.statusCode)), so nothing was saved.")
             completionHandler(nil)
             return
         }
@@ -2947,8 +2968,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // it did not start (WebKit refusing a download on its own) is said like any other failure.
         if downloadsTold.remove(ObjectIdentifier(download)) == nil {
             if dest == nil && (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled {
-                // WebKit stopped it before it had anywhere to go (measured for a redirect to another origin).
-                tellDownloadFailed("The download stopped before it began, so nothing was saved.")
+                // WebKit stopped it before it had anywhere to go (measured for a redirect to another origin, where
+                // the window may then show the file: #5169). Quiet, so one click cannot put up two sheets.
+                tellDownloadFailed("Kosmos did not save that file to Downloads.", quiet: true)
             } else {
                 tellDownloadFailed("The file could not be saved to Downloads (\(error.localizedDescription)).")
             }
@@ -5191,13 +5213,13 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             row(told.count == 5, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, foreign .zip, a BURST of three from a not-the-board page; frames say nothing), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
-            row(told.contains { $0.contains("answered 404") } && told.contains { $0.contains("stopped before it began") }
+            row(told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("did not save that file to Downloads") }
                 && told.contains { $0.contains("not opened or saved") } && told.contains { $0.contains("not a board") },
                 "and each is said in its own words")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
             // plain link, and a computer that runs agents loads every link in the window (#5169).
             row(!leftBoard.contains("foreignatt"),
-                "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (left the board on: \(leftBoard.joined(separator: ", ")))")
+                "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
             let expected = 17
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
@@ -6023,6 +6045,8 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     dest("notes", ["notes"], "notes (2)", "no extension")
     dest("../../.zshrc", [], "-..-.zshrc", "A PATH CANNOT LEAVE Downloads (separators become -)")
     dest(".zshrc", [], "zshrc", "a leading dot does not make a hidden file")
+    dest(". .zshrc", [], "zshrc", "NOR DOES A DOT, A SPACE AND A DOT")
+    dest(". .", [], "Download", "NOR CAN A NAME BECOME . (the Downloads folder itself)")
     dest("a:b", [], "a-b", "a colon is a separator to Finder")
     dest("a\nb.txt", [], "a b.txt", "control characters become spaces")
     dest("invoice\u{202E}fdp.app", [], "invoicefdp.app", "A DIRECTION CONTROL CANNOT DISGUISE AN APP AS A PDF")
@@ -6050,7 +6074,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
     try? FileManager.default.removeItem(at: dir)
-    let expected = 79
+    let expected = 81
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
