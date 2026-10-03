@@ -22,5 +22,7 @@ alternative); runners.test.js pins the install refusal; web.aimodels-name-5114.t
 create tests match "or create this agent on OpenAI instead" case-insensitively, so the moved capital is covered.
 
 ## CLI ends
-Both CLIs print 'Kosmos did not make that agent: <reason>.' and now drop the reason's own trailing stop first, so a
-reason that ends a sentence (these, and #5126's) never prints '..'. Tests cover both CLIs.
+Both CLIs print 'Kosmos did not make that agent: <reason>.' and now end that line the same way: the reason's own
+trailing stops and spaces go, then one '.' (none after a '?' or '!'), and a reason that was only stops says it did
+not say why. So a reason that ends a sentence (these, and #5126's) never prints '..'. Tests cover both CLIs on
+'..', a trailing space, '?' and a stops-only reason.

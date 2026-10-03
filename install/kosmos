@@ -4269,8 +4269,13 @@ cmd_agent() {
       because=$(printf '%s' "$parsed" | cut -f3)
       case "$outcome" in
         created) say "Made \"${made:-$name}\". It's on your board now: $URL/" ;;
-        # #5127: a reason that already ends a sentence keeps its own stop, never a second one.
-        error|refused) because="${because%.}"; say "Kosmos did not make that agent: ${because:-it did not say why}."; exit 1 ;;
+        # #5127: the reason's own trailing stops and spaces go, and the line ends once: never '..', and no '.' after
+        # a '?' or '!'. A reason that was only stops says it did not say why. The Windows CLI does the same.
+        error|refused)
+          while [[ "$because" == *[.[:space:]] ]]; do because="${because%?}"; done
+          because="${because:-it did not say why}"
+          case "$because" in *[?!]) end="" ;; *) end="." ;; esac
+          say "Kosmos did not make that agent: ${because}${end}"; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when making that agent."; exit 1 ;;
       esac
       ;;
