@@ -231,3 +231,9 @@ Left as accepted: one setting read per call.
   Mutations, each red: bypass restored (3 red), mark dropped in messages.js (1), stale drop exempting ^ (1), ^ not
   sticky (1), @ not sticky (2). 15 related test files 314/314.
 
+- FIXED (review iteration 14, sonnet, 21:31) WARNING: flushOnIdle put a cap-refused turn-end line's ids back unmarked,
+  so an idle member with no wake coming was skipped by the minute retry for good. Now a `heldBy: 'cap'` verdict puts
+  them back with `^` (an `@` keeps `@`); a quota refusal still puts them back unmarked (the follow-up's rule, CONTROL
+  arm). Mutations: no mapping (1 red), mapping on every refusal (2 red). 315/315 across the 15 related files.
+  NIT not taken: restore() lets a restored `^m5` replace a newer `@m5`; unreachable today (an id is held once per
+  member and hold() keeps the stronger mark). Would change my mind: any second path that re-holds an existing id.
