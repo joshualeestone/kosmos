@@ -442,6 +442,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
   /* #4588 PR B: the assigner does not give a part to an agent held on its machine's shared Google quota. Refused here,
      before the part is assigned, so a held agent is not given work and taken off it again every tick. */
   let capSlot = null;   // #4588 ask 3 review 2: the Assigner's own reservation (its tell is not deliverAutomatic)
+  // Only the Assigner is gated: a part a person or an agent gives is not held by the quota or the cap, by decision (plan).
   if (assigner) {
     let heldUntil = null;
     const agyq = require('./engine/agyquota');
@@ -18118,6 +18119,7 @@ const server = http.createServer(async (req, res) => {
         }
         for (const one of recipients) {
           let outcome;
+          // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
           try { outcome = await chat.deliverAsync(one, line, roster); }
           catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
