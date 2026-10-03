@@ -71,3 +71,5 @@ Claude Code's safeguards menu; both are plausible, neither measured.
   was picked) say "we do not know that account on this computer" and name no Settings page. Now "has no working
   sign-in or key" (every such refusal names Settings, AI Models).
 - NIT left: line 2 "agents" unqualified (the sweep touches only agents Kosmos made; on a board that is every agent).
+
+## Review 5 (sonnet, 05:12): CONVERGED. Line 1: every no-working-sign-in-or-key refusal names Settings, AI Models (create.js 3937-3940, 3966-3967, 4018-4019, 4035, 4062-4063, 4094); "Accounts tab" 0. NIT left (routed to Mona): create.js 4873, Claude Code not found, says "Connect a Claude account and Kosmos will set it up" without naming the place.
