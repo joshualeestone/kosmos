@@ -18810,6 +18810,25 @@ function kplusRemote() {
   const h = String((typeof location !== 'undefined' && location.hostname) || '').replace(/^\[|\]$/g, '').toLowerCase();
   return !!h && !['127.0.0.1', 'localhost', '::1'].includes(h);
 }
+/* #5165 (a Kosmos+ user on a Windows laptop clicked a .pptx in a project's Files and it tried to open on the HOST):
+   over Kosmos+ the person is on another device, so a file click DOWNLOADS it to that device, as an attachment
+   already does (#4930), and a button that would open a folder window on the board's computer says where the folder
+   is instead. At the computer itself (kplusRemote() false) both keep opening there. */
+const KPLUS_FOLDER_ELSEWHERE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
+function kplusDownload(url, name) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = String(name || '').split('/').pop() || '';
+  a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+function kplusFolderElsewhere(msg) {
+  if (!kplusRemote()) return false;
+  if (msg) { msg.textContent = KPLUS_FOLDER_ELSEWHERE; msg.hidden = false; }
+  return true;
+}
 function kplusBarDrawMark(cv, hh) {
   const md = plusMd(), h = hh || 14, w = Math.round(h * md.VBW / md.VBH), s = h / md.VBH;
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
@@ -31613,6 +31632,7 @@ document.getElementById('set-a11y-open').addEventListener('click', async () => {
    buttons cannot open different places. The folder opening is the success feedback. */
 document.getElementById('upd-open-folder').addEventListener('click', async () => {
   const msg = document.getElementById('upd-open-folder-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   try {
     const r = await fetch('/api/reveal-app', { method: 'POST' });
     const body = await r.json().catch(() => ({}));
@@ -31625,6 +31645,7 @@ document.getElementById('upd-open-folder').addEventListener('click', async () =>
 });
 document.getElementById('set-reveal').addEventListener('click', async () => {
   const msg = document.getElementById('set-reveal-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   try {
     const r = await fetch('/api/reveal-app', { method: 'POST' });
     const body = await r.json().catch(() => ({}));
@@ -36657,6 +36678,11 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
   const msg = document.getElementById(msgId);
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('/api/agent/' + encodeURIComponent(who) + '/files/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc);
+    if (msg) msg.textContent = '';
+    return;
+  }
   let say;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/open', {
@@ -36682,6 +36708,7 @@ document.getElementById('d-files-finder') && document.getElementById('d-files-fi
   if (!CURRENT) return;
   const who = CURRENT.sessionName;
   const msg = document.getElementById('d-filesall-msg');
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   let failed = null;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(who) + '/files/reveal', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -58981,6 +59008,7 @@ document.getElementById('pjs-chats-reveal').addEventListener('click', async () =
   const btn = document.getElementById('pjs-chats-reveal');
   const msg = document.getElementById('pjs-chats-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   btn.disabled = true;
   try {
     const res = await fetch('/api/chats/reveal', { method: 'POST' });
@@ -59002,6 +59030,7 @@ document.getElementById('tk-chats-reveal').addEventListener('click', async () =>
   const btn = document.getElementById('tk-chats-reveal');
   const msg = document.getElementById('tk-chats-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   btn.disabled = true;
   try {
     const res = await fetch('/api/task-chats/reveal', { method: 'POST' });
@@ -59019,6 +59048,7 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
   if (!p) return;
   const msg = document.getElementById('pjs-reveal-msg');
   msg.textContent = '';
+  if (kplusFolderElsewhere(msg)) return;   // #5165
   const btn = document.getElementById('pjs-reveal');
   btn.disabled = true;
   try {
@@ -59373,6 +59403,7 @@ document.getElementById('docs-back').addEventListener('click', () => { pjView('o
 document.getElementById('docs-chev').addEventListener('click', () => { pjView('one'); }); // #4586: the same way back
 document.getElementById('docs-finder').addEventListener('click', async () => {
   const msg = document.getElementById('docs-msg');
+  if (kplusFolderElsewhere(msg)) { docsSegShow('folder'); return; }   // #5165
   try {
     const r = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/reveal-folder', { method: 'POST' });
     if (!r.ok) { docsSegShow('folder'); const b = await r.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that folder'); }   // #4937: the sentence lives on the folder's segment
@@ -59384,6 +59415,11 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
   const row = e.target && e.target.closest ? e.target.closest('.pj-doc') : null;
   if (!row || !PJ_CURRENT) return;
   const msg = document.getElementById('docs-msg');
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc);
+    msg.textContent = '';
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }) });
@@ -60457,6 +60493,11 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   if (!row || !PJ_CURRENT) return;
   const msg = document.getElementById('pj-docs-msg');
   const forProject = PJ_CURRENT;
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc);
+    msg.textContent = '';
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -60489,6 +60530,11 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   if (!go || !PJ_CURRENT) return;
   const msg = document.getElementById('pj-room-msg');
   const forProject = PJ_CURRENT;
+  if (kplusRemote()) {   // #5165: download it to this device
+    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/download?name=' + encodeURIComponent(go.dataset.ref), go.dataset.ref);
+    msg.textContent = '';
+    return;
+  }
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' },

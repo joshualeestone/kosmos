@@ -3762,6 +3762,22 @@ function statusForSibling(json) {
   });
 }
 
+/* #5165: hand a file that passed projects.fileInFolder back as a DOWNLOAD, streamed, the way an attachment is
+   (#4930): over Kosmos+ the person is on another device, so opening it on this computer shows them nothing.
+   Whatever the type it is an attachment, and it never renders on the board's origin. */
+function sendFileDownload(req, res, found) {
+  const base = path.basename(found.given);
+  res.writeHead(200, {
+    'content-type': 'application/octet-stream', 'content-length': found.st.size, 'x-content-type-options': 'nosniff',
+    'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(base),
+    'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
+  });
+  if (req.method === 'HEAD') { res.end(); return; }
+  const stream = fs.createReadStream(found.target);
+  stream.on('error', () => res.destroy());
+  stream.pipe(res);
+}
+
 function crossSiteRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   if (site && site !== 'same-origin' && site !== 'none') {
@@ -6146,7 +6162,7 @@ const server = http.createServer(async (req, res) => {
      maxDepth 0, no scratch names (isScratchName), no symlinks, newest first, a stamp), openFile (a bare name or, since
      #2245, a relative path; the target must resolve inside the folder), revealFolder (Finder, or File Explorer on Windows). A Files folder that does not
      exist yet is the EMPTY state, not an error: nothing has been saved there. */
-  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal))?$/);
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|download))?$/);
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
@@ -6201,6 +6217,15 @@ const server = http.createServer(async (req, res) => {
         .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
       return;
     }
+    if (verb === 'download' && (req.method === 'GET' || req.method === 'HEAD')) {
+      // #5165: the same gates as open (projects.fileInFolder), then streamed to the device asking.
+      let named = '';
+      try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
+      const found = projects.fileInFolder(folder, named, 'this agent\u2019s Files folder');
+      if (!found.ok) { sendJson(res, 409, { ok: false, because: found.because }); return; }
+      sendFileDownload(req, res, found);
+      return;
+    }
     if (verb === 'reveal' && req.method === 'POST') {
       // Created on first use (#3614 item 1): inside the agent's own existing folder, one level,
       // never following a link. An existing non-folder by that name is refused, not replaced.
@@ -6223,7 +6248,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 409, { ok: false, because: (shown && shown.because) || 'the folder did not open' });
       return;
     }
-    sendJson(res, 405, { ok: false, because: verb ? 'use POST for that' : 'the Files list is read-only; use open or reveal' });
+    sendJson(res, 405, { ok: false, because: verb === 'download' ? 'use GET for that' : verb ? 'use POST for that' : 'the Files list is read-only; use open, reveal or download' });
     return;
   }
   const agentSkills = pathname.match(/^\/api\/agent\/([^/]+)\/skills$/);
@@ -17200,6 +17225,28 @@ const server = http.createServer(async (req, res) => {
 
   if (docs && req.method === 'POST') {
     sendJson(res, 405, { error: 'the documents list is read-only; use open-file to open one' });
+    return;
+  }
+
+  /* #5165: a project file as a download (?name=, the same name open-file takes), for a page reached over
+     Kosmos+, where opening it on this computer would show the person nothing. Same gates as open-file. */
+  const getOne = pathname.match(/^\/api\/project\/([^/]+)\/download$/);
+  if (getOne && (req.method === 'GET' || req.method === 'HEAD')) {
+    const id = decodeSegment(getOne[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let record;
+    try {
+      record = projects.readAll().find((x) => x.id === id) || null;
+    } catch (err) {
+      sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your projects right now') });
+      return;
+    }
+    if (!record) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+    let named = '';
+    try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
+    const found = projects.fileInFolder(record.folder, named);
+    if (!found.ok) { sendJson(res, 409, { error: found.because }); return; }
+    sendFileDownload(req, res, found);
     return;
   }
 
