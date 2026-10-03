@@ -3,15 +3,15 @@
 Card: kosmos#5135. Branch: ctlfail-5135.
 
 ## Done looks like
-- In the cut log, a mobile-shots leak or cover control arm that PASSES shows its child's planted
-  `FAIL  ` lines as `CONTROL (expected): `.
+- In the cut log, a mobile-shots leak or cover control arm that PASSES shows the one `FAIL  ` line
+  its guard was planted to produce as `CONTROL (expected): `; any other FAIL line prints raw.
 - An arm that does NOT pass prints its output untouched, so a real red and the REASONS grep
   (`grep -E '^\s*(FAIL|...)'` on the captured output) are unchanged.
 - The harness's own verdict lines (`PASS mobile-shots-*`, `FAIL  leak control ...`, `FAIL  control ...`) are unchanged.
 
 ## Steps
-- [x] tools/browser-checks.sh: in both arm loops, move the `printf "%s\n" "$out"` after the case match;
-      relabel with sed only in the passing branch.
+- [x] tools/browser-checks.sh: in both arm loops, print the output after the case match; in the
+      passing branch only, a `while read` + `case` relabels the planted line and passes every other line through.
 - [x] tools.control-arms-expected-5135.test.js: lift each arm's real bash -c body, run it with a stand-in node:
       a passing arm relabels only its planted line (any shot count for cover), an unrelated FAIL stays raw, and a
       failing arm (wrong message, or clean exit) prints raw and reds. Control: the relabel cases red on origin/main's script.
