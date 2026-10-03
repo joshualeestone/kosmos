@@ -353,6 +353,18 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - The question's text says the answer lasts until Kosmos quits and a reload re-asks after Don't
   Allow; its answer closure holds the app strongly so every waiting decision is answered.
 
+## Review round 31 changes (BLOCKER)
+- The board answers a refused download navigation with 204 and no body (server.js refuseDownload),
+  not a 4xx, and decideDestination let 2xx through: the app saved an empty file under the real name
+  and bounced the Dock while the page said the file was gone. A 204/205 download is now cancelled
+  silently (the page says why). Live arm: an `<a download>` answered 204 saves nothing (sabotage:
+  check removed, two rows red).
+- A web-page answer on a Files-list route (an expired sign-in) is silent: the page's look says it.
+- A page that is not a board is told about its refused downloads once per load, then only logged; a
+  foreign page looping clicks could otherwise bring an alert back every few seconds (Reload reloads
+  it). The burst arm now shows one said and two logged.
+- The summary is titled "Some downloads were not saved" (it can mix refusals and failures).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
