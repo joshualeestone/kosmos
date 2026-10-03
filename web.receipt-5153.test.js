@@ -110,7 +110,7 @@ test('the poll paints the receipt only when the open task or its closed state ch
   const state = { closed: false };
   // eslint-disable-next-line no-new-func
   const sync = new Function('pjById', 'paintTaskReceipt',
-    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null;\n' + lift('tkTaskClosed') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
+    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null; var TKR_FAILED = null; var TKR_RETRY_MS = 30000;\n' + lift('tkTaskClosed') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
   )(() => ({ id: 'p1', tasks: [{ number: 4, closedAt: null, progress: { closed: state.closed } }] }), (n) => calls.push(n));
   sync();
   sync();
@@ -128,16 +128,23 @@ test('a receipt read that fails is tried again on the next poll, not left hidden
   let fails = 1;
   let reads = 0;
   // eslint-disable-next-line no-new-func
-  const sync = new Function('document', 'pjById', 'fetch', 'tkReceiptHtml',
-    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null; var TKR_SEQ = 0;\n'
+  let now = Date.parse('2026-10-03T12:00:00Z');
+  const FakeDate = { now: () => now };
+  const sync = new Function('document', 'pjById', 'fetch', 'tkReceiptHtml', 'Date',
+    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null; var TKR_SEQ = 0; var TKR_FAILED = null; var TKR_RETRY_MS = 30000;\n'
     + lift('tkTaskClosed') + '\n' + lift('paintTaskReceipt') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
   )({ getElementById: () => holder }, () => ({ id: 'p1', tasks: [{ number: 4, closedAt: '2026-10-01T12:00:00Z' }] }),
     async () => { reads += 1; if (fails-- > 0) throw new Error('board restarting'); return { ok: true, json: async () => ({ agents: [] }) }; },
-    () => 'RECEIPT');
+    () => 'RECEIPT', FakeDate);
   sync();
   await new Promise((r) => setImmediate(r));
   assert.equal(holder.hidden, true, 'control: the first read failed');
-  sync();                       // the next poll
+  now += 5000;
+  sync();                       // the next poll, five seconds on: too soon to read again
+  await new Promise((r) => setImmediate(r));
+  assert.equal(reads, 1, 'a failing read is retried on every poll');
+  now += 30000;
+  sync();                       // a poll after the wait
   await new Promise((r) => setImmediate(r));
   assert.equal(reads, 2, 'the failed read was not tried again');
   assert.equal(holder.hidden, false);
@@ -151,10 +158,18 @@ test('closed, put back and closed again between two polls repaints for the new c
   const task = { number: 4, closedAt: '2026-10-01T12:00:00Z' };
   // eslint-disable-next-line no-new-func
   const sync = new Function('pjById', 'paintTaskReceipt',
-    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null;\n' + lift('tkTaskClosed') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
+    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null; var TKR_FAILED = null; var TKR_RETRY_MS = 30000;\n' + lift('tkTaskClosed') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
   )(() => ({ id: 'p1', tasks: [task] }), (n) => calls.push(n));
   sync();
   task.closedAt = '2026-10-01T12:04:00Z';
   sync();
   assert.equal(calls.length, 2);
+  // Closed through its last part (no closedAt of its own): the newest part's close is the key.
+  delete task.closedAt;
+  task.progress = { closed: true, done: 1 };
+  task.parts = [{ id: 1, closedAt: '2026-10-01T12:10:00Z' }];
+  sync();
+  task.parts = [{ id: 1, closedAt: '2026-10-01T12:20:00Z' }];   // put back and closed again by its part
+  sync();
+  assert.equal(calls.length, 4);
 });

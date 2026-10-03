@@ -70,3 +70,11 @@ in this time", never a zero presented as fact.
   `sessions` renamed `transcriptsWithWork` (it counts transcript files, which a resumed session can make two of).
 - Accepted, not taken: a receipt worked out in the first five minutes after the close is not refreshed on a page left
   open; opening the task again (or the next close) works it out again, and from then it is kept.
+
+## Review 4 (sonnet): 1 WARNING, taken; NITs taken
+- The task-receipt screenshot screen closed task 1 on the throwaway board for real, so every later pass (other theme,
+  size, engine) of every other screen would have shown it closed: the board is no longer changed; the screen's own page
+  reads the projects with task 1 marked closed (route on GET /api/projects) and the receipt answer is faked.
+- NITs taken: a read that keeps failing is asked for again only after 30 seconds, not every poll (test drives a fake
+  clock: too soon, then after the wait); the poll key uses the newest part's close time for a task closed through its
+  parts (test: closed, put back and closed again by its part repaints).
