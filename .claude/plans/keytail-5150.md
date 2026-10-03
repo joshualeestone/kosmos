@@ -23,3 +23,11 @@ Merge: after Monday, with validation and tools/browser-checks.sh on its exact he
 ## Weakest premise
 That `a.account.keyTail` is set wherever the bracket is painted: server.js 2021 sets it on the agent's account, and
 the reopen passes the accounts row, which carries keyTail (server.js 1603-1653). Not measured in a browser yet.
+
+## Review 1 (blind Sonnet): CONVERGED, 0 blocker, 0 warning, 0 nit
+- Callers (web/index.html 37047, 48356) wrap the result in parentheses and never add the key themselves; the
+  other "API key ending" prints are separate surfaces, so no row shows the key twice.
+- Subscription accounts carry keyTail null (openaiaccounts.js 145, grokaccounts.js 166, server.js 9577/9596), so
+  no subscription row can say "API key ending".
+- Wording matches server.js 7939; the server.test.js slice and the two web tests still hold (17/17 run).
+- No browser check asserts this bracket for a Gemini or Grok agent.
