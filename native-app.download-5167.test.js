@@ -90,7 +90,7 @@ test('#5167: a download that does not save is said to the person, once', () => {
 test('#5167: an error page is not saved as the file, and every refusal before a destination is said once', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /!\(200\.\.<300\)\.contains\(http\.statusCode\)/, 'a 404 or 500 is saved under the file\'s name');
-  assert.equal((b.match(/downloadsTold\.add\(download\)/g) || []).length, 3,
+  assert.equal((b.match(/downloadsTold\.add\(download\)/g) || []).length, 4,
     'a refusal before a destination is not marked as said, so its cancel says it a second time');
 });
 
@@ -109,7 +109,7 @@ test('#5167: both ways a navigation becomes a download hand it to this delegate 
 test('#5167: the destination is Downloads through downloadDestination, never replacing a file', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /FileManager\.default\.urls\(for: \.downloadsDirectory, in: \.userDomainMask\)/);
-  assert.equal((b.match(/completionHandler\(/g) || []).length, 5, 'a destination path that never answers WebKit leaves the download hanging');
+  assert.equal((b.match(/completionHandler\(/g) || []).length, 7, 'a destination path that never answers WebKit leaves the download hanging');
   assert.doesNotMatch(b, /logLine\([^\n]*dest\.path/, 'the log line carries the full path, home folder and user name included');
 });
 
@@ -204,7 +204,7 @@ test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a
   assert.match(tell, /quiet: Bool = false\) \{\n[\s\S]*?\n\s+if quiet \{\n\s+let sheetUp/, 'a real save failure can be swallowed by the quiet window');
   assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 6, 'the quiet window covers something other than the six refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show, a download WebKit stopped, a computer already refused, the page changed during the question)');
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
-  assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame != false \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
+  assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame != false, !alreadyToldThisPage \{\n\s+tellDownloadFailed\(boardPage\n\s+\? "That file is not from this board/,
     'a frame inside the page can put up the app\'s sheet, or the refusal blames the page when the file is the cause');
 });
 
@@ -364,4 +364,17 @@ test('#5167 review 30: a quiet refusal in the window is counted into the summary
     'the selftest presenter skips the window bookkeeping a real dismissal does, so the summary path is never measured');
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.ok(hatch.includes('"TWO FAILURES AT ONCE: the first is said, the second is counted and said as a summary, never dropped"'));
+});
+
+test('#5167 review 31: the board\'s 204 refusal of a download is not saved as an empty file; a page that is not a board is told once per load', () => {
+  const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
+  const at204 = b.indexOf('http.statusCode == 204 || http.statusCode == 205');
+  assert.ok(at204 !== -1 && at204 < b.indexOf('!(200..<300).contains(http.statusCode)'), 'a 204 download (the board\'s refusal) is saved as an empty file under the real name');
+  assert.match(b, /if pageSaysDownloadRefusal\(response\.url \?\? download\.originalRequest\?\.url\) \{\n\s+completionHandler\(nil\)/,
+    'a signed-out Files-list download is said twice (the page says it too)');
+  const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
+  assert.match(act, /let alreadyToldThisPage = !boardPage && notBoardToldForPage != nil && notBoardToldForPage == committedPageURL/,
+    'a foreign page clicking in a loop brings an alert back every few seconds for good');
+  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /notBoardToldForPage = nil/);
+  assert.match(body('private func sayPendingDownloadFailures() {'), /title: "Some downloads were not saved"/);
 });
