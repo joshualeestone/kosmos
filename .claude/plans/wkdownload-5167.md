@@ -71,6 +71,17 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Not changed: a release cut on a box with no console skips this gate loudly (stderr), the same
   bargain as the #1032 file-picker gate; the cut machines own a console.
 
+## Review round 5 changes
+- On a computer that runs agents, a download this app will not save is cancelled and said, not
+  loaded in the window; an attachment from anywhere but the board is refused the same way (the board
+  stays in the window; measured, and sabotage turns the row red).
+- The quarantine record keeps origins only: the page address carries the board token.
+- Switching to connect clears `badgeOrigin`.
+- Build gate: a short selftest run is the gate's fault, not a product verdict.
+- Measured: WebKit ignores `download` on a link to another origin, so that link is a plain
+  navigation; with the redirect case, a run computer's window still loads it. Pre-existing for every
+  link, filed as #5169, not changed here.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
@@ -79,6 +90,6 @@ live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunn
 ## Tests (current)
 - Pure functions: `--kosmos-app-mode-selftest`, 75 rows in all (the #5167 ones: same-origin, board
   page, destination name).
-- Live: 11 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
+- Live: 12 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
 - Wiring: `native-app.download-5167.test.js`.
