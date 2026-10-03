@@ -515,9 +515,16 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .askdev { background: rgba(126,160,240,.14); }
   .askreq .askdev svg { stroke: #dfe6f5; }
   /* The ids keep a Settings text rule (an id-level p style) from shrinking the code, in either place it renders. */
-  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { margin: 6px 0 2px;
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-join .askcodebig { margin: 6px 0 2px;
                 font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; color: #fff; }
   .askreq .asksay { color: #c3cde3; }
+  /* #4794: the waiting computer's code (Mona Lisa: identical to the Allow card's, which is drawn on its dark card; here it
+     sits on the page, so it takes the page's ink). */
+  #plus-join .askcodebig { color: var(--k-ink); }
+  #plus-join .plus-join-say { margin: 8px 0 0; }
+  #plus-join .acts { margin-top: 6px; }
+  /* #4794: a joining computer's code is not worked out yet: a quiet line in the code's place. */
+  .askreq .askwait { grid-area: code; color: #9fb0d4; font-size: .85rem; margin: 6px 0 2px; }
   .askreq .btn.quiet, .askreq .btn.quiet:hover { background: none; border: 0; color: #b8c4de; text-decoration: underline; text-underline-offset: 3px; }
   .askrow.done .askok { font: 600 1rem var(--font-ui); color: #fff; }
   /* An answered line after a sheet keeps the gap sheets keep between each other (review NIT). */
@@ -18089,6 +18096,9 @@ window.kosmosMeasureScrollbarWidth();
       <div class="setrow">
         <div>
           <p class="fhint" id="plus-status" aria-live="polite"></p>
+          <!-- #4794 slice 1 (Mona Lisa's design): while this computer waits to be allowed, the code both computers show,
+               in place of the coordinator's sentence above, and "The codes match". Painted by paintPlusJoin. -->
+          <div class="plus-join" id="plus-join" aria-live="polite" hidden></div>
           <!-- #1014. Setup used to end by handing you a URL and stopping, and
                a URL with no instruction is a thing a person stares at. Josh,
                with a working install in front of him, asked when he was
@@ -44200,6 +44210,16 @@ async function pollAsk() {
   }
   paintAsk();
 }
+/* #4794 (Mona Lisa, 2026-10-03): what a joining computer's empty code means on the computer already in, one line per
+   reason the tunnel gives (code_wait). <name> is the joining computer. Anything else keeps the default line. */
+const JOIN_WAIT_WORDS = {
+  attempts_used: '<name> used up its tries. Press Not me, then sign <name> in again.',
+  asked_another_computer: '<name> is pairing with another of your computers. Allow it there, or press Not me if it is not yours.',
+  another_computer: 'This computer is adding another computer right now. <name> waits until that one is done.',
+  daily_limit: 'This computer has added as many computers as it can today. Try again tomorrow.',
+  wait_a_few_minutes: 'This computer just added one. The code for <name> shows here in a few minutes.',
+  was_a_computer: 'This started as a computer and now shows as a device, so it cannot be allowed. Press Not me.',
+};
 function paintAsk() {
   const card = document.getElementById('askcard');
   if (!card) return;
@@ -44266,19 +44286,27 @@ function paintAsk() {
        against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
     const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
-    /* #4637/#4773: a computer joining shows this same code on its own screen, and the person just signed it in. */
-    const say = d.joining_computer ? 'Allow it if you just signed it in, and it shows this code.'
+    /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
+       worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
+    const name = d.joining_computer ? askEsc(d.joining_computer) : '';
+    const waitLine = d.joining_computer && !d.code ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
+    const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
       : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
+    const errWords = !(e && e.state === 'error') ? ''
+      : e.because === 'code_changed' && d.joining_computer ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
+        : e.because === 'code_pending' && d.joining_computer ? 'Working out the code with ' + name + '. It shows here in a moment.'
+          : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
     const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
       '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
-      '<p class="asksay">' + say + again + (e && e.state === 'error' ? ' ' + askEsc(e.because) : '') + '</p>' +
+      '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
+      (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
       (d.code ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split('-').filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '">Allow</button>' +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (waitLine ? ' disabled' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
   /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
@@ -44298,13 +44326,18 @@ async function askAct(act, id) {
   let res = null;
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ device_id: id, name: d.name || undefined }) });
+      /* #4794: Allow for a joining computer carries the code the person was shown; the tunnel refuses any other. */
+      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: verb === 'allow' && d.joining_computer && d.code ? d.code : undefined }) });
   } catch { res = null; }
   if (res && res.ok) {
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
   } else {
     const said = res ? await res.json().catch(() => null) : null;
-    ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: plusWords((said && said.error) || 'We could not save that. Try again.') };
+    const why = said && said.error;
+    /* #4794: code_changed / code_pending are the tunnel's pairing refusals, worded on the card; the list is read again so a
+       new code repaints. */
+    ASK.done[id] = { state: 'error', at: Date.now(), device: d, because: why === 'code_changed' || why === 'code_pending' ? why : plusWords(why || 'We could not save that. Try again.') };
+    if ((why === 'code_changed' || why === 'code_pending') && typeof pollAsk === 'function') pollAsk();
   }
   /* #3978: a retry that fails with the same words would be an identical write, which setLive skips: no
      announcement and no sign the press did anything. Forget the last write so the answer is said again. */
@@ -44780,6 +44813,10 @@ async function paintPlus() {
       : (stat.state === 'up' ? 'Connected. Your address is on its way.'
         : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : ''));
   }
+  /* #4794: while this computer waits for one of the person's computers to allow it, the pairing code replaces the
+     coordinator's sentence (paintPlusJoin). Anything else hides it. */
+  PLUS_JOIN_WAITING = r.on === true && stat.state === 'waiting-allow';
+  if (PLUS_JOIN_WAITING) plusJoinTick(); else paintPlusJoin();
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
@@ -44797,6 +44834,60 @@ async function paintPlus() {
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
   paintDevices();
 }
+/* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
+   code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
+   still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */
+let PLUS_JOIN = null;          // the last /api/remote/join answer, or null
+let PLUS_JOIN_WAITING = false; // paintPlus: on, and the tunnel says waiting-allow
+let PLUS_JOIN_BUSY = false;
+let PLUS_JOIN_AT = 0;
+let PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
+let PLUS_JOIN_LAST_CODE = '';
+/* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). */
+async function plusJoinTick() {
+  if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < 4000) { paintPlusJoin(); return; }
+  PLUS_JOIN_BUSY = true;
+  try { const res = await fetch('/api/remote/join'); PLUS_JOIN = res.ok ? await res.json() : null; } catch { PLUS_JOIN = null; }
+  PLUS_JOIN_BUSY = false; PLUS_JOIN_AT = Date.now();
+  paintPlusJoin();
+}
+function plusJoinCode(code) {
+  return '<p class="askcodebig" role="img" aria-label="' + askEsc([...code].join(' ')) + '">' + askEsc(code) + '</p>';
+}
+function paintPlusJoin() {
+  const el = document.getElementById('plus-join');
+  if (!el) return;
+  const j = PLUS_JOIN;
+  const show = PLUS_JOIN_WAITING && !!j && j.supported === true && j.held === true;
+  el.hidden = !show;
+  if (!show) { if (el.innerHTML) el.innerHTML = ''; return; }
+  /* One wait message, not two: the coordinator's sentence goes while this block shows. */
+  const st = document.getElementById('plus-status'); if (st && st.textContent) st.textContent = '';
+  const name = askEsc(j.on || (Array.isArray(j.asked_of) && j.asked_of[0]) || 'your other computer');
+  const code = /^\d{6}$/.test(String(j.join_code || '')) ? j.join_code : '';
+  if (code !== PLUS_JOIN_LAST_CODE) { PLUS_JOIN_MSG = ''; PLUS_JOIN_LAST_CODE = code; }   // a new code: an old refusal is not about it
+  let html;
+  if (j.failed) html = '<p class="plus-join-say">Too many tries. On ' + name + ', press Not me on this request, then sign this computer in again.</p>';
+  else if (code && j.confirmed) html = '<p class="plus-join-say">Matched. Now press Allow on ' + name + '.</p>' + plusJoinCode(code);
+  else if (code) html = '<p class="plus-join-say">Check that ' + name + ' shows this same code.</p>' + plusJoinCode(code) +
+    '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc([...code].join(' ')) + '">The codes match</button></div>' +
+    (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
+  else if (j.confirm_expired) html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
+  else html = '<p class="plus-join-say">Working out the code with ' + name + '...</p>';
+  /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
+  if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
+}
+document.getElementById('plus-join').addEventListener('click', async (e) => {
+  const b = e.target.closest('#plus-join-match');
+  if (!b || b.disabled) return;
+  b.disabled = true;
+  let res = null;
+  try { res = await fetch('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: b.getAttribute('data-code') }) }); } catch { res = null; }
+  if (res && res.ok) { PLUS_JOIN_MSG = ''; if (PLUS_JOIN) PLUS_JOIN.confirmed = true; }
+  else { const said = res ? await res.json().catch(() => null) : null; PLUS_JOIN_MSG = plusWords((said && said.error) || 'That did not go through. Try again.'); }
+  PLUS_JOIN_AT = 0;   // read the pairing again now, not in a few seconds
+  paintPlusJoin(); plusJoinTick();
+});
 /* The engine's honest-but-technical sentence for a missing binary, said
    the way this page speaks. Everything else relays verbatim. */
 function plusWords(text) {

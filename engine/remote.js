@@ -1421,7 +1421,15 @@ async function deviceAllow(id, name, code) {
   /* kosmos#4794: Allow for another of the person's computers carries the code the person was shown here; the tunnel
      refuses it unless it is the code this computer worked out with that one (and ignores it for a phone). */
   if (typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);
-  return parseSaid(await tracked(setupRun(args, null, retireTimeoutMs())));
+  const r = await tracked(setupRun(args, null, retireTimeoutMs()));
+  /* kosmos#4794: the tunnel's pairing refusals start with a fixed tag (pairing.rs allow_joining). The page words two
+     of them; any other failure keeps the tunnel's own reason, as before. */
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
+    if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_pending' };
+  }
+  return parseSaid(r);
 }
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
