@@ -60,7 +60,9 @@ test('#5167: the origin a download must share is the COMMITTED page, set on ever
   assert.match(SRC, /\n    private var committedPageURL: URL\?\n/);
   assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /committedPageURL = webView\.url/,
     'nothing records the committed page, so every download is refused (or a stale origin is trusted)');
-  assert.equal((SRC.match(/committedPageURL = /g) || []).length, 1, 'something else writes the committed page');
+  assert.equal((SRC.match(/committedPageURL = (?!nil)/g) || []).length, 1, 'something other than a main-frame commit sets the committed page');
+  assert.match(body('private func switchToConnect(home: String)'), /committedPageURL = nil/, 'a computer switched to connect keeps judging downloads against its old board page');
+  assert.match(body('func webViewWebContentProcessDidTerminate(_ webView: WKWebView)'), /committedPageURL = nil/, 'a crashed page is still treated as on screen');
 });
 
 test('#5167: a download\'s redirect to another origin is refused (pinned selector)', () => {
@@ -152,7 +154,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
 
 test('#5167 review 5: refused downloads stay out of the window, quarantine records hold no token, connect forgets the board', () => {
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
-  assert.match(act, /if navigationAction\.shouldPerformDownload \{\n[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+return\n\s+\}/,
+  assert.match(act, /if navigationAction\.shouldPerformDownload \{\n[\s\S]*?tellDownloadFailed\([\s\S]*?\n\s+\}\n\s+decisionHandler\(\.cancel\)\n\s+return\n\s+\}/,
     'a download this app will not save falls through to .allow and loads in the window');
   const fin = body('@objc(downloadDidFinish:)');
   assert.match(fin, /c\.query = nil; c\.fragment = nil/, 'the quarantine record keeps the page\'s query or fragment, which carry the board token');
@@ -177,7 +179,7 @@ test('#5167 review 6: a board file the window cannot show is saved; an unmarkabl
 test('#5167 review 7: Kosmos+ service sites are not boards; the unmarked-file message has its own title', () => {
   assert.match(body('func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {'),
     /return !\["login", "community", "www"\]\.contains\(label\)/, 'Kosmos+ sign-in or the public feed can save files');
-  assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String = "Kosmos could not save that file"\)/);
+  assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String = "Kosmos could not save that file", quiet: Bool = false\)/);
   assert.match(body('@objc(downloadDidFinish:)'), /title: "Kosmos saved that file without its download mark"/,
     'a kept file is reported under a title saying it was not saved');
 });
@@ -192,4 +194,13 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
   assert.match(SRC, /static var downloadQuietSeconds: TimeInterval = 5\n/);
   assert.match(body('@objc(downloadDidFinish:)'), /guard getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 else \{ return \}/,
     'the person is told a file is unmarked when WebKit\'s own mark is on it');
+});
+
+test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a sheet; the refusal names its cause', () => {
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String');
+  assert.match(tell, /quiet: Bool = false\) \{\n\s+if quiet \{/, 'a real save failure can be swallowed by the quiet window');
+  assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 2, 'the quiet window covers something other than the two policy refusals');
+  const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
+  assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame == true \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
+    'a frame inside the page can put up the app\'s sheet, or the refusal blames the page when the file is the cause');
 });
