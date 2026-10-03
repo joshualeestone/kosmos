@@ -57,10 +57,17 @@ const CODEX_OUT_OF_CREDITS = [
 (async () => {
   /* Out of usage, like Liu Kang: a Codex agent the engine can classify (the fixture refuses an 'idle' Codex pane it
      reads as unknown). The screen is render-account-problem-3723's captured one. */
-  fleet.install([fleet.agent('liu', { state: 'rate_limited', runner: 'codex', command: 'node', screen: CODEX_OUT_OF_CREDITS, displayName: 'Liu Kang' })]);
+  /* Renet's review (the blocker): an ANTIGRAVITY agent, the runner Liu Kang was actually on when Josh hit this. Its
+     paintAccountPicker returns before the accounts fetch, so a Codex fixture (which loads the list as a side effect)
+     could never see a page that has no list at all. */
+  fleet.install([
+    fleet.agent('liu', { state: 'rate_limited', runner: 'codex', command: 'node', screen: CODEX_OUT_OF_CREDITS, displayName: 'Liu Kang' }),
+    fleet.agent('kang', { state: 'unknown', runner: 'antigravity', command: 'agy', screen: '', displayName: 'Kung Lao' }),
+  ]);
   const create = require(path.join(ROOT, 'engine', 'create'));
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.writeFileSync(create.plistPath('liu'), create.plistFor('liu', '/bin/echo', process.env.AGENT_WORKFORCE_TMUX_BIN, null, null, 'codex'));
+  fs.writeFileSync(create.plistPath('kang'), create.plistFor('kang', '/bin/echo', process.env.AGENT_WORKFORCE_TMUX_BIN, null, null, 'antigravity'));
   try { firstrun.complete(); } catch { /* fine */ }
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -154,6 +161,31 @@ const CODEX_OUT_OF_CREDITS = [
     const none = await page.evaluate(() => document.getElementById('d-provider-msg').textContent + ' | ' + ((document.getElementById('chg-msg') || {}).textContent || ''));
     chk(posted === null && /no Claude account on this computer that can take it/.test(none),
       '#5091: with no Claude account that can take it, the switch refuses with the remedy and sends nothing', JSON.stringify({ posted, none }));
+
+    // Renet's blocker: an Antigravity agent on a FRESH page (nothing has read /api/accounts yet), straight to its AI settings.
+    served = ACCOUNTS;
+    posted = null;
+    await page.goto(URL + '/?tab=detail&agent=kang', { waitUntil: 'load' }); await page.waitForTimeout(1200);
+    await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 8000 });
+    await page.click('#d-nav [data-go="model"]'); await page.waitForTimeout(500);
+    const agy0 = await page.evaluate(() => ({ prov: document.getElementById('d-provider').value, loaded: ACCOUNTS_LOADED, n: ACCOUNTS.length }));
+    chk(agy0.prov !== 'anthropic' && agy0.loaded === false && agy0.n === 0,
+      'fixture: an Antigravity agent on a fresh page, with no accounts list read yet (the state Renet measured)', JSON.stringify(agy0));
+    await page.selectOption('#d-provider', 'anthropic');
+    await page.waitForFunction(() => { const s = document.getElementById('d-provider-account'); return s && !s.hidden; }, null, { timeout: 8000 }).catch(() => {});
+    const agyPick = await page.evaluate(() => { const s = document.getElementById('d-provider-account'); return { hidden: s.hidden, opts: [...s.options].map((o) => o.value) }; });
+    chk(!agyPick.hidden && agyPick.opts.length === 2 && agyPick.opts.includes(ACCOUNTS[1].dir),
+      '#5091 (Antigravity): choosing Claude loads and shows the Claude accounts, even though nothing had read them', JSON.stringify(agyPick));
+    if (!agyPick.hidden && agyPick.opts.includes(ACCOUNTS[1].dir)) await page.selectOption('#d-provider-account', ACCOUNTS[1].dir);
+    await page.click('#d-provider-go');
+    await page.waitForFunction(() => { const m = document.getElementById('chg-modal'); return m && !m.hidden; }, null, { timeout: 8000 }).catch(() => {});
+    const agySaid = await page.evaluate(() => (document.getElementById('chg-small') || {}).textContent || '');
+    chk(/b@example\.com/.test(agySaid) && !/your main Claude account/.test(agySaid),
+      '#5091 (Antigravity): the confirm dialog names the picked account, not "your main Claude account"', agySaid.slice(-160));
+    if (await page.$('#chg-modal:not([hidden])')) await page.click('#chg-go');
+    for (let i = 0; i < 40 && !posted; i++) await page.waitForTimeout(150);
+    chk(!!posted && posted.account === ACCOUNTS[1].dir,
+      '#5091 (Antigravity): Switch & Restart sends the picked Claude account, never null (the main account)', JSON.stringify(posted));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();
