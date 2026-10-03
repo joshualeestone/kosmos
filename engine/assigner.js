@@ -233,7 +233,8 @@ function saveMemory(mem, last) {
 }
 
 /* A live project this agent belongs to, with NO open task at all (not merely none free), a goal,
-   and not asked about within GOAL_ASK_MS. First by project order. (A project chosen earlier in
+   not asked about within GOAL_ASK_MS, and (#5161) changed since the last ask that landed (projectSig).
+   First by project order. (A project chosen earlier in
    the same step is already in `asked`, so a second agent in it is not asked.) */
 function goalProject(session, projects, goals, asked, now, askedSig) {
   for (const p of projects) {
