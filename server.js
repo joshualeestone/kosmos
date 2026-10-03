@@ -2593,7 +2593,7 @@ function activeAgentsCreatedBy(creator) {
 
 /* #4475: the newest `created` or `partial` birth line for the agent `name`, or null when the birth log has none. A
    line is matched by the board name its create acted on (`slug`, recorded since #4475), else by the slug of its typed
-   name. tokenOnlyMayRemove refuses any birth that is not `created` or has no `slug`, so a newer partial line, or an
+   name. tokenOnlyRemoveRefusal refuses any birth that is not `created` or has no `slug`, so a newer partial line, or an
    older-format one, ends the older one. */
 function agentBirthOf(name) {
   let want; try { want = create.slugFor(name); } catch { return null; }
@@ -2611,6 +2611,7 @@ function agentBirthOf(name) {
   return newest;
 }
 /* #4475 step 3: may a caller that reached the board on its agent token alone (agentTokenOnlyCaller) remove `target`?
+   (tokenOnlyRemoveRefusal answers null for yes, or the sentence to refuse with.)
    Only when all of these hold, else refused:
    - the target's newest birth is `created` and carries `createdByName` and `askedAt`: the exact token name of the
      agent that asked for it through POST /api/team, and when it asked (engine/team.js records them only for an agent
@@ -2633,9 +2634,6 @@ function agentBirthOf(name) {
 const REMOVE_NOT_YOURS = 'an agent can remove only an agent it created; the person removes other agents from the board';
 const REMOVE_SHARED_KEY = 'removing this agent would also end another agent\'s sign-in, so the person removes it from the board';
 const REMOVE_UNCHECKED = 'Kosmos could not check who made this agent just now; the person can remove it from the board';
-function tokenOnlyMayRemove(caller, target) {
-  return tokenOnlyRemoveRefusal(caller, target) === null;
-}
 /* null when allowed, else the sentence to answer with. */
 function tokenOnlyRemoveRefusal(caller, target) {
   if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return REMOVE_NOT_YOURS;
@@ -2644,7 +2642,9 @@ function tokenOnlyRemoveRefusal(caller, target) {
   if (birth.slug !== target) return REMOVE_NOT_YOURS;   // the create acted on exactly this board name (not a cut typed name)
   if (birth.createdByName !== caller.name || birth.tookTokens === true) return REMOVE_NOT_YOURS;
   if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return REMOVE_NOT_YOURS;
-  if (sendertoken.keyHoldsOthers(target)) return REMOVE_SHARED_KEY;
+  const others = sendertoken.keyHoldsOthers(target);
+  if (others === 'other') return REMOVE_SHARED_KEY;
+  if (others) return REMOVE_UNCHECKED;   // a token there that cannot be told whose it is
   let creatorKey; try { creatorKey = store.safeKey(caller.name); } catch { creatorKey = null; }
   const targetGone = sendertoken.endedSince([target], birth.at);
   const creatorGone = sendertoken.endedSince([caller.name, creatorKey].filter(Boolean), birth.askedAt, { inclusive: true });

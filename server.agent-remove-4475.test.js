@@ -299,6 +299,16 @@ test('a target whose token file is there but unreadable is refused (it cannot be
   fs.writeFileSync(path.join(sendertoken.DIR, store.safeKey('garbled-kid') + '.json'), '{not json');
   const r = await remove('garbled-kid', asAgent());
   assert.equal(r.code, 403, 'an unreadable token file was read as no other name: ' + r.text.slice(0, 160));
+  assert.match(r.text, /could not check who made this agent/, 'a token file it cannot read was blamed on another agent: ' + r.text.slice(0, 160));
+});
+
+test('a token with no name under the target\'s key (before #4792) refuses as "cannot check", not as a shared key', async () => {
+  born('Oldtok Kid', 'pm-agent');
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(path.join(sendertoken.DIR, store.safeKey('oldtok-kid') + '.json'), JSON.stringify({ tokens: [{ token: 'a'.repeat(64), instance: 'x' }] }));
+  const r = await remove('oldtok-kid', asAgent());
+  assert.equal(r.code, 403);
+  assert.match(r.text, /could not check who made this agent/, 'an unnamed token was reported as another agent\'s sign-in: ' + r.text.slice(0, 160));
 });
 
 test('a history line whose time is not in toISOString form is read as an end (it cannot be ordered)', async () => {

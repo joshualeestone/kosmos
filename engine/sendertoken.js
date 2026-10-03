@@ -104,15 +104,18 @@ function fileFor(sessionName) {
 function holdsTokens(sessionName) {
   try { fs.statSync(fileFor(sessionName)); return true; } catch (e) { return !(e && e.code === 'ENOENT'); }
 }
-/* #4475: does this name's key hold a token that is not named exactly `sessionName` (another spelling with the same
-   key, "Dr.Kip" beside "drkip", or a token with no name)? revoke takes the whole key, so removing `sessionName`
-   would end that one too. A file that cannot be read reads as yes. */
+/* #4475: does this name's key hold a token that is not named exactly `sessionName`? revoke takes the whole key, so
+   removing `sessionName` would end that one too. Answers 'other' (a named token of another spelling with the same key,
+   "Dr.Kip" beside "drkip"), 'unknown' (a token with no name, as before #4792, or a file there that cannot be read: it
+   cannot be told whose it is), or false. */
 function keyHoldsOthers(sessionName) {
   if (!holdsTokens(sessionName)) return false;
   let held;
-  try { held = readTokens(sessionName); } catch { return true; }
-  if (held.length === 0) return true;   // the file is there but readTokens could not read a token from it
-  return held.some((t) => typeof t.name !== 'string' || t.name !== String(sessionName));
+  try { held = readTokens(sessionName); } catch { return 'unknown'; }
+  if (held.length === 0) return 'unknown';   // the file is there but readTokens could not read a token from it
+  if (held.some((t) => typeof t.name === 'string' && t.name && t.name !== String(sessionName))) return 'other';
+  if (held.some((t) => typeof t.name !== 'string' || !t.name)) return 'unknown';
+  return false;
 }
 
 /**
@@ -253,7 +256,8 @@ function othersTokens(held, sessionName) {
 
 /* #4475: the history of names whose tokens were revoked, appended and never rewritten: the name and when. That is
    every name whose agent was removed or had what was left of it deleted, and every name create got past its name
-   checks for (create revokes there, so a create refused by a later check writes a line too). A
+   checks for (create revokes there, so a create refused by a later check writes a line too: any create attempt
+   that far, by anyone, ends ownership of that name, which only ever refuses more). A
    restart retires one run and does not come here. The removal route reads it so an agent's ownership of an agent it
    created ends at the first line for either name after it was made. NOT covered, because these mint without
    revoking: a name freed by deleting an agent's files by hand, outside Kosmos, and then adopted; and a remote token

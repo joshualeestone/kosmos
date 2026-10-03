@@ -4073,7 +4073,8 @@ function createAgent(opts) {
   let tookTokens = false;
   try {
     // The name create revokes (its slug). Also the typed spelling's key, which create does not revoke: an over-refusal
-    // on purpose (a remote agent on that key makes this birth unremovable by its creator), never a gap.
+    // on purpose (a remote agent on that key makes this birth unremovable by its creator), never a gap. A typed name
+    // that cannot be keyed throws, which also reads as taken: such a birth is never removable by its creator.
     tookTokens = Boolean(opts && opts.name) && (sendertoken.holdsTokens(slugFor(String(opts.name))) || sendertoken.holdsTokens(String(opts.name)));
   } catch { tookTokens = true; }
   const out = createAgentInner(opts);
