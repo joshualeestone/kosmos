@@ -2393,6 +2393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         reloadNavigation = nil
         badgeTimer?.invalidate(); badgeTimer = nil
         badgeOrigin = nil   // #5167: no board of its own to save downloads from any more
+        committedPageURL = nil
         a11yTimer?.invalidate(); a11yTimer = nil
         promptRequestTimer?.invalidate(); promptRequestTimer = nil
         NSApp.dockTile.badgeLabel = nil
@@ -2718,10 +2719,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.download)
             return
         }
-        // A download this app will not save is refused and said, never loaded in the window instead.
+        // A download this app will not save is refused, not loaded in the window instead. Said only for the
+        // page's own frame: a frame inside it cannot put up the app's sheets.
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
-            tellDownloadFailed("This page is not a board Kosmos saves files from, so the file was not saved.")
+            if navigationAction.targetFrame?.isMainFrame == true {
+                tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
+                    ? "That file is not from this board, so it was not saved."
+                    : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true)
+            }
             decisionHandler(.cancel)
             return
         }
@@ -2761,7 +2767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 decisionHandler(.download)
             } else {
                 logLine("#5167: refused an attachment that is not from this board")
-                tellDownloadFailed("The file came from somewhere Kosmos does not save from, so it was not saved.")
+                tellDownloadFailed("The file came from somewhere Kosmos does not save from, so it was not saved.", quiet: true)
                 decisionHandler(.cancel)
             }
             return
@@ -2802,18 +2808,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
     private var downloadsTold: Set<ObjectIdentifier> = []
 
-    /// #5167: a refusal is said at most once in this many seconds; the rest are logged, so a page clicking
-    /// in a loop cannot stack sheets. The selftest sets it to 0 except for its burst arm.
+    /// #5167: a policy refusal (`quiet: true`) is said at most once in this many seconds; the rest are logged,
+    /// so a page clicking in a loop cannot stack sheets. Failures of a download the app took on are always
+    /// said. The selftest sets it to 0 except for its burst arm.
     static var downloadQuietSeconds: TimeInterval = 5
     private var lastDownloadTold: Date?
     fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
 
-    private func tellDownloadFailed(_ detail: String, title: String = "Kosmos could not save that file") {
-        if let last = lastDownloadTold, Date().timeIntervalSince(last) < AppDelegate.downloadQuietSeconds {
-            logLine("#5167: not said again so soon: \(detail)")
-            return
+    private func tellDownloadFailed(_ detail: String, title: String = "Kosmos could not save that file", quiet: Bool = false) {
+        if quiet {
+            if let last = lastDownloadTold, Date().timeIntervalSince(last) < AppDelegate.downloadQuietSeconds {
+                logLine("#5167: not said again so soon: \(detail)")
+                return
+            }
+            lastDownloadTold = Date()
         }
-        lastDownloadTold = Date()
         if let present = AppDelegate.downloadAlertPresenter { present(detail); return }
         let alert = NSAlert()
         alert.messageText = title
@@ -4353,6 +4362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         logLine("WEB CONTENT PROCESS TERMINATED (blank window until reload)")
         voice?.hostCancel("page process ended")   // #4409 (review 3): no page is left to show the mic is on
+        committedPageURL = nil   // #5167: no page is on screen to save downloads from
     }
 
     /// #4409 (review 3): a new page (a reload, a navigation) starts with every mic drawn off, so the old page's
@@ -5142,7 +5152,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(saved("\u{6587}.txt"), "the board's own attachment header (filename*=UTF-8'') is saved under its decoded name")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 4, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, a BURST of three from a not-the-board page), and nothing else is (told: \(told.count))")
+            row(told.count == 4, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, a BURST of three from a not-the-board page), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
             row(told.contains { $0.contains("answered 404") } && told.contains { $0.contains("does not save from") },
                 "and each is said in its own words")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a

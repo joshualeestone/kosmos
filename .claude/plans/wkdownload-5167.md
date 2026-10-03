@@ -117,6 +117,12 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   bounce the build box's Dock.
 - Not changed: the redirect-then-navigate case (#5169).
 
+## Review round 8 changes
+- A download this app will not save is refused and said in every mode (on a connect computer a
+  same-origin one on a non-board Kosmos+ page used to load in the window).
+- The cross-origin-link row's label says what it proves (WebKit makes it a plain link).
+- "Current behaviour" summary added at the top of this plan.
+
 ## Review round 9 changes
 - WebKit marks every download itself (measured: its agent `com.apple.WebKit.Networking`), so the live
   row now reads THIS app's mark (agent `Kosmos`); sabotage (setResourceValues removed) turns it red.
@@ -128,6 +134,18 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   resolves the person's session before anything (kosmos-relay crates/tunnel/src/proxy.rs module doc,
   step 2: "No session, no board"), so another account's computer serves its gate page, not its board.
   Reasoned from source; an allowlist of the person's own computers would remove the premise.
+
+## Review round 10 changes
+- The quiet window applies only to the two policy refusals; a failure of a download the app took on
+  (save failed, unmarked, 404, no Downloads folder) is always said.
+- A download asked for by a frame inside the page is cancelled and logged, never a sheet.
+- The refusal names its cause: the page is not a board, or the file is not from this board.
+- `committedPageURL` is cleared on the switch to connect and when the page process ends.
+- "Not loaded in the window" is measured for the arms the live selftest drives (a not-the-board
+  page's download, a foreign attachment); the plain link and the redirect-then-navigate case are
+  #5169.
+- Not changed: the local board check compares host and port, not scheme (the board is served over
+  http; https on that port would be a different server, which cannot hold the board's port).
 
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
