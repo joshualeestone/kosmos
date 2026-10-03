@@ -104,3 +104,21 @@ test('a slow receipt read that lands after the task was put back does not paint 
   assert.equal(holder.hidden, true, 'the old read painted a receipt on a reopened task');
   assert.equal(holder.innerHTML, '');
 });
+
+test('the poll paints the receipt only when the open task or its closed state changed', () => {
+  const calls = [];
+  const state = { closed: false };
+  // eslint-disable-next-line no-new-func
+  const sync = new Function('pjById', 'paintTaskReceipt',
+    'var PJ_CURRENT = "p1"; var TK_OPEN = 4; var TKR_SHOWN = null;\n' + lift('tkTaskClosed') + '\n' + lift('tkReceiptSync') + '\nreturn tkReceiptSync;',
+  )(() => ({ id: 'p1', tasks: [{ number: 4, closedAt: null, progress: { closed: state.closed } }] }), (n) => calls.push(n));
+  sync();
+  sync();
+  assert.equal(calls.length, 1, 'painted on every poll, not on a change');
+  state.closed = true;          // an agent closed it: the next poll shows the receipt
+  sync();
+  sync();
+  state.closed = false;         // put back from another window: the next poll hides it
+  sync();
+  assert.deepEqual(calls, [4, 4, 4]);
+});

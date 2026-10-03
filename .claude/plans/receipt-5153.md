@@ -50,3 +50,14 @@ in this time", never a zero presented as fact.
   several unpriced models; the route refuses an agent's token (it lists every holder's files and folder).
 - Not taken: kept receipts are not removed when a task or project is deleted (small JSON files under app data; a
   follow-up if it matters).
+
+## Review 2 (sonnet): 1 WARNING, taken; NITs taken
+- A task closed or put back from outside its page (an agent, another window) did not show or hide its receipt until the
+  page was reopened: one tkReceiptSync paints only when the open task or its closed state changed, called from the
+  projects read the poll makes, and from open, part changes and the done button. Test: two polls paint once, a close
+  paints, a put-back repaints; mutants (paint every poll, ignore the closed state) fail it.
+- NITs taken: a server test for the route (open, closed, an agent's token refused, no such task); a test that two
+  requests at once share one reading (forTask returns the shared promise itself, and a key that cannot be built
+  rejects rather than throws); a test with the tool result in another transcript file, in both orders.
+- Not taken: the ids of every tool result in a transcript are held while it is read (bounded by its tool calls; a
+  result can come before its call in file order, so it cannot be narrowed to the edits seen so far).

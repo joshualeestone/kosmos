@@ -277,8 +277,10 @@ function closedAtOf(task) {
 /* One computation per task at a time: a second request while the first is reading shares its answer. */
 const inFlight = new Map();
 
-async function forTask(projectId, task, opts = {}) {
-  const key = String(projectId) + '\0' + (task && task.number) + '\0' + closedAtOf(task);
+function forTask(projectId, task, opts = {}) {
+  let key;
+  try { key = String(projectId) + '\0' + (task && task.number) + '\0' + closedAtOf(task); }
+  catch (err) { return Promise.reject(err); }   // never a throw past the route's .catch
   if (inFlight.has(key)) return inFlight.get(key);
   const p = work(projectId, task, opts).finally(() => inFlight.delete(key));
   inFlight.set(key, p);

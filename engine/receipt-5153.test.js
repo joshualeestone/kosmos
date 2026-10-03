@@ -222,3 +222,34 @@ test('a transcript that cannot be read through is shown as far as read but never
     assert.equal(fs.existsSync(receipt.receiptFile(project, 1)), false, 'a partial read is not kept');
   } finally { fs.chmodSync(locked, 0o600); }
 });
+
+test('a tool result written in another transcript file still decides the edit, whichever file is read first', async () => {
+  for (const [useFile, resultFile] of [['a.jsonl', 'b.jsonl'], ['b.jsonl', 'a.jsonl']]) {
+    const project = 'p' + (++pn);
+    const name = 'ivy' + pn;
+    const ivy = worker(name);
+    activity(project, 1, [{ at: '10:00', kind: 'created', who: name }, { at: '11:00', kind: 'closed' }]);
+    const d = claudeDir(ivy);
+    fs.writeFileSync(path.join(d, useFile), assistant('10:10', { id: 'i1', usage: use(1, 1), tools: [
+      { id: 'it-ok', name: 'Edit', input: { file_path: path.join(ivy, 'kept.md') } },
+      { id: 'it-bad', name: 'Edit', input: { file_path: path.join(ivy, 'failed.md') } }] }) + '\n');
+    fs.writeFileSync(path.join(d, resultFile), result('10:10', 'it-ok') + '\n' + result('10:10', 'it-bad', true) + '\n');
+    const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
+    assert.deepEqual(r.agents[0].files, ['kept.md'], 'use in ' + useFile + ', results in ' + resultFile);
+  }
+});
+
+test('two requests for one receipt at once share one reading; a different close time is its own', async () => {
+  const project = 'p' + (++pn);
+  const jo = worker('jo');
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'jo' }, { at: '11:00', kind: 'closed' }]);
+  fs.writeFileSync(path.join(claudeDir(jo), 's.jsonl'), assistant('10:10', { id: 'j1', usage: use(1, 1) }) + '\n');
+  const task = { number: 1, closedAt: T('11:00') };
+  const a = receipt.forTask(project, task, { now: ms('11:01') });
+  const b = receipt.forTask(project, task, { now: ms('11:01') });
+  const c = receipt.forTask(project, { number: 1, closedAt: T('11:30') }, { now: ms('11:31') });
+  assert.equal(a, b, 'the second request did not share the first');
+  assert.notEqual(a, c);
+  await Promise.all([a, b, c]);
+  assert.notEqual(receipt.forTask(project, task, { now: ms('11:01') }), a, 'a finished reading is not kept in flight');
+});
