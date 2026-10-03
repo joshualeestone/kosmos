@@ -320,7 +320,7 @@ test('#5167 review 23: Return never grants downloads; the question holds back qu
 
 test('#5167 review 25: Allow cannot be clicked in the first second (the page times the question)', () => {
   const may = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
-  assert.match(may, /allow\.isEnabled = false\n\s+let wake = Timer\(timeInterval: 1, repeats: false\) \{ _ in allow\.isEnabled = true \}\n\s+RunLoop\.main\.add\(wake, forMode: \.modalPanel\)/,
+  assert.match(may, /if alert\.window\.isKeyWindow \{[\s\S]*?allow\.isEnabled = Date\(\)\.timeIntervalSince\(since\) >= 1\n\s+\} else \{\n\s+frontSince = nil\n\s+allow\.isEnabled = false/,
     'a timed click lands on Allow the moment the question appears');
   assert.match(may, /wake\.invalidate\(\)/);
 });
@@ -396,7 +396,7 @@ test('#5167 review 33: one refusal and one summary per page load, on every path;
   assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /quietToldThisPage = \[\]\n\s+savesByHost = \[:\]/);
 });
 
-test('#5167 review 34: a page saves at most savesPerComputerCap files per load; the question names the file; a .html over Kosmos+ needs an attachment header', () => {
+test('#5167 review 34: a Kosmos+ computer saves at most savesPerComputerCap files a run; the question names the file; a .html over Kosmos+ needs an attachment header', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /if n >= AppDelegate\.savesPerComputerCap \{/, 'an allowed Kosmos+ computer can fill the disk');
   assert.doesNotMatch(SRC, /savesThisPage/, 'the cap resets on a commit, which a page can cause itself');
@@ -418,4 +418,14 @@ test('#5167 review 35: the question names the file the page asked for, cleaned; 
     'a real failure is dropped once a page has had its summary');
   assert.match(SRC, /private var savesByHost: \[String: Int\] = \[:\]/);
   assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /savesByHost = \[:\]/);
+});
+
+test('#5167 review 36/37: alerts wait a turn; the question shows only a real name, with quotes stripped; Allow sleeps while covered', () => {
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
+  assert.match(tell, /DispatchQueue\.main\.async \{\n\s+alert\.runModal\(\)\n\s+dismissed\(\)\n\s+\}/, 'a refusal holds WebKit\'s decision under a modal');
+  const may = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
+  assert.match(may, /let shown = clean\.map \{ \$0\.filter \{ !"/, 'a name with a quote can close the quotation in the question');
+  assert.match(may, /RunLoop\.main\.add\(wake, forMode: \.modalPanel\)/);
+  const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
+  assert.match(act, /mayDownload\(file: nil\)/, 'the question shows a link\'s name, which the answer can make differ from what is saved');
 });

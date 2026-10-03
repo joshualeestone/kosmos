@@ -418,6 +418,16 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Quote characters are stripped from the file name shown in the question, so it cannot close the
   quotation.
 
+## Review round 37 changes
+- Allow wakes only after the question has been the key window for a whole second; anything that covers
+  it (the page's own alert(), a download alert) puts Allow back to sleep and restarts the second (it
+  used to count while covered, so an OK click on what covered it could land on an already-awake Allow).
+  Pinned from source only: the selftest answers the question through its presenter, never a real one.
+- The question names a file only on the response path (the answer's own suggested name); on the action
+  path the link's ?name= could differ from what is saved, so it says "a file".
+- Round 36's deferred alert and quote stripping are pinned by a test; "1 file" not "1 files"; the
+  attachment header is read the same way in both places.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
