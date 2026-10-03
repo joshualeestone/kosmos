@@ -168,10 +168,11 @@ test('a file last written before the first wanted day is not read; with no day l
   assert.equal(all.days['2026-09-01']['gpt-5.6-sol'].output_tokens, 10, 'CONTROL: the same file is read with no day limit');
 });
 
-test('homes are found by folder name: signed-out and forgotten accounts too, a linked folder once', () => {
+test('homes are found by folder name: signed-out and forgotten accounts too, a linked folder once', (t) => {
   const home = tmp();
   for (const d of ['.codex', '.codex-work', '.removed-codex-old', '.codexignored', 'other']) fs.mkdirSync(path.join(home, d));
-  fs.symlinkSync(path.join(home, '.codex-work'), path.join(home, '.codex-link'));
+  try { fs.symlinkSync(path.join(home, '.codex-work'), path.join(home, '.codex-link')); }
+  catch { t.skip('this machine does not allow creating a link'); return; }
   const got = homesByPrefix(home, path.join(home, '.codex'), ['.codex-', '.removed-codex-']).map((p) => path.basename(p));
   assert.equal(got.length, 3, 'default + one of the linked pair + the forgotten account: ' + got.join(','));
   assert.ok(got.includes('.codex') && got.includes('.removed-codex-old'), 'the default and the forgotten account are read');

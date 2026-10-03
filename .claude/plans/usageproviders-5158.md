@@ -64,3 +64,11 @@ Launch folder (for per-agent): Codex `session_meta.cwd`; Gemini the session's pr
   Grok file instead, fresh and aged.
 - NITs taken: stat errors and an unlistable home mark the scan incomplete; the '' folder for a Gemini session with no
   project root is commented; a test name says what it covers.
+
+## Review 3 (sonnet): CLEAN; NITs taken
+- A Codex session name is marked seen only once that copy is read (a skipped or unreadable copy cannot hide a fresh one).
+- A total stamped AT the fork time is a baseline too (`<=`).
+- A transient error reading a Gemini `.project_root` marks the scan incomplete instead of filing usage under "elsewhere".
+- The link test skips where links cannot be made (Windows without the privilege).
+- Not taken: line-level JSON errors in a session file (a half-written last line is stamped "now", so it can only touch
+  today, which is never frozen); a provider home on an unmounted volume reads as empty.
