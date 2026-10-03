@@ -30,7 +30,8 @@ converged: true
 - [REVIEW] 1 BLOCKER, 4 SHOULD-FIX, taken (17:43)
 #### Round 6 (sonnet, blind): 1 BLOCKER, 3 SHOULD-FIX, taken (17:47)
 - [REVIEW] 1 BLOCKER, 3 SHOULD-FIX, taken (17:47)
-108:- Round 7 (sonnet, blind): 0 BLOCKER, 2 SHOULD-FIX, taken (17:50): user@IP kept the user (the IP rule ran first; the user@host rule now
+#### Round 7 (sonnet, blind): 0 BLOCKER, 2 SHOULD-FIX, taken (17:50)
+- [REVIEW] user@IP kept the user (the IP rule ran first); fixed, see the plan
 #### Round 8 (opus, blind, whole tool): 0 BLOCKER, 3 SHOULD-FIX, taken (17:58)
 - [REVIEW] 0 BLOCKER, 3 SHOULD-FIX, taken (17:58)
 #### Round 9 (sonnet, blind, re-run after a restart): 0 BLOCKER, 2 SHOULD-FIX, 1 NIT, all taken (18:01)
