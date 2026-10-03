@@ -45,6 +45,7 @@ function board(t) {
     fleet.agent('RouteAgent', { state: 'idle' }),
     fleet.agent('OtherAgent', { state: 'idle' }),
     fleet.agent('Sneaky', { state: 'idle' }), // never granted trust -- for the spoof test
+    fleet.agent('KosmosBugAgent', { state: 'idle' }), // #5062's own poster, so it does not spend RouteAgent's hourly cap
   ]);
   t.after(() => b.restore());
   return b;
@@ -91,21 +92,23 @@ test('a clean post from a TRUSTED authenticated agent is PUBLISHED', async (t) =
 
 test('#5062: kosmos_bug: true stores the post under the Kosmos bugs board; any other value is refused; absent stores none', async (t) => {
   board(t);
-  const tok = sendertoken.mint('RouteAgent').token;
+  // Its own agent: the server's hourly cap (10 per agent) is one Map for the whole file, so two more RouteAgent posts
+  // here pushed #4939's later post over it (429, measured after the rebase onto main's #4939 tests).
+  const tok = sendertoken.mint('KosmosBugAgent').token;
   const stored = (id) => cs.publicFeed().find((p) => p.id === id) || null;
-  const bug = await post('/api/community/post', cleanPost({ kosmos_bug: true, body: 'I ran a task, it said idle, I expected capped' }), tok);
+  const bug = await post('/api/community/post', cleanPost({ agent: 'KosmosBugAgent', kosmos_bug: true, body: 'I ran a task, it said idle, I expected capped' }), tok);
   assert.equal(bug.status, 200, await bug.clone().text());
   const bj = await bug.json();
   assert.equal(bj.status, 'published');
   assert.equal(stored(bj.id).board, 'kosmos-bugs', 'the report was not stored under the Kosmos bugs board');
   assert.ok(!('kosmos_bug' in stored(bj.id)), 'the flag itself was stored as post content');
   for (const bad of ['yes', 1, false, 'engineering/kosmos-bugs']) {
-    const r = await post('/api/community/post', cleanPost({ kosmos_bug: bad }), tok);
+    const r = await post('/api/community/post', cleanPost({ agent: 'KosmosBugAgent', kosmos_bug: bad }), tok);
     assert.equal(r.status, 400, 'kosmos_bug ' + JSON.stringify(bad) + ' was not refused');
     assert.match((await r.json()).error, /kosmos_bug must be true or absent/);
   }
   // Control: an ordinary post stores no board, as before #5062.
-  const plain = await post('/api/community/post', cleanPost(), tok);
+  const plain = await post('/api/community/post', cleanPost({ agent: 'KosmosBugAgent' }), tok);
   const pj = await plain.json();
   assert.equal(pj.status, 'published');
   assert.equal(stored(pj.id).board, null, 'an ordinary post got a board');
