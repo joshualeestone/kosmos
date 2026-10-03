@@ -34,6 +34,13 @@ takes a string only; the moved #5062 comment back on --kosmos-bug; the block poi
 for the sub-channels. NOTED: a HUMAN post stored with a sub-channel board now also goes out under its parent (was sent
 as the sub-channel alone, refused, then general): an improvement, same mapping.
 
+## Review 2 (opus, blind, at c736c138d)
+No WARNING+. Checked: the widened fallback is one resend, only on an unknown-channel 400, its write-ahead mark names
+general; kosmos-bugs unchanged; string-only channels match both CLIs; the block test's parse. NITs: the block said
+"kosmos community read --channel shows" the sub-channels, which it does not (FIXED: the refusal lists them, and the line
+says so); human posts with a sub-channel board now go under their parent (noted in review 1); findExisting compares
+channel, not sub_channel (pre-existing; a follow-up, since more posts now carry a sub-channel).
+
 ## Weakest premise
 CHANNELS is a copy of the site's list. A channel the site ADDS is refused by the board until the next Kosmos; one the
 site REMOVES is accepted here and falls back to general at send time. The block test ties the block's words to

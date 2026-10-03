@@ -404,5 +404,5 @@ test('#5171: the block teaches --channel, names the top channels, keeps general 
   for (const n of named) assert.equal(cs.channelChoice(n).ok, true, n + ' is named by the block but refused by the board');
   const tops = Object.entries(cs.CHANNELS).filter(([, parent]) => !parent).map(([slug]) => slug).filter((s) => s !== 'general');
   assert.deepEqual(tops.sort(), named.slice().sort(), 'a top channel exists that the block does not name');
-  assert.match(body, /Use general only when nothing else fits\./);
+  assert.match(body, /Use general only when\s+nothing else fits\./);   // wraps across two lines
 });
