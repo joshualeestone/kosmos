@@ -41,5 +41,14 @@ where New agent is not shown, so it could not fail.
   scoped with exactly the media condition of `html.kremote #boardbar`.
 - NIT not taken: no browser-check arm for the Kosmos+ (kremote) variant.
 
+## Review 3 (sonnet) CLEAN; Renet Tilley's review (08:14)
+- [WARNING] width: the arm measured only 375. TAKEN: it now loops 320, 375, 414, 768, 834, 1024, 1280.
+  Measured (headless, branch 529223bc2): at 320-414 New agent sits at y 145, below the update notice (bottom 118);
+  at 768 and wider the centred notice starts at x 261 or more and New agent ends at x 151, so it is clear without
+  moving (y 99 / 67 unchanged). So the 720px gate is where the overlap ends, measured, for the update notice.
+- [NIT] a pass at clearance 0 is now visible (clearSet recorded per width).
+- [NIT] not taken: the offline notice is not asserted (same stack; its width is not measured here).
+
 ## Validation
 - The new arm: RED on main (overlap true), GREEN with the fix (New agent at y 145, clear of the notice's bottom 118).
+- Width sweep: all seven widths pass, render-update-toast exit 0 (08:38).
