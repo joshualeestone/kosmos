@@ -23,7 +23,7 @@ launch-guard.js refuses any test's write into the real LaunchAgents under node -
 Also: a live install with AGENT_WORKFORCE_WORKERS set elsewhere is not covered (the default root only).
 
 ## Tests
-`tools/test-launchagent-leak-guard-3011.sh`: + 15 legs (skip + note; NEW-under-live control; six modified
+`tools/test-launchagent-leak-guard-3011.sh`: + 17 legs (skip + note; NEW-under-live control; six modified
 shapes that must red: sandbox, nested, root, look-alike, `..`, trailing slash; an XML-escaped root reds; default
 root from $HOME; "/" turns the skip off; runner passes notes + live root; runner's no-notes fallback is "/").
 Sabotages: S1 (drop "was in snapshot") -> the NEW control reds; S2 (everything live-owned) -> all six shapes
@@ -58,3 +58,6 @@ not under another root. 10 shell tests touching run-tests.sh pass (test-install.
   shapes, XML-escaped root, "/"); S3 no skip -> skip, note, default root; S4 drop the empty-root check -> "/";
   S5 runner fallback removed -> fallback pin; S6 report prints nothing -> report leg; S7 runner never calls the
   report -> the call pin.
+- Review 4 (sonnet, blind): 0 B, 0 W, 3 N => CONVERGED. N1 leg count (17) fixed. N2 awk -v unescapes a backslash in
+  a path: such a path fails to match and reds (the safe direction); left. N3 the run-tests.sh pins are text greps
+  on comment-stripped code; the behavioural legs and sabotages carry the weight; left.
