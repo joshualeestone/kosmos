@@ -8508,11 +8508,13 @@ function snapshot() {
 }
 
 /* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile and filter mean "needs the person":
-   needs_you, needs_trust, and a connection Kosmos has given up reconnecting. The page's data-attn
+   needs_you, needs_trust, a connection Kosmos has given up reconnecting, and (#5154) a crash loop. The page's data-attn
    inlines the same rule (its painters stay self-contained), and the route counts with this. */
 function needsPerson(a) {
   return Boolean(a) && (a.state === STATE.NEEDS_YOU || a.state === 'needs_trust'
-    || (a.state === STATE.CONNECTION_LOST && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up'));
+    || (a.state === STATE.CONNECTION_LOST && Boolean(a.reconnect) && a.reconnect.phase === 'gave_up')
+    // #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping within minutes.
+    || (Boolean(a.crashLoop) && a.crashLoop.looping === true));
 }
 /**
  * The numbers on the summary line, for a given set of cards.

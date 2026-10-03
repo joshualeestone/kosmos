@@ -182,6 +182,28 @@ say() {
   echo "$(date): $*" >&2
 }
 
+# #5154 (bounded retries, slice A): one line per run of this agent, so the board can tell a crash LOOP (runs that end
+# on their own within minutes, again and again) from a healthy agent. The log above is trimmed at every start, so it
+# cannot carry this. Lines: "start <epoch>" when this supervisor launches a session, "end <epoch>" when that session
+# is confirmed gone. Kept to the last 40 lines. engine/crashloop.js reads it (same root and the same key rule as
+# store.safeKey). Best-effort: a write that fails changes nothing about the run.
+record_run() {
+  local _key _dir _f
+  _key="$(printf '%s' "$SESSION" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9_-')"
+  [ -n "$_key" ] || return 0
+  # The store's root (engine/store.js dataRootFor): $AGENT_WORKFORCE_DATA/Kosmos when set, else this install's own
+  # folder (the installed supervisor lives in <store root>/bin). Caught by the test: the env case is one level deeper.
+  if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _dir="$AGENT_WORKFORCE_DATA/Kosmos/runs"
+  else _dir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/runs"; fi
+  _f="$_dir/$_key.log"
+  mkdir -p "$_dir" 2>/dev/null || return 0
+  { printf '%s %s\n' "$1" "$(date +%s)" >> "$_f"; } 2>/dev/null || return 0
+  if [ "$(wc -l < "$_f" 2>/dev/null | tr -d ' ')" -gt 40 ] 2>/dev/null; then
+    { tail -n 40 "$_f" > "$_f.tmp" && mv -f "$_f.tmp" "$_f"; } 2>/dev/null || rm -f "$_f.tmp" 2>/dev/null
+  fi
+  return 0
+}
+
 # launchd appends to that log forever, and a persistently failing start writes a
 # line every 30 seconds for as long as the machine is on. Keep it bounded.
 # ⚠️ The size is defaulted to 0 rather than used raw: an unreadable file makes
@@ -1302,6 +1324,8 @@ unset _LAUNCH_TOKEN _LAUNCH_TOKEN_ONLY
 # restart fails on the session the last run just made: a respawn loop for as
 # long as the machine is on, while the agent looks perfectly healthy because the
 # first attempt worked.
+# #5154: this run launched the session (not an adopt of one already running), so it is a run to count.
+[ -z "${adopt:-}" ] && record_run start
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   sleep 10
 done
@@ -1339,6 +1363,7 @@ if [ "$_rc" = 1 ]; then
   [ "$_rc" = 1 ] && _gone=1
 fi
 if [ "$_gone" = 1 ]; then
+  [ -z "${adopt:-}" ] && record_run end   # #5154: the run this supervisor started is over
   retire_run_token
 elif [ -n "${RUN_INSTANCE:-}" ]; then
   say "$SESSION: the session was not confirmed gone (has-session answered $_rc), so its run's sender token is kept; the next launch retires it"
