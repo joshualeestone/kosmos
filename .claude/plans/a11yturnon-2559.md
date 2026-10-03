@@ -59,3 +59,20 @@ Browser checks render-gated-next and click-first-run, through tools/browser-chec
 Checked clean by the reviewer: Check again shares the clock (correct), S2 and sleep have no turnOnAfterMs, the Turn On
 handler has no condition on data-checking, the mock switch mirror, Windows (platformHides filters the row out), no
 browser check asserts Checking on this row, and sibling suites 1214 (11), 2620 (5), win32-board-copy (29).
+
+## Review 2 (blind, sonnet, 06:3x): converged
+No BLOCKER. Checked sound: the gate-name key (one screen polled at a time, the map cleared per screen; no two rows share
+a name today), timing (nowMs read after the fetches, Turn On on about the 6th tick, about 4.5 s), visibility (with
+neither data-checking nor data-granted the CSS shows .s3-req and Turn On; the click handler ignores gate state), and
+test strength (each guard has an arm that reds without it).
+- [WARNING] The pill says "Not activated" when the truth is UNKNOWN; on a no-FDA Mac where the grant exists, the row
+  stays red. DEFERRED to Mona Lisa as a copy decision (she owns this screen's words), raised on #2559: an honest
+  "Not confirmed" pill beside Turn On is the likely answer. Why not tonight: it is Josh-visible copy, Next is never
+  gated, and pressing Turn On shows the setting already on. What would change my mind: Mona's wording, or Josh's run
+  showing a granted Mac stuck red.
+- [NIT] Nothing announces the Checking to Turn On swap to a screen reader. DEFERRED: #fr-s3-msg also carries the
+  Turn On failure message, and writing status there risks overwriting it. Part of the same copy follow-up.
+- [NIT] performance.now() instead of Date.now(). Not taken: the backward-jump reset covers the trap, and a forward jump
+  only shows Turn On early.
+- [NIT] A failed fetch counts as uncheckable, so a briefly-down board also offers Turn On after 4 s. Accepted: never gates.
+- [NIT] No arm drives a route-supplied actionable:true. Dormant path; accepted.
