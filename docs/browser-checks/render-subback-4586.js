@@ -139,6 +139,79 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
   say('no page errors (consolidated)', c.errs.length === 0, c.errs.join(' | '));
   await c.ctx.close();
 
+  /* #5053 (Mona Lisa's design call): at phone width "+ New task" always sits on its own row below the title,
+     left-aligned with the title's text, and the chevron top-aligns with the title's first line. */
+  const phoneHead = (page) => page.evaluate(() => {
+    const r = (id) => document.getElementById(id).getBoundingClientRect();
+    const t = r('tsk-title'), n = r('tsk-new'), h = document.querySelector('#panel-tasks .tsk-head').getBoundingClientRect();
+    const b = document.getElementById('tsk-back'); const shown = !b.hidden && getComputedStyle(b).display !== 'none';
+    const c = shown ? b.getBoundingClientRect() : null;
+    return { newBelow: n.top >= t.bottom - 1, newLeftAtTitle: Math.abs(n.left - t.left) <= 2, chevShown: shown,
+      chevTopAtTitle: c ? Math.abs(c.top - t.top) <= 4 : null, titleIndent: Math.round(t.left - h.left),
+      t: [Math.round(t.left), Math.round(t.top), Math.round(t.bottom)], n: [Math.round(n.left), Math.round(n.top)], c: c ? [Math.round(c.left), Math.round(c.top)] : null };
+  });
+
+  // ---- #5053: a LONG project name at phone widths. The fixture's own name left only 29px of room at 390 on a Mac
+  // (and overflowed by 3px on Linux), so the head row wrapped and left the chevron alone on its line. A name that
+  // cannot fit must make the TITLE wrap inside its own box, never separate the chevron from it. ----
+  {
+    const LONG = 'Five Families Holdings';
+    const was = [project.name, tasks.map((t) => t.projectName)];
+    project.name = LONG; tasks.forEach((t) => { t.projectName = LONG; });
+    try {
+      /* 700: above the phone breakpoint the head is a row again, and a name too long for it wraps in the title's own
+         box (this one is long enough to wrap at 700: the arm asserts it did). */
+      {
+        const LONGER = 'Five Families Holdings and Partners International Group';
+        project.name = LONGER; tasks.forEach((t) => { t.projectName = LONGER; });
+        const tv = await boot('tabs', 700);
+        await tv.page.evaluate(() => openProjectTasks('p1'));
+        await tv.page.waitForTimeout(800);
+        const d = await tv.page.evaluate(() => { const t = document.getElementById('tsk-title'), r = t.getBoundingClientRect(), c = document.getElementById('tsk-back').getBoundingClientRect(), n = document.getElementById('tsk-new').getBoundingClientRect();
+          return { h: Math.round(r.height), lh: parseFloat(getComputedStyle(t).lineHeight), gap: Math.round(r.left - c.right), newRight: n.left >= r.right, inView: n.right <= innerWidth + 1,
+            chevTopAtTitle: Math.abs(c.top - r.top) <= 4, c: Math.round(c.top), t: Math.round(r.top) }; });
+        say('#5053 long name at 700: the title really wraps (the arm tests something)', d.h > 36, JSON.stringify(d));
+        say('#5053 long name at 700: the chevron, the title and "+ New task" share the row; wrapped lines do not touch', d.gap >= 0 && d.gap <= 24 && d.newRight && d.inView && d.lh >= 27.6, JSON.stringify(d));
+        say('#5053 long name at 700: the chevron\'s top is at the title\'s first line', d.chevTopAtTitle, JSON.stringify(d));
+        await tv.ctx.close();
+        project.name = LONG; tasks.forEach((t) => { t.projectName = LONG; });
+      }
+      for (const width of [390, 360]) {
+        const tv = await boot('tabs', width);
+        await tv.page.evaluate(() => openProjectTasks('p1'));
+        await tv.page.waitForTimeout(800);
+        const g = await geom(tv.page, 'tsk-back', '#tsk-title', '#tsk-new');
+        const t = await tv.page.evaluate(() => { const r = document.getElementById('tsk-title').getBoundingClientRect(), c = document.getElementById('tsk-back').getBoundingClientRect();
+          return { text: document.getElementById('tsk-title').textContent, right: Math.round(r.right), inner: innerWidth, h: Math.round(r.height), chevTop: Math.round(c.top), titleTop: Math.round(r.top) }; });
+        say(`#5053 long name at ${width}: the title is long enough to need the room (the arm tests something)`, t.text.includes(LONG) && t.h > 36, JSON.stringify(t));
+        const lh = await tv.page.evaluate(() => parseFloat(getComputedStyle(document.getElementById('tsk-title')).lineHeight));
+        say(`#5053 long name at ${width}: the wrapped title's lines do not touch (line-height at least 1.15 x its 24px)`, lh >= 27.6, String(lh));
+        say(`#5053 long name at ${width}: the chevron stays beside the title, on its first line`, g.display !== 'none' && g.gap >= 0 && g.gap <= 24 && g.overlapY > 10 && Math.abs(t.chevTop - t.titleTop) < 24, JSON.stringify({ g, t }));
+        say(`#5053 long name at ${width}: the title stays on screen`, t.right <= t.inner, JSON.stringify(t));
+        const nb = await tv.page.evaluate(() => {
+          const n = document.getElementById('tsk-new').getBoundingClientRect(), tr = document.getElementById('tsk-title').getBoundingClientRect();
+          return { rightOfTitle: n.left >= tr.right, below: n.top >= tr.bottom - 2, inView: n.right <= window.innerWidth + 1 };
+        });
+        say(`#5053 long name at ${width}: "+ New task" is right of the title or below it, and on screen`, (nb.rightOfTitle || nb.below) && nb.inView, JSON.stringify(nb));
+        const ph = await phoneHead(tv.page);
+        say(`#5053 long name at ${width}: "+ New task" is on its own row below the title, left-aligned with the title's text`, ph.newBelow && ph.newLeftAtTitle, JSON.stringify(ph));
+        say(`#5053 long name at ${width}: the chevron's top is at the title's first line`, ph.chevShown && ph.chevTopAtTitle, JSON.stringify(ph));
+        if (width === 390) {
+          /* CONTROL: all projects, so no chevron; the title must not be indented by the chevron's empty column. */
+          await tv.page.evaluate(() => openProjectTasks(null));
+          await tv.page.waitForTimeout(600);
+          const pa = await phoneHead(tv.page);
+          say('#5053 CONTROL at 390: the all-projects head shows no chevron, its title is not indented, "+ New task" below it',
+            !pa.chevShown && pa.titleIndent <= 1 && pa.newBelow && pa.newLeftAtTitle, JSON.stringify(pa));
+        }
+        say(`no page errors (#5053 long name at ${width})`, tv.errs.length === 0, tv.errs.join(' | '));
+        await tv.ctx.close();
+      }
+    } finally {
+      project.name = was[0]; tasks.forEach((t, i) => { t.projectName = was[1][i]; });
+    }
+  }
+
   // ---- tab view: Tasks for a project, at a desktop and a phone width ----
   for (const width of [1280, 390]) {
     const tv = await boot('tabs', width);
@@ -146,13 +219,23 @@ const say = (n, cond, note) => { ran++; if (cond) console.log('PASS  ' + n); els
     await tv.page.waitForTimeout(800);
     const g = await geom(tv.page, 'tsk-back', '#tsk-title', '#tsk-new');
     say(`#4586 tab view ${width}: the Tasks chevron is painted beside the title, on its line`, g.display !== 'none' && g.w >= 28 && g.gap >= 0 && g.gap <= 24 && g.overlapY > 10, JSON.stringify(g));
-    /* At a phone width "+ New task" may wrap under the title; it must never land LEFT of the title's end
-       on the title's line, i.e. between the chevron and the title. */
+    /* "+ New task" must never land LEFT of the title's end on the title's line, i.e. between the chevron and the
+       title. The exact rule per width (#5053: below at phone width, on the title's row on desktop) is asserted below. */
     const nb = await tv.page.evaluate(() => {
       const n = document.getElementById('tsk-new').getBoundingClientRect(), t = document.getElementById('tsk-title').getBoundingClientRect();
       return { sameLine: Math.min(n.bottom, t.bottom) - Math.max(n.top, t.top) > 4, rightOfTitle: n.left >= t.right, below: n.top >= t.bottom - 2, inView: n.right <= window.innerWidth + 1 };
     });
     say(`#4586 tab view ${width}: "+ New task" is right of the title or wrapped below it, and on screen`, ((nb.sameLine && nb.rightOfTitle) || nb.below) && nb.inView, JSON.stringify(nb));
+    if (width === 390) {
+      /* #5053: below ALWAYS at phone width, the short name included, so it stays in one place. */
+      const ph = await phoneHead(tv.page);
+      say('#5053 tab view 390, short name: "+ New task" below the title, left-aligned with it; the chevron at the title\'s first line', ph.newBelow && ph.newLeftAtTitle && ph.chevTopAtTitle, JSON.stringify(ph));
+    } else {
+      /* #5053: desktop is unchanged: "+ New task" stays on the title's row, right of it. */
+      say('#5053 tab view 1280: "+ New task" stays on the title\'s row, right of it (desktop unchanged)', nb.sameLine && nb.rightOfTitle, JSON.stringify(nb));
+      const hh = await tv.page.evaluate(() => Math.round(document.querySelector('#panel-tasks .tsk-head').getBoundingClientRect().height));
+      say('#5053 tab view 1280: the head is still one button tall (the title\'s line-height did not grow it)', hh <= 36, String(hh));
+    }
     await tv.page.click('#tsk-back');
     await tv.page.waitForTimeout(800);
     const r = await inRoom(tv.page);

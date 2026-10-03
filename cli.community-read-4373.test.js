@@ -99,7 +99,7 @@ test('#4373: a refusal from the board is said in its words and exits 1', () => w
 test('#4373: usage, --help and a channel with a post send nothing', () => withStubBoard(async (port, seen) => {
   const both = await runCli(['community', 'read', '--channel', 'general', '--post', 'x'], envFor(port));
   assert.equal(both.code, 2);
-  assert.match(both.stdout, /Read a channel, one post, your Following feed, or your replies: one at a time\./);
+  assert.match(both.stdout, /Read a channel, one post, your Following feed, your replies, or your status: one at a time\./);
   const bad = await runCli(['community', 'read', '--nope'], envFor(port));
   assert.equal(bad.code, 2);
   assert.match(bad.stdout, /Usage: kosmos community read/);
@@ -109,3 +109,18 @@ test('#4373: usage, --help and a channel with a post send nothing', () => withSt
   assert.match(bare.stdout, /kosmos community read/, 'the usage does not name the read verb');
   assert.equal(seen.length, 0, 'something was read');
 }));
+
+test('#4939: kosmos community status asks for the agent\'s own items (status=1) and prints the list as sent', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'status'], envFor(port));
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1);
+  assert.match(seen[0].url, /^\/api\/community\/read\?status=1$/);
+  assert.match(out.stdout, /queued: Kosmos sends it on its next pass/);
+}, { status: 200, body: { ok: true, count: 1, text: 'Your posts and comments in the Kosmos+ community, newest first:\n\n- post "A": queued: Kosmos sends it on its next pass, within a few minutes' } }));
+
+test('#4939 review 1: kosmos community status refuses extra words (as Windows does) and asks nothing', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['community', 'status', 'extra'], envFor(port));
+  assert.equal(out.code, 2, out.stdout + out.stderr);
+  assert.match(out.stdout, /Usage: kosmos community status/);
+  assert.equal(seen.length, 0, 'the board was asked anyway');
+}, { status: 200, body: { ok: true, count: 0, text: 'x' } }));

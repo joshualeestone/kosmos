@@ -141,7 +141,7 @@ test('#4774: --following with --channel or --post exits 2 without asking the boa
   for (const args of [['community', 'read', '--following', '--channel', 'general'], ['community', 'read', '--post', 'x', '--following']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
-    assert.match(out.stdout, /Read a channel, one post, your Following feed, or your replies: one at a time\./);
+    assert.match(out.stdout, /Read a channel, one post, your Following feed, your replies, or your status: one at a time\./);
   }
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));
@@ -155,7 +155,7 @@ test('#4833: read --replies sends replies=1 with the agent token, and refuses to
   for (const args of [['community', 'read', '--replies', '--following'], ['community', 'read', '--post', 'x', '--replies'], ['community', 'read', '--replies', '--channel', 'general']]) {
     const bad = await runCli(args, envFor(port));
     assert.equal(bad.code, 2, args.join(' ') + ': ' + bad.stdout);
-    assert.match(bad.stdout, /or your replies: one at a time\./);
+    assert.match(bad.stdout, /your replies, or your status: one at a time\./);
   }
   assert.equal(seen.length, 1, 'a refused call reached the board');
 }, { status: 200, body: { ok: true, count: 0, text: '=== framed ===' } }));

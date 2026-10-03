@@ -105,12 +105,16 @@ function cappedSentence(value, cap) {
  */
 /* 🛑 SECURITY BOUNDARY (#2575). `entry.by === 'operator'` is honored by this
    function for ANY caller that passes it -- record() cannot know who is calling,
-   so it does not police the field. The invariant "only a person, via the
-   operator-only clear route, may set operator provenance" is therefore enforced
-   ONE LAYER UP, at the HTTP boundary: routes build `entry` field-by-field and
-   never spread an untrusted `req.body` into it. In particular /api/report
-   (server.js) copies state/project/because/on/owner/until/instance/auto and
-   deliberately NOT `by`, so an agent cannot stamp its own report `operator` and
+   so it does not police the field. The invariant "only a board-token caller, via
+   one of the two server writers, may set operator provenance" is therefore enforced
+   ONE LAYER UP, at the HTTP boundary. There are two writers: the operator-only
+   clear route (#2575), and server.js clearLeftovers (#5034), which clears the
+   question an agent raised about a project when it leaves the project or the
+   project is removed. Both routes sit behind the board token and neither takes
+   `by` from the request. Every route builds `entry` field by field and never
+   spreads an untrusted `req.body` into it. In particular /api/report (server.js)
+   copies state/project/because/on/owner/until/instance/auto and deliberately NOT
+   `by` (nor #5034's `left`, red-guarded in server.leave-leftovers-5034.test.js), so an agent cannot stamp its own report `operator` and
    bypass the #900 auto-guard. That boundary is red-guarded by the FORGERY GUARD
    test in server.clear-selfreport-2575.test.js (a /api/report with body
    by:'operator' must still store by:'agent'). ⚠️ Any NEW caller of record() must
@@ -286,6 +290,10 @@ function record(sessionName, entry) {
        says. A needs_you that names one lights that project alone; one that
        names none lights no project and is read on the Agents page. */
     project: capped(entry.project, CAPS.project),
+    /* #5034 review 3: the project this line says the agent LEFT. read() stops carrying that project forward from here,
+       so a later report naming none (an automatic permission wait) is not tied to a project the agent is no longer
+       on. Written only by server.js clearLeftovers; null on every other line. */
+    left: capped(entry.left, CAPS.project),
     /* #4569 fix 4: a busy Muse agent's queue, { n, yours } (whole numbers, yours <= n), on a working report only.
        The Muse front sends it; any agent's own report could too, but it is checked here, the page builds its line
        from these two numbers and fixed words only (no agent text reaches it), and it shows on the reporter's own
@@ -318,7 +326,8 @@ function record(sessionName, entry) {
        ⚠️ THREE WRITTEN VALUES, NOT A BOOLEAN, and that is the whole reason it
        is not `auto: true`. 'auto' (a lifecycle hook), 'agent' (the agent chose
        to say it), and 'operator' (a person cleared a stale self-report on the
-       agent's behalf, via the operator-only clear route -- #2575). A line
+       agent's behalf, via the operator-only clear route -- #2575 -- or Kosmos
+       cleared it when the agent left the project it was about -- #5034). A line
        written before this field existed carries no `by` and reads as null --
        unknown provenance, which is the honest answer rather than a manufactured
        one, and the same posture `instance` takes two fields up. An omitted
@@ -326,8 +335,8 @@ function record(sessionName, entry) {
        is the ambiguity this exists to remove.
 
        🔑 #2575: 'operator' is the ONE value a caller may assert on the entry
-       (`entry.by === 'operator'`), and only the operator-only clear route sets
-       it. An operator clear has `auto` falsey, so the #900 guard above does NOT
+       (`entry.by === 'operator'`), and only the operator-only clear route and
+       server.js clearLeftovers (#5034) set it. An operator clear has `auto` falsey, so the #900 guard above does NOT
        refuse it -- it lands and supersedes a standing needs_you. It is safe
        because the cleared state RE-DERIVES on the next poll (a scraped working
        outranks a reported idle, #1995; a genuine on-screen prompt re-raises
@@ -426,6 +435,12 @@ function read(sessionName) {
     if (row.state === 'stopped' || row.state === 'started') { project = null; final = null; }
     { const f = finalOf(row.state, row.final); if (f) final = f; }
     // read AFTER the clear, so `started --project X` starts the run on X.
+    /* #5034: a line saying the agent left the carried project ends the carry (before this line's own project). Only
+       clearLeftovers writes one, and only over a waiting report that named the project: a leave over a working or
+       idle report writes nothing, so that carry survives (re-writing the state to end it would refresh its `at`,
+       the lie the decay rule exists to catch), and a re-join does not bring an ended carry back until the agent
+       names the project again. Both are accepted residuals, in the #5034 plan. */
+    if (typeof row.left === 'string' && row.left && row.left === project) project = null;
     if (typeof row.project === 'string' && row.project) project = row.project;
   }
   if (!latest) return { found: false, because: NO_READING.NEVER_REPORTED };

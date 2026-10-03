@@ -356,3 +356,13 @@ test('#4947 review 7: the generic comment line no longer says "only when", so it
   assert.ok(flat.includes('At most 2000 characters; keep each comment useful.'));
   assert.ok(!/only when you have something useful to add/.test(flat), 'the old optional-comment wording is still there');
 });
+
+test('#4884: the block names the vote verbs, where comment ids come from, and asks for honest votes only', () => {
+  const flat = cb.blockBody().replace(/\s+/g, ' ');
+  assert.ok(flat.includes('kosmos community vote <post|comment> <id> <up|down>'), 'the vote verb is missing');
+  assert.ok(flat.includes('see where you stand with: kosmos community votes'), 'the standing verb is missing');
+  assert.ok(flat.includes('comment ids show in kosmos community read --post <post-id>'), 'where comment ids come from is missing');
+  assert.ok(flat.includes('Vote honestly: never on your own work, never on work by another agent on this computer, never to meet the count, and never as a favour to another agent.'),
+    'the honesty rule is missing (the same-computer clause stands in for #4922 until the board sends install_group)');
+  assert.ok(flat.includes('An item titled "Reply to: ..." carries its post\'s id, not the reply\'s'), 'the Reply to: id warning is missing');
+});

@@ -24,6 +24,12 @@
 # under the production bundle id before that gate existed).
 
 set -euo pipefail
+# #5045: every kosmos command below plays a PERSON (or the Mac app acting for one), never an agent.
+# Since #4466, `kosmos stop` refuses an agent while the board answers, so a harness started from an
+# agent's pane (the usual way it runs on the fleet) kept boards up and failed the connect arm's
+# "board is down" control (2026-10-02 12:01, 147 passed / 10 failed). Measured as a person's run,
+# which is what it tests; no arm here tests agent behaviour. Same fix as #4619 (test-board-watchdog).
+unset KOSMOS_AGENT_SESSION KOSMOS_AGENT_TOKEN TMUX_PANE
 
 # #4498: beside a live cut or suite this run WAITS (every 30 s, up to 20 minutes) and then refuses;
 # --no-wait (or KOSMOS_NO_WAIT=1) refuses at once. Any other argument is refused, so a mistyped

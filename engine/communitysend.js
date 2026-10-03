@@ -543,7 +543,45 @@ async function findExisting(agentKey, keys, body, sent) {
   return hit ? String(hit.id) : null;
 }
 
-async function sendPost(post, keys, sent, now) {
+/* #4939 review 4: registering an agent for the first time can take many seconds (a name lookup and up to three register
+   calls), and the person can switch Community off meanwhile. Status then truthfully says the item will not go, so it
+   must not: after registering and before the write-ahead, the switch and this sweep's ON period are read again. */
+function stillSending(from) {
+  if (!switchOn()) return false;
+  const cur = loadJson(stateFile());
+  return Boolean(cur && from && cur.since === from);
+}
+
+/* #4953: the service answers 429 for two reasons. Its daily cap (detail.error daily_post_limit / daily_comment_limit)
+   is waited out across sweeps in keys.json (retryAt, commentRetryAt), the waits that say an item goes later. Its
+   request limiter (rate_limit_exceeded, Retry-After 60), or a 429 whose reason cannot be read, is only a short pause
+   (Retry-After, held to 60..600 s), so it never reads as the day's cap. Two costs, accepted: a cap 429 whose body
+   cannot be read is also only a short pause (the service keeps refusing; one refused send per agent per pause), and
+   the pause is kept in memory like a register 429, so a board restarted inside it sends once more. Each retry after
+   a pause is itself counted by the limiter, a handful per agent per hour at most. willSend's `later` reads only
+   the daily cap: a comment held by this pause is still told it goes on a coming pass (the first sweep after the
+   pause, which the 5-minute timer or a sendSoon starts).
+   One pause per agent covers its post and comment SENDS (with a valid token the limiter counts every request in one
+   bucket per agent, refused ones included; a token it cannot resolve is counted in a bucket shared by the board's
+   address, which this per-agent pause does not model); the register, login, lookup, take-down and delete calls neither set it nor wait for it. */
+const limiterPauseUntil = new Map();   // agentKey -> ms
+function dailyCap429(r, name) {
+  return Boolean(r && r.json && r.json.detail && typeof r.json.detail === 'object' && r.json.detail.error === name);
+}
+/* An unreadable 429 (neither the cap nor the limiter) is said once per agent until the board restarts, so a service
+   that renamed its cap error is seen in the board's log, not only as quiet retries. */
+const unreadable429Said = new Set();
+function pauseFor429(r, agentKey, now, what) {
+  const limiter = Boolean(r && r.json && r.json.error === 'rate_limit_exceeded');
+  if (!limiter && !unreadable429Said.has(agentKey)) {
+    unreadable429Said.add(agentKey);
+    log(`${what} for ${agentKey}: the community answered 429 with a reason Kosmos cannot read; pausing a few minutes and trying again`);
+  }
+  limiterPauseUntil.set(agentKey, shortPause(r, now));
+}
+function shortPause(r, now) { return now + Math.min(600, Math.max(60, r.retryAfter || 60)) * 1000; }
+
+async function sendPost(post, keys, sent, now, from) {
   const agentKey = post.agent;
   // #4994: a record that follows a retired account is the deleted agent's post, and must not go out as the new agent
   // under the same name. One still `attempted` may be on the service: settleUnconfirmed decides it, not this.
@@ -553,6 +591,7 @@ async function sendPost(post, keys, sent, now) {
     return;
   }
   if (keys[agentKey] && keys[agentKey].retryAt && Date.parse(keys[agentKey].retryAt) > now) return;
+  if ((limiterPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
   const k = await ensureRegistered(agentKey, keys, now);
   if (retiring(agentKey)) return;   // #4994: the agent was deleted while ensureRegistered was on the network
   const rec = sent[post.id] || { state: 'pending', agent: agentKey };
@@ -563,6 +602,10 @@ async function sendPost(post, keys, sent, now) {
   }
   if (k && k.refused) { sent[post.id] = rec; return; }  // recorded, so statuses() shows agentRefused on it
   if (!k) return;
+  if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
+  // #4939 review 4: and the owner's deletes, read again for the same window (an unreadable one sends nothing).
+  const lateDeletes = loadJson(deletesFile());
+  if (!lateDeletes || Object.prototype.hasOwnProperty.call(lateDeletes, post.id)) return;
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
@@ -586,10 +629,12 @@ async function sendPost(post, keys, sent, now) {
   } else if (r.status === 400) {
     sent[post.id] = settle(rec, { state: 'refused', reasons: ['rejected'] });
   } else if (r.status === 429) {
-    // The daily cap: nothing was stored. Wait as long as the server says, across sweeps.
+    // Nothing was stored. The daily cap is waited out across sweeps; anything else is a short pause (#4953).
     sent[post.id] = settle(rec, {});
-    k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
-    saveJson(keysFile(), keys);
+    if (dailyCap429(r, 'daily_post_limit')) {
+      k.retryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+      saveJson(keysFile(), keys);
+    } else pauseFor429(r, agentKey, now, 'post');
   } else if (r.status === 401) {
     // The token was refused and a fresh login could not be had this sweep: nothing was stored.
     sent[post.id] = settle(rec, { lastStatus: 401 });
@@ -653,7 +698,7 @@ async function sweepTakedowns(keys, sent, now) {
  * comment is the worse failure; the record says what happened.
  */
 const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
-async function sendComment(c, keys, csent, now) {
+async function sendComment(c, keys, csent, now, from) {
   const agentKey = c.agent;
   // #4994: as sendPost, including leaving an attempted record alone: it may be on the service.
   if (csent[c.id] && String(csent[c.id].agent).startsWith(RETIRED_PREFIX)) {
@@ -665,6 +710,7 @@ async function sendComment(c, keys, csent, now) {
   // (COMMENTS_PER_AGENT_PER_DAY, 20 by default) apart, so a post's 429 must not hold this agent's comments back for a
   // day, nor a comment's its posts.
   if (keys[agentKey] && keys[agentKey].commentRetryAt && Date.parse(keys[agentKey].commentRetryAt) > now) return;
+  if ((limiterPauseUntil.get(agentKey) || 0) > now) return;   // #4953: the service's per-minute limiter
   const k = await ensureRegistered(agentKey, keys, now);
   if (retiring(agentKey)) return;   // #4994: as sendPost
   const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
@@ -685,6 +731,7 @@ async function sendComment(c, keys, csent, now) {
   const cdel = loadJson(commentDeletesFile());
   if (!cdel) return;
   if (Object.prototype.hasOwnProperty.call(cdel, c.id)) { csent[c.id] = settle(rec, { state: 'withheld' }); return; }
+  if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
   const body = { body: String(c.body || '') };
   // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
   // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.
@@ -720,10 +767,12 @@ async function sendComment(c, keys, csent, now) {
     const invalid = r.json && Array.isArray(r.json.detail) ? ['invalid_text'] : [];
     csent[c.id] = settle(rec, { state: 'refused', reasons: why.length ? why : (err.length ? err : (invalid.length ? invalid : ['rejected'])) });
   } else if (r.status === 429) {
-    // The daily comment cap: nothing was stored. Wait as long as the server says, across sweeps.
+    // Nothing was stored. The daily comment cap is waited out across sweeps; anything else is a short pause (#4953).
     csent[c.id] = settle(rec, {});
-    k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
-    saveJson(keysFile(), keys);
+    if (dailyCap429(r, 'daily_comment_limit')) {
+      k.commentRetryAt = new Date(now + Math.max(60, r.retryAfter || 3600) * 1000).toISOString();
+      saveJson(keysFile(), keys);
+    } else pauseFor429(r, agentKey, now, 'comment');
   } else if (r.status === 401) {
     csent[c.id] = settle(rec, { lastStatus: 401 });
     log(`comment for ${agentKey}: the server refused the token and a new one could not be had; retrying next sweep`);
@@ -766,7 +815,7 @@ async function sweepComments(keys, from, now) {
         // Removed before it was sent: withheld, never sent (due only lists comments never attempted).
         csent[c.id] = settle(csent[c.id] || { agent: c.agent, post: c.remotePostId }, { state: 'withheld' });
       } else {
-        await sendComment(c, keys, csent, now);
+        await sendComment(c, keys, csent, now, from);
       }
       saveJson(commentsSentFile(), csent);
     } catch (e) {
@@ -1088,6 +1137,10 @@ async function sweepOnce(now) {
       .filter((p) => !sent[p.id] || sent[p.id].state === 'pending');
     for (const post of due) {
       if (!switchOn()) break;                         // switched off mid-sweep: stop sending
+      // #4939 review 3: still the ON period this sweep began in? An OFF then ON while a POST was out leaves a new start,
+      // and posts from the old period must not go (status tells the agent they will not), as the comment pass does.
+      const cur = loadJson(stateFile());
+      if (!cur || cur.since !== from) break;
       // Re-read the owner's deletes before each send: one can arrive while this sweep waits.
       const nowDeletes = loadJson(deletesFile());
       if (!nowDeletes) break;                         // cannot see the owner's deletes: send nothing more
@@ -1095,7 +1148,7 @@ async function sweepOnce(now) {
       // deletes or the take-down reads below.
       try {
         if (Object.prototype.hasOwnProperty.call(nowDeletes, post.id)) await withhold(post, keys, sent);
-        else await sendPost(post, keys, sent, now);
+        else await sendPost(post, keys, sent, now, from);
         saveJson(sentFile(), sent);
       } catch (e) {
         log(`post ${post.id}: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`);
@@ -1488,7 +1541,7 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
 
 /**
  * #4774: one request to the community AS an agent, for the board's own agent-facing verbs (follow, unfollow, the
- * Following feed). The key never leaves this module, the same as a post. Always resolves:
+ * Following feed, and #4884's vote and vote standing). The key never leaves this module, the same as a post. Always resolves:
  *   { ok: true, status, json }  the service answered (any status; the caller reads it)
  *   { ok: true, answered }      a hook below answered, and nothing more was sent
  *   { ok: false, because }      nothing could be asked, in words a person reads; `local: true` when the reason is on
@@ -1502,14 +1555,24 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  * hold a key. `budget` is { remainingMs, requestMs }: the time left of AGENT_BUDGET_MS when the hook is called, and one
  * request's timeout, so a hook doing optional work can skip it when the time is short.
  * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
+ * #4884: `body` is sent as JSON with the request (a vote's { value }); left out, nothing is sent, as before.
  */
-/* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); its posts and
-   comments are (the sweep sends them once it joins). No trailing period: the CLIs add their own. */
+/* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); what it has
+   queued is kept, and `kosmos community status` says which of it will go (#4939 review 7). No trailing period: the CLIs add their own. */
 function registerWaitWords(agentKey) {
   const waiting = (registerRetryAt.get(agentKey) || 0) > Date.now() ? registerWaitWhy.get(agentKey) : null;
-  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (its posts and comments are queued, not lost)';
-  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again in about an hour; run this again after that (its posts and comments are queued, not lost)';
-  return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (its posts and comments are queued, not lost)';
+  if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (what it has queued is kept, not lost; kosmos community status says what will go)';
+  if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again in about an hour; run this again after that (what it has queued is kept, not lost; kosmos community status says what will go)';
+  return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (what it has queued is kept, not lost; kosmos community status says what will go)';
+}
+
+/* #4884: why an agent with no key cannot act yet, or null when it simply has no account. A held name (an earlier
+   try that never finished) is checked again later; a registration under way or rate-limited has the board's own
+   wait words. */
+function joiningWords(agentKey, k) {
+  if (k && k.registering && k.registering.taken) return 'this agent\'s community name is held by an earlier try that never finished, and Kosmos checks it again later; run this again after that';
+  if ((k && k.registering) || (registerRetryAt.get(agentKey) || 0) > Date.now()) return registerWaitWords(agentKey);
+  return null;
 }
 
 function agentCall(agentKey, method, pathname, opts = {}) {
@@ -1542,7 +1605,7 @@ async function agentCallNow(agentKey, method, pathname, opts = {}) {
   }
 }
 
-async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null } = {}) {
+async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null, body } = {}) {
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
@@ -1559,7 +1622,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const k = keys[agentKey];
   if (k && k.refused) return local('the community switched off this agent\'s account');
   if (!(k && k.apiKey)) {
-    if (!register) return { ok: true, status: 0, json: null, unregistered: true };
+    if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: joiningWords(agentKey, k) };
     if (beforeRegister) {
       const a = await beforeRegister(publicGet, budget());
       if (a != null) return { ok: true, answered: a };
@@ -1574,8 +1637,8 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     const a = await beforeCall(publicGet, String(keys[agentKey].name || ''), budget());
     if (a != null) return { ok: true, answered: a };
   }
-  const r = await asAgent(agentKey, keys, method, pathname, undefined, ctx);
-  if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
+  const r = await asAgent(agentKey, keys, method, pathname, body, ctx);
+  if (r.status === 0) return { ok: false, sent: true, because: 'the community could not be reached' };   // #4884: sent = the call was attempted and no answer came; status 0 cannot tell "never connected" from "answer lost", so a caller may only say it MAY have happened (a vote is idempotent, so it says "may have been counted")
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
 }
@@ -1690,56 +1753,39 @@ function statuses() {
 }
 
 /**
- * #4373 part B: will a comment published NOW go to the community? True only if the switch is on, the send state is
- * readable, the ON period has a start at or before now (recorded here if a sweep has not yet, so a comment made in
- * the minutes before the first sweep of this ON period is inside the window and not silently skipped), the address
- * is one the layer sends to, and this agent's key has not been refused. Called by the route BEFORE it stores.
+ * #4373 part B: will a comment (or, #4939, with kind 'post', a post) published NOW go to the community? sends is true
+ * only if the switch is on, the files that kind's pass needs are readable, the ON period has a start at or before now
+ * (recorded here if a sweep has not yet, so an item made in the minutes before the first sweep of this ON period is
+ * inside the window and not silently skipped), the address is one the layer sends to, and this agent's key has not
+ * been refused. later is true when it goes, but not on the next pass: that kind's daily cap, or a community name held
+ * by an earlier try. Called by the route BEFORE it stores.
  */
-function willSend(agentKey, now = Date.now()) {
+function willSend(agentKey, now = Date.now(), kind = 'comment') {
   const no = { sends: false, later: false };
   if (!switchOn() || !endpointAllowed()) return no;
   const st = loadJson(stateFile());
   const keys = loadJson(keysFile());
   // Every file the sweep refuses to run without (review 6): with any of them unreadable nothing is sent, so the agent
-  // is not told "next pass". Checked BEFORE recording anything.
-  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !loadJson(commentsSentFile())
-    || !loadJson(commentDeletesFile())) return no;   // #4801: unreadable, sweepComments sends nothing
+  // is not told "next pass". Checked BEFORE recording anything. #4939 review 2: a post needs only the post pass's files
+  // (a broken comment record does not stop posts), and a comment needs the comment pass's as well.
+  if (!st || !keys || !loadJson(sentFile()) || !loadJson(deletesFile())) return no;
+  if (kind !== 'post' && (!loadJson(commentsSentFile()) || !loadJson(commentDeletesFile()))) return no;   // #4801: unreadable, sweepComments sends nothing
   // #4994: while the name is held by a retirement, the key on file is the deleted agent's, not this one's: its refusal
-  // and its comment cap say nothing about the new agent.
+  // and its caps say nothing about the new agent.
   const k = agentKey && !retiringListed(agentKey) ? keys[agentKey] : null;   // an unreadable list holds, it does not erase
   if (k && k.refused) return no;
   if (!sinceForOnPeriod(st)) return no;
   // #4994: a retirement that already failed on this service holds the name until it is fixed. A "no" is permanent (the
-  // route marks the comment never to send) while this is a fault that can be repaired: it goes, but not on the next
-  // pass. One not yet tried is answered as usual; if its first try then fails, the comment waits until it is fixed.
+  // route marks the item never to send) while this is a fault that can be repaired: it goes, but not on the next pass.
+  // One not yet tried is answered as usual; if its first try then fails, the item waits until it is fixed.
   if (agentKey && failedHere(agentKey)) return { sends: true, later: true };
-  // Past the service's daily comment cap: it goes, but not on the next pass.
-  const later = Boolean(k && k.commentRetryAt && Date.parse(k.commentRetryAt) > now);
+  // Past the service's daily cap: it goes, but not on the next pass. #4939: posts and comments have caps of their own.
+  const cap = k && (kind === 'post' ? k.retryAt : k.commentRetryAt);
+  /* #4939 review 7: and an agent whose community name is held by an earlier try (no key yet): status says it waits,
+     checked hourly, so it is not "shortly" either. */
+  const nameHeld = Boolean(k && !k.apiKey && k.registering && k.registering.taken);
+  const later = Boolean(cap && Date.parse(cap) > now) || nameHeld;
   return { sends: true, later };
-}
-
-/**
- * #4947: is this agent's NEXT post held past the service's daily post cap? The sweep set `retryAt` from the service's
- * 429 and waits it out; until it passes, a new post is stored and published here but goes to the service only then.
- * The route says so, so the agent is not told "Posted" as though it went straight away (it would otherwise post it
- * again, or think the cap was not reached). Read-only: unreadable state answers false (nothing is promised either way).
- */
-function postLater(agentKey, now = Date.now()) {
-  const keys = loadJson(keysFile());
-  // #4994: as willSend: while the name is held, the key on file is the deleted agent's, and its cap is not this one's.
-  const k = keys && agentKey && !retiringListed(agentKey) && keys[agentKey];
-  return Boolean(k && k.retryAt && Date.parse(k.retryAt) > now);
-}
-/**
- * #4947: the route's question, whole: will this agent's new post be SENT, and only once the cap lifts? Only a post
- * that will be sent at all (willSend: Community on, an allowed address, a key not refused, readable state) can be
- * promised "once the cap lifts". Asked BEFORE the store write, as willSend must be (it may record the ON period's
- * start, which must not be later than the row). ⚠️ Known only once a sweep has met the cap (the service's 429 sets the
- * wait): the post that crosses the cap is still answered without it.
- */
-function postWaits(agentKey, now = Date.now()) {
-  // #4994: a name held by a retirement that failed here waits too, as willSend answers a comment.
-  return willSend(agentKey, now).sends && (postLater(agentKey, now) || Boolean(agentKey && failedHere(agentKey)));
 }
 
 /**
@@ -1862,16 +1908,17 @@ function industryUnreachable() {
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
+function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, postLater, postWaits, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
-  setSender, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
-  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL,
+  setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed,
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries

@@ -8,6 +8,7 @@
  * the cache invalidates on replace/truncate/in-place-rewrite. The before/after load numbers live on the card.
  */
 
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs (cx5054-*), removed when it exits
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');

@@ -73,6 +73,8 @@ function backend() {
         if (!CHANNELS.has(body.channel)) return send(400, { detail: 'unknown channel' });
         if (st.mode.refuse) return send(422, { detail: { error: 'refused_by_feedguard', reasons: ['email'] } });
         if (st.mode.cap) return send(429, { detail: { error: 'daily_post_limit', limit: 3 } }, { 'retry-after': '7200' });
+        if (st.mode.limiter) return send(429, { error: 'rate_limit_exceeded', retry_after: 60 }, { 'retry-after': '60' });   // #4953
+        if (st.mode.odd429) return send(429, { detail: 'slow down' }, { 'retry-after': '7200' });   // #4953: a 429 whose reason cannot be read
         const id = 'p' + (++st.n);
         st.posts.set(id, { id, agent: a.id, ...body, deleted: false, taken_down: false, take_down_reason: null });
         return send(201, { id, ...body });
@@ -127,7 +129,7 @@ function fresh() {
   cs.setSender((url, init) => fetch(url, init));
   cs.setTimeoutMs(2000);
 }
-test.beforeEach(async () => { fresh(); be = await backend(); });
+test.beforeEach(async () => { fresh(); cs.resetPauses(); be = await backend(); });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
 
 // Publish a post as an agent through the real choke. trusted -> published, else held.
@@ -1185,6 +1187,71 @@ test('#4895: the new name of the same community keeps its keys and send records;
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = was;
   }
+});
+
+/* #4953: the service's per-minute request limiter also answers 429 (rate_limit_exceeded, Retry-After 60). That is a
+   short pause, never the day's cap: no retryAt is written (the daily cap's wait), and a sweep after the minute sends it.
+   CONTROL: the daily cap's 429 does write it. */
+test('#4953 a per-minute limiter 429 is a short pause, not the daily cap', async () => {
+  await on();
+  be.st.mode.limiter = true;
+  const p = agentPost('lim', { topic: 'limited', body: 'one' });
+  await cs.sweep();
+  be.st.mode.limiter = false;
+  const keys = () => JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(cs.statuses()[p.id].state, 'pending');
+  assert.equal(keys().lim && keys().lim.retryAt, undefined, 'the limiter\'s 429 was written as the daily cap');
+  const n = posts().length;
+  await cs.sweep();                          // inside the minute: paused, not sent
+  assert.equal(posts().length, n);
+  await cs.sweep(Date.now() + 61 * 1000);    // the minute is out: sent, not a day later
+  assert.equal(posts().length, n + 1);
+  // CONTROL: the daily cap's 429 is written as the cap.
+  be.st.mode.cap = true;
+  agentPost('cap2', { topic: 'capped', body: 'two' });
+  await cs.sweep();
+  be.st.mode.cap = false;
+  assert.equal(typeof (keys().cap2 && keys().cap2.retryAt), 'string', 'the daily cap\'s 429 was not written');
+});
+
+/* #4953: a 429 whose reason cannot be read is a short pause, not the day's cap, and its pause is held to 10 minutes
+   however long a Retry-After it carries. */
+test('#4953 an unreadable 429 is a pause of at most 10 minutes, never the daily cap', async () => {
+  await on();
+  be.st.mode.odd429 = true;
+  const p = agentPost('odd', { topic: 'odd', body: 'odd' });
+  await cs.sweep();
+  be.st.mode.odd429 = false;
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.odd && keys.odd.retryAt, undefined, 'an unreadable 429 was written as the daily cap');
+  const n = posts().length;
+  await cs.sweep(Date.now() + 590 * 1000);   // inside the 10 minutes: still paused (Retry-After said 2 hours)
+  assert.equal(posts().length, n);
+  await cs.sweep(Date.now() + 601 * 1000);   // past 10 minutes: sent, not 2 hours later
+  assert.equal(posts().length, n + 1);
+  assert.equal(cs.statuses()[p.id].state, 'sent');
+});
+
+/* #4953 review 6: an unreadable 429 is said in the board's log, once per agent; the limiter's own 429 is not. */
+test('#4953 an unreadable 429 is logged once; the limiter\'s is not', async () => {
+  await on();
+  const lines = [];
+  const orig = console.error;   // communitysend's log() writes to stderr
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  try {
+    be.st.mode.odd429 = true;
+    agentPost('oddlog', { topic: 'a', body: 'a' });
+    await cs.sweep();
+    await cs.sweep(Date.now() + 601 * 1000);
+    be.st.mode.odd429 = false;
+    be.st.mode.limiter = true;
+    agentPost('limlog', { topic: 'b', body: 'b' });
+    await cs.sweep();
+    be.st.mode.limiter = false;
+  } finally { console.error = orig; }
+  const said = lines.filter((l) => /cannot read/.test(l));
+  assert.equal(said.filter((l) => /oddlog/.test(l)).length, 1, JSON.stringify(said));
+  assert.equal(said.filter((l) => /limlog/.test(l)).length, 0, JSON.stringify(said));
 });
 
 /* #4938: a post published while a sweep is already in flight goes on a follow-up pass at once, not on the

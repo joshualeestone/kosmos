@@ -12,7 +12,8 @@
  * in a folder Kosmos owns (never the home folder), reads the screen once a second, and answers each
  * screen it recognises by the words on it. The person sees only Google's page, and pastes the code
  * into Kosmos's own panel. What Kosmos never does on the person's behalf:
- *   - tick the optional data-sharing box (the panel says so; they can opt in later in agy);
+ *   - accept Antigravity's terms or decide its OPTIONAL data-sharing box (#4960: agy 1.2.12+ draws it ticked; the
+ *     panel shows the terms and the box as agy has it, and Kosmos applies the person's answer, agree());
  *   - trust any folder but its own sign-in folder.
  * A screen it does not recognise is not guessed at: after a few seconds the state becomes `stuck`,
  * and the panel offers to show the window so the person can finish by hand.
@@ -70,8 +71,13 @@ const AFTER_CODE = Object.freeze(['code-sent', 'theme', 'terms', 'trust']);
 const ASK_STEPS = Object.freeze(['trust']);   // round 16: a yes after theme or terms would end the sign-in with the setup unfinished
 /* A screen that keeps coming back more than this often is shown, not driven round (round 8). */
 const MAX_VISITS = 3;
-/* Downs Kosmos sends looking for the terms' [Done] before it shows the screen instead (round 7). */
-const MAX_DOWNS = 4;
+/* #4960: keys Kosmos sends on the terms after the person agreed (a toggle, Down, Right, Enter is four) before it shows
+   the screen instead. */
+const MAX_TERMS_KEYS = 6;
+/* #4960: the only hosts the terms' links may point at (agy 1.2.12 and 1.2.14 show antigravity.google/terms and
+   policies.google.com/privacy). Exact hosts, not any google.com (sites.google.com and redirects are someone else's
+   page under the label "Terms of Service"). Anything else is left out of the panel rather than linked. */
+const TERMS_HOSTS = new Set(['antigravity.google', 'policies.google.com']);
 /* The size of agy's hidden terminal: wide enough that its Google URL and the trust folder's path are
    not wrapped mid-word (the screen readers match on whole lines), tall enough for its longest screen. */
 const PANE_COLS = 120;
@@ -126,7 +132,7 @@ let S = null;   // { id, state, url, because, step, folder, lastSeen, timer, bus
 
 function signinFolder() { return path.join(folderRoot(), 'agy-signin'); }
 
-/** What a screen is told: never the folder, never the raw screen. */
+/** What a screen is told: never the folder, never the raw screen (#4960: only `seen`, a few masked lines, when stuck). */
 function status() {
   if (!S) return { state: 'idle' };
   const out = { id: S.id, state: S.state, step: S.step || null };
@@ -135,6 +141,9 @@ function status() {
   if (S.shown) out.shown = true;   // the window is the person's now; the panel says so
   if (S.showFailed) out.showFailed = true;   // it did not open: the panel offers it again
   if (S.refusals) out.refusals = S.refusals;
+  /* #4960: the terms as agy shows them, for the panel to ask the person (never ticked or agreed on their behalf). */
+  if (S.state === 'terms' && S.terms) out.terms = { dataUse: S.terms.dataUse, termsUrl: S.terms.termsUrl, privacyUrl: S.terms.privacyUrl };
+  if (S.state === 'stuck' && S.seen && S.because === UNKNOWN) out.seen = S.seen.slice();
   return out;
 }
 
@@ -173,6 +182,56 @@ function markedLine(text) {
   const line = String(text).split('\n').reverse().find((l) => /^\s*>\s/.test(l));
   return line ? line.trim() : '';
 }
+/* #4960: what the terms screen says (agy 1.2.12/1.2.14, MEASURED): the data-use box starts focused and TICKED
+   ("  > [x] Yes, I agree ..."), Enter toggles it, Down moves to the buttons ("  >  Previous       [Done]"), Right
+   selects Done ("    [Previous]    >  Done "): the selected button loses its brackets and its ">" sits MID-LINE.
+   agy 1.2.11 drew each item on its own line ("> [Done]"). Both are read here; on 1.2.11's layout only a "no" is
+   driven (Down to Done with the box left unticked): a "yes" there needs an Up to the box, which is not sent, so it
+   ends stuck with the window offered (round 2: a safe limit, for a version no longer shipped).
+   Returns { dataUse: true|false|null, focus: 'box'|'previous'|'done'|null, sameRow, termsUrl, privacyUrl }. */
+function safeLink(u) {
+  try {
+    const x = new URL(String(u).replace(/[.,;:)\]]+$/, ''));   // a sentence's own punctuation is not the address
+    return x.protocol === 'https:' && TERMS_HOSTS.has(x.hostname) && !x.port && !x.username && !x.password ? x.href : null;
+  } catch { return null; }
+}
+function termsOf(text) {
+  const t = String(text);
+  const at = t.lastIndexOf('Terms of Service & Data Use');
+  const lines = (at >= 0 ? t.slice(at) : t).split('\n');
+  const out = { dataUse: null, focus: null, sameRow: false, termsUrl: null, privacyUrl: null };
+  for (const l of lines) {
+    const box = l.match(/^\s*(>\s*)?\[( |x|X)\]\s*Yes, I agree/);
+    if (box) { out.dataUse = box[2] !== ' '; if (box[1]) out.focus = 'box'; continue; }
+    const prev = /Previous\b/.test(l);
+    const done = /\bDone\b/.test(l);
+    if (prev && done) out.sameRow = true;
+    if (done && />\s*\[?Done\b/.test(l)) out.focus = 'done';
+    else if (prev && />\s*\[?Previous\b/.test(l)) out.focus = 'previous';
+    const tos = l.match(/Terms of Service:\s*(\S+)/);
+    if (tos) out.termsUrl = safeLink(tos[1]);
+    const pp = l.match(/Privacy Policy:\s*(\S+)/);
+    if (pp) out.privacyUrl = safeLink(pp[1]);
+  }
+  return out;
+}
+/* #4960: the last lines of a screen Kosmos did not recognise (the newest screen is drawn last), for the panel and the
+   log, so a stuck sign-in says what it saw. Long tokens (a code, a key), e-mail addresses and paths are masked;
+   box-drawing and blank lines are dropped. */
+function seenOf(text) {
+  return String(text).split('\n')
+    .map((l) => l.replace(/[\u2500-\u259f]/g, '').trim())
+    .filter((l) => l)
+    .slice(-6)
+    .map((l) => l.replace(/(?:~|\/(?:Users|home|private|var|tmp))\/\S*/g, '<path>'))
+    .map((l) => l.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '<email>').replace(/[A-Za-z0-9/_\-.~+=]{24,}/g, '<long>').slice(0, 120));
+}
+function stuckUnknown(text) {
+  S.state = 'stuck'; S.because = UNKNOWN;
+  S.seen = seenOf(text);
+  logLine('stuck on a screen Kosmos does not recognise: ' + S.seen.join(' | '));
+}
+
 /* The folder the trust screen names (the line after "Accessing workspace:"). */
 function trustFolder(text) {
   const lines = String(text).split('\n').map((l) => l.trim());
@@ -209,7 +268,7 @@ function tick() {
        about delivery (tmux may have sent it), and a second Enter could land on the next screen: the
        screen is then left to the same-screen rule, which shows it if nothing moved. */
     const unknownDelivery = tmuxsignin.deliveryUnknown(e);
-    if (!unknownDelivery) { mine.pressed = false; mine.downFrom = null; }
+    if (!unknownDelivery) { mine.pressed = false; mine.termsKeyFrom = null; }
     mine.keyFailures = (mine.keyFailures || 0) + 1;
     if (mine.keyFailures >= MAX_KEY_FAILURES) {
       mine.state = 'stuck'; mine.because = 'Kosmos could not reach Antigravity\'s sign-in just now';
@@ -290,14 +349,14 @@ function step() {
      and answer it without the folder check). Time on an unknown screen is its own clock below. */
   const changed = name !== null && name !== S.screen;
   if (changed) {
-    S.screen = name; S.screenSince = now(); S.pressed = false; S.downFrom = null; S.moves = 0;
+    S.screen = name; S.screenSince = now(); S.pressed = false; S.termsKeyFrom = null; S.moves = 0;
     if (name) {
       S.seenKnown = true;
       /* A screen that keeps coming back (Enter landing on "Previous" loops terms -> theme -> terms)
          is shown, not driven round for half an hour (round 8). */
       S.visits = S.visits || {};
       S.visits[name] = (S.visits[name] || 0) + 1;
-      if (S.visits[name] > MAX_VISITS && name !== 'code' && !S.shown) { S.state = 'stuck'; S.because = UNKNOWN; return; }
+      if (S.visits[name] > MAX_VISITS && name !== 'code' && !S.shown) { stuckUnknown(text); return; }
     }
   }
   if (name === 'ready') { readyCheck(text); return; }
@@ -309,8 +368,10 @@ function step() {
   if (!changed && name && S.state === 'stuck') return;   // shown to the person; nothing more is pressed on it
   /* A recognised screen that stays the same this long is stuck too (a changed default, a cursor
      that is not where Kosmos expects): the code screen is exempt, it waits for the person. */
-  if (!changed && name && name !== 'code' && now() - S.screenSince > SAME_SCREEN_MS) {
-    S.state = 'stuck'; S.because = UNKNOWN;
+  /* #4960: and the terms while the person is being asked them (state 'terms'): that screen waits for the person too.
+     Not a terms frame that never draws the box (round 2): that is a screen Kosmos cannot read, and is shown. */
+  if (!changed && name && name !== 'code' && !(name === 'terms' && !S.agreed && S.state === 'terms') && now() - S.screenSince > SAME_SCREEN_MS) {
+    stuckUnknown(text);
     return;
   }
   const seen = (n) => name === n;   // the screen drawn NOW, not words an earlier one left behind
@@ -327,25 +388,44 @@ function step() {
     return;
   }
   if (seen('terms')) {
-    /* The cursor starts on "Previous", so Enter would go BACK. Move down until the marker is on
-       "[Done]" (never Space: that is what ticks the optional data-sharing box), then Enter. */
-    S.state = 'setup'; S.step = 'terms'; S.because = null;
-    S.lastSeen = now();
-    const on = markedLine(text);
-    /* Each key once: Enter once on "[Done]", and the next Down only after the marker has moved, so
-       a slow redraw never carries a second key onto the next screen (the trust question). */
+    /* #4960: the data-use box is OPTIONAL and agy now draws it already ticked, so pressing Done would opt the person
+       in. Kosmos shows the terms in its own panel (the links, and the box as agy has it) and presses nothing until the
+       person answers there (agree()). Then: Enter on the box only if it differs from their answer, Down to the
+       buttons, Right to Done (Down where agy draws the buttons on lines of their own), Enter on Done. One key per
+       change of the screen, at most MAX_TERMS_KEYS, so a slow redraw never carries a key onto the trust question. */
+    S.step = 'terms'; S.lastSeen = now();
+    const tm = termsOf(text);
+    if (!S.agreed) {
+      /* Only once the box itself is drawn (round 1): a half-drawn first frame would give the panel "unticked" while
+         Antigravity has it ticked, and the panel sets its box once. Until then it is still setting up, and a box that
+         never comes goes stuck by the same-screen rule above (round 2). */
+      if (tm.dataUse === null) { if (S.state !== 'terms') { S.state = 'setup'; S.because = null; } return; }
+      /* A redraw that has not drawn the link lines yet keeps the links already read (round 2): the panel must not lose
+         the link the person may be on. */
+      const was = S.terms || {};
+      S.terms = { ...tm, termsUrl: tm.termsUrl || was.termsUrl || null, privacyUrl: tm.privacyUrl || was.privacyUrl || null };
+      if (S.state !== 'terms') { S.state = 'terms'; S.because = null; }
+      return;
+    }
+    S.state = 'setup'; S.because = null;
     if (S.pressed) return;
-    /* Round 26: no key until the marker is drawn on one of the terms' own lines. A half-drawn frame
-       (no ">" yet) sent a Down, and the full frame a second one, two Downs for one step. */
-    if (!/^>\s*(\[ \]|\[x\]|\[X\]|Previous\b|\[Done\])/.test(on)) return;
-    if (/^>\s*\[Done\]/.test(on)) { S.pressed = true; keys('Enter'); return; }
-    if (S.downFrom !== null && S.downFrom !== undefined && on === S.downFrom) return;   // the last Down has not landed yet
-    // The move counts only once the key went out (round 7): a tmux hiccup must not spend the budget.
-    /* downFrom BEFORE the send (round 16): a Down that timed out may have gone out, so the next tick
-       waits for the marker to move rather than sending another; moves counts only a send that returned. */
-    if (S.moves < MAX_DOWNS) { S.downFrom = on; keys('Down'); S.moves += 1; return; }
-    // Shown, not ended: the person can still finish it in the window, or stop.
-    S.state = 'stuck'; S.because = 'Kosmos could not find the Done button on Antigravity\'s terms';
+    const sig = String(tm.dataUse) + '|' + tm.focus;
+    if (S.termsKeyFrom === sig) return;   // the last key has not landed yet
+    let key = null;
+    if (tm.focus === 'box') key = tm.dataUse === S.agreed.dataUse ? 'Down' : 'Enter';
+    else if (tm.focus === 'previous') key = tm.sameRow ? 'Right' : 'Down';
+    else if (tm.focus === 'done') {
+      /* Done only on a frame that SHOWS the box as the person chose (round 1): a box not drawn in this frame is no key
+         (the same-screen rule shows the window if it never comes), and one drawn the other way is stuck. */
+      if (tm.dataUse === null) return;
+      if (tm.dataUse !== S.agreed.dataUse) { S.state = 'stuck'; S.because = 'Kosmos could not set Antigravity\'s data-sharing choice the way you chose it'; return; }
+      key = 'Enter';
+    }
+    if (!key) return;   // no marker drawn yet: wait for the full frame (round 26)
+    if (S.moves >= MAX_TERMS_KEYS) { S.state = 'stuck'; S.because = 'Kosmos could not find the Done button on Antigravity\'s terms'; return; }
+    S.termsKeyFrom = sig;   // BEFORE the send (round 16): a key that timed out may have gone out
+    if (key === 'Enter' && tm.focus === 'done') S.pressed = true;
+    keys(key); S.moves += 1;
     return;
   }
   if (seen('trust')) {
@@ -410,7 +490,7 @@ function step() {
     ? text !== S.stuckText && now() - S.lastCheckAt > STUCK_MS   // a redrawing screen does not spend them all at once
     : settled || now() - S.lastSeen > STUCK_MS);
   if (!ask) {
-    if (S.state !== 'stuck' && now() - S.lastSeen > STUCK_MS) { S.state = 'stuck'; S.because = UNKNOWN; S.stuckText = text; }
+    if (S.state !== 'stuck' && now() - S.lastSeen > STUCK_MS) { stuckUnknown(text); S.stuckText = text; }
     return;
   }
   const mine = S;
@@ -483,7 +563,7 @@ function start() {
     return { ok: false, because: 'Kosmos could not start Antigravity\'s sign-in just now' };
   }
   S = { id: crypto.randomBytes(8).toString('hex'), state: 'starting', url: null, because: null, step: null, folder,
-    startedAt: now(), lastSeen: now(), timer: null, busy: false, checks: 0, lastCheckAt: 0, moves: 0, downFrom: null };
+    startedAt: now(), lastSeen: now(), timer: null, busy: false, checks: 0, lastCheckAt: 0, moves: 0, termsKeyFrom: null };
   S.timer = setInterval(tick, tickMs);
   if (S.timer.unref) S.timer.unref();
   return { ok: true, id: S.id };
@@ -522,6 +602,18 @@ function code(value, id) {
   return { ok: true };
 }
 
+/** #4960: the person's answer to the terms, from Kosmos's panel. dataUse is their choice for the OPTIONAL box. */
+function agree(id, opts) {
+  if (!isMine(id)) return { ok: false, because: NOT_MINE };
+  if (S.shown) return { ok: false, because: 'The sign-in window is open now, so finish it there' };
+  if (S.state !== 'terms') return { ok: false, because: 'Antigravity is not showing its terms just now' };
+  const dataUse = opts && opts.dataUse;
+  if (dataUse !== true && dataUse !== false) return { ok: false, because: 'Kosmos needs to know whether to share your usage data with Google' };
+  S.agreed = { dataUse };
+  S.state = 'setup'; S.because = null; S.termsKeyFrom = null; S.moves = 0; S.screenSince = now();
+  return { ok: true };
+}
+
 /** The last resort: show the hidden session in a Terminal window so the person can finish it. */
 function show(id) {
   return new Promise((resolve) => {
@@ -535,6 +627,9 @@ function show(id) {
        Terminal has come up, and pressing nothing is the safe way to be wrong. Stop still works. */
     S.shown = true;
     if (!S.shownAt) S.shownAt = now();
+    /* #4960 round 1: shown on the terms, the person answers them in the window (agree() refuses once shown), so the
+       panel stops asking: the shown-window state, not 'terms' forever. */
+    if (S.state === 'terms') { S.state = 'stuck'; S.because = 'Antigravity is showing its terms; answer them in the window'; }
     const mine = S;
     openFile(file, (err) => {
       /* An `open` that failed outright (not a timeout, which may have opened Terminal anyway) opened
@@ -572,5 +667,5 @@ function resetForTests() {
   tickMs = TICK_MS;
 }
 
-module.exports = { start, status, code, show, stop, socket, SESSION, SCREENS, CODE_RE, MAX_CHECKS, MAX_KEY_FAILURES, NOT_MINE, screenOf,
-  urlFrom, markedLine, trustFolder, setForTests, tickForTests, resetForTests };
+module.exports = { start, status, code, agree, show, stop, socket, SESSION, SCREENS, CODE_RE, MAX_CHECKS, MAX_KEY_FAILURES, NOT_MINE, screenOf,
+  urlFrom, markedLine, trustFolder, termsOf, seenOf, setForTests, tickForTests, resetForTests };

@@ -183,20 +183,6 @@ async function connectPending(page) {
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
-  /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
-     given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
-  { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
-    const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
-      email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
-    await page.route('**/api/status', async (route) => {
-      let res, data;
-      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-      data.loginAdvisories = adv;
-      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
-    });
-    await at(page, '');
-    await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
-  } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
@@ -468,6 +454,14 @@ const SCREENS = [
   { name: 'tasks', owner: 'Mona Lisa / April', go: async (page) => {
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+  } },
+  /* #5053: one project's Tasks view, with its back chevron beside the title. The built-in seed's project name is long
+     enough to wrap on a phone, so the shot shows the title wrapping beside the chevron (a store data set's may not). */
+  { name: 'project-tasks', owner: 'PigeonPete', go: async (page, data) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.evaluate((id) => openProjectTasks(id), data.projectId);
+    await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 5000 });
   } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {

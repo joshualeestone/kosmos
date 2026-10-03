@@ -302,11 +302,6 @@ function writeState(next) {
      (their setters re-aim it at the owning flow's dir first). */
   const dirNow = driver ? (driver.configDir || null) : flowDir;
   mem = { ...next, configDir: dirNow, pid: process.pid, updatedAt: new Date().toISOString() };
-  /* #5018: a sign-in that completes moves the login's date; the login-expiry notice and the Settings date are
-     read again on the next poll instead of after their caches run out (which looked stuck until a restart).
-     Every write of connected counts, the already-signed-in answer to a start included (a terminal sign-in, then
-     Sign in again in Kosmos); both writers are a person's action, never a poll. */
-  if (next && next.phase === PHASE.CONNECTED) { try { loginexpiry.loginChanged(); } catch { /* never breaks the flow */ } }
   try {
     fs.mkdirSync(path.dirname(STATE_FILE()), { recursive: true });
     const tmp = `${STATE_FILE()}.${process.pid}.new`;
@@ -3284,8 +3279,6 @@ async function finishConnected(owner, sub) {
   flowDir = owner.configDir || null;
   if (d && d.timer) clearInterval(d.timer);
   const memBefore = mem;
-  // #5018: the login landed whatever happens to the record below, so the login dates are read again either way.
-  try { loginexpiry.loginChanged(); } catch { /* never breaks the flow */ }
   await killSession(owner);
   // ⚠️ The one write that crossed an await unguarded: a fresh START owns the
   // record now (driver set), and a CANCEL that landed inside the kill above

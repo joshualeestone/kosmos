@@ -171,29 +171,18 @@ function agentAdvisories({ agents = [], readCcd, now = Date.now(), readCred, war
  * the caller owns and this MUTATES. Within the window it returns cache.value. Otherwise it calls
  * compute() and stores the result. 🛑 On a compute() THROW it returns the last-good value WITHOUT
  * advancing `at`, so a transient failure is retried on the very next call instead of being pinned
- * for the whole TTL. Injectable (pass a fake now/compute) so the cache behaviour is tested without
- * standing up a board; it also reads this module's login generation (below), and a cache with no `gen` (or an
- * older one) is stale. */
+ * for the whole TTL. Pure and injectable (pass a fake now/compute) so the cache behaviour is
+ * tested without standing up a board. */
 function cachedAdvisories({ cache, now = Date.now(), ttlMs, compute } = {}) {
-  if (cache && cache.at && (now - cache.at) < ttlMs && cache.gen === loginGen) return cache.value;
-  const gen = loginGen;
+  if (cache && cache.at && (now - cache.at) < ttlMs) return cache.value;
   let value;
   try { value = compute(); }
   catch { return cache ? cache.value : []; }  // keep last-good, do NOT advance `at` -> retry next tick
-  if (cache) { cache.at = now; cache.value = value; cache.gen = gen; }
+  if (cache) { cache.at = now; cache.value = value; }
   return value;
 }
 
-/* #5018 (Josh: "i relogged in ... it didnt clear the message out", cleared only by closing the app): a sign-in
- * that completes moves the login's date, and every cache of that date must be read again at once, not after its
- * TTL. A sign-in calls loginChanged(); each cache (cachedAdvisories above, claudeloginlive's per-account dates)
- * stores the generation it was read under and treats any other as stale. A counter, not a listener list, so no
- * module has to require another to be told. */
-let loginGen = 0;
-function loginChanged() { loginGen += 1; }
-function loginGeneration() { return loginGen; }
-
 module.exports = {
   serviceNameFor, refreshExpiryFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
-  cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
+  cachedAdvisories, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
 };

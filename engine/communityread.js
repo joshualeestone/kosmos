@@ -548,7 +548,13 @@ async function repliesFor(sessionName, opts) {
   const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
   const { posts, total, all } = ownPosts(sessionName);
   if (!posts.length) {
-    return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', '(you have no posts in the community yet)', ''] }) };
+    /* #4939: a post that has not gone out yet is not "no posts": every family in Josh's test read this line as lost. */
+    let waiting = 0;
+    try { waiting = require('./communitystatus').waitingPosts(sessionName); } catch { waiting = 0; }
+    const line = waiting
+      ? '(none of your posts is in the community yet: ' + waiting + ' waiting to go out. See where each stands with: kosmos community status)'
+      : '(you have no posts in the community yet)';
+    return { ok: true, count: 0, text: frame([], null, { lines: [REPLIES_HEADING, '', line, ''] }) };
   }
   const marks = readMarks(sessionName);   // service time, apart from a new post's first-look floor
   const me = ownName(sessionName);

@@ -43,15 +43,21 @@ test('#4373 B: a comment goes to the board with the post id, the text and the ag
   assert.equal(h.sent[0].body.body, 'Tuesdays work');
   assert.ok(!('agent' in h.sent[0].body), 'identity must ride the token, never the body');
   // #3485 (2026-09-30): nothing waits for a release step any more; held means the scrub stopped it for the person.
-  assert.equal(h.lines.out.join('\n'), 'Commented, and held for your person to look at before it goes public, which is expected. Do not send it again.');
+  assert.equal(h.lines.out.join('\n'), 'Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status');
   assert.doesNotMatch(h.all(), /until your person releases/);
 });
 
 test('#3485 merge: a published comment says it goes on the next pass, never held', async () => {
   const h = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c1', sends: true }] });
   assert.equal(await cli.main(['community', 'comment', POST, 'x'], h.io), 0, h.all());
-  assert.equal(h.lines.out.join('\n'), 'Commented. Kosmos sends it to the community on its next pass.');
+  assert.equal(h.lines.out.join('\n'), 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');   // #4939
   assert.doesNotMatch(h.all(), /held|until your person releases/);
+});
+
+test('#4939 review 8: a published comment that cannot go yet says it goes when it can, in the Mac\'s words', async () => {
+  const h = harness({ answer: () => [200, { ok: true, status: 'published', id: 'c1', sends: true, later: true }] });
+  assert.equal(await cli.main(['community', 'comment', POST, 'x'], h.io), 0, h.all());
+  assert.equal(h.lines.out.join('\n'), 'Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status');
 });
 
 test('#4373 B merged with #4580: a refused connect reported only as an AggregateError (no cause.code) is "could not reach", not a maybe', async () => {

@@ -18,9 +18,15 @@ test('#3997: loginGood only for an unverified, signed-in row whose date is ahead
   assert.equal(m.loginGood({ ...good, checkLiveState: 'none' }), false, 'claude auth status says signed out');
 });
 
-test('#3997 ruling C: greenFromLogin is off while the switch is off', () => {
-  assert.equal(m.GREEN_FROM_LOGIN, false);
-  assert.equal(m.greenFromLogin({ badge: 'signed_in_unverified', checkLiveState: 'connected', until: Date.now() + 1e9 }), false);
+test('#3997 ruling A: the switch is on, and greenFromLogin follows loginGood exactly', () => {
+  assert.equal(m.GREEN_FROM_LOGIN, true);
+  const good = { badge: 'signed_in_unverified', checkLiveState: 'connected', until: Date.now() + 1e9 };
+  assert.equal(m.greenFromLogin(good), true);
+  // Every way loginGood says no, greenFromLogin says no too: a real failure is never painted green.
+  assert.equal(m.greenFromLogin({ ...good, until: 999 }), false, 'an expired login');
+  assert.equal(m.greenFromLogin({ ...good, until: null }), false, 'no date read');
+  assert.equal(m.greenFromLogin({ ...good, latestOutcome: '401' }), false, 'a rejection on record');
+  assert.equal(m.greenFromLogin({ ...good, checkLiveState: 'none' }), false, 'signed out');
 });
 
 test('#3997: validUntil skips a key account, maps the default to an unset CLAUDE_CONFIG_DIR, and caches', async () => {
@@ -68,4 +74,33 @@ test('#3997 review 1: no answer is kept longer than an answer, so a missing entr
   assert.equal(calls, 1, 'a miss was asked again after the answer window');
   await m.validUntil({ dir: '/none' }, m.MISS_CACHE_MS);
   assert.equal(calls, 2, 'a miss was never asked again');
+});
+
+test('#3997 review 1: a refused Check now blocks the login-green for that folder until a later connected or rejected answer', () => {
+  m._clearForTest();
+  const good = { badge: 'signed_in_unverified', checkLiveState: 'connected', until: Date.now() + 1e9 };
+  assert.equal(m.loginGood({ ...good, checkRefused: m.checkRefused('/a') }), true, 'premise: green before any check');
+  m.noteCheck('/a', { state: 'unknown', refused: true });
+  assert.equal(m.checkRefused('/a'), true);
+  assert.equal(m.loginGood({ ...good, checkRefused: m.checkRefused('/a') }), false, 'a refused check left the login good');
+  assert.equal(m.checkRefused('/b'), false, 'the mark is per folder');
+  m.noteCheck('/a', { state: 'unknown', refused: false });   // capacity or no answer: changes nothing
+  assert.equal(m.checkRefused('/a'), true);
+  m.noteCheck('/a', { state: 'connected' });
+  assert.equal(m.checkRefused('/a'), false, 'a later connected answer did not clear it');
+  m.noteCheck('/a', { state: 'unknown', refused: true });
+  m.noteCheck('/a', { state: 'none' });
+  assert.equal(m.checkRefused('/a'), false, 'a later rejected answer did not clear it (the rejection itself blocks green)');
+  m.noteCheck('', { state: 'unknown', refused: true });
+  assert.equal(m.checkRefused(''), false, 'an empty folder is never marked');
+});
+
+test('#3997 review 3: a real outcome seen after the failed check outranks it (a working account is not held amber)', () => {
+  m._clearForTest();
+  m.noteCheck('/a', { state: 'unknown', refused: true }, 1000);
+  assert.equal(m.checkRefused('/a'), true, 'no outcome at all: the failed check stands');
+  assert.equal(m.checkRefused('/a', 900), true, 'an outcome from BEFORE the failed check does not lift it');
+  assert.equal(m.checkRefused('/a', 1000), true, 'the same moment does not lift it');
+  assert.equal(m.checkRefused('/a', 1001), false, 'an outcome AFTER the failed check lifts it');
+  assert.equal(m.checkRefused('/a', null), true);
 });
