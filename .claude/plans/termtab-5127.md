@@ -9,10 +9,9 @@ pill on its page, "This agent's Terminal" on a Mac, "Live output" on Windows), a
 section Add a provider is in ("Set up in Settings, AI Models").
 
 ## The thirteen sentences
-- server.js: the agent-not-running message ("if it stays off, you can see its screen under AI Settings on its page").
+- server.js: the agent-not-running message ("if it stays off, look under AI Settings on its page").
 - engine/chat.js: ten refusals from answering a Codex hook question. They are shown in the question box ON the agent's
-  page, so they say "...; you can see its screen under AI Settings on this page". "Its screen" names the box (its
-  heading differs by platform; what it shows does not).
+  page, so they say "...; look under AI Settings on this page".
 - web/index.html: the greyed Gemini (Antigravity) and Meta (Muse) provider hints.
 
 ## The sweep, so the next person does not redo it
@@ -24,11 +23,14 @@ Real hits: #5114 (merged), #5127, #5128. Everything else named a real place, a m
 site, or was a comment.
 
 ## Rejected
+- Saying what is there ("you can see its screen under AI Settings"), tried in iteration 2 for precision: with no
+  session, or when Kosmos itself could not read the screen, that box shows nothing, so the sentence would promise what
+  the page cannot show (iteration 3). The sentences point at the place only, which holds in every case, as #1663 ruled.
 - Naming the box itself ("its Terminal"): it is called something else on Windows; the pill is the same on both.
 
 ## Weakest premise
-That "its screen under AI Settings" is findable: the box is the third of four sections under that pill (iteration 2
-asked for the box to be named; the sentence now says what the box shows).
+That "under AI Settings" is enough to find it: the agent's screen is the third of four sections under that pill, and
+the sentence cannot name what is in it without over-promising.
 
 ## Checks
 - web.place-names-5127.test.js: quoted strings and the page markup's text; red on main (lists exactly the thirteen); an
