@@ -2853,6 +2853,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if allowedDownloadHosts.contains(host) { then(true); return }
         if refusedDownloadHosts.contains(host) {
             logLine("#5167: downloads from \(host) were not allowed this time")
+            tellDownloadFailed("Downloads from \(host) were not allowed. Kosmos asks again the next time it opens.", quiet: true)
             then(false); return
         }
         if downloadAsks[host] != nil { downloadAsks[host]!.append(then); return }   // one question at a time
@@ -2886,7 +2887,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var downloadSheetUp = false
     fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
 
-    private func tellDownloadFailed(_ detail: String, title: String = "Kosmos could not save that file", quiet: Bool = false) {
+    private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {
+        // A refusal is Kosmos choosing not to save; anything else is a save that failed.
+        let title = title ?? (quiet ? "Kosmos did not save that file" : "Kosmos could not save that file")
         if quiet {
             if downloadSheetUp || (lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false) {
                 logLine("#5167: not said again so soon: \(detail)")
@@ -2960,7 +2963,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let taken = Set(downloadsInFlight.values.map { $0.standardizedFileURL.path })
         let dest = downloadDestination(dir: dir, suggested: suggestedFilename) {
-            FileManager.default.fileExists(atPath: $0.path) || taken.contains($0.standardizedFileURL.path)
+            // The entry itself, not what it points to: a dangling symlink is taken, never written through.
+            (try? FileManager.default.attributesOfItem(atPath: $0.path)) != nil || taken.contains($0.standardizedFileURL.path)
         }
         downloadsInFlight[ObjectIdentifier(download)] = dest
         downloadPages[ObjectIdentifier(download)] = committedPageURL   // the page it came from, for its mark
@@ -5101,10 +5105,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        the real Downloads. Offscreen, and driven from JavaScript, like the filepanel selftest. It runs as a
        computer that runs agents (the default mode); a connect computer is not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
-    /* Above the worst case of a run where NOTHING saves (six 5s file waits, seven 2s ones counting the
-       burst, fourteen page loads; measured 81s), so a product that saves nothing is judged, not timed out. */
+    /* Above the worst case of a run where NOTHING saves (seven 5s file waits, eight 2s ones counting the
+       burst, fifteen page loads; measured 106s), so a product that saves nothing is judged, not timed out. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
-    DispatchQueue.main.asyncAfter(deadline: .now() + 150) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + 200) {
         try? FileManager.default.removeItem(at: dl)
         print("download selftest TIMED OUT"); exit(1)
     }
@@ -5274,7 +5278,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
-            // computer can be served here. A throwaway defaults suite, never the build box's own.
+            // computer can be served here. Its answers are held in memory only.
             var asked: [String] = []
             var reply = false
             AppDelegate.downloadPermissionPresenter = { host, answer in asked.append(host); answer(reply) }
@@ -5314,9 +5318,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 5, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, foreign .zip, a BURST of three from a not-the-board page; frames say nothing), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
+            row(told.count == 6, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, foreign .zip, a BURST of three from a not-the-board page, a computer already refused; frames say nothing), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
             row(told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("did not save that file to Downloads") }
-                && told.contains { $0.contains("not opened or saved") } && told.contains { $0.contains("not a board") },
+                && told.contains { $0.contains("not opened or saved") } && told.contains { $0.contains("not a board") }
+                && told.contains { $0.contains("amy.kosmosplus.com were not allowed") },
                 "and each is said in its own words")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
             // plain link, and a computer that runs agents loads every link in the window (#5169).
