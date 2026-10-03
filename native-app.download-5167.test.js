@@ -40,14 +40,14 @@ test('#5167: a same-origin <a download> becomes a download, BEFORE the connect-o
   assert.notEqual(dl, -1, 'the action policy never looks at shouldPerformDownload');
   assert.notEqual(guardAt, -1, 'the connect policy guard moved; re-read this test');
   assert.ok(dl < guardAt, 'the download check sits after the connect guard, so a computer that runs agents never saves one');
-  assert.match(b, /if navigationAction\.shouldPerformDownload, let url = navigationAction\.request\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+mayDownload\(file: url\.lastPathComponent\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+return\n\s+\}/,
+  assert.match(b, /if navigationAction\.shouldPerformDownload, let url = navigationAction\.request\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?mayDownload\(file: .*?\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+return\n\s+\}/,
     'a download is saved without the board-page and same-origin checks, or they no longer decide it');
 });
 
 test('#5167: the response policy saves only board files from a board page, refuses foreign attachments, and otherwise keeps WebKit\'s default', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
-  assert.match(b, /\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+mayDownload\(file: url\.lastPathComponent\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+\} else \{[\s\S]*?tellDownloadFailed\([\s\S]*?decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
+  assert.match(b, /\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?mayDownload\(file: .*?\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+\} else \{[\s\S]*?tellDownloadFailed\([\s\S]*?decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
     'an attachment is saved without the exact-token, board-page and same-origin checks, or a refused one loads in the window');
   assert.equal((b.match(/decisionHandler\(/g) || []).length, 6, 'the response policy has a path that never answers, or a new one');
   // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
@@ -165,7 +165,7 @@ test('#5167 review 5: refused downloads stay out of the window, quarantine recor
 
 test('#5167 review 6: a board file the window cannot show is saved; an unmarkable one is kept and said', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
-  assert.match(b, /if !navigationResponse\.canShowMIMEType, let url = navigationResponse\.response\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+mayDownload\(file: url\.lastPathComponent\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}/,
+  assert.match(b, /if !navigationResponse\.canShowMIMEType, let url = navigationResponse\.response\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?mayDownload\(file: .*?\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}/,
     'a board file the window cannot show is cancelled with nothing said');
   assert.match(b, /String\(disposition\[\.\.<\(disposition\.firstIndex\(of: ";"\) \?\? disposition\.endIndex\)\]\)/, 'the attachment token is not read up to the first ;');
   const fin = body('@objc(downloadDidFinish:)');
@@ -212,7 +212,7 @@ test('#5167 review 11: a run where nothing saves is judged, not timed out (the w
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   const watchdog = Number((hatch.match(/asyncAfter\(deadline: \.now\(\) \+ (\d+)\) \{\n[^\n]*\n\s+print\("download selftest TIMED OUT"\)/) || [])[1]);
   const alarm = Number((BUILD.match(/alarm (\d+); exec @ARGV; exit 127' "\$STAGE\/app\/bin\/kosmos-app" --kosmos-app-download-selftest/) || [])[1]);
-  assert.ok(watchdog >= 200, 'the watchdog (' + watchdog + 's) is too close to a nothing-saves run (measured 106s), so a total break can read as a timeout');
+  assert.ok(watchdog >= 300, 'the watchdog (' + watchdog + 's) is too close to a nothing-saves run (measured 146s), so a total break can read as a timeout');
   assert.ok(alarm >= watchdog + 20, 'the gate\'s alarm (' + alarm + 's) does not sit above the hatch\'s own watchdog (' + watchdog + 's)');
   assert.match(hatch, /wait\(expect == nil \? 20 : 50\)/);
 });
@@ -252,7 +252,7 @@ test('#5167 review 16: every early exit of the live selftest cleans up', () => {
 });
 
 test('#5167 review 17: a Kosmos+ computer is asked about before it can save (its holder runs its tunnel); no file is blamed before a page exists', () => {
-  assert.equal((SRC.match(/mayDownload\(file: url\.lastPathComponent\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}/g) || []).length, 3,
+  assert.equal((SRC.match(/mayDownload\(file: .*?\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}/g) || []).length, 3,
     'a place that saves a download does not ask first');
   assert.equal((SRC.match(/decisionHandler\(\.download\)/g) || []).length, 0, 'a download is saved without going through mayDownload');
   const may = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
@@ -264,7 +264,10 @@ test('#5167 review 17: a Kosmos+ computer is asked about before it can save (its
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.match(hatch, /"THROUGH A REAL CLICK: a computer that must be asked saves nothing on Don't Allow, and saves on Allow/,
     'the question is only driven directly, so a policy path that skips it still passes');
-  assert.equal((SRC.match(/askAboutHostForSelftest = /g) || []).length, 2, 'something outside the selftest sets the ask-about seam');
+  const hatchAt = SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")');
+  const seamSets = [...SRC.matchAll(/askAboutHostForSelftest = /g)].map((m) => m.index);
+  assert.equal(seamSets.length, 4);
+  assert.ok(seamSets.every((i) => i > hatchAt), 'something outside the selftest sets the ask-about seam');
   assert.match(body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)'), /if committedPageURL != nil \{ tellDownloadFailed\(/,
     'a start-up load the window cannot show is reported as a refused file');
 });
@@ -372,35 +375,47 @@ test('#5167 review 31: the board\'s 204 refusal of a download is not saved as an
   assert.ok(at204 !== -1 && at204 < b.indexOf('!(200..<300).contains(http.statusCode)'), 'a 204 download (the board\'s refusal) is saved as an empty file under the real name');
   assert.match(b, /if pageSaysDownloadRefusal\(response\.url \?\? download\.originalRequest\?\.url\) \{\n\s+completionHandler\(nil\)/,
     'a signed-out Files-list download is said twice (the page says it too)');
-  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /quietToldThisPage = \[\][^\n]*\n\s+savesThisPage = 0/);
+  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /quietToldThisPage = \[\][^\n]*\n\s+summaryToldForPage = nil/);
   assert.match(body('private func sayPendingDownloadFailures() {'), /title: "Some downloads were not saved"/);
 });
 
 test('#5167 review 32: the live rows are read only once the messages have arrived (or 10s)', () => {
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.match(hatch, /askArm \{ settled \{/, 'the verdict is read before late messages arrive, so a busy build box fails a good product');
-  assert.match(hatch, /if told\.count >= 11 \|\| tries == 0 \{ go\(\); return \}/);
+  assert.match(hatch, /if told\.count >= 10 \|\| tries == 0 \{ go\(\); return \}/);
 });
 
 test('#5167 review 33: one refusal and one summary per page load, on every path; one summary waiting at a time', () => {
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.match(tell, /if quiet, quietToldThisPage\.contains\(detail\) \{\n[\s\S]*?pendingDownloadFailures \+= 1/,
     'a repeated refusal opens another alert (a looping page), or is dropped instead of summarised');
-  assert.match(body('private func sayPendingDownloadFailures() {'), /if let page = committedPageURL, summaryToldForPage == page \{/,
+  assert.match(body('private func sayPendingDownloadFailures() {'), /if !anyFailure, let page = committedPageURL, summaryToldForPage == page \{/,
     'a page looping failures brings the summary back every few seconds');
   assert.match(body('private func schedulePendingSay() {'), /guard !pendingSayScheduled else \{ return \}/, 'every refusal starts its own timer chain');
   assert.equal((SRC.match(/asyncAfter\(deadline: \.now\(\) \+ AppDelegate\.downloadQuietSeconds\)/g) || []).length, 1, 'a summary is scheduled somewhere other than schedulePendingSay');
-  assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /quietToldThisPage = \[\]\n\s+savesThisPage = 0/);
+  assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /quietToldThisPage = \[\]\n\s+savesByHost = \[:\]/);
 });
 
 test('#5167 review 34: a page saves at most savesPerPageCap files per load; the question names the file; a .html over Kosmos+ needs an attachment header', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
-  assert.match(b, /if savesThisPage >= AppDelegate\.savesPerPageCap \{/, 'an allowed page (or the board) can fill the disk');
+  assert.match(b, /if n >= AppDelegate\.savesPerPageCap \{/, 'an allowed Kosmos+ computer can fill the disk');
+  assert.doesNotMatch(SRC, /savesThisPage/, 'the cap resets on a commit, which a page can cause itself');
   assert.match(SRC, /static var savesPerPageCap = 50\n/);
-  assert.match(b, /let wantsPage = namedPage && \(sentAsAttachment \|\| !\(committedPageURL\.map\(isKosmosPlusURL\) \?\? false\)\)/,
+  assert.match(b, /let wantsPage = sentAsAttachment \|\| \(namedPage && !\(committedPageURL\.map\(isKosmosPlusURL\) \?\? false\)\)/,
     'a signed-out computer\'s sign-in page is saved under an agent\'s report.html');
   assert.match(body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {'), /wants to save \\\(what\) to your Downloads folder/);
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
-  assert.ok(hatch.includes('"PAST THE PER-PAGE CAP A PAGE SAVES NOTHING MORE, and says so"'));
+  assert.ok(hatch.includes('"PAST THE CAP A KOSMOS+ COMPUTER SAVES NOTHING MORE THIS RUN, and says so"'));
   assert.match(hatch, /web\.evaluateJavaScript\("window\.__probeReady = 0"\)/, 'the selftest can click the old page before the new one commits');
+});
+
+test('#5167 review 35: the question names the file the page asked for, cleaned; a real failure is always summarised; the cap is per Kosmos+ computer for the run', () => {
+  const may = body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {');
+  assert.match(may, /let clean = file\.map \{ downloadDestination\(dir: URL\(fileURLWithPath: "\/"\), suggested: \$0\) \{ _ in false \}\.lastPathComponent \}/,
+    'the question shows the page\'s text uncleaned (direction controls can spoof it)');
+  assert.doesNotMatch(SRC, /mayDownload\(file: url\.lastPathComponent\)/, 'the question names the route ("download", an attachment id), not the file');
+  assert.match(body('private func sayPendingDownloadFailures() {'), /if !anyFailure, let page = committedPageURL, summaryToldForPage == page \{/,
+    'a real failure is dropped once a page has had its summary');
+  assert.match(SRC, /private var savesByHost: \[String: Int\] = \[:\]/);
+  assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /savesByHost = \[:\]/);
 });

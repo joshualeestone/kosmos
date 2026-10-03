@@ -389,12 +389,26 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   commits again (every later refusal went silent). Round 22's "said on each later click" is withdrawn.
   Would change my mind: a person reporting a click with no message after the first summary.
 - A page saves at most 50 files per load (savesPerPageCap); past it, refused and said (live row with
-  the cap at 1).
+  the cap at 1). (Round 35: per Kosmos+ computer for the run instead.)
 - The per-computer question names the file.
 - Over Kosmos+, a .html download is saved only when sent as an attachment (the board's attachments
   are; a signed-out computer's sign-in page is not).
 - The selftest clears the old page's ready mark before each load, so no click lands on the old page
   (it made the save count look wrong).
+
+## Review round 35 changes
+- The question names the file the page asked for (#5165's ?name=, or the response's suggested name),
+  cleaned like a saved name; it showed the route's last part ("download", an attachment id), which a
+  page also controls.
+- A summary that includes a real failure is always said: the once-per-page summary limit is for
+  refusals only (a failure on the board, a page that never commits again, went silent after its
+  first summary).
+- The save cap is per Kosmos+ computer for the run (50), reset only by the person's View > Reload; a
+  page reloading itself reset the old per-load count. This computer's own board has no cap.
+- A web page sent as an attachment is saved whatever its name; otherwise only a .html off Kosmos+.
+- Timing re-measured: a passing live selftest ~55s; a run where nothing saves 146s. Watchdog 300s,
+  gate alarm 360s. The settle waits for the ten messages the arms say (the eleventh comes from the
+  rows' own direct questions).
 
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
