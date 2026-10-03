@@ -104,8 +104,8 @@ function chk(ok, label, extra) {
     // repaint, a 60-agent fleet (big enough that the chart is fitted to its width, and so its height follows it),
     // and the band of window heights around where the pane starts to scroll at 1280 (where its scrollbar came and went).
     // Measured 2026-10-02 with this check's own sweep widened to 840..1000 by 8: before #5018 the pane scrolled up to 928
-    // and not from 936 (the old band, 920..940, straddled that); with #5018 (the header's notices float below it
-    // instead of growing it) it scrolls up to 912 and not from 920. The band is that start with room either side, and
+    // and not from 936 (the old band, 920..940, straddled that); with #5018 applied it scrolls up to 912 and not from
+    // 920 (what in #5018 moved it was not isolated). The band is that start with room either side, and
     // the G3b precondition below fails if the start ever leaves it.
     // One fresh page per height, each loaded at that size, of web/index.html itself (file://, as render-agent-sort-4428
     // and others do): a served board opens its Getting started project by itself and takes the chart off screen.

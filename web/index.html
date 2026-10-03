@@ -1233,6 +1233,9 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
   display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content;
   max-width: min(460px, 100%); pointer-events: none; }
 .apphead .topnotes > div > * { pointer-events: auto; }   /* a notice goes in a slot div, never straight in #topnotes */
+/* The Allow card (#567) sits right under the header and is a security decision (the device and the code to compare):
+   a floating notice must never paint over it, so it moves down by the stack's height (0 with no notice). */
+#askcard { margin-top: calc(10px + var(--topnotes-h, 0px)); }
 /* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
    page, where the sticky project rail (z-index 4) comes later and would paint over it. Above the rail, below the
    reaction picker (20) and the header menus (40). */

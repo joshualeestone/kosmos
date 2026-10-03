@@ -25,8 +25,9 @@ Agents pane's scroll start, so it still tests the repaint loop it was written fo
   (`--apphead-h`), assuming a notice grows the header. With notices floating, a notice covered the first pills.
   `#s-nav` now also adds `--topnotes-h` (the floating stack's height, 0 with none), and the snav-loose fit test adds
   the stack's height and observes it. The #4979 comments that said notices grow the header now say they float.
-- `docs/browser-checks/render-snav-head-4979.js`: a floating-notice arm (a 460x90 notice in #login-adv-slot, 900x700,
-  scrolled halfway): every pill below the stack, and the first pill takes the click (hit-test), both engines.
+- `docs/browser-checks/render-snav-head-4979.js`: a floating-notice arm (a 460x90 stand-in in its own slot in
+  #topnotes, since every status poll empties #login-adv-slot; 900x700, tab view, scrolled halfway): every pill below
+  the stack, the first pill takes the click (hit-test), and the Allow card below the stack; both engines. README row.
 
 ## Validation (2026-10-02, this branch, headless, one light queue turn each)
 - render-gutter-return-4506: all G3/G3b pass, the precondition included, at band 904..924 and again at 900..932.
@@ -41,5 +42,10 @@ Agents pane's scroll start, so it still tests the repaint loop it was written fo
   navigation, taking no header room), and the measured shift is the expected result of it.
 - Rejected: a self-calibrating sweep (search for the scroll start first). More machinery; the fixed band with a
   precondition that proves it straddles the start fails loudly the next time the layout moves, which is what it did.
+- Accepted cover (review 3): in the consolidated view the header does not stick and Settings is its own scroll box
+  under it, so a floating notice sits over the top strip of that panel (and its nav at the top). That is #5018's ruled
+  design: notices float over the page and close with an X. Not covered in either view: the Allow card (#askcard, a
+  security decision), which now moves down by the stack's height (`margin-top: calc(10px + var(--topnotes-h))`),
+  asserted in the floating-notice arm.
 - Weakest premise: that 900..932 keeps a margin on both sides of the start in CI's browser (Chromium, same version
   pin as here); the precondition will say so if not.
