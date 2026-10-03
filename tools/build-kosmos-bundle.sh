@@ -643,6 +643,9 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   _dl_out="$(perl -e 'alarm 240; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-download-selftest 2>&1)" || _dl_rc=$?
   printf '%s\n' "$_dl_out" | sed 's/^/    /'
   case "$_dl_out" in
+    *"download selftest PAGE NEVER LOADED"*)
+      echo "the #5167 download gate's probe page never loaded. Every page load passes this app's download response policy, so this can be the product, not only the gate. Look at the output above." >&2
+      exit 1 ;;
     *"download selftest TIMED OUT"*)
       echo "the #5167 download gate did not finish (exit $_dl_rc). It could not judge downloads either way, so this is NOT a verdict on the product. Look at the output above before assuming either." >&2
       exit 1 ;;

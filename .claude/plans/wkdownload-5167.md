@@ -309,6 +309,19 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   an unshowable file, so a refusal cannot be the cancel those paths see. The one quiet window for
   all causes (round 12) and the reserved-name copy's drift (round 16) stand.
 
+## Review round 27 changes
+- A failure of an accepted download that arrives while a download alert is up is counted and
+  logged, not opened as another modal: a page looping failing downloads (the board, or a Kosmos+
+  computer the person allowed) cannot stack alerts the person cannot get out of. The count is said
+  as one alert ("N more downloads could not be saved") the quiet window's length after the open one
+  is dismissed. Pinned from source only: the selftest's presenter never holds an alert open.
+- The per-computer answer applies only if the page that asked is still on screen (a switch to
+  connect clears it).
+- "The probe page never loaded" is its own gate arm and says it can be this app's response policy
+  (every page load passes it), not only the gate.
+- Noted: each selftest run adds about 7 rows (agent "Kosmos", no addresses) to the build machine's
+  LaunchServices quarantine history. Accepted: nothing sensitive, and it is what a real download does.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers

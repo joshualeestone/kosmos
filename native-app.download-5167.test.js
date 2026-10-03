@@ -201,7 +201,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
 
 test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a sheet; the refusal names its cause', () => {
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
-  assert.match(tell, /quiet: Bool = false\) \{\n[^\n]*\n[^\n]*\n\s+if quiet \{/, 'a real save failure can be swallowed by the quiet window');
+  assert.match(tell, /quiet: Bool = false\) \{\n[\s\S]*?\n\s+if quiet \{\n\s+let sheetUp/, 'a real save failure can be swallowed by the quiet window');
   assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 5, 'the quiet window covers something other than the five refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show, a download WebKit stopped, a computer already refused)');
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
   assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame != false \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
@@ -292,7 +292,7 @@ test('#5167 review 20: a 204 or 205 says nothing; an alert on screen holds back 
 
 test('#5167 review 21: the per-computer question is modal (a dropped sheet would leave downloads waiting for good); every download sheet holds back the quiet ones', () => {
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
-  assert.match(may, /let yes = alert\.runModal\(\) == \.alertFirstButtonReturn/);
+  assert.match(may, /let asked = alert\.runModal\(\) == \.alertFirstButtonReturn/);
   assert.doesNotMatch(may, /beginSheetModal/, 'the question is a sheet, whose completion may never come');
   assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /downloadAlertsUp \+= 1   \/\/ any download alert/,
     'only quiet sheets hold back the quiet ones, so two can stack');
@@ -309,7 +309,7 @@ test('#5167 review 22: every download alert is modal (a sheet over a sheet can b
 test('#5167 review 23: Return never grants downloads; the question holds back quiet alerts; the committed page moves only at a commit', () => {
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
   assert.match(may, /allow\.keyEquivalent = ""\n\s+refuse\.keyEquivalent = "\\r"/, 'Return (a keypress meant for the composer) answers Allow');
-  assert.match(may, /downloadAlertsUp \+= 1[^\n]*\n\s+let yes = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+wake\.invalidate\(\)\n\s+downloadAlertsUp -= 1/,
+  assert.match(may, /downloadAlertsUp \+= 1[^\n]*\n\s+let asked = alert\.runModal\(\) == \.alertFirstButtonReturn\n\s+wake\.invalidate\(\)\n\s+downloadAlertsUp -= 1/,
     'a quiet refusal can open over the question');
   assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'), /\.path\.lowercased\(\)/,
     'Report.pdf and report.pdf at once collide on a case-insensitive Downloads');
@@ -325,4 +325,18 @@ test('#5167 review 25: Allow cannot be clicked in the first second (the page tim
 test('#5167 review 26: the "already said" record is weak, so a later download at a reused address never inherits it', () => {
   assert.match(SRC, /private let downloadsTold = NSHashTable<WKDownload>\.weakObjects\(\)/);
   assert.doesNotMatch(SRC, /downloadsTold[^\n]*ObjectIdentifier/);
+});
+
+test('#5167 review 27: failures during an alert are counted and said together later, never stacked; the answer is only for the page that asked', () => {
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
+  assert.match(tell, /if !quiet && downloadAlertsUp > 0 \{\n[\s\S]*?pendingDownloadFailures \+= 1\n[^\n]*\n\s+return\n\s+\}/,
+    'a failure that arrives while an alert is up opens another, so a looping page can stack them');
+  assert.match(tell, /asyncAfter\(deadline: \.now\(\) \+ AppDelegate\.downloadQuietSeconds\) \{ \[weak self\] in\n\s+self\?\.sayPendingDownloadFailures\(\)/,
+    'counted failures are never said, or are said the instant the alert closes');
+  assert.match(body('private func sayPendingDownloadFailures() {'), /guard pendingDownloadFailures > 0, downloadAlertsUp == 0 else \{ return \}/);
+  assert.match(body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {'),
+    /answer\(asked && committedPageURL\?\.host\?\.lowercased\(\) == host\)/, 'an answer outlives a switch to another page');
+  const gate = BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest'));
+  assert.ok(gate.indexOf('*"download selftest PAGE NEVER LOADED"*') < gate.indexOf('*"download selftest TIMED OUT"*'),
+    'a page that never loads (possibly the response policy itself) is read as the gate timing out');
 });
