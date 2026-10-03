@@ -4,8 +4,9 @@ Card: kosmos#5140 (day-one, Splinter 2026-10-03 06:57). Rides 0.7.22.
 
 ## What finished looks like
 On an empty board (no agents) at phone width, with a floating notice showing (the update notice, the one an empty
-board can really get), New agent is fully clear of the notice and takes the click. With agents, at desktop width, or
-with no notice, nothing moves.
+board can really get), New agent is fully clear of the notice and takes the click. On a board that shows agents, at
+desktop width, or with no notice, nothing moves (a sign-in / offline / cannot-read box also counts as empty: the row
+moves only above that one box).
 
 ## Measured before the fix (main bfe941d2f, headless, the update check's own empty board, welcome completed)
 New agent [24,113,94,58], update notice [65,86,245,32]: they overlap (the notice's bottom 118 is below New agent's top
@@ -28,6 +29,11 @@ where New agent is not shown, so it could not fail.
 - Weakest premise: that `#grid > .pj-empty` is the empty-board signal in every empty state. boardEmpty() also returns
   signed-out / offline / cannot-read blocks; whether each uses .pj-empty is not checked here (if one does not, that
   state keeps today's behaviour, not a worse one).
+
+## Review 1 (opus, CLEAN) NITs taken
+- The Kosmos+ phone's own 16px is kept as the floor (`max(16px, --topnotes-clear)`), so no move there without a notice.
+- The arm's CONTROL also requires the empty state (`#grid > .pj-empty`), and it measures once `--topnotes-clear` is set.
+- Plan wording: the failure boxes count as empty.
 
 ## Validation
 - The new arm: RED on main (overlap true), GREEN with the fix (New agent at y 145, clear of the notice's bottom 118).
