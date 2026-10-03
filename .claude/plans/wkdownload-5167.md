@@ -14,7 +14,7 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
 - Destination: ~/Downloads, safe unique name; quarantine mark with this app's agent name and no
   addresses; a file that
   cannot be marked is kept and the person is told.
-- Measured live: `--kosmos-app-download-selftest`, 23 rows, run at bundle build (loud skip without
+- Measured live: `--kosmos-app-download-selftest`, 24 rows, run at bundle build (loud skip without
   a console). Pure rules: `--kosmos-app-mode-selftest`, 86 rows.
 - Known and filed: on a computer that runs agents, a plain link or a refused cross-origin redirect
   still navigates the window (#5169).
@@ -380,6 +380,22 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - One summary waits at a time (schedulePendingSay), not one timer per refusal.
 - The "sign in again" hint appears only on a Kosmos+ page.
 
+## Review round 34 changes, and the alert-noise rule DECIDED
+- The rule, settled after rounds 12 to 34 went back and forth between "never silent" and "never
+  trapping": each refusal (by its words) is said once per page load; a repeat of it is counted into
+  that page's one summary; anything past that is logged. View > Reload (or a new page) starts over.
+  So a different refusal is always heard, and a looping page produces at most one alert per cause
+  plus one summary. Round 33's once-per-page rule was wrong for the board, a single page that never
+  commits again (every later refusal went silent). Round 22's "said on each later click" is withdrawn.
+  Would change my mind: a person reporting a click with no message after the first summary.
+- A page saves at most 50 files per load (savesPerPageCap); past it, refused and said (live row with
+  the cap at 1).
+- The per-computer question names the file.
+- Over Kosmos+, a .html download is saved only when sent as an attachment (the board's attachments
+  are; a signed-out computer's sign-in page is not).
+- The selftest clears the old page's ready mark before each load, so no click lands on the old page
+  (it made the save count look wrong).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
@@ -388,6 +404,6 @@ live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunn
 ## Tests (current)
 - Pure functions: `--kosmos-app-mode-selftest`, 86 rows in all (the #5167 ones: same-origin, board
   page, destination name).
-- Live: 23 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
+- Live: 24 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
 - Wiring: `native-app.download-5167.test.js`.
