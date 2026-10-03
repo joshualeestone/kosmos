@@ -658,6 +658,7 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
       echo "the native app does not save a download the page asks for, or saves one it must not (#5167). Its own rows are above." >&2
       exit 1 ;;
     *)
+      [ "$_dl_rc" -eq 142 ] && { echo "the #5167 download gate was stopped by the build's own alarm (360s): it timed out, so it could not judge downloads either way." >&2; exit 1; }
       echo "the #5167 download gate did not finish (exit $_dl_rc): a crash, a missing binary, a drifted hatch flag, or no local listener. It printed no verdict, so it could not judge downloads." >&2
       exit 1 ;;
   esac
