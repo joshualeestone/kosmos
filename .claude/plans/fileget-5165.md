@@ -15,8 +15,18 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   never past that size (a file still being written cannot overrun content-length). A read that ends SHORT (the file
   shrank) destroys the response, a reset, rather than ending it short. Rejected: strictContentLength (review 4): its
   mismatch throws inside an event handler, and server.js has no uncaughtException handler, so a shrinking file
-  could take the board down. Off Windows the identity is dev and inode; on Windows inode only, and a zero inode is
-  not compared, because a mapped or network drive's handle answers are unmeasured. `pipeline` closes it on a cancel.
+  could take the board down. `pipeline` closes the descriptor on a cancel.
+- The same-file decision is `projects.sameOpenedFile` (pure, so the win32 test drives it): with inodes on both sides,
+  the same inode and, off Windows, the same device; where a file system reports no inode (FAT, exFAT, some network
+  drives answer 0; Splinter 13:18, from Baron's review), the same size and modification time, and creation time
+  when both report one. Weaker than an inode, so after opening the route also runs the gates on the name again and
+  requires the same resolved place.
+- A refused DOWNLOAD NAVIGATION (the anchor, Sec-Fetch-Mode: navigate) is answered 204 with no body, so no browser
+  saves a JSON refusal as `gone.pptx` (review 5: WebKit decides on a download at the click). The page's look
+  (?check=1) still gets the sentence. Weakest premise: that the relay forwards Sec-Fetch-Mode; if it does not, the
+  refusal is a 404 JSON again, which Chromium shows as a failed download and WebKit may save.
+- Content-Disposition carries an ASCII `filename=` (control characters, quotes and backslashes made `_`) before the
+  exact RFC 5987 `filename*` (Baron).
 - Only the latest download asked through a message line may write a refusal to it (KPLUS_LATEST), so a slow look
   for an earlier click cannot land under a later one.
 - The PATHS and the refusal shape (404 `{ ok: false, because }`) are April's from #4997 (PR #5119, after Monday),
@@ -42,16 +52,22 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   in the browser's downloads, beside the sentence.
 - Every message line is written only while the person is still on the same project or agent (kplusSayer).
 - Open Terminal over Kosmos+ (it opens a Terminal window on the board's computer) says where it opens and asks
-  nothing (review iteration 1 found it).
+  nothing (review iteration 1 found it). So do the sleep and Accessibility settings buttons (review 5): they open
+  System Settings on the board's computer, the same class as a folder button.
 - Folder buttons over Kosmos+ (project folder from Documents and settings, an agent's Files folder, the two
   conversations folders, the Kosmos folder from Settings and the update offer) ask the board for nothing and say
   "That folder is on the computer Kosmos runs on, not on this device, so it opens only there."
   Rejected: zipping a folder for download (new, large, and not asked for); hiding the buttons (a button that
   vanishes over Kosmos+ is a second layout to keep right; the sentence says why).
-- Not changed: the attachment preview's reveal (already Download over Kosmos+, #4930); the sleep and accessibility
-  settings buttons (setup steps at the computer, not files).
+- Not changed: the attachment preview's reveal (already Download over Kosmos+, #4930).
+- Known limit, not refused: a HARD LINK inside a folder to a file outside it downloads (realpath cannot see one).
+  Only the same user can make one, and an agent that could make one can already copy the same file into its Files,
+  so refusing nlink > 1 would buy nothing and would refuse legitimate files (Baron, NIT).
 
 ## Not covered, filed separately
+- The iOS app has the same gap as the Mac app below (review 5): ios/Kosmos/ContentView.swift loads the board from a
+  Kosmos+ address in a WKWebView with no download handling, so a tap most likely does nothing (no worse than before,
+  when it opened on the host). Added to #5167.
 - The Mac app in connect mode loads the board from a Kosmos+ address, so kplusRemote() is true there too, and its
   WKWebView has no download handling (native-app/main.swift: no WKDownload, no .download policy). A download link
   there most likely does nothing. #4930's attachment Download has the same gap. It is Swift and needs an app build,

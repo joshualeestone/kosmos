@@ -1630,6 +1630,27 @@ function fileInFolder(folder, name, where = 'this project') {
 }
 
 /**
+ * #5165: is the file a download just OPENED (`opened`, from fstat on the descriptor) the one `fileInFolder` passed
+ * (`gated`, from its stat)? What stops a file swapped in between the gates and the open, so it must hold where a
+ * file system reports no inode: Windows FAT and exFAT, and some network drives, answer 0.
+ *   - both inodes reported: the same inode, and off Windows the same device (Windows answers the device from the
+ *     volume, which a mapped drive can report differently through a path and through a handle; unmeasured);
+ *   - an inode missing on either side: the same size and the same modification time, and the same creation time
+ *     when both report one. Weaker than an inode (a same-size file written in the same tick passes), so the
+ *     download route also resolves the name again after opening it.
+ */
+function sameOpenedFile(gated, opened, platform = process.platform) {
+  if (!gated || !opened || typeof opened.isFile !== 'function' || !opened.isFile()) return false;
+  if (Number(gated.ino) !== 0 && Number(opened.ino) !== 0) {
+    if (gated.ino !== opened.ino) return false;
+    return platform === 'win32' || gated.dev === opened.dev;
+  }
+  if (gated.size !== opened.size || gated.mtimeMs !== opened.mtimeMs) return false;
+  if (gated.birthtimeMs && opened.birthtimeMs && gated.birthtimeMs !== opened.birthtimeMs) return false;
+  return true;
+}
+
+/**
  * Open ONE file from a folder with the system opener, once it passes `fileInFolder`.
  *
  * 🛑 THIS IS THE MOST DANGEROUS PRIMITIVE IN THIS MODULE: `open` will happily launch an
@@ -3389,6 +3410,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, fileInFolder,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, fileInFolder, sameOpenedFile,
   isUnderTmpDir, tmpFolderRefused,
 };

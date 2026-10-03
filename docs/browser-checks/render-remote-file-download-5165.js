@@ -10,7 +10,8 @@
  *       that file from its download route (a navigation, not the page's own look at it), and nothing is POSTed;
  *   R2  over Kosmos+ every button that would open a window on the board's computer (the project's folder from
  *       Documents and from project settings, an agent's Files folder, the conversations folders, the Kosmos folder
- *       from Settings and from the update offer, and an agent's Terminal) POSTs nothing and says where it opens;
+ *       from Settings and from the update offer, an agent's Terminal, and the Accessibility settings) POSTs nothing
+ *       and says where it opens;
  *   R3  over Kosmos+ a file the board refuses (gone since the list was drawn) is SAID under the list, in the board's
  *       own sentence, rather than left to the browser's downloads;
  *   L1  CONTROL at the computer (127.0.0.1): every file surface above still POSTs open and downloads nothing, and
@@ -42,7 +43,8 @@ const PROJECT = 'p5165';
 const AGENT = 'ana';
 const DECK = 'out/Q3 deck.pptx';
 const FOLDER_SENTENCE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
-const TERMINAL_SENTENCE = 'The Terminal window opens on the computer Kosmos runs on, not on this device, so it opens only there.';
+const TERMINAL_SENTENCE = 'The Terminal window opens on the computer Kosmos runs on, not on this device.';
+const SETTINGS_SENTENCE = 'Those settings open on the computer Kosmos runs on, not on this device.';
 const GONE = 'gone.pptx';
 const GONE_SAID = 'That file is not there any more, or it was moved.';
 
@@ -70,6 +72,8 @@ async function openPage(engine, origin, platform) {
          the page's look at the same address is a fetch and keeps its method, so R1 cannot pass on the look alone. If an
          engine reported the anchor otherwise, R1 would go RED, not pass falsely. */
       asked.push((req.isNavigationRequest() ? 'DOWNLOAD' : req.method()) + ' ' + u.pathname + u.search);
+      // As the route does: a refused download NAVIGATION is 204 (nothing to save); the page's look gets the sentence.
+      if (u.searchParams.get('name') === GONE && req.isNavigationRequest()) return route.fulfill({ status: 204, body: '' });
       if (u.searchParams.get('name') === GONE) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'that file is not there any more, or it was moved' }) });
       // As the route does: the page's look (?check=1) is 204 with no body; only the download carries the file.
       if (u.searchParams.get('check') === '1') return route.fulfill({ status: 204, body: '' });
@@ -179,6 +183,7 @@ const BUTTONS = [
       ['the Kosmos folder from Settings', 'set-reveal', 'set-reveal-msg', FOLDER_SENTENCE],
       ['the Kosmos folder from the update offer', 'upd-open-folder', 'upd-open-folder-msg', FOLDER_SENTENCE],
       ['an agent\u2019s Terminal', 'd-open-terminal', 'd-open-terminal-msg', TERMINAL_SENTENCE],
+      ['the Accessibility settings', 'set-a11y-open', 'set-machine-msg', SETTINGS_SENTENCE],
 ];
 const ROWS = [
       ['project rail', 'pj-docs', DECK, 'pj-doc', 'DOWNLOAD /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file', 'pj-docs-msg'],

@@ -15,6 +15,10 @@
  *   W3  the gate itself asks neither File Explorer nor /usr/bin/open for anything;
  *   W4  at the computer, openFile on a Windows board still hands the same file to File Explorer
  *       (needs a real Windows path, so the Windows runner only).
+ *   W6  sameOpenedFile, what refuses a file swapped in between the gates and the open, still refuses
+ *       one where the file system reports no inode (FAT, exFAT, some network drives answer 0): it falls
+ *       back to size and modification time, and to creation time when both report one. Then the same
+ *       question against the REAL file system this runs on (a real Windows volume on the runner).
  *
  *   node --test engine/projects.download.win32-5165.test.js
  */
@@ -105,4 +109,35 @@ test('W4: at the computer, opening the same file on a Windows board still goes t
     assert.equal(explorerCalls.length, 1, 'File Explorer was not asked to open it');
     assert.equal(openCalls.length, 0, '/usr/bin/open was asked on a Windows board');
   });
+});
+
+test('W6: sameOpenedFile refuses a swap where the file system reports no inode, and holds where it does', () => {
+  const stat = (o) => ({ isFile: () => true, ino: 0, dev: 0, size: 10, mtimeMs: 1000, birthtimeMs: 500, ...o });
+  const g = stat({});
+  assert.equal(projects.sameOpenedFile(g, stat({}), 'win32'), true, 'the same file with no inode was refused');
+  assert.equal(projects.sameOpenedFile(g, stat({ size: 11 }), 'win32'), false, 'a different size passed with no inode');
+  assert.equal(projects.sameOpenedFile(g, stat({ mtimeMs: 1001 }), 'win32'), false, 'a different modified time passed with no inode');
+  assert.equal(projects.sameOpenedFile(g, stat({ birthtimeMs: 501 }), 'win32'), false, 'a different creation time passed with no inode');
+  assert.equal(projects.sameOpenedFile(g, stat({ birthtimeMs: 0 }), 'win32'), true, 'a missing creation time on one side refused the same file');
+  assert.equal(projects.sameOpenedFile(g, stat({ ino: 77 }), 'win32'), true, 'one side without an inode must fall back, not refuse');
+  assert.equal(projects.sameOpenedFile(stat({ ino: 5 }), stat({ ino: 6 }), 'win32'), false, 'different inodes passed');
+  assert.equal(projects.sameOpenedFile(stat({ ino: 5, dev: 1 }), stat({ ino: 5, dev: 2 }), 'win32'), true, 'Windows compares no device');
+  assert.equal(projects.sameOpenedFile(stat({ ino: 5, dev: 1 }), stat({ ino: 5, dev: 2 }), 'darwin'), false, 'off Windows a different device passed');
+  assert.equal(projects.sameOpenedFile(g, { ...stat({}), isFile: () => false }, 'win32'), false, 'a folder passed');
+  assert.equal(projects.sameOpenedFile(g, null, 'win32'), false);
+
+  const folder = deckFolder();
+  const real = path.join(folder, 'decks', 'Q3 deck.pptx');
+  const fd = fs.openSync(real, 'r');
+  try {
+    const found = projects.fileInFolder(folder, 'decks/Q3 deck.pptx');
+    assert.equal(projects.sameOpenedFile(found.st, fs.fstatSync(fd)), true, 'the real file, stat by path and by handle, read as different files');
+  } finally { fs.closeSync(fd); }
+  const other = path.join(folder, 'decks', 'other.pptx');
+  fs.writeFileSync(other, Buffer.alloc(DECK.length + 3));
+  const fd2 = fs.openSync(other, 'r');
+  try {
+    const found = projects.fileInFolder(folder, 'decks/Q3 deck.pptx');
+    assert.equal(projects.sameOpenedFile(found.st, fs.fstatSync(fd2)), false, 'CONTROL: a different real file read as the same one');
+  } finally { fs.closeSync(fd2); }
 });
