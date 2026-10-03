@@ -259,6 +259,10 @@ function chk(ok, label, extra) {
           const tag = `${engineName} consolidated view ${width}px mac`;
           await page.goto(URL + '/?tab=projects');
           await page.waitForSelector('#userpop-settings', { state: 'attached', timeout: 20000 });
+          /* #5018: the Settings link opens in place only once the layout is applied (userpopSettingsGo keys on
+             body.consolidated); clicked before that, on a slow CI runner, it took the tab-view path and the pills
+             never showed. Wait for the same class the handler reads, so the click always means the consolidated one. */
+          await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 20000 });
           await page.evaluate(() => document.getElementById('userpop-settings').click());
           await page.waitForSelector('#s-nav button[data-go="mac"]', { state: 'visible', timeout: 20000 });
           await page.evaluate(() => document.querySelector('#s-nav button[data-go="mac"]').click());
