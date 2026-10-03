@@ -510,6 +510,22 @@ test('#5161: a task added and closed since the last ask lets the project be aske
   } finally { w.restore(); }
 });
 
+test('#5161: the person closing a webhook task that was waiting for them lets the project be asked again', () => {
+  const w = world([{ name: 'ghookclose' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const hook = tasks.create(w.pid, { sentence: 'from a webhook', made: { via: 'webhook', by: 'Webhook 1' } });
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1, 'a waiting webhook task blocked the first ask');
+    const later = T0 + a.IDLE_MS + a.GOAL_ASK_MS + 60000;
+    const same = goalTick(w, asked.out.next, later);
+    assert.equal(same.calls.asks.length, 0, 'asked again with the webhook task still waiting and nothing changed');
+    tasks.close(w.pid, hook.number);
+    const closed = goalTick(w, same.out.next, later + 60000);
+    assert.equal(closed.calls.asks.length, 1, 'closing the waiting webhook task did not let the project be asked again');
+  } finally { w.restore(); }
+});
+
 test('#5161: the ask memory survives a restart (saveMemory then loadMemory); control: an empty memory asks again', () => {
   const w = world([{ name: 'grestart' }]);
   try {
