@@ -139,7 +139,7 @@ async function scanCodex(acc, codexHomes) {
          the baseline, not usage (review 1; no fork exists on this fleet to measure, so this is from Codex's design: the
          cost is the first turn after a fork going uncounted, rather than the whole parent counted twice). */
       let forked = false;
-      let forkAt = NaN;   // when the fork was made: a replayed total is stamped before it
+      let forkAt = NaN;   // when the fork was made: a replayed total is stamped at or before it
       for (const line of text.split('\n')) {
         if (!line) continue;
         let r;
