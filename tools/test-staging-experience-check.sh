@@ -66,7 +66,7 @@ fake_gate() {   # $1 board version ("" = none reported), $2 expected ("" = unset
   printf '%s\n%s\n' "$rc" "$out"
 }
 r="$(fake_gate 0.7.18 0.7.19)"
-[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"runs 0.7.18, not 0.7.19"*"another release"*"KOSMOS_GATE_EXPECT_VERSION=0.7.19 bash tools/staging-experience-check.sh"*) true;; *) false;; esac \
+[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"runs 0.7.18, not 0.7.19"*"another release"*"KOSMOS_GATE_EXPECT_VERSION=0.7.19 bash $HERE/staging-experience-check.sh"*) true;; *) false;; esac \
   && pass "#5084: a board on the previous release is cannot-tell (exit 2) and says which version it runs" || bad "#5084 previous-release board: $r"
 r="$(fake_gate "" 0.7.19)"
 [ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"could not read which version"*"HTTP 404, a board older than this route"*) true;; *) false;; esac \
