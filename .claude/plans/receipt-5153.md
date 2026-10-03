@@ -78,3 +78,7 @@ in this time", never a zero presented as fact.
 - NITs taken: a read that keeps failing is asked for again only after 30 seconds, not every poll (test drives a fake
   clock: too soon, then after the wait); the poll key uses the newest part's close time for a task closed through its
   parts (test: closed, put back and closed again by its part repaints).
+
+## Review 5 (sonnet): CLEAN (no BLOCKER, no WARNING)
+- NITs not taken: the failed-read wait is kept for one task at a time (a task page shows one task); the screenshot
+  screen's route is not removed after it (each screen gets a fresh page).
