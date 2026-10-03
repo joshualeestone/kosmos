@@ -4548,6 +4548,10 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset {
 @media (max-width: 40rem) {
   body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; grid-row: 2; justify-self: start; }
 }
+/* #5070 round 3: the ancestry chip on a top-level (orphan) row had no Roadmap placement, so the new empty track 2
+   pulled it onto the name's line, where an auto track takes its full nowrap width first and squeezes the name.
+   It stays in the name's column, on the next line, as it was before the fourth track. */
+body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-parent { grid-column: 1; }
 
 /* The fold caret, shown for any parent row (the base `#pj-list .pjtreefold`
    display:none is out-specified here). Absolute in the reserved gutter so leaves and

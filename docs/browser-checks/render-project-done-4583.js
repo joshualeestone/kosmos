@@ -135,7 +135,8 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
     // data). Desktop and phone; the injected cells must sit on the name's line, or the arm would test nothing.
     const layoutBefore = await p.evaluate(() => (document.getElementById('pj-list').classList.contains('asgrid') ? 'grid' : 'roadmap'));
     await p.evaluate(() => layoutApply('projects', 'roadmap'));
-    for (const vw of [1400, 390]) {
+    // 660 is the tightest desktop case (the narrowest width that still keeps the tag on the name's line).
+    for (const vw of [1400, 660, 390]) {
       await p.setViewportSize({ width: vw, height: 900 });
       await p.waitForTimeout(200);
       const m = await p.evaluate(() => {
@@ -151,21 +152,41 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
         // The pill as pjPillOf draws Working: its three-dot glyph, then the label (round 2: without the glyph it was ~20 px narrow).
         if (!row.querySelector('.pjpill')) { const s = document.createElement('span'); s.className = 'pjpill'; s.innerHTML = '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>Working'; head.appendChild(s); added.push(s); }
         const full = { tag: box(tag), name: box(name), faces: box(row.querySelector('.pjfaces')), pill: box(row.querySelector('.pjpill')), rowH: Math.round(row.getBoundingClientRect().height) };
+        // Round 3: an orphan row's ancestry chip (projectCard's markup) must not ride onto the name's line through the
+        // empty tag track and squeeze the name.
+        const chip = document.createElement('span'); chip.className = 'pj-parent pj-anc';
+        chip.innerHTML = '<span class="pj-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="pj-anc-t"><span class="vh">In </span>Kosmos<span class="pj-anc-sep" aria-hidden="true"> › </span>Mobile apps and the website</span>';
+        row.appendChild(chip); added.push(chip);
+        const withChip = { chip: box(chip), name: box(name) };
+        // And on a row with NO "Done not set" (the empty track is there on every row): the common orphan case.
+        const other = [...document.querySelectorAll('#pj-list .pj-row')].find((r) => (r.textContent || '').includes('Given Done Project'));
+        let noTag = null;
+        if (other && !other.querySelector('.pj-doneunset')) {
+          const oh = other.querySelector('.pjcard-h') || other;
+          const f2 = document.createElement('span'); f2.className = 'pjfaces'; f2.innerHTML = '<span class="pjcount">3 agents</span>'; oh.appendChild(f2); added.push(f2);
+          const c2 = chip.cloneNode(true); other.appendChild(c2); added.push(c2);
+          noTag = { chip: box(c2), name: box(other.querySelector('.pjname')) };
+        }
+        const phone = window.matchMedia('(max-width: 40rem)').matches;
         for (const el of added) el.remove();
-        return { found: true, roadmap: document.body.classList.contains('pj-roadmap'), added: added.length, plain, full };
+        return { found: true, roadmap: document.body.classList.contains('pj-roadmap'), added: added.length, plain, full, withChip, noTag, phone };
       });
       const onLine = (x) => Math.abs(x.mid - m.full.name.mid) <= 3;
       // Both widths: the injected cells are on the name's line (else the arm tests nothing), the tag keeps its size, and
       // the NAME keeps room to be read (round 2: on a phone the right-hand tracks could squeeze it to nothing).
-      const common = m.found && m.roadmap && m.added === 2 && onLine(m.full.faces) && onLine(m.full.pill)
+      const common = m.found && m.roadmap && m.added === 5 && onLine(m.full.faces) && onLine(m.full.pill)
         && m.full.tag.w === m.plain.tag.w && m.full.tag.w < 200 && m.full.name.w >= 60;
       // Desktop: on the name's line, directly left of the count (one 12 px gap), the row still one line.
       // Phone: under the name, at the name's left edge.
-      const placed = vw > 640
+      const placed = !m.phone
         ? onLine(m.full.tag) && Math.abs((m.full.faces.l - m.full.tag.r) - 12) <= 1 && m.full.rowH === m.plain.rowH
         : Math.abs(m.full.tag.l - m.full.name.l) <= 2 && m.full.tag.mid > m.full.name.mid + 8;
       ok(`#5070 roadmap @${vw}: with an agent count and a status, "Done not set" keeps its size and its place, and the name keeps room`,
         common && placed, JSON.stringify(m));
+      ok(`#5070 roadmap @${vw}: an orphan row's ancestry chip stays off the name's line and the name keeps room`,
+        m.found && m.withChip.chip.mid > m.withChip.name.mid + 8 && m.withChip.name.w >= 60, JSON.stringify(m.withChip));
+      ok(`#5070 roadmap @${vw}: on a row with no "Done not set", the orphan chip stays off the name's line too`,
+        m.found && m.noTag && m.noTag.chip.mid > m.noTag.name.mid + 8 && m.noTag.name.w >= 60, JSON.stringify(m.noTag));
     }
     await p.setViewportSize({ width: 1400, height: 900 });
     await p.evaluate((l) => layoutApply('projects', l), layoutBefore);
