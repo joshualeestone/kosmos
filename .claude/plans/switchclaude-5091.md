@@ -102,4 +102,11 @@ account and need a second restart.
   promised the main account; the remedy line shows under the menu when Claude is chosen, and Switch refuses before the
   dialog. NIT1: the sentence no longer claims "the main one is signed out". NIT2: the route says "your main Claude account"
   when the main is the one used.
-- Round 8: PENDING.
+- Round 8 (sonnet, blind): 0 BLOCKER, 0 SHOULD-FIX, 2 NIT. CONVERGED (23:46). Confirmed: claudeNoTarget cannot refuse on an
+  unloaded or unreadable list (all three paths require ACCOUNTS_LOADED); an unknown provider string maps to 'anthropic' and
+  can only add a target; the early click refusal leaves the button and menu untouched. Not taken: a main account signed in
+  by ANTHROPIC_API_KEY alone has no oauthAccount and is not listed, so the page refuses (the remedy, "sign in to Claude",
+  is accurate for that person; the engine still accepts a no-pick switch); the cached list is re-read only when empty (the
+  existing staleness model, shared with OpenAI's refusal).
+  Final measured state at e6d1c1df8: engine 8/8; browser check all arms green on the branch (main fails every substantive
+  arm); guards 25/25; Mortals full queued at e6d1c1df8.
