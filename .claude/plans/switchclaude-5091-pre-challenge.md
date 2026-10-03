@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchclaude-5091
-diff_hash: 69fe7407a5ef9b7eb63ba3f8f3dcf83300b0675ed434a319ab62ced81a6264a1
+diff_hash: 0128fc8b2b36159aec1c85431ae50086aa0fa34511ca82dcd371b37bd64a697a
 validation: pending (CI full suite gates the merge; the merge watcher merges only when every check passed). Mortals full run ick-5091 is queued at e6d1c1df8 behind about 14 runs and stays queued. Focused at e6d1c1df8: engine/create.switch-claude-5091.test.js 8/8; browser check render-switch-claude-5091 all arms green on the branch (23:45), main fails every substantive arm; source-sweep guards 25/25. Opened before Mortals because Josh hit this live on Mortals 22:10 and the CI suite is a full gate.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-03T04:48:27Z
@@ -44,3 +44,5 @@ converged: true
 - [SHOULD-FIX] no Claude rows meant no refusal --> FIXED (claudeNoTarget counts no rows)
 - [SHOULD-FIX] refusal came after a dialog promising the main --> FIXED (refuses before the dialog)
 #### Round 8 (sonnet): 0 BLOCKER, 0 SHOULD-FIX, 2 NIT, CONVERGED
+
+- 00:11: Windows CI (run 37097779441) red on engine/create.test.js: REFUSE_ACCOUNT count 5 vs 6 sites (my setProvider check). Fixed the count; create.test.js 216/216 locally.
