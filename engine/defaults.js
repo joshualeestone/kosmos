@@ -410,8 +410,10 @@ const BLOCK = [
   '',
   '`kosmos task add <project-id> "<the work, in one line>" "Done when: 1) ... 2) ... 3) ..." --who me`',
   '',
-  'Use the project the work belongs to, from Your projects. The person sees the',
-  'task on that project, and `kosmos task list <project-id>` shows its number.',
+  'Use the project the work belongs to, from Your projects. The one line holds 200',
+  'characters; the checks can be longer. The person sees the task on that project.',
+  '**Right after adding it, run `kosmos task list <project-id>` and note your',
+  "task's number:** you need it to mark the task built.",
   '',
   '**If the work came to you as a task already, do not add another.** Put the',
   'checks on that one:',
@@ -882,8 +884,12 @@ function block() {
  *     a NEW section, `### Put the work on a task first`: work that takes more than a reply goes on a task before it
  *     starts, with "Done when:" checks, and the built note says how each check went. NEW HEADING, so existing agents
  *     are offered it (missingFrom). MEASURED before merge with claude -p on a test agent built from this block and a
- *     real Your projects section: with it 4/4 filed a task with "Done when:" and reported each check when marking it
- *     built; without it 0/4; small talk 0/2 filed (correct). Claude only, n=4 per arm.
+ *     real Your projects section, a stand-in kosmos logging every call. First wording: 4/4 filed a task with "Done
+ *     when:" and reported each check when marking it built; the v23 block (control) 0/4; small talk 0/2 filed. Review
+ *     then added the existing-task case and where the number comes from; that wording: work requests 11/13 filed and
+ *     marked built (2 onboarding runs did the work without filing; 6 reruns of that request all filed), given a task
+ *     3/3 added none and messaged the checks onto it, small talk 1/1 filed nothing. The final wording (the 200-character
+ *     line, note the number) is re-measured on the PR. Claude only.
  *     WEAKEST PREMISE, NAMED: Codex and Gemini agents were not measured, and nothing yet lets the person edit the
  *     checks (the editable-checks slice waits until after the beta).
  */

@@ -21,6 +21,10 @@ instruction-only, measured before merge; editable checks and a home for no-proje
   - work requests 11/13 filed and marked built (8 onboarding: 6/8; 2 newsletter: 2/2; 3 with an empty task list: 3/3)
   - given as task 3: 3/3 added no task, messaged the checks onto task 3, and marked task 3 built
   - small talk 1/1 filed nothing
+- v3 text (review round 2 added the 200-character line limit and "run kosmos task list right after and note your number"):
+  - work requests 4/4 filed with Done when, ran task list, and marked built
+  - given as task 3: 2/2 added none, messaged the checks, and marked task 3 built
+  - small talk 1/1 filed nothing
 
 ## Steps
 - [x] Section text, measured; rewrapped to the block's width.
