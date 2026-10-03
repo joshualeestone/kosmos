@@ -2746,9 +2746,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            allows it for a Kosmos+ computer (mayDownload). */
         if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-            // The name the page asks for (#5165's ?name=, or the link's own name), shown cleaned like a saved name.
-            let asked = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "name" }?.value
-            mayDownload(file: asked.map { ($0 as NSString).lastPathComponent }) { decisionHandler($0 ? .download : .cancel) }
+            // No name here: the name saved comes from the answer, which a page can make differ from its link.
+            mayDownload(file: nil) { decisionHandler($0 ? .download : .cancel) }
             return
         }
         // A download this app will not save is refused, not loaded in the window instead (from a board page's own
@@ -2904,7 +2903,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         refuse.keyEquivalent = "\r"
         // Allow wakes after a second: the page also decides where the person's pointer is when this appears.
         allow.isEnabled = false
-        let wake = Timer(timeInterval: 1, repeats: false) { _ in allow.isEnabled = true }
+        // Allow wakes only after the question has been the window in front for a whole second: anything that
+        // covers it (the page's own alert(), another download alert) puts Allow back to sleep and restarts the
+        // second, so a click meant for what covered it cannot land on Allow.
+        var frontSince: Date?
+        let wake = Timer(timeInterval: 0.1, repeats: true) { _ in
+            if alert.window.isKeyWindow {
+                let since = frontSince ?? Date()
+                frontSince = since
+                allow.isEnabled = Date().timeIntervalSince(since) >= 1
+            } else {
+                frontSince = nil
+                allow.isEnabled = false
+            }
+        }
         RunLoop.main.add(wake, forMode: .modalPanel)
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
@@ -3098,8 +3110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // A web page where a file was expected: an expired Kosmos+ sign-in answers a download with its
         // sign-in page (200, text/html), which must not be saved under the file's name.
         let namedPage = ["html", "htm"].contains((suggestedFilename as NSString).pathExtension.lowercased())
-        let sentAsAttachment = ((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? "")
-            .lowercased().hasPrefix("attachment")
+        let disposition = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? ""
+        let sentAsAttachment = String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
+            .trimmingCharacters(in: .whitespaces).lowercased() == "attachment"   // the same reading as the response policy
         // A web page sent as an attachment is the file (the board's attachments are); otherwise only a .html
         // off Kosmos+. Over Kosmos+ a signed-out computer answers with its sign-in page, never an attachment.
         let wantsPage = sentAsAttachment || (namedPage && !(committedPageURL.map(isKosmosPlusURL) ?? false))
@@ -3123,7 +3136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if n >= AppDelegate.savesPerComputerCap {
                 logLine("#5167: \(n) files already saved from \(host), so no more until the person reloads")
                 downloadsTold.add(download)
-                tellDownloadFailed("\(host) has already saved \(n) files. Reload the page (View > Reload) to save more.", quiet: true)
+                tellDownloadFailed("\(host) has already saved \(n) \(n == 1 ? "file" : "files"). Reload the page (View > Reload) to save more.", quiet: true)
                 completionHandler(nil)
                 return
             }
@@ -5538,7 +5551,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("pack2.zip") && !leftBoard.contains("foreignzip"), "A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED, and the board stays")
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
-            row(!capSaved && told.contains { $0.contains("has already saved 1 files") }, "PAST THE CAP A KOSMOS+ COMPUTER SAVES NOTHING MORE THIS RUN, and says so")
+            row(!capSaved && told.contains { $0.contains("has already saved 1 file.") }, "PAST THE CAP A KOSMOS+ COMPUTER SAVES NOTHING MORE THIS RUN, and says so")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "cap1.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             row(told.filter { $0.contains("answer was 500") }.count == 1 && told.contains { $0.contains("One more download was not saved") },
                 "TWO FAILURES AT ONCE: the first is said, the second is counted and said as a summary, never dropped")
