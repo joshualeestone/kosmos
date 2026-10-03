@@ -93,7 +93,10 @@ function languageName(tag) {
     // Language plus script, never the region (review 19): zh-Hant is "Traditional Chinese", not "Chinese", since the
     // script decides what the person can read; the region (es-MX) only changes the tag beside the name.
     const loc = new Intl.Locale(tag);
-    const base = loc.script ? `${loc.language}-${loc.script}` : loc.language;
+    // Chinese with no script in the tag (zh-HK, zh-TW, zh-MO, as Apple writes them): infer it, so Hong Kong and Taiwan
+    // read "Traditional Chinese" (review 21). Only for Chinese: maximize() would turn "es" into "Spanish (Latin)".
+    const script = loc.script || (loc.language === 'zh' ? loc.maximize().script : undefined);
+    const base = script ? `${loc.language}-${script}` : loc.language;
     const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(base);
     return name && name !== base ? name : tag;
   } catch { return tag; }
@@ -129,14 +132,14 @@ function applyTo(text, tag) {
   return projects.spliceBlock(str, body, START, END);
 }
 
-/* `str` without the block at `at`, what was before and after it rejoined with one blank line. Only line breaks are
-   trimmed at the seam, so the person's last line before it and first line after it stay exactly as written; the end
-   of the file is left with exactly one final newline. */
+/* `str` without the block at `at`, what was before and after it rejoined with one blank line in the file's own line
+   ending. Only line breaks at the seam are trimmed; everything after the block, its end included, stays as written. */
 function cutOut(str, at) {
+  const eol = str.includes('\r\n') ? '\r\n' : '\n';   // the file's own line ending, as dmfiles.spliceTop keeps it (review 21)
   const before = str.slice(0, at.start).replace(/(\r?\n)+$/, '');
-  const rest = str.slice(at.end).replace(/^(\r?\n)+/, '');
-  const joined = before + (rest ? (before ? '\n\n' : '') + rest : '');
-  return joined.replace(/(\r?\n)+$/, '') + '\n';
+  const rest = str.slice(at.end).replace(/^(\r?\n)+/, '');   // the text after it is otherwise left exactly as it was
+  if (!rest) return before ? before + eol : '';
+  return before ? before + eol + eol + rest : rest;
 }
 
 

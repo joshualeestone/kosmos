@@ -299,3 +299,16 @@ test('#5050 review 19: the name carries the script, never the region (Traditiona
   assert.match(pl.blockBody('zh-Hans-CN'), /reads Simplified Chinese \(zh-Hans-CN,/);
   assert.match(pl.blockBody('es-MX'), /reads Spanish \(es-MX,/, 'CONTROL: the region stays out of the name');
 });
+
+test('#5050 review 21: Chinese with no script in the tag (zh-HK, zh-TW) still reads Traditional; others keep no script', () => {
+  assert.match(pl.blockBody('zh-HK'), /reads Traditional Chinese \(zh-HK,/);
+  assert.match(pl.blockBody('zh-TW'), /reads Traditional Chinese \(zh-TW,/);
+  assert.match(pl.blockBody('zh-CN'), /reads Simplified Chinese \(zh-CN,/);
+  assert.match(pl.blockBody('es'), /reads Spanish \(es,/, 'CONTROL: no script inferred for a one-script language');
+});
+
+test('#5050 review 21: removal keeps a CRLF file\'s line endings and everything after the block exactly', () => {
+  const block = `${pl.START}\n${pl.blockBody('es-MX')}\n${pl.END}`;
+  const file = '# A\r\n\r\nmine\r\n\r\n' + block + '\r\nafter, mine\r\n\r\n';
+  assert.equal(pl.applyTo(file, 'en-US'), '# A\r\n\r\nmine\r\n\r\nafter, mine\r\n\r\n');
+});

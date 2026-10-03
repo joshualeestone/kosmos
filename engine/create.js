@@ -5261,7 +5261,7 @@ function createAgentInner(opts) {
           } else {
             const spliced = plMod.applyTo(text, got.tag);
             // Review 20: a sure English read removes a language section that came in with pasted instructions; say so.
-            if (!plMod.blockBody(got.tag) && spliced !== text) steps.push({ label: 'took out a language section from its instructions, because this Mac is set to English', ok: true });
+            if (!plMod.blockBody(got.tag) && spliced !== text) steps.push({ label: 'took out a language section from its instructions, because this computer\'s language is English', ok: true });
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
             else if (plMod.blockBody(got.tag)) langStep = 'could not add your language to its instructions (they are at the size limit), so it may start in English';
           }

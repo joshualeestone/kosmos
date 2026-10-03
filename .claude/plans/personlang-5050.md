@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (24 after the reviews below), plus four create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (26 after the reviews below), plus four create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -134,7 +134,8 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 
 ## Review 11 (blind, opus)
 - Removing the block with the person's text after it now cuts exactly the block and keeps one blank line (removeBlock
-  joined their paragraphs, the defect review 7 fixed on the move path). Last in the file it is still removeBlock,
+  joined their paragraphs, the defect review 7 fixed on the move path). (Its line-ending and end-of-file handling is
+  corrected in review 21.) Last in the file it is still removeBlock,
   byte for byte. Test with their text on both sides; mutation (back to removeBlock) reds.
 - The override must be a 2 or 3 letter language, as the Mac read requires: "english" or "garbage" are well-formed BCP
   47 tags and would have read as a sure non-English language. Mutation reds.
@@ -216,3 +217,13 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   (silent) reds.
 - Duplicates: no opt-out / destructive sure-English removal (reviews 8, 12, 16; stated on #5050, #5080), the defaults
   stall (4, 15).
+
+## Review 21 (blind, opus)
+- Chinese with no script in the tag (zh-HK, zh-TW, zh-MO, as Apple writes them) now reads "Traditional Chinese": the
+  script is inferred (Intl.Locale.maximize) for Chinese only, so "es" does not become "Spanish (Latin)". Tests; mutations
+  (no inference, inference for all) red.
+- Removal keeps the file's own line ending at the seam and leaves everything after the block exactly as written (it
+  used to turn CRLF into LF and collapse the person's trailing blank lines). Test; mutation (LF only) reds.
+- The create step says "because this computer's language is English" (true for the override too, not only a Mac).
+- Rare, recorded: a sure English read removing the block from a file that is almost only the block can leave it under
+  instructions.MIN_CHARS; the write is refused and the agent shows in the boot line each start (reported, not lost).

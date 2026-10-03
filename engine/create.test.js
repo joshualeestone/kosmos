@@ -2444,7 +2444,7 @@ test('#5050 review 20: on an English Mac a pasted language section is taken out,
     const made = create.createAgent({ ...BINS, name: 'lang-paste-en', role: 'pm', instructions: pasted });
     assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
     assert.ok(!fs.readFileSync(create.instructionFile('lang-paste-en'), 'utf8').includes(pl.START), 'CONTROL: the section was taken out');
-    assert.ok(made.steps.some((st) => /took out a language section/.test(st.label || '') && st.ok === true), 'the removal was silent');
+    assert.ok(made.steps.some((st) => /took out a language section from its instructions, because this computer's language is English/.test(st.label || '') && st.ok === true), 'the removal was silent');
   } finally {
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
     pl._resetForTests();
