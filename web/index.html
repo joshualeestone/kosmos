@@ -22807,6 +22807,8 @@ async function tick() {
          by the next writer and reappear from nowhere. */
       RESTORE_BLOCKED_SAID = null;
       RESTORE_BLOCKED_SAID_FOR = null;
+      RESTORE_REFUSED_SAID = null;   // #4976: the third held sentence goes with the region
+      RESTORE_REFUSED_SAID_FOR = null;
       const done = document.getElementById('removed-msg');
       if (done) done.textContent = '';
     }
@@ -23613,6 +23615,15 @@ function showTab(tab) {
     // Projects, describing a list those screens do not show.
     const msg = document.getElementById('removed-msg');
     if (msg) msg.textContent = '';
+    /* #4976 review 2: the held explanation and refusal go with the region they were blanked from, or the next writer
+       reprints them from nowhere after the person comes back. The in-flight RESTORE_WAITING_SENTENCE is kept: its
+       restore is still running, so it is still true, and only its arrival retires it. */
+    /* No guard needed (review 3, measured): the only showTab during load is showTab(BOOT_TAB), after these lets are
+       declared, and SURVIVAL_HELD below is assigned the same way. */
+    RESTORE_BLOCKED_SAID = null;
+    RESTORE_BLOCKED_SAID_FOR = null;
+    RESTORE_REFUSED_SAID = null;
+    RESTORE_REFUSED_SAID_FOR = null;
     /* Same reason: it describes the agents screen and must not stand under
        Projects or Settings. */
     const rw = document.getElementById('restart-wrap');
@@ -42090,7 +42101,8 @@ let RESTORE_WAITING_SENTENCE = null;
    ⭐ A shared region needs every writer to know about every other writer, which
    is N-squared and is why the region keeps producing this bug. Both writers on
    THIS card now re-assert rather than clobber; the other pre-existing writers
-   are a named follow-up and are not this card. */
+   are a named follow-up and are not this card. #4976 added a third (a refused Restore's reason), and all
+   three re-assert one another. */
 let RESTORE_BLOCKED_SAID = null;
 /* 🛑 WHICH ROW THE HELD EXPLANATION IS ABOUT, so it can be checked for still
    being TRUE before it is re-asserted. Without this the sentence outlives its
@@ -42109,6 +42121,41 @@ let RESTORE_BLOCKED_SAID = null;
    undocumented behaviour on this card has twice turned out to be a defect
    nobody had decided on. */
 let RESTORE_BLOCKED_SAID_FOR = null;
+/* #4976: the THIRD writer to #removed-msg, a refused Restore's reason, held exactly like the blocked explanation
+   above and for the same reason: every writer re-asserts the others rather than clobbering them. Held only while
+   the row it names is still on the list with its Restore control (a later successful restore of that row retires
+   it; the arrival clears the region and all three). */
+let RESTORE_REFUSED_SAID = null;
+let RESTORE_REFUSED_SAID_FOR = null;
+/* The held refusal, if it is still TRUE now (its row is still listed), else retired and null. */
+function restoreRefusedStill() {
+  if (!RESTORE_REFUSED_SAID || !RESTORE_REFUSED_SAID_FOR) return null;
+  const still = [...document.querySelectorAll('#removed-list [data-restore]')]
+    .some((el) => el.dataset.restore === RESTORE_REFUSED_SAID_FOR);
+  if (!still) { RESTORE_REFUSED_SAID = null; RESTORE_REFUSED_SAID_FOR = null; }
+  return still ? RESTORE_REFUSED_SAID : null;
+}
+/* The held blocked explanation, if its row is still rendered blocked (the success branch's own scan). */
+function restoreBlockedStill() {
+  const still = RESTORE_BLOCKED_SAID && RESTORE_BLOCKED_SAID_FOR
+    && [...document.querySelectorAll('#removed-list [data-restore-blocked]')]
+         .some((el) => el.dataset.restoreBlocked === RESTORE_BLOCKED_SAID_FOR);
+  if (!still) { RESTORE_BLOCKED_SAID = null; RESTORE_BLOCKED_SAID_FOR = null; }
+  return still ? RESTORE_BLOCKED_SAID : null;
+}
+/* Review 3: a later press of the refused row that fails for ANOTHER reason (no answer) makes its held refusal untrue
+   of the row, which now reads "Restore failed. Try again." with its refusal name and title removed. Retired, and
+   the region rewritten without it when it was on screen, so the row and the region never disagree. */
+function restoreRetireRefusalOf(name) {
+  if (RESTORE_REFUSED_SAID_FOR !== name) return;
+  const was = RESTORE_REFUSED_SAID;
+  RESTORE_REFUSED_SAID = null;
+  RESTORE_REFUSED_SAID_FOR = null;
+  const say = document.getElementById('removed-msg');
+  if (say && was && (say.textContent || '').indexOf(was) !== -1 && onAgentsTab()) {
+    say.textContent = [restoreBlockedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
+  }
+}
 
 /**
  * ⚠️ Answers "we do not know" rather than inventing a date.
@@ -42194,9 +42241,8 @@ document.getElementById('removed-list').addEventListener('click', (e) => {
   const explain = shown + ' cannot be restored yet: ' + RESTORE_BLOCKED_SENTENCE;
   RESTORE_BLOCKED_SAID = explain;
   RESTORE_BLOCKED_SAID_FOR = blocked.dataset.restoreBlocked || null;
-  msg.textContent = RESTORE_WAITING_SENTENCE
-    ? explain + ' ' + RESTORE_WAITING_SENTENCE
-    : explain;
+  /* #4976: a held refusal for another row is still true, so it is still said. */
+  msg.textContent = [explain, restoreRefusedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
 });
 
 document.getElementById('removed-list').addEventListener('click', async (e) => {
@@ -42205,6 +42251,9 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
   const name = btn.dataset.restore;
   btn.disabled = true;
   btn.textContent = 'Restoring…';
+  /* #4976 review 2: a previous refusal's name and tooltip describe that press, not this one. */
+  btn.removeAttribute('aria-label');
+  btn.removeAttribute('title');
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restore', { method: 'POST' });
     const back = await res.json().catch(() => null);
@@ -42212,7 +42261,43 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
       // ⚠️ Says so ON THE ROW rather than silently re-rendering. A restore that
       // failed and a restore that worked must not look the same.
       btn.disabled = false;
-      btn.textContent = 'Restore failed. Try again.';
+      /* #4976: a REFUSED restore carries the engine's reason, and most refusals are
+         not cleared by a retry (another agent now holds the folder once #4896
+         lands, its account folder is gone), so "Try again" would send the person round forever. The
+         row says it was not restored and the reason goes to #removed-msg, the
+         region the blocked-row explanation already uses; an in-flight "Starting X
+         again" stays beside it, as that handler keeps it. A failure with no reason
+         (a dropped answer) keeps "Try again", which is true for it. */
+      const why = back && back.outcome === 'refused' && typeof back.because === 'string' && back.because.trim()
+        ? back.because.trim() : null;
+      if (why) {
+        btn.textContent = 'Not restored';
+        // The visible word is a status; the name says what pressing it does.
+        btn.setAttribute('aria-label', 'Not restored. Restore ' + (btn.dataset.shownAs || name) + ' again');
+        /* Review 2: the region holds ONE refusal (the most recent, as the blocked explanation holds one), so the
+           refused row also carries its own reason, on hover and as its accessible description. Review 3, stated:
+           only until the list's markup next changes (another agent removed, restored or blocked), when
+           paintRemoved rewrites every row back to a plain Restore. The row then claims nothing, so nothing false
+           is shown; an older row's reason is simply gone until it is pressed again. */
+        btn.setAttribute('title', 'Not restored: ' + why);
+        /* Prefixed, not capitalised: raising the first letter would turn a session name ("carl9 is not on the
+           removed list") into a name that does not exist. Held and re-asserted like the other two (see
+           RESTORE_REFUSED_SAID); what was just pressed leads. */
+        const line = 'Not restored: ' + why;
+        /* Review 2: not written under another screen (the person may have left the Agents tab while the request
+           was in flight; see the removedUnreadable note). Review 3: and then NOT HELD either: nothing writes the
+           region on the way back, so a held sentence would surface on some later, unrelated press. The row's own
+           title still carries the reason. */
+        const say = document.getElementById('removed-msg');
+        if (say && onAgentsTab()) {
+          RESTORE_REFUSED_SAID = line;
+          RESTORE_REFUSED_SAID_FOR = name;
+          say.textContent = [line, restoreBlockedStill(), RESTORE_WAITING_SENTENCE].filter(Boolean).join(' ');
+        }
+      } else {
+        btn.textContent = 'Restore failed. Try again.';
+        restoreRetireRefusalOf(name);
+      }
       return;
     }
     /**
@@ -42240,6 +42325,8 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
     if (back.outcome === 'partial') {
       btn.disabled = false;
       btn.textContent = 'Restore';
+      // #4976: this row's earlier refusal is not true of this press (one retire path; its own message follows).
+      restoreRetireRefusalOf(name);
       /**
        * ⚠️ THE MESSAGE GOES OUTSIDE THE LIST, because which of the two partials
        * happened decides whether the row survives, and it must not decide
@@ -42328,15 +42415,17 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
         && [...document.querySelectorAll('#removed-list [data-restore-blocked]')]
              .some((el) => el.dataset.restoreBlocked === RESTORE_BLOCKED_SAID_FOR);
       if (!stillBlocked) { RESTORE_BLOCKED_SAID = null; RESTORE_BLOCKED_SAID_FOR = null; }
-      say.textContent = stillBlocked
-        ? RESTORE_WAITING_SENTENCE + ' ' + RESTORE_BLOCKED_SAID
-        : RESTORE_WAITING_SENTENCE;
+      /* #4976: this row restoring retires its own held refusal; another row's is still true and still said. */
+      if (RESTORE_REFUSED_SAID_FOR === name) { RESTORE_REFUSED_SAID = null; RESTORE_REFUSED_SAID_FOR = null; }
+      say.textContent = [RESTORE_WAITING_SENTENCE, stillBlocked ? RESTORE_BLOCKED_SAID : null, restoreRefusedStill()]
+        .filter(Boolean).join(' ');
     }
     await tick();
     await paintRemoved();
   } catch {
     btn.disabled = false;
     btn.textContent = 'Restore failed. Try again.';
+    restoreRetireRefusalOf(name);
   }
 });
 
