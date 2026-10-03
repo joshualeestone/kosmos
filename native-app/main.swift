@@ -2906,9 +2906,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // Kept, as Safari keeps a download it cannot mark (a Downloads folder on a disk without the mark).
             logLine("#5167: could not mark \(dest.lastPathComponent) as downloaded: \(error.localizedDescription)")
             // WebKit marks what it downloads too; the person is told only if the file carries no mark at all.
-            guard getxattr(dest.path, "com.apple.quarantine", nil, 0, 0, 0) <= 0 else { return }
-            tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.",
-                               title: "Kosmos saved that file without its download mark")
+            if getxattr(dest.path, "com.apple.quarantine", nil, 0, 0, 0) <= 0 {
+                tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.",
+                                   title: "Kosmos saved that file without its download mark")
+            }
         }
         if AppDelegate.downloadsDirOverride == nil {   // the selftest does not bounce the build box's Dock
             DistributedNotificationCenter.default().post(name: Notification.Name("com.apple.DownloadFileFinished"),
@@ -5007,7 +5008,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        the real Downloads. Offscreen, and driven from JavaScript, like the filepanel selftest. It runs as a
        computer that runs agents (the default mode); a connect computer is not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 60) { print("download selftest TIMED OUT"); exit(1) }
+    /* Above the worst case of a run where NOTHING saves (six 5s file waits, four 2s ones, eleven page
+       loads), so a product that saves nothing prints its rows and is judged, not timed out. */
+    DispatchQueue.main.asyncAfter(deadline: .now() + 150) { print("download selftest TIMED OUT"); exit(1) }
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
@@ -5054,6 +5057,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     }
     let params = NWParameters.tcp
     params.requiredInterfaceType = .loopback   // nothing off this computer can reach it during a build
+    params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
     guard let listener = try? NWListener(using: params, on: .any) else { print("download selftest: no listener"); exit(1) }
     listener.newConnectionHandler = { conn in
         conn.start(queue: .main)
@@ -5110,7 +5114,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         poll(150)
     }
     func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
-    /* A click that should save a file waits for that file (up to 10s), so a busy build box cannot fail a
+    /* A click that should save a file waits for that file (up to 5s), so a busy build box cannot fail a
        good product on a fixed sleep. One that should save nothing waits 2s, and a same-origin download
        clicked LAST is waited for before the folder is read, so a late file from an earlier click is
        already there to be counted. */
@@ -5125,7 +5129,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { wait(tries - 1) }
             }
-            wait(expect == nil ? 20 : 100)
+            wait(expect == nil ? 20 : 50)
         }
     }
     listener.stateUpdateHandler = { state in
