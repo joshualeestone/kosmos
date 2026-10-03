@@ -104,3 +104,26 @@ test('#3997 review 3: a real outcome seen after the failed check outranks it (a 
   assert.equal(m.checkRefused('/a', 1001), false, 'an outcome AFTER the failed check lifts it');
   assert.equal(m.checkRefused('/a', null), true);
 });
+
+/* #5168 (after #5164, measured on account-e 2026-10-03): a login past its date whose access token still works says when
+   its agents stop; every other state says nothing. */
+test('#5168: worksUntil is the access token\'s time only for an ended login with a live token; control arms', async () => {
+  const now = 10_000_000;
+  const row = { dir: '/x/.claude-account-e' };
+  const read = async (until, works) => { m._clearForTest(); m.setReaderForTests(() => ({ until, works })); await m.validUntil(row, now); return m.worksUntil(row, now); };
+  assert.equal(await read(now - 1000, now + 5000), now + 5000, 'an ended login with a live token did not say when it stops');
+  assert.equal(await read(now - 1000, now - 1), null, 'a run-out token still said working');
+  assert.equal(await read(now - 1000, 0), null, 'the 0 a failed refresh writes read as working');
+  assert.equal(await read(now + 1000, now + 5000), null, 'a login not yet ended carried a stop time');
+  assert.equal(await read(now - 1000, null), null, 'no access date');
+  // A plain number reader (every #3997 test) still works, and gives no stop time.
+  m._clearForTest(); m.setReaderForTests(() => now + 1000);
+  assert.equal(await m.validUntil(row, now), now + 1000);
+  assert.equal(m.worksUntil(row, now), null);
+  // Nothing read yet, a key account, a non-default row with no folder: null, and no read of its own.
+  m._clearForTest(); let asked = 0; m.setReaderForTests(() => { asked += 1; return { until: now - 1, works: now + 1 }; });
+  assert.equal(m.worksUntil(row, now), null);
+  assert.equal(m.worksUntil({ apiKey: true, dir: '/x' }, now), null);
+  assert.equal(m.worksUntil({ dir: '' }, now), null);
+  assert.equal(asked, 0, 'worksUntil read the keychain itself');
+});
