@@ -21200,7 +21200,7 @@ function paintUpdateAbort(ab) {
 }
 
 /* #3532: paint the per-account login-expiry advisories from the /api/status poll.
-   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, service, provider, email, names }
+   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, worksUntil, service, provider, email, names }
    (one per credential near expiry; #5018 added the last four, and service keys the X's dismissals); empty/absent clears the slot. dataset.v is a signature so an
    unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
 /* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
@@ -21213,12 +21213,19 @@ function loginAdvWorksUntil(a) {
   const t = a && typeof a.worksUntil === 'number' && Number.isFinite(a.worksUntil) ? a.worksUntil : null;
   return t !== null && t > Date.now() ? t : null;
 }
-/* "at about 1:18 pm", or "tomorrow at about 1:18 pm" when it is not today on this page's clock. "About": Claude Code
-   tries its refresh around the time the token runs out, not on the second. */
+/* "at about 1:18 PM", or "tomorrow at about 1:05 AM" when it is not today on this page's clock (Mona Lisa: a bare 1:05 AM
+   read at 11 PM looks like the past). An access token lasts 8 hours (measured), so the time is never more than a day
+   ahead and "tomorrow" is the only other day it can be. "About": Claude Code tries its refresh around the time the token
+   runs out, not on the second. */
 function loginAdvWhen(ms) {
   const d = new Date(ms);
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase();
-  return (d.toDateString() === new Date().toDateString() ? '' : 'tomorrow ') + 'at about ' + time;
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return 'at about ' + time;
+  if (d.toDateString() === tomorrow.toDateString()) return 'tomorrow at about ' + time;
+  // Never reached by an 8-hour token; a wrong page clock or a longer token still gets a true day, not "tomorrow".
+  return 'on ' + d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }) + ' at about ' + time;
 }
 let loginAdvHiddenMem = [];
 function paintLoginAdvisories(advs) {
@@ -21241,7 +21248,10 @@ function paintLoginAdvisories(advs) {
   const list = Array.isArray(advs)
     ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
-  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')).join('|');   // repaint on a new name or email too
+  /* #5164 (review): the stop time's words are in the signature too, so a notice painted before midnight as "tomorrow at
+     about 1:10 AM" repaints as "at about 1:10 AM" after it, rather than telling the person they have a day. */
+  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')
+    + ':' + (a.expired && loginAdvWorksUntil(a) ? loginAdvWhen(loginAdvWorksUntil(a)) : '')).join('|');   // repaint on a new name or email too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
@@ -21264,7 +21274,7 @@ function paintLoginAdvisories(advs) {
         ? (n === 1 ? 'An agent’s login expires today' : n + ' agents’ login expires today')
         : ((n === 1 ? 'An agent’s login expires in ' : n + ' agents’ login expires in ') + a.daysLeft + (a.daysLeft === 1 ? ' day' : ' days')));
     const tail = until
-      ? ('The login has run out. Sign in again before then to keep ' + (n === 1 ? 'it' : 'them') + ' working.')
+      ? ('Sign in again before then to keep ' + (n === 1 ? 'it' : 'them') + ' running.')   // Mona Lisa: the head carries the timing; the not-expired sibling's verb
       : a.expired
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');

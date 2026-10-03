@@ -51,7 +51,9 @@ const CASES = [
   /* #5164 (account-e, 2026-10-03): the login ended at 06:58 but its agents worked until 13:18 on the access token they
      held. While that time is ahead, the notice says when they stop; once it has passed, "has expired" (the control). */
   { key: 'stopsat', adv: [{ agents: ['mona', 'echo'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: Date.now() + 5 * 3600000 }],
-    text: /2 agents stop working (tomorrow )?at about \d{1,2}:\d{2}\s?[ap]\.?m\.?[\s\S]*The login has run out\. Sign in again before then to keep them working\./, cls: 'urgent', who: /mona, echo/ },
+    text: /2 agents stop working (tomorrow )?at about \d{1,2}:\d{2}\s?[AP]M[\s\S]*: mona, echo\. Sign in again before then to keep them running\./, cls: 'urgent', who: /mona, echo/ },
+  { key: 'stopsat1', adv: [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: Date.now() + 3600000 }],
+    text: /An agent stops working (tomorrow )?at about \d{1,2}:\d{2}\s?[AP]M[\s\S]*Sign in again before then to keep it running\./, cls: 'urgent', who: /mona/ },
   { key: 'stoppedpast', adv: [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: Date.now() - 60000 }],
     text: /An agent’s login has expired[\s\S]*Sign in again to bring it back\./, cls: 'urgent', who: /mona/ },
   { key: 'none', adv: [], text: null, cls: null, who: null },
@@ -100,6 +102,40 @@ const CASES = [
       chk(inner === '', 'none (CONTROL): empty advisories leave the slot empty', JSON.stringify(inner));
     }
     chk(errs.length === 0, c.key + ': no console errors', errs.join(' | '));
+    await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+    await pg.close();
+  }
+
+  /* #5164 (review 1): the day word repaints across midnight. The page's clock is pinned at 23:30 with a token that runs
+     out at 01:10 the next day: "tomorrow at about 1:10 AM". Moved to 00:10 (no new advisory, same everything else), the
+     notice must drop "tomorrow": the repaint signature carries the words, not only the advisory's state. */
+  {
+    const base = new Date(); base.setHours(23, 30, 0, 0);
+    const until = new Date(base.getTime() + 100 * 60000);   // 01:10 the next day
+    const adv = [{ agents: ['mona'], daysLeft: -1, severity: 'urgent', expired: true, worksUntil: until.getTime(), service: 'svc-midnight' }];
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.clock.setFixedTime(base);
+    await pg.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForFunction(() => document.querySelector('#login-adv-slot .login-adv'), null, { timeout: 12000 }).catch(() => {});
+    const before = await pg.$eval('#login-adv-slot', (el) => el.innerText).catch(() => '');
+    chk(/An agent stops working tomorrow at about 1:10\s?AM/.test(before), '5164: at 23:30 the 01:10 stop reads "tomorrow at about 1:10 AM"', JSON.stringify(before));
+    await pg.clock.setFixedTime(new Date(base.getTime() + 40 * 60000));   // 00:10
+    const after = await pg.waitForFunction(() => {
+      const t = (document.getElementById('login-adv-slot') || {}).innerText || '';
+      return /stops working at about 1:10/.test(t) && !/tomorrow/.test(t) ? t : null;
+    }, null, { timeout: 15000 }).then((h) => h.jsonValue(), () => null);
+    chk(!!after, '5164: after midnight it repaints without "tomorrow" (the same advisory, a new day)',
+      JSON.stringify(after || await pg.$eval('#login-adv-slot', (el) => el.innerText).catch(() => '')));
+    chk(errs.length === 0, '5164 midnight: no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
     await pg.close();
   }
