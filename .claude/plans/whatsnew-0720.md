@@ -35,3 +35,4 @@ main for 0.7.20 (tools/whats-new-check.js).
   states, and can cover several agents on one account); now "The warning that your agents' sign-in is ending now floats
   over the page instead of pushing it down, names the account, and has an X." Checked: floats in .topnotes under the
   header; names provider, email and agents; the X persists per browser until the state changes.
+- Final review vs MERGED #5089 (83c33a874, sonnet): CONVERGED. Floats (.topnotes absolute under the header); shows before and after expiry; names provider + email + agents; the X persists per browser until the state changes. LEFT NIT: 'is ending or has ended' would also cover the expired case.
