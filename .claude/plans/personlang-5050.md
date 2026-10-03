@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (23 after the reviews below), plus one create test in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (24 after the reviews below), plus two create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -152,3 +152,13 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   every agent "running on older instructions" (a restart prompt), as any new managed block does. (3) The `defaults`
   stall: a duplicate of review 4.
 - The CRLF note above is corrected (the rejoin writes LF).
+
+## Review 13 (blind, opus)
+- `onlyManaged` counts only TIGHT marker pairs (no second start between, as findBlock pairs them) and treats any
+  leftover marker as the person's text, so a stray start from a hand edit cannot get the block moved below their words.
+  Test with a control; mutation (loose pairing) reds.
+- create reports the step failed for pasted instructions with two language blocks on ANY sure read (English too); a
+  behavioural create test runs it under es-MX and en-US and checks the two blocks are left as they were. Mutation reds.
+- The earlier create test asserts `steps` is an array, so its no-failure check cannot pass vacuously.
+- Comments: the projects block is no longer called LAST; "spliced last" names the pasted-instructions exception;
+  cutOut says it leaves exactly one final newline. The unused `trusted` bypass copied from connections.js is removed.

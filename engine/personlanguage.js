@@ -136,7 +136,8 @@ function applyTo(text, tag, opts) {
 }
 
 /* `str` without the block at `at`, what was before and after it rejoined with one blank line. Only line breaks are
-   trimmed at the seam, so the person's last line before it and first line after it stay exactly as written. */
+   trimmed at the seam, so the person's last line before it and first line after it stay exactly as written; the end
+   of the file is left with exactly one final newline. */
 function cutOut(str, at) {
   const before = str.slice(0, at.start).replace(/(\r?\n)+$/, '');
   const rest = str.slice(at.end).replace(/^(\r?\n)+/, '');
@@ -144,29 +145,28 @@ function cutOut(str, at) {
   return joined.replace(/(\r?\n)+$/, '') + '\n';
 }
 
-/* Whether `text` holds nothing but whitespace and complete Kosmos blocks (any registered marker pair). */
+/* Whether `text` holds nothing but whitespace and complete Kosmos blocks. Only TIGHT pairs count (a start, then its
+   end with no second start between, as findBlock pairs them), and any marker left over makes it the person's text:
+   a stray start from a hand edit must not pass their words off as a Kosmos block (review 13). */
 function onlyManaged(text) {
   const marks = projects.ALL_MARKERS();
   let left = String(text || '');
   for (let i = 0; i + 1 < marks.length; i += 2) {
     const a = marks[i];
     const b = marks[i + 1];
-    let from = left.indexOf(a);
-    while (from !== -1) {
+    for (let from = left.indexOf(a); from !== -1; from = left.indexOf(a)) {
       const to = left.indexOf(b, from + a.length);
-      if (to === -1) break;
+      if (to === -1 || left.slice(from + a.length, to).includes(a)) return false;
       left = left.slice(0, from) + left.slice(to + b.length);
-      from = left.indexOf(a);
     }
   }
-  return !left.trim();
+  return !left.trim() && !marks.some((m) => left.includes(m));
 }
 
-/** Put the block in (or take it out of) one agent's instructions. Same guards as connections.tellAgent. */
+/** Put the block in (or take it out of) one agent's instructions. connections.tellAgent's guards, minus its bypass. */
 function tellAgent(sessionName, roster, opts) {
   try {
-    const vouched = !!(opts && opts.trusted);
-    if (!vouched && !projects.heldExactly(sessionName, roster)) {
+    if (!projects.heldExactly(sessionName, roster)) {   // no "trusted" bypass: nothing here needs one (review 13)
       return {
         state: projects.TOLD.COULD_NOT,
         because: !Array.isArray(roster)

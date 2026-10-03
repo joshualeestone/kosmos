@@ -283,3 +283,13 @@ test('#5050 review 11: a new agent whose pasted instructions already hold two la
   assert.match(create, /findBlock\(text, plMod\.START, plMod\.END\)\?\.ambiguous/);
   assert.match(create, /if \(!twice && Buffer\.byteLength\(spliced, 'utf8'\) <= MAX_BYTES\)/);
 });
+
+test('#5050 review 13: a stray start marker cannot pass the person\'s words off as a Kosmos block', () => {
+  const base = pl.applyTo('# Ida\n\nYou are Ida, who keeps the books.\n', 'es-MX');
+  const tricky = base + '\n' + projects.CONNECTIONS_START + '\nMY OWN NOTE\n\n'
+    + projects.spliceBlock('', 'a real block', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
+  assert.equal(pl.applyTo(tricky, 'es-MX'), tricky, 'the block was moved below the person\'s note');
+  // CONTROL: the same shape without the stray marker (a real block only) does move.
+  const real = projects.spliceBlock(base, 'a real block', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
+  assert.notEqual(pl.applyTo(real, 'es-MX'), real);
+});

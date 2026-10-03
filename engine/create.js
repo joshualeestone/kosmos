@@ -5222,7 +5222,7 @@ function createAgentInner(opts) {
     // button, sixty seconds old. Composed here, before the first write, the
     // later sync finds the file already saying this and `instructions.write`
     // declines a byte-identical save, so nothing is newer than the session.
-    // ⚠️ LAST, AFTER THE DEFAULTS, because that is where `spliceBlock` puts a
+    // ⚠️ AFTER THE DEFAULTS (only the #5050 language block follows it), because that is where `spliceBlock` puts a
     // block a file does not yet have, and the later sync has to compose the
     // SAME bytes or it writes after all. Both paths, unlike the two blocks
     // above: this block is written into a person's own words on every
@@ -5242,7 +5242,8 @@ function createAgentInner(opts) {
     }
     /* #5050: the person's language, from this computer's language setting, so the agent starts and posts in it. An
        English Mac writes nothing; off a Mac, or when the Mac's read failed, nothing is written either. Spliced last,
-       so a new agent's file ends with it. Non-gating like the blocks above. */
+       so a new agent's file ends with it, unless pasted instructions already hold one with their own text after it
+       (then it is replaced where it is). Non-gating like the blocks above. */
     {
       let langLanded = false;
       try {
@@ -5251,7 +5252,7 @@ function createAgentInner(opts) {
         const spliced = plMod.applyTo(text, got.tag, { keep: !got.sure });
         const { MAX_BYTES } = require('./instructions');
         // Two language blocks (custom instructions pasted from another agent) leave the text unchanged: say so.
-        const twice = got.sure && plMod.blockBody(got.tag) && require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous;
+        const twice = got.sure && require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous;   // English too (review 13)
         if (!twice && Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; langLanded = true; }
       } catch { /* reported below rather than swallowed */ }
       if (!langLanded) {
