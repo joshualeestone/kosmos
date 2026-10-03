@@ -2892,7 +2892,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.messageText = "Allow downloads from \(host)?"
         // Cleaned as a saved name is (no direction controls or separators): the page chose this text.
         let clean = file.map { downloadDestination(dir: URL(fileURLWithPath: "/"), suggested: $0) { _ in false }.lastPathComponent }
-        let what = (clean.map { !$0.isEmpty && $0 != "Download" } ?? false) ? "\u{201C}\(clean!)\u{201D}" : "a file"
+        let shown = clean.map { $0.filter { !"\"\u{201C}\u{201D}\u{2018}\u{2019}'`".contains($0) } }   // cannot close the quotation
+        let what = (shown.map { !$0.isEmpty && $0 != "Download" } ?? false) ? "\u{201C}\(shown!)\u{201D}" : "a file"
         alert.informativeText = "This Kosmos+ computer wants to save \(what) to your Downloads folder. Allow it only if it is one of your own computers. Your answer lasts until Kosmos quits; after Don't Allow, View > Reload asks again."
         alert.alertStyle = .warning
         let allow = alert.addButton(withTitle: "Allow")
@@ -2935,11 +2936,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var downloadAlertsUp = 0   // download alerts on screen; a count, since one can open inside another's modal loop
     private var pendingDownloadFailures = 0   // failures that arrived while an alert was up, said together after it
     private var pendingIncludesFailure = false   // a real failure among them: that summary is always said
-    /// #5167: files saved from each Kosmos+ computer this run. An allowed computer cannot fill the disk: past
-    /// the cap, the person's View > Reload is needed to save more (a page reloading itself does not reset it).
-    /// This computer's own board, which this app loaded, has no cap.
+    /// #5167: files saved from each Kosmos+ computer this run, so an allowed computer cannot save without end:
+    /// past the cap, the person's View > Reload is needed to save more (a page reloading itself does not reset
+    /// it). It counts files, not bytes: a computer the person allowed can still send a large one. This
+    /// computer's own board, which this app loaded, has no cap.
     private var savesByHost: [String: Int] = [:]
-    static var savesPerPageCap = 50
+    static var savesPerComputerCap = 50
     private var pendingSayScheduled = false   // one summary waiting at a time, however fast refusals come
     private var quietToldThisPage: Set<String> = []   // refusals already said for this page load, by their words
     private var summaryToldForPage: URL?      // a summary already said for this page load
@@ -3034,8 +3036,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
         }
         // Modal, never a sheet: a sheet over another sheet can be dropped (#2807), and a failure must be said.
-        alert.runModal()
-        dismissed()
+        // Shown on the next turn, so the caller answers WebKit first rather than holding its decision under it.
+        DispatchQueue.main.async {
+            alert.runModal()
+            dismissed()
+        }
     }
 
     /// #5167: where each running download is being saved, so its end can be told to the Dock.
@@ -3115,7 +3120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let page = committedPageURL, let host = page.host?.lowercased(),
            isKosmosPlusURL(page) || host == AppDelegate.askAboutHostForSelftest {
             let n = savesByHost[host, default: 0]
-            if n >= AppDelegate.savesPerPageCap {
+            if n >= AppDelegate.savesPerComputerCap {
                 logLine("#5167: \(n) files already saved from \(host), so no more until the person reloads")
                 downloadsTold.add(download)
                 tellDownloadFailed("\(host) has already saved \(n) files. Reload the page (View > Reload) to save more.", quiet: true)
@@ -5383,8 +5388,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     /* The per-page cap: with the cap at 1 on a fresh page, a second same-origin download is refused and said. */
     var capSaved = false
     func capArm(then: @escaping () -> Void) {
-        let before = AppDelegate.savesPerPageCap
-        AppDelegate.savesPerPageCap = 1
+        let before = AppDelegate.savesPerComputerCap
+        AppDelegate.savesPerComputerCap = 1
         // The cap is for Kosmos+ computers (this computer's board has none): the probe stands in for one, allowed.
         AppDelegate.askAboutHostForSelftest = "127.0.0.1"
         AppDelegate.downloadPermissionPresenter = { _, answer in answer(true) }
@@ -5392,7 +5397,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             web.evaluateJavaScript("document.getElementById('cap2').click()") { _, _ in }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 capSaved = saved("cap2.txt")
-                AppDelegate.savesPerPageCap = before
+                AppDelegate.savesPerComputerCap = before
                 AppDelegate.askAboutHostForSelftest = nil
                 AppDelegate.downloadPermissionPresenter = nil
                 d.allowedDownloadHosts = []

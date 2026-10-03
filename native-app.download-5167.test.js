@@ -306,7 +306,7 @@ test('#5167 review 21: the per-computer question is modal (a dropped sheet would
 test('#5167 review 22: every download alert is modal (a sheet over a sheet can be dropped, #2807)', () => {
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.doesNotMatch(tell, /beginSheetModal/, 'a download failure is a sheet, which another sheet can drop');
-  assert.match(tell, /alert\.runModal\(\)\n\s+dismissed\(\)/);
+  assert.match(tell, /DispatchQueue\.main\.async \{\n\s+alert\.runModal\(\)\n\s+dismissed\(\)\n\s+\}/, 'the alert is shown before the caller answers WebKit, holding its decision under a modal');
 });
 
 test('#5167 review 23: Return never grants downloads; the question holds back quiet alerts; the committed page moves only at a commit', () => {
@@ -396,11 +396,11 @@ test('#5167 review 33: one refusal and one summary per page load, on every path;
   assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /quietToldThisPage = \[\]\n\s+savesByHost = \[:\]/);
 });
 
-test('#5167 review 34: a page saves at most savesPerPageCap files per load; the question names the file; a .html over Kosmos+ needs an attachment header', () => {
+test('#5167 review 34: a page saves at most savesPerComputerCap files per load; the question names the file; a .html over Kosmos+ needs an attachment header', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
-  assert.match(b, /if n >= AppDelegate\.savesPerPageCap \{/, 'an allowed Kosmos+ computer can fill the disk');
+  assert.match(b, /if n >= AppDelegate\.savesPerComputerCap \{/, 'an allowed Kosmos+ computer can fill the disk');
   assert.doesNotMatch(SRC, /savesThisPage/, 'the cap resets on a commit, which a page can cause itself');
-  assert.match(SRC, /static var savesPerPageCap = 50\n/);
+  assert.match(SRC, /static var savesPerComputerCap = 50\n/);
   assert.match(b, /let wantsPage = sentAsAttachment \|\| \(namedPage && !\(committedPageURL\.map\(isKosmosPlusURL\) \?\? false\)\)/,
     'a signed-out computer\'s sign-in page is saved under an agent\'s report.html');
   assert.match(body('fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {'), /wants to save \\\(what\) to your Downloads folder/);
