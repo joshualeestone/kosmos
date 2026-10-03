@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: ifnewer-4382
-diff_hash: b35e96ee5f3ffc6439d0889ae55c34f0f07f933404ab2bf28a7903591e8d9d81
-validation: passed (Mortals, head 326000c9d, hash b35e96ee5f3f, 2026-10-02 23:23 CDT)
+diff_hash: 2f6bec7dc4f9c458e337f6fb91c8a4d4cf2e479a51c456f86916b5c07e2e8a0d
+validation: passed on the pre-merge head (Mortals, 326000c9d, hash b35e96ee5f3f); the merged head b37f6b186 is gated by PR CI
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
 timestamp: 2026-10-03T04:24:39Z
 iterations: 7
@@ -51,5 +51,10 @@ converged: true
   Both changes are comment/marker text only. Its two remove.test.js timing reds (restart bursts, code this branch does
   not touch) did not recur.
 - origin/main merged (326000c9d, no conflicts; brings #5047's install-harness lines).
-- The full validation of that exact head PASSED on Mortals (hash above = the validated hash).
+- The full validation of that head PASSED on Mortals (hash b35e96ee5f3f).
+- Then origin/main moved 64 commits, nine touching install/kosmos (endorse, vote and community verbs) and three the
+  Windows verb-parity test. Merged again (b37f6b186, no conflicts). The merge shifted context, so this proof's hash
+  (2f6bec7d...) is the merged diff's, NOT the validated one. On the merged head: the verb-parity test and the three
+  file-only lint tests pass (41/0), and install/kosmos parses. The merge is gated by PR CI on this head, not by the
+  earlier validation.
 
