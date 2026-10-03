@@ -317,6 +317,38 @@ func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
     }
 }
 
+/// #5169: PURE, for --kosmos-app-mode-selftest. Whether a URL is this computer's board page.
+func isBoardURL(_ url: URL, board: (host: String, port: Int)?) -> Bool {
+    guard let board = board, url.user == nil, url.password == nil,
+          let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+          let host = url.host?.lowercased()
+    else { return false }
+    return host == board.host.lowercased() && (url.port ?? (scheme == "https" ? 443 : 80)) == board.port
+}
+
+/// #5169: PURE, for --kosmos-app-mode-selftest. A run computer's main-frame navigations: this computer's
+/// own board in the window; about:blank for the page's own use; any other https site in the browser;
+/// plain http only from a click, and then in the browser; mail, phone and text links only from a click;
+/// every other scheme refused. So another site can never REPLACE the window's page with a fake
+/// Kosmos screen, and a redirect to another origin stays out of the window.
+func boardLinkDecision(for url: URL, board: (host: String, port: Int)?, clicked: Bool) -> ConnectLink {
+    if isBoardURL(url, board: board) { return .inApp }
+    switch url.scheme?.lowercased() ?? "" {
+    case "https":
+        guard let host = url.host, !host.isEmpty else { return .block }
+        return .browser
+    case "http":
+        guard let host = url.host, !host.isEmpty else { return .block }
+        return clicked ? .browser : .block
+    case "mailto", "tel", "sms":
+        return clicked ? .browser : .block
+    case "about":
+        return url.absoluteString == "about:blank" ? .inApp : .block
+    default:
+        return .block
+    }
+}
+
 /// What `kosmos stop` did. `notOurs` is the CLI's own refusal to stop a board it has no pid for:
 /// usually another account's Kosmos on this port, possibly this install's own board with its pidfile
 /// lost. Either way the marker is written, so it does not come back at the next login; the person is
@@ -2628,26 +2660,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         updateBar?.isHidden = true
     }
 
-    /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. Nothing
-    /// changes on a computer that runs agents, which had no policy before this.
+    /// #4356: a connect computer's main-frame navigations follow connectLinkDecision.
+    /// #5169: a run computer's main-frame navigations follow boardLinkDecision, so a
+    /// link or redirect to another origin never replaces the board in the window.
     /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
        signature compiles and is never called, which would switch the connect policy off silently.
        The selector is WebKit's own (WKNavigationDelegate.h). */
     @objc(webView:decidePolicyForNavigationAction:decisionHandler:)
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        guard computerMode == .connect, let url = navigationAction.request.url,
+        guard let url = navigationAction.request.url,
               let frame = navigationAction.targetFrame, frame.isMainFrame
         else { decisionHandler(.allow); return }
-        switch connectLinkDecision(for: url, clicked: navigationAction.navigationType == .linkActivated) {
+        let clicked = navigationAction.navigationType == .linkActivated
+        let decision: ConnectLink
+        if computerMode == .connect {
+            decision = connectLinkDecision(for: url, clicked: clicked)
+        } else {
+            let board = badgeOrigin ?? (resolvedPort ?? modePort).map { ("127.0.0.1", $0) }
+            decision = boardLinkDecision(for: url, board: board, clicked: clicked)
+        }
+        switch decision {
         case .inApp:
             decisionHandler(.allow)
         case .browser:
-            logLine("#4356: opening in the browser: \(url.absoluteString)")
+            logLine("#\(computerMode == .connect ? "4356" : "5169"): opening in the browser: \(url.absoluteString)")
             NSWorkspace.shared.open(url)
             decisionHandler(.cancel)
         case .block:
-            logLine("#4356: refused a navigation: \(url.absoluteString)")
+            logLine("#\(computerMode == .connect ? "4356" : "5169"): refused a navigation: \(url.absoluteString)")
             decisionHandler(.cancel)
         }
     }
@@ -5475,6 +5516,36 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     link("javascript:alert(1)", true, .block, "javascript: is refused")
     link("file:///etc/passwd", true, .block, "file: is refused")
     link("about:blank", false, .inApp, "about:blank for the page's own use")
+    // #5169: a run computer's main-frame navigations (boardLinkDecision).
+    func boardNav(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
+        ran += 1
+        let board = (host: "127.0.0.1", port: 16180)
+        let got = URL(string: s).map { boardLinkDecision(for: $0, board: board, clicked: clicked) }
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got?.rawValue ?? "nil").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    boardNav("http://127.0.0.1:16180/", true, .inApp, "this computer's own board stays in the window")
+    boardNav("http://127.0.0.1:16180/api/attachment/1", false, .inApp, "a same-origin download stays in the window")
+    boardNav("http://127.0.0.1:16180/#settings", true, .inApp, "in-page navigation stays in the window")
+    boardNav("http://127.0.0.1:3000/", true, .browser, "another local port, clicked, goes to the browser")
+    boardNav("http://127.0.0.1:3000/", false, .block, "ANOTHER LOCAL SERVER IS NEVER LOADED by a script or redirect")
+    boardNav("http://127.0.0.1:80/", false, .block, "loopback on another port is not the board")
+    boardNav("http://localhost:16180/", false, .block, "the board is the host it was loaded as")
+    boardNav("https://evil.example/", true, .browser, "an external https site goes to the browser")
+    boardNav("https://evil.example/", false, .browser, "any other site goes to the browser, even from a redirect")
+    boardNav("http://example.com/", true, .browser, "plain http, clicked, goes to the browser")
+    boardNav("http://example.com/", false, .block, "plain http, scripted, is refused")
+    boardNav("https://login.kosmosplus.com/", true, .browser, "Kosmos Plus on a run computer goes to the browser")
+    boardNav("http://user@127.0.0.1:16180/", true, .browser, "a user part is not the board")
+    boardNav("mailto:help@kosmosplus.com", true, .browser, "a clicked mail link opens Mail")
+    boardNav("mailto:help@kosmosplus.com", false, .block, "a scripted mail link does not")
+    boardNav("javascript:alert(1)", true, .block, "javascript: is refused")
+    boardNav("file:///etc/passwd", true, .block, "file: is refused")
+    boardNav("about:blank", false, .inApp, "about:blank for the page's own use")
+    ran += 1
+    let noBoard = URL(string: "http://127.0.0.1:16180/").map { boardLinkDecision(for: $0, board: nil, clicked: false) }
+    if noBoard != .block { bad += 1 }
+    print((noBoard == .block ? "PASS  block      " : "FAIL  not-block  ") + "with no board yet, loopback is refused")
     // The file itself: a write the reader reads back, a missing file, and one that cannot be read.
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-mode-selftest-\(getpid())")
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -5493,7 +5564,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
     try? FileManager.default.removeItem(at: dir)
-    let expected = 40
+    let expected = 59
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
