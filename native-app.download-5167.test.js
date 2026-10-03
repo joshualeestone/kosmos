@@ -350,7 +350,7 @@ test('#5167 review 28: failures counted while the question was up are said after
 test('#5167 review 29: a sign-in page is not saved as the file; a 4xx over Kosmos+ is said once (by the page); Reload asks again', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /if response\.mimeType\?\.lowercased\(\) == "text\/html", !wantsPage \{/, 'an expired sign-in\'s page is saved under the file\'s name');
-  assert.match(b, /if \(400\.\.<500\)\.contains\(http\.statusCode\), pageSaysDownloadRefusal\(http\.url \?\? download\.originalRequest\?\.url\) \{\n\s+completionHandler\(nil\)/,
+  assert.match(b, /if pageSaysDownloadRefusal\(http\.url \?\? download\.originalRequest\?\.url\) \{\n\s+completionHandler\(nil\)/,
     'a Files-list refusal is said twice (the page says it), or an attachment\'s by nobody');
   assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /refusedDownloadHosts = \[\]/, 'a mistaken Don\'t Allow can only be undone by quitting');
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
@@ -377,4 +377,10 @@ test('#5167 review 31: the board\'s 204 refusal of a download is not saved as an
     'a foreign page clicking in a loop brings an alert back every few seconds for good');
   assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /notBoardToldForPage = nil/);
   assert.match(body('private func sayPendingDownloadFailures() {'), /title: "Some downloads were not saved"/);
+});
+
+test('#5167 review 32: the live rows are read only once the messages have arrived (or 10s)', () => {
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
+  assert.match(hatch, /askArm \{ settled \{/, 'the verdict is read before late messages arrive, so a busy build box fails a good product');
+  assert.match(hatch, /if told\.count >= 9 \|\| tries == 0 \{ go\(\); return \}/);
 });
