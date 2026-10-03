@@ -91,6 +91,14 @@ const CODEX_OUT_OF_CREDITS = [
       '#5091: it offers the Claude accounts a switch can land on (main and account-b), not one with its own history or one signed out', JSON.stringify(vals));
     chk((pick.opts.find((o) => o.sel) || {}).v === (ACCOUNTS[0].dir), '#5091: it opens on the main account', JSON.stringify(pick.opts));
     chk(pick.current === false, "#5091: the current provider's rows (its account line, its model row) are hidden while a switch is set up");
+    // Round 1 (the blocker): the line under the Claude list speaks for Claude, never OpenAI.
+    const hint = await page.$eval('#d-provider-msg', (e) => e.textContent);
+    chk(!/OpenAI/.test(hint), '#5091: the line under the Claude list does not name OpenAI', JSON.stringify(hint));
+    // Round 1: a repaint of the agent's own provider (the path an Antigravity or Muse agent takes, whose account picker
+    // returns early) brings the current rows back.
+    const repainted = await page.evaluate(() => { paintProviderPicker(CURRENT); const c = document.getElementById('d-current-rows'); return !!c && !c.hidden; });
+    chk(repainted, "#5091: repainting the agent's own provider brings its rows back (no stale hidden block)");
+    await page.selectOption('#d-provider', 'anthropic'); await page.waitForTimeout(300);
     const curBox = await page.$('#d-current-rows') ? await page.locator('#d-current-rows').boundingBox() : 'no such element';
     chk(curBox === null, '#5091: and they take no space on screen', JSON.stringify(curBox));
 
@@ -102,8 +110,12 @@ const CODEX_OUT_OF_CREDITS = [
       '#5091: the confirm dialog names the picked Claude account, not "your main Claude account"', said.slice(-160));
     await page.click('#chg-go');
     for (let i = 0; i < 40 && !posted; i++) await page.waitForTimeout(150);
-    chk(!!posted && posted.provider === 'anthropic' && posted.account === ACCOUNTS[1].dir,
-      '#5091: Switch & Restart sends the Claude account the person picked', JSON.stringify(posted));
+    chk(!!posted && posted.provider === 'anthropic' && posted.account === ACCOUNTS[1].dir && posted.picked === true,
+      '#5091: Switch & Restart sends the Claude account the person picked, as a pick', JSON.stringify(posted));
+    // Round 1: after the switch, the menu is reset ('') and the rows must come back, not stay hidden.
+    await page.waitForTimeout(1500);
+    const after = await page.evaluate(() => { const c = document.getElementById('d-current-rows'); return { current: !!c && !c.hidden, menu: document.getElementById('d-provider').value }; });
+    chk(after.current === true, "#5091: after the switch the agent's rows are back (a reset menu does not count as a switch being set up)", JSON.stringify(after));
 
     await page.goto(URL + '/?tab=detail&agent=liu', { waitUntil: 'load' }); await page.waitForTimeout(800);
     await page.click('#d-nav [data-go="model"]'); await page.waitForTimeout(400);

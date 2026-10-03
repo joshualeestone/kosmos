@@ -7984,6 +7984,17 @@ const server = http.createServer(async (req, res) => {
             + ' unverified; if it does not respond, switch it to an OpenAI API-key'
             + ' account, which Kosmos can verify.'
           : '';
+        /* #5091: the switch happened but the picked Claude account could not be applied. It is a PARTIAL, said first,
+           so the page shows it as one (not "Ready"), whether or not the restart worked. */
+        if (wrote.outcome === create.OUTCOME.PARTIAL) {
+          sendJson(res, 200, {
+            outcome: 'partial',
+            provider: wrote.provider,
+            because: wrote.because + ' ' + (ok ? 'It is starting again now, on your main Claude account.' : `It could not start again either: ${back.because} It is still running as before until it restarts.`),
+            steps: back.steps || [],
+          });
+          return;
+        }
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
@@ -7992,8 +8003,6 @@ const server = http.createServer(async (req, res) => {
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
-              /* #5091: the switch happened but the picked Claude account could not be applied: said, not swallowed. */
-              + (wrote.outcome === create.OUTCOME.PARTIAL && wrote.because ? ' ' + wrote.because : '')
               + signInNote
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.'

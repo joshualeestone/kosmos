@@ -12197,11 +12197,10 @@ window.kosmosMeasureScrollbarWidth();
           <option value="moonshot" disabled>Moonshot / Kimi &middot; coming soon</option>
           <option value="mistral" disabled>Mistral &middot; coming soon</option>
         </select>
-        <!-- #1373: WHICH OpenAI sign-in. Creation has always let you pick and the
-             switch stated a default, and that asymmetry was the whole card. Hidden
-             until OpenAI is the chosen provider, because for a switch back to
-             Anthropic there is nothing to pick. -->
-        <select id="d-provider-account" aria-label="OpenAI sign-in to run on" hidden></select>
+        <!-- #1373: WHICH sign-in. Creation has always let you pick and the switch stated a default, and that asymmetry
+             was the whole card. Shown when a switch to a provider with accounts is armed: OpenAI, Gemini, Grok and, since
+             #5091, Claude. Its label is set for the chosen provider when it shows. -->
+        <select id="d-provider-account" aria-label="Account to run on" hidden></select>
         <button class="btn" type="button" id="d-provider-go" disabled>Switch &amp; Restart</button>
       </div>
       <p class="dhint" id="d-provider-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
@@ -24734,6 +24733,8 @@ function switchKeyedWord(p) {
    "Gemini account" there. (#3391: a Grok account may be a key OR a subscription sign-in;
    "Grok account" is true of both. A Grok subscription is connected in Settings, AI Models, not here.) */
 function switchKeyedSay(text, p) {
+  /* #5091: a switch to Claude has a picker too now, and its lines must say Claude, never OpenAI. */
+  if (p === 'anthropic') return String(text).replace(/OpenAI sign-ins/g, 'Claude accounts').replace(/OpenAI sign-in/g, 'Claude account').replace(/OpenAI/g, 'Claude');
   if (!keyOnlyProvider(p)) return text;
   return String(text).replace(/OpenAI sign-in/g, switchKeyedWord(p) + ' account').replace(/OpenAI/g, switchKeyedWord(p));
 }
@@ -47250,6 +47251,9 @@ function paintProviderPicker(a) {
      control. */
   const acctSel0 = document.getElementById('d-provider-account');
   if (acctSel0) acctSel0.hidden = true;
+  /* #5091: the menu is about to show this agent's own provider, so its own rows show: synchronously, for every runner
+     (an Antigravity or Muse agent's account picker returns early, before the refill that would also do this). */
+  { const cur0 = document.getElementById('d-current-rows'); if (cur0) cur0.hidden = false; }
   const current = providerOf(a);
   /* kosmos#990: the row states what the agent IS on. The two real providers
      are both selectable -- the current one has to be, or it could not be
@@ -47424,7 +47428,8 @@ function fillSwitchAccounts() {
      its own model"), which is false for the switch being set up; they are hidden until the menu is back on it. */
   /* The whole block (account row, its line, the model row) is the current provider's, so it goes as one; nothing else
      sets this block's hidden, so a repaint of the rows inside it cannot bring it back while the switch is armed. */
-  { const cur = document.getElementById('d-current-rows'); if (cur) cur.hidden = armed; }
+  /* Not `armed`: after a switch the menu value is '' (armed reads true there), and the block must come back. */
+  { const cur = document.getElementById('d-current-rows'); if (cur) cur.hidden = !!CURRENT && !!prov.value && prov.value !== providerOf(CURRENT); }
 
   /* Hidden for THREE reasons, and the condition below names all of them because a
      comment that names one is how a reader concludes the others are bugs:
@@ -48300,7 +48305,7 @@ async function changeProviderNow(say) {
        engine owns. */
     /* #3566: Gemini/Grok too. Their engine arm refuses a stale account outright (it has no
        fall-through), so the re-read is what makes the next press work. */
-    if (ACCT_KEYED_ROUTE[want] && err && err.serverRefused === true) {
+    if ((ACCT_KEYED_ROUTE[want] || want === 'anthropic') && err && err.serverRefused === true) {   // #5091: Claude's list too
       accountsDropped();
       try { await paintAccountPicker(CURRENT); }
       catch { /* the sentence above is the answer; a failed refresh must not replace it */ }
