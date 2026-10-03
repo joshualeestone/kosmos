@@ -184,7 +184,7 @@ else
 fi
 rm -f "$D/com.kosmos.agent.newcomer.plist"
 # CONTROLS: modified plists whose WorkingDirectory is NOT exactly <live_root>/<name> still fire.
-for shape in "sandbox:/tmp/kosmos-test-AbC/workers/x" "nested:$LIVE/x/deeper" "root:$LIVE" "lookalike:${LIVE}-evil/x" "dotdot:$LIVE/.."; do
+for shape in "sandbox:/tmp/kosmos-test-AbC/workers/x" "nested:$LIVE/x/deeper" "root:$LIVE" "lookalike:${LIVE}-evil/x" "dotdot:$LIVE/.." "trailingslash:$LIVE/x/"; do
   nm="${shape%%:*}"; wd="${shape#*:}"
   plist_wd "$D/com.kosmos.agent.m-$nm.plist" "m-$nm" "$wd"
   launchagent_snapshot "$D" > "$BEFORE"
@@ -208,6 +208,27 @@ else
   fail "#5092: the default live root is not \$HOME/work/workers"
 fi
 HOME="$HOME_SAVED"
+# A live root containing "&" is written XML-escaped in the plist ("&amp;"); the raw root does not match it, so the
+# guard reds (a false red, the safe direction). Pinned so a later "loosening" of the match is a decision.
+plist_wd "$D/com.kosmos.agent.ampagent.plist" ampagent "$D/live&amp;root/ampagent"
+launchagent_snapshot "$D" > "$BEFORE"
+touch -t 204101010000 "$D/com.kosmos.agent.ampagent.plist"
+if launchagent_leak_check "$D" "$BEFORE" "" "$D/live&root" 2>/dev/null; then
+  fail "#5092: an XML-escaped root (&amp;) matched the raw root, so the match is looser than pinned"
+else
+  pass "#5092: an XML-escaped root does not match the raw one (reds, the safe direction)"
+fi
+rm -f "$D/com.kosmos.agent.ampagent.plist"
+# A live root of "/" turns the skip off (run-tests.sh passes it when it has no notes file, so no skip is silent).
+plist_wd "$D/com.kosmos.agent.offagent.plist" offagent "$LIVE/offagent"
+launchagent_snapshot "$D" > "$BEFORE"
+touch -t 204001010000 "$D/com.kosmos.agent.offagent.plist"
+if launchagent_leak_check "$D" "$BEFORE" "" "/" 2>/dev/null; then
+  fail "#5092: a live root of / still skipped (a skip with no notes file would be silent)"
+else
+  pass "#5092: a live root of / turns the skip off"
+fi
+rm -f "$D/com.kosmos.agent.offagent.plist"
 rm -f "$D/com.kosmos.agent.homeagent.plist" "$D/com.kosmos.agent.liukang.plist" "$NOTES"
 printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_leak_check[^)]*_la_live_notes' \
   && pass "#5092: run-tests.sh passes a notes file to the leak check" \

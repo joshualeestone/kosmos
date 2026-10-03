@@ -57,13 +57,20 @@ launchagent_snapshot() {
 # (born Sep 11) and the full run of an unrelated branch went red. So a changed plist is skipped when BOTH hold:
 #   - it was already in the pre-suite snapshot (MODIFIED, never NEW: a new plist is the #3011 leak shape and
 #     always reds, whatever it points at), and
-#   - its WorkingDirectory is directly under the live install's workers root (<live_root>/<name>), which a
-#     test's agent never is: tests sandbox AGENT_WORKFORCE_WORKERS into a temp dir.
+#   - its WorkingDirectory is directly under the live install's workers root (<live_root>/<name>). Tests are
+#     expected to sandbox AGENT_WORKFORCE_WORKERS into a temp dir; that is a per-test convention, not enforced
+#     here (run-tests.sh exports none), so the real backstop is #3605, below.
 # <live_root> is the optional 4th argument, default $HOME/work/workers (the product's default,
-# store.workersRootFor). Each skip is written to the optional 3rd argument (a file) so the runner can say so.
-# Weakest premise: a test that rewrites a REAL pre-existing plist AND keeps its real WorkingDirectory would now
-# pass the guard. #3605's launch-guard.js already refuses any test's write into the real LaunchAgents under
-# node --test, so that test would fail on its own line first.
+# store.workersRootFor); "/" turns the skip off (an empty root matches nothing). Each skip is written to the
+# optional 3rd argument (a file) so the runner can say so.
+# Weakest premise: a writer that rewrites a REAL pre-existing plist AND keeps its real WorkingDirectory now
+# passes. #3605 refuses in-process fs writes into the real LaunchAgents under node --test (launch-guard.js) and
+# create.js refuses under NODE_TEST_CONTEXT; NOT covered: a child spawned with a scrubbed env and no preload, or
+# a shell tool (cp, plutil, touch) run by a test. That is the residual hole.
+# Known false red, accepted (#5092 review 1): only the DEFAULT world's root is trusted. An agent in a named world
+# (engine/worlds.js: <world>/workers) or a connected-folder agent (create.js workerDir -> its recorded dir)
+# restarted mid-suite still reds. It fails safe (a red, never a hidden leak); widening means reading the worlds
+# registry and recorded dirs from the shell.
 launchagent_live_owned() {   # <plist> <live_root> -> 0 when its WorkingDirectory is <live_root>/<one name>
   local wd root="${2%/}"
   [ -n "$root" ] || return 1
