@@ -123,7 +123,7 @@ if [ -n "$NONCE" ]; then
     case "$VCODE" in
       200) VERSION_WHY="GET /api/version answered no version we could read" ;;
       404) VERSION_WHY="GET /api/version: HTTP 404, a board older than this route (#5084)" ;;
-      000|"") VERSION_WHY="GET /api/version did not answer in 15 s" ;;
+      000|"") VERSION_WHY="GET /api/version got no answer (no reply in 15 s, or the connection dropped)" ;;
       *) VERSION_WHY="GET /api/version: HTTP $VCODE" ;;
     esac
     [ "$VCODE" = 200 ] && BOARD_VERSION="$(printf '%s' "$VBODY" | "$VNODE" -e 'let b="";process.stdin.on("data",(d)=>{b+=d}).on("end",()=>{try{const v=JSON.parse(b).running;if(typeof v==="string"&&/^[0-9][0-9A-Za-z.+-]*$/.test(v))process.stdout.write(v)}catch{}})' 2>/dev/null || true)"
@@ -147,7 +147,7 @@ if [ -n "${KOSMOS_GATE_EXPECT_VERSION:-}" ] && [ "$BOARD_VERSION" != "$KOSMOS_GA
   # the promote, so "update it first" sent them nowhere).
   say "  To check $KOSMOS_GATE_EXPECT_VERSION here: point a board at staging (AGENT_WORKFORCE_UPDATE_CHANNEL=staging, or"
   say "  KOSMOS_UPDATE_CHANNEL=staging on a fresh install). Or verify by hand, promote with --force, and once this board"
-  say "  reports $KOSMOS_GATE_EXPECT_VERSION run: KOSMOS_GATE_EXPECT_VERSION=$KOSMOS_GATE_EXPECT_VERSION bash tools/staging-experience-check.sh $PORT"
+  say "  reports $KOSMOS_GATE_EXPECT_VERSION run: KOSMOS_GATE_EXPECT_VERSION=$KOSMOS_GATE_EXPECT_VERSION bash $(cd "$(dirname "$0")" && pwd)/staging-experience-check.sh $PORT"
   exit 2
 fi
 

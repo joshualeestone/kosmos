@@ -122,7 +122,7 @@ out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$Sh" 2>&1
 [ "$rc" = 2 ] && [ ! -f "$Sh/dist/latest.json" ] && pass "promote: gate 2 (cannot-tell) -> HOLD (exit 2), prod pointer untouched" || bad "promote gate2 hold (rc=$rc)"
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=2 bash "$PROMOTE" "$Sh" --force 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "NOT automatically verified" && [ -f "$Sh/dist/latest.json" ] && pass "promote: gate 2 + --force -> promote with a hand-verified warning" || bad "promote gate2 --force (rc=$rc, out=$out)"
-has "$out" "run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash tools/staging-experience-check.sh" && pass "#5084: a forced cannot-tell prints the exact re-run for after the deploy" || bad "#5084: forced cannot-tell, no re-run line (out=$out)"
+has "$out" "run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$PROMOTE")/.." && pwd)/tools/staging-experience-check.sh" && pass "#5084: a forced cannot-tell prints the exact re-run for after the deploy" || bad "#5084: forced cannot-tell, no re-run line (out=$out)"
 has "$out" "this agent-spawn pass is not a check of $V" && pass "#5084: after a forced cannot-tell, the agent-spawn pass says it is not a check of $V" || bad "#5084: forced cannot-tell, agent pass not qualified (out=$out)"
 
 # same-bytes invariant: a staging pointer whose sha does not match the served artifact is refused BEFORE the gate

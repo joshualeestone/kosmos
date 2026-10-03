@@ -54,4 +54,8 @@ old to have GET /api/version reads as "cannot read", so it HOLDS; the candidate 
   board would then read cannot-tell instead of its loud exit 1); a token-refused arm (fails closed by construction).
   Measured 21:3x: gate test all arms (the 404 arm now asserts its cause; the mismatch arm asserts the re-run line); promote
   test ALL PASS with the new re-run assertion; server test 2/2.
-- Round 3: PENDING.
+- Round 3 (sonnet, blind, Baron's commit): 0 BLOCKER, 0 SHOULD-FIX, 4 NIT. CONVERGED (21:35). Measured the bash split
+  under set -uo pipefail: trailing newline, empty body, refused connection (000), missing curl. NITs taken: 000 worded as
+  "no answer (no reply in 15 s, or the connection dropped)"; the re-run lines print the ABSOLUTE script path; promote's
+  re-run names which board (the port given, else KOSMOS_PORT / 16180). Not taken: curl killed before -w prints gives an
+  odd "HTTP <text>" (unreachable with 2>/dev/null and || true). Server test 2/2, both shell tests green.
