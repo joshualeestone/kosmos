@@ -103,6 +103,10 @@ function chk(ok, label, extra) {
     // to the projects view, and the chart is not on screen to measure). No repaint loop in the consolidated Agents view. Its own page, with timers stubbed so only the watcher can
     // repaint, a 60-agent fleet (big enough that the chart is fitted to its width, and so its height follows it),
     // and the band of window heights where the pane's scrollbar used to come and go (measured: 924 to 936 at 1280).
+    // #5018 moved the header's notices into a floating stack, so the header no longer holds their slots and the pane is
+    // about 16px taller: the pane's scroll now starts between 912 and 920 at 1280 (measured 2026-10-02 in this check's
+    // own sweep, 840 to 1000 by 8: scrolling up to 912 and not from 920; before #5018, up to 928 and not from 936). The
+    // band follows it, so the G3b precondition below still proves the sweep crosses the scroll start.
     // One fresh page per height, each loaded at that size, of web/index.html itself (file://, as render-agent-sort-4428
     // and others do): a served board opens its Getting started project by itself and takes the chart off screen.
     // Timers are stubbed so only the watcher can repaint.
@@ -110,7 +114,7 @@ function chk(ok, label, extra) {
     const g3 = [], g3b = [];
     // G3b runs the same sweep with the pane's gutter NOT reserved (scrollbar-gutter overridden to auto), which is what
     // an engine without scrollbar-gutter (Safari before 18.2) does: the loop must be stopped by the chart's own guard.
-    for (const noGutter of [false, true]) for (let h = 920; h <= 940; h += 4) {
+    for (const noGutter of [false, true]) for (let h = 904; h <= 924; h += 4) {
       const p3 = await ctx3.newPage();
       await p3.setViewportSize({ width: 1280, height: h });
       p3.on('pageerror', (e) => errs.push(e.message));
