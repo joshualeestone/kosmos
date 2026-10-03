@@ -101,3 +101,11 @@ prod-channel cut (KOSMOS_CUT_CHANNEL=prod), which still writes /setup directly.
   KOSMOS_VERIFY_SETUP), so a staging cut that raises the macOS floor is not a false red. It still reads
   the PROD pointer for the artifact half on every cut, as before this card.
 - tools/clean-machine.sh walks /setup by default; KOSMOS_VERIFY_SETUP=setup-staging walks the staging one.
+
+## Review and validation record
+- 14 blind rounds; converged at round 14. A later fix: test-bc-quarantine.sh's step-1e awk now stops at the next step
+  header (the new step 1f had been swept into 1e's block); reviewed.
+- Full validation PASSED at 2d37ceb3a (2026-10-03 01:14, Agent1s, LANG set): 14097 pass, 0 fail, no leak lines.
+- Site half: chaoskosmos-site#179 MERGED (vercel.json headers for /setup-staging), so step 1f passes.
+- MERGE ORDER (Baron, 2026-10-03): merge AFTER the 0.7.20 prod promote, so neither the unattended 0.7.20 cut nor its
+  promote runs a release path changed mid-flight.
