@@ -480,7 +480,7 @@ async function docsLook(page, projectId) {
     const was = sw.hidden; sw.hidden = false;
     try {
       const cs = getComputedStyle(sw), on = sw.querySelector('[aria-checked="true"]');
-      return { found: true, backShown: getComputedStyle(back).display !== 'none', chevShown: getComputedStyle(chev).display !== 'none',
+      return { found: true, backShown: getComputedStyle(back).display !== 'none', chevShown: getComputedStyle(chev).display !== 'none', chevSize: Math.round(chev.getBoundingClientRect().width),
         segRadius: cs.borderTopLeftRadius, segEdge: cs.borderTopColor, segBg: cs.backgroundColor, chosen: on ? getComputedStyle(on).backgroundColor : 'absent' };
     } finally { sw.hidden = was; }
   });
@@ -960,8 +960,8 @@ const AGENTS_LOOK = `(() => {
         }
       }
       const dcOn = await docsLook(page, proj.id);
-      chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevBack === true,
-        `${tag} On, Documents: back is the round chevron (the text link hidden), and it returns to the project`, JSON.stringify(dcOn));
+      chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevSize === 40 && dcOn.chevBack === true,
+        `${tag} On, Documents: back is the round chevron at the project page's 40px (the text link hidden), and it returns to the project`, JSON.stringify(dcOn));
       chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.segBg === GREY_OF[theme],
         `${tag} On, Documents: the folder / conversation switch is a grey pill with no edge`, JSON.stringify(dcOn));
       const plOn = await projectsLook(page);
