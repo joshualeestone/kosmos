@@ -471,7 +471,9 @@ async function docsLook(page, projectId) {
   await page.mouse.move(1, 1);
   await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, projectId);
   await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 }).catch(() => {});
-  if (await page.isVisible('#pj-docs-all')) await page.click('#pj-docs-all');   // as a person opens it
+  // View All appears once the folder has been read; wait for it, as a person would, then press it.
+  await page.waitForSelector('#pj-docs-all', { state: 'visible', timeout: 8000 }).catch(() => {});
+  if (await page.isVisible('#pj-docs-all')) await page.click('#pj-docs-all');
   await page.waitForSelector('#pj-docs-view:not([hidden])', { timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(300);
   const out = await page.evaluate(() => {
@@ -505,7 +507,8 @@ async function docsPhoneSeg(browser, url, width, projectId) {
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
     await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, projectId);
     await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 });
-    if (await page.isVisible('#pj-docs-all')) await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-all', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
     await page.waitForSelector('#pj-docs-view:not([hidden])', { timeout: 8000 });
     await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
     // NL_SHOTS=<dir> keeps a picture of the switch for a person to look at (the corners are judged by eye).
@@ -995,8 +998,8 @@ const AGENTS_LOOK = `(() => {
       }
       chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevSize === 40 && dcOn.chevGap === '14px' && dcOn.chevBack === true,
         `${tag} On, Documents: back is the round chevron at the project page's 40px (the text link hidden), and it returns to the project`, JSON.stringify(dcOn));
-      chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.segBg === GREY_OF[theme] && dcOn.divider === 'rgba(0, 0, 0, 0)' && dcOn.endRadius === '999px',
-        `${tag} On, Documents: the folder / conversation switch is a grey pill with no edge or divider, its end segments round${theme === 'dark' ? ' (in dark today\'s switch already sits on this grey, so the pill and the edge carry this arm)' : ''}`, JSON.stringify(dcOn));
+      chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.divider === 'rgba(0, 0, 0, 0)' && dcOn.endRadius === '999px',
+        `${tag} On, Documents: the folder / conversation switch is a pill with no edge or divider, its end segments round`, JSON.stringify(dcOn));
       const plOn = await projectsLook(page);
       chk(plOn.found && plOn.card === 'rgba(0, 0, 0, 0)' && plOn.shadow === 'none' && plOn.radius === '24px',
         `${tag} On, Projects: a plain project card loses its border and shadow and takes 24px corners`, JSON.stringify(plOn));

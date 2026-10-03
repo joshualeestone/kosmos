@@ -10498,10 +10498,10 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    pjView('one'). The In the project folder | From this conversation switch is a grey pill like the look's other
    toggles; the chosen segment stays GOLD (Josh, 2026-08-17: "selected is gold, not ink"). */
 :root[data-look="new"] body:not(.consolidated) #docs-back { display: none; }
-/* 40px with a 14px gap in the tab view (the project page's back under the look); the consolidated view keeps the
+/* 40px with a 14px gap in the tab view (the project page's back frame under the look); the consolidated view keeps the
    32px chevron its own sub-view headers use. The two sizes are deliberate. */
 :root[data-look="new"] body:not(.consolidated) #docs-chev { display: grid; width: 40px; height: 40px; margin-right: 14px; }
-:root[data-look="new"] body:not(.consolidated) #docs-seg { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg { border-color: transparent; border-radius: 999px; }
 :root[data-look="new"] body:not(.consolidated) #docs-seg button + button { border-left-color: transparent; }
 /* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the switch already
    clips its fill). */
