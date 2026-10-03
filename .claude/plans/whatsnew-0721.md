@@ -73,3 +73,11 @@ Claude Code's safeguards menu; both are plausible, neither measured.
 - NIT left: line 2 "agents" unqualified (the sweep touches only agents Kosmos made; on a board that is every agent).
 
 ## Review 5 (sonnet, 05:12): CONVERGED. Line 1: every no-working-sign-in-or-key refusal names Settings, AI Models (create.js 3937-3940, 3966-3967, 4018-4019, 4035, 4062-4063, 4094); "Accounts tab" 0. NIT left (routed to Mona): create.js 4873, Claude Code not found, says "Connect a Claude account and Kosmos will set it up" without naming the place.
+
+## Fold of #5127/#5128 into line 1 (termtab-5127 MERGED 8a3bfc107 via PR #5136, 05:59; noplace-5127 pending)
+Mona's 13 sentences now point at real places: "look under AI Settings on its page", "look at This agent's Terminal
+under AI Settings on this page", "Set up in Settings, AI Models" (the greyed Gemini hint). Remaining "Terminal tab"
+mentions on main are code comments only (checked: server.js 5259/5270, index.html 11901...65207).
+Draft (finalize + review when noplace-5127 lands, which also fixes the Claude-Code-missing create refusal):
+  title "Setup points to real places", line: "When Kosmos tells you where to fix something, it now names a real place:
+  Settings, AI Models, or AI Settings on an agent's page."
