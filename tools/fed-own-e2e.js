@@ -331,6 +331,11 @@ function boardEnv(b) {
     HOME: b.home,
     PORT: String(b.port),
     AGENT_WORKFORCE_RELEASE_BASE: 'http://127.0.0.1:9/dist',
+    // kosmos#5151 (#4253): this env is built by hand, so nothing a harness exports reaches the board; name the
+    // dead-port phone-home URLs and the internal mark here, or both boards tell installkosmos.com they are new installs.
+    AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created',
+    AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback',
+    KOSMOS_INTERNAL_RUN: '1',
     AGENT_WORKFORCE_DATA: b.data,
     AGENT_WORKFORCE_WORKERS: b.workers,
     AGENT_WORKFORCE_LAUNCH: b.launch,

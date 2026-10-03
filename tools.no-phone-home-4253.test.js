@@ -553,7 +553,7 @@ test('#4253: every test and browser check that boots server.js keeps the board f
      env built by hand drops both, so such a spawn must name the URL itself. */
   /* This file is left out: its self-test above holds deliberately unsafe spawns as
      strings, and its one real boot (the CONTROL) names the URL. */
-  const files = require('node:child_process').execFileSync('git', ['-C', REPO, 'ls-files', '*.test.js', 'docs/browser-checks/*.js', 'test-support/*.js'], { encoding: 'utf8' })
+  const files = require('node:child_process').execFileSync('git', ['-C', REPO, 'ls-files', '*.test.js', 'docs/browser-checks/*.js', 'test-support/*.js', 'tools/*.js'], { encoding: 'utf8' })
     .trim().split('\n').filter((f) => f && f !== 'tools.no-phone-home-4253.test.js');
   const all = [];
   for (const f of files) for (const b of boots(fs.readFileSync(path.join(REPO, f), 'utf8'))) all.push({ f, ...b });
@@ -564,8 +564,8 @@ test('#4253: every test and browser check that boots server.js keeps the board f
 });
 
 /* kosmos#5151: a check is also run ON ITS OWN (`node docs/browser-checks/<check>.js`), outside browser-checks.sh,
-   and then no harness export reaches its board. Measured 2026-10-03: 11 installs on the unserved 0.7.21, in the
-   window agents ran single checks against main. Every check that boots a board must load lib-no-phone-home,
+   and then no harness export reaches its board. On 2026-10-03, 11 installs on the unserved 0.7.21 landed in hours
+   when agents ran single checks AND the cut's sandboxes ran (consistent with this path, not proven). Every check that boots a board must load lib-no-phone-home,
    directly or through lib-sandbox-home, which sets the dead-port URLs and marks the run internal. */
 test('#5151: every browser check that boots server.js loads lib-no-phone-home, directly or through lib-sandbox-home', () => {
   const dir = path.join(REPO, 'docs', 'browser-checks');
@@ -595,7 +595,7 @@ test('#5151: lib-no-phone-home sets the dead-port URLs and the internal mark, an
   assert.deepEqual(run({ AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:4242/c' }).slice(0, 1), ['http://127.0.0.1:4242/c'], 'a check that names its own collector keeps it');
 });
 
-test('#5151: the harnesses mark their runs internal before any board boots', () => {
+test('#5151: the harnesses export KOSMOS_INTERNAL_RUN=1 at the top level', () => {
   for (const f of ['tools/run-tests.sh', 'tools/browser-checks.sh', 'tools/release.sh']) {
     assert.match(fs.readFileSync(path.join(REPO, f), 'utf8'), /^export KOSMOS_INTERNAL_RUN=1\b/m, `${f} must export KOSMOS_INTERNAL_RUN=1 at the top level`);
   }

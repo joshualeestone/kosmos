@@ -122,10 +122,11 @@ function payload(count) {
  * Nothing else about the install changes: an internal install pings, counts its agents and reports as before.
  *
  * kosmos#5151: a SECOND mark, for our test and cut runs: `KOSMOS_INTERNAL_RUN=1` in the environment. The
- * harness entry points (tools/run-tests.sh, tools/browser-checks.sh, tools/release.sh) export it, and every
- * board they start inherits it: a sandbox board is never launchd-supervised (install/kosmos takes the nohup
- * path there and passes the environment through), and the browser checks spread process.env into the boards
- * they spawn. A file per sandbox would mean editing every harness that makes a data root. STRICT the same
+ * harness entry points (tools/run-tests.sh, tools/browser-checks.sh, tools/release.sh) export it. A board
+ * started as a child (install/kosmos's nohup path, the browser checks, which spread process.env) inherits it;
+ * a launchd-supervised sandbox board (Pete's release-walk shape: KOSMOS_HOME sandboxed, LAUNCH real) gets it
+ * from its plist, which install/setup.sh writes with KOSMOS_INTERNAL_RUN=1 when the install ran with it.
+ * A file per sandbox would mean editing every harness that makes a data root. STRICT the same
  * way: only the exact string '1' counts, and nothing a person's install does sets it, so a real install's
  * ping is unchanged (Josh's three-ping ruling: the flag is only ever added, never anything removed).
  */

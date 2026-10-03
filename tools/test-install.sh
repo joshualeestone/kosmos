@@ -1876,6 +1876,13 @@ chk "Pete's-convention plist's AGENT_WORKFORCE_PROJECTS is under KOSMOS_HOME" "g
 chk "Pete's-convention plist's AGENT_WORKFORCE_WORKERS is under KOSMOS_HOME" "grep -q \"<key>AGENT_WORKFORCE_WORKERS</key><string>$PETE_HOME/workers</string>\" \"$PETE_PLIST\""
 chk "Pete's-convention plist ALSO carries the #634 override for the NEXT restart" "grep -q '<key>AGENT_WORKFORCE_HALF_SANDBOX_OK</key><string>1</string>' \"$PETE_PLIST\""
 chk "the four new keys sit one per line, not squished onto one" "[ \"\$(grep -c '<key>AGENT_WORKFORCE_' \"\$PETE_PLIST\")\" = 4 ] && [ \"\$(grep -c '<key>AGENT_WORKFORCE_DATA</key>.*<key>AGENT_WORKFORCE_PROJECTS</key>' \"\$PETE_PLIST\")\" = 0 ]"
+# kosmos#5151: the walk-shape plist carries KOSMOS_INTERNAL_RUN exactly when the install ran with it (run-tests.sh exports
+# it), so a launchd-supervised test board marks its ping; run without it, the plist stays as a real install's.
+if [ "${KOSMOS_INTERNAL_RUN:-}" = 1 ]; then
+  chk "#5151 an install run with KOSMOS_INTERNAL_RUN=1 puts it in the sandbox plist (a launchd-started test board marks its ping)" "grep -q '<key>KOSMOS_INTERNAL_RUN</key><string>1</string>' \"\$PETE_PLIST\""
+else
+  chk "#5151 an install run without KOSMOS_INTERNAL_RUN leaves it out of the plist" "! grep -q 'KOSMOS_INTERNAL_RUN' \"\$PETE_PLIST\""
+fi
 
 echo "-- #883 challenge-loop iteration 4: a REBOOT uses only the plist's own env, not this session's exports --"
 # 🔑 THE FIX THAT ITERATION 3 SHIPPED ONLY COVERED THE SAME-SESSION START.
@@ -1916,6 +1923,7 @@ RC=0; env -i \
   AGENT_WORKFORCE_PROJECTS="$(_plist_env_line AGENT_WORKFORCE_PROJECTS)" \
   AGENT_WORKFORCE_WORKERS="$(_plist_env_line AGENT_WORKFORCE_WORKERS)" \
   AGENT_WORKFORCE_HALF_SANDBOX_OK="$(_plist_env_line AGENT_WORKFORCE_HALF_SANDBOX_OK)" \
+  KOSMOS_INTERNAL_RUN="$(_plist_env_line KOSMOS_INTERNAL_RUN)" \
   AGENT_WORKFORCE_CREATED_URL="$AGENT_WORKFORCE_CREATED_URL" \
   AGENT_WORKFORCE_FEEDBACK_URL="$AGENT_WORKFORCE_FEEDBACK_URL" \
   AGENT_WORKFORCE_COMMUNITY_URL="$AGENT_WORKFORCE_COMMUNITY_URL" \

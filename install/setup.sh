@@ -4011,8 +4011,12 @@ if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   # capturing THAT, then stripping the `X` with `${var%X}` is the standard
   # portable way to keep a command substitution's trailing newlines: the
   # `X` is not a newline, so nothing gets stripped until `%X` removes it.
-  _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; _env_kv AGENT_WORKFORCE_HALF_SANDBOX_OK "$AGENT_WORKFORCE_HALF_SANDBOX_OK"; printf 'X'; } )"
+  _extra_env_kv="$( { _env_kv AGENT_WORKFORCE_DATA "$AGENT_WORKFORCE_DATA"; _env_kv AGENT_WORKFORCE_PROJECTS "$AGENT_WORKFORCE_PROJECTS"; _env_kv AGENT_WORKFORCE_WORKERS "$AGENT_WORKFORCE_WORKERS"; _env_kv AGENT_WORKFORCE_HALF_SANDBOX_OK "$AGENT_WORKFORCE_HALF_SANDBOX_OK"; if [ "${KOSMOS_INTERNAL_RUN:-}" = 1 ]; then _env_kv KOSMOS_INTERNAL_RUN 1; fi; printf 'X'; } )"
   _extra_env_kv="${_extra_env_kv%X}"
+  # kosmos#5151: a test or walk install (KOSMOS_INTERNAL_RUN=1, set only by our harnesses) carries the mark into the
+  # plist, because a launchd-supervised board (Pete's release-walk shape: KOSMOS_HOME sandboxed, LAUNCH real) runs with
+  # ONLY these keys and would otherwise ping as a new person. Only inside this sandbox block, and only when set: a real
+  # install's plist is byte-identical.
 fi
 _board_ok=no
 # 🛑 THIS HEREDOC IS UNQUOTED, so every $(...) and every backtick in its body

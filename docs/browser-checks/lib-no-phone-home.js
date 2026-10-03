@@ -7,9 +7,10 @@
  * (AGENT_WORKFORCE_FEEDBACK_URL) at a dead local port, and a check run through tools/browser-checks.sh
  * inherits that. But a check is also run DIRECTLY (`node docs/browser-checks/<check>.js`), to reproduce a
  * red or prove a fix, and then nothing redirects it: its board minted an install id and told
- * installkosmos.com a new Mac install exists, carrying the checkout's version. Measured 2026-10-03: the
- * install listing showed 11 installs on 0.7.21, a version that had never been served, all in the window
- * agents were running single checks against main after the 0.7.21 bump.
+ * installkosmos.com a new Mac install exists, carrying the checkout's version. On 2026-10-03 the install
+ * listing showed 11 installs on 0.7.21, a version never served, all inside hours when agents ran single
+ * checks against main AND the 0.7.21 cut's sandboxes ran: consistent with this path, not proven to be it
+ * (a ping carries no source), which is why the harnesses and sandbox plists are marked as well.
  *
  * Requiring this file, before the check boots a board, sets both URLs to the same dead port the harness
  * uses (unless the caller already named one) and marks the run internal (KOSMOS_INTERNAL_RUN=1, read by
