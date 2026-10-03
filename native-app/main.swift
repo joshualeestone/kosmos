@@ -2926,6 +2926,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let asked = alert.runModal() == .alertFirstButtonReturn
         wake.invalidate()
         downloadAlertsUp -= 1
+        if downloadAlertsUp == 0, !pendingNewRefusals.isEmpty {
+            let next = pendingNewRefusals.removeFirst()
+            DispatchQueue.main.async { [weak self] in self?.tellDownloadFailed(next, quiet: true) }
+        }
         if pendingDownloadFailures > 0 {   // failures that arrived while it was asked
             schedulePendingSay()
         }
@@ -2950,11 +2954,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var downloadAlertsUp = 0   // download alerts on screen; a count, since one can open inside another's modal loop
     private var pendingDownloadFailures = 0   // failures that arrived while an alert was up, said together after it
     private var pendingIncludesFailure = false   // a real failure among them: that summary is always said
-    /// #5167: files saved from each Kosmos+ computer this run, so an allowed computer cannot save without end:
-    /// past the cap, the person's View > Reload is needed to save more (a page reloading itself does not reset
-    /// it). It counts files, not bytes: a computer the person allowed can still send a large one. This
+    private var pendingNewRefusals: [String] = []   // refusals in new words that waited for an alert on screen
+    /// #5167: files saved from each Kosmos+ computer in the last 10 minutes, so an allowed computer cannot save
+    /// without end: past the cap it waits, or the person's View > Reload starts over (a page reloading itself
+    /// does not reset it). It counts files, not bytes: a computer the person allowed can still send a large one. This
     /// computer's own board, which this app loaded, has no cap.
-    private var savesByHost: [String: Int] = [:]
+    private var savesByHost: [String: [Date]] = [:]   // when each recent save from a computer began
+    static let saveWindow: TimeInterval = 600
     private var downloadHosts: [ObjectIdentifier: String] = [:]   // capped downloads in flight, removed at their end
     static var savesPerComputerCap = 50
     private var pendingSayScheduled = false   // one summary waiting at a time, however fast refusals come
@@ -2991,7 +2997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                            title: "Some downloads were not saved")
     }
 
-    fileprivate func resetDownloadQuiet() { lastDownloadTold = nil; quietToldThisPage = []; summaryToldForPage = nil }   // the selftest, between its arms
+    fileprivate func resetDownloadQuiet() { lastDownloadTold = nil; quietToldThisPage = []; summaryToldForPage = nil; pendingNewRefusals = [] }   // the selftest, between its arms
 
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false, always: Bool = false) {
         // A refusal is Kosmos choosing not to save; anything else is a save that failed.
@@ -3017,17 +3023,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if downloadAlertsUp == 0 { schedulePendingSay() }
             return
         }
-        if quiet {
-            let sheetUp = downloadAlertsUp > 0
-            if sheetUp || (lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false) {
-                // Counted into the summary, not dropped: a second click a moment after the first still hears back.
-                logLine("#5167: said with the next summary: \(detail)")
-                pendingDownloadFailures += 1
-                if downloadAlertsUp == 0 {
-                    schedulePendingSay()
-                }
-                return
-            }
+        if quiet && downloadAlertsUp > 0 {
+            // A refusal in new words while an alert is up waits for it and is then said in its own words (a
+            // different refusal is always heard; repeats were already sent to the summary above).
+            logLine("#5167: said after the alert on screen: \(detail)")
+            if !pendingNewRefusals.contains(detail) { pendingNewRefusals.append(detail) }
+            return
         }
         if quiet { quietToldThisPage.insert(detail) }
         if let present = AppDelegate.downloadAlertPresenter {   // the selftest: dismissed as soon as said
@@ -3046,6 +3047,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             guard let self = self else { return }
             self.downloadAlertsUp -= 1
             self.lastDownloadTold = Date()   // the quiet window follows every download alert
+            if self.downloadAlertsUp == 0, !self.pendingNewRefusals.isEmpty {
+                let next = self.pendingNewRefusals.removeFirst()
+                DispatchQueue.main.async { self.tellDownloadFailed(next, quiet: true) }
+            }
             if self.pendingDownloadFailures > 0 {
                 schedulePendingSay()
             }
@@ -3053,6 +3058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Modal, never a sheet: a sheet over another sheet can be dropped (#2807), and a failure must be said.
         // Shown on the next turn, so the caller answers WebKit first rather than holding its decision under it.
         DispatchQueue.main.async {
+            if always { NSApp.activate(ignoringOtherApps: true) }   // the one warning about a saved file is seen
             alert.runModal()
             dismissed()
         }
@@ -3135,15 +3141,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if let page = committedPageURL, let host = page.host?.lowercased(),
            isKosmosPlusURL(page) || host == AppDelegate.askAboutHostForSelftest {
-            let n = savesByHost[host, default: 0]
+            let recent = savesByHost[host, default: []].filter { Date().timeIntervalSince($0) < AppDelegate.saveWindow }
+            savesByHost[host] = recent
+            let n = recent.count
             if n >= AppDelegate.savesPerComputerCap {
                 logLine("#5167: \(n) files already saved from \(host), so no more until the person reloads")
                 downloadsTold.add(download)
-                tellDownloadFailed("\(host) has already saved \(n) \(n == 1 ? "file" : "files"). Reload the page (View > Reload) to save more.", quiet: true)
+                tellDownloadFailed("Kosmos has already saved \(n) \(n == 1 ? "file" : "files") from \(host) in the last 10 minutes. Wait, or reload the page (View > Reload), to save more.", quiet: true)
                 completionHandler(nil)
                 return
             }
-            savesByHost[host] = n + 1
+            savesByHost[host] = recent + [Date()]
             downloadHosts[ObjectIdentifier(download)] = host   // a failed save gives its place back
         }
         let taken = Set(downloadsInFlight.values.map { $0.standardizedFileURL.path.lowercased() })   // Downloads is case-insensitive
@@ -3192,7 +3200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
         if let host = downloadHosts.removeValue(forKey: ObjectIdentifier(download)) {
-            savesByHost[host] = max(0, savesByHost[host, default: 1] - 1)
+            savesByHost[host] = Array(savesByHost[host, default: []].dropLast())
         }
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
@@ -5561,7 +5569,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("pack2.zip") && !leftBoard.contains("foreignzip"), "A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED, and the board stays")
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
-            row(!capSaved && told.contains { $0.contains("has already saved 1 file.") }, "PAST THE CAP A KOSMOS+ COMPUTER SAVES NOTHING MORE THIS RUN, and says so")
+            row(!capSaved && told.contains { $0.contains("has already saved 1 file from") }, "PAST THE CAP A KOSMOS+ COMPUTER SAVES NOTHING MORE THIS RUN, and says so")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "cap1.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             row(told.filter { $0.contains("answer was 500") }.count == 1 && told.contains { $0.contains("One more download was not saved") },
                 "TWO FAILURES AT ONCE: the first is said, the second is counted and said as a summary, never dropped")
@@ -5576,10 +5584,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 "and each carries the right title: a failure \"could not\", a refusal \"did not\" (a 204 says nothing)")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
             // plain link, and a computer that runs agents loads every link in the window (#5169).
+            row(leftBoard.contains("foreign"), "CONTROL: localhost answers here (a plain foreign link loads), so the other-origin rows are not vacuous")
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 24
+            let expected = 25
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
