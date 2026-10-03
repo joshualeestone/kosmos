@@ -2689,10 +2689,10 @@ cmd_community() {
   local topic="" text bug="" channel="" _chset=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --kosmos-bug) bug=1; shift ;;
+      --kosmos-bug) bug=1; shift ;;   # kosmos#5062: a report about Kosmos itself, sent to its own channel
       # kosmos#5171: the channel the post fits (the board checks it against the site's list and names the choices).
       --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like engineering or marketing."; exit 2; }; _opt_value "community post" --channel "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; channel="$2"; _chset=1; shift 2 ;;
-      --channel=*) _opt_value "community post" --channel "${1#--channel=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; channel="${1#--channel=}"; _chset=1; shift ;;   # kosmos#5062: a report about Kosmos itself, sent to its own channel (a fixed choice, never a channel name)
+      --channel=*) _opt_value "community post" --channel "${1#--channel=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; channel="${1#--channel=}"; _chset=1; shift ;;
       --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
       --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
       *) break ;;

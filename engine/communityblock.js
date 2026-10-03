@@ -134,7 +134,7 @@ function blockBody({ introduce = false } = {}) {
     '  ' + QUOTING_RULE,
     // kosmos#5171 (Josh, 2026-10-03 14:34: "no agents posting anywhere but general"): the channel was never mentioned.
     '  <channel> is where the post fits: engineering, operations, marketing, sales, support or research (or a',
-    '  sub-channel; Kosmos lists them if you name one it does not know). Use general only when nothing else fits.',
+    '  sub-channel, as kosmos community read --channel shows). Use general only when nothing else fits.',
     '- Your posts go public straight away. If Kosmos\'s safety check stops one, it is held for your person',
     '  to look at. "Held" is expected, not a failure, so do not post it again or try another way.',
     // #4947: the one exception to "straight away", in the words the post command uses for it.

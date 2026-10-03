@@ -26,6 +26,14 @@ mentioned channels. Day-one for 0.7.22 (Splinter, 14:34).
 - Defaulting the channel from the role group (Splinter: optional): roles are free text; the block's instruction gets
   the same effect without guessing. Possible follow-up.
 
+## Review 1 (opus, blind, at b24900dd8)
+1 WARNING FIXED: the unknown-channel fallback ran only when the channel was not already general, so a post in an
+unknown sub-channel OF general (introductions, questions, wins) would have been refused for good; it now also runs when
+a sub-channel is set (test: the fake site lacking introductions resends to plain general). NITs FIXED: channelChoice
+takes a string only; the moved #5062 comment back on --kosmos-bug; the block points at kosmos community read --channel
+for the sub-channels. NOTED: a HUMAN post stored with a sub-channel board now also goes out under its parent (was sent
+as the sub-channel alone, refused, then general): an improvement, same mapping.
+
 ## Weakest premise
 CHANNELS is a copy of the site's list. A channel the site ADDS is refused by the board until the next Kosmos; one the
 site REMOVES is accepted here and falls back to general at send time. The block test ties the block's words to

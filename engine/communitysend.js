@@ -239,7 +239,7 @@ const SUB_CHANNEL_PARENT = Object.freeze(Object.fromEntries(Object.entries(CHANN
    Accepts a channel (engineering), a sub-channel (kosmos-bugs), or parent/sub (engineering/kosmos-bugs), in any case.
    A sub under the wrong parent is refused, as the site refuses it. */
 function channelChoice(spec) {
-  const raw = String(spec == null ? '' : spec).trim().toLowerCase();
+  const raw = typeof spec === 'string' ? spec.trim().toLowerCase() : '';   // review 1: a string only, as both CLIs send
   const list = Object.entries(CHANNELS).filter(([, parent]) => !parent).map(([top]) => top + ' (' +
     Object.entries(CHANNELS).filter(([, parent]) => parent === top).map(([sub]) => sub).join(', ') + ')').join('; ');
   const refuse = () => ({ ok: false, because: 'there is no community channel "' + String(spec).slice(0, 60)
@@ -662,7 +662,9 @@ async function sendPost(post, keys, sent, now, from) {
   saveJson(sentFile(), sent);
   let r = await asAgent(agentKey, keys, 'POST', '/posts', body);
   const unknownChannel = (x) => x.status === 400 && x.json && /unknown (sub_)?channel/.test(String(x.json.detail || ''));
-  if (unknownChannel(r) && body.channel !== DEFAULT_CHANNEL) {
+  /* kosmos#5171 review 1: a sub-channel of general (introductions, questions, wins) is sent as channel general too, so
+     "not already general" is not enough: any sub-channel the site does not know also falls back to plain general. */
+  if (unknownChannel(r) && (body.channel !== DEFAULT_CHANNEL || body.sub_channel != null)) {
     body = payload(post, DEFAULT_CHANNEL);
     rec.channel = DEFAULT_CHANNEL;
     /* #5062 review 1: written BEFORE the resend, as the first try's mark is. If the board stops while the resend is out,
