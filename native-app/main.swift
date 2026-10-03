@@ -2737,9 +2737,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             mayDownload { decisionHandler($0 ? .download : .cancel) }
             return
         }
-        // A download this app will not save is refused, not loaded in the window instead (on a board page only a
-        // blob: or data: download gets here: WebKit makes a cross-origin `download` link a plain link). Said unless a frame
-        // inside the page asked for it (that is only logged).
+        // A download this app will not save is refused, not loaded in the window instead (from a board page's own
+        // frame only a blob: or data: download gets here: WebKit makes a cross-origin `download` link a plain link).
+        // Said unless a frame inside the page asked for it (that is only logged).
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
             if navigationAction.targetFrame?.isMainFrame != false {
@@ -2889,10 +2889,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
         downloadAlertsUp += 1   // nothing quiet is said over the question
-        let yes = alert.runModal() == .alertFirstButtonReturn
+        let asked = alert.runModal() == .alertFirstButtonReturn
         wake.invalidate()
         downloadAlertsUp -= 1
-        answer(yes)
+        // The page may have changed while it was asked (a switch to connect clears it): answer only for this one.
+        answer(asked && committedPageURL?.host?.lowercased() == host)
     }
 
     /// #5167: a policy refusal (`quiet: true`) is not said while one is on screen, nor for this many seconds
@@ -2901,12 +2902,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// said. The selftest sets it to 0 except for its burst arm.
     static var downloadQuietSeconds: TimeInterval = 5
     private var lastDownloadTold: Date?
-    private var downloadAlertsUp = 0   // download alerts on screen; a count, since one can open inside another's modal loop
+    private var downloadAlertsUp = 0
+    private var pendingDownloadFailures = 0   // failures that arrived while an alert was up, said together after it   // download alerts on screen; a count, since one can open inside another's modal loop
+    private func sayPendingDownloadFailures() {
+        guard pendingDownloadFailures > 0, downloadAlertsUp == 0 else { return }   // an alert up: its dismissal comes back here
+        let n = pendingDownloadFailures
+        pendingDownloadFailures = 0
+        tellDownloadFailed(n == 1 ? "One more download could not be saved." : "\(n) more downloads could not be saved.")
+    }
+
     fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
 
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {
         // A refusal is Kosmos choosing not to save; anything else is a save that failed.
         let title = title ?? (quiet ? "Kosmos did not save that file" : "Kosmos could not save that file")
+        if !quiet && downloadAlertsUp > 0 {
+            // Counted, not stacked: a page that loops failing downloads cannot pile up alerts the person
+            // cannot get out of. They are said together a few seconds after this alert is dismissed.
+            pendingDownloadFailures += 1
+            logLine("#5167: said with the next summary: \(detail)")
+            return
+        }
         if quiet {
             let sheetUp = downloadAlertsUp > 0
             if sheetUp || (lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false) {
@@ -2930,6 +2946,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             guard let self = self else { return }
             self.downloadAlertsUp -= 1
             if quiet { self.lastDownloadTold = Date() }
+            if self.pendingDownloadFailures > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
+                    self?.sayPendingDownloadFailures()
+                }
+            }
         }
         // Modal, never a sheet: a sheet over another sheet can be dropped (#2807), and a failure must be said.
         alert.runModal()
@@ -5201,7 +5222,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 if (r as? Bool) == true { then(); return }
                 guard tries > 0 else {
                     try? FileManager.default.removeItem(at: dl)
-                    print("download selftest TIMED OUT: the probe page never loaded"); exit(1)
+                    print("download selftest PAGE NEVER LOADED: the probe page (this can be the app's own response policy)"); exit(1)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
             }
@@ -5251,7 +5272,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 }
                 guard tries > 0 else {
                     try? FileManager.default.removeItem(at: dl)
-                    print("download selftest TIMED OUT: the non-board page never loaded"); exit(1)
+                    print("download selftest PAGE NEVER LOADED: the non-board page (this can be the app's own response policy)"); exit(1)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
             }
