@@ -657,7 +657,7 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   esac
   echo "==> native app: a download the page asks for is saved, and only from the page's own origin (#5167)"
 else
-  echo "==> SKIPPED (no console session): the #5167 download gate needs a window server. Downloads in the app were NOT checked by this build."
+  echo "==> SKIPPED (no console session): the #5167 download gate needs a window server. Downloads in the app were NOT checked by this build." >&2
 fi
 
 # ---- a connect computer's update look (kosmos#4382) ---------------------------
