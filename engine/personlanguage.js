@@ -11,10 +11,15 @@
  * Kosmos's own first words to them are English. So this block is the whole fix for that, and the ~7,500 words of
  * Kosmos instructions stay in English.
  *
- * The language comes from this computer's setting, read once per board start: on a Mac the first preferred language
- * (`defaults read -g AppleLanguages`), else Node's own locale (Intl), which follows the OS setting. English writes
- * no block, and an agent that has one loses it when the setting goes back to English, so an English computer is
- * exactly as before. AGENT_WORKFORCE_PERSON_LOCALE overrides the setting (tests; a Settings picker is not built).
+ * The language comes from this computer's setting, read once per process: on a Mac the first preferred language
+ * (`defaults read -g AppleLanguages`); elsewhere Node's own locale (Intl), which is ICU's default, the user locale
+ * (the region setting on Windows, LANG on Linux), not necessarily the display language; that was not measured on
+ * Windows. English writes no block, and an agent that has one loses it when the setting goes back to English.
+ * AGENT_WORKFORCE_PERSON_LOCALE overrides the setting (the test runners set it to en; a Settings picker is not built).
+ *
+ * Where it sits: writing the block takes it out and appends it again, so it ends the file, where April measured it
+ * (top of file was 2/2 too; mid-file is untested). A block added later goes behind it until the next board start,
+ * whose sweep runs last and moves it back.
  */
 
 const { execFileSync } = require('node:child_process');
@@ -28,7 +33,7 @@ const WROTE_WHY = 'the person\'s language, from this computer\'s language settin
 /* A BCP 47 tag, or null. Accepts the Mac's spellings too ("es_MX", "zh-Hans-CN"). */
 function normalise(raw) {
   const s = String(raw == null ? '' : raw).trim().replace(/_/g, '-').replace(/\..*$/, '').replace(/@.*$/, '');
-  if (!s || s === 'C' || s === 'POSIX') return null;
+  if (!s || s === 'C' || s === 'POSIX' || /^und(-|$)/i.test(s)) return null;
   try { return Intl.getCanonicalLocales(s)[0] || null; } catch { return null; }
 }
 
@@ -45,8 +50,11 @@ function macPreferred(run) {
  * The person's locale: the override, else the Mac's preferred language, else Node's locale. `o` is a test seam
  * ({ env, platform, run, intl }); production passes nothing.
  */
+let cached;   // one read per process: the setting is read again at the next board start
 function detect(o) {
-  const opts = o || {};
+  if (!o && cached !== undefined) return cached;
+  if (!o) { cached = detect({}); return cached; }
+  const opts = o;
   const env = opts.env || process.env;
   const forced = normalise(env.AGENT_WORKFORCE_PERSON_LOCALE);
   if (forced) return forced;
@@ -84,10 +92,15 @@ function blockBody(tag) {
   ].join('\n');
 }
 
-/** `text` with the block for `tag`: spliced in when there is one, removed when the language is English. */
+/** `text` with the block for `tag` at its end, or without the block when the language is English. */
 function applyTo(text, tag) {
   const body = blockBody(tag);
-  return body ? projects.spliceBlock(text, body, START, END) : projects.removeBlock(text, START, END);
+  if (!body) return projects.removeBlock(text, START, END);
+  // Already the last thing in the file (or not there yet): replaced in place, or appended. Otherwise taken out and
+  // appended again, so it ends the file. In place is byte-equal when nothing changed, so no write.
+  const at = projects.findBlock(String(text == null ? '' : text), START, END);
+  const last = !at || at.ambiguous || !String(text).slice(at.end).trim();
+  return projects.spliceBlock(last ? text : projects.removeBlock(text, START, END), body, START, END);
 }
 
 /** Put the block in (or take it out of) one agent's instructions. Same guards as connections.tellAgent. */
@@ -146,4 +159,4 @@ function syncEveryone(roster, opts) {
   return told;
 }
 
-module.exports = { START, END, normalise, macPreferred, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
+module.exports = { _resetForTests: () => { cached = undefined; }, START, END, normalise, macPreferred, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };

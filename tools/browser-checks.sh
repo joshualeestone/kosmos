@@ -85,6 +85,7 @@ export KOSMOS_AGENT_BROWSER=off
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
+export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test board writes no language block, whatever this Mac's language is
 
 log()  { printf '%s\n' "$*"; }
 sec()  { printf '\n=== %s ===\n' "$*"; }

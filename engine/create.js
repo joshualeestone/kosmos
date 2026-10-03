@@ -5241,9 +5241,8 @@ function createAgentInner(opts) {
       } catch { /* the sync after the session is up still does it, the old way */ }
     }
     /* #5050: the person's language, from this computer's language setting, so the agent starts and posts in it (an
-       English computer writes nothing). LAST, so it ends the file: that is where April measured it (#5050, 2/2), and a
-       block spliced after it would leave it mid-file, which nobody tested. Non-gating like the blocks above; the boot
-       sweep keeps it current when the setting changes. */
+       English computer writes nothing). LAST, so a new agent's file ends with it, where April measured it (#5050, 2/2);
+       a block added later goes behind it until the next board start moves it back. Non-gating like the blocks above. */
     {
       let langLanded = false;
       try {

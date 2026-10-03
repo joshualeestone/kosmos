@@ -20316,18 +20316,6 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about connections: ${String(err && err.message)}\n`);
   }
-  /* #5050: the person's language block, refreshed at boot for the same reason (an agent made before it existed, or the
-     computer's language setting changed): written when the setting is not English, removed when it is. */
-  try {
-    const told = personlanguage.syncEveryone(safeRoster());
-    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
-    if (stuck.length) {
-      const why = (stuck[0] && stuck[0].because) || 'no reason given';
-      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about your language; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
-    }
-  } catch (err) {
-    process.stderr.write(`Kosmos could not refresh what agents know about your language: ${String(err && err.message)}\n`);
-  }
   /* #3614: the direct-message files block, refreshed at boot for the reason the two
      above give (#1649/#1676): a sweep that runs only on an unrelated form save reaches
      an agent that already exists only by accident. It writes the FILE, not the running
@@ -20379,6 +20367,20 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
+  }
+  /* #5050: the person's language block, refreshed at boot (an agent made before it existed, or the computer's language
+     setting changed): written when the setting is not English, removed when it is. LAST of the boot sweeps, because
+     writing it also moves it to the end of the file, where April measured it; a sweep after this one could append a
+     block behind it again. */
+  try {
+    const told = personlanguage.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about your language; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about your language: ${String(err && err.message)}\n`);
   }
   /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
      hands itself to its headless logon task and leaves, so the launcher is never

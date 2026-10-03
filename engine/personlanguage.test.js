@@ -126,8 +126,39 @@ test('#5050: a new agent gets the block at create, and the board refreshes every
   const at = create.indexOf('plMod.applyTo(text, plMod.detect())');
   const write = create.indexOf('fs.writeFileSync(instructionFile(name, runner), text', at);
   assert.ok(write > at, 'the instruction file is no longer written after the language block');
-  assert.doesNotMatch(create.slice(at, write), /spliceBlock\(text/, 'another block is spliced after the language block, so it is no longer last');
+  const own = create.indexOf('text = spliced; langLanded = true;', at);
+  assert.ok(own > at, 'the language block no longer assigns its own result');
+  assert.doesNotMatch(create.slice(own + 1, write), /\btext\s*=[^=]/, 'the file text is changed after the language block, so it may no longer be last');
   const server = strip(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
   assert.match(server, /require\('\.\/engine\/personlanguage'\)/);
   assert.match(server, /personlanguage\.syncEveryone\(safeRoster\(\)\)/, 'the boot sweep no longer refreshes the language block');
+  // The boot sweep runs after the About-you sweep, the last one that can append a block.
+  const you = server.indexOf('you.syncEveryone(safeRoster(), { addOnly: true })');
+  const lang = server.indexOf('personlanguage.syncEveryone(safeRoster())');
+  assert.ok(you > 0 && lang > you, 'the language sweep no longer runs after the About-you sweep');
+});
+
+test('#5050: a block that is no longer last is moved to the end; one already last is left byte for byte', () => {
+  const base = pl.applyTo('# Cy\n\nYou are Cy, who keeps the calendar.\n', 'es-MX');
+  const after = projects.spliceBlock(base, 'a block added later', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
+  assert.ok(!after.trimEnd().endsWith(pl.END), 'CONTROL: the later block really sits after ours');
+  const moved = pl.applyTo(after, 'es-MX');
+  assert.ok(moved.trimEnd().endsWith(pl.END), 'the language block was not moved to the end');
+  assert.match(moved, /a block added later/);
+  assert.equal(moved.split(pl.START).length - 1, 1, 'the block was duplicated, not moved');
+  for (const t of [moved, base, pl.applyTo('# Dee\nbody\n\n\n', 'es-MX'), pl.applyTo('# Dee\nbody', 'es-MX')]) {
+    assert.equal(pl.applyTo(t, 'es-MX'), t, 'a block already at the end was rewritten (every boot would write the file)');
+  }
+});
+
+test('#5050: "und" (no language) and a C locale are no language, so no block', () => {
+  assert.equal(pl.normalise('und'), null);
+  assert.equal(pl.blockBody(pl.normalise('und')), null);
+  assert.equal(pl.detect({ env: { AGENT_WORKFORCE_PERSON_LOCALE: 'und' }, platform: 'linux', intl: 'en-US' }), 'en-US');
+});
+
+test('#5050: the test runners pin the language to English, so no test depends on this Mac\'s setting', () => {
+  for (const f of ['tools/run-tests.sh', 'tools/browser-checks.sh']) {
+    assert.match(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /^export AGENT_WORKFORCE_PERSON_LOCALE=en\b/m, f);
+  }
 });
