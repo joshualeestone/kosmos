@@ -48,7 +48,7 @@ const PHASES = [
   { key: 'gave_up', reconnect: { phase: 'gave_up', tries: 3 }, label: 'Connection lost', st: 'st-attn', says: /Kosmos tried a few times and stopped\. If your internet is working, restart the agent\. It starts fresh, so anything it was in the middle of is lost\./ },
   /* #5154 slice A: an agent Kosmos keeps restarting and that keeps stopping. Its own word and the needs-you look, and
      the sentence says what Kosmos saw, whatever the momentary state (here connection_lost). */
-  { key: 'crashloop', reconnect: null, crashLoop: { looping: true, count: 4 }, label: 'Keeps stopping', st: 'st-attn', says: /Kosmos has restarted it 4 times in the last half hour, and each time it stopped within a couple of minutes\./ },
+  { key: 'crashloop', reconnect: null, crashLoop: { looping: true, count: 4 }, label: 'Keeps stopping', st: 'st-attn', says: /Kosmos has restarted it 4 times in the last half hour, and each time it stopped within a couple of minutes\. Kosmos will keep trying\. Open it to see what it shows\./ },
 ];
 
 (async () => {

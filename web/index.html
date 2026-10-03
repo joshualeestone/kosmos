@@ -19711,10 +19711,12 @@ function stateReason(a, opts) {
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
-     Placed before the state rules: between crashes the agent can read working or idle, which is what hid the loop. */
+     Placed before the state rules: between crashes the agent can read working or idle, which is what hid the loop.
+     Copy: Mona Lisa (10-03): no 'stop it' (there is no stop control, and launchd keeps restarting), and 'what it shows'
+     (after a restart the last screen is gone). */
   if (a && a.crashLoop && a.crashLoop.looping === true) {
     const n = Number(a.crashLoop.count) || 3;
-    return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Open it to see what it last showed, or stop it until you can look.';
+    return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists

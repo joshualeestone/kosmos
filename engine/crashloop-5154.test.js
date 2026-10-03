@@ -158,5 +158,6 @@ test('#5154: the card says what Kosmos saw, before any state sentence', () => {
   const first = fn.indexOf('a.crashLoop && a.crashLoop.looping === true');
   assert.ok(first > 0, 'stateReason does not say the crash loop');
   assert.ok(first < fn.indexOf("a.state === 'restarting'"), 'the crash-loop sentence must come before the state rules');
-  assert.match(fn, /Kosmos has restarted it ' \+ n \+ ' times in the last half hour, and each time it stopped within a couple of minutes\./);
+  assert.match(fn, /Kosmos has restarted it ' \+ n \+ ' times in the last half hour, and each time it stopped within a couple of minutes\. Kosmos will keep trying\. Open it to see what it shows\./);
+  assert.doesNotMatch(fn, /stop it until you can look|what it last showed/, 'Mona Lisa: no stop control exists, and the last screen is gone after a restart');
 });
