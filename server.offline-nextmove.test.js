@@ -110,7 +110,7 @@ test('#671: the plain offline sentence carries the launch model and the honest c
   assert.match(row.because, /if it stays off, look under AI Settings on its page/,
     'the where-to-look half is missing: a person whose agent stays off is told nothing');
   assert.doesNotMatch(row.because, /not saying why/,
-    'the sentence still asserts the cause is unknowable, beside the tab that holds it (#1663)');
+    'the sentence still asserts the cause is unknowable, beside the box that holds it (#1663)');
 });
 
 test('#671: a job-less agent gets no self-starting claim, because nothing will start it', () => {
