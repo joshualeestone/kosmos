@@ -212,6 +212,7 @@ render-subprojects-1994
 render-subtasks-3861
 render-subview-cleanup-3502
 render-swarm-ui-3564
+render-switch-claude-5091
 render-talk
 render-talk-anchor-1926
 render-talk-fill-2622

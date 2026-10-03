@@ -1770,6 +1770,26 @@ function setProvider(name, provider, opts) {
   /* The ONE provider -> runner map (providerRunner), shared with createAgentInner
      and recordedRunner, so the routes to a runner cannot disagree. */
   const runner = providerRunner(provider);
+  /* #5091 (Josh, 10-02 22:10): a switch TO Claude can name WHICH Claude account, like a switch to OpenAI, Gemini or
+     Grok. It was "claude carries no account": every switch landed on the main account, and a person with four Claude
+     accounts had no list to pick from. Checked BEFORE anything is written, with setAccount's own two rules (the account
+     exists here; it shares the agents' history), so a bad pick refuses and changes nothing. Applied after the switch,
+     through setAccount itself (the launch job and #1629's per-account trust), so Move and this cannot disagree. */
+  let claudePick = null;
+  if (provider === 'anthropic' && opts && typeof opts.accountDir === 'string' && opts.accountDir !== '') {
+    const all = require('./accounts').list();
+    const want = path.resolve(opts.accountDir);
+    const found = all.find((a) => a.dir === want);
+    if (!found) return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
+    if (!found.memoryShared) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `${found.email || 'that account'} keeps its own separate history, so ${spoken} would arrive there with `
+          + 'nothing it has ever done. Point that account at your agents\' history first, or pick another, so nothing was changed',
+      };
+    }
+    claudePick = found.isDefault ? null : found;
+  }
   if (job.runner === runner) {
     /* The vendor word a person reads, from the shared providerLabel map. */
     const already = providerLabel(provider);
@@ -2165,6 +2185,14 @@ function setProvider(name, provider, opts) {
   }
   try { store.writeProfile(clean, { provider }); }
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
+  /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
+     a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
+  if (claudePick) {
+    const moved = setAccount(clean, claudePick.dir, opts);
+    if (moved && moved.outcome === OUTCOME.REFUSED) {
+      return { outcome: OUTCOME.PARTIAL, because: `${spoken} now runs on Claude, but on your main Claude account: it could not move to ${claudePick.email || 'the account you picked'} (${moved.because}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
+    }
+  }
   return {
     outcome: OUTCOME.CREATED,
     because: null,
@@ -2176,7 +2204,7 @@ function setProvider(name, provider, opts) {
     /* #3296/#3391: the Gemini/Grok account the switch landed on, so the route can
        name it -- the generic analog of `openaiAccount`. Null for a switch to
        claude/codex and null under dry-run, for the same reason openaiAccount is. */
-    account: switchAccount,
+    account: claudePick ? { dir: claudePick.dir, email: claudePick.email || null, label: claudePick.label || null, isDefault: false, chosen: !!(opts && opts.pickedByPerson === true) } : switchAccount,
     dropped: {
       model: job.model || null,
       account: Boolean(job.configDir),

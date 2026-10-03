@@ -7896,8 +7896,11 @@ const server = http.createServer(async (req, res) => {
            so a switch to gemini/grok gets the same "previous choices dropped" sentence
            (a target provider picks its own model) rather than the claude default line.
            "previous" rather than "Claude" because the old provider need not be claude. */
+        /* #5091: a switch to Claude can now carry a picked Claude account; then only the model default is said here
+           (the account is named by landedOn), and "your main Claude account" stays for a switch nobody picked for. */
         const dropped = wrote.provider === 'anthropic'
-          ? ['it starts on your main Claude account and Claude’s own default model until you change them']
+          ? [wrote.account ? 'it starts on Claude’s own default model until you change it'
+            : 'it starts on your main Claude account and Claude’s own default model until you change them']
           : [wrote.dropped.model ? `its previous model choice does not cross (${label} picks its own)` : '',
             wrote.dropped.account ? 'and it leaves its previous account behind' : ''];
         const droppedWords = dropped.filter(Boolean).join(' ');
@@ -7923,7 +7926,8 @@ const server = http.createServer(async (req, res) => {
         const acctNoun = wrote.provider === 'openai' ? 'OpenAI sign-in'
           : wrote.provider === 'google' ? 'Gemini account'
             : wrote.provider === 'xai' ? 'Grok account'
-              : 'account';
+              : wrote.provider === 'anthropic' ? 'Claude account'
+                : 'account';
         /* #1373: "you picked this" and "we picked this and are telling you"
            are different promises, so they get different sentences. Saying
            "the one you picked" when nobody picked would be the invention this
@@ -7988,6 +7992,8 @@ const server = http.createServer(async (req, res) => {
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
+              /* #5091: the switch happened but the picked Claude account could not be applied: said, not swallowed. */
+              + (wrote.outcome === create.OUTCOME.PARTIAL && wrote.because ? ' ' + wrote.because : '')
               + signInNote
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.'
