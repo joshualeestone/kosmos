@@ -25,7 +25,7 @@ process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 for (const d of ['data', 'projects', 'workers', 'launch']) fs.mkdirSync(path.join(SANDBOX, d), { recursive: true });
 
-const { start, server } = require('./server');
+const { start, server, boardAuthState } = require('./server');
 const projects = require('./engine/projects');
 
 let base;
@@ -54,7 +54,7 @@ test('a project file downloads: its exact bytes, as an attachment named for the 
   const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=' + encodeURIComponent('out/Q3 deck.pptx'));
   assert.equal(r.status, 200);
   assert.deepEqual(Buffer.from(await r.arrayBuffer()), PPTX, 'the bytes changed on the way');
-  assert.equal(r.headers.get('content-disposition'), "attachment; filename*=UTF-8''Q3%20deck.pptx");
+  assert.equal(r.headers.get('content-disposition'), "attachment; filename=\"Q3 deck.pptx\"; filename*=UTF-8''Q3%20deck.pptx");
   assert.equal(r.headers.get('content-type'), 'application/octet-stream');
   assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(r.headers.get('content-length'), String(PPTX.length));
@@ -99,7 +99,7 @@ test('an agent’s Files file downloads the same way; a name outside Files is re
   const r = await fetch(base + '/api/agent/dex/files/download?name=report.pptx');
   assert.equal(r.status, 200);
   assert.deepEqual(Buffer.from(await r.arrayBuffer()), PPTX);
-  assert.equal(r.headers.get('content-disposition'), "attachment; filename*=UTF-8''report.pptx");
+  assert.equal(r.headers.get('content-disposition'), "attachment; filename=\"report.pptx\"; filename*=UTF-8''report.pptx");
   assert.equal(calls.length, before, 'a download asked the board’s computer to open something');
 
   const out = await fetch(base + '/api/agent/dex/files/download?name=' + encodeURIComponent('../CLAUDE.md'));
@@ -174,7 +174,7 @@ test('a name with characters RFC 5987 does not allow is percent-encoded in the d
   fs.writeFileSync(path.join(files, "Q3 (final)'s*!.pptx"), PPTX);
   const r = await fetch(base + '/api/agent/rfc/files/download?name=' + encodeURIComponent("Q3 (final)'s*!.pptx"));
   assert.equal(r.status, 200);
-  assert.equal(r.headers.get('content-disposition'), "attachment; filename*=UTF-8''Q3%20%28final%29%27s%2A%21.pptx");
+  assert.equal(r.headers.get('content-disposition'), "attachment; filename=\"Q3 (final)'s*!.pptx\"; filename*=UTF-8''Q3%20%28final%29%27s%2A%21.pptx");
 });
 
 test('?check=1 passes the same gates and answers 204 with no body; a refused check is the refusal', async () => {
@@ -208,4 +208,55 @@ test('a zero-byte file and a file of many stream chunks both arrive whole', asyn
   const b = await fetch(base + '/api/agent/siz/files/download?name=big.bin');
   assert.equal(b.status, 200);
   assert.deepEqual(Buffer.from(await b.arrayBuffer()), big, 'a multi-chunk file arrived changed or short');
+});
+
+test('the ASCII filename= cannot carry a quote, a backslash or a line break into the header', async () => {
+  const files = path.join(SANDBOX, 'workers', 'asc', 'Files');
+  fs.mkdirSync(files, { recursive: true });
+  fs.writeFileSync(path.join(files, 'caf\u00e9 "q" \\ x.txt'), 'x');
+  const r = await fetch(base + '/api/agent/asc/files/download?name=' + encodeURIComponent('caf\u00e9 "q" \\ x.txt'));
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-disposition'), "attachment; filename=\"caf_ _q_ _ x.txt\"; filename*=UTF-8''caf%C3%A9%20%22q%22%20%5C%20x.txt");
+});
+
+test('a refused download NAVIGATION is 204 with no body (nothing for a browser to save); the page\u2019s look gets the sentence', async () => {
+  const files = path.join(SANDBOX, 'workers', 'nav', 'Files');
+  fs.mkdirSync(files, { recursive: true });
+  const nav = await fetch(base + '/api/agent/nav/files/download?name=gone.pptx', { headers: { 'sec-fetch-mode': 'navigate' } });
+  assert.equal(nav.status, 204);
+  assert.equal((await nav.arrayBuffer()).byteLength, 0);
+  const look = await fetch(base + '/api/agent/nav/files/download?check=1&name=gone.pptx', { headers: { 'sec-fetch-mode': 'navigate' } });
+  assert.equal(look.status, 404, 'the look must still carry the refusal');
+  assert.match((await look.json()).because, /not there any more/);
+  const plain = await fetch(base + '/api/agent/nav/files/download?name=gone.pptx');
+  assert.equal(plain.status, 404, 'CONTROL: without the navigation header the refusal is the sentence');
+});
+
+test('on a board that enforces its token, both download routes refuse without it and serve with it', async () => {
+  const files = path.join(SANDBOX, 'workers', 'tok', 'Files');
+  fs.mkdirSync(files, { recursive: true });
+  fs.writeFileSync(path.join(files, 'deck.pptx'), PPTX);
+  const folder = fs.mkdtempSync(path.join(SANDBOX, 'projects', 'tok-'));
+  fs.writeFileSync(path.join(folder, 'deck.pptx'), PPTX);
+  const p = projects.create({ name: 'Token Room 5165', folder, agents: [], roster: [] });
+  const urls = [base + '/api/agent/tok/files/download?name=deck.pptx',
+    base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=deck.pptx'];
+  assert.equal(boardAuthState.on, false, 'fixture: a sandboxed board does not enforce until this test turns it on');
+  const TOK = 'BOARDTOKEN_5165_0123456789abcdef';
+  const was = { on: boardAuthState.on, token: boardAuthState.token };
+  boardAuthState.on = true;
+  boardAuthState.token = TOK;
+  try {
+    for (const u of urls) {
+      const no = await fetch(u, { redirect: 'manual' });
+      await no.arrayBuffer();
+      assert.equal(no.status, 403, 'served without the board token: ' + u);
+      const yes = await fetch(u, { headers: { 'x-kosmos-board-token': TOK }, redirect: 'manual' });
+      assert.equal(yes.status, 200, 'refused WITH the board token: ' + u);
+      assert.deepEqual(Buffer.from(await yes.arrayBuffer()), PPTX);
+    }
+  } finally {
+    boardAuthState.on = was.on;
+    boardAuthState.token = was.token;
+  }
 });

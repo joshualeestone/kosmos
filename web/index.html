@@ -18828,12 +18828,13 @@ function kplusRemote() {
    already does (#4930), and a button that would open a folder window on the board's computer says where the folder
    is instead. At the computer itself (kplusRemote() false) both keep opening there. */
 const KPLUS_FOLDER_ELSEWHERE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
-const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosmos runs on, not on this device, so it opens only there.';
+const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosmos runs on, not on this device.';
+const KPLUS_SETTINGS_ELSEWHERE = 'Those settings open on the computer Kosmos runs on, not on this device.';
 /* The download starts IN the person's click (an anchor clicked synchronously), so no browser can treat it as a
    download nobody asked for. Alongside it the page looks at the same file with ?check=1 (the route's gates, then
    204 with no body, so the look never moves the file again): on a refusal the board's own sentence is shown through
-   `say` (a kplusSayer), rather than left to the browser's downloads; on success `say` gets `after`, a sentence the
-   line was already showing (a cut-short list). `kind` is 'agent' (an agent's Files) or 'project'; the addresses are
+   `say` (a kplusSayer), rather than left to the browser's downloads. At the click `say` gets `after` (a sentence
+   the line was already showing, such as a cut-short list), which a refusal then replaces. `kind` is 'agent' (an agent's Files) or 'project'; the addresses are
    written out here, once each, so every fetch on the page keeps a URL the route test can read. */
 const KPLUS_LATEST = new WeakMap();   // message line -> the last download asked through it
 function kplusDownload(kind, owner, name, say, after) {
@@ -23776,6 +23777,7 @@ function wireMachineRows(mach) {
       // The pane opening IS the success feedback; words appear on refusal
       // (a click that silently does nothing reads as a broken button).
       const failMsg = document.getElementById('set-machine-msg');
+      if (kplusRemote()) { failMsg.hidden = false; failMsg.textContent = KPLUS_SETTINGS_ELSEWHERE; return; }   // #5165
       try {
         const r = await fetch('/api/open-sleep-settings', { method: 'POST' });
         failMsg.hidden = r.ok;
@@ -31662,6 +31664,7 @@ refreshYouName();
    sleep sibling states four thousand lines up. */
 document.getElementById('set-a11y-open').addEventListener('click', async () => {
   const failMsg = document.getElementById('set-machine-msg');
+  if (kplusRemote()) { failMsg.hidden = false; failMsg.textContent = KPLUS_SETTINGS_ELSEWHERE; return; }   // #5165
   try {
     const r = await fetch('/api/open-accessibility-settings', { method: 'POST' });
     failMsg.hidden = r.ok;

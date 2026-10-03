@@ -3765,35 +3765,45 @@ function statusForSibling(json) {
 /* #5165: hand a file that passed projects.fileInFolder back as a DOWNLOAD, streamed, the way an attachment is
    (#4930): over Kosmos+ the person is on another device, so opening it on this computer shows them nothing.
    Whatever the type it is an attachment, and it never renders on the board's origin. The file is opened ONCE,
-   before the headers go out; the open descriptor must be the same file the gates passed (device and inode), and
-   it is sized and streamed from that descriptor, never past that size. A file that shrank meanwhile ends short of
-   its content-length, so the response is destroyed (a reset the browser reports) rather than ended short.
-   `?check=1` (the page's look beside the
-   download) passes the same gates and answers 204 with no body, so the look never moves the file a second time. A refusal
-   goes to `refuse(because)`, with ENOENT said as gone and anything else as unreadable. */
+   before the headers go out. Then two checks: the open descriptor is the file the gates passed
+   (projects.sameOpenedFile), and `recheck()`, the gates run again on the name, still lands on the same place. Only
+   then is it sized and streamed from that descriptor, never past that size; a read that ends short (the file
+   shrank) destroys the response rather than ending it short. `?check=1` (the page's look beside the download)
+   passes the same checks and answers 204 with no body. A refusal goes to `refuseDownload`. */
 const DOWNLOAD_GONE = 'that file is not there any more, or it was moved';
 const DOWNLOAD_UNREADABLE = 'that file could not be read on the computer Kosmos runs on';
-function sendFileDownload(req, res, found, refuse) {
-  let checkOnly = false;
-  try { checkOnly = new URL(req.url, ROUTING_BASE).searchParams.get('check') === '1'; } catch { checkOnly = false; }
+function isDownloadCheck(req) {
+  try { return new URL(req.url, ROUTING_BASE).searchParams.get('check') === '1'; } catch { return false; }
+}
+/* A refused download. The browser's own download (a navigation, `<a download>`) gets 204 and no body, which browsers
+   take as nothing to save: a 404 with a JSON body there would be saved by some (WebKit decides at the click) as a
+   file under the document's name. Everything else, the page's ?check=1 look included, gets the sentence. */
+function refuseDownload(req, res, because) {
+  if (req.headers['sec-fetch-mode'] === 'navigate' && !isDownloadCheck(req)) {
+    res.writeHead(204, { 'cache-control': 'no-store' });
+    res.end();
+    return;
+  }
+  sendJson(res, 404, { ok: false, because });
+}
+function sendFileDownload(req, res, found, recheck) {
+  const checkOnly = isDownloadCheck(req);
+  const base = path.basename(found.given);
   const headersFor = (size) => ({
     'content-type': 'application/octet-stream', 'content-length': size, 'x-content-type-options': 'nosniff',
-    // RFC 5987 ext-value: encodeURIComponent leaves ' ( ) * ! as they are, and the attr-char set does not allow them.
-    'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(path.basename(found.given))
-      .replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
+    /* An ASCII filename= for clients that do not read filename*, then the exact name as RFC 5987 (encodeURIComponent
+       leaves ' ( ) * ! as they are, and its attr-char set does not allow them). */
+    'content-disposition': 'attachment; filename="' + base.replace(/[^\x20-\x7e]|["\\]/g, '_') + '"; filename*=UTF-8\'\''
+      + encodeURIComponent(base).replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
   fs.open(found.target, 'r', (openErr, fd) => {
-    if (openErr) { refuse(openErr.code === 'ENOENT' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
+    if (openErr) { refuseDownload(req, res, openErr.code === 'ENOENT' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
     fs.fstat(fd, (statErr, st) => {
-      /* Same file: inode, and device off Windows. Windows reads both through the same handle query, but a mapped or
-         network drive is unmeasured, so a zero inode (one that file system does not report) is not compared. */
-      const sameFile = !statErr && st.isFile()
-        && (st.ino === found.st.ino || st.ino === 0 || found.st.ino === 0)
-        && (process.platform === 'win32' || st.dev === found.st.dev);
-      if (!sameFile) {
+      const again = statErr ? null : recheck();
+      if (statErr || !projects.sameOpenedFile(found.st, st) || !again || !again.ok || again.target !== found.target) {
         fs.close(fd, () => {});
-        refuse(DOWNLOAD_GONE);
+        refuseDownload(req, res, DOWNLOAD_GONE);
         return;
       }
       if (checkOnly) { fs.close(fd, () => {}); res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
@@ -6250,9 +6260,10 @@ const server = http.createServer(async (req, res) => {
       // #5165: the same gates as open (projects.fileInFolder), then streamed to the device asking.
       let named = '';
       try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
-      const found = projects.fileInFolder(folder, named, 'this agent\u2019s Files folder');
-      if (!found.ok) { sendJson(res, 404, { ok: false, because: found.because }); return; }
-      sendFileDownload(req, res, found, (because) => sendJson(res, 404, { ok: false, because }));
+      const gate = () => projects.fileInFolder(folder, named, 'this agent\u2019s Files folder');
+      const found = gate();
+      if (!found.ok) { refuseDownload(req, res, found.because); return; }
+      sendFileDownload(req, res, found, gate);
       return;
     }
     if (verb === 'reveal' && req.method === 'POST') {
@@ -17275,9 +17286,10 @@ const server = http.createServer(async (req, res) => {
     if (!record) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
     let named = '';
     try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
-    const found = projects.fileInFolder(record.folder, named);
-    if (!found.ok) { sendJson(res, 404, { ok: false, because: found.because }); return; }
-    sendFileDownload(req, res, found, (because) => sendJson(res, 404, { ok: false, because }));
+    const gate = () => projects.fileInFolder(record.folder, named);
+    const found = gate();
+    if (!found.ok) { refuseDownload(req, res, found.because); return; }
+    sendFileDownload(req, res, found, gate);
     return;
   }
 
