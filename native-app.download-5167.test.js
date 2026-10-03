@@ -236,3 +236,12 @@ test('#5167 review 13: response refusals name their cause; the mark records the 
   assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'), /downloadPages\[ObjectIdentifier\(download\)\] = committedPageURL/);
   assert.match(body('@objc(downloadDidFinish:)'), /if let page = originOnly\(fromPage\)/, 'the mark names whatever page is on screen at the end');
 });
+
+test('#5167 review 14: the board downloads are saved from is set only where the board is chosen, cleared on connect', () => {
+  const sets = SRC.match(/\n[^\n]*\bbadgeOrigin = [^\n]*/g) || [];
+  assert.equal(sets.length, 4, 'badgeOrigin (the board downloads are saved from) is now set somewhere else: ' + sets.join(' | '));
+  assert.match(SRC, /badgeOrigin = \("127\.0\.0\.1", resolved\.port\)/);
+  assert.match(SRC, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/);
+  assert.match(SRC, /\/\/\/ #5167: PURE, for --kosmos-app-mode-selftest\. Whether the page on screen is a board[^\n]*\n(\/\/\/[^\n]*\n)*func isBoardPage\(/,
+    'isBoardPage lost its doc comment');
+});
