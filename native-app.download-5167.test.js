@@ -207,7 +207,7 @@ test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a
   assert.match(tell, /quiet: Bool = false\) \{\n\s+if quiet \{/, 'a real save failure can be swallowed by the quiet window');
   assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 4, 'the quiet window covers something other than the four refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show, a download WebKit stopped)');
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
-  assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame == true \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
+  assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame != false \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
     'a frame inside the page can put up the app\'s sheet, or the refusal blames the page when the file is the cause');
 });
 
@@ -245,4 +245,13 @@ test('#5167 review 14: the board downloads are saved from is set only where the 
   assert.match(SRC, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/);
   assert.match(SRC, /\/\/\/ #5167: PURE, for --kosmos-app-mode-selftest\. Whether the page on screen is a board[^\n]*\n(\/\/\/[^\n]*\n)*func isBoardPage\(/,
     'isBoardPage lost its doc comment');
+});
+
+test('#5167 review 16: a refused download that opens a new window is said; every early exit of the live selftest cleans up', () => {
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'),
+    SRC.indexOf('// kosmos#1032: the + button opens a file picker'));
+  const exits = hatch.split('exit(1)').length - 1;
+  const cleaned = (hatch.match(/try\? FileManager\.default\.removeItem\(at: dl\)\n\s+print\([^\n]*\); exit\(1\)/g) || []).length;
+  assert.equal(cleaned, 4, 'an early exit of the live selftest leaves its temporary folder behind');
+  assert.ok(exits >= 4);
 });
