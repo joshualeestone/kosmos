@@ -3280,7 +3280,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    by what the back row used to occupy. Pinned by docs/browser-checks/render-talk-fill-2622.js. */
 @media (min-width: 56.01rem) {
   /* The body becomes a viewport-tall flex column and the panel takes what is left under the
-     header, so a taller header (a wrapped notice, other fonts) shrinks the box instead of
+     header, so a taller header (a wrap, other fonts) shrinks the box instead of
      pushing it past the bottom. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; height: 100vh; padding-bottom: 0; }
@@ -3341,14 +3341,16 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    window, 77px at 900px where it wraps), so it is measured into --apphead-h; unmeasured, this is the
    old 16px. Not in the consolidated view (body.consolidated): Settings is its own scroll box inside
    Projects there and the header does not stick, so the nav keeps 16px from the panel's top. Below
-   56rem .snav is static and none of this applies. */
-body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + 16px); }
+   56rem .snav is static and none of this applies.
+   #5018: notices no longer grow the header; they float 8px below it (.topnotes). So the nav also clears a showing
+   stack: its height is --topnotes-h (topnotesTrack), 0 with no notice, and the stack's 8px gap sits inside the 16px. */
+body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + var(--topnotes-h, 0px) + 16px); }
 /* #4979: on a window too short to hold the whole nav below the header, a stuck nav hangs its last
    pills off the bottom and, at the page's end, pushes its first ones back under the header. There
    it scrolls with the page instead, as the agent page's does. Whether it fits is measured, not a
-   fixed height: the header grows with the Kosmos+ bar, an update or offline notice, or a wrap, so
-   the script beside the #s-nav handler sets snav-loose on the root when the header, the nav and
-   16px above and below it are taller than the window. */
+   fixed height: the header grows with the Kosmos+ bar or a wrap, and (#5018) a floating notice stack below it adds
+   its own height, so the script beside the #s-nav handler sets snav-loose on the root when the header, the stack,
+   the nav and 16px above and below it are taller than the window. */
 html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 /* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
    side padding, because that centered full-width pill was the longest label and word-wrapped.
@@ -38144,12 +38146,13 @@ function settingsOpen(sec, opts) {
   if (sec === 'usage') paintUsage();
 }
 /* #4979: the app header's height, for the sticky Settings nav's top, and whether the whole nav
-   fits below it (see the #s-nav rules). Observers on the header's and the nav's border boxes and a
-   window resize recompute both, so a header that wraps or gains a bar or a notice moves the nav,
-   and a window too short for it lets the nav scroll with the page. */
+   fits below it (see the #s-nav rules). Observers on the header's, the nav's and (#5018) the floating notice stack's
+   border boxes and a window resize recompute both, so a header that wraps or gains a bar, or a notice that shows,
+   moves the nav, and a window too short for it lets the nav scroll with the page. */
 (() => {
   const head = document.querySelector('.apphead');
   const nav = document.getElementById('s-nav');
+  const notes = document.getElementById('topnotes');   // #5018: floats below the header, outside its height
   if (!head || !nav || typeof head.getBoundingClientRect !== 'function' || typeof nav.getBoundingClientRect !== 'function') return;
   const root = document.documentElement;
   const write = () => {
@@ -38158,7 +38161,10 @@ function settingsOpen(sec, opts) {
       if (typeof h !== 'number' || !Number.isFinite(h)) return;
       root.style.setProperty('--apphead-h', h + 'px');
       const n = nav.getBoundingClientRect().height;   // 0 while Settings is not showing: nothing to fit
-      root.classList.toggle('snav-loose', n > 0 && h + n + 32 > window.innerHeight);   // 16px above the nav and 16px below it
+      let t = 0;
+      try { t = notes && typeof notes.getBoundingClientRect === 'function' ? notes.getBoundingClientRect().height : 0; } catch { t = 0; }
+      if (typeof t !== 'number' || !Number.isFinite(t)) t = 0;
+      root.classList.toggle('snav-loose', n > 0 && h + t + n + 32 > window.innerHeight);   // 16px above the nav and 16px below it
     } catch { /* unmeasured: the nav keeps the old 16px and stays sticky */ }
   };
   write();
@@ -38167,6 +38173,7 @@ function settingsOpen(sec, opts) {
       const ro = new ResizeObserver(write);
       ro.observe(head, { box: 'border-box' });
       ro.observe(nav, { box: 'border-box' });
+      if (notes) ro.observe(notes, { box: 'border-box' });
     }
     if (typeof window.addEventListener === 'function') window.addEventListener('resize', write);
   } catch { /* not a real element (a test harness's stub): the one measurement above stands */ }
