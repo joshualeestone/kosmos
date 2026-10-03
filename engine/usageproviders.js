@@ -146,7 +146,8 @@ async function scanCodex(acc, codexHomes) {
         if (!line) continue;
         let r;
         try { r = JSON.parse(line); } catch { continue; }
-        const p = (r && r.payload) || {};
+        if (!r || typeof r !== 'object') continue;   // #5153: a line that parses to null or a number is skipped, not thrown on
+        const p = r.payload || {};
         if (r.type === 'session_meta') {
           if (!cwd && typeof p.cwd === 'string') cwd = p.cwd;
           if (p.forked_from_id) { forked = true; forkAt = Date.parse(p.timestamp || r.timestamp); }

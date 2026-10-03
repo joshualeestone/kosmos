@@ -375,15 +375,58 @@ test('a receipt kept by slice 1 with no Codex or Gemini agent is kept as it was,
   assert.equal((await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('12:00') })).agents[0].available, true);
 });
 
-test('a malformed Codex session marks that agent partial; the receipt still answers', async () => {
+test('a Codex line that parses to null is skipped, and the files after it are still read', async () => {
   const project = 'p' + (++pn);
   const pip = worker('pip');
   store.writeProfile('pip', { provider: 'openai' });
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'pip' }, { at: '11:00', kind: 'closed' }]);
   const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
   fs.mkdirSync(d, { recursive: true });
-  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-pip.jsonl'), 'null\n');
-  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:00') + receipt.SETTLE_MS });
-  assert.equal(r.agents[0].complete, false);
-  assert.equal(fs.existsSync(receipt.receiptFile(project, 1)), false, 'a partial receipt is not kept');
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T09-00-00-aaa-null.jsonl'), 'null\n7\n');   // sorts first
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-pip.jsonl'), jl([
+    { timestamp: T('10:00'), type: 'session_meta', payload: { cwd: fs.realpathSync(pip) } },
+    { timestamp: T('10:05'), type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', call_id: 'p1', input: 'await tools.exec_command({cmd:"x"});' } },
+  ]));
+  const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
+  assert.equal(r.agents[0].complete, true, 'a null line made the whole Codex scan fail');
+  assert.equal(r.agents[0].commands, 1, 'the file after the bad one was not read');
+});
+
+test('a forked Codex session with no recorded fork time: everything before its first total is the replay', async () => {
+  const project = 'p' + (++pn);
+  const quin = worker('quin');
+  store.writeProfile('quin', { provider: 'openai' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'quin' }, { at: '11:00', kind: 'closed' }]);
+  const d = path.join(SB, '.codex', 'sessions', '2026', '10', '01');
+  fs.mkdirSync(d, { recursive: true });
+  const ev = (at, type, payload) => ({ ...(at ? { timestamp: T(at) } : {}), type, payload });
+  const call = (at, id) => ev(at, 'response_item', { type: 'custom_tool_call', name: 'exec', call_id: id, input: 'await tools.exec_command({cmd:"x"});' });
+  fs.writeFileSync(path.join(d, 'rollout-2026-10-01T10-00-00-quin.jsonl'), jl([
+    ev(null, 'session_meta', { cwd: fs.realpathSync(quin), forked_from_id: 'parent' }),   // no time anywhere
+    call('10:10', 'replayed-1'),
+    ev('10:11', 'event_msg', { type: 'token_count', info: { total_token_usage: { input_tokens: 500, cached_input_tokens: 0, output_tokens: 50 } } }),
+    call('10:40', 'own-1'),
+  ]));
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.equal(a.commands, 1, 'the call before the first total is the replay; the one after it is real');
+});
+
+test('files are shown by their short path under either spelling of a linked agent folder; a same-prefix sibling stays full', { skip: (() => {
+  try { const t = fs.mkdtempSync(path.join(SB, 'lnk-')); fs.symlinkSync(t, t + '-l'); return false; } catch { return 'links cannot be made here'; }
+})() }, async () => {
+  const project = 'p' + (++pn);
+  const real = fs.mkdtempSync(path.join(SB, 'realfolder-'));
+  fs.symlinkSync(real, path.join(SB, 'workers', 'rue'));          // the recorded folder is a link to the real one
+  store.writeProfile('rue', { provider: 'google' });
+  activity(project, 1, [{ at: '10:00', kind: 'created', who: 'rue' }, { at: '11:00', kind: 'closed' }]);
+  const slug = path.join(SB, '.gemini', 'tmp', 'rue-slug');
+  fs.mkdirSync(path.join(slug, 'chats'), { recursive: true });
+  fs.writeFileSync(path.join(slug, '.project_root'), fs.realpathSync(real) + '\n');   // the session records the real spelling
+  const write = (id, fp) => ({ id, name: 'write_file', args: { file_path: fp }, status: 'success', timestamp: T('10:15') });
+  fs.writeFileSync(path.join(slug, 'chats', 'session-1.jsonl'), jl([{ id: 'r1', type: 'gemini', timestamp: T('10:15'), model: 'gemini-3.8-flash',
+    tokens: { input: 1, output: 1, cached: 0, thoughts: 0, tool: 0 },
+    toolCalls: [write('w1', path.join(fs.realpathSync(real), 'in.md')), write('w2', fs.realpathSync(real) + '2/sibling.md'),
+      write('w3', path.join(fs.realpathSync(real), '..cache', 'x'))] }]));
+  const a = (await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') })).agents[0];
+  assert.deepEqual(a.files, ['in.md', fs.realpathSync(real) + '2/sibling.md', path.join('..cache', 'x')]);
 });
