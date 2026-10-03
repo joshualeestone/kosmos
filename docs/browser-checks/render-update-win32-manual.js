@@ -213,11 +213,15 @@ async function readCard(pg) {
       const after = await readCard(pg);
       chk(after.line === 'Could not reach the update server.', 'unread: a press that cannot reach says so', JSON.stringify(after.line));
       chk(!/Up to date/.test(after.line), 'unread: never "Up to date."', JSON.stringify(after.line));
-      /* #5183: the card is repainted on every /api/status poll. A poll that lands after the press must not take the line
-         back to could-not-read (the flake: under load a poll landed between the press and the read). Wait for one more
-         poll after the press, then read again: it must still say could-not-reach. */
-      await pg.waitForResponse((r) => r.url().includes('/api/status'), { timeout: 20000 });
-      await pg.waitForTimeout(400);
+      /* #5183: a poll that repaints the card after the press must keep could-not-reach (a real board's poll reports
+         the press's look). Count paints from here and wait for one, so the read below follows a real repaint rather
+         than the press's own paint (a fixed wait could read before a slow repaint and pass without one). */
+      await pg.evaluate(() => {
+        const orig = window.paintUpdateCard;
+        window.__updPaints = 0;
+        window.paintUpdateCard = function (...a) { window.__updPaints++; return orig.apply(this, a); };
+      });
+      await pg.waitForFunction(() => window.__updPaints > 0, null, { timeout: 20000 });
       const afterPoll = await readCard(pg);
       chk(afterPoll.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', JSON.stringify(afterPoll.line));
       const box = await pg.$('#s-sec-updates');

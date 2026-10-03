@@ -14,10 +14,13 @@ suggestion) would fix nothing.
 
 ## Change
 - docs/browser-checks/render-update-win32-manual.js: the check stub writes the press's look into
-  answers.status.updateLook before answering (for every state; in the reached states it writes what
-  the status already said).
-- New assertion (unread): wait for one /api/status response after the press, then read again; the
-  line must still be "Could not reach the update server."
+  answers.status.updateLook before answering. Only unread and current ever press (armed opens the
+  confirm, manual/staging hide the button, rollback never presses); current writes {true,true}, the
+  same as its readLook, so only unread changes.
+- New assertion (unread): wrap window.paintUpdateCard with a counter after the press, wait for one
+  repaint, then read again; the line must still be "Could not reach the update server."
+  (Review round 1 WARNING: the first version waited for any /api/status response plus 400 ms, which
+  could read before a slow repaint and pass without one. The counter makes the read follow a real paint.)
 
 ## Proof (alone, sandboxed board booted as the harness does: fake-tmux, DRY_RUN, first run completed)
 - new assertion + old fixture: FAIL 2 of 2 ("Could not read the update server's answer.")
@@ -29,5 +32,10 @@ Runner: ~/.cache/claude-handoffs/baron-jobs/run-win32manual.sh
 The red proves the poll repaint deterministically; that THIS is what #4812's retries hit is
 inferred from the identical failing line, not reproduced under load.
 
+## Review
+Round 1 (blind): no blockers; 1 WARNING (fixed: paint counter), 3 NITs (comment rewritten; plan
+corrected; the uncaught waitFor matches the file's existing style, kept). Re-proven after the fix:
+old fixture FAILS, fixed PASSES 2 of 2.
+
 ## Left
-Full tools/browser-checks.sh on the exact head; blind review; PR; merge after Monday.
+Round 2 review; full tools/browser-checks.sh on the exact head; PR; merge after Monday.
