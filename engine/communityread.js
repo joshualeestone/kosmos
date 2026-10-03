@@ -35,6 +35,11 @@ const store = require('./store');
 const MAX_ITEMS = 10;
 const TITLE_CAP = 120;
 const BODY_CAP = 1500;
+/* #4941: one post read on its own (`read --post`) is shown whole: the service's own limit for a post body (kosmos-community
+   app/schemas.py PostIn, the 4000 the sweep's read cap is sized for), so a usual post is shown whole. The cap counts UTF-16
+   units after scrubbing, so a post heavy in emoji, or one scrubbing lengthened ("===" spaced out, NFKC expanding a
+   character), can still be cut. The feed keeps BODY_CAP. */
+const POST_BODY_CAP = 4000;
 const RESPONSE_CAP = communitysend.RESPONSE_CAP;   // review 1: the service's answer is read up to this many bytes, never whole (one cap, #4774)
 const CHANNEL_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -119,7 +124,7 @@ function authorOf(agent) {
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '').replace(/\s{2,}/g, ' ').trim();
 }
 
-function itemOf(p) {
+function itemOf(p, bodyCap = BODY_CAP) {
   if (!p || typeof p !== 'object') return null;
   /* Review 2: the header line sits outside the "  | " quoting, so its free-text parts cannot be free: a channel is a
      channel name or nothing, and an author name carries no square brackets (it cannot imitate "[2] by ..."). */
@@ -134,7 +139,7 @@ function itemOf(p) {
     where,
     at: /^\d{4}-\d{2}-\d{2}/.test(String(p.created_at || '')) ? String(p.created_at).slice(0, 10) : '',
     title: scrub(p.title, TITLE_CAP, true),
-    body: scrub(p.body, BODY_CAP),
+    body: scrub(p.body, bodyCap),
   };
 }
 
@@ -230,9 +235,43 @@ function channelSlug(spec) {
   return { ok: true, slug: parts[parts.length - 1] };
 }
 
+/* #4941 (Josh's test, C6): a comment the reader made on this post that is not in the community yet is not in the thread
+   above, and has no community id to reply to until it is. Say so, outside the frame (Kosmos speaking about the reader's
+   own items, only counted, never their words), so a fresh comment is not taken for lost and a reply waits for the id.
+   The states are communitystatus's (#4939), each true of what the sweep will do: only comments still ON THEIR WAY are
+   promised a place in the thread; held ones (held or quarantined alike: which is never said) are promised nothing;
+   sent, unconfirmed, refused, withheld, deleted and never-to-send ones are not counted. Null when there is nothing to
+   say, or an item's records cannot be read. */
+/* Review 2: not 'sending' (its POST is out, so the service may already show it above: it would be counted twice), and not
+   'paused' (read() reads nothing while sending is off, so it cannot be reached here). */
+const ON_THEIR_WAY = new Set(['queued', 'capped', 'name_unclaimed']);
+function ownWaitingOn(reader, postId) {
+  if (typeof reader !== 'string' || !reader) return null;
+  try {
+    const items = require('./communitystatus').itemsFor(reader);
+    if (!items) return null;
+    const mine = items.filter((x) => x.kind === 'comment' && x.post === postId);
+    if (mine.some((x) => x.state === 'unreadable')) return null;
+    const going = mine.filter((x) => ON_THEIR_WAY.has(x.state)).length;
+    const held = mine.filter((x) => x.state === 'held').length;
+    const lines = [];
+    if (going) {
+      lines.push((going === 1 ? 'You have 1 comment on this post that is on its way to the community, so it is not shown above.'
+        : 'You have ' + going + ' comments on this post on their way to the community, so they are not shown above.')
+        // Review 2: always hedged: a long thread pages its comments, and only the first replies under a comment are shown.
+        + ' Once Kosmos has sent one, it is in this post\'s thread with the id to reply to, though perhaps past the comments'
+        + ' and replies shown here. See where each stands with: kosmos community status');
+    }
+    if (held) lines.push((held === 1 ? 'You have 1 comment on this post' : 'You have ' + held + ' comments on this post')
+      + ' held for your person to look at.');
+    return lines.length ? lines.join('\n') : null;
+  } catch { return null; }
+}
+
 /**
  * The feed, or one post: { ok: true, text, count } or { ok: false, because }.
- * opts: { channel?, post? } exactly one of them at most.
+ * opts: { channel?, post?, reader? } at most one of channel and post; `reader` is the authenticated session reading one
+ * post (#4941), never a name from the request.
  */
 async function read(opts = {}) {
   if (!communitysend.switchOn()) {
@@ -244,7 +283,7 @@ async function read(opts = {}) {
     const r = await getJson('/posts/' + encodeURIComponent(id.toLowerCase()));
     if (r.status === 404) return { ok: false, because: 'there is no such post' };
     if (r.status === 410) return { ok: false, because: 'that post was taken down' };
-    const it = r.status === 200 ? itemOf(r.json) : null;
+    const it = r.status === 200 ? itemOf(r.json, POST_BODY_CAP) : null;
     if (!it) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
     /* #4833: the post's first page of comments. A thread that cannot be read does not cost the post: it says so. */
     const t = await getJson('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
@@ -256,7 +295,9 @@ async function read(opts = {}) {
       try { thread = { comments: list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean), more: !!t.json.next_cursor || list.length > COMMENTS_ASKED }; }
       catch { thread = { unread: true }; }
     }
-    return { ok: true, count: 1, text: frame([it], null, thread) };
+    const text = frame([it], null, thread);
+    const own = ownWaitingOn(opts.reader, id.toLowerCase());
+    return { ok: true, count: 1, text: own ? text + '\n\n' + own : text };
   }
   const ch = channelSlug(opts.channel);
   if (!ch.ok) return { ok: false, because: ch.because };
@@ -264,7 +305,7 @@ async function read(opts = {}) {
   const r = await getJson('/posts/feed' + q);
   const posts = r.status === 200 && r.json && Array.isArray(r.json.posts) ? r.json.posts : null;
   if (!posts) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
-  const items = posts.slice(0, MAX_ITEMS).map(itemOf).filter(Boolean);
+  const items = posts.slice(0, MAX_ITEMS).map((p) => itemOf(p)).filter(Boolean);
   return { ok: true, count: items.length, text: frame(items, ch.slug ? 'Newest in ' + ch.slug + ':' : 'Newest posts:') };
 }
 
@@ -654,4 +695,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
