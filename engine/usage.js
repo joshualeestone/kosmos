@@ -414,12 +414,13 @@ async function dailyUsageByModel(days = 7) {
   return { byDay, byFolder, rootsRead };
 }
 
-/* #5158: Codex, Gemini CLI and Grok, frozen per past day in their OWN file beside Claude's pair, never inside it.
+/* #5158: Codex, Gemini CLI, Grok and Antigravity, frozen per past day in their OWN file beside Claude's pair, never inside it.
    🛑 CLAUDE'S SAVED DAYS ARE NOT TOUCHED. `<day>.v2.json` and `<day>.folders.v1.json` are read and written exactly as
    before; Claude prunes old transcripts, so re-deriving a past Claude day could only lose history. A past day with no
    providers file yet (every day, the first time after this update) is scanned from the providers' own session files and
-   frozen; today is always scanned. The two are merged on read: model names do not collide across providers
-   (claude-*, gpt-*, gemini-*, grok-*), and where one ever did, the buckets add. */
+   frozen; today is always scanned. The two are merged on read: Claude's model names never collide with the others'
+   (claude-*, gpt-*, gemini-*, grok-*). Gemini CLI and Antigravity both run gemini-* models, and there the buckets add:
+   the same model at the same price. */
 function frozenProvidersPath(day) {
   return path.join(USAGE_DIR, `${day}.providers.v1.json`);
 }
@@ -441,15 +442,15 @@ async function mergeProviders(wanted, today, byDay, byFolder, scan = (o) => requ
     const sorted = [...missing].sort();
     let res = { days: {}, folders: {}, complete: false };
     try { res = await scan({ sinceDay: sorted[0], untilDay: sorted[sorted.length - 1] }); }
-    catch (err) { console.error('usage: could not read Codex, Gemini or Grok usage:', (err && err.message) || err); }
+    catch (err) { console.error('usage: could not read Codex, Gemini, Grok or Antigravity usage:', (err && err.message) || err); }
     /* Shown either way, FROZEN only when every home and file was read: a passing error must not fix a past day at zero. */
     const freeze = !!(res && res.complete);
-    if (!freeze) console.error('usage: Codex, Gemini or Grok usage was only partly read; not saving it, it is read again next time');
+    if (!freeze) console.error('usage: Codex, Gemini, Grok or Antigravity usage was only partly read; not saving it, it is read again next time');
     for (const day of missing) {
       got[day] = { models: (res.days && res.days[day]) || {}, folders: (res.folders && res.folders[day]) || {} };
       if (day !== today && freeze) {
         try { await ensureUsageDir(); await fsp.writeFile(frozenProvidersPath(day), JSON.stringify(got[day]), 'utf8'); }
-        catch (err) { console.error('usage: could not freeze Codex, Gemini and Grok usage for ' + day + ':', (err && err.message) || err); }
+        catch (err) { console.error('usage: could not freeze Codex, Gemini, Grok and Antigravity usage for ' + day + ':', (err && err.message) || err); }
       }
     }
   }
