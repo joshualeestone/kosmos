@@ -8494,6 +8494,9 @@ function snapshot() {
   }
 
   agents.sort((a, b) => a.name.localeCompare(b.name));
+  /* #5154 slice A: every row states crashLoop. The snapshot cannot know about runs (the supervisor's run file is
+     read by the route, engine/crashloop.js), so it says null; /api/status fills the real value for agents we started. */
+  for (const a of agents) if (a && !Object.prototype.hasOwnProperty.call(a, 'crashLoop')) a.crashLoop = null;
 
   return {
     // Freshness is not decoration. An ambient display gets trusted passively,
