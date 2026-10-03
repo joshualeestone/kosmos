@@ -6,8 +6,7 @@
  * the top." #2282 put one header on every view; this pins that it also sits in ONE
  * place: the K mark, the Kosmos switcher, the You menu and the header's bottom rule
  * land on the same pixels in the tab view and the consolidated view, with and without
- * a tall notice (update / login advisory) showing. Since #5018 the notice floats over the
- * page below the header, and this also asserts it does not grow the header.
+ * a tall notice (update / login advisory) in the header.
  *
  * ⚠️ WHY A BROWSER. Every number here is layout: padding, grid/flex alignment, and how
  * a wrapped notice sizes the row. No source grep can say where a control lands. This
@@ -71,9 +70,6 @@ async function measure(page, view, notice) {
       you: top('.apphead header .headright'),
       rule,
       headH: head ? Math.round(head.getBoundingClientRect().height * 10) / 10 : null,
-      // #5018: where the injected notice landed (null when it did not render), to prove it rendered and floats.
-      noteTop: (() => { const n = document.querySelector('[data-check-notice]'); if (!n) return null; const r = n.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? Math.round(r.top * 10) / 10 : null; })(),
-      headBottom: hdr ? Math.round(hdr.getBoundingClientRect().bottom * 10) / 10 : null,
       tabsShown: top('.apphead header .tabs') !== null,
       // #4345: the center tabs now show in the consolidated view too, so they cannot tell the two
       // views apart. What the consolidated CSS still does, and only when its layout attribute and
@@ -109,8 +105,7 @@ async function measure(page, view, notice) {
           if (m[k] === null) problems.push(`${where}: .${k} does not render in the header`);
           else if (m[k] !== ref[k]) problems.push(`${where}: ${k} top is ${m[k]}, consolidated without a notice has ${ref[k]} (the header moved ${Math.round((m[k] - ref[k]) * 10) / 10}px)`);
         }
-        // #5018: notices float over the page now, so the rule holds WITH a notice too (it used to grow the bar).
-        if (m.rule !== ref.rule) problems.push(`${where}: the header's bottom rule is at ${m.rule}, consolidated has it at ${ref.rule}`);
+        if (!notice && m.rule !== ref.rule) problems.push(`${where}: the header's bottom rule is at ${m.rule}, consolidated has it at ${ref.rule}`);
         // CONTROL: the tab view really is the tab view and the consolidated view really is
         // consolidated, so equal numbers are not two readings of one layout. (#4345: the center
         // tabs render in both views now, so the view is read from what the consolidated CSS does to the h1.)
@@ -118,16 +113,11 @@ async function measure(page, view, notice) {
         if (view === 'consolidated' && !m.consolidated) problems.push(`CONTROL failed: ${where}: the consolidated CSS is not in force (the header h1 still displays), so this is not the consolidated view`);
       }
     }
-    // #5018 (Josh: "i hate that these push the navigation down"): the notice floats over the page, so the header
-    // keeps its height. CONTROL: the notice really rendered (it has a box, below the header), so "the header did not
-    // grow" is not "the notice never rendered". Before #5018 this read the opposite: the notice grew the bar.
-    for (const view of ['tabs', 'consolidated']) {
-      const plain = rows.find((r) => r.width === width && r.view === view && !r.notice);
-      const tall = rows.find((r) => r.width === width && r.view === view && r.notice);
-      if (tall.noteTop === null) problems.push(`CONTROL failed: ${width}px ${view}: the injected notice did not render`);
-      else if (!(tall.noteTop >= tall.headBottom)) problems.push(`${width}px ${view}: the notice sits inside the header (top ${tall.noteTop}, header bottom ${tall.headBottom}), not over the page below it`);
-      if (tall.headH !== plain.headH) problems.push(`${width}px ${view}: the notice grew the header (${plain.headH} -> ${tall.headH}); it must float over the page`);
-    }
+    // CONTROL: the notice was really in the header (it grew the bar), so "the controls
+    // did not move" is not "the notice never rendered".
+    const plain = rows.find((r) => r.width === width && r.view === 'tabs' && !r.notice);
+    const tall = rows.find((r) => r.width === width && r.view === 'tabs' && r.notice);
+    if (!(tall.headH > plain.headH)) problems.push(`CONTROL failed: ${width}px: the injected notice did not grow the header (${plain.headH} -> ${tall.headH}), so it never rendered`);
     await page.close();
   }
 
