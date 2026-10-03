@@ -127,10 +127,10 @@ async function scanCodex(acc, codexHomes) {
       /* One session, one file name (`rollout-<ts>-<uuid>.jsonl`): a copy in both places, or a copied home, is read once. */
       const base = path.basename(file);
       if (acc.codexSeen.has(base)) continue;
-      acc.codexSeen.add(base);
       if (!(await touchedSince(file, acc.sinceDay, acc))) continue;
       let text;
       try { text = await fsp.readFile(file, 'utf8'); } catch { await badFile(acc, file, 'Codex session'); continue; }
+      acc.codexSeen.add(base);   // only once read: a skipped or unreadable copy must not hide a fresh one (review 3)
       let cwd = '';
       let model = null;
       let prev = null;   // the previous running total in this file
@@ -156,7 +156,7 @@ async function scanCodex(acc, codexHomes) {
         /* The change since the last event; a total that went down is a new run, counted from its own total. */
         /* Every total replayed from the parent is a baseline: by time when the replay kept the parent's timestamps, and
            at least the first one when it did not (review 2: a fork can replay several totals, not one). */
-        if (forked && (!prev || Date.parse(r.timestamp) < forkAt)) { prev = cur; continue; }
+        if (forked && (!prev || Date.parse(r.timestamp) <= forkAt)) { prev = cur; continue; }
         const reset = prev && (cur.in < prev.in || cur.out < prev.out || cur.cached < prev.cached || cur.cw < prev.cw);
         const base = prev && !reset ? prev : { in: 0, cached: 0, cw: 0, out: 0 };
         const d = { in: cur.in - base.in, cached: cur.cached - base.cached, cw: cur.cw - base.cw, out: cur.out - base.out };
@@ -175,8 +175,9 @@ async function scanCodex(acc, codexHomes) {
 /* ---------- Gemini CLI: <storage home>/tmp/<slug>/chats/session-*.jsonl ---------- */
 /* A session whose folder has no readable `.project_root` keeps its tokens under the folder '' ("elsewhere" on the
    per-agent split): counted in every total, just not given to an agent. */
-async function geminiProjectRoot(slugDir) {
-  try { return (await fsp.readFile(path.join(slugDir, '.project_root'), 'utf8')).split('\n')[0].trim(); } catch { return ''; }
+async function geminiProjectRoot(slugDir, acc = null) {
+  try { return (await fsp.readFile(path.join(slugDir, '.project_root'), 'utf8')).split('\n')[0].trim(); }
+  catch (err) { if (acc && err && err.code !== 'ENOENT') acc.incomplete = true; return ''; }
 }
 async function scanGemini(acc, geminiHomes) {
   const seen = new Set();
@@ -186,7 +187,7 @@ async function scanGemini(acc, geminiHomes) {
     catch (err) { if (err && err.code !== 'ENOENT') acc.incomplete = true; continue; }
     for (const slug of slugs) {
       const slugDir = path.join(home, 'tmp', slug);
-      const cwd = await geminiProjectRoot(slugDir);
+      const cwd = await geminiProjectRoot(slugDir, acc);
       for (const file of (await walk(path.join(slugDir, 'chats'), /^session-.*\.jsonl$/, [], acc)).sort()) {
         if (!(await touchedSince(file, acc.sinceDay, acc))) continue;
         let text;
