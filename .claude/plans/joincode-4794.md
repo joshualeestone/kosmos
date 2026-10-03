@@ -1,0 +1,25 @@
+# joincode-4794: the app half of #4794 slice 1 (pair two computers with a code both screens show)
+
+Card: joshualeestone/kosmos#4794 (Kitty: server and trust; Pete: the app). Relay PR #255 merged; coordinator 763d43f1.
+
+## Tunnel interface (Kitty's read of kosmos-relay main d1216d79; struct is the authority)
+- Joining computer B: `kosmos-tunnel join status --coordinator <url> --state-dir <dir>` runs one pairing round, prints
+  {held, join_code, join_codes:[{on, code}], asked_of:[names], failed, confirmed, confirm_expired}.
+  `kosmos-tunnel join confirm --state-dir <dir> --code <code>` -> {"confirmed": true, "with": "<name>"} (local only).
+- Allowing computer A: pending rows (devices.rs) carry `code` = the computer's join code ("" until worked out; a
+  phone's is its match code) and `code_wait` (why it is still empty, or "was_a_computer"). `devices allow --code`
+  is REQUIRED for a computer and refused unless it matches; ignored for a phone.
+
+## Plan
+A side (the computer already in):
+1. engine/remote.js pendingDevices: pass `code_wait` (allowlisted values only).
+2. deviceAllow(id, name, code): for a joining computer row, pass `--code`; server's allow route takes body.code.
+3. Page: a joining-computer row shows its six-digit code ("check it matches the code on <name>") or the wait
+   reason; Allow sends the shown code.
+B side (the computer waiting to be allowed):
+4. engine/remote.js joinStatus() (spawn, parse, page-safe fields) and joinConfirm(code); server GET/POST routes.
+5. Page on a held computer: the code, a "The codes match" button, the failed and expired states. Design: Mona Lisa.
+
+## Weakest premise
+That the code the page shows on A is the code the tunnel will accept at Allow (the tunnel recomputes at Allow and
+refuses a mismatch; a code that expired between showing and pressing reads as a refusal, which the page must word).
