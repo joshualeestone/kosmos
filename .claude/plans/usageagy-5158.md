@@ -81,3 +81,9 @@ from a complete scan, as slice 1 does: a db that cannot be opened while fresh ke
 - NITs taken: no creation time (mtime fallback moves) means an undated call is never frozen; a -wal that cannot be
   stat'ed (not missing) marks the scan incomplete and the conversation is read; the plan's Day section names the
   creation day.
+
+## Review 4 (sonnet): CLEAN (no BLOCKER, no WARNING)
+- NITs not taken, each in the safe direction: the no-creation-time and unstat-able -wal branches have no test (both
+  only ever mark a scan incomplete); a folder URI written after a conversation's first read would leave that day's calls
+  under "elsewhere" (agy writes it at the conversation's start: present in 25 of 25 measured); a conversation that fails
+  to open drops its cached calls from that one scan's display (the scan is not frozen).
