@@ -2717,8 +2717,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /* #5167: a response sent as an attachment (`Content-Disposition: attachment`) from the committed
-       page's own origin is saved rather than shown. Any other response gets WebKit's own default for a
-       delegate without this method: shown if WebKit can show its type, cancelled if not.
+       page's own origin is saved rather than shown. Any other response is shown if WebKit can show its
+       type and cancelled if not.
        📌 PINNED selector, as above: a near-miss Swift signature compiles and is never called. */
     @objc(webView:decidePolicyForNavigationResponse:decisionHandler:)
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
@@ -2729,6 +2729,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            isSameOriginDownload(url, page: committedPageURL) {
             decisionHandler(.download)
             return
+        }
+        if !navigationResponse.canShowMIMEType {
+            logLine("#5167: a response this window cannot show was not loaded (not sent as an attachment)")
         }
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
     }
@@ -4927,7 +4930,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         default: return ok("")
         }
     }
-    guard let listener = try? NWListener(using: .tcp, on: .any) else { print("download selftest: no listener"); exit(1) }
+    let params = NWParameters.tcp
+    params.requiredInterfaceType = .loopback   // nothing off this Mac can reach it during a build
+    guard let listener = try? NWListener(using: params, on: .any) else { print("download selftest: no listener"); exit(1) }
     listener.newConnectionHandler = { conn in
         conn.start(queue: .main)
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
@@ -4955,17 +4960,25 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         }
         poll(150)
     }
-    func click(_ id: String, then: @escaping () -> Void) {
+    func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
+    /* A click that should save a file waits for that file (up to 10s), so a busy build box cannot fail a
+       good product on a fixed sleep. One that should save nothing waits 2s: a late file still lands before
+       the folder is read at the end, and is counted there. */
+    func click(_ id: String, expect: String? = nil, then: @escaping () -> Void) {
         load {
             web.evaluateJavaScript("document.getElementById('\(id)').click()") { _, _ in }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: then)
+            func wait(_ tries: Int) {
+                if let e = expect, saved(e) || tries == 0 { then(); return }
+                if expect == nil && tries == 0 { then(); return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { wait(tries - 1) }
+            }
+            wait(expect == nil ? 20 : 100)
         }
     }
-    func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
     listener.stateUpdateHandler = { state in
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
-        click("same") { click("att") { click("redir") { click("foreign") { click("foreignatt") {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir") { click("foreign") { click("foreignatt") {
             var bad = 0
             func row(_ ok: Bool, _ why: String) { if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             row(saved("same.txt"), "a same-origin <a download> is saved")
