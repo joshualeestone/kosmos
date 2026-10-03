@@ -1,5 +1,6 @@
 // Browser-check-surface: panel-tasks tsk-tiles tsk-groups tsk-search tsk-bulk rail-projects tsk-view tsk-band tsk-below tsk-list tsk-title tsk-searchbox
 'use strict';
+// MEASUREMENT (#4601): this line exists only so the PR's first CI run selects a macOS-routed check; reverted before merge.
 /**
  * The Tasks view on a screen (#3559): the third top-level tab, every task on every project,
  * grouped by where the work is.
