@@ -196,3 +196,10 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   says a sure English read also removes a block that came in with pasted instructions.
 - Recorded, same trade-off as review 12: the first boot after upgrade on a non-English Mac writes every agent's file,
   which rotates each one-deep `.previous` backup (the person's undo of their own last edit), as any new managed block does.
+
+## Review 18 (blind, sonnet)
+- Checked, not an issue: "check-block-delivery over-reports UNDELIVERED for agents with no file or two blocks". The
+  tool lists only agents that HAVE a brief (tools/check-block-delivery.js:159, briefPath !== null), and counts
+  delivery by the marker being present (:190), so a two-block agent reads delivered, never undelivered.
+- Duplicates: the first-boot undo and restart cost (reviews 12, 17), no opt-out (12, 16, #5080), the `defaults`
+  stall (4, 15).
