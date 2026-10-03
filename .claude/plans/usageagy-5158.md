@@ -43,3 +43,16 @@ from a complete scan, as slice 1 does: a db that cannot be opened while fresh ke
   and not this one would freeze past days without Antigravity, and this slice would never revisit them.
 - Gemini CLI and Antigravity share model names (gemini-3.8-flash): their rows add in the per-model view, which is right
   (same model, same price); the per-agent view still separates them by folder.
+
+## Review 1 (opus): 3 WARNINGs, all taken
+- Opening a WAL db leaves an empty -wal, which the skip and the fallback day read as a write: both stats are taken
+  BEFORE opening and an empty -wal is ignored; a call with no dated step takes the conversation file's CREATION day
+  (mtime where none), which never moves, so a frozen day cannot lose or double a call. Test reads twice with a later
+  -wal and a cold cache; its mutant (fallback on last write) fails it.
+- Any error on the steps or folder read was treated as "no table" and the scan marked complete: only "no such table"
+  is absent now; anything else marks the file bad (incomplete while fresh). The three reads share one snapshot.
+- Every request decoded every call of every active conversation: decoded calls and step times are cached per file
+  (inode + creation time), only rows from the last one read onward are read again, and the scan yields between
+  conversations. Test: an appended call counts once, and a cold read agrees with the cached one.
+- NITs taken: steps read ORDER BY idx and the earliest time kept; a step with no 20.3 names no call except through
+  type 15 (so call 0 is not dated by the user's turn). The failed-call test is commented as pinning the outcome only.
