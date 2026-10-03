@@ -67,7 +67,8 @@ test('a tmux that answers is not a problem, and clears an older one', () => {
      TMUX_TMPDIR moves the default socket into a folder of ours (short, under /tmp: a socket path has a length
      limit), and the locale is set here, all three names, so no caller's locale reaches this server. The server is
      made with the same tmux status.js reads through (AGENT_WORKFORCE_TMUX_BIN when set), so a version difference
-     between two tmux binaries cannot red it, and its one pane runs `sleep`, not a login shell. */
+     between two tmux binaries cannot red it; `-f /dev/null` keeps the person's ~/.tmux.conf out of it, and its one pane
+     runs `sleep`, not a login shell. */
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-look-'));
   const sock = fs.mkdtempSync('/tmp/kl5073-');
   const own = { TMUX_TMPDIR: sock, LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', LC_CTYPE: 'en_US.UTF-8' };
@@ -76,7 +77,7 @@ test('a tmux that answers is not a problem, and clears an older one', () => {
   const TMUX_BIN = process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux';
   try {
     try {
-      execFileSync(TMUX_BIN, ['new-session', '-d', '-s', 'look5073', 'sleep 600'], { env: tmuxEnv });
+      execFileSync(TMUX_BIN, ['-f', '/dev/null', 'new-session', '-d', '-s', 'look5073', 'sleep 600'], { env: tmuxEnv });
     } catch (e) {
       if (e && e.code === 'ENOENT') assert.fail('this test needs tmux installed (' + TMUX_BIN + ' was not found); it reads a tmux server of its own');
       throw e;

@@ -29,6 +29,12 @@
 # isolation (`test at web.url-state.test.js:1:1`). Stack-trace frames are
 # INDENTED ("      at ..."), so the `^` anchor excludes them, and a passing test
 # produces no such line. `|| true` so "no matches" is empty output, not an error.
+# #5073: the locale pin run-tests.sh applies to the suite, so the isolation rerun below judges a red the same way the
+# suite saw it. Without it, a cut with no locale (one launched through `tmux run-shell`) re-ran a tmux-reading file
+# alone, saw it red again for the locale, and called the red real. Sourced from beside this file: the rerun's $repo
+# can be a scratch tree with no tools/lib.
+. "$(dirname "${BASH_SOURCE[0]}")/test-locale.sh"
+
 kosmos_failing_test_files() {
   local log="$1"
   [ -f "$log" ] || return 0
@@ -199,7 +205,7 @@ kosmos_isolation_rerun_verdict() {
     dismissed=0
     attempt=1
     while [ "$attempt" -le "$max" ]; do
-      if ( cd "$repo" && node --test -- "$file" ) >/dev/null 2>&1; then
+      if ( cd "$repo" && kosmos_test_locale_pin && node --test -- "$file" ) >/dev/null 2>&1; then
         rc=0
       else
         rc=$?

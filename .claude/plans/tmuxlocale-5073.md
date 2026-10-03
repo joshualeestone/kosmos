@@ -5,9 +5,9 @@ LANG, launched through `tmux run-shell`).
 
 ## Product question first (the card asked it): does a board without LANG refuse to create agents?
 Not for an installed board. Its launchd job pins `LANG=en_US.UTF-8` (install/setup.sh, the board job and the
-watchdog job), and every agent's job does too (engine/create.js plist). No product code sets process.env.LANG, so a
-board started some other way with no locale (a terminal over ssh, say) would read mangled tmux output; engine/status.js
-already refuses a mangled line rather than parse it (the 08-22 fix). Not changed here: it is not a path a person takes.
+watchdog job), and every agent's job does too (engine/create.js plist). install/kosmos also exports
+LANG="${LANG:-en_US.UTF-8}" on every start through the command. The only uncovered path is a bare `node server.js`,
+and engine/status.js already refuses a mangled line rather than parse it (the 08-22 fix). Not changed here.
 
 ## Decisions
 1. **The boundary, once:** tools/run-tests.sh calls `kosmos_test_locale_pin` (tools/lib/test-locale.sh) before the
@@ -26,6 +26,10 @@ already refuses a mangled line rather than parse it (the 08-22 fix). Not changed
 3. tools/test-test-locale-5073.sh (wired into test:shell): six behaviour legs in `env -i` shells plus a source leg
    (the pin precedes the node suite). Mutant (no export) reds the first leg (measured).
 
+4. tools/lib/cut-rerun-guard.sh (review round 3): the cut's isolation rerun re-runs a failing file with a bare
+   `node --test`, outside run-tests.sh, so it now applies the same pin in its subshell. That rerun is what called the
+   card's reds "real, 3 out of 3".
+
 ## Weakest premise
 Other tests read the live tmux too (a sweep found about 30 files that reach createAgent/setProvider/snapshot/
 paneRoster with no setPaneSource). Those are CANDIDATES, not findings: many use other seams. With the locale pinned
@@ -33,6 +37,7 @@ at the runner, the locale half is closed for all of them; the fleet half (a busy
 for the two proven files. Converting the rest one by one is not this card.
 
 ## Verification
-- tools/test-test-locale-5073.sh: 7/7, mutant red (run 18:5x).
-- The two node files: NOT run yet (a suite was live). Run both alone with no LANG (env -u LANG) and with it, before
+- tools/test-test-locale-5073.sh: 7/7; mutants (whole export line removed; only the `export` keyword removed) each red
+  a leg (run 2026-10-02 18:54 and 18:58 CDT).
+- The two node files: NOT run yet (a suite was live). Run both alone with no locale (env -u LANG -u LC_ALL -u LC_CTYPE) and with LANG, before
   the PR; the card's measurement is 6 pass / 4 fail without LANG on main for runner-dir.
