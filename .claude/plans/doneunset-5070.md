@@ -10,9 +10,13 @@ them, it falls into the free cell instead: the status column, at the row's end, 
 Measured on main with both added to a real row: 1042 px of a 1232 px row (desktop), 152 px (phone); grid view 93 px.
 
 ## Change
-web/index.html: `.pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; justify-self: start; }`, so it sits
-under the name at its own size, the same on every row (with or without the count and the status). Grid tiles are flex
-cards and unchanged; the consolidated rail hides the pill already.
+[CORRECTED round 1: my first cut put the tag UNDER the name on every row; that made every "Done not set" Roadmap row two
+lines tall and pushed the fold caret off-centre.] Now: the Roadmap grid gains a fourth track before the count
+(minmax(0,1fr) auto auto auto); "Done not set" sits in it on the row's one line (grid-column 2, row 1, start of the
+right-hand cluster), the count and status move to tracks 3 and 4. The tag is its own size on every row, always
+immediately left of the count, and the row stays one line. An empty track costs one 12 px gap on rows without the tag.
+The plain list rows (an edge layout) keep `grid-column: 1; justify-self: start`. Grid tiles and the consolidated rail
+are unchanged.
 
 Rejected: `justify-self: start` alone (the card's suggestion): the pill stops stretching but still lands in whichever
 cell is free, at the row's end on one row and under the name on the next.
@@ -29,4 +33,13 @@ measures a row the page no longer draws.
   1352 px row at 1400 wide); on the branch all 21 passed.
 
 ## Review
-- Round 1: PENDING.
+- Round 1 (opus, blind, no browsers): 0 BLOCKER, 3 SHOULD-FIX, 4 NIT. SF1 taken (a design call, mine): under-the-name made
+  every done-unset Roadmap row two lines and lost the outline's density; now its own track on the row's line. SF2 (caret
+  and rail elbow off-centre on two-line rows) gone with SF1. SF3: the arm's "repaint" did not remove the injected nodes
+  (setLive skips identical data); it now removes them and restores the layout it found. NIT4: the arm asserts the injected
+  count and status sit on the name's line (else it tests nothing), and that the tag is on that line and directly left of
+  the count. NIT5: the arm runs at 1400 and 390. NIT6 (plain list wording) and NIT7 (the ancestry chip) are moot for the
+  Roadmap now (nothing goes to row 2). My first rewrite of the arm demanded the same x on both rows; wrong for this
+  design (the tag sits before the cluster, so its x moves with the cluster) and corrected to "directly left of the count".
+  Measured 21:56 (light turns): main 20 passed, 2 FAILED (both new arms: 1181 px and off the name's line); branch 22/22.
+- Round 2: PENDING.

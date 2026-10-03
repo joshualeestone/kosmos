@@ -128,25 +128,41 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
 
     // #5070: in the Roadmap, a row whose cells right of the name are all taken (an agent count AND a status pill) pushed
     // "Done not set" into a new row's first track, where a grid item stretches: 1042 px of a 1232 px row on main,
-    // measured. It now sits under the name at its own size on every row. The count and the status are added to the row
-    // the page drew (the markup projectCard writes for them), measured at once, then the list is repainted.
+    // measured. It now has its own track on the row's one line, just before the count: the same size on every row,
+    // always immediately left of the right-hand cluster (its x moves with how many of count and status a row has, by
+    // design), and the row stays one line. The count and the status are added to the row the page drew (the markup
+    // projectCard writes for them), measured at once, then REMOVED (a repaint would not: setLive skips identical
+    // data). Desktop and phone; the injected cells must sit on the name's line, or the arm would test nothing.
+    const layoutBefore = await p.evaluate(() => (document.getElementById('pj-list').classList.contains('asgrid') ? 'grid' : 'roadmap'));
     await p.evaluate(() => layoutApply('projects', 'roadmap'));
-    await p.waitForTimeout(200);
-    const doneunset = await p.evaluate(() => {
-      const row = [...document.querySelectorAll('#pj-list .pj-row')].find((r) => (r.textContent || '').includes('Blank Done Project'));
-      const tag = row && row.querySelector('.pj-doneunset');
-      if (!tag) return { found: false };
-      const size = () => { const t = tag.getBoundingClientRect(); const n = row.querySelector('.pjname').getBoundingClientRect(); return { w: Math.round(t.width), left: Math.round(t.left - n.left) }; };
-      const plain = size();
-      const head = row.querySelector('.pjcard-h') || row;
-      if (!row.querySelector('.pjfaces')) { const f = document.createElement('span'); f.className = 'pjfaces'; f.innerHTML = '<span class="pjcount">3 agents</span>'; head.appendChild(f); }
-      if (!row.querySelector('.pjpill')) { const s = document.createElement('span'); s.className = 'pjpill'; s.textContent = 'Working'; head.appendChild(s); }
-      return { found: true, roadmap: document.body.classList.contains('pj-roadmap'), plain, full: size(), rowW: Math.round(row.getBoundingClientRect().width) };
-    });
-    ok('#5070 roadmap: with an agent count and a status on the row, "Done not set" keeps its own size, under the name',
-      doneunset.found && doneunset.roadmap && doneunset.full.w === doneunset.plain.w && doneunset.full.w < 200
-        && Math.abs(doneunset.full.left) <= 2 && Math.abs(doneunset.plain.left) <= 2, JSON.stringify(doneunset));
-    await p.evaluate(() => loadProjects());
+    for (const vw of [1400, 390]) {
+      await p.setViewportSize({ width: vw, height: 900 });
+      await p.waitForTimeout(200);
+      const m = await p.evaluate(() => {
+        const row = [...document.querySelectorAll('#pj-list .pj-row')].find((r) => (r.textContent || '').includes('Blank Done Project'));
+        const tag = row && row.querySelector('.pj-doneunset');
+        if (!tag) return { found: false };
+        const name = row.querySelector('.pjname');
+        const box = (el) => { const b = el.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right), w: Math.round(b.width), mid: Math.round(b.top + b.height / 2) }; };
+        const plain = { tag: box(tag), name: box(name), rowH: Math.round(row.getBoundingClientRect().height) };
+        const head = row.querySelector('.pjcard-h') || row;
+        const added = [];
+        if (!row.querySelector('.pjfaces')) { const f = document.createElement('span'); f.className = 'pjfaces'; f.innerHTML = '<span class="pjcount">3 agents</span>'; head.appendChild(f); added.push(f); }
+        if (!row.querySelector('.pjpill')) { const s = document.createElement('span'); s.className = 'pjpill'; s.textContent = 'Working'; head.appendChild(s); added.push(s); }
+        const full = { tag: box(tag), name: box(name), faces: box(row.querySelector('.pjfaces')), pill: box(row.querySelector('.pjpill')), rowH: Math.round(row.getBoundingClientRect().height) };
+        for (const el of added) el.remove();
+        return { found: true, roadmap: document.body.classList.contains('pj-roadmap'), added: added.length, plain, full };
+      });
+      const onLine = (x) => Math.abs(x.mid - m.full.name.mid) <= 4;
+      ok(`#5070 roadmap @${vw}: with an agent count and a status, "Done not set" keeps its size and place, on the name's line`,
+        m.found && m.roadmap && m.added === 2 && onLine(m.full.faces) && onLine(m.full.pill)
+          && m.full.tag.w === m.plain.tag.w && m.full.tag.w < 200
+          && m.full.tag.r <= m.full.faces.l && m.full.faces.l - m.full.tag.r <= 16 && m.full.tag.l > m.full.name.l
+          && onLine(m.full.tag) && Math.abs(m.plain.tag.mid - m.plain.name.mid) <= 4 && m.full.rowH === m.plain.rowH,
+        JSON.stringify(m));
+    }
+    await p.setViewportSize({ width: 1400, height: 900 });
+    await p.evaluate((l) => layoutApply('projects', l), layoutBefore);
 
     // ---- coordinators (page rules; the add answer and the read are stubbed) ----
     const id = await p.evaluate(() => (PROJECTS.find((x) => x.name === 'Given Done Project') || {}).id);
