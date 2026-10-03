@@ -23,6 +23,7 @@
  *   unread    a look that reached the host but could not read it (a bad Windows manifest):
  *             the could-not-read sentence, no link, never "Up to date."; then a press whose
  *             check cannot reach the host: the could-not-reach sentence
+ *             -- and it STAYS after a later status poll repaints the card (#5183)
  *   current   the CONTROL: nothing newer, the press says "Up to date on the release channel." (#2969) and no link shows --
  *             without it the states above could pass on a card that never says it
  *
@@ -35,6 +36,8 @@
  * `updateLook`, `updateManual`, `updateChannel` and `engine` (the engine-stale notice, pinned
  * off). Everything else is the real server's. `served` comes from the real /api/status, so the
  * stub cannot invent the running version.
+ * The two stubs are NOT independent (#5183): a press writes its look into the status answers, as a
+ * real board's checkNow writes the cache its lastLook reads, so a poll after the press agrees with it.
  *
  * Screenshots go to the directory you pass (argv[2]).
  *
@@ -215,13 +218,15 @@ async function readCard(pg) {
       chk(!/Up to date/.test(after.line), 'unread: never "Up to date."', JSON.stringify(after.line));
       /* #5183: a poll that repaints the card after the press must keep could-not-reach (a real board's poll reports
          the press's look). Count paints from here and wait for one, so the read below follows a real repaint rather
-         than the press's own paint (a fixed wait could read before a slow repaint and pass without one). */
+         than the press's own paint (a fixed wait could read before a slow repaint and pass without one). It waits
+         for TWO: a status request in flight across the click can carry the pre-press look and paint first, as on a
+         real board; by the second paint a full poll has been answered since the press. */
       await pg.evaluate(() => {
         const orig = window.paintUpdateCard;
         window.__updPaints = 0;
         window.paintUpdateCard = function (...a) { window.__updPaints++; return orig.apply(this, a); };
       });
-      await pg.waitForFunction(() => window.__updPaints > 0, null, { timeout: 20000 });
+      await pg.waitForFunction(() => window.__updPaints >= 2, null, { timeout: 20000 });
       const afterPoll = await readCard(pg);
       chk(afterPoll.line === 'Could not reach the update server.', 'unread: a status poll after the press keeps could-not-reach (#5183)', JSON.stringify(afterPoll.line));
       const box = await pg.$('#s-sec-updates');

@@ -37,5 +37,11 @@ Round 1 (blind): no blockers; 1 WARNING (fixed: paint counter), 3 NITs (comment 
 corrected; the uncaught waitFor matches the file's existing style, kept). Re-proven after the fix:
 old fixture FAILS, fixed PASSES 2 of 2.
 
+Round 2 (blind): no blockers, no warnings; confirmed the wrap intercepts all three bare-name callers
+(acorn: top-level in a classic script, no aliases) and that the press's paint cannot be counted.
+2 NITs taken: wait for TWO paints (a status request in flight across the click can carry the
+pre-press look, as on a real board), and the header now says the stubs are linked. Re-proven:
+old fixture FAILS, fixed PASSES 2 of 2. Converged.
+
 ## Left
-Round 2 review; full tools/browser-checks.sh on the exact head; PR; merge after Monday.
+ full tools/browser-checks.sh on the exact head; PR; merge after Monday.
