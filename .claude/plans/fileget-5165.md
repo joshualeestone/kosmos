@@ -23,7 +23,9 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   requires the same resolved place.
 - A refused DOWNLOAD NAVIGATION (the anchor, Sec-Fetch-Mode: navigate) is answered 204 with no body, so no browser
   saves a JSON refusal as `gone.pptx` (review 5: WebKit decides on a download at the click). The page's look
-  (?check=1) still gets the sentence. Weakest premise: that the relay forwards Sec-Fetch-Mode; if it does not, the
+  (?check=1) still gets the sentence. That holds for EVERY refusal on both download routes, the early ones too (a bad
+  name or id, no such agent or project, a linked Files, a projects read failure), all through refuseDownload and
+  all in one shape, { ok: false, because } (review 7). Weakest premise: that the relay forwards Sec-Fetch-Mode; if it does not, the
   refusal is a 404 JSON again, which Chromium shows as a failed download and WebKit may save.
 - Content-Disposition carries an ASCII `filename=` (control characters, quotes and backslashes made `_`) before the
   exact RFC 5987 `filename*` (Baron).
@@ -63,6 +65,10 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
 - Known limit, not refused: a HARD LINK inside a folder to a file outside it downloads (realpath cannot see one).
   Only the same user can make one, and an agent that could make one can already copy the same file into its Files,
   so refusing nlink > 1 would buy nothing and would refuse legitimate files (Baron, NIT).
+
+- Deliberately NOT done (review 7): a "Downloading <name>" sentence at the click for the Mac and iOS apps, where
+  the download does nothing until #5167. In a browser the browser's own download is the feedback, and in those
+  apps the sentence would be false; a wrong sentence is worse than none, and #5167 is the fix.
 
 ## Not covered, filed separately
 - The iOS app has the same gap as the Mac app below (review 5): ios/Kosmos/ContentView.swift loads the board from a

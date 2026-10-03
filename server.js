@@ -3777,14 +3777,16 @@ function isDownloadCheck(req) {
 }
 /* A refused download. The browser's own download (a navigation, `<a download>`) gets 204 and no body, which browsers
    take as nothing to save: a 404 with a JSON body there would be saved by some (WebKit decides at the click) as a
-   file under the document's name. Everything else, the page's ?check=1 look included, gets the sentence. */
-function refuseDownload(req, res, because) {
+   file under the document's name. Everything else, the page's ?check=1 look included, gets the sentence, as
+   { ok: false, because } (#4997's shape) with `status` (404 unless said). Every refusal on both download routes
+   comes through here, the early ones (a bad name, no such agent or project, a linked Files) included. */
+function refuseDownload(req, res, because, status = 404) {
   if (req.headers['sec-fetch-mode'] === 'navigate' && !isDownloadCheck(req)) {
     res.writeHead(204, { 'cache-control': 'no-store' });
     res.end();
     return;
   }
-  sendJson(res, 404, { ok: false, because });
+  sendJson(res, status, { ok: false, because });
 }
 function sendFileDownload(req, res, found, recheck) {
   const checkOnly = isDownloadCheck(req);
@@ -6204,7 +6206,10 @@ const server = http.createServer(async (req, res) => {
   const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|download))?$/);
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
-    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    // #5165: a refusal of a download goes through refuseDownload, so a browser's download never saves it as the file.
+    const refuse = (status, because) => (agentFiles[2] === 'download' && (req.method === 'GET' || req.method === 'HEAD')
+      ? refuseDownload(req, res, because, status) : sendJson(res, status, { ok: false, because }));
+    if (name === null) { refuse(400, 'that is not a name we can read'); return; }
     // The folder is dmfiles.filesDir (beside the agent's own instructions file), and the agent's
     // folder is its PARENT, so the existence check and the folder can never name two places. The
     // parent is FOLLOWED (statSync): an agent folder that is a link is where the instructions are
@@ -6213,7 +6218,7 @@ const server = http.createServer(async (req, res) => {
     const folder = dmfiles.filesDir(name);
     let ownIsDir = false;
     try { ownIsDir = Boolean(folder) && fs.statSync(path.dirname(folder)).isDirectory(); } catch { ownIsDir = false; }
-    if (!folder || !ownIsDir) { sendJson(res, 404, { ok: false, because: 'there is no agent by that name on this computer' }); return; }
+    if (!folder || !ownIsDir) { refuse(404, 'there is no agent by that name on this computer'); return; }
     const verb = agentFiles[2] || null;
     // A Files that is a LINK would list and open whatever it points at (listFiles and openFile
     // resolve through it), so a link seen here is refused for every verb. This lstat is separate
@@ -6224,7 +6229,7 @@ const server = http.createServer(async (req, res) => {
     if (isLink) {
       const because = 'this agent\u2019s Files is a link to somewhere else, so Kosmos will not list or open it';
       if (!verb && (req.method === 'GET' || req.method === 'HEAD')) sendJson(res, 200, { ok: false, because, files: [], folder });
-      else sendJson(res, 409, { ok: false, because });
+      else refuse(409, because);
       return;
     }
     if (!verb && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -6262,7 +6267,7 @@ const server = http.createServer(async (req, res) => {
       try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
       const gate = () => projects.fileInFolder(folder, named, 'this agent\u2019s Files folder');
       const found = gate();
-      if (!found.ok) { refuseDownload(req, res, found.because); return; }
+      if (!found.ok) { refuse(404, found.because); return; }
       sendFileDownload(req, res, found, gate);
       return;
     }
@@ -17275,15 +17280,15 @@ const server = http.createServer(async (req, res) => {
   const downloadOne = pathname.match(/^\/api\/project\/([^/]+)\/file-download$/);
   if (downloadOne && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(downloadOne[1]);
-    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    if (id === null) { refuseDownload(req, res, 'that is not a name we can read', 400); return; }
     let record;
     try {
       record = projects.readAll().find((x) => x.id === id) || null;
     } catch (err) {
-      sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your projects right now') });
+      refuseDownload(req, res, String((err && err.message) || 'we cannot read your projects right now'), 500);
       return;
     }
-    if (!record) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+    if (!record) { refuseDownload(req, res, 'there is no project by that name'); return; }
     let named = '';
     try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
     const gate = () => projects.fileInFolder(record.folder, named);

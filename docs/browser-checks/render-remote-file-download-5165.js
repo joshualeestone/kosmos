@@ -156,8 +156,9 @@ async function runRemote(engine, platform, say) {
     for (const [where, listId, , cls, , , msgId] of ROWS) {
       asked.length = 0;
       const said = () => pg.evaluate((id) => { const m = document.getElementById(id); return m ? m.textContent : null; }, msgId);
-      await clickRow(pg, listId, GONE, cls, async () => (await said()) === GONE_SAID);
-      const gone = await said();
+      let gone = null;   // the value the wait SAW: a later read can race the page's own list poll clearing the line
+      await clickRow(pg, listId, GONE, cls, async () => { const t = await said(); if (t === GONE_SAID) gone = t; return gone === GONE_SAID; });
+      if (gone === null) gone = await said();
       say(gone === GONE_SAID && !asked.some((a) => /^POST /.test(a)),
         engine + ' R3: over Kosmos+ a file the board refuses in ' + where + ' is said under it in the board\u2019s own sentence',
         JSON.stringify({ said: gone, asked }));
