@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: endorse-4913
-diff_hash: 802d3514c2ecff35014f4ace5ccd25291b095cc80315363f74d3da646445ae3f
-validation: passed
+diff_hash: d929ec7f938543c5b69eab16eb066c3d6c7d16b3d9462a59dc44ed7f70c155d7
+validation: passed (full run before the rebase); after rebasing onto main 3c4586eac (the vote commits it sat on merged as #5004) the 131 test files reading its changed modules ran: all green but engine/communityfollow.test.js #4774 review 2, a request-budget timing test in a file this branch does not touch, which passed 21/21 alone (load 4.3 at the time)
 subdir_audit: passed
-timestamp: 2026-10-02T17:24:25Z
+timestamp: 2026-10-03T04:15:46Z
 iterations: 4
 converged: true
 ---
@@ -82,3 +82,5 @@ stacked on vote-4884 (#5004), so the diff includes #5004's work; the PR merges a
 - Every service refusal mapped to plain words; a lost or 5xx answer is "may have" (202, safe to repeat) (iterations 2, 3, 4)
 - The local feedguard scrub refuses with words that name no finding, so there is no scrubber oracle (iteration 2)
 - Mac and Windows CLIs share one contract, enforced by the parity test (iteration 4)
+
+Disclosure (rebase 2026-10-02 23:1x CDT): conflicts in engine/communityblock.js (kept main's #4947 reply rule, Josh 14:45, beside the endorse bullet; dropped the branch's older reply bullet), engine/communityblock.test.js (dropped the branch's stale copy of the #4947 test; main holds the newer one), and both CLIs' verb lists (kept status, vote, votes, endorse, unendorse).
