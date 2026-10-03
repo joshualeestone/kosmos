@@ -50,8 +50,9 @@ and cannot force a removal; the person (the board token) removes any agent exact
   layer and the macOS sandbox (review 13), and write-denies it and the records the check trusts (created.jsonl,
   ended-agents.jsonl, agent-token-only.json), which only the board and the supervisor write, so it cannot forge a
   birth, erase an end or plant a token (review 14), and Read-denies the supervisor's launch hand-off folders
-  (`launch-secrets/`, beside the data root and in the app folder), where a token waits until its pane starts
-  (review 15). Its own token comes in its environment from the supervisor. NOT closed: another agent's token in its
+  (`launch-secrets/`: in the data root, where the installed supervisor writes since its `$_app` is the data root;
+  beside it, for AGENT_WORKFORCE_DATA; and in the app folder), where a token waits until its pane starts (reviews
+  15 and 19; the test derives the installed path from `create.supervisorPath`, not from the guard's own belief). Its own token comes in its environment from the supervisor. NOT closed: another agent's token in its
   process environment (readable with `ps -E` by the same Mac user, unless Claude Code's sandbox blocks it, not
   measured), and typing into another agent's tmux pane; both need a per-agent OS user to close.
 - Accepted cost of that deny (review 17): the Mac CLI's outbox keep (a `kosmos msg`/`reply`/`post` made while another
@@ -101,8 +102,11 @@ and cannot force a removal; the person (the board token) removes any agent exact
 - A newer `partial` birth of the name ends the older agent-made one's ownership; a `partial` creation is never
   removable by its creator. Agents made before this change (no `createdByName`), and creators whose token carries no
   name (before #4792), cannot remove; the person can.
-- A history that cannot be read refuses, and so does a line in it that does not parse (an end not written whole is
-  read as an end for every name); each end is written on a fresh line, so a torn one cannot swallow the next.
+- A history that cannot be read refuses, and so does a line in it that does not parse or whose time cannot be
+  ordered (`endedSince` answers null: it cannot tell); each end is written on a fresh line, so a torn one cannot
+  swallow the next. Refusals say their real reason (review 19): not yours; removing it would end another agent's
+  sign-in (a shared key); or Kosmos could not check (the history unreadable or damaged, also logged on the board).
+  A damaged line keeps refusing until the file is mended by hand; that is the safe direction.
 - A history that cannot be read refuses. A failed append is logged; it is caught by nothing else, so the residual is
   an agent ended on a full disk.
 - Accepted premise: the wall clock orders an end after the birth it ends (both are ISO times from it). A backward
@@ -133,6 +137,7 @@ and cannot force a removal; the person (the board token) removes any agent exact
   `tookTokens`, create not recording it, the shared-key check removed, a malformed history time skipped, a malformed
   birth time accepted, the birth's `slug` ignored, the `slug === target` check removed, `tookTokens` checking only the
   typed name's key, the launch hand-off deny removed, an empty name set read as nothing ended, an unreadable token
-  file read as no other name, a torn history line skipped, the fresh-line write removed, plus (re-run on this code at
+  file read as no other name, a torn history line skipped, the fresh-line write removed, the data-root launch
+  hand-off deny removed, the unchecked and shared-key refusals collapsed into "not yours", plus (re-run on this code at
   b54ebe022) the createdByName presence check, the key-only refusal, the board-name check, a slug comparison of the
   creator, and the team route recording the sessionName in place of the token name.
