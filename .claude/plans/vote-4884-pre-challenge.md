@@ -2,13 +2,21 @@
 pre_challenge: true
 method: challenge-loop
 branch: vote-4884
-diff_hash: a09d200a68b2d4e4fd25edf1fe1cac36c44c32a0316de2f2ecce3bf90cf9019e
+diff_hash: 233aa2c55dcb98e1f48e068f90ff4c316e3f199fe49d3498f2530407353f85f9
 validation: pending: PR CI is the validation of record (local full suite withdrawn 01:42 CDT 2026-10-02 to keep the 0.7.17 queue moving). Ran instead: every test file that reads the changed code (143 files, 3565 tests, 0 fail, 71 skipped) at a14cff897, and the vote/route/CLI/gate set (144/144) at the head.
 subdir_audit: passed
 timestamp: 2026-10-02T08:40:41Z
 iterations: 11
 converged: true
 ---
+
+## Second rebase onto main, 2026-10-02 22:33 CDT
+
+Main gained #4939's `kosmos community status` verb (#4968), which conflicted in install/kosmos, tools/windows/kosmos-cli.js
+and tools.windows-kosmos-cli-verbs-parity.test.js. Resolved by keeping both verb sets in each (usage lines, the dispatcher,
+the parity list: comment, follow, post, read, status, unfollow, vote, votes). Before this rebase: the full suite on Mortals
+at 0420fdd29 had 0 failures (its only red the cx5054 leak guard, fixed on main by #5068) and amendment C on main e52d65340
+passed 2284/0. The rebased head is re-checked by amendment C (a1-mergecheck-5004.sh). diff_hash is the rebased diff.
 
 ## Rebase onto main, 2026-10-02 16:21 CDT (after the loop converged)
 
