@@ -90,7 +90,7 @@ test('#5167: a download that does not save is said to the person, once', () => {
 test('#5167: an error page is not saved as the file, and every refusal before a destination is said once', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /!\(200\.\.<300\)\.contains\(http\.statusCode\)/, 'a 404 or 500 is saved under the file\'s name');
-  assert.equal((b.match(/downloadsTold\.add\(download\)/g) || []).length, 2,
+  assert.equal((b.match(/downloadsTold\.add\(download\)/g) || []).length, 3,
     'a refusal before a destination is not marked as said, so its cancel says it a second time');
 });
 
@@ -109,7 +109,7 @@ test('#5167: both ways a navigation becomes a download hand it to this delegate 
 test('#5167: the destination is Downloads through downloadDestination, never replacing a file', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /FileManager\.default\.urls\(for: \.downloadsDirectory, in: \.userDomainMask\)/);
-  assert.equal((b.match(/completionHandler\(/g) || []).length, 3, 'a destination path that never answers WebKit leaves the download hanging');
+  assert.equal((b.match(/completionHandler\(/g) || []).length, 5, 'a destination path that never answers WebKit leaves the download hanging');
   assert.doesNotMatch(b, /logLine\([^\n]*dest\.path/, 'the log line carries the full path, home folder and user name included');
 });
 
@@ -193,7 +193,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.match(tell, /if sheetUp \|\| \(lastDownloadTold\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < AppDelegate\.downloadQuietSeconds \} \?\? false\) \{/, 'a page clicking in a loop can stack sheets');
   assert.match(tell, /if let present = AppDelegate\.downloadAlertPresenter \{[^}]*if quiet \{ lastDownloadTold = Date\(\) \}/, 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
-  assert.match(tell, /self\.downloadAlertsUp -= 1\n\s+if quiet \{ self\.lastDownloadTold = Date\(\) \}/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
+  assert.match(tell, /self\.downloadAlertsUp -= 1\n\s+self\.lastDownloadTold = Date\(\)/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
   assert.match(SRC, /static var downloadQuietSeconds: TimeInterval = 5\n/);
   assert.match(body('@objc(downloadDidFinish:)'), /if getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 \{\n\s+tellDownloadFailed\(/,
     'the person is told a file is unmarked when WebKit\'s own mark is on it');
@@ -202,7 +202,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
 test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a sheet; the refusal names its cause', () => {
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.match(tell, /quiet: Bool = false\) \{\n[\s\S]*?\n\s+if quiet \{\n\s+let sheetUp/, 'a real save failure can be swallowed by the quiet window');
-  assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 5, 'the quiet window covers something other than the five refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show, a download WebKit stopped, a computer already refused)');
+  assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 6, 'the quiet window covers something other than the six refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show, a download WebKit stopped, a computer already refused, the page changed during the question)');
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
   assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame != false \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
     'a frame inside the page can put up the app\'s sheet, or the refusal blames the page when the file is the cause');
@@ -271,7 +271,7 @@ test('#5167 review 17: a Kosmos+ computer is asked about before it can save (its
 
 test('#5167 review 19: a computer already refused is said (quietly), refusals carry a refusal title, a dangling symlink is taken', () => {
   assert.match(body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {'),
-    /if refusedDownloadHosts\.contains\(host\) \{\n[^\n]*\n\s+tellDownloadFailed\("Downloads from \\\(host\) were not allowed\. Kosmos asks again the next time it opens\.", quiet: true\)/,
+    /if refusedDownloadHosts\.contains\(host\) \{\n[^\n]*\n\s+tellDownloadFailed\("Downloads from \\\(host\) were not allowed\. Reload the page \(View > Reload\) to be asked again\.", quiet: true\)/,
     'after Don\'t Allow, every later click on that computer does nothing at all');
   assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {'),
     /let title = title \?\? \(quiet \? "Kosmos did not save that file" : "Kosmos could not save that file"\)/);
@@ -329,13 +329,13 @@ test('#5167 review 26: the "already said" record is weak, so a later download at
 
 test('#5167 review 27: failures during an alert are counted and said together later, never stacked; the answer is only for the page that asked', () => {
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
-  assert.match(tell, /if !quiet && downloadAlertsUp > 0 \{\n[\s\S]*?pendingDownloadFailures \+= 1\n[^\n]*\n\s+return\n\s+\}/,
+  assert.match(tell, /if !quiet && \(downloadAlertsUp > 0 \|\| soSoon\) \{\n[\s\S]*?pendingDownloadFailures \+= 1\n[\s\S]*?\n\s+return\n\s+\}/,
     'a failure that arrives while an alert is up opens another, so a looping page can stack them');
   assert.match(tell, /asyncAfter\(deadline: \.now\(\) \+ AppDelegate\.downloadQuietSeconds\) \{ \[weak self\] in\n\s+self\?\.sayPendingDownloadFailures\(\)/,
     'counted failures are never said, or are said the instant the alert closes');
   assert.match(body('private func sayPendingDownloadFailures() {'), /guard pendingDownloadFailures > 0, downloadAlertsUp == 0 else \{ return \}/);
   assert.match(body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {'),
-    /guard committedPageURL\?\.host\?\.lowercased\(\) == host else \{\n[^\n]*\n\s+for waiting in downloadAsks\.removeValue\(forKey: host\) \?\? \[\] \{ waiting\(false\) \}\n\s+return\n\s+\}\n\s+answer\(asked\)/, 'an answer outlives a switch to another page, or a changed page is recorded as the person refusing');
+    /guard committedPageURL\?\.host\?\.lowercased\(\) == host else \{\n[^\n]*\n[^\n]*\n\s+for waiting in downloadAsks\.removeValue\(forKey: host\) \?\? \[\] \{ waiting\(false\) \}\n\s+return\n\s+\}\n\s+answer\(asked\)/, 'an answer outlives a switch to another page, or a changed page is recorded as the person refusing');
   const gate = BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest'));
   assert.ok(gate.indexOf('*"download selftest PAGE NEVER LOADED"*') < gate.indexOf('*"download selftest TIMED OUT"*'),
     'a page that never loads (possibly the response policy itself) is read as the gate timing out');
@@ -345,4 +345,14 @@ test('#5167 review 28: failures counted while the question was up are said after
   const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
   assert.match(may, /downloadAlertsUp -= 1\n\s+if pendingDownloadFailures > 0 \{[^\n]*\n\s+DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ AppDelegate\.downloadQuietSeconds\)/,
     'a failure that arrived while the question was up is never said');
+});
+
+test('#5167 review 29: a sign-in page is not saved as the file; a 4xx over Kosmos+ is said once (by the page); Reload asks again', () => {
+  const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
+  assert.match(b, /if response\.mimeType\?\.lowercased\(\) == "text\/html", !wantsPage \{/, 'an expired sign-in\'s page is saved under the file\'s name');
+  assert.match(b, /if \(400\.\.<500\)\.contains\(http\.statusCode\), let page = committedPageURL, isKosmosPlusURL\(page\) \{\n\s+completionHandler\(nil\)/,
+    'a refused file over Kosmos+ is said twice, once by the page and once by the app');
+  assert.match(body('@objc func reloadBoard(_ sender: Any?) {'), /refusedDownloadHosts = \[\]/, 'a mistaken Don\'t Allow can only be undone by quitting');
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
+  assert.ok(hatch.includes('nor a sign-in page answered for a .pptx'));
 });
