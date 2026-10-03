@@ -329,6 +329,17 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   recorded (it had become a recorded refusal the person never made).
 - Not changed: Don't Allow lasts the run, one quiet window for all causes (rounds 12, 19, 22).
 
+## Review round 29 changes
+- A download answered with a web page (text/html) when it did not ask for one is refused and said:
+  an expired Kosmos+ sign-in answers a navigation with its sign-in page as 200 (reasoned from
+  kosmos-relay crates/tunnel proxy.rs gate_page; measured here with a local arm, report.pptx).
+- A 4xx on a Kosmos+ page is only logged: #5165's page says the board's own sentence for it, so it
+  was said twice. A 4xx on this computer's board, and every 5xx, is still said.
+- The quiet window follows every download alert: a failure within it is counted into the summary,
+  so alerts cannot come back to back while a page loops.
+- Reload clears refused computers (Don't Allow was undone only by quitting); the texts say so.
+- The page changing while the question is up is said, not only logged.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers

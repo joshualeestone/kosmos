@@ -2860,7 +2860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if allowedDownloadHosts.contains(host) { then(true); return }
         if refusedDownloadHosts.contains(host) {
             logLine("#5167: downloads from \(host) were not allowed this time")
-            tellDownloadFailed("Downloads from \(host) were not allowed. Kosmos asks again the next time it opens.", quiet: true)
+            tellDownloadFailed("Downloads from \(host) were not allowed. Reload the page (View > Reload) to be asked again.", quiet: true)
             then(false); return
         }
         if downloadAsks[host] != nil { downloadAsks[host]!.append(then); return }   // one question at a time
@@ -2874,7 +2874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let ask = AppDelegate.downloadPermissionPresenter { ask(host, answer); return }
         let alert = NSAlert()
         alert.messageText = "Allow downloads from \(host)?"
-        alert.informativeText = "This Kosmos+ computer wants to save a file to your Downloads folder. Allow it only if it is one of your own computers. Kosmos asks again the next time it opens."
+        alert.informativeText = "This Kosmos+ computer wants to save a file to your Downloads folder. Allow it only if it is one of your own computers. Kosmos asks again after a reload or the next time it opens."
         alert.alertStyle = .warning
         let allow = alert.addButton(withTitle: "Allow")
         let refuse = alert.addButton(withTitle: "Don't Allow")
@@ -2901,6 +2901,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // are not saved, and nothing is recorded, since the person answered for a page no longer there.
         guard committedPageURL?.host?.lowercased() == host else {
             logLine("#5167: the page changed while \(host) was asked about, so its downloads were not saved")
+            tellDownloadFailed("The page changed before the file was saved, so it was not saved.", quiet: true)
             for waiting in downloadAsks.removeValue(forKey: host) ?? [] { waiting(false) }
             return
         }
@@ -2917,6 +2918,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var pendingDownloadFailures = 0   // failures that arrived while an alert was up, said together after it
     private func sayPendingDownloadFailures() {
         guard pendingDownloadFailures > 0, downloadAlertsUp == 0 else { return }   // an alert up: its dismissal comes back here
+        if let last = lastDownloadTold, Date().timeIntervalSince(last) < AppDelegate.downloadQuietSeconds {
+            DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
+                self?.sayPendingDownloadFailures()
+            }
+            return
+        }
         let n = pendingDownloadFailures
         pendingDownloadFailures = 0
         tellDownloadFailed(n == 1 ? "One more download could not be saved." : "\(n) more downloads could not be saved.")
@@ -2927,11 +2934,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {
         // A refusal is Kosmos choosing not to save; anything else is a save that failed.
         let title = title ?? (quiet ? "Kosmos did not save that file" : "Kosmos could not save that file")
-        if !quiet && downloadAlertsUp > 0 {
+        let soSoon = lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false
+        if !quiet && (downloadAlertsUp > 0 || soSoon) {
             // Counted, not stacked: a page that loops failing downloads cannot pile up alerts the person
             // cannot get out of. They are said together a few seconds after this alert is dismissed.
             pendingDownloadFailures += 1
             logLine("#5167: said with the next summary: \(detail)")
+            if downloadAlertsUp == 0 {   // none up to schedule it on dismissal
+                DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
+                    self?.sayPendingDownloadFailures()
+                }
+            }
             return
         }
         if quiet {
@@ -2956,7 +2969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let dismissed = { [weak self] in
             guard let self = self else { return }
             self.downloadAlertsUp -= 1
-            if quiet { self.lastDownloadTold = Date() }
+            self.lastDownloadTold = Date()   // the quiet window follows every download alert
             if self.pendingDownloadFailures > 0 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
                     self?.sayPendingDownloadFailures()
@@ -3003,7 +3016,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             logLine("#5167: a download answered \(http.statusCode), so nothing was saved")
             downloadsTold.add(download)
+            // Over Kosmos+ the page says a refused file itself (#5165's look at the same file), so a 4xx is not said twice.
+            if (400..<500).contains(http.statusCode), let page = committedPageURL, isKosmosPlusURL(page) {
+                completionHandler(nil)
+                return
+            }
             tellDownloadFailed("The file is not available (the answer was \(http.statusCode)), so nothing was saved.")
+            completionHandler(nil)
+            return
+        }
+        // A web page where a file was expected: an expired Kosmos+ sign-in answers a download with its
+        // sign-in page (200, text/html), which must not be saved under the file's name.
+        let wantsPage = ["html", "htm"].contains((suggestedFilename as NSString).pathExtension.lowercased())
+        if response.mimeType?.lowercased() == "text/html", !wantsPage {
+            logLine("#5167: a download answered with a web page, not a file, so nothing was saved")
+            downloadsTold.add(download)
+            tellDownloadFailed("The answer was a web page, not the file, so nothing was saved. If this is a Kosmos+ computer, you may need to sign in again.")
             completionHandler(nil)
             return
         }
@@ -4587,6 +4615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     //     failure delegate falls through to loadBoard() once -- so that case
     //     too recovers on a single press, not two.
     @objc func reloadBoard(_ sender: Any?) {
+        refusedDownloadHosts = []   // #5167: the person's Reload asks again about a computer they refused
         // #4356: a connect computer has no board to start, so Reload reloads the page it is on, or
         // goes back to sign-in when there is none or the last load failed.
         if computerMode == .connect {
@@ -5179,6 +5208,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=last href=/last.txt download>f</a>"
                 + "<a id=askno href=/asked-no.txt download>m</a>"
                 + "<a id=empty href=/empty>o</a>"
+                + "<a id=signin href=/signin download=report.pptx>p</a>"
                 + "<a id=askyes href=/asked-yes.txt download>n</a>"
                 + "<script>window.__probeReady = 1;</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
@@ -5196,6 +5226,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         case "/pack.zip":
             let z = "PK not really a zip"
             return "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: \(z.utf8.count)\r\nConnection: close\r\n\r\n" + z
+        case "/signin":
+            let page = "<!doctype html><title>Sign in</title>"
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/empty": return "HTTP/1.1 204 No Content\r\nContent-Disposition: attachment; filename=\"empty.txt\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/missing": return "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found"
         case "/redir2": return "HTTP/1.1 302 Found\r\nLocation: /ok2.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -5313,7 +5346,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
@@ -5341,7 +5374,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(saved("same.txt"), "a same-origin <a download> is saved")
             row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
             row(saved("ok2.txt"), "a same-origin redirect is followed and saved")
-            row(!saved("missing.txt") && !saved("empty.txt"), "AN ERROR PAGE (404) IS NOT SAVED under the file's name, nor an empty 204 sent as an attachment")
+            row(!saved("missing.txt") && !saved("empty.txt") && !saved("report.pptx"),
+                "AN ERROR PAGE (404) IS NOT SAVED under the file's name, nor an empty 204, nor a sign-in page answered for a .pptx")
             row(saved("pack.zip"), "a board file the window cannot show (a plain link to a .zip) is saved, not dropped")
             row(!saved("redirected.txt"), "A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING")
             row(!saved("foreign.txt"), "a download link to another origin saves nothing (WebKit treats it as a plain link)")
@@ -5357,7 +5391,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 6, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, foreign .zip, a BURST of three from a not-the-board page, a computer already refused; frames say nothing), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
+            row(told.count == 7 && told.contains { $0.contains("a web page, not the file") }, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, foreign .zip, a BURST of three from a not-the-board page, a computer already refused; frames say nothing), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
             row(told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("stopped before it began") }
                 && told.contains { $0.contains("not opened or saved") } && told.contains { $0.contains("not a board") }
                 && told.contains { $0.contains("amy.kosmosplus.com were not allowed") },
@@ -5375,7 +5409,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
