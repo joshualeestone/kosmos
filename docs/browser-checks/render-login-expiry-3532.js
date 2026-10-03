@@ -142,7 +142,14 @@ const CASES = [
     // does), not a page-side toggle, so its panes are really there under the notice.
     // Sampled over a 5x3 grid across the notice, not its centre alone: in consolidated the centre can land in a gap of
     // the body grid, where with the stack hidden nothing is underneath, so the control had nothing to test there.
+    // connbelow-5018: the Claude-unreachable line (#conn) now moves BELOW a floating notice, so on this board (no Claude
+    // reachable) nothing sits under the notice any more. To test layering, the line is hidden while measuring, which
+    // lifts the page itself (the agents row) back under the notice; it is restored before returning.
     const onTop = () => pg.evaluate(() => {
+      const conn = document.getElementById('conn');
+      const connWas = conn ? conn.hidden : true;
+      if (conn) conn.hidden = true;
+      try {
       const n = document.querySelector('#login-adv-slot .login-adv');
       const r = n.getBoundingClientRect();
       const pts = [];
@@ -162,6 +169,7 @@ const CASES = [
       return { onTop: live.length > 0 && lost.length === 0, layout: document.documentElement.getAttribute('data-layout'),
         underIsContent: live.length > 0, contentPoints: live.length + '/' + pts.length,
         under: [...new Set(live.map((i) => name(unders[i])))], lostTo: lost.map((i) => name(hits[i])) };
+      } finally { if (conn) conn.hidden = connWas; }
     });
     // Over New agent never: the left column's primary action stays clickable (the reason the stack is centred).
     const clearOfNew = await pg.evaluate(() => {
