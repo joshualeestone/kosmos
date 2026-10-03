@@ -139,6 +139,9 @@ async function scanGemini(acc, geminiHomes) {
       for (const file of (await walk(path.join(slugDir, 'chats'), /^session-.*\.jsonl$/)).sort()) {
         let text;
         try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
+        /* A reply can carry tokens but no model (measured: one on this fleet, 2026-09-28). It takes the model the same
+           session names elsewhere, so it is not filed as "unknown" while the answer is in the file. */
+        const fileModel = (text.match(/"model"\s*:\s*"(gemini[^"]*)"/) || [])[1] || null;
         for (const line of text.split('\n')) {
           if (!line) continue;
           let r;
@@ -151,7 +154,7 @@ async function scanGemini(acc, geminiHomes) {
             /* A message with no id cannot be de-duplicated and is still counted (dropping it would be a silent
                undercount), as usage.js does for Claude. */
             if (m.id) { if (seen.has(m.id)) continue; seen.add(m.id); }
-            acc.add(utcDay(m.timestamp), m.model, cwd, {
+            acc.add(utcDay(m.timestamp), m.model || fileModel, cwd, {
               input_tokens: Math.max(0, n(t.input) - n(t.cached)) + n(t.tool),
               output_tokens: n(t.output) + n(t.thoughts),
               cache_creation_input_tokens: 0,
