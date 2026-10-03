@@ -61,4 +61,9 @@ measures a row the page no longer draws.
   arm at 390, where the stretched tag leaves the name 0 px); branch 29/29 after a second chip arm on a row with NO tag
   (the first only tested a tag row, where the tag fills track 2 on a desktop; the mutant without the pin was red only at
   390 until the no-tag arm made it red at all three widths: 25 passed, 4 FAILED). File restored byte-identical (cmp).
-- Round 4: PENDING.
+- Round 4 (sonnet, blind, no browsers): 0 BLOCKER, 0 SHOULD-FIX, 5 NIT. CONVERGED (22:11). NITs taken: two comments corrected
+  (the chip pin also sends a no-count, no-status orphan row's chip under the name, where main put it on the name's line;
+  "justify-self defaults to stretch", not "align-self does nothing"); the arm asserts the page's own breakpoint agrees
+  that 390 is a phone and 660 is not; a note that the tag-row chip arm bites at 390 and the no-tag arm covers the desktop.
+  Not taken: the 24 px gap with a status but no count (the CSS comment already says "just left of the count when there is
+  one"). Measured 22:12 (light turn): 29/29.

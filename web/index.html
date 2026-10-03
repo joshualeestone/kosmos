@@ -4372,7 +4372,8 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pj-list:not(.asgrid) .pj-row .pj-who, .pj-list:not(.asgrid) .pj-row .pj-warn { grid-column: 1 / -1; }
 /* #5070: "Done not set" (#4583) at its own size in the plain list rows (the Roadmap places it on the row's line, below).
    Unplaced, it took whatever cell was free: the status column when the row had no status pill, or a new row's first
-   track when it did, where a grid item stretches (its align-self: flex-start is a flex rule and does nothing here). */
+   track when it did, where a grid item stretches along the row (justify-self defaults to stretch; its align-self only
+   acts on the other axis). */
 .pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; justify-self: start; }
 @media (max-width: 52rem) {
   .pj-list:not(.asgrid) .pj-row { grid-template-columns: minmax(0, 1fr) auto; }
@@ -4550,7 +4551,8 @@ body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-doneunset {
 }
 /* #5070 round 3: the ancestry chip on a top-level (orphan) row had no Roadmap placement, so the new empty track 2
    pulled it onto the name's line, where an auto track takes its full nowrap width first and squeezes the name.
-   It stays in the name's column, on the next line, as it was before the fourth track. */
+   It stays in the name's column, on the next line (also where a row with no count and no status used to put it on the
+   name's line). */
 body:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row .pj-parent { grid-column: 1; }
 
 /* The fold caret, shown for any parent row (the base `#pj-list .pjtreefold`
