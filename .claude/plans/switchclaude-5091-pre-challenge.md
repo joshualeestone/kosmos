@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchclaude-5091
-diff_hash: 0128fc8b2b36159aec1c85431ae50086aa0fa34511ca82dcd371b37bd64a697a
+diff_hash: dfec44ec533979d8c257fd17c9d057de365b7e34e4a6d8472ad2dd47bdcb7cc7
 validation: pending (CI full suite gates the merge; the merge watcher merges only when every check passed). Mortals full run ick-5091 is queued at e6d1c1df8 behind about 14 runs and stays queued. Focused at e6d1c1df8: engine/create.switch-claude-5091.test.js 8/8; browser check render-switch-claude-5091 all arms green on the branch (23:45), main fails every substantive arm; source-sweep guards 25/25. Opened before Mortals because Josh hit this live on Mortals 22:10 and the CI suite is a full gate.
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-03T04:48:27Z
@@ -46,3 +46,5 @@ converged: true
 #### Round 8 (sonnet): 0 BLOCKER, 0 SHOULD-FIX, 2 NIT, CONVERGED
 
 - 00:11: Windows CI (run 37097779441) red on engine/create.test.js: REFUSE_ACCOUNT count 5 vs 6 sites (my setProvider check). Fixed the count; create.test.js 216/216 locally.
+
+- 02:42: GitHub node suite red on fe6420606 (8 tests in web.switch-account-1373 + web.stale-visible-1599: source pins on lines this branch respelled, and a fake document without querySelectorAll). My review rounds never ran web.* files. Restored the pinned spellings (behaviour unchanged), extended the fake document. All 309 web.* files 2317/2317; engine 8/8.
