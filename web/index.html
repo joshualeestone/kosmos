@@ -4370,6 +4370,10 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
 .pj-list:not(.asgrid) .pj-row .pjfaces { grid-column: 3; grid-row: 1; margin-top: 0; min-width: 0; overflow: hidden; }
 .pj-list:not(.asgrid) .pj-row .pjpill { grid-column: 4; grid-row: 1; justify-self: end; }
 .pj-list:not(.asgrid) .pj-row .pj-who, .pj-list:not(.asgrid) .pj-row .pj-warn { grid-column: 1 / -1; }
+/* #5070: "Done not set" (#4583) sits under the name at its own size in the list and Roadmap rows. Unplaced, it took
+   whatever cell was free: the status column when the row had no status pill, or a new row's first track when it did,
+   where a grid item stretches (its align-self: flex-start is a flex rule and does nothing here). */
+.pj-list:not(.asgrid) .pj-row .pj-doneunset { grid-column: 1; justify-self: start; }
 @media (max-width: 52rem) {
   .pj-list:not(.asgrid) .pj-row { grid-template-columns: minmax(0, 1fr) auto; }
   .pj-list:not(.asgrid) .pj-row .pc-t { grid-column: 1; grid-row: 2; }

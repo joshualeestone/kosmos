@@ -126,6 +126,28 @@ const ok = (label, cond, detail) => { if (cond) { passed += 1; console.log('PASS
     ok('blank: its row shows Done not set', blank.found && blank.badge && blank.text === 'Done not set', JSON.stringify(blank));
     ok('given: its row shows no badge (control)', given.found && !given.badge, JSON.stringify(given));
 
+    // #5070: in the Roadmap, a row whose cells right of the name are all taken (an agent count AND a status pill) pushed
+    // "Done not set" into a new row's first track, where a grid item stretches: 1042 px of a 1232 px row on main,
+    // measured. It now sits under the name at its own size on every row. The count and the status are added to the row
+    // the page drew (the markup projectCard writes for them), measured at once, then the list is repainted.
+    await p.evaluate(() => layoutApply('projects', 'roadmap'));
+    await p.waitForTimeout(200);
+    const doneunset = await p.evaluate(() => {
+      const row = [...document.querySelectorAll('#pj-list .pj-row')].find((r) => (r.textContent || '').includes('Blank Done Project'));
+      const tag = row && row.querySelector('.pj-doneunset');
+      if (!tag) return { found: false };
+      const size = () => { const t = tag.getBoundingClientRect(); const n = row.querySelector('.pjname').getBoundingClientRect(); return { w: Math.round(t.width), left: Math.round(t.left - n.left) }; };
+      const plain = size();
+      const head = row.querySelector('.pjcard-h') || row;
+      if (!row.querySelector('.pjfaces')) { const f = document.createElement('span'); f.className = 'pjfaces'; f.innerHTML = '<span class="pjcount">3 agents</span>'; head.appendChild(f); }
+      if (!row.querySelector('.pjpill')) { const s = document.createElement('span'); s.className = 'pjpill'; s.textContent = 'Working'; head.appendChild(s); }
+      return { found: true, roadmap: document.body.classList.contains('pj-roadmap'), plain, full: size(), rowW: Math.round(row.getBoundingClientRect().width) };
+    });
+    ok('#5070 roadmap: with an agent count and a status on the row, "Done not set" keeps its own size, under the name',
+      doneunset.found && doneunset.roadmap && doneunset.full.w === doneunset.plain.w && doneunset.full.w < 200
+        && Math.abs(doneunset.full.left) <= 2 && Math.abs(doneunset.plain.left) <= 2, JSON.stringify(doneunset));
+    await p.evaluate(() => loadProjects());
+
     // ---- coordinators (page rules; the add answer and the read are stubbed) ----
     const id = await p.evaluate(() => (PROJECTS.find((x) => x.name === 'Given Done Project') || {}).id);
     let readSaysTwo = true;
