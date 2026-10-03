@@ -48,3 +48,23 @@ arms), test-cut-parallel-region, and the 11 node test files that read release.sh
 - [x] fix + test + wiring (fb26f7828, 8e57e9fa2)
 - [ ] blind review loop
 - [ ] full validation (Agent1s, free of the cut), proof, PR, merge under the CI-starved rule
+
+## Review 1 (blind, opus, 05:2x) and what changed
+- [WARNING] The renewer could write over a FOREIGN claim (ours lapsed across a Mac sleep, a queued run took the box,
+  the next renewal replaced theirs). FIXED: each renewal reads `_kosmos_machine_claim_active` and renews only our own
+  cookie or an empty slot. On a foreign cookie it says so on stderr and stops. Arm 7: the foreign claim survives
+  three renew intervals and the cut's release, and the renewer is gone. Mutation (no check): 3 red.
+- [WARNING] Arm 4 passed without the stop at exit (the cut exited, so the renewer's own cut-alive check hid it), and
+  nothing pinned the `wait` in `_cut_renew_stop`. FIXED: arm 4 keeps the cut alive 3 s after its release. New arm 8
+  models a renewal the stop cannot cut short (a TERM-ignoring subshell inside the claim), caught in flight. Without
+  the `wait` it lands after the release and arm 8 reds. A first version used a plain slow stub and stayed green with
+  no wait, because bash runs the TERM trap at the next command boundary; I measured that and rewrote it.
+- [NIT] A killed cut's renewer lived up to 600 s, carrying release.sh's command line, which the cut-live guard reads.
+  FIXED: the renewer sleeps in slices of at most 30 s and checks the cut after each.
+- [NIT] The interval was not tied to the claim's length. FIXED: capped at a third of KOSMOS_MACHINE_CLAIM_MINUTES.
+- [NIT] The temp file name is shared with the cut (same `$$`). Explained in a comment: safe because the renewer is
+  reaped before the cut claims or releases.
+- Kept: a hung step now holds the box up to about 2.5 h (12 renewals, then one claim length), against 30 min before.
+  That is the queued-heavy.sh bound, and the weakest premise above.
+Re-mutated on the new code, each red with the unmutated control at 0: no start (4), no cap (1), no cut-alive check
+(2), no stop at step (1), no stop at exit (3), no wait (1), no foreign check (3). The test now has 12 checks.
