@@ -149,4 +149,10 @@ test('#2559 (Mona Lisa): the Kosmos row carries a neutral "Not confirmed" pill t
   assert.match(PAGE, /\.s3-pill-unsure\{display:none\}/, 'the Not confirmed pill must be hidden by default');
   assert.match(PAGE, /\.s3-gate-row\[data-unsure\] \.s3-pill-req\{display:none\}/, 'the red pill must hide in the unsure state');
   assert.match(PAGE, /\.s3-gate-row\[data-unsure\] \.s3-pill-unsure\{display:inline\}/, 'the Not confirmed pill must show in the unsure state');
+  // Mona Lisa: one quiet line, directly after the row (the CSS reaches it with '+'), shown in the unsure state only.
+  const after = PAGE.slice(PAGE.indexOf('aria-label="Turn on Kosmos accessibility"'));
+  assert.match(after, /<\/div>\s*<p class="dhint s3-unsure-hint">Kosmos cannot check this yet\. If you have already turned it on, press Next\.<\/p>/,
+    'the unsure line must sit directly after the Kosmos row, with Mona Lisa\'s words');
+  assert.match(PAGE, /\.s3-unsure-hint\{display:none;/, 'the unsure line must be hidden by default');
+  assert.match(PAGE, /\.s3-gate-row\[data-unsure\] \+ \.s3-unsure-hint\{display:block\}/, 'the unsure line must show in the unsure state');
 });

@@ -14022,6 +14022,9 @@ window.kosmosMeasureScrollbarWidth();
         .s3-pill-unsure{display:none}
         .s3-gate-row[data-unsure] .s3-pill-req{display:none}
         .s3-gate-row[data-unsure] .s3-pill-unsure{display:inline}
+        /* #2559 (Mona Lisa): in the unsure state ONLY, one quiet line says Next works; it sits right after the row. */
+        .s3-unsure-hint{display:none;margin:6px 0 0}
+        .s3-gate-row[data-unsure] + .s3-unsure-hint{display:block}
         /* #2587: on the laptop-that-sleeps-on-battery row (data-battonly, set by the poll)
            the useless "Turn On" (its Energy pane has no never-sleep-on-battery switch) is
            replaced by an honest note. The sleep step no longer gates Next (gatesNext:false),
@@ -14105,6 +14108,7 @@ window.kosmosMeasureScrollbarWidth();
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
+        <p class="dhint s3-unsure-hint">Kosmos cannot check this yet. If you have already turned it on, press Next.</p>
         <!-- install-flow-9screen: the "Turn On" buttons open System Settings
              (sleep row -> Energy; tmux row -> Accessibility). The delegated
              handler is on this pane; only a failure speaks here, the Settings
