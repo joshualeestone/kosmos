@@ -180,7 +180,27 @@ ok "#4977: a lib with the side gate but no kosmos_release_light_side exits 3 and
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
-EXPECTED=79   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms
+# #5064: a MAIN-lane waiter that loses its take keeps its place. A joins first and is made to lose its first take
+# (QH_TEST_LOSE_TAKES=1); B joins after it; the box then clears. A must run first. Each scenario has its own marker dir
+# under this test's dir, held by the test's fake holder H until it is released.
+run5064() {   # run5064 <wrapper> <marker dir>: prints the order the two commands ran in, then A's log
+  local q="$1" m="$2"; mkdir -p "$m"; : > "$m.order"
+  printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > "$m/machine-claim"
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" QH_TEST_LOSE_TAKES=1 perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "A-5064" sh -c "echo A >> $m.order; sleep 2" > "$m.a" 2>&1 ) & local pa=$!
+  until_true 20 "[ -n \"\$(ls $m 2>/dev/null | grep -v machine-claim)\" ]" || true; sleep 1
+  ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "B-5064" sh -c "echo B >> $m.order" > "$m.b" 2>&1 ) & local pb=$!
+  sleep 2.5; rm -f "$m/machine-claim"
+  wait $pa $pb
+  printf 'ORDER=%s\n' "$(tr '\n' ' ' < "$m.order")"; cat "$m.a"
+}
+o=$(run5064 "$REAL_QH" $S/m5064)
+ok "#5064: the lost take was really lost (the test seam fired), so the order below means something" '[[ "$o" == *"took the turn first"* ]]'
+ok "#5064: a main-lane waiter that lost its take kept its place and ran before the later joiner" '[[ "$o" == *"ORDER=A B "* && "$o" == *"kept its place in the queue"* ]]'
+# The same scenario on a copy of the wrapper without the re-mark: the later joiner goes first, so the arm above can fail.
+sed '/kosmos_mark_suite_waiting "\$QH_JOINED"/d' "$REAL_QH" > $S/qh-no5064.sh
+o=$(run5064 $S/qh-no5064.sh $S/m5064n)
+ok "#5064 CONTROL: without the re-mark the later joiner runs first (the arm above is not vacuous)" '[[ "$o" == *"ORDER=B A "* ]] && ! grep -q "kosmos_mark_suite_waiting \"\$QH_JOINED\"" $S/qh-no5064.sh'
+EXPECTED=82   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, three #5064 arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"
