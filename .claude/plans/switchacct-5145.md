@@ -6,11 +6,14 @@ With no account sent (no picker shown), the page had nothing to name, so the bra
 ("Right now: OpenAI Codex"), though the engine had landed the agent on its first account for that provider.
 
 ## The call
-- `server.js` provider route: the `changed` answer carries `accountDir`, the dir of the account the switch landed on
-  (the same `acct` the route's own sentence names: `wrote.openaiAccount || wrote.account`), or null when the engine
-  named none (a Claude switch nobody picked for; a dry-run).
-- `web/index.html` changeProviderNow: with no account sent, `CURRENT.account` falls back to `out.accountDir`
-  (`landedDir`) before the old fallback (the main Claude account for Claude; none otherwise). A partial never uses it.
+- `server.js` provider route: the `changed` answer carries `accountDir` = `path.resolve(acct.dir)` (acct = the account
+  the route's own sentence names: `wrote.openaiAccount || wrote.account`), null when the engine named none (a Claude
+  switch nobody picked for, Antigravity, a dry-run). An engine partial returns earlier and carries none.
+- `web/index.html` `chooseSwitchedAccount(want, sentDir, out, accounts, mainClaudeDir)` decides what the page records:
+  Claude: the pick, else a listed landed account, else nothing when the route named an unlisted one, else main.
+  Others: a listed landed account wins over the sent row; an unlisted landed account records nothing unless it is
+  exactly what was sent; with no landed account, the sent row. A partial that carries accountDir (restart failed)
+  never reaches the recording step (the page records only when the agent moved), so that branch is unreachable.
 
 ## Rejected
 - Re-reading /api/accounts and guessing the provider's first account on the page: a second derivation of the
@@ -22,8 +25,8 @@ That `acct.dir` is the account the agent will actually run on. It is what the ro
 sentence ever diverge, both are wrong together.
 
 ## Tests
-- `server.switch-provider-google-xai-3296.test.js`: +3 (no account sent -> the Gemini default dir; a named account ->
-  that dir, with a control that it is not the default; a Claude switch with no pick -> null). Sabotage (field
+- `server.switch-provider-google-xai-3296.test.js`: +4 (Gemini default; a named account with a control; a Claude switch
+  with no pick -> null; Grok default) and `server.switch-account-1373.test.js`: +1 (OpenAI). Sabotage (field
   removed): all 3 red.
 - Browser checks: `render-autohello-switch-2716` arm 11b2 (the route names an account; Right now reads "OpenAI Codex
   (work@example.com)" and the agent is recorded on it); arm 11b unchanged is the control (no accountDir -> no
@@ -48,3 +51,5 @@ sentence ever diverge, both are wrong together.
   W2 DECIDED OUT OF SCOPE: acctParenthetical renders name||email||label, and Gemini/Grok rows carry only keyTail, so
   their bracket is empty on EVERY surface (reopen too), not just after a switch; adding a keyTail rung changes every
   place acctParenthetical paints, so it is its own card (filed separately, linked on #5145).
+- Review 3 (opus, blind): 0 B, 0 W, 3 N => CONVERGED. N1 the #5145 function had split acctParenthetical from its #2225
+  comment -> moved below it. N2/N3 plan text made true (above). Meta tests (reviewer): 553 files, 7930 tests, 0 fail.

@@ -19944,6 +19944,10 @@ function menuRunsOn(a) {
    returns '' when nothing identifies the account so the caller omits the
    parenthetical entirely. Kept a pure helper so each fallback rung can be pinned
    directly. */
+function acctParenthetical(a) {
+  const acct = a && a.account;
+  return (acct && (acct.name || acct.email || acct.label)) || '';
+}
 /* #5145: which account an agent is on after a provider switch, as the page records it (CURRENT.account.dir), or
    null. ONE function so its precedence can be tested (review 2). `landed` is the route's accountDir.
    - Claude: the person's pick wins (it is what the engine resolved); else the landed account if listed; else, when the
@@ -19963,10 +19967,6 @@ function chooseSwitchedAccount(want, sentDir, out, accounts, mainClaudeDir) {
   }
   if (landed) return listed(landed) ? landed : (sentDir && sentDir === landed ? sentDir : null);
   return (sentDir && !partial) ? sentDir : null;
-}
-function acctParenthetical(a) {
-  const acct = a && a.account;
-  return (acct && (acct.name || acct.email || acct.label)) || '';
 }
 /* #4008: the model a switch just restarted each agent on, by session name, set by changeModelNow on the
    engine's "changed". The live reading (`modelName`) comes from the newest transcript, and until the
