@@ -128,6 +128,71 @@ async function measure(page, view, notice) {
       else if (!(tall.noteTop >= tall.headBottom)) problems.push(`${width}px ${view}: the notice sits inside the header (top ${tall.noteTop}, header bottom ${tall.headBottom}), not over the page below it`);
       if (tall.headH !== plain.headH) problems.push(`${width}px ${view}: the notice grew the header (${plain.headH} -> ${tall.headH}); it must float over the page`);
     }
+    // Mona Lisa, 2026-10-03: the Claude-unreachable line (#conn) shows on the same day as an expiring login, and a
+    // floating notice painted over it. It must sit below the notice stack, the way the Allow card does. CONTROL: both
+    // render (a box each), so "below" is not two hidden elements comparing zeros.
+    for (const view of ['tabs', 'consolidated']) {
+      await measure(page, view, true);
+      await page.evaluate(() => {
+        const ask = document.getElementById('askcard'); if (ask) ask.hidden = true;
+        const c = document.getElementById('conn'); c.hidden = false;
+        c.textContent = 'Kosmos cannot reach a Claude subscription on this computer, so agents on it cannot answer.';
+      });
+      // --topnotes-h is written by a ResizeObserver, which runs after layout: give it two frames.
+      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+      const c = await page.evaluate(() => {
+        const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+        const conn = box(document.getElementById('conn')); const stack = box(document.getElementById('topnotes'));
+        return { connTop: conn ? Math.round(conn.top) : null, stackBottom: stack ? Math.round(stack.bottom) : null };
+      });
+      const where = `${width}px ${view} with a notice and the Claude-unreachable line`;
+      if (c.connTop === null || c.stackBottom === null) problems.push(`CONTROL failed: ${where}: ${c.connTop === null ? '#conn' : 'the notice stack'} did not render`);
+      else if (c.connTop < c.stackBottom) problems.push(`${where}: the line starts at ${c.connTop}, under the notice (stack bottom ${c.stackBottom}); it must move below it`);
+      else console.log(`  PASS  ${where}: the line starts at ${c.connTop}, below the notice stack (bottom ${c.stackBottom})`);
+      await page.evaluate(() => { const c = document.getElementById('conn'); c.hidden = true; c.textContent = ''; });
+      // And with no notice the line does not move at all (the clearance is 0, not a fixed gap).
+      await measure(page, view, false);
+      await page.evaluate(() => { const c = document.getElementById('conn'); c.hidden = false; c.textContent = 'Kosmos cannot reach a Claude subscription.'; });
+      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+      const mt = await page.evaluate(() => getComputedStyle(document.getElementById('conn')).marginTop);
+      if (mt !== '0px') problems.push(`${width}px ${view} with no notice: the Claude-unreachable line is pushed down by ${mt}; with nothing floating it must not move`);
+      else console.log(`  PASS  ${width}px ${view} with no notice: the line keeps its place (margin-top 0px)`);
+      await page.evaluate(() => { const c = document.getElementById('conn'); c.hidden = true; c.textContent = ''; });
+    }
+    await page.close();
+  }
+
+  // The same for an agent's Talk section (its own #conn gap, rule scoped to the talk view) at 1440 and on a phone,
+  // and the phone tab view: with a notice the line is below the stack; with none it keeps the gap it had.
+  for (const [width, talk] of [[1440, true], [390, true], [390, false]]) {
+    const page = await browser.newPage({ viewport: { width, height: 844 } });
+    await page.goto('file://' + PAGE);
+    const where = `${width}px ${talk ? 'agent Talk view' : 'tab view'}`;
+    const read = async (notice) => {
+      await measure(page, 'tabs', notice);
+      await page.evaluate((talk) => {
+        const ask = document.getElementById('askcard'); if (ask) ask.hidden = true;
+        if (talk) { document.getElementById('panel-detail').hidden = false; document.getElementById('d-sec-talk').hidden = false; }
+        const c = document.getElementById('conn'); c.hidden = false; c.textContent = 'Kosmos cannot reach a Claude subscription on this computer.';
+      }, talk);
+      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+      return page.evaluate(() => {
+        const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+        const conn = box(document.getElementById('conn')); const stack = box(document.getElementById('topnotes'));
+        const talkOn = !!document.querySelector('#panel-detail:not([hidden]) #d-sec-talk:not([hidden])');
+        return { connTop: conn ? Math.round(conn.top) : null, stackBottom: stack ? Math.round(stack.bottom) : null,
+          mt: getComputedStyle(document.getElementById('conn')).marginTop, talkOn };
+      });
+    };
+    const on = await read(true);
+    if (talk && !on.talkOn) problems.push(`CONTROL failed: ${where}: the Talk section is not showing`);
+    if (on.connTop === null || on.stackBottom === null) problems.push(`CONTROL failed: ${where}: ${on.connTop === null ? '#conn' : 'the notice stack'} did not render`);
+    else if (on.connTop < on.stackBottom) problems.push(`${where}: the line starts at ${on.connTop}, under the notice (stack bottom ${on.stackBottom})`);
+    else console.log(`  PASS  ${where} with a notice: the line starts at ${on.connTop}, below the stack (bottom ${on.stackBottom})`);
+    const off = await read(false);
+    const want = talk ? '16px' : '0px';   // the talk view's own --space-6 gap; elsewhere none
+    if (off.mt !== want) problems.push(`${where} with no notice: the line's margin-top is ${off.mt}, it must stay ${want}`);
+    else console.log(`  PASS  ${where} with no notice: the line keeps margin-top ${off.mt}`);
     await page.close();
   }
 
