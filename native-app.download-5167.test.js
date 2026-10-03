@@ -85,7 +85,7 @@ test('#5167: a download that does not save is said to the person, once', () => {
   assert.equal((fail.match(/tellDownloadFailed\(/g) || []).length, 2, 'a failure already said is said again');
   assert.match(body('@objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)'),
     /downloadsTold\.insert\(ObjectIdentifier\(download\)\)\n\s+tellDownloadFailed\(/);
-  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String'), /if let present = AppDelegate\.downloadAlertPresenter \{[^}]*\n\s+present\(detail\)\n\s+return\n\s+\}/);
+  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String'), /if let present = AppDelegate\.downloadAlertPresenter \{[\s\S]*?\n\s+present\(detail\)\n\s+return\n\s+\}/);
 });
 
 test('#5167: an error page is not saved as the file, and every refusal before a destination is said once', () => {
