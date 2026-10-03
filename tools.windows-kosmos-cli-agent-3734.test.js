@@ -61,7 +61,8 @@ for (const [reason, want] of [['two stops..', 'two stops.'], ['a space. ', 'a sp
     const h = harness({ answer: () => [400, { outcome: 'refused', created: [], refused: [{ name: 'PM', because: reason }] }] });
     assert.equal(await cli.main(['agent', 'create', 'PM', 'pm'], h.io), 1);
     assert.ok(h.lines.err.join('\n').includes('Kosmos did not make that agent: ' + want), h.lines.err.join('\n'));
-    assert.ok(!h.lines.err.join('\n').includes(want + '.'), 'a stop after the reason\'s own end');
+    assert.ok(h.lines.err.join('\n').split('\n').map((x) => x.trim()).includes('Kosmos did not make that agent: ' + want),
+      'the line must be exactly the reason with one end (nothing after it, even after a space)');
   });
 }
 

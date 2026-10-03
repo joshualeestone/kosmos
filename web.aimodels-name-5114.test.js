@@ -70,7 +70,7 @@ test('#5114: no sentence a person sees names an Accounts tab, page, screen or Se
 
 test('#5127 (Baron): the Claude-Code-missing create refusal names where to connect, as its siblings do', () => {
   const src = fs.readFileSync(path.join(__dirname, 'engine', 'create.js'), 'utf8');
-  assert.ok(/Connect a Claude account in Settings, AI Models\. Kosmos will then set it up\./.test(src),
+  assert.ok(/Connect a Claude account in Settings, AI Models\. Kosmos will then set up Claude Code\./.test(src),
     'the refusal a newcomer meets when Claude Code is not installed yet names no place to connect');
   assert.ok(!/Connect a Claude account and Kosmos will set it up/.test(src), 'the placeless wording is back');
   const runners = fs.readFileSync(path.join(__dirname, 'engine', 'runners.js'), 'utf8');
