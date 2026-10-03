@@ -29,3 +29,10 @@ notice, #conn does not move at all.
 ## Validation
 - render-tophead-stable-2624 (headless): the new arm passes in both views at both widths; with --topnotes-h alone
   (no float gap) it failed all four (#conn 3 to 7px under the stack), so the arm can fail.
+- Review 1 added the agent Talk view (1440, 390) and the phone tab view (390); with the talk-view rule removed exactly
+  the two Talk arms fail (#conn 67 and 99 against stack bottoms 138 and 170).
+- The nine surface-mapped checks (render-conn-top-3708 and eight more) pass headless at 276af2d58; trailers recorded.
+- Design shots (light/dark, desktop/iPhone 15, chromium and webkit): ~/work/design-shots/kosmos-connbelow-5018;
+  Mona Lisa approved the design 01:04.
+- Focused node (the file-scanning guards and web.* layout tests): 82/82. Both browser-check gates pass.
+- Reviews: 2 blind (opus, sonnet), both CLEAN.
