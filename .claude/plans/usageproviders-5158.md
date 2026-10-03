@@ -52,3 +52,15 @@ Launch folder (for per-agent): Codex `session_meta.cwd`; Gemini the session's pr
 - NITs taken: Grok turn with no number keyed by index; Grok cache-write assumption commented; Gemini reply-only id
   comment; server.usage.test.js unsets the provider home variables; Codex `archived_sessions` read. Not taken: Gemini
   slugs with no `.project_root` (none on this fleet) fall to "elsewhere".
+
+## Review 2 (sonnet): 4 WARNINGs, all taken
+- A fork can replay several of the parent's totals: every total stamped before the fork's own `session_meta` time is a
+  baseline (first-only stays the fallback if a replay restamps); test with two replayed totals; its mutant (first-only)
+  fails it.
+- A rollout in both `sessions` and `archived_sessions` (a copy, a restored home) counted twice: read once by file name.
+- A permanently broken file kept every day unfrozen: a bad file blocks freezing only while fresh (10 minutes), else it is
+  skipped and logged.
+- The unreadable-file test depended on file permissions (false under root, a no-op on Windows): it uses a half-written
+  Grok file instead, fresh and aged.
+- NITs taken: stat errors and an unlistable home mark the scan incomplete; the '' folder for a Gemini session with no
+  project root is commented; a test name says what it covers.
