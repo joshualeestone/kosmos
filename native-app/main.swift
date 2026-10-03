@@ -2892,8 +2892,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let asked = alert.runModal() == .alertFirstButtonReturn
         wake.invalidate()
         downloadAlertsUp -= 1
-        // The page may have changed while it was asked (a switch to connect clears it): answer only for this one.
-        answer(asked && committedPageURL?.host?.lowercased() == host)
+        if pendingDownloadFailures > 0 {   // failures that arrived while it was asked
+            DispatchQueue.main.asyncAfter(deadline: .now() + AppDelegate.downloadQuietSeconds) { [weak self] in
+                self?.sayPendingDownloadFailures()
+            }
+        }
+        // The page may have changed while it was asked (a switch to connect clears it): the waiting downloads
+        // are not saved, and nothing is recorded, since the person answered for a page no longer there.
+        guard committedPageURL?.host?.lowercased() == host else {
+            logLine("#5167: the page changed while \(host) was asked about, so its downloads were not saved")
+            for waiting in downloadAsks.removeValue(forKey: host) ?? [] { waiting(false) }
+            return
+        }
+        answer(asked)
     }
 
     /// #5167: a policy refusal (`quiet: true`) is not said while one is on screen, nor for this many seconds
@@ -2902,8 +2913,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// said. The selftest sets it to 0 except for its burst arm.
     static var downloadQuietSeconds: TimeInterval = 5
     private var lastDownloadTold: Date?
-    private var downloadAlertsUp = 0
-    private var pendingDownloadFailures = 0   // failures that arrived while an alert was up, said together after it   // download alerts on screen; a count, since one can open inside another's modal loop
+    private var downloadAlertsUp = 0   // download alerts on screen; a count, since one can open inside another's modal loop
+    private var pendingDownloadFailures = 0   // failures that arrived while an alert was up, said together after it
     private func sayPendingDownloadFailures() {
         guard pendingDownloadFailures > 0, downloadAlertsUp == 0 else { return }   // an alert up: its dismissal comes back here
         let n = pendingDownloadFailures
