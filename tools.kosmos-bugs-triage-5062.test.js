@@ -649,6 +649,12 @@ test('#5062 review 18: a typed title is scrubbed and the person is told; an empt
   const sent = g.created()[0].args;
   assert.equal(sent[sent.indexOf('--title') + 1], 'an agent list crashes');
   assert.throws(() => t.parseArgs(['file', 'g1', '--title', '  ']), /--title needs a value/);
+  // Review 19: the full scrub, not only names: an email or link typed into a title does not reach the card.
+  await t.read({ ...opts('r18b2', {}), fetchFn: site([post('z2', 'Font tiny', 'x', 'Q1')]).fetchFn, gh: fakeGh().gh });
+  const g2 = fakeGh();
+  t.file('g1', { ...opts('r18b2', {}), title: 'crash for jo@acme.com at https://acme.com/x', onNote: () => {}, gh: g2.gh });
+  const typed = g2.created()[0].args[g2.created()[0].args.indexOf('--title') + 1];
+  assert.ok(!/acme|jo@/.test(typed), typed);
 });
 
 test('#5062 review 18: a draft stores the mark, not the words, so a name part "An" never turns a filed replacement into "an agent agent"', async () => {
