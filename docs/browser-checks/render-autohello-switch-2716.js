@@ -374,8 +374,12 @@ function initStub() {
     s11b.threads === 1 && s11b.msg === 'Ready: April is on OpenAI.', 'threads=' + s11b.threads + ' msg=' + JSON.stringify(s11b.msg));
   check('#4008 real provider switch: the finished dialog is titled "Switched to OpenAI", with a check and a gold Done',
     s11b.title === 'Switched to OpenAI' && s11b.check && s11b.gold, JSON.stringify(s11b));
-  check('#4008 real provider switch: Runs on names the provider it moved to (the account kept), not the old Claude model',
-    s11b.runsOn === 'Right now: OpenAI Codex (hello@example.com)', JSON.stringify(s11b.runsOn));
+  /* #5091 review 5 (122d46e94): the bracket follows the NEW account. This fixture's bracket is the agent's CLAUDE
+     account, and an agent switched to OpenAI no longer runs on it, so keeping it under "OpenAI Codex" said something
+     false; that commit fixed its own check (render-switch-claude-5091) and missed this sibling, which aborted the
+     0.7.21 cut. With no OpenAI account picked (no picker in this fixture), the line names the provider and no account. */
+  check('#4008 real provider switch: Runs on names the provider it moved to, and not the old Claude model or the Claude account',
+    s11b.runsOn === 'Right now: OpenAI Codex' && !/hello@example\.com|Sonnet/.test(s11b.runsOn), JSON.stringify(s11b.runsOn));
 
   // ---- Arm 11c: a real switch that does NOT restart sends no hello ----
   const s11c = await page.evaluate(async () => {
