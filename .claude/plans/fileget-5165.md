@@ -10,14 +10,25 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
 - New routes: `GET /api/project/:id/file-download?name=` and `GET /api/agent/:name/files/download?name=`. Both pass
   `projects.fileInFolder`, the gates `openFile` used (moved out of it, so open and download share ONE copy), and
   stream the file as `application/octet-stream`, `content-disposition: attachment`, nosniff, sandbox CSP, no-store.
-  The file is opened before the headers go out and sized from that descriptor; `pipeline` closes it on a cancel.
+  The file is opened ONCE, before the headers go out; the descriptor must be the same file the gates passed (dev and
+  inode, so a link swapped in after the gates is refused), and it is sized and streamed from that descriptor to
+  exactly that size (a file still being written cannot overrun content-length). `pipeline` closes it on a cancel.
 - The PATHS and the refusal shape (404 `{ ok: false, because }`) are April's from #4997 (PR #5119, after Monday),
   which adds the same two download routes for the Files-list preview. Same URL, same shape, so when #5119 rebases
-  onto this one route body survives and the page's calls keep working. Not taken from #5119: its body reads the
-  whole file into memory and passes `crossSiteRead`, whose referer arm (by my reading) refuses a page reached at
-  `<name>.kosmosplus.com`; raised with April rather than decided here.
-- A refused download is SAID: the page asks with HEAD first, and on a refusal reads the board's sentence with one
-  small GET and shows it under the list, rather than leaving it to the browser's downloads.
+  onto this one route body survives and the page's calls keep working (April agreed, 13:01). Not taken from
+  #5119: its body reads the whole file into memory.
+- No `crossSiteRead` on these routes. April showed (relay proxy.rs rewrites Origin and Referer to loopback) that it
+  would PASS a Kosmos+ page, so my first reason here was wrong. Kept out anyway: the board cookie is SameSite=Strict,
+  so a request another site triggers carries no auth and is refused before the route; and adding it would make every
+  Kosmos+ download depend on that rewrite, which nobody has measured end to end. A Sec-Fetch-Site: cross-site arm was
+  considered and rejected for the same reason (the cookie already refuses that case). Matches /api/attachment.
+- The download starts IN the person's click (the anchor is clicked synchronously, so no browser can call it a
+  download nobody asked for). Alongside it the page sends one GET to the same address, cut off once its headers
+  arrive, and on a refusal shows the board's own sentence under the list, rather than leaving it to the browser's
+  downloads. Rejected: HEAD-then-click (review 2): the click after an await has no user activation, which WebKit
+  may refuse, and it depends on how the relay treats HEAD. The cost: a refused file may ALSO show as a failed item
+  in the browser's downloads, beside the sentence.
+- Every message line is written only while the person is still on the same project or agent (kplusSayer).
 - Open Terminal over Kosmos+ (it opens a Terminal window on the board's computer) says where it opens and asks
   nothing (review iteration 1 found it).
 - Folder buttons over Kosmos+ (project folder from Documents and settings, an agent's Files folder, the two
@@ -35,6 +46,11 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   WKWebView has no download handling (native-app/main.swift: no WKDownload, no .download policy). A download link
   there most likely does nothing. #4930's attachment Download has the same gap. It is Swift and needs an app build,
   so it has its own card (#5167) rather than riding this day-one web fix.
+
+## Not tested, stated so it is not read as covered
+- A real Safari or iPhone over a live relay: Playwright WebKit with a stubbed route is the nearest arm.
+- A cancelled download closing the descriptor (pipeline's documented behaviour, not exercised).
+- The route glue on a real Windows board (the win32 test covers the gate, not the HTTP path).
 
 ## Weakest premise
 That `kplusRemote()` is true exactly when the person is on another device. A person at the computer who opens the

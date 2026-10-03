@@ -1,8 +1,9 @@
 'use strict';
 /**
  * #5165 on a WINDOWS board. Over Kosmos+ a file click downloads, and the download routes
- * (/api/project/:id/download, /api/agent/:name/files/download) hand out exactly the file
- * projects.fileInFolder resolves, as a byte stream. The user who found it was on Windows
+ * (/api/project/:id/file-download, /api/agent/:name/files/download) hand out the file
+ * projects.fileInFolder resolves. This file tests that gate on Windows; it does not boot the
+ * server, so the routes' own glue is covered by server.file-download-5165.test.js on a Mac. The user who found it was on Windows
  * (Josh, 2026-10-03 12:48), so the gate must hold where the board runs on Windows. "win32" in
  * this name puts it in the windows CI job (tools/windows-tests.js), on a real Windows runner;
  * on a Mac it runs too, with the reveal platform set to win32 where that matters.
@@ -10,8 +11,8 @@
  *       file and reads back its exact bytes (on Windows the folder is backslashed and the names
  *       are not, so this is where a separator slip would show);
  *   W2  a name in Windows form (backslashes, a drive letter, a UNC path, the folder's own
- *       absolute path) is refused, so the route answers 409 and nothing is read;
- *   W3  resolving for a download asks neither File Explorer nor /usr/bin/open for anything;
+ *       absolute path) is refused by the gate the routes use;
+ *   W3  the gate itself asks neither File Explorer nor /usr/bin/open for anything;
  *   W4  at the computer, openFile on a Windows board still hands the same file to File Explorer
  *       (needs a real Windows path, so the Windows runner only).
  *

@@ -3764,23 +3764,30 @@ function statusForSibling(json) {
 
 /* #5165: hand a file that passed projects.fileInFolder back as a DOWNLOAD, streamed, the way an attachment is
    (#4930): over Kosmos+ the person is on another device, so opening it on this computer shows them nothing.
-   Whatever the type it is an attachment, and it never renders on the board's origin. The file is opened BEFORE
-   the headers go out and sized from that open descriptor, so a file that went or was locked since the gates
-   checked it is `refuse()`d rather than sent as a 200 that stops short; `pipeline` closes the file when the
-   person cancels or the relay drops. */
+   Whatever the type it is an attachment, and it never renders on the board's origin. The file is opened ONCE,
+   before the headers go out; the open descriptor must be the same file the gates passed (device and inode), and
+   it is sized and streamed from that descriptor, to exactly that size. A file that went, was locked, or was
+   swapped for a link since the gates checked it is `refuse()`d rather than sent; `pipeline` closes the
+   descriptor when the person cancels or the relay drops. */
 function sendFileDownload(req, res, found, refuse) {
   const headersFor = (size) => ({
     'content-type': 'application/octet-stream', 'content-length': size, 'x-content-type-options': 'nosniff',
-    'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(path.basename(found.given)),
+    // RFC 5987 ext-value: encodeURIComponent leaves ' ( ) * ! as they are, and the attr-char set does not allow them.
+    'content-disposition': 'attachment; filename*=UTF-8\'\'' + encodeURIComponent(path.basename(found.given))
+      .replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()),
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
-  if (req.method === 'HEAD') { res.writeHead(200, headersFor(found.st.size)); res.end(); return; }
-  const stream = fs.createReadStream(found.target);
-  stream.once('error', () => { if (!res.headersSent) refuse(); else res.destroy(); });
-  stream.once('open', (fd) => {
-    fs.fstat(fd, (err, st) => {
-      if (err || !st.isFile()) { stream.destroy(); refuse(); return; }
+  fs.open(found.target, 'r', (openErr, fd) => {
+    if (openErr) { refuse(); return; }
+    fs.fstat(fd, (statErr, st) => {
+      if (statErr || !st.isFile() || st.dev !== found.st.dev || st.ino !== found.st.ino) {
+        fs.close(fd, () => {});
+        refuse();
+        return;
+      }
       res.writeHead(200, headersFor(st.size));
+      if (req.method === 'HEAD' || st.size === 0) { fs.close(fd, () => {}); res.end(); return; }
+      const stream = fs.createReadStream(null, { fd, start: 0, end: st.size - 1 });   // autoClose closes fd
       require('node:stream').pipeline(stream, res, () => {});
     });
   });

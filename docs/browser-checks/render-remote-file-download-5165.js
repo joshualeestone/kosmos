@@ -6,8 +6,8 @@
  * The real web/index.html is served with every /api call answered by a stub (no board runs). File rows are put in
  * the page's real lists and clicked, so the page's own delegated handlers answer:
  *   R1  over Kosmos+ (the page reached as kosmos-remote.test) a click on a file in the project rail, the project's
- *       Documents view, a cited file in the project thread, and an agent's Files list each fetches that file's
- *       DOWNLOAD route with its name (GET), and none asks the board to open it (no POST .../open-file, .../files/open);
+ *       Documents view, a cited file in the project thread, and an agent's Files list each makes the BROWSER download
+ *       that file from its download route (a navigation, not the page's own look at it), and nothing is POSTed;
  *   R2  over Kosmos+ every button that would open a window on the board's computer (the project's folder from
  *       Documents and from project settings, an agent's Files folder, the conversations folders, the Kosmos folder
  *       from Settings and from the update offer, and an agent's Terminal) POSTs nothing and says where it opens;
@@ -66,7 +66,9 @@ async function openPage(engine, origin, platform) {
     const u = new URL(req.url());
     if (u.pathname === '/' || u.pathname === '/index.html') return route.fulfill({ status: 200, contentType: 'text/html', body: page });
     if (/\/(file-)?download$/.test(u.pathname)) {
-      asked.push(req.method() + ' ' + u.pathname + u.search);
+      /* The browser's own download (the anchor) is a NAVIGATION and is recorded as DOWNLOAD; the page's look at the
+         same address is a fetch and keeps its method, so R1 cannot pass on the look alone. */
+      asked.push((req.isNavigationRequest() ? 'DOWNLOAD' : req.method()) + ' ' + u.pathname + u.search);
       if (u.searchParams.get('name') === GONE) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'that file is not there any more, or it was moved' }) });
       return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="f.bin"' }, body: 'PK' });
     }
@@ -89,8 +91,17 @@ async function openPage(engine, origin, platform) {
   return { browser, pg, asked, errors };
 }
 
-/* A file row in one of the page's real lists, clicked: the delegated handler on the list answers. */
-async function clickRow(pg, listId, name, cls) {
+/* Waits until `ready()` holds or `ms` passes: the download and its look are asynchronous, so a fixed sleep would be
+   a timing assertion. Returns whether it held. */
+async function settle(ready, ms = 4000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) { if (await ready()) return true; await new Promise((r) => setTimeout(r, 50)); }
+  return ready();
+}
+
+/* A file row in one of the page's real lists, clicked: the delegated handler on the list answers. `until` (optional)
+   is waited for before the row is taken away; without it a short settle lets anything that would happen, happen. */
+async function clickRow(pg, listId, name, cls, until) {
   const before = await pg.evaluate(({ listId, name, cls }) => {
     const list = document.getElementById(listId);
     if (!list) return 'no #' + listId;
@@ -104,7 +115,7 @@ async function clickRow(pg, listId, name, cls) {
     b.click();
     return '';
   }, { listId, name, cls });
-  await pg.waitForTimeout(400);
+  if (until) await settle(until); else await pg.waitForTimeout(400);
   await pg.evaluate(() => document.querySelectorAll('[data-fileget-test]').forEach((n) => n.remove()));
   return before;
 }
@@ -128,18 +139,21 @@ async function runRemote(engine, platform, say) {
     say(await pg.evaluate(() => kplusRemote()) === true, engine + ' R0: the page reached as kosmos-remote.test counts as Kosmos+');
     for (const [where, listId, name, cls, want] of ROWS) {
       asked.length = 0;
-      const missing = await clickRow(pg, listId, name, cls);
+      const missing = await clickRow(pg, listId, name, cls, () => asked.includes(want));
       const opened = asked.filter((a) => /^POST /.test(a));
       say(!missing && asked.includes(want) && opened.length === 0,
         engine + ' R1: over Kosmos+ a click on a file in ' + where + ' downloads it and asks the board to open nothing',
         missing || JSON.stringify(asked));
     }
-    asked.length = 0;
-    await clickRow(pg, 'pj-docs', GONE, 'pj-doc');
-    const gone = await pg.evaluate(() => document.getElementById('pj-docs-msg').textContent);
-    say(gone === GONE_SAID && !asked.some((a) => /^POST /.test(a)),
-      engine + ' R3: over Kosmos+ a file the board refuses is said under the list in the board\u2019s own sentence',
-      JSON.stringify({ said: gone, asked }));
+    for (const [where, listId, , cls, , , msgId] of ROWS) {
+      asked.length = 0;
+      const said = () => pg.evaluate((id) => { const m = document.getElementById(id); return m ? m.textContent : null; }, msgId);
+      await clickRow(pg, listId, GONE, cls, async () => (await said()) === GONE_SAID);
+      const gone = await said();
+      say(gone === GONE_SAID && !asked.some((a) => /^POST /.test(a)),
+        engine + ' R3: over Kosmos+ a file the board refuses in ' + where + ' is said under it in the board\u2019s own sentence',
+        JSON.stringify({ said: gone, asked }));
+    }
     for (const [what, id, msgId, sentence] of BUTTONS) {
       asked.length = 0;
       const r = await clickButton(pg, id, msgId);
@@ -163,10 +177,10 @@ const BUTTONS = [
       ['an agent\u2019s Terminal', 'd-open-terminal', 'd-open-terminal-msg', TERMINAL_SENTENCE],
 ];
 const ROWS = [
-      ['project rail', 'pj-docs', DECK, 'pj-doc', 'GET /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file'],
-      ['Documents view', 'docs-list', DECK, 'pj-doc', 'GET /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file'],
-      ['a cited file in the thread', 'pj-room', DECK, 'refgo', 'GET /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file'],
-      ['an agent\u2019s Files', 'd-files-list', 'report.pptx', 'pj-doc', 'GET /api/agent/' + AGENT + '/files/download?name=report.pptx', 'POST /api/agent/' + AGENT + '/files/open'],
+      ['project rail', 'pj-docs', DECK, 'pj-doc', 'DOWNLOAD /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file', 'pj-docs-msg'],
+      ['Documents view', 'docs-list', DECK, 'pj-doc', 'DOWNLOAD /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file', 'docs-msg'],
+      ['a cited file in the thread', 'pj-room', DECK, 'refgo', 'DOWNLOAD /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file', 'pj-room-msg'],
+      ['an agent\u2019s Files', 'd-files-list', 'report.pptx', 'pj-doc', 'DOWNLOAD /api/agent/' + AGENT + '/files/download?name=report.pptx', 'POST /api/agent/' + AGENT + '/files/open', 'd-files-msg'],
 ];
 
 async function runLocal(engine, platform, say) {
@@ -176,7 +190,8 @@ async function runLocal(engine, platform, say) {
     say(await pg.evaluate(() => kplusRemote()) === false, engine + ' L0: the page at 127.0.0.1 is at the computer');
     for (const [where, listId, name, cls, , want] of ROWS) {
       asked.length = 0;
-      const missing = await clickRow(pg, listId, name, cls);
+      const missing = await clickRow(pg, listId, name, cls, () => asked.includes(want));
+      await pg.waitForTimeout(300);   // anything that would ALSO download has had its chance
       say(!missing && asked.includes(want) && !asked.some((a) => /download/.test(a)),
         engine + ' L1: CONTROL at the computer a click on a file in ' + where + ' still opens it here and downloads nothing',
         missing || JSON.stringify(asked));
