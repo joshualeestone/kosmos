@@ -55,7 +55,8 @@ cut_run '
   kosmos_release_machine
 '
 read -r e0 e1 c0 c1 p1 cutpid < "$T/arm1" 2>/dev/null || true
-if [ -n "${e1:-}" ] && [ "${e1:-0}" -ge $(( ${e0:-0} + 2 )) ]; then pass "a claim is renewed DURING a long step (expiry $e0 -> $e1)"
+# Review 2: one renewal proves it, and a loaded box may manage only one.
+if [ -n "${e1:-}" ] && [ "${e1:-0}" -gt "${e0:-0}" ]; then pass "a claim is renewed DURING a long step (expiry $e0 -> $e1)"
 else fail "the claim was not renewed during a long step (expiry ${e0:-none} -> ${e1:-none}): it would lapse mid-step"; fi
 if [ -n "${c1:-}" ] && [ "$c0" = "$c1" ] && [ "$p1" = "$cutpid" ]; then pass "the renewal is the cut's own claim (same cookie, pid $p1)"
 else fail "the renewal is not the cut's claim (cookie ${c0:-?} -> ${c1:-?}, pid ${p1:-?} vs cut ${cutpid:-?})"; fi
@@ -97,7 +98,10 @@ else fail "cut_record_done left a renewer recorded: $(cat "$T/arm4")"; fi
 rm -f "$CLAIM"
 RENEW_MAX=2 cut_run '
   step "== hung =="
-  sleep 3.5
+  # Review 2: wait for the renewer to give up on its own (bounded), not a fixed sleep, so a loaded box cannot read
+  # a renewal that is merely late as one past the cap.
+  for _ in $(seq 1 100); do kill -0 "$_CUT_RENEWER" 2>/dev/null || break; sleep 0.2; done
+  kill -0 "$_CUT_RENEWER" 2>/dev/null && echo still > "'"$T"'/arm5r" || true
   e2=$(awk "{print \$3}" "'"$CLAIM"'")
   sleep 2
   e3=$(awk "{print \$3}" "'"$CLAIM"'")
@@ -106,7 +110,7 @@ RENEW_MAX=2 cut_run '
   kosmos_release_machine
 '
 read -r e2 e3 < "$T/arm5" 2>/dev/null || true
-if [ -n "${e3:-}" ] && [ "$e2" = "$e3" ]; then pass "renewals stop after KOSMOS_CUT_RENEW_MAX in one step (expiry held at $e3)"
+if [ -n "${e3:-}" ] && [ "$e2" = "$e3" ] && [ ! -f "$T/arm5r" ]; then pass "renewals stop after KOSMOS_CUT_RENEW_MAX in one step (the renewer exits; expiry held at $e3)"
 else fail "renewals did not stop at the cap (expiry ${e2:-?} -> ${e3:-?}): a hung step would hold the box for ever"; fi
 
 # Arm 6: the cut process dies without its traps (kill -9): the renewer sees it gone and stops renewing.
