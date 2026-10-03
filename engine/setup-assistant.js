@@ -514,12 +514,17 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      outbox keep (a send made while another Kosmos is the one open, answered 421) resolves the sender by reading this
      folder (engine/outbox.js resolveKeepSender), so for a token-only agent that send is refused, not kept. */
   const senderTokenDirs = tokenRoots.map((r) => path.join(r, 'sendertokens'));
-  /* And the supervisor's launch hand-off, where each agent's token waits in a file until its pane starts (written
-     under AGENT_WORKFORCE_DATA, the data root's parent, or the app folder). The pane entry reads it before this
+  /* And the supervisor's launch hand-off, where each agent's token waits in a file until its pane starts. The
+     supervisor writes it under ${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets, and an installed supervisor's $_app is
+     the data root (create.supervisorPath is <data root>/bin/agent-supervisor.sh). The pane entry reads it before this
      agent's sandbox exists. NOT closed here: another agent's token in its process environment (`ps -E` as the same
      Mac user), and typing into another agent's tmux pane. */
   const appRoot = deps.appRoot || path.resolve(__dirname, '..');
-  const launchSecretDirs = [...new Set([...tokenRoots.map((r) => path.join(path.dirname(r), 'launch-secrets')), path.join(appRoot, 'launch-secrets')])];
+  const launchSecretDirs = [...new Set([
+    ...tokenRoots.map((r) => path.join(r, 'launch-secrets')),                  // the installed supervisor: its $_app is the data root
+    ...tokenRoots.map((r) => path.join(path.dirname(r), 'launch-secrets')),    // AGENT_WORKFORCE_DATA (a named world)
+    path.join(appRoot, 'launch-secrets'),                                      // a supervisor run from the app folder itself
+  ])];
   /* #4475: and the records the board trusts about who made and who ended which agent, written only by the board and
      the supervisor (outside this sandbox): a token-only agent that could write them could forge a birth naming itself
      the creator, erase an ended identity, list itself token-only or not, or plant a token for another name. */

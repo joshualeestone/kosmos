@@ -280,7 +280,10 @@ test('#4475: the supervisor\'s launch hand-off folders are Read-denied (beside t
   const app = path.join(SANDBOX, 'app');
   setup.guardTokenOnlyFolder(dir, 'pilot-launch', { ...DEPS, appRoot: app });
   const s = readSettings(dir);
-  for (const p of [path.join(path.dirname(store.ROOT), 'launch-secrets'), path.join(app, 'launch-secrets')]) {
+  // Where the supervisor really writes: ${AGENT_WORKFORCE_DATA:-$_app}/launch-secrets, and an installed supervisor's $_app
+  // is the folder above its bin/ (create.supervisorPath), derived here from that, not from the guard's own belief.
+  const installedApp = path.dirname(path.dirname(require('./create').supervisorPath()));
+  for (const p of [path.join(installedApp, 'launch-secrets'), path.join(path.dirname(store.ROOT), 'launch-secrets'), path.join(app, 'launch-secrets')]) {
     assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(p)}/**)`), 'a waiting launch token is readable at ' + p);
     assert.ok(s.sandbox.filesystem.denyRead.includes(realOrLeaf(p)), p + ' is not in sandbox denyRead');
   }

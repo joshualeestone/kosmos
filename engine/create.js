@@ -4072,7 +4072,8 @@ function createAgent(opts) {
      removal route never lets the asking agent remove such a name. */
   let tookTokens = false;
   try {
-    // The name create revokes (its slug), and the typed spelling's key too, since either file may hold the tokens.
+    // The name create revokes (its slug). Also the typed spelling's key, which create does not revoke: an over-refusal
+    // on purpose (a remote agent on that key makes this birth unremovable by its creator), never a gap.
     tookTokens = Boolean(opts && opts.name) && (sendertoken.holdsTokens(slugFor(String(opts.name))) || sendertoken.holdsTokens(String(opts.name)));
   } catch { tookTokens = true; }
   const out = createAgentInner(opts);

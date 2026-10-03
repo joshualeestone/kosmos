@@ -2629,18 +2629,30 @@ function agentBirthOf(name) {
      deleting files by hand outside Kosmos, and a remote token the person issues again; engine/sendertoken.js). The
      agent profile id does not show this: it survives a removal and is carried to a new agent of the same name.
      Ownership does not come back on restore. */
+/* The refusals, so the agent (and the person it tells) hears the real reason, not "not yours" for every one. */
+const REMOVE_NOT_YOURS = 'an agent can remove only an agent it created; the person removes other agents from the board';
+const REMOVE_SHARED_KEY = 'removing this agent would also end another agent\'s sign-in, so the person removes it from the board';
+const REMOVE_UNCHECKED = 'Kosmos could not check who made this agent just now; the person can remove it from the board';
 function tokenOnlyMayRemove(caller, target) {
-  if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return false;
+  return tokenOnlyRemoveRefusal(caller, target) === null;
+}
+/* null when allowed, else the sentence to answer with. */
+function tokenOnlyRemoveRefusal(caller, target) {
+  if (!caller || caller.byKey || caller.twins || typeof caller.name !== 'string' || !caller.name) return REMOVE_NOT_YOURS;
   const birth = agentBirthOf(target);
-  if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return false;
-  if (birth.slug !== target) return false;   // the create acted on exactly this board name (not a cut typed name)
-  if (birth.createdByName !== caller.name || birth.tookTokens === true) return false;
-  if (sendertoken.keyHoldsOthers(target)) return false;
-  if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return false;
+  if (!birth || birth.outcome !== 'created' || typeof birth.createdByName !== 'string' || !birth.createdByName) return REMOVE_NOT_YOURS;
+  if (birth.slug !== target) return REMOVE_NOT_YOURS;   // the create acted on exactly this board name (not a cut typed name)
+  if (birth.createdByName !== caller.name || birth.tookTokens === true) return REMOVE_NOT_YOURS;
+  if (typeof birth.at !== 'string' || !birth.at || typeof birth.askedAt !== 'string' || !birth.askedAt) return REMOVE_NOT_YOURS;
+  if (sendertoken.keyHoldsOthers(target)) return REMOVE_SHARED_KEY;
   let creatorKey; try { creatorKey = store.safeKey(caller.name); } catch { creatorKey = null; }
   const targetGone = sendertoken.endedSince([target], birth.at);
   const creatorGone = sendertoken.endedSince([caller.name, creatorKey].filter(Boolean), birth.askedAt, { inclusive: true });
-  return targetGone === false && creatorGone === false;
+  if (targetGone === null || creatorGone === null) {
+    console.error('#4475: refused a token-only removal of ' + target + ': the history of ended agents could not be read whole (' + sendertoken.endedLogFile() + ')');
+    return REMOVE_UNCHECKED;
+  }
+  return (targetGone === false && creatorGone === false) ? null : REMOVE_NOT_YOURS;
 }
 
 /* #1279 per-creator serialization for the global cap. The cap is check-then-act
@@ -7200,7 +7212,7 @@ const server = http.createServer(async (req, res) => {
            its pane-fallback (the thing report/reply's denyPaneFallback guards) is
            structurally unreachable on this path -- which is why this call does not
            pass denyPaneFallback (it would be inert). */
-        const askedAt = new Date().toISOString();   // #4475: when the request arrived, before any work (recorded on births)
+        const askedAt = new Date().toISOString();   // #4475: once the body is read, before the caller is resolved (recorded on births)
         const presented = presentedAgentToken(req, body);
         let effectiveCreator;
         let callerKind;
@@ -7560,10 +7572,8 @@ const server = http.createServer(async (req, res) => {
       let board; try { board = create.slugFor(name); } catch { board = null; }
       if (!board || board !== name) { sendJson(res, 400, { error: `name the agent by its board name${board ? ` (${board})` : ''}` }); return; }
       if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }
-      if (!tokenOnlyMayRemove(tokenOnly, name)) {
-        sendJson(res, 403, { error: 'an agent can remove only an agent it created; the person removes other agents from the board' });
-        return;
-      }
+      const refused = tokenOnlyRemoveRefusal(tokenOnly, name);
+      if (refused) { sendJson(res, 403, { error: refused }); return; }
     }
     let done;
     // ⚠️ Guarded for the reason given on the route above, and it matters most

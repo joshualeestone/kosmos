@@ -289,7 +289,7 @@ test('removing a name whose key also holds another name\'s token is refused (rev
   sendertoken.mint('Zed.Kip');  // a remote agent issued under another spelling with the same key
   const r = await remove('zedkip', asAgent());
   assert.equal(r.code, 403, 'removing zedkip would have ended Zed.Kip too: ' + r.text.slice(0, 160));
-  assert.match(r.text, NOT_YOURS);
+  assert.match(r.text, /would also end another agent's sign-in/, 'the refusal named the wrong reason: ' + r.text.slice(0, 160));
 });
 
 test('a target whose token file is there but unreadable is refused (it cannot be checked for another name)', async () => {
@@ -362,7 +362,9 @@ test('a torn history line (an end not written whole) is read as an end, and the 
   assert.ok(reachedEngine(await remove('torn-kid', asAgent())), 'CONTROL: it passed before the torn line');
   fs.mkdirSync(path.dirname(sendertoken.endedLogFile()), { recursive: true });
   fs.appendFileSync(sendertoken.endedLogFile(), '{"name":"torn-k');   // a write cut off, with no newline after it
-  assert.equal((await remove('torn-kid', asAgent())).code, 403, 'a torn line was skipped, so an end it may have held was lost');
+  const torn = await remove('torn-kid', asAgent());
+  assert.equal(torn.code, 403, 'a torn line was skipped, so an end it may have held was lost');
+  assert.match(torn.text, /could not check who made this agent/, 'a damaged history was reported as "not yours": ' + torn.text.slice(0, 160));
   sendertoken.revoke('next-after-torn');
   const lines = fs.readFileSync(sendertoken.endedLogFile(), 'utf8').split('\n');
   assert.ok(lines.some((l) => { try { return JSON.parse(l).name === 'next-after-torn'; } catch { return false; } }), 'the end written after a torn line was swallowed into it');
@@ -377,6 +379,7 @@ test('a history that cannot be read refuses (last: it replaces the history file 
   fs.mkdirSync(sendertoken.endedLogFile(), { recursive: true });
   const r = await remove('unread-kid', asAgent());
   assert.equal(r.code, 403, 'an unreadable history was read as no removals: ' + r.text.slice(0, 160));
+  assert.match(r.text, /could not check who made this agent/, 'an unreadable history was reported as "not yours"');
 });
 
 test.after(() => {

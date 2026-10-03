@@ -274,8 +274,9 @@ function noteEnded(sessionName) {
 }
 /* Did an agent whose name matches any of `names` (by slug, both sides) end AFTER `sinceIso` (or at it, when
    `inclusive`)? true, false, or null when the history cannot be read (a missing file is none). Loose on purpose: a
-   caller uses true to REFUSE, so matching more names only refuses more. A line that does not parse, or has no name,
-   may be an end that could not be written whole, so it is read as an end for every name. Blank lines are skipped. */
+   caller uses true to REFUSE, so matching more names only refuses more. A line that does not parse, has no name, or
+   has a time it cannot order may be an end that could not be written whole: the answer is then null (cannot tell),
+   which the caller also refuses on, with its own words. Blank lines are skipped. */
 const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 function endedSince(names, sinceIso, opts = {}) {
   if (typeof sinceIso !== 'string' || !ISO_MS.test(sinceIso)) return null;   // a time we cannot order against refuses
@@ -288,11 +289,11 @@ function endedSince(names, sinceIso, opts = {}) {
   try { raw = fs.readFileSync(endedLogFile(), 'utf8'); } catch (e) { return (e && e.code === 'ENOENT') ? false : null; }
   for (const line of raw.split('\n')) {
     if (!line) continue;
-    let r; try { r = JSON.parse(line); } catch { return true; }
-    if (!r || typeof r.name !== 'string') return true;
+    let r; try { r = JSON.parse(line); } catch { return null; }
+    if (!r || typeof r.name !== 'string') return null;
     if (!want.has(slug(r.name))) continue;
-    // Times compare as strings only in toISOString's one fixed form; a line in any other form is read as an end.
-    if (typeof r.at !== 'string' || !ISO_MS.test(r.at)) return true;
+    // Times compare as strings only in toISOString's one fixed form; a line in any other form cannot be ordered.
+    if (typeof r.at !== 'string' || !ISO_MS.test(r.at)) return null;
     if (r.at > since || (opts.inclusive === true && r.at === since)) return true;
   }
   return false;
