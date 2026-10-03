@@ -206,7 +206,7 @@ test('a part added while the task is closed is held from the put-back, not from 
   assert.deepEqual(h.gus, [{ from: ms('13:00'), to: ms('14:00') }]);
 });
 
-test('a transcript that cannot be read through is shown as far as read but never kept', { skip: (process.getuid && process.getuid() === 0) || process.platform === 'win32' ? 'permissions do not bind here' : false }, async () => {
+test('a transcript that cannot be read through is shown as far as read but never kept', async (t) => {
   const project = 'p' + (++pn);
   const hal = worker('hal');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'hal' }, { at: '11:00', kind: 'closed' }]);
@@ -215,6 +215,11 @@ test('a transcript that cannot be read through is shown as far as read but never
   const locked = path.join(d, 'locked.jsonl');
   fs.writeFileSync(locked, assistant('10:20', { id: 'h2', usage: use(1, 1) }) + '\n');
   fs.chmodSync(locked, 0o000);
+  /* Asked of the file, not of the host: where removing read permission does not stop a read (root, some file
+     systems), this case cannot be set up, so it is skipped rather than passed. */
+  let readable = false;
+  try { fs.readFileSync(locked); readable = true; } catch { readable = false; }
+  if (readable) { fs.chmodSync(locked, 0o600); t.skip('removing read permission does not stop a read here'); return; }
   try {
     const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:00') + receipt.SETTLE_MS });
     assert.equal(r.agents[0].complete, false);
