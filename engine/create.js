@@ -4001,7 +4001,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
     if (acct.isDefault && codexHomeOverridden()) return { ok: true };
     let live; try { live = await openai.checkLive(acct.dir); } catch (err) { return failOpen("openai.checkLive", err); }
     if (live && live.state === NONE) {
-      return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key in Settings, AI Models first.` };
+      return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key in Settings, AI Models, then try again.` };
     }
     return { ok: true };
   }

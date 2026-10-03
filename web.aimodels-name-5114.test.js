@@ -4,9 +4,13 @@
  * "AI Models" (its nav button and aria-label), so "the Accounts tab", "the Accounts page" or "Settings > Accounts"
  * names a place nobody can find. Found on a newcomer's first agent with no Claude account.
  *
- * Scope, stated so the guard is not read as wider than it is: quoted strings in web/index.html, server.js,
- * engine/*.js (not tests), the Windows CLI and the Mac CLI (install/kosmos). Comments are removed first (block,
- * HTML, line and shell comments); identifiers are never read.
+ * Scope, stated so the guard is not read as wider than it is:
+ * - WHAT: the spellings in OLD below (Accounts tab/screen/page/section/panel in any case, or a Settings path ending in
+ *   Accounts). A bare "Accounts" ("open Accounts") is not matched: the word is used legitimately elsewhere.
+ * - WHERE: quoted strings, one line at a time, in web/index.html, server.js, engine/*.js (not tests), the Windows CLI
+ *   and the Mac CLI (install/kosmos). A name split across two quoted pieces ('the Accounts' + ' tab') is not seen.
+ * - Comments are removed first (block, HTML, whole-line // and shell #; a trailing // comment is not), and
+ *   identifiers are never read.
  *
  *   node --test web.aimodels-name-5114.test.js
  */
