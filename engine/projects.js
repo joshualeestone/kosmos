@@ -1602,7 +1602,13 @@ function listFiles(folder, limit, opts) {
  *      the first rather than being folded into it.
  */
 /* `where` names the folder in a refusal (#3614: the agent page's Files folder is not a project). */
-function openFile(folder, name, where = 'this project') {
+/**
+ * #5165: the gates a named file in a folder must pass before Kosmos hands it to anyone, shared by
+ * `openFile` (open it on this computer) and the download routes (stream it to the device the person is
+ * on, over Kosmos+). One copy, so the two can never disagree about what is inside the folder.
+ * Returns { ok: true, target, st, given } or { ok: false, because }.
+ */
+function fileInFolder(folder, name, where = 'this project') {
   const given = String(name == null ? '' : name);
   if (!given) return { ok: false, because: 'no file was named' };
   const segs = given.split('/');
@@ -1627,7 +1633,14 @@ function openFile(folder, name, where = 'this project') {
   let st;
   try { st = statOfFolderPath(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
   if (!st.isFile()) return { ok: false, because: 'that is not a file we can open' };
-  /* The three gates above are platform-free; only the hand-off differs. Explorer
+  return { ok: true, target, st, given };
+}
+
+function openFile(folder, name, where = 'this project') {
+  const found = fileInFolder(folder, name, where);
+  if (!found.ok) return found;
+  const { target, given } = found;
+  /* The three gates in fileInFolder are platform-free; only the hand-off differs. Explorer
      opens a file with whatever Windows opens that kind of file with. It judges the
      file's TYPE on the resolved target and applies the drive-letter rule to the path
      the project record names (review round 2), so a mapped Z:\ project opens its
@@ -3377,6 +3390,6 @@ module.exports = {
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, coordinatorWarning, fillDone, PROJECT_COORDINATOR, WELCOME_DONE,
   findBlock, spliceBlock, removeBlock, blockBody, ourCard, heldExactly, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership, speakOfMembershipAsync,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
+  folderPathPreview, makeFolder, revealFolder, revealFile, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile, fileInFolder,
   isUnderTmpDir, tmpFolderRefused,
 };
