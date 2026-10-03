@@ -90,4 +90,9 @@ account and need a second restart.
   model row said "Unknown Model" (rejected wording, #3739/#4569); plannedModelName is "Claude (its default model)", the
   server's own words. NIT1: the check asserts that first option and the Right now line. Not taken: NIT2 (after a switch to
   Gemini/Grok the model menu says "picks its own model" until reopened, while the card names Kosmos's pinned default).
-- Round 6: PENDING.
+- Round 6 (sonnet, blind): 0 BLOCKER, 1 SHOULD-FIX, 2 NIT. SF taken: the rebuilt Right now bracket used email-or-label while
+  the normal paint (acctParenthetical) prefers the account's name; it calls acctParenthetical now, so the two paints cannot
+  disagree. NITs not taken: the check does not cover an account with no email (the fixture rows all have one; the code path
+  falls back exactly as acctParenthetical does); the tense is "Right now:" on a partial too (as repaintRunsOnName already did).
+  Reviewer confirmed the rebuild loses nothing (#d-runson is the lead, one <b>, an optional bracket).
+- Round 7: PENDING.
