@@ -41,36 +41,51 @@ function utcDay(ts) {
   return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : null;
 }
 
-/* Every directory (deduped, resolved) a provider's sessions can live under: the account module's own list (the default
-   home included) plus the default home itself, in case the list drops a home with no sign-in left. Never throws. */
-function homes(listFn, defaultFn, storage = (d) => d) {
+/* Every folder a provider's sessions can live under: its default home plus every account folder by NAME (`.codex-*`,
+   `.removed-codex-*`, ...), found by listing the home directory. Not the account modules' list(): that drops an account
+   with no sign-in left, and a forgotten one, whose agents' past usage still happened (review 1). Deduped by real path, so
+   a linked folder is not read twice. Never throws. */
+function homesByPrefix(homeDir, defaultDir, prefixes, storage = (d) => d) {
   const out = [];
   const seen = new Set();
   const add = (d) => {
     if (typeof d !== 'string' || !d) return;
     const s = path.resolve(storage(d));
-    if (!seen.has(s)) { seen.add(s); out.push(s); }
+    let key = s;
+    try { key = fs.realpathSync(s); } catch { /* missing: keyed by its own path */ }
+    if (!seen.has(key)) { seen.add(key); out.push(s); }
   };
-  try { for (const r of listFn() || []) add(r && r.dir); } catch { /* no accounts: the default below */ }
-  try { add(defaultFn()); } catch { /* no default either */ }
+  add(defaultDir);
+  let names = [];
+  try { names = fs.readdirSync(homeDir).sort(); } catch { names = []; }
+  for (const name of names) if (prefixes.some((pre) => name.startsWith(pre))) add(path.join(homeDir, name));
   return out;
 }
 
 /* All files under `dir` whose name matches `re`, recursively. Async, as usage.js's walk is, so the board keeps
    answering while a big history is read. */
-async function walk(dir, re, out = []) {
+async function walk(dir, re, out = [], acc = null) {
   let entries;
-  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return out; }
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
+  catch (err) { if (acc && err && err.code !== 'ENOENT') acc.incomplete = true; return out; }
   for (const e of entries) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) await walk(p, re, out);
+    if (e.isDirectory()) await walk(p, re, out, acc);
     else if (e.isFile() && re.test(e.name)) out.push(p);
   }
   return out;
 }
 
+/* A file last written before the first wanted day cannot hold a row on or after it (every row is stamped when it is
+   written), so it is not read. This is what keeps the common call (only today missing) to the files touched today;
+   NOT the Codex YYYY/MM/DD folders, which record the day a session started, and sessions run across days. */
+async function touchedSince(file, sinceDay) {
+  if (!sinceDay) return true;
+  try { return (await fsp.stat(file)).mtimeMs >= Date.parse(sinceDay + 'T00:00:00Z'); } catch { return false; }
+}
+
 class Acc {
-  constructor(sinceDay, untilDay) { this.days = {}; this.folders = {}; this.sinceDay = sinceDay; this.untilDay = untilDay; }
+  constructor(sinceDay, untilDay) { this.days = {}; this.folders = {}; this.sinceDay = sinceDay; this.untilDay = untilDay; this.incomplete = false; }
   inRange(day) { return day && !(this.sinceDay && day < this.sinceDay) && !(this.untilDay && day > this.untilDay); }
   add(day, model, folder, b) {
     if (!this.inRange(day)) return;
@@ -91,23 +106,33 @@ class Acc {
 /* ---------- Codex: <home>/sessions/YYYY/MM/DD/rollout-*.jsonl ---------- */
 async function scanCodex(acc, codexHomes) {
   for (const home of codexHomes) {
-    for (const file of (await walk(path.join(home, 'sessions'), /^rollout-.*\.jsonl$/)).sort()) {
+    for (const file of (await walk(path.join(home, 'sessions'), /^rollout-.*\.jsonl$/, [], acc)).sort()) {
+      if (!(await touchedSince(file, acc.sinceDay))) continue;
       let text;
-      try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
+      try { text = await fsp.readFile(file, 'utf8'); } catch { acc.incomplete = true; continue; }
       let cwd = '';
       let model = null;
       let prev = null;   // the previous running total in this file
+      /* A FORKED rollout (session_meta.forked_from_id) begins with the parent's history replayed into it, its token totals
+         included, so its first total is the parent's and was already counted in the parent's file. That first total is
+         the baseline, not usage (review 1; no fork exists on this fleet to measure, so this is from Codex's design: the
+         cost is the first turn after a fork going uncounted, rather than the whole parent counted twice). */
+      let forked = false;
       for (const line of text.split('\n')) {
         if (!line) continue;
         let r;
         try { r = JSON.parse(line); } catch { continue; }
         const p = (r && r.payload) || {};
-        if (r.type === 'session_meta' && !cwd && typeof p.cwd === 'string') cwd = p.cwd;
+        if (r.type === 'session_meta') {
+          if (!cwd && typeof p.cwd === 'string') cwd = p.cwd;
+          if (p.forked_from_id) forked = true;
+        }
         if (r.type === 'turn_context' && typeof p.model === 'string') model = p.model;
         if (p.type !== 'token_count' || !p.info || !p.info.total_token_usage) continue;
         const t = p.info.total_token_usage;
         const cur = { in: n(t.input_tokens), cached: n(t.cached_input_tokens), cw: n(t.cache_write_input_tokens), out: n(t.output_tokens) };
         /* The change since the last event; a total that went down is a new run, counted from its own total. */
+        if (!prev && forked) { prev = cur; continue; }
         const reset = prev && (cur.in < prev.in || cur.out < prev.out || cur.cached < prev.cached || cur.cw < prev.cw);
         const base = prev && !reset ? prev : { in: 0, cached: 0, cw: 0, out: 0 };
         const d = { in: cur.in - base.in, cached: cur.cached - base.cached, cw: cur.cw - base.cw, out: cur.out - base.out };
@@ -132,13 +157,14 @@ async function scanGemini(acc, geminiHomes) {
   for (const home of geminiHomes) {
     let slugs;
     try { slugs = (await fsp.readdir(path.join(home, 'tmp'), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort(); }
-    catch { continue; }
+    catch (err) { if (err && err.code !== 'ENOENT') acc.incomplete = true; continue; }
     for (const slug of slugs) {
       const slugDir = path.join(home, 'tmp', slug);
       const cwd = await geminiProjectRoot(slugDir);
-      for (const file of (await walk(path.join(slugDir, 'chats'), /^session-.*\.jsonl$/)).sort()) {
+      for (const file of (await walk(path.join(slugDir, 'chats'), /^session-.*\.jsonl$/, [], acc)).sort()) {
+        if (!(await touchedSince(file, acc.sinceDay))) continue;
         let text;
-        try { text = await fsp.readFile(file, 'utf8'); } catch { continue; }
+        try { text = await fsp.readFile(file, 'utf8'); } catch { acc.incomplete = true; continue; }
         /* A reply can carry tokens but no model (measured: one on this fleet, 2026-09-28). It takes the model the same
            session names elsewhere, so it is not filed as "unknown" while the answer is in the file. */
         const fileModel = (text.match(/"model"\s*:\s*"(gemini[^"]*)"/) || [])[1] || null;
@@ -153,6 +179,8 @@ async function scanGemini(acc, geminiHomes) {
             if (!t || typeof t !== 'object') continue;
             /* A message with no id cannot be de-duplicated and is still counted (dropping it would be a silent
                undercount), as usage.js does for Claude. */
+            /* Only replies are keyed: their ids are uuids, unique across sessions (measured, 32 of 32). User-message ids
+               are content hashes shared across sessions, so widening this to every message type would drop real rows. */
             if (m.id) { if (seen.has(m.id)) continue; seen.add(m.id); }
             acc.add(utcDay(m.timestamp), m.model || fileModel, cwd, {
               input_tokens: Math.max(0, n(t.input) - n(t.cached)) + n(t.tool),
@@ -174,16 +202,20 @@ function grokCwd(encoded) {
 async function scanGrok(acc, grokHomes) {
   const seen = new Set();
   for (const home of grokHomes) {
-    for (const file of (await walk(path.join(home, 'sessions'), /^usage\.json$/)).sort()) {
+    const root = path.join(home, 'sessions');
+    for (const file of (await walk(root, /^usage\.json$/, [], acc)).sort()) {
+      /* Only <sessions>/<encoded cwd>/<session id>/usage.json: a deeper one would take its cwd from the wrong folder. */
+      if (path.relative(root, file).split(path.sep).length !== 3) continue;
+      if (!(await touchedSince(file, acc.sinceDay))) continue;
       let d;
-      try { d = JSON.parse(await fsp.readFile(file, 'utf8')); } catch { continue; }
+      try { d = JSON.parse(await fsp.readFile(file, 'utf8')); } catch { acc.incomplete = true; continue; }
       if (!d || !Array.isArray(d.turns)) continue;
       const sessionDir = path.dirname(file);
       const sid = String(d.sessionId || path.basename(sessionDir));
       const cwd = grokCwd(path.basename(path.dirname(sessionDir)));
-      for (const t of d.turns) {
+      for (const [i, t] of d.turns.entries()) {
         if (!t || typeof t !== 'object') continue;
-        const key = sid + '\0' + String(t.turnNumber);
+        const key = sid + '\0' + String(t.turnNumber != null ? t.turnNumber : '#' + i);
         if (seen.has(key)) continue;
         seen.add(key);
         const day = utcDay(t.endedAt || d.updatedAt);
@@ -192,6 +224,8 @@ async function scanGrok(acc, grokHomes) {
           ? Object.entries(t.modelUsage) : [[t.primaryModelId, t]];
         for (const [model, u] of parts) {
           if (!u || typeof u !== 'object') continue;
+          /* inputTokens includes the cached reads (total = input + output, measured). That it also includes the cache
+             writes is assumed: every sample on this fleet had cacheCreationTokens 0. */
           acc.add(day, model, cwd, {
             input_tokens: Math.max(0, n(u.inputTokens) - n(u.cachedReadTokens) - n(u.cacheCreationTokens)),
             output_tokens: n(u.outputTokens),
@@ -210,16 +244,15 @@ function defaultHomes() {
   const openai = require('./openaiaccounts');
   const gemini = require('./geminiaccounts');
   const grok = require('./grokaccounts');
-  const codexDefault = () => require('./codexupdate').defaultHome();
+  const home = process.env.AGENT_WORKFORCE_HOME || require('node:os').homedir();
+  const geminiDefault = path.resolve(gemini.defaultDir());
   return {
-    codex: homes(() => openai.list(), codexDefault),
-    /* The Gemini CLI keeps its data in a `.gemini` folder BELOW a per-account home (create.js geminiStorageHome);
-       the default home already is that folder. */
-    gemini: (() => {
-      const def = path.resolve(gemini.defaultDir());
-      return homes(() => gemini.list(), () => def, (d) => (path.resolve(d) === def ? d : path.join(d, '.gemini')));
-    })(),
-    grok: homes(() => grok.list(), () => grok.defaultDir()),
+    codex: homesByPrefix(home, require('./codexupdate').defaultHome(), ['.codex-', openai.FORGOTTEN_PREFIX]),
+    /* The Gemini CLI keeps its data in a `.gemini` folder BELOW a per-account home (create.js geminiStorageHome); the
+       default home already is that folder. */
+    gemini: homesByPrefix(home, geminiDefault, [gemini.DIR_PREFIX, gemini.FORGOTTEN_PREFIX],
+      (d) => (path.resolve(d) === geminiDefault ? d : path.join(d, '.gemini'))),
+    grok: homesByPrefix(home, grok.defaultDir(), [grok.DIR_PREFIX, grok.FORGOTTEN_PREFIX]),
   };
 }
 
@@ -230,11 +263,13 @@ function defaultHomes() {
 async function scanProviders({ sinceDay, untilDay, homes: h } = {}) {
   const acc = new Acc(sinceDay, untilDay);
   let hs = h;
-  if (!hs) { try { hs = defaultHomes(); } catch { hs = { codex: [], gemini: [], grok: [] }; } }
-  try { await scanCodex(acc, hs.codex || []); } catch { /* one provider failing does not lose the others */ }
-  try { await scanGemini(acc, hs.gemini || []); } catch { /* as above */ }
-  try { await scanGrok(acc, hs.grok || []); } catch { /* as above */ }
-  return { days: acc.days, folders: acc.folders, homesRead: hs };
+  if (!hs) { try { hs = defaultHomes(); } catch { hs = { codex: [], gemini: [], grok: [] }; acc.incomplete = true; } }
+  try { await scanCodex(acc, hs.codex || []); } catch { acc.incomplete = true; }   // one provider failing keeps the others
+  try { await scanGemini(acc, hs.gemini || []); } catch { acc.incomplete = true; }
+  try { await scanGrok(acc, hs.grok || []); } catch { acc.incomplete = true; }
+  /* `complete: false` when anything could not be read: the caller shows these numbers but must not FREEZE them, or a
+     passing error on the first read after an update would fix a past day's provider usage at zero forever (review 1). */
+  return { days: acc.days, folders: acc.folders, homesRead: hs, complete: !acc.incomplete };
 }
 
-module.exports = { scanProviders, defaultHomes, BUCKET_FIELDS };
+module.exports = { scanProviders, defaultHomes, homesByPrefix, BUCKET_FIELDS };
