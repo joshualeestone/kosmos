@@ -10,7 +10,8 @@
  * Scope, stated so the guard is not read as wider than it is:
  * - WHAT: the spellings in OLD (a Terminal tab, pill, section or page; "Settings" then ":", ">", "->" or "," then
  *   "Add a provider"), any case.
- * - WHERE: (1) quoted strings, one line at a time, escaped quotes included, in web/index.html, server.js,
+ * - WHERE: (1) quoted strings, one line at a time (a line starting with * or // is a comment line and skipped,
+ *   so a string on such a line is not read), escaped quotes included, in web/index.html, server.js,
  *   engine/*.js (not tests), the Windows CLI and the Mac CLI; (2) the text between tags in web/index.html's markup
  *   (scripts, styles and HTML comments removed). Whole comment lines are skipped. A name split across two quoted
  *   pieces is not seen.
@@ -81,5 +82,5 @@ test('#5127: the scan finds the old names and skips comments (control)', () => {
   assert.equal(hits("  echo 'open the Terminal tab'", true).length, 1, 'a shell echo is read');
   assert.equal(markupHits('<p>Open its Terminal tab.</p>').length, 1, 'text in the markup');
   assert.equal(markupHits('<script>x = 1 > 0 && "the Terminal tab" < 2</script>').length, 0, 'a script is not markup text');
-  assert.equal(hits("  x = 'you can see its screen under AI Settings on this page';").length, 0, 'the new words are not a hit');
+  assert.equal(hits("  x = 'look under AI Settings on this page';").length, 0, 'the new words are not a hit');
 });
