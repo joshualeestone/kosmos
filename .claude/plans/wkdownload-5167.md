@@ -11,7 +11,8 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
   unshowable file from anywhere else (these, and a download WebKit stops, are not said while one is on screen or for 5 seconds after it is dismissed), a non-2xx answer, a failed save (these always).
 - Asked first: a Kosmos+ computer's page saves only after the person allows downloads from that
   computer (once per run of the app, either answer). This computer's own board is never asked.
-- Destination: ~/Downloads, safe unique name; quarantine mark with origin-only URLs; a file that
+- Destination: ~/Downloads, safe unique name; quarantine mark with this app's agent name and no
+  addresses; a file that
   cannot be marked is kept and the person is told.
 - Measured live: `--kosmos-app-download-selftest`, 22 rows, run at bundle build (loud skip without
   a console). Pure rules: `--kosmos-app-mode-selftest`, 82 rows.
@@ -287,6 +288,17 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   behaviour, not changed here).
 - Not changed (decided earlier): no user-gesture rule (round 2), Don't Allow lasts the run (rounds
   19, 22), one quiet window for all causes (round 12), the no-console skip (round 4).
+
+## Review round 25 changes
+- Measured (by the reviewer, LaunchServices' quarantine events, read only): the source and page
+  addresses this app set on the mark never landed; only the agent name did. So the mark now carries
+  no addresses at all (the token risk they were trimmed for goes with them), and rounds 3 and 13's
+  "origin-only URLs" claims are withdrawn. The page bookkeeping that fed them is removed.
+- Allow is disabled for the first second of the per-computer question: the page decides when it
+  appears, so it can time it to meet a click (Return already answers Don't Allow).
+- The attachment refusal is not said before a page is committed (the app's own load).
+- Test titles and the selftest budget comment corrected; the gate's fallback names a missing
+  listener.
 
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
