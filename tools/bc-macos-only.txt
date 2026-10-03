@@ -1,0 +1,16 @@
+# #4601: browser checks that run on macOS, not on the Linux per-PR job. ROUTED, never dropped: when the
+# allowlist or a diff's selection names one of these, it runs in browser-checks.yml's macOS job instead, so its
+# coverage is unchanged. That, not the text below, is what makes routing safe.
+# An entry is a check MEASURED red on Linux (with Liberation Sans pinned, as the Linux job runs), with what is
+# known of why, and it must cite a card: the card that measured it, or the card explaining it (the workflow
+# test enforces the card). Never add one to make a red go away without that: a Linux-only red nobody has
+# measured is a question for a card first.
+# Measured 2026-10-02 (#4601: run 37036328772, every check on ubuntu-latest; run 37045524112, the reds again
+# with system-ui and sans-serif aliased to Liberation Sans). Format: <check name><TAB><cause>.
+live-connect	product, by design: the Mac install path refuses Linux ("this platform (linux) has no published Claude Code build"); #4601, port note on #4916
+render-agent-lines	vertical font metrics: it measures an INLINE box (.lname b), whose height is the font's ascent+descent, not the fixed 16px line; Linux's font leaves a 5px gap where the Mac's leaves at most 3.5 (#5052)
+render-subback-4586	Linux lays out 15px narrower (classic scrollbar width) and draws the title 17px wider, so the head row overflows by 3px and wraps; Mac has only 29px spare, a fragility to long titles (#5052)
+render-chatbox-phone-4108	check precondition: it requires the make-room fix to RUN, which needs the Mac's 2px shortfall; on Linux the card already fits and every real assertion passes (#5052)
+render-orgchart-phone-718	Linux headless does not deliver CDP synthesizeScrollGesture with a touch source; the same gesture as mouse scrolls the chart, and the swipe point is inside it (#5052)
+render-help-tips-3574	broken BY the Liberation Sans pin: T32g (keyboard focus stays in the card when the window grows) fails pinned and passes unpinned (#4601 runs 37056510969 / 37056536113)
+render-tasks-view-3559	broken BY the Liberation Sans pin: Tasks rows measure 43px tall against a 44px tap target pinned, 44 unpinned (vertical font metrics; #4601 runs 37056510969 / 37056536113)
