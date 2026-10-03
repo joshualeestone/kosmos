@@ -1,0 +1,38 @@
+# usageproviders-5158: Codex, Gemini CLI and Grok usage beside Claude (slice 1)
+
+Card: kosmos#5158. GO: Josh 2026-10-03 11:23 ("we can start on the token usage stuff now and just see how far we get"),
+via Splinter. Merges ride after Monday unless a slice is small, fully validated and browser-checked before the 0.7.22 pin.
+Constraint (Splinter): the saved usage format does not change without a migration that keeps history.
+
+## What finished looks like
+Settings > Token Usage counts Codex, Gemini CLI and Grok agents' tokens beside Claude's: per day, per model and per
+agent, in the same four buckets, each counted exactly once. Every saved day that exists today reads exactly as before.
+Prices are slice 2 (unpriced models are already listed as unpriced, never guessed).
+
+## History: no format change
+- `usage/<day>.v2.json` (Claude per model) and `<day>.folders.v1.json` (Claude per launch folder) are untouched: never
+  rewritten, never renamed, never re-derived. Claude prunes old transcripts, so a re-derived past day can only lose.
+- The other providers get their own frozen file per day, `usage/<day>.providers.v1.json` = `{ models, folders }`, written
+  once a day is past, exactly like the Claude pair. On first open after the update, a past day with no providers file is
+  scanned from the providers' session files (which this Mac keeps) and frozen; the Claude files are not involved.
+- Read time merges the two: model names never collide across providers (claude-*, gpt-*, gemini-*, grok-*); per-folder
+  rows add bucket by bucket.
+
+## Counting each provider exactly once (measured on this Mac, 2026-10-03, numbers only)
+| Provider | Files | Unit counted | Buckets | Once-only rule |
+|---|---|---|---|---|
+| Codex | every account home's `sessions/**/rollout-*.jsonl` (`openaiaccounts.list()` dirs) | change in `total_token_usage` between `token_count` events, per file | input = in - cached; cache_read = cached; cache_creation = cache write (when present); output = out (reasoning is inside it: total = in + out, measured) | a repeated event changes nothing; a total that goes DOWN starts a new run (counted from that event's total) |
+| Gemini CLI | every account's storage home (`<dir>/.gemini`, default `~/.gemini`) `tmp/*/chats/session-*.jsonl` | each `gemini` message's `tokens` | input = input - cached + tool; cache_read = cached; output = output + thoughts (total = in + out + thoughts + tool, measured) | message `id`, scan-wide (a message is written twice: measured) |
+| Grok | every account home's `sessions/*/*/usage.json` (`grokaccounts.list()` dirs) | each `turns[i]` | input = in - cachedRead - cacheCreation; cache_read; cache_creation; output = out (reasoning inside: total = in + out, measured) | `sessionId` + `turnNumber` |
+
+Day: the row's own timestamp (Codex row `timestamp`, Gemini message `timestamp`, Grok `endedAt`), as UTC, like Claude.
+Model: Codex the latest `turn_context` model before the event; Gemini the message's `model`; Grok per `modelUsage` key.
+Launch folder (for per-agent): Codex `session_meta.cwd`; Gemini the session's project root; Grok the session's cwd.
+
+## Decisions
+- A separate module (`engine/usageproviders.js`) with one reader per provider, so the Claude path is not edited.
+- Reasoning/thinking tokens are counted as output (that is how all three providers bill them) rather than a fifth
+  bucket; the four-bucket rule stands.
+- Antigravity is slice 3 (protobuf, no timestamps). Not counted here; said so on the page.
+- Weakest premise: Gemini's `input` includes `cached` (true for the Gemini API; every local sample had cached 0, so it is
+  unmeasured here). If wrong, Gemini input is undercounted by the cached amount.
