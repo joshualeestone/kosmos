@@ -184,3 +184,7 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   "nothing to deliver" would have called them stale. Mutation reds.
 - The comment says a hanging `defaults` blocks the whole board's event loop (at most once per 5-minute window).
 - Removal still cuts exactly the block when the person's text follows it (review 11).
+
+## Review 16 (blind, sonnet)
+- Mac-only scope stated on #5050, and the follow-up filed as #5080 (Settings picker = the opt-out, a measured Windows
+  source, Codex/Gemini/Grok). Duplicates: override removal (review 8), no opt-out and the restart prompt (review 12).
