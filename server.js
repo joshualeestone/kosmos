@@ -5267,7 +5267,7 @@ const server = http.createServer(async (req, res) => {
                        remove.js's restart refusal via create.SELF_STARTS. */
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
-                      + '; if it stays off, its Terminal tab is where to look'
+                      + '; if it stays off, look under AI Settings on its page'
                     : 'this agent is not running: nothing on this computer has a session for it'),
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 /* #2698: a version that moves when the picture changes, so a view
