@@ -3326,6 +3326,21 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    max-width:100% so it cannot overflow a narrow column (render-settings-nav.js confirms no
    overflow at 420px). */
 #s-nav { width: max-content; max-width: 100%; }
+/* #4979: on the Settings tab the app header (.apphead) is sticky too and drawn above the page, so a
+   nav stuck 16px from the window's top sat under it on any long section and its first pill could
+   not be clicked. Stick 16px below the header there. Its height is not one value (51px on a wide
+   window, 77px at 900px where it wraps), so it is measured into --apphead-h; unmeasured, this is the
+   old 16px. Not in the consolidated view (body.consolidated): Settings is its own scroll box inside
+   Projects there and the header does not stick, so the nav keeps 16px from the panel's top. Below
+   56rem .snav is static and none of this applies. */
+body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + 16px); }
+/* #4979: on a window too short to hold the whole nav below the header, a stuck nav hangs its last
+   pills off the bottom and, at the page's end, pushes its first ones back under the header. There
+   it scrolls with the page instead, as the agent page's does. Whether it fits is measured, not a
+   fixed height: the header grows with the Kosmos+ bar, an update or offline notice, or a wrap, so
+   the script beside the #s-nav handler sets snav-loose on the root when the header, the nav and
+   16px above and below it are taller than the window. */
+html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 /* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
    side padding, because that centered full-width pill was the longest label and word-wrapped.
    #3500 supersedes it: the pill is relabelled "AI Settings" (shorter), the buttons are flex
@@ -3350,6 +3365,11 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    large default box; since #4550 the pack (.dnav-pack) is a PAIR, Profile and AI Settings side by
    side (see the .dnav-pack rule below). */
 #d-nav.dnav-boxed { gap: 10px; }
+/* #4961: the agent page's nav scrolls with its column. `.snav` is sticky (#350, when the nav was
+   alone in its column); here the Files card (#3614) sits below it in the same column, so a sticky
+   nav slid over the card's header on a scroll, and its 16px top tucked it under the app header.
+   Settings keeps the sticky .snav: nothing sits below #s-nav. */
+#d-nav { position: static; }
 /* #3500 follow-up (Josh, 2026-09-24): icon over label, centred, in every box (was icon
    beside a left-aligned label). Stacking gives the label the whole tile width back, which is
    what makes the 2x2 pack below fit without the label wrapping. */
@@ -3416,13 +3436,14 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    the match here the right column would sit 6px above the avatar/name. */
 #panel-detail .dsecs { padding-top: 6px; }
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
-/* #2916 group-reveal shows two sibling .dsec cards at once (Model+Memory,
-   Instructions+Skills, which are DOM-adjacent). .dsec only spaces its OWN
-   children, so two visible siblings would render flush. Add separation only
-   when a .dsec directly follows another VISIBLE .dsec: the :not([hidden]) on
-   the left side means a lone section (its preceding sibling hidden) gets no
-   stray top margin, so single-section pills are unaffected. */
-.dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
+/* #2916 group-reveal shows several .dsec cards at once. .dsec only spaces its
+   OWN children, so two visible sections would render flush. Separate any
+   visible .dsec that has an earlier VISIBLE sibling; the first one shown gets
+   no top margin, so single-section pills are unaffected. #4961: `~`, not `+`.
+   A group's sections are not always DOM-adjacent (AI Settings shows Memory
+   then Terminal, with Profile, Instructions and Skills hidden between them),
+   and `+` left Fresh start flush against the terminal card. */
+.dsec:not([hidden]) ~ .dsec:not([hidden]) { margin-top: 24px; }
 /* #4961: detailGo and settingsGo move focus INTO a section, so a keyboard user's next Tab lands
    inside. The ring that marks where they landed (#350) is drawn only when that move followed a
    key press (`kbd-landed`, set from DSEC_KEYBOARD), never after a pointer press. Keyed on
@@ -7369,15 +7390,15 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    GLYPH span (not .emojibtn) so the hover/focus/expanded affordance backgrounds stay at
    full strength. Same technique as the `.pmark.dim svg` precedent below. */
 .emojibtn-glyph { filter: grayscale(1) opacity(.6); }
-/* #4409: the mic in the composers, drawn only where on-device dictation exists (the Mac app sets
-   html.has-voice). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
+/* #4409: the mic in the composers, drawn only where html.has-voice says a voice bridge exists (the Mac app's
+   on-device one, or on a phone the browser's recognizer, slice 3). Same quiet grey as the emoji button; while it listens it turns red and pulses, and
    aria-pressed says so to a screen reader. */
-.micbtn { display: none; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
+.micbtn { display: none; touch-action: manipulation; flex: 0 0 auto; place-items: center; width: 34px; height: 34px;
   border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; }
 html.has-voice .micbtn { display: grid; }
 /* #4409 slice 2: the mic inside a dialog's text box: top right of a textarea (clear of its resize grip), centred in a
    one-line input. The wrapper takes the box's place in its row (a .frow is a flex row that sized the input itself), so
-   no box changes size where the mic is not drawn; the box gets room on the right only where it is (the Mac app). */
+   no box changes size where the mic is not drawn; the box gets room on the right only where it is (html.has-voice). */
 .micwrap { position: relative; }
 .frow > .micwrap { flex: 1; min-width: 220px; }   /* the input's .frow flex sizing, which has no effect now it is not the flex item */
 .micwrap.line > input { width: 100%; box-sizing: border-box; }
@@ -7386,6 +7407,11 @@ html.has-voice .micbtn { display: grid; }
 .micwrap > :disabled + .fieldmic { display: none; }   /* a box that takes no words (instructions still loading) shows no mic */
 .micwrap > textarea { resize: vertical; }   /* a box dragged narrower would leave the mic outside it */
 #nt-voice-msg:empty { display: none; }   /* takes no room unless the mic says something (and never without a mic) */
+/* #4409 slice 3: the phone's who-hears-the-audio bar (voiceWho), above everything at the top of the visible screen. */
+#voice-who { position: fixed; left: 12px; right: 12px; top: calc(12px + env(safe-area-inset-top, 0px)); z-index: 10000;
+  margin: 0; padding: 10px 14px; border-radius: 12px; background: var(--k-ink); color: var(--k-bg);
+  font-size: .875rem; line-height: 1.35; box-shadow: 0 4px 16px rgba(0,0,0,.25); pointer-events: none; }
+#voice-who:empty { padding: 0; box-shadow: none; background: transparent; }   /* in the tree, so it is heard, but nothing shows */
 html.has-voice .micwrap > textarea:not(:disabled), html.has-voice .micwrap > input:not(:disabled),
 html.has-voice .micwrap > #d-instr:not(:disabled), html.has-voice .micwrap > #create-instr:not(:disabled) { padding-right: 44px; }   /* the two ID rules set their own padding */
 html.has-voice .micwrap:not(.line) > textarea:not(:disabled),
@@ -10143,6 +10169,29 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #d-dmthread .msg .msg-bd::after { background: var(--k-bg); }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox { border: 0; border-radius: 24px; padding: 6px 6px 6px 8px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .dmbar.composerbox:not(.dragging) { background: var(--nl-grey); }
+/* #4470, an agent's page, slice 2: the left column in the project page's language. One grey box (as the
+   project page's) holds the name, the section buttons and Files, at the project page's column width on a
+   desktop. The buttons lie flat on the box with no edge and no gold; the open one is a tile in the page's
+   ground with its label in full ink, so it differs in shape as well as colour. Files drops its card and its
+   spaced capitals for the project page's heading under a hairline. The swarm button keeps its state tint.
+   The wider column starts where this page stops being one column (56rem), not at the project page's 68rem:
+   at 220px the box's padding left the file names a few letters each. */
+@media (min-width: 56.01rem) {
+  :root[data-look="new"] body:not(.consolidated) #panel-detail .dbody { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); column-gap: 40px; }
+}
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dleft { background: var(--nl-grey); border-radius: 28px; padding: 24px 28px; }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm) { border-color: transparent; background: none; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm):not(.on):hover { background: color-mix(in srgb, var(--k-bg) 55%, transparent); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on { background: var(--k-bg); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on .dnav-ico { color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated) #panel-detail #d-files.pjcard { border: 0; border-radius: 0; background: none; padding: 22px 0 0; margin-top: 22px; border-top: 1px solid var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #d-files .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
+/* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
+   there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
+@media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
+  :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) .dleft { background: none; border-radius: 0; padding: 0; }
+  :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) #d-nav.dnav-boxed button:not(.dnav-swarm).on { background: var(--nl-grey); }
+}
 /* #4470: the header in the new look: the back chevron as a round button, then "Projects /
    <ancestors> / <name>" large, as the conversation's own header. The project name's h2 is
    visually hidden (still the page's heading for a screen reader), since the crumb now shows it. */
@@ -11872,7 +11921,7 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3744 (Josh, 2026-09-25 09:29: "We need emoji support in the agent DM."): the room's
            grey smiley and panel, driven by the same code (EMOJI_AT below), so there is one list
            of emoji and one behaviour. The panel sits inside this box, which is its anchor. -->
-      <!-- #4409: the mic. Drawn only in the Mac app, where the on-device dictation bridge exists (html.has-voice). -->
+      <!-- #4409: the mic. Drawn only where a voice bridge exists (html.has-voice): the Mac app, or a phone (slice 3). -->
       <button class="micbtn" id="d-mic" type="button" data-voice-for="d-say" data-voice-msg="d-say-msg" aria-label="Talk instead of typing" title="Talk instead of typing" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       <button class="emojibtn" id="d-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="d-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
             <button class="btn uprime cpost" id="d-send" type="button">Post</button>
@@ -17339,7 +17388,7 @@ window.kosmosMeasureScrollbarWidth();
       <h3 class="dlab">Community</h3>
       <div class="setrow" id="community-row">
         <div><b>My agents take part in the Kosmos+ community</b>
-          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles also show the kind of business you pick below, if you pick one. Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">They share what they are working on in the Kosmos+ community at community.kosmosplus.com. What they write goes out straight away, unless Kosmos’s safety check stops it; then it waits for you below. Their public profiles show each agent’s picture, and the kind of business you pick below, if you pick one. Once three or more of your agents on this Kosmos take part, each one’s profile also lists the others as working alongside it.</p></div>
         <button class="toggle" id="community-toggle" role="switch" aria-label="My agents take part in the Kosmos+ community" hidden><i></i></button>
       </div>
       <!-- #4375: the owner's industry, on their agents' public profiles ("Works for a law firm"). A fixed
@@ -17350,8 +17399,12 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <p class="dhint" id="community-industry-hint" style="margin:4px 0 0;">Optional. A profile reads “Works for” and what you pick; with none picked it leaves the line out.</p>
       <p class="dhint" id="community-industry-msg" role="status" style="margin:4px 0 0;"></p>
+      <!-- #4885: a picture the community shut an agent out with stays up, and only the board's log knew. -->
+      <p class="dhint" id="community-picture-stuck" style="margin:4px 0 0;" hidden></p>
+      <!-- #4885: a picture saved before Kosmos fitted pictures can be too big, or not a still picture, to go. -->
+      <p class="dhint" id="community-picture-unsendable" style="margin:4px 0 0;" hidden></p>
       <p class="dhint" id="community-share" style="margin:10px 0 0;"></p>
-      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
+      <p class="dhint" id="community-off-note" style="margin:8px 0 0;" hidden>Off. Your agents will not post. Any kind of business already on their profiles stays there until you pick None, and a picture stays until you remove it from the agent. Your current agents already shown as working alongside each other stay shown that way while three or more of them are active. Posts and comments already in the community stay up. You can delete them in the list below, which says when one cannot be removed.</p>
       <p class="dhint" id="community-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- #4525: what the agents wrote that is held for the person, each with Release and Discard.
            Since #3485 (2026-09-30) an agent's clean post publishes straight away, so this list holds
@@ -17671,7 +17724,7 @@ window.kosmosMeasureScrollbarWidth();
         <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a1.9 1.9 0 003.4 0"/></svg></span><div><b>Know when you're needed</b><span>Get notified when an agent finishes, hits a blocker, or asks a question.</span></div></li>
         <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.7-5 5.5-5s5.5 2 5.5 5"/><path d="M18.5 8.5v5M16 11h5"/></svg></span><div><b>Work with others</b><span>Invite people and their agents into selected projects. Remove access at any time.</span></div></li>
       </ul>
-      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval.</span></div></div>
+      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval. One exception: talking to type on a phone, where the browser's speech service (Apple's or Google's) hears it, and Kosmos says so while it listens.</span></div></div>
       <!-- #476, #567: the door is the trust sentence and it is BUILT, so
            it is said as a fact. "Nothing to install" left this paragraph
            on 2026-08-24: the installer ships no connector yet, and the
@@ -30445,6 +30498,16 @@ function industryPaint(r, keepMsg) {
   }
   sel.value = unread ? '__unknown' : (r.industry || '');
   sel.hidden = false;
+  const stuck = document.getElementById('community-picture-stuck');
+  const ns = r && Number.isInteger(r.picturesStuck) && r.picturesStuck > 0 ? r.picturesStuck : 0;
+  stuck.hidden = !ns;
+  stuck.textContent = !ns ? '' : (ns === 1 ? 'One agent\u2019s picture' : ns + ' agents\u2019 pictures')
+    + ' may still show in the community. The community shut ' + (ns === 1 ? 'that agent' : 'those agents') + ' out, so Kosmos can no longer take ' + (ns === 1 ? 'it' : 'them') + ' down.';
+  const unsendable = document.getElementById('community-picture-unsendable');
+  const nu = r && Number.isInteger(r.picturesUnsendable) && r.picturesUnsendable > 0 ? r.picturesUnsendable : 0;
+  unsendable.hidden = !nu;
+  unsendable.textContent = !nu ? '' : (nu === 1 ? 'One agent\u2019s picture' : nu + ' agents\u2019 pictures')
+    + ' cannot go to the community as ' + (nu === 1 ? 'it is' : 'they are') + '. Choose a different picture, or the same one again, on the agent\u2019s page and Kosmos will fit it if it can.';
   // A re-read after a refused save keeps the refusal on screen (keepMsg), even when that re-read cannot be read.
   if (keepMsg) return;
   // Said by case: with the list here, any choice sets it again; without it, only None is offered.
@@ -30452,15 +30515,19 @@ function industryPaint(r, keepMsg) {
     : (list.length ? 'We could not read which business your profiles show just now. Pick one, or None, to set it again.'
       : 'We could not read which business your profiles show just now. Try again in a moment.');
 }
-async function refreshIndustry(keepMsg) {
+/* #4885: `quiet` (a re-read when Settings' Automation section opens) leaves what is on screen alone when the read
+   fails, rather than turning a readable setting into "could not be read" over a momentary blip. Only when something
+   is already on screen: a page that opens straight onto Automation still says the read failed. */
+async function refreshIndustry(keepMsg, quietIfShown) {
   const mine = ++INDUSTRY_EPOCH;
+  const quiet = quietIfShown && !document.getElementById('community-industry').hidden;
   try {
     const res = await fetch('/api/community-industry');
-    if (!res.ok) { if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true); return; }
+    if (!res.ok) { if (mine === INDUSTRY_EPOCH && !quiet) industryPaint(null, keepMsg === true); return; }
     const r = await res.json();
     if (mine === INDUSTRY_EPOCH) industryPaint(r, keepMsg === true);
   } catch {
-    if (mine === INDUSTRY_EPOCH) industryPaint(null, keepMsg === true);
+    if (mine === INDUSTRY_EPOCH && !quiet) industryPaint(null, keepMsg === true);
   }
 }
 /* A change while a save is out is not dropped: arrow keys on a closed select fire `change` at every step, and the
@@ -30522,6 +30589,7 @@ function communityMineWord(r) {
      true after the delete lands, and checking it first would say "Deleting" forever. */
   if (r.state === 'deleted') return 'Deleted from the community';
   if (r.state === 'withheld') return 'Deleted before it was sent';
+  if (r.state === 'not_sent') return 'Not sent. It stayed on this computer.';
   if (r.state === 'refused') return 'Not accepted by the community';
   /* refused agent before deleteRequested: the send layer sends nothing for a refused agent
      (no DELETE, no settling), so a delete asked for on its post would otherwise promise
@@ -30871,6 +30939,8 @@ function communityHeldPaint(rows, full) {
          line promises no more than that. A comment on this board's own post goes no further. */
       + (underStopped ? '. Its post was stopped by the safety check, so this comment can only be discarded; discarding the post takes it too.'
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
+        /* #4994: its agent was deleted, and the store marked it never to send: releasing it keeps it on this board. */
+        : r.notSent === true && !stopped ? '. Its agent was deleted, so releasing it never sends it to the public community.'
         : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community. Once sent, it can be removed from the list below only if the community answered the send. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
@@ -37280,6 +37350,9 @@ function settingsGo(section, opts) {
      taken before the save landed. */
   if (section === 'automation' && typeof refreshCommunity === 'function' && !COMMUNITY_SAVING) refreshCommunity();
   if (section === 'automation' && typeof refreshFeedback === 'function' && !FEEDBACK_SAVING) refreshFeedback();
+  /* #4885: the industry read carries the picture counts, which change as pictures are chosen again; same rule. It
+     repaints the industry row too, so an earlier save message there is cleared. */
+  if (section === 'automation' && typeof refreshIndustry === 'function' && !INDUSTRY_SAVING) refreshIndustry(false, true);
   /* #1615: blue-skin the whole app while Plus is on screen and mount its two
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
@@ -37911,6 +37984,34 @@ function settingsOpen(sec, opts) {
   if (sec === 'connect') { paintConnLive(); paintConnShelf(); }
   if (sec === 'usage') paintUsage();
 }
+/* #4979: the app header's height, for the sticky Settings nav's top, and whether the whole nav
+   fits below it (see the #s-nav rules). Observers on the header's and the nav's border boxes and a
+   window resize recompute both, so a header that wraps or gains a bar or a notice moves the nav,
+   and a window too short for it lets the nav scroll with the page. */
+(() => {
+  const head = document.querySelector('.apphead');
+  const nav = document.getElementById('s-nav');
+  if (!head || !nav || typeof head.getBoundingClientRect !== 'function' || typeof nav.getBoundingClientRect !== 'function') return;
+  const root = document.documentElement;
+  const write = () => {
+    try {
+      const h = head.getBoundingClientRect().height;
+      if (typeof h !== 'number' || !Number.isFinite(h)) return;
+      root.style.setProperty('--apphead-h', h + 'px');
+      const n = nav.getBoundingClientRect().height;   // 0 while Settings is not showing: nothing to fit
+      root.classList.toggle('snav-loose', n > 0 && h + n + 32 > window.innerHeight);   // 16px above the nav and 16px below it
+    } catch { /* unmeasured: the nav keeps the old 16px and stays sticky */ }
+  };
+  write();
+  try {
+    if (typeof ResizeObserver === 'function') {
+      const ro = new ResizeObserver(write);
+      ro.observe(head, { box: 'border-box' });
+      ro.observe(nav, { box: 'border-box' });
+    }
+    if (typeof window.addEventListener === 'function') window.addEventListener('resize', write);
+  } catch { /* not a real element (a test harness's stub): the one measurement above stands */ }
+})();
 document.getElementById('s-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
@@ -39786,6 +39887,131 @@ document.getElementById('detail-back').addEventListener('click', () => {
   else showTab('agents');
 });
 
+/* #4885: an agent's picture travels with it to the Kosmos+ community, which takes a still PNG, JPEG or WebP of at most
+   60,000 bytes with each side from 16 to 2,048 px (kosmos-community app/avatars.py). A still PNG that already meets
+   all of that is kept exactly as chosen. Anything else (a big photo, a GIF, an animated picture, a tiny or huge one,
+   every WebP, and every JPEG, since a phone photo carries a rotation tag the community refuses and a redraw applies it) is
+   redrawn: longest side at most 512 px, short side at least 16 px (padded, never stretched), as WebP, then PNG (both
+   keep transparency, and a picture with transparency tries every size in them first), then JPEG on white, stepping
+   down until it fits. Every agent picture the person chooses comes through here. Never throws: a picture that
+   cannot be redrawn is kept as it was (the board then does not send it and the
+   community shows its mark). */
+const PICTURE_MAX_BYTES = 60000;
+const PICTURE_MIN_SIDE = 16;
+const PICTURE_MAX_SIDE = 2048;
+let PICTURE_WEBP = null;   // whether this browser can write WebP (WebKit cannot); asked once
+// Every blob fitPicture vouches for (kept or redrawn to fit); one it returns unchanged after failing is not in here.
+const PICTURE_FITS = new WeakSet();
+/* Whether EXIF data (a TIFF header and its first directory) carries an Orientation other than 1, upright. */
+function pictureTurned(exif) {
+  // Some writers put JPEG's "Exif\0\0" before the TIFF header in a PNG eXIf too.
+  if (exif.length >= 6 && exif[0] === 0x45 && exif[1] === 0x78 && exif[2] === 0x69 && exif[3] === 0x66 && !exif[4] && !exif[5]) exif = exif.subarray(6);
+  if (exif.length < 8) return false;
+  const le = exif[0] === 0x49 && exif[1] === 0x49;
+  if (!le && !(exif[0] === 0x4d && exif[1] === 0x4d)) return false;
+  const u16 = (at) => (le ? exif[at] + (exif[at + 1] << 8) : (exif[at] << 8) + exif[at + 1]);
+  const u32 = (at) => (le ? u16(at) + u16(at + 2) * 65536 : u16(at) * 65536 + u16(at + 2));
+  const dir = u32(4);
+  if (dir + 2 > exif.length) return false;
+  const n = u16(dir);
+  for (let i = 0; i < n; i++) {
+    const e = dir + 2 + i * 12;
+    if (e + 12 > exif.length) return false;
+    if (u16(e) === 0x0112) return u16(e + 8) > 1;   // 0 and 1 are upright, as the community reads them
+  }
+  return false;
+}
+/* Whether `bytes` are a still PNG fitPicture may keep as chosen, read from the bytes (never the file name), the way
+   the community reads one (app/avatars.py _png): IHDR first and 13 bytes long, picture data, no acTL, fcTL or fdAT
+   chunk anywhere, and no eXIf chunk that turns the picture (the community drops eXIf, and with it the turn, so such a
+   PNG is redrawn upright; WebKit writes an eXIf with no turn into every PNG it makes). Anything else, or anything cut
+   short, is not kept. Every WebP and JPEG is redrawn, so neither is read here. */
+function pictureStill(bytes) {
+  const tag = (at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+  const u32be = (at) => ((bytes[at] << 24) >>> 0) + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3];
+  const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= 8 && PNG_SIG.every((b, i) => bytes[i] === b)) {
+    if (bytes.length < 33 || tag(12) !== 'IHDR' || u32be(8) !== 13) return false;   // IHDR first, 13 bytes long
+    let idat = false;
+    for (let at = 8; at + 8 <= bytes.length;) {
+      const kind = tag(at + 4);
+      const end = at + 12 + u32be(at);
+      if (end > bytes.length) return false;   // a chunk cut short
+      if (kind === 'acTL' || kind === 'fcTL' || kind === 'fdAT') return false;
+      if (kind === 'eXIf' && pictureTurned(bytes.subarray(at + 8, at + 8 + u32be(at)))) return false;
+      if (kind === 'IDAT') idat = true;
+      if (kind === 'IEND') return idat;
+      at = end;
+    }
+    return false;
+  }
+  return false;
+}
+async function fitPicture(blob) {
+  let bmp = null;
+  try {
+    if (!blob) return blob;
+    // An engine that does not know the option throws on it; current engines turn the picture by default.
+    try { bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' }); } catch { bmp = await createImageBitmap(blob); }
+    const sidesOk = (w, h) => Math.min(w, h) >= PICTURE_MIN_SIDE && Math.max(w, h) <= PICTURE_MAX_SIDE;
+    // Only a still PNG is kept as chosen: a WebP is always redrawn, so the community's WebP checks only ever see this
+    // browser's own encoder output. The bytes are read only when the size could allow keeping it.
+    if (blob.size <= PICTURE_MAX_BYTES && sidesOk(bmp.width, bmp.height) && pictureStill(new Uint8Array(await blob.arrayBuffer()))) {
+      PICTURE_FITS.add(blob);
+      return blob;
+    }
+    if (PICTURE_WEBP === null) {
+      const one = document.createElement('canvas');
+      one.width = one.height = 1;
+      const b = await new Promise((r) => one.toBlob(r, 'image/webp'));
+      PICTURE_WEBP = Boolean(b && b.type === 'image/webp');
+    }
+    const keepAlpha = (PICTURE_WEBP ? ['image/webp'] : []).concat(['image/png']);
+    const big = Math.max(bmp.width, bmp.height) || 1;
+    // Sides to try, largest first; a picture smaller than a step is tried once at its own size.
+    const sides = [...new Set([512, 384, 256, 192, 128].map((x) => Math.min(x, big)))];
+    // A picture with transparency tries every size in a format that keeps it before any JPEG on white; one without
+    // tries each size in every format before going smaller, so a photo stays as large as the cap allows.
+    const pk = Math.min(1, 512 / big);
+    const probe = document.createElement('canvas');
+    probe.width = Math.max(1, Math.round(bmp.width * pk));
+    probe.height = Math.max(1, Math.round(bmp.height * pk));
+    const pctx = probe.getContext('2d');
+    pctx.drawImage(bmp, 0, 0, probe.width, probe.height);
+    const px = pctx.getImageData(0, 0, probe.width, probe.height).data;
+    let alpha = false;
+    for (let i = 3; i < px.length && !alpha; i += 4) alpha = px[i] < 255;
+    const tries = [];
+    if (alpha) {
+      for (const type of keepAlpha) for (const side of sides) tries.push([side, type]);
+      for (const side of sides) tries.push([side, 'image/jpeg']);
+    } else {
+      for (const side of sides) for (const type of keepAlpha.concat(['image/jpeg'])) tries.push([side, type]);
+    }
+    for (const [side, type] of tries) {
+      const k = Math.min(1, side / big);
+      const w = Math.max(1, Math.round(bmp.width * k));
+      const h = Math.max(1, Math.round(bmp.height * k));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(PICTURE_MIN_SIDE, w);
+      cv.height = Math.max(PICTURE_MIN_SIDE, h);
+      const ctx = cv.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      // JPEG has no transparency: on white, or a transparent picture comes out with a black background.
+      if (type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); }
+      ctx.drawImage(bmp, Math.floor((cv.width - w) / 2), Math.floor((cv.height - h) / 2), w, h);
+      for (const q of type === 'image/png' ? [undefined] : [0.86, 0.72]) {
+        const out = await new Promise((r) => cv.toBlob(r, type, q));
+        // A browser that cannot write a type hands back a PNG instead; only a blob of the asked-for type counts.
+        if (out && out.type === type && out.size <= PICTURE_MAX_BYTES) { PICTURE_FITS.add(out); return out; }
+      }
+    }
+    return blob;
+  } catch { return blob; } finally {
+    try { if (bmp) bmp.close(); } catch { /* already released */ }
+  }
+}
+
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
   /* #4038: cleared at once, so choosing the SAME file again (after a failure, or to redo it) fires change again; left
@@ -39799,13 +40025,18 @@ document.getElementById('d-file').addEventListener('change', async (e) => {
   const forAgent = CURRENT.sessionName;
   msg.textContent = 'Saving…';
   try {
+    const pic = await fitPicture(f);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar',
-      { method: 'PUT', headers: { 'content-type': f.type }, body: f });
+      { method: 'PUT', headers: { 'content-type': pic.type || f.type }, body: pic });
     const out = await res.json();
     if (!CURRENT || CURRENT.sessionName !== forAgent) return;
     // Say what to do, never surface an exception name.
     if (!res.ok) throw new Error(out.error || 'that did not work');
-    msg.textContent = 'Saved.';
+    // #4885: a picture that could not be fitted is kept as chosen, but the community will not take it.
+    // Said only when the board will not send it (over the cap, or not a PNG, JPEG or WebP), so the sentence is true.
+    const unsendable = !PICTURE_FITS.has(pic)
+      && (pic.size > PICTURE_MAX_BYTES || !['image/png', 'image/jpeg', 'image/webp'].includes(pic.type));
+    msg.textContent = unsendable ? 'Saved. Kosmos could not fit this picture for the community, so it will not show there.' : 'Saved.';
     await tick();
     // Only the picture. openDetail would re-run the whole panel and throw away
     // anything typed into the instruction box but not yet saved.
@@ -49670,6 +49901,7 @@ async function tcPortrait(name, image, shown, team, slot) {
       blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
       if (!blob) return 'failed';
     }
+    blob = await fitPicture(blob);   // #4885
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', { method: 'PUT', headers: { 'content-type': blob.type || 'image/webp' }, body: blob });
     return res.ok ? 'set' : 'failed';
   } catch { return 'failed'; }
@@ -49776,6 +50008,7 @@ async function loadSeededTeams() {
       if (!res.ok) throw new Error('status ' + res.status);
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data && Array.isArray(data.teams) ? data.teams : []);
+      // The menu's order comes from seededTeamGroups (#5021); this rank order is only the list's own.
       const teams = list.filter((t) => t && typeof t.key === 'string' && typeof t.label === 'string')
         .sort((a, b) => (Number(a.rank) || 0) - (Number(b.rank) || 0));
       SEEDED_TEAMS = teams.length ? teams : null;   // round 3: an empty list is asked again next visit, like a 404
@@ -49799,11 +50032,35 @@ async function loadSeededTeams() {
     return;
   }
   const chosen = sel.value;   // a revisit keeps the team they had picked, while it is still offered
-  sel.innerHTML = '<option value="">Choose a team</option>'
-    + SEEDED_TEAMS.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('');
+  sel.innerHTML = '<option value="">Choose a team</option>' + seededTeamGroups(SEEDED_TEAMS).map((g) =>
+    '<optgroup label="' + esc(g.name) + '">'
+    + g.teams.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('')
+    + '</optgroup>').join('');
   if (chosen && SEEDED_TEAMS.some((t) => t.key === chosen)) sel.value = chosen;
   sel.disabled = false;
   paintSeededTeam();
+}
+/* #5021 (Josh, 0.7.17 staging: "categorized by something, at minimum alpha, but ... grouping like we have on picking
+   another role"): the ready-made teams under headings, A to Z inside each. The heading is the team's catalogue
+   `group` when it has one (the role picker's way), else its kind: Business, or Personal and family. Business
+   headings come before personal ones, each run A to Z. (Ranks restart per kind, so ordering by rank alone, as
+   before, interleaved the two kinds.) */
+const SEEDED_KIND_HEADING = { business: 'Business', personal: 'Personal and family' };
+function seededTeamGroups(teams) {
+  const kindOrder = (k) => { const i = ['business', 'personal'].indexOf(k); return i === -1 ? 2 : i; };
+  const byName = (a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+  // Headings merge by their exact text, so two teams share one only when the catalogue spells it the same; a heading
+  // takes its kind (and so its place) from the first team under it, business first as the route sends them.
+  const groups = new Map();
+  for (const t of teams || []) {
+    const named = typeof t.group === 'string' && t.group.trim();
+    const name = named || SEEDED_KIND_HEADING[t.kind] || 'Other teams';
+    if (!groups.has(name)) groups.set(name, { name, kind: kindOrder(t.kind), teams: [] });
+    groups.get(name).teams.push(t);
+  }
+  const out = [...groups.values()].sort((a, b) => a.kind - b.kind || byName(a.name, b.name));
+  for (const g of out) g.teams.sort((a, b) => byName(a.label, b.label));
+  return out;
 }
 document.getElementById('team-seeded').addEventListener('change', paintSeededTeam);
 document.getElementById('team-seeded-go').addEventListener('click', () => {
@@ -52399,9 +52656,10 @@ function paintMade(steps, watching, projectOutcomes, revealed) {
  * throws, never gates the flow.
  */
 async function uploadPendingAvatar(name) {
-  const up = PENDING_AVATAR;
+  const chosen = PENDING_AVATAR;
   PENDING_AVATAR = null;
-  if (!up || !name) return false;
+  if (!chosen || !name) return false;
+  const up = await fitPicture(chosen);   // #4885
   const put = async (blob) => {
     for (let i = 0; i < 2; i++) {
       if (i) await new Promise((r) => setTimeout(r, 2000)); // between attempts, never after the last
@@ -52424,7 +52682,7 @@ async function uploadPendingAvatar(name) {
      person assumes their agent now has no picture). If even the mark fails,
      silence: the detail panel's uploader is the recovery path, and a
      reassurance nobody verified is worse than none. */
-  if (up === AVATAR_FILE && AVATAR_FILE) {
+  if (chosen === AVATAR_FILE && AVATAR_FILE) {
     try {
       const cv = document.createElement('canvas');
       cv.width = 144; cv.height = 144;
@@ -61222,17 +61480,18 @@ function repaintReactions(box, list) {
 
 /* ===== #4409: voice. Talk to an agent (the mic in each composer) and hear an agent (read aloud). =====
    Josh, 2026-09-28 15:02: "it would be so great to be able to get an agent to speak and to be able to speak
-   to them through Kosmos". Built-in engines only, no paid service, no audio kept.
+   to them through Kosmos". Built-in engines only, no paid service. On the Mac app the audio stays on the Mac and none is
+   kept; on a phone (slice 3) the browser's speech service (Apple's or Google's) hears it, and the bar says so.
 
    TALKING: the Mac app's on-device recognizer (native-app/main.swift VoiceBridge), reached through the
-   `kosmosVoice` bridge. The mic is drawn only where that bridge exists. 🛑 NOT the page's own
-   webkitSpeechRecognition as a fallback in a browser: in Chrome it sends the audio to Google, which is the
-   one thing this feature promises not to do. The words land in the box at the caret for the person to
-   read and send; nothing is sent by talking.
+   `kosmosVoice` bridge. The mic is drawn only where a bridge exists: the Mac app's, or (slice 3) on a phone the
+   browser's own recognizer (voicePhoneBridge), which sends the audio to Apple or Google and says so. A computer's
+   browser gets no mic. The words land in the box at the caret for the person to read and send; nothing is sent by
+   talking.
 
    HEARING: speechSynthesis, measured working in the app's web view with 68 voices, all on-device. Only an
    on-device voice is used; a page with none says so rather than using a network voice. */
-const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false };
+const VOICE = { btn: null, box: null, before: '', after: '', selected: '', where: '', id: '', seq: 0, last: '', listening: false, heard: false, dlgSaid: '', stopping: false };
 /* #4409 (review 1 BLOCKER): which conversation the page is showing. Opening another agent or room does NOT fire
    hashchange (the URL follows the view through history.replaceState), and #d-say / #pj-post are ONE shared box each,
    so a word heard after a switch would land in the next agent's box, be parked as THEIR draft, and go to them on
@@ -61265,8 +61524,180 @@ const VOICE_SAYS = {
   'nothing-heard': 'Nothing was heard.',
   'recognizer': 'Listening stopped because of an error. Try again.',
 };
+/* Slice 3: on a phone the refusals point at the phone's settings, not the Mac's. */
+const VOICE_SAYS_PHONE = {
+  'mic-denied': 'This browser is not allowed to use the microphone. Allow it in this browser\'s settings for this site, or in this device\'s Settings app under the browser.',
+  'speech-denied': 'Speech recognition is turned off for this browser (allow it in this device\'s Settings app under the browser), or not available in a page added to the home screen (open it in the browser instead).',
+  network: 'The speech service could not be reached. Check the connection and try again.',
+  // On an iPhone or iPad the refusal is Dictation switched off, a device setting, not one per browser (round 20).
+  'speech-denied-apple': 'Dictation is turned off on this device. Turn it on in the Settings app (General, Keyboard), then try again. In a page added to the home screen, open it in Safari instead.',
+  'last-words-missing': 'Listening stopped, but the last words may not have come back. Check the box before you send.',
+  // A phone always has a microphone: it is held by something else (a call, a voice memo, another app).
+  'no-mic': 'The microphone is in use by something else, such as a call or another app. Try again when it is free.',
+};
 function voiceBridge() {
-  try { return (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosVoice) || null; } catch { return null; }
+  try {
+    const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosVoice;
+    if (native) return native;
+  } catch { /* fall through */ }
+  return voicePhoneBridge();
+}
+/* #4409 slice 3 (Josh, 2026-10-01 17:16: "Can we do it in mobile too?"): on a PHONE with no app bridge, the browser's
+   own recognizer, behind the same interface as the Mac's (postMessage {op} in, kosmosVoiceEvent out), so tapping and
+   the dialogs work unchanged (holding does not: on a phone the mic is a tap, see the pointerdown handler). On iPhone Safari Apple hears the audio; on Android Chrome, Google. Slice 1 kept browser
+   recognition out on privacy grounds, an agent's call. Sending phone audio to Apple or Google is Splinter's call, in
+   the card's comment of 2026-10-01 17:16 (it cites its own grounds there; Josh may override it, and if he says to keep
+   phone audio on the phone only this shim goes). Josh's 17:16 question asked for voice on phones, not for this. The
+   bar says who hears it, and the Kosmos+ privacy line names the exception. The Mac app keeps its
+   on-device bridge, and a computer's browser (a fine pointer) gets no mic. */
+const VOICE_PHONE_STOP_MS = 5000;   // as long as the Mac app waits for the last words after a stop
+const VOICE_PHONE_CAP_MS = 300000;   // as the Mac app: a mic left on by mistake does not listen forever (its audio leaves the phone)
+let VOICE_PHONE = undefined;   // the shim, built once at load and never rebuilt: an iPad that later gains a trackpad keeps it, and one that starts with a trackpad never gets it, until the page reloads; null where none
+function voicePhoneWho() {
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  /* Named only where we know who it is: every iPhone and iPad browser is Safari's engine (Apple's recognizer),
+     except in the EU, where iOS 17.4 allows other engines, and on Android only Chrome itself is Google's. Another Android browser
+     (Samsung Internet, Edge, Opera, Firefox, Brave, DuckDuckGo, Vivaldi) may send the audio elsewhere, so it gets no
+     mic rather than a guess. */
+  // Brave sends Chrome's exact user agent; navigator.brave tells it apart (on Android the brand check below would too).
+  // On iOS Brave is WebKit and Apple would be honest, but this fails closed on purpose: no mic beats an unchecked name.
+  try { if (navigator.brave) return ''; } catch { /* no navigator */ }
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document)) {
+    // WebKit does not expose navigator.userAgentData and Blink does: an iOS browser that has it is another engine (the
+    // EU allows them since iOS 17.4) whose audio may go elsewhere, so it gets no mic rather than the name Apple.
+    try { if (navigator.userAgentData) return ''; } catch { /* as WebKit */ }
+    return 'Apple';
+  }
+  if (/Android/i.test(ua) && /Chrome\//.test(ua) && !/SamsungBrowser|EdgA|OPR|Firefox|YaBrowser|UCBrowser|DuckDuckGo|Vivaldi|; wv\)/i.test(ua)) {
+    /* And the browser says it is Google Chrome. A rebranded Chromium sends Chrome's user agent but not Chrome's brand,
+       so this fails closed: no brand list, no mic. */
+    try {
+      const brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
+      if (brands.some((x) => x && x.brand === 'Google Chrome')) return 'Google';
+    } catch { /* no brands */ }
+  }
+  return '';
+}
+function voicePhoneBridge() {
+  if (VOICE_PHONE !== undefined) return VOICE_PHONE;
+  VOICE_PHONE = null;
+  try {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const phone = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    if (!Rec || !phone) return null;
+    /* A phone, not a touch-screen computer (a Windows tablet's Edge would send the audio to Microsoft): an iPhone, an iPad
+       (which says Macintosh, with touch) or Android. And a secure page: elsewhere the recognizer refuses every start,
+       which would read as a refused microphone. */
+    if (voicePhoneWho() === '' || window.isSecureContext === false) return null;
+    let rec = null, id = null, stopTimer = 0, capTimer = 0;
+    const unwait = () => {
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = 0; }
+      if (capTimer) { clearTimeout(capTimer); capTimer = 0; }
+    };
+    const emit = (ev) => { if (typeof window.kosmosVoiceEvent === 'function') window.kosmosVoiceEvent(Object.assign({ id }, ev)); };
+    const REASON = { 'not-allowed': 'mic-denied', 'service-not-allowed': 'speech-denied', 'audio-capture': 'no-mic', 'no-speech': 'nothing-heard', network: 'network' };
+    VOICE_PHONE = {
+      phone: true,
+      postMessage(m) {
+        const op = m && m.op;
+        if (op === 'start') {
+          unwait();
+          if (rec) { try { rec.abort(); } catch { /* already ended */ } }
+          id = m.id;
+          let mine;
+          /* This session's words: the finished results kept so far, and how far into the recognizer's current list they
+             reach. Kept here, not rebuilt from the list each time, so a list that starts again (iOS after a pause is
+             reported to) cannot take back words already said. */
+          const finals = [];
+          const raw = [];   // the current list's final results as they arrived, by position, before any repeat merge
+          let doneIdx = 0;
+          const fail = () => { rec = null; emit({ kind: 'error', reason: 'recognizer' }); emit({ kind: 'stopped' }); };
+          try {
+            mine = new Rec();
+            mine.continuous = true;
+            mine.interimResults = true;
+          } catch { fail(); return; }   // a recognizer that cannot be built leaves the mic off, not half on
+          rec = mine;
+          try { mine.lang = navigator.language || 'en-US'; } catch { /* the default */ }
+          mine.onstart = () => { if (rec === mine) emit({ kind: 'listening' }); };
+          mine.onresult = (e) => {
+            if (rec !== mine) return;
+            const tidy = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+            const fold = (t) => tidy(t).toLowerCase().replace(/[.,!?;:]+/g, '');
+            /* The Web Speech way: a result is final once and stays so, and resultIndex is the first one that changed. A
+               resultIndex below what is kept means a new list (or the old one sent again): keep what was said, read on. */
+            const from = typeof e.resultIndex === 'number' ? e.resultIndex : 0;
+            if (from < doneIdx) {
+              /* A list that starts again. Results it sends back that match, position by position, the finals this list
+                 already gave us (as they arrived, not as merged) are ours already: skip them. The first that differs
+                 starts a fresh list, and what came before it is kept as said. A result said again, word for word, as the
+                 first thing after a restart cannot be told from one sent back, and is taken as sent back: a known loss
+                 of that result (in practice a short one: "no", "okay"). */
+              let j = from;
+              while (j < e.results.length && j < raw.length && e.results[j].isFinal && fold((e.results[j][0] || {}).transcript) === raw[j]) j += 1;
+              raw.length = j;
+              doneIdx = j;
+            }
+            const repeats = (part) => {
+              const fl = fold(finals.length ? finals[finals.length - 1] : ''), fp = fold(part);
+              return fl.includes(' ') && fp.startsWith(fl) && (fp.length === fl.length || fp[fl.length] === ' ');
+            };
+            const interim = [];
+            for (let i = doneIdx; i < e.results.length; i += 1) {
+              const part = tidy((e.results[i][0] || {}).transcript);
+              if (!part) { if (e.results[i].isFinal && i === doneIdx) { raw[i] = ''; doneIdx = i + 1; } continue; }
+              if (e.results[i].isFinal && i === doneIdx) {
+                /* Android Chrome is reported to repeat the previous result inside the next ("call the", then "call the
+                   client"). Compared with the PREVIOUS result only, never with everything so far, so one miss cannot
+                   cascade; at a word boundary, punctuation aside; and only when that result is two words or more: "a"
+                   then "apple pie", "no" then "no thanks", and "no" then "no" are real speech and are kept.
+                   KNOWN DEFECT, chosen: under that Android pattern a ONE-word first result lands twice ("call" then "call
+                   the client" gives "call call the client"). Merging it would drop real one-word speech instead; a
+                   doubled word is visible and easy to delete, a dropped one is not. */
+                if (repeats(part)) finals[finals.length - 1] = part; else finals.push(part);
+                raw[i] = fold(part);
+                doneIdx = i + 1;
+              } else interim.push(part);   // a phone does not always lead a later result with a space: joined below
+            }
+            // Shown, not kept: words still being heard that repeat the last kept result stand in for it, as they will.
+            const shown = interim.length && repeats(interim[0]) ? finals.slice(0, -1) : finals;
+            emit({ kind: interim.length ? 'partial' : 'final', text: tidy(shown.concat(interim).join(' ')) });
+          };
+          /* An error ends the session here and now: a browser need not follow it with onend, and without a stopped the mic
+             would stay on and who-hears-the-audio would stay up. A late onend is then not ours (rec !== mine). */
+          mine.onerror = (e) => {
+            if (rec !== mine) return;   // ours to ignore: our own cancel or a newer start set rec first, aborted included
+            /* An error that is still ours came from the browser or the phone (a call, another app taking the mic) and is
+               said. The one exception: during our own stop's wait, an 'aborted' answers that stop and is not a failure.
+               Every other code is said there too (round 22: an allow-list of real errors let an unlisted one pass silent). */
+            const ownStop = !!stopTimer && e.error === 'aborted';
+            unwait();
+            rec = null;
+            try { mine.abort(); } catch { /* already ended */ }
+            if (!ownStop) emit({ kind: 'error', reason: REASON[e.error] || 'recognizer' });
+            emit({ kind: 'stopped' });
+          };
+          mine.onend = () => { if (rec === mine) { unwait(); rec = null; emit({ kind: 'stopped' }); } };
+          try { mine.start(); } catch { fail(); return; }   // in the tap's click: a phone starts the microphone only from a gesture
+          // Left armed through a stop's wait; firing then, its stop finds the stop already waiting (stopTimer) and does nothing.
+          capTimer = setTimeout(() => { capTimer = 0; if (rec === mine) voiceStop(VOICE_PHONE); }, VOICE_PHONE_CAP_MS);
+        } else if (op === 'stop') {
+          const was = rec;
+          if (!was || stopTimer) return;   // already stopping: one wait, not one per tap
+          /* Round 22: when the browser never answers the stop, the last words may still have been on their way to the
+             speech service and never come back, so the person is told before the bar goes. */
+          const end = (timedOut) => { stopTimer = 0; if (rec === was) { rec = null; try { was.abort(); } catch { /* ended */ } if (timedOut) emit({ kind: 'error', reason: 'last-words-missing' }); emit({ kind: 'stopped' }); } };
+          try { was.stop(); } catch { end(); return; }   // the last words come as a final result, then stopped
+          stopTimer = setTimeout(() => end(true), VOICE_PHONE_STOP_MS);   // a browser that never sends onend after a stop does not keep the mic on
+        } else if (op === 'cancel') {
+          unwait();
+          const was = rec; rec = null;
+          if (was) { try { was.abort(); } catch { /* already ended */ } }
+        }
+      },
+    };
+  } catch { VOICE_PHONE = null; }
+  return VOICE_PHONE;
 }
 /* Where the heard words go: between what was before the caret and what was after it, with one space on
    each side where the neighbours need it. PURE, for the node suite. */
@@ -61298,31 +61729,101 @@ function voicePaint(btn, state) {
   btn.classList.toggle('asking', state === 'asking');
   btn.setAttribute('aria-pressed', state === 'on' ? 'true' : 'false');
   const name = btn.getAttribute('data-voice-name');   // #4409 slice 2: a dialog has several, each named for its box
-  const label = (state === 'off' ? 'Talk instead of typing' : 'Stop listening') + (name ? ': ' + name : '');
+  const b = voiceBridge();
+  const label = (state === 'off' ? 'Talk instead of typing' : 'Stop listening') + (name ? ': ' + name : '')
+    + (b && b.phone ? ' (' + voicePhoneWho() + ' hears the audio)' : '');   // slice 3: said before the first tap too
   btn.setAttribute('aria-label', label);
   btn.title = label;
 }
 function voiceSay(btn, line) {
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
-  if (el) el.textContent = line;
+  if (el) { el.textContent = line; VOICE.dlgSaid = ''; }   // the line is no longer the bar's, so the bar must not clear it later
 }
 /* The listening line is ours to clear; an error line said after it is not. */
 const VOICE_LISTENING = 'Listening. Press Escape to stop.';
+/* On a phone there is no Escape, and the person is told who hears the audio (slice 3). */
+function voiceListeningLine() {
+  const b = voiceBridge();
+  return b && b.phone ? 'Listening. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.' : VOICE_LISTENING;
+}
 function voiceMsgEl(btn) { return btn && document.getElementById(btn.getAttribute('data-voice-msg') || ''); }
 function voiceMsgEmpty(btn) { const el = voiceMsgEl(btn); return !!el && !el.textContent; }
 /* At a new start: the mic's own earlier words (a refusal, the listening line) go; anything else the page said stays. */
 function voiceUnsayOwn(btn) {
   const el = voiceMsgEl(btn);
-  if (el && (el.textContent === VOICE_LISTENING || Object.values(VOICE_SAYS).includes(el.textContent))) el.textContent = '';
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine() || Object.values(VOICE_SAYS).includes(el.textContent) || Object.values(VOICE_SAYS_PHONE).includes(el.textContent))) el.textContent = '';
 }
 function voiceUnsay(btn) {
+  voiceWho('', btn);   // also on a switch between mics (voiceToggle cancels first); the new start says it again at once
   const el = btn && document.getElementById(btn.getAttribute('data-voice-msg') || '');
-  if (el && el.textContent === VOICE_LISTENING) el.textContent = '';
+  if (el && (el.textContent === VOICE_LISTENING || el.textContent === voiceListeningLine())) el.textContent = '';
+}
+/* Slice 3: on a phone, who hears the audio is said in a bar of its own at the top of the visible screen, from the tap (before
+   any audio can be sent) until listening ends. Not in the box's message line: that line belongs to whatever else the
+   page is saying, and covering it hides that (or, put back after, revives a line its owner has since retired). */
+/* At the top of what is visible: the composer and the mic to tap are at the foot, and so is an on-screen keyboard (iOS
+   pans the page under it, so the visible top is the visual viewport's, not the layout viewport's). Placed again whenever
+   the visible area moves while the bar says something: a scroll, the keyboard coming or going. */
+function voiceWhoPlace() {
+  const bar = document.getElementById('voice-who');
+  if (!bar) return;
+  try { bar.style.top = 'calc(' + Math.round((window.visualViewport && window.visualViewport.offsetTop) || 0) + 'px + 12px + env(safe-area-inset-top, 0px))'; } catch { /* the default */ }
+}
+let VOICE_WHO_FOLLOW = false;
+/* The hidden status a dialog mic speaks through when its visible line is taken (voiceWho). Made empty and filled a moment
+   later: a live region born with its text is not announced. With no dialog, every one is emptied. */
+function voiceWhoHidden(dlg, line) {
+  if (!dlg) { document.querySelectorAll('.voice-who-dlg').forEach((h) => { h.dataset.want = ''; h.textContent = ''; }); return; }   // want too: a fill still pending must not revive it
+  let h = dlg.querySelector('.voice-who-dlg');
+  const fresh = !h;
+  if (fresh) {
+    h = document.createElement('p');
+    h.className = 'voice-who-dlg';
+    h.setAttribute('role', 'status');
+    h.setAttribute('aria-live', 'polite');
+    h.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';
+    dlg.appendChild(h);
+  }
+  h.dataset.want = line;
+  if (fresh) setTimeout(() => { h.textContent = h.dataset.want || ''; }, 0); else h.textContent = line;
+}
+function voiceWho(line, forBtn) {
+  const bar = document.getElementById('voice-who');   // made at load on a phone, empty, so a screen reader hears each line
+  if (!bar) return;
+  /* In a modal dialog a screen reader cannot reach the bar, so a dialog mic's own line says it too: only a line that is
+     empty or one the bar put there, never over another message. When the line holds the page's own message (a failed
+     Create or Save), a hidden status inside the dialog says it instead, so a screen reader is still told who hears. */
+  const btn = forBtn || VOICE.btn, dlg = btn && btn.closest && btn.closest('[aria-modal="true"]'), el = dlg && voiceMsgEl(btn);
+  if (el && (!el.textContent || el.textContent === VOICE.dlgSaid)) { el.textContent = line || ''; VOICE.dlgSaid = line || ''; voiceWhoHidden(null, ''); }
+  else if (el && line) voiceWhoHidden(dlg, line);
+  if (!line) voiceWhoHidden(null, '');
+  const vv = window.visualViewport;
+  if (line && !VOICE_WHO_FOLLOW && vv) { vv.addEventListener('scroll', voiceWhoPlace); vv.addEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = true; }
+  if (!line && VOICE_WHO_FOLLOW && vv) { vv.removeEventListener('scroll', voiceWhoPlace); vv.removeEventListener('resize', voiceWhoPlace); VOICE_WHO_FOLLOW = false; }
+  voiceWhoPlace();
+  bar.textContent = line || '';
+}
+/* Every stop the person asks for goes through here (a second tap, letting go of a hold, Escape), and so does the phone's
+   300 s cap; on a phone, a further press while already Finishing cancels instead (voiceToggle). Slice 3: on a phone the audio may still be
+   on its way until the last words come back, so the bar stays, saying so. */
+function voiceStop(h) {
+  VOICE.stopping = true;   // a late 'listening' (a stop before the recognizer said it started) must not undo this line
+  if (h.phone) voiceWho('Finishing. ' + voicePhoneWho() + ' is turning the last of this audio into words.');
+  h.postMessage({ op: 'stop' });
 }
 function voiceToggle(btn) {
   const h = voiceBridge();
   if (!h || !btn) return;
-  if (VOICE.btn === btn) { h.postMessage({ op: 'stop' }); return; }   // the second press: stop, keep the words
+  if (VOICE.btn === btn) {   // the second press: stop, keep the words
+    /* On a phone, a press while already Finishing (waiting up to 5 s for the last words) ends listening now: the person
+       has asked twice, and the bar must not keep saying audio is being turned into words. The words in the box stay.
+       Phone only (round 25): on the Mac a cancel throws away the recognizer's final corrected words, and there is no
+       bar to keep honest, so a further press there is one more stop, as before. */
+    if (VOICE.stopping && h.phone) { voiceCancel(); return; }
+    voiceStop(h);
+    return;
+  }
+  if (h.phone && !document.getElementById('voice-who')) return;   // slice 3: nowhere to say who hears the audio, so no audio
   if (VOICE.btn) voiceCancel();
   const box = document.getElementById(btn.getAttribute('data-voice-for') || '');
   if (!box || box.disabled || box.readOnly) return;   // review 5: a read-only box (an ended Guide chat) takes no words, spoken ones included
@@ -61330,13 +61831,15 @@ function voiceToggle(btn) {
   const s0 = typeof box.selectionStart === 'number' ? box.selectionStart : v.length;
   const s1 = typeof box.selectionEnd === 'number' ? box.selectionEnd : v.length;
   VOICE.seq += 1;
-  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false });
+  Object.assign(VOICE, { btn, box, before: v.slice(0, s0), after: v.slice(s1), selected: v.slice(s0, s1), where: voiceWhere(box), id: 's' + VOICE.seq, last: v, listening: false, stopping: false, heard: false });
   voiceUnsayOwn(btn);   // review 6: clear only the mic's own earlier lines, never another message's (a failed send, a refusal)
   voicePaint(btn, 'asking');
+  if (h.phone) voiceWho('Starting the microphone. ' + voicePhoneWho() + ' hears this audio to turn it into words. Tap the mic to stop.');   // before a word can be sent
   h.postMessage({ op: 'start', id: VOICE.id });
   /* #4409 (review 4): clicking the mic moves focus to the button, and Escape stops only from the box, so give the box
      focus back (its caret was read above and focusing does not move it). Typing then also takes the box back. */
-  try { box.focus({ preventScroll: true }); } catch { /* a stub box in the node suite */ }
+  /* Not on a phone: focusing the box there opens the on-screen keyboard over the thread on every tap (slice 3). */
+  try { if (!h.phone) box.focus({ preventScroll: true }); } catch { /* a stub box in the node suite */ }
   voiceSpeakWatch();
 }
 /* Stop and drop whatever is still coming: the person sent, typed, or left. What is already in the box stays. */
@@ -61356,8 +61859,16 @@ function voiceOnEvent(ev) {
      page started with; an app from before the id carries none, and is taken as it always was. */
   if (ev.id != null && ev.id !== VOICE.id) return;
   const btn = VOICE.btn;
-  if (ev.kind === 'listening') { VOICE.listening = true; voicePaint(btn, 'on'); if (voiceMsgEmpty(btn)) voiceSay(btn, VOICE_LISTENING); return; }   // never over another message's line   // review 5: focus is in the box, so say it there
+  if (ev.kind === 'listening') {
+    VOICE.listening = true;
+    voicePaint(btn, 'on');
+    const hb = voiceBridge();
+    if (hb && hb.phone) { if (!VOICE.stopping) voiceWho(voiceListeningLine()); }   // slice 3: the bar (and a dialog's line)
+    else if (voiceMsgEmpty(btn)) voiceSay(btn, voiceListeningLine());   // never over another message's line
+    return;
+  }
   if ((ev.kind === 'partial' || ev.kind === 'final') && VOICE.box) {
+    if (String(ev.text || '').trim()) VOICE.heard = true;
     const box = VOICE.box;
     /* 🛑 The view moved (another agent, room, the Guide closed, the window hidden): these words were meant for the
        conversation that is gone, so they go nowhere and the mic stops. What is already in the box stays. */
@@ -61373,7 +61884,15 @@ function voiceOnEvent(ev) {
     box.dispatchEvent(new Event('input', { bubbles: true }));   // the box grows, the counter and the @ mirror follow
     return;
   }
-  if (ev.kind === 'error') { voiceSay(btn, VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer); return; }
+  if (ev.kind === 'error') {
+    // #4409 slice 3: Android's recognizer ends a long silence with no-speech even after words landed; that is not
+    // "Nothing was heard", and the words are in the box, so it says nothing.
+    if (ev.reason === 'nothing-heard' && VOICE.heard) return;
+    const b = voiceBridge();
+    const key = b && b.phone && ev.reason === 'speech-denied' && voicePhoneWho() === 'Apple' ? 'speech-denied-apple' : ev.reason;
+    voiceSay(btn, (b && b.phone && VOICE_SAYS_PHONE[key]) || VOICE_SAYS[ev.reason] || VOICE_SAYS.recognizer);
+    return;
+  }
   if (ev.kind === 'stopped') { VOICE.btn = null; VOICE.box = null; VOICE.where = ''; VOICE.id = ''; voicePaint(btn, 'off'); voiceUnsay(btn); }
 }
 window.kosmosVoiceEvent = voiceOnEvent;
@@ -61401,6 +61920,11 @@ let VOICE_PRESSED = null;   // { mic, until }
 document.addEventListener('pointerdown', (e) => {
   const mic = e.button === 0 && !e.ctrlKey && e.isPrimary !== false && e.target.closest && e.target.closest('.micbtn');   // Ctrl+click opens a menu on a Mac
   if (!mic) return;
+  /* Slice 3: on a phone the mic is a tap, started from the click. A touch press is not a user activation (only its
+     release is), a phone browser may refuse to start the microphone outside one, and a held finger on a phone opens the
+     long-press menu and drifts into a scroll. */
+  const pb = voiceBridge();
+  if (pb && pb.phone) return;
   /* One press at a time: a second pointer does not take over the first. A press whose release the page never heard (let
      go over a menu or the title bar) does not block for good: the same pointer pressing again, or 10 s, ends it. */
   if (VOICE_PRESS && VOICE_PRESS.pointer !== e.pointerId && Date.now() - VOICE_PRESS.at < 10000) return;
@@ -61423,7 +61947,7 @@ function voiceRelease(e) {
      would drop the start, so it is taken as a tap, and the next tap stops. */
   if (!VOICE.listening) return;
   const h = voiceBridge();
-  if (h) h.postMessage({ op: 'stop' });   // a hold: let go and it stops, keeping what it heard
+  if (h) voiceStop(h);   // a hold: let go and it stops, keeping what it heard
 }
 /* Keep focus (and the caret) in the box: the mic's own mousedown is prevented (a real or a touch-emulated one), which
    stops the focus move and nothing else, so the document's close-on-mousedown-outside listeners (the emoji panel, a custom select) still run. Preventing
@@ -61473,7 +61997,7 @@ document.addEventListener('click', (e) => {
 }, true);
 document.addEventListener('keydown', (e) => {
   if (!VOICE.btn || e.target !== VOICE.box) return;
-  if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); const h = voiceBridge(); if (h) h.postMessage({ op: 'stop' }); return; }
+  if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); const h = voiceBridge(); if (h) voiceStop(h); return; }
   if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock'].includes(e.key)) return;
   voiceCancel();   // typing (or Enter to send) takes the box back; the words heard so far stay
 }, true);
@@ -61484,7 +62008,20 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { voi
 window.addEventListener('pagehide', () => voiceCancel());
 window.addEventListener('hashchange', () => voiceCancel());
 window.addEventListener('popstate', () => voiceCancel());
-try { if (voiceBridge()) document.documentElement.classList.add('has-voice'); } catch { /* no page root (the node harnesses): nothing to draw */ }
+try {
+  const vb = voiceBridge();
+  // Slice 3: on a phone every mic's label says who hears the audio from the start, not only once it is used, and the
+  // bar that says it while listening is built FIRST: no bar, no mic (voiceToggle also refuses to start without it).
+  if (vb && vb.phone) {
+    const bar = document.createElement('p');   // voiceWho's bar, empty (and so invisible) until a mic is tapped
+    bar.id = 'voice-who';
+    bar.setAttribute('role', 'status');
+    bar.setAttribute('aria-live', 'polite');
+    document.body.appendChild(bar);
+    document.querySelectorAll('.micbtn').forEach((m) => voicePaint(m, 'off'));
+  }
+  if (vb) document.documentElement.classList.add('has-voice');
+} catch { /* no page root (the node harnesses): nothing to draw */ }
 
 /* ---- read aloud ---- */
 const SPEAK = { btn: null, text: '', where: '', seq: 0, nth: 0 };
@@ -71548,6 +72085,8 @@ function asbLayerEnsure() {
     +   '<button type="submit" id="asp-send" aria-label="Send">&uarr;</button></form>'
     + '</div>';
   document.body.appendChild(layer);
+  // #4409 slice 3: built after the page's mics were labelled, so label this one too (on a phone it says who hears).
+  try { if (typeof voicePaint === 'function' && voiceBridge()) voicePaint(document.getElementById('asp-mic'), 'off'); } catch { /* no voice */ }
   document.getElementById('asb').addEventListener('click', () => asbOpen());
   asbCloseWire();
   document.getElementById('asb-nudge-go').addEventListener('click', () => asbOpen());

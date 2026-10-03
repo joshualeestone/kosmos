@@ -3122,6 +3122,20 @@ function launcherTmuxSafe() {
  * creation refuses, on the screen whose entire job is telling them it will
  * work. One definition, or the two drift.
  */
+function linuxTmuxBin(platform = process.platform, env = process.env, runnable = runners.isRunnable) {
+  /* #4917: Linux packages tmux into /usr/bin or /usr/local/bin, and custom
+   * installs may expose it only through PATH. Resolve an executable directly,
+   * without a shell, and keep the long-standing Mac and Windows fallback
+   * unchanged. The explicit option and environment override remain authoritative
+   * on every platform. */
+  if (platform === 'linux') {
+    const pathDirs = String(env.PATH || '').split(path.delimiter).filter(Boolean);
+    const dirs = [...new Set([...pathDirs, '/usr/local/bin', '/usr/bin', '/bin', '/snap/bin', '/home/linuxbrew/.linuxbrew/bin'])];
+    return dirs.map((dir) => path.join(dir, 'tmux')).find((candidate) => runnable(candidate)) || null;
+  }
+  return null;
+}
+
 function binPaths(opts) {
   return {
     // Claude's resolution moved to engine/runners.js (#979, same
@@ -3134,10 +3148,12 @@ function binPaths(opts) {
     /* #2955: the launcher's pick, not a tmux the board switched to at runtime (status.tmuxRepick): a NEW agent bakes
        what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
        removed Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
-       straight to plistFor and is not touched by this. */
+       straight to plistFor and is not touched by this.
+       #4917: adaptive pick -> env override -> Linux PATH and common binary directories -> Homebrew fallback */
     tmuxBin: (opts && opts.tmuxBin)
       || launcherTmuxSafe()
       || process.env.AGENT_WORKFORCE_TMUX_BIN
+      || linuxTmuxBin((opts && opts.platform) || process.platform)
       || '/opt/homebrew/bin/tmux',
     // The OpenAI runner (#245, resolution moved to engine/runners.js for
     // #979). ONE priority list -- env override, then the managed location
@@ -4662,9 +4678,9 @@ function createAgentInner(opts) {
      this is the other one, AND IT IS REACHED WITHOUT DELETING ANYTHING.
 
      TWO CHECKS GUARD THIS NAME AND NEITHER LOOKS AT THE TOKEN STORE: the
-     clash check above refuses a name that is RUNNING, and the one further up
-     refuses `hasFolder && hasJob` -- BOTH, so a name whose files are gone, or
-     only half present, passes them both.
+     clash check above refuses a name that is RUNNING, and the ones further up
+     refuse a folder or a job of the name (either alone, #4994 checked), so a
+     name whose files are all gone passes them both.
 
      Tokens outlive the files whenever they went away by any route other than
      a fully successful `delete-leftover` (a hand-deleted folder, a PARTIAL
@@ -4691,6 +4707,26 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `we could not clear the sender tokens left by an earlier ${shown}, so we will not make a new agent that an old one could speak for`,
+      steps,
+    };
+  }
+  /* #4994: the same for the name's community account. A name freed by any route other than a clean delete-leftover
+     (files removed by hand, a delete whose retirement could not be recorded) still holds the old agent's account, and a
+     new agent would post as it. REFUSES like the tokens above, for the same reason.
+
+     Asked always, not only when this service's keys show an account: those keys can be unreadable, the account can be
+     another service's, and an agent that never got a key can still leave unsent posts. For a name with no history it
+     changes nothing, though it still writes and removes one request file.
+
+     It runs before gates below that can still refuse, deliberately, as the token revoke does: every check above has
+     found the name free (a folder alone or a job alone is refused, not only both), so the old account belongs to nobody
+     on this board whether or not this create goes on. */
+  try {
+    require('./communitysend').requestRetire(name);
+  } catch {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not save a community record for ${shown} (one that makes sure no earlier agent's community account carries over), so we did not make the agent`,
       steps,
     };
   }
@@ -5139,8 +5175,12 @@ function createAgentInner(opts) {
         if (cm) {
           let communityLanded = false;
           try {
-            const spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
+            // #5023: a new agent is asked to introduce itself, unless its key already has posts or the store cannot
+            // tell (shouldIntroduce leaves it out on an unknown answer).
             const { MAX_BYTES } = require('./instructions');
+            let spliced = require('./projects').spliceBlock(text, cm.blockBody({ introduce: cm.shouldIntroduce(wantedKey || name) }), cm.START, cm.END);
+            // The introduction is optional: at the size limit, the block without it rather than no block.
+            if (Buffer.byteLength(spliced, 'utf8') > MAX_BYTES) spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
           } catch { /* reported below rather than swallowed */ }
           if (!communityLanded) {
@@ -5435,7 +5475,10 @@ function createAgentInner(opts) {
        (`already === false` proves only that no other agent needed it at PREACCEPT time, not
        at rollback time). Leaving an inert account preference set is the safe direction -- the
        operator chose bypass mode for this account when they started the creation -- so this
-       is fire-and-forget with no undo, unlike the trust write. */
+       is fire-and-forget with no undo, unlike the trust write. The same call also writes
+       #5039's switchModelsOnFlag. That one is not inert and the operator did not choose it here
+       (Josh ruled the default, 2026-10-02); it is left in place on rollback for the same
+       account-shared reason. */
     if (provider === 'anthropic') {
       try { require('./trust').preacceptBypass(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
@@ -5791,6 +5834,7 @@ module.exports = {
   claudeAccountLive,
   setClaudeProbe,
   binPaths,
+  linuxTmuxBin,
   unusablePath,
   nameProblem,
   cleanName,

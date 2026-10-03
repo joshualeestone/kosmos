@@ -533,7 +533,12 @@ function tapProbe4663(skip) {
         const p = { agents: [] };
         const host = document.createElement('div');
         host.className = 'thread'; host.setAttribute('data-shot', '1');
-        host.style.cssText = 'position:fixed;left:0;top:0;width:760px;height:400px;z-index:99999;';
+        /* #5052: the sampled window below reaches into the message's TEXT (its timestamp sits at the bubble's bottom
+           right). The timestamp is now(), so whether a glyph's ink lands on a sampled pixel depended on the time of day
+           and the font (it did on Linux, and could on a Mac). The body sample at the box centre can land on the message's own
+           text too. So ALL text ink is hidden (on the host, not only .mwhen); geometry, the tint and the tail are
+           not: -webkit-text-fill-color touches glyphs only (the tail paints background-color: inherit). */
+        host.style.cssText = 'position:fixed;left:0;top:0;width:760px;height:400px;z-index:99999;-webkit-text-fill-color:transparent;';
         host.innerHTML = pjRoomRow({ operator: true, at: ts, text: 'can everyone enter a task of 100 character max, please and thanks.' }, p);
         document.body.appendChild(host);
       }, now());

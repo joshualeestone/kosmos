@@ -79,6 +79,7 @@ render-dm-sideways-3969
 render-dm-tapreact-718
 render-docs-seg-4937
 render-docs-subfolders-2245
+render-dsec-gap-4961
 render-dsec-ring-4961
 render-emoji-mute-2357
 render-engmode-gate-2131
@@ -130,6 +131,7 @@ render-msg-counter-3403
 render-msgref-4631
 render-muse-signin-3939
 render-nav-badges-3216
+render-nav-files-4961
 render-needsyou-dealarm-2808
 render-newagent-paths-4556
 render-newlook-4470
@@ -200,6 +202,7 @@ render-settings-nav
 render-settings-openai-goldbox
 render-shell-noscroll-4872
 render-signin-visible-3892
+render-snav-head-4979
 render-sound-master-2436
 render-stale-auth-1930
 render-start-agent-3410
@@ -216,6 +219,7 @@ render-taskhover-4880
 render-tasks
 render-tasks-view-3559
 render-teamcreate-4557
+render-teamsort-5021
 render-thread-steady-3966
 render-title-descender-3438
 render-tophead-consolidated-2282

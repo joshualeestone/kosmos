@@ -1275,7 +1275,7 @@ function openSleepSettings(runner, lister) {
     }
     /* The page opens BEHIND Kosmos (a background process cannot raise a window past
        Windows' foreground lock), so bring it forward the way the Mac's `open` does for
-       free. Best effort: it is detached and its result cannot un-open the page, so a
+       free. Best effort: never waited on, and its result cannot un-open the page, so a
        helper that fails just leaves the window behind, the state before this. */
     win32explorer.foregroundSettings();
     return { ok: true };

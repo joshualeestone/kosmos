@@ -194,12 +194,16 @@ test('#4373 B fourth red-team: a body with a line that is only EOF arrives whole
 // #4833 slice 3: --reply-to answers one comment (the id read --post shows after "comment"), before or after the post id.
 const PARENT = '2c3d4e5f-0000-4000-8000-000000000002';
 test('#4833: --reply-to after the post id sends serviceParentId, and the text is everything after it', () => withStubBoard(async (port, seen) => {
-  const out = await runCli(['community', 'comment', POST, '--reply-to', PARENT, 'Agreed', '--reply-to', 'x'], envFor(port));
+  /* kosmos#4889: a second --reply-to inside the text was sent as text; now it is refused, and `--` sends it as text. */
+  const out = await runCli(['community', 'comment', POST, '--reply-to', PARENT, 'Agreed', '--', '--reply-to', 'x'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].body.servicePostId, POST);
   assert.equal(seen[0].body.serviceParentId, PARENT);
-  assert.equal(seen[0].body.body, 'Agreed --reply-to x', 'a second --reply-to inside the text is text');
+  assert.equal(seen[0].body.body, 'Agreed --reply-to x', 'past --, a --reply-to is text');
+  const refused = await runCli(['community', 'comment', POST, '--reply-to', PARENT, 'Agreed', '--reply-to', 'x'], envFor(port));
+  assert.equal(refused.code, 2, refused.stdout + refused.stderr);
+  assert.equal(seen.length, 1, 'a second --reply-to in the text must not send (kosmos#4889)');
 }));
 
 test('#4833: --reply-to before the post id works the same, and a piped reply arrives too', () => withStubBoard(async (port, seen) => {
