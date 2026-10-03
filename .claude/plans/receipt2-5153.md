@@ -56,3 +56,8 @@ abort) exist here; a partial failure inside a script that still reports complete
   rollout went unread; for a receipt every Codex agent after it read partial. The reader now skips such a line (the
   Gemini and Grok readers already did). Test: a file of `null` and `7` sorting first, the next file still read; mutant.
 - The providerWork try/catch stays as a defence for other throws; it no longer has a fixture that reaches it.
+
+## Review 4 (sonnet): CLEAN (no BLOCKER, no WARNING)
+- Confirmed the reader change alters Token Usage only by no longer ending a scan on a null line (an invalid-JSON line
+  was already skipped the same way; a fresh mid-write file still keeps the scan unfrozen through touchedSince).
+- NIT not taken: the null test's number line is covered only by not throwing.
