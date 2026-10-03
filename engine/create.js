@@ -3985,7 +3985,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
       return {
         ok: false,
         because: 'there is no OpenAI sign-in on this computer, so an agent created on OpenAI could not run. '
-          + 'Add an OpenAI key on the Accounts tab in Settings'
+          + 'Add an OpenAI key in Settings, AI Models'
           + (hasClaude ? ', or create this agent on Claude instead' : '') + '.',
       };
     }
@@ -4001,7 +4001,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
     if (acct.isDefault && codexHomeOverridden()) return { ok: true };
     let live; try { live = await openai.checkLive(acct.dir); } catch (err) { return failOpen("openai.checkLive", err); }
     if (live && live.state === NONE) {
-      return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key on the Accounts screen first.` };
+      return { ok: false, because: `${acct.email || (acct.keyTail ? 'the OpenAI account ending ' + acct.keyTail : 'that OpenAI account')}'s sign-in is not working, so an agent created on it could not run. Add or re-enter its key in Settings, AI Models first.` };
     }
     return { ok: true };
   }
@@ -4029,7 +4029,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
     return {
       ok: false,
       because: 'there is no Claude account signed in on this computer, so an agent created on Claude could not run. '
-        + 'Connect a Claude account from the Accounts tab in Settings'
+        + 'Connect a Claude account in Settings, AI Models'
         + (hasOpenai ? ', or create this agent on OpenAI instead' : '') + '.',
     };
   }
@@ -4060,7 +4060,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
   if (state === NONE) {
     return {
       ok: false,
-      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Re-authenticate that account from the Accounts tab in Settings (Sign in again) before creating an agent on it.`,
+      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Sign that account in again from Settings, AI Models before creating an agent on it.`,
     };
   }
   return { ok: true };
