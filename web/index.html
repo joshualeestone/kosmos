@@ -24758,7 +24758,7 @@ function paintAgyOption(sel, current) {
   opt.disabled = !on;
   if (on) delete opt.dataset.off;
   else opt.dataset.off = AGY_OFFERED === false ? 'Not on this computer'
-    : AGY_INSTALLED === false ? 'Set up in Settings: Add a provider' : 'Checking Antigravity';
+    : AGY_INSTALLED === false ? 'Set up in Settings, AI Models' : 'Checking Antigravity';
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // #3946: a Swarm keeps its non-Claude providers greyed (typeof: these painters also run alone in tests)
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
@@ -24808,7 +24808,7 @@ function paintMuseOption(sel, current) {
   const on = current === 'meta' || (creating && !!MUSE_CREATE && MUSE_CREATE.ready === true);
   opt.disabled = !on;
   if (on || !creating || !MUSE_CREATE || !MUSE_CREATE.on) delete opt.dataset.off;
-  else opt.dataset.off = 'Set up in Settings: Add a provider';   // turned on here, not installed or not signed in
+  else opt.dataset.off = 'Set up in Settings, AI Models';   // turned on here, not installed or not signed in
   if (typeof swarmProviderGate === 'function') swarmProviderGate(sel, { fresh: true });   // a Swarm keeps non-Claude providers greyed
   if (sel.dataset && sel.dataset.pcombo) sel.value = sel.value;  // eslint-disable-line no-self-assign
 }
