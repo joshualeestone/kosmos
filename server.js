@@ -20369,7 +20369,8 @@ if (require.main === module) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
   }
   /* #5050: the person's language block, refreshed at boot (an agent made before it existed, or the computer's language
-     setting changed): written when the setting is not English, removed when it is. LAST of the boot sweeps, because
+     setting changed): written when the Mac's setting is not English, removed when it is; off a Mac, or when the read
+     failed, nothing changes. LAST of the boot sweeps, because
      writing it also moves it to the end of the file, where April measured it; a sweep after this one could append a
      block behind it again. */
   try {

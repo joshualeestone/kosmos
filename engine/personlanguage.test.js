@@ -225,3 +225,22 @@ test('#5050 review 4: nothing to do is told without touching the file (no boot n
     assert.equal(pl.tellAgent('nofile', board.roster, { tag: 'es-MX', sure: true }).state, projects.TOLD.COULD_NOT);
   } finally { board.restore(); }
 });
+
+test('#5050 review 7: the person\'s own words after the block are never reordered or rejoined', () => {
+  const block = pl.applyTo('# Fay\n\n- item one\n- item two\n', 'es-MX');
+  const theirs = block + '\nMy own note, added later.\n';
+  const out = pl.applyTo(theirs, 'es-MX');
+  assert.equal(out, theirs, 'the board moved the block below the person\'s own note, or changed their text');
+  // With another Kosmos block after it too, the person's text still keeps it in place.
+  const mixed = projects.spliceBlock(theirs, 'later block', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
+  assert.equal(pl.applyTo(mixed, 'es-MX'), mixed);
+});
+
+test('#5050 review 7: when only Kosmos blocks follow it, the move keeps a blank line between what remains', () => {
+  const base = pl.applyTo('# Gil\n\n- item one\n- item two\n', 'es-MX');
+  const after = projects.spliceBlock(base, 'later block', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
+  const moved = pl.applyTo(after, 'es-MX');
+  assert.ok(moved.trimEnd().endsWith(pl.END), 'CONTROL: it moved');
+  assert.match(moved, /- item two\n\n<!-- kosmos:connections:start -->/, 'the blank line before the following block was lost');
+  assert.match(moved, /<!-- kosmos:connections:end -->\n\n<!-- kosmos:language:start -->/);
+});

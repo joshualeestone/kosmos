@@ -13,7 +13,7 @@
  *
  * The language comes from this computer's setting: on a Mac the first preferred language (`defaults read -g
  * AppleLanguages`), or the AGENT_WORKFORCE_PERSON_LOCALE override (the test runners set it to en; a Settings picker is
- * not built). Either is read once per process, the override included. Only those two act. Node's Intl locale is the only other source, and it is ICU's user locale (the
+ * not built). A sure read (either of those) is kept for the process, the override included; a failed one is retried. Only those two act. Node's Intl locale is the only other source, and it is ICU's user locale (the
  * REGION setting on Windows, LANG on Linux), not the display language, so it neither adds nor removes a block: off a
  * Mac, and on a Mac whose read failed, an agent's file is left exactly as it is. A sure English read writes no block
  * and removes one an agent already has.
@@ -110,11 +110,38 @@ function applyTo(text, tag, opts) {
   // A read that is not sure changes nothing, in either direction (see read()).
   if (opts && opts.keep) return String(text == null ? '' : text);
   if (!body) return projects.removeBlock(text, START, END);
-  // Already the last thing in the file (or not there yet): replaced in place, or appended. Otherwise taken out and
-  // appended again, so it ends the file. In place is byte-equal when nothing changed, so no write.
-  const at = projects.findBlock(String(text == null ? '' : text), START, END);
-  const last = !at || at.ambiguous || !String(text).slice(at.end).trim();
-  return projects.spliceBlock(last ? text : projects.removeBlock(text, START, END), body, START, END);
+  const str = String(text == null ? '' : text);
+  const at = projects.findBlock(str, START, END);
+  // Not there yet, or two of them (refused by the caller): spliceBlock appends, or returns the text unchanged.
+  if (!at || at.ambiguous) return projects.spliceBlock(str, body, START, END);
+  const after = str.slice(at.end);
+  /* Moved to the end only when everything after it is OTHER Kosmos blocks (ones Kosmos appended later). If the person
+     wrote anything after it, it stays where it is and is replaced in place: the board never reorders their words
+     (review 7). In place is byte-equal when nothing changed, so no write. */
+  if (!after.trim() || !onlyManaged(after)) return projects.spliceBlock(str, body, START, END);   // already last, or the person's words follow
+  // Cut exactly the block, then rejoin what was before and after it with one blank line, and append it again.
+  const before = str.slice(0, at.start).replace(/\s+$/, '');
+  const rest = after.replace(/^\s+/, '');
+  const joined = (before + (rest ? (before ? '\n\n' : '') + rest : '')).replace(/\s+$/, '') + '\n';
+  return projects.spliceBlock(joined, body, START, END);
+}
+
+/* Whether `text` holds nothing but whitespace and complete Kosmos blocks (any registered marker pair). */
+function onlyManaged(text) {
+  const marks = projects.ALL_MARKERS();
+  let left = String(text || '');
+  for (let i = 0; i + 1 < marks.length; i += 2) {
+    const a = marks[i];
+    const b = marks[i + 1];
+    let from = left.indexOf(a);
+    while (from !== -1) {
+      const to = left.indexOf(b, from + a.length);
+      if (to === -1) break;
+      left = left.slice(0, from) + left.slice(to + b.length);
+      from = left.indexOf(a);
+    }
+  }
+  return !left.trim();
 }
 
 /** Put the block in (or take it out of) one agent's instructions. Same guards as connections.tellAgent. */
@@ -148,7 +175,7 @@ function tellAgent(sessionName, roster, opts) {
         because: `its instructions contain ${found.pairs} Kosmos language blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    const next = applyTo(current.text || '', got.tag, { keep: !got.sure });
+    const next = applyTo(current.text || '', got.tag);
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
     return { state: projects.TOLD.TOLD, because: null };

@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (16 after the reviews below), plus one create test in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (18 after the reviews below), plus one create test in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -71,8 +71,8 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - A fallback read is no longer cached for the process (a Mac read that timed out at boot is retried by the next
   create). A seam lets the test give the no-argument read a failing Mac; mutations caching a fallback, or never
   caching, each red.
-- Kept as a known cosmetic: moving the block back to the end drops the blank line before the block that followed it
-  (shared removeBlock behaviour).
+- (SUPERSEDED by review 7) Kept as a known cosmetic: moving the block back to the end drops the blank line before the
+  block that followed it (shared removeBlock behaviour).
 
 ## Review 4 (blind, sonnet)
 - A failed Mac read is kept 5 minutes (FALLBACK_MS) before `defaults` is asked again, so a hanging `defaults` (2 s
@@ -100,3 +100,13 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - The header says the override is read once per process, like the setting.
 - Deferred, as the sibling blocks do: a create-time step reports "may start in English" if the read itself throws
   (it does not in practice: `read` catches every failure), and an agent at the size limit logs once per boot.
+
+## Review 7 (blind, opus)
+- Moving the block used removeBlock, which joined the person's own text after the block onto what came before it (a
+  paragraph turned into a list item) and rewrote the file at every boot. Now the block moves ONLY when everything after
+  it is other Kosmos blocks (the case moving exists for); if the person wrote anything after it, it stays where it is
+  and is replaced in place. The move cuts exactly the block and rejoins what remains with one blank line. A block
+  already last is replaced in place. Tests: the person's note after the block is untouched (alone, and with a Kosmos
+  block after it too); a move keeps the blank lines. Mutations (moving past the person's text, losing the blank line,
+  dropping the already-last check) each red.
+- The create and boot comments now say that off a Mac, or when the read failed, nothing changes.
