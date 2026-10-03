@@ -8,7 +8,7 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
   whose name is not one the coordinator reserves (`kosmosPlusReservedLabels`, a copy of kosmos-relay
   RESERVED_NAMES, 45 names), or the board this app loaded) and the file is from its origin.
 - Refused and said: a download from a page that is not the board (any mode), an attachment or an
-  unshowable file from anywhere else (these, and a download WebKit stops, are not said while one is on screen or for 5 seconds after it is dismissed), a non-2xx answer, a failed save (these always).
+  unshowable file from anywhere else (these, and a download WebKit stops: each said once per page load, a repeat counted into that page's one summary; while an alert is up or for 5 seconds after, counted too), a non-2xx answer, a failed save (these always).
 - Asked first: a Kosmos+ computer's page saves only after the person allows downloads from that
   computer (once per run of the app, either answer). This computer's own board is never asked.
 - Destination: ~/Downloads, safe unique name; quarantine mark with this app's agent name and no
@@ -436,6 +436,13 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   to 20s for its messages.
 - Not changed (decided): each refusal said once per page load then once in the summary (round 34);
   a click in a same-origin frame saves (round 11); the no-console skip and the gate's time.
+
+## Review round 39 changes
+- The "saved without its download mark" warning is always said on its own (always: true): counted
+  into a summary it became "One more download was not saved", false about a saved file, and lost the
+  one security warning in this feature.
+- pageSaysDownloadRefusal matches the encoded path (an encoded / in a name stays one part).
+- Test title and the plan's summary line corrected.
 
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
