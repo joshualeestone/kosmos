@@ -7977,7 +7977,7 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 200, {
             outcome: 'partial',
             provider: wrote.provider,
-            because: wrote.because + ' ' + (ok ? 'It is starting again now, on your main Claude account.' : `It could not start again either: ${back.because} It is still running as before until it restarts.`),
+            because: wrote.because + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
             steps: back.steps || [],
           });
           return;

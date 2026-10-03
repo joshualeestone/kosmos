@@ -55,4 +55,12 @@ account and need a second restart.
   picked account's .claude.json, the main named back. Browser check 13/13 on the branch; main fails every substantive arm.
   ⚠️ While stopping the superseded Mortals run, a broken remote tree-walk killed pid 48283; it was in no listing taken
   moments later (most likely the walk's own awk), not proven. Killing then went by an explicit printed tree.
-- Round 2: PENDING.
+- Round 2 (sonnet, blind): 0 BLOCKER, 2 SHOULD-FIX, 3 NIT, all taken (22:5x). SF1: a PARTIAL whose restart also failed said
+  "now runs on Claude" beside "still running as before"; the engine's sentence is tense-neutral ("is switched to Claude, on
+  your main Claude account: it could not be moved to X") and the route adds "It is starting again now." or the restart's
+  failure. SF2: after a PARTIAL that did restart, "Runs on" did not repaint (only 'changed' did); it repaints for a partial
+  that changed the provider and is starting again (the wake hello is still skipped). NIT3: the two help lines under the
+  current rows (model change, account move) hide with them (.d-current-hint). NIT4: the hint arm asserts the line says
+  "Claude account" (an empty line passed). NIT5: the comment says what the list rule is (state not 'none', Move's rule),
+  not "not signed out". Measured: engine 8/8; Windows double write reasoned by the reviewer (cache forgotten on install).
+- Round 3: PENDING.

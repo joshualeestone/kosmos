@@ -154,7 +154,7 @@ test('#5091 round 1: an account that is gone by the time it is applied is a PART
   finally { accounts.list = real; }
   assert.ok(calls >= 2, 'the seam was not reached twice, so this arm does not test the apply step');
   assert.equal(r.outcome, create.OUTCOME.PARTIAL);
-  assert.match(r.because, /now runs on Claude, but on your main Claude account: it could not move to aria@example\.com/);
+  assert.match(r.because, /is switched to Claude, on your main Claude account: it could not be moved to aria@example\.com/);
   assert.doesNotMatch(r.because, /\.\)\.$/, 'a doubled full stop');
   assert.equal(configDirOf(h), null, 'a partial must leave it on the main account, not half-pinned');
   assert.equal(store.readProfile(h).provider, 'anthropic');
