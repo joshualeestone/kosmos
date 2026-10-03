@@ -2718,9 +2718,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.download)
             return
         }
-        // A download this app will not save does not load in the window instead (a computer that runs
-        // agents allows every navigation below). A connect computer keeps its link policy.
-        if navigationAction.shouldPerformDownload, computerMode != .connect {
+        // A download this app will not save is refused and said, never loaded in the window instead.
+        if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
             tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.")
             decisionHandler(.cancel)
@@ -5108,7 +5107,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("missing.txt"), "AN ERROR PAGE (404) IS NOT SAVED under the file's name")
             row(saved("pack.zip"), "a board file the window cannot show (a plain link to a .zip) is saved, not dropped")
             row(!saved("redirected.txt"), "A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING")
-            row(!saved("foreign.txt"), "A LINK TO ANOTHER ORIGIN SAVES NOTHING")
+            row(!saved("foreign.txt"), "a download link to another origin saves nothing (WebKit treats it as a plain link)")
             row(!saved("att2.txt"), "AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING")
             let q = getxattr(dl.appendingPathComponent("same.txt").path, "com.apple.quarantine", nil, 0, 0, 0)
             row(q > 0, "a saved file carries the quarantine mark")
