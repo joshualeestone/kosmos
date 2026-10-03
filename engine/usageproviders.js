@@ -141,6 +141,7 @@ async function scanCodex(acc, codexHomes) {
          cost is the first turn after a fork going uncounted, rather than the whole parent counted twice). */
       let forked = false;
       let forkAt = NaN;   // when the fork was made: a replayed total is stamped at or before it
+      let totals = 0;     // #5153: token totals seen so far in this file (a receipt skips a fork's replay by the same rule)
       for (const line of text.split('\n')) {
         if (!line) continue;
         let r;
@@ -151,8 +152,9 @@ async function scanCodex(acc, codexHomes) {
           if (p.forked_from_id) { forked = true; forkAt = Date.parse(p.timestamp || r.timestamp); }
         }
         if (r.type === 'turn_context' && typeof p.model === 'string') model = p.model;
-        if (acc.onRow) acc.onRow('codex', r, file, cwd);   // #5153: a receipt reads the tool calls in the same pass
+        if (acc.onRow) acc.onRow('codex', r, file, cwd, { forked, forkAt, totals });   // #5153: tool calls, same pass
         if (p.type !== 'token_count' || !p.info || !p.info.total_token_usage) continue;
+        totals += 1;
         const t = p.info.total_token_usage;
         const cur = { in: n(t.input_tokens), cached: n(t.cached_input_tokens), cw: n(t.cache_write_input_tokens), out: n(t.output_tokens) };
         /* The change since the last event; a total that went down is a new run, counted from its own total. */

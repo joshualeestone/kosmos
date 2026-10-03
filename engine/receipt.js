@@ -295,8 +295,12 @@ async function providerWork(runner, dir, holds) {
   const edits = new Map();            // call id -> [shown paths], once the call is known to have succeeded
   const gemini = new Map();           // Gemini call id -> { edit, path, status }
   let unnamed = 0;
-  acc.onRow = (provider, row, file, folder) => {
+  acc.onRow = (provider, row, file, folder, fork = {}) => {
     if (!sameFolder(folder)) return;
+    /* A forked Codex rollout begins with the parent's history replayed into it, its tool calls included: skipped by the
+       rule the token count uses for the parent's totals (stamped at or before the fork, or before the first total), so
+       work done before this hold in the parent is not counted as this hold's (review 1). */
+    if (provider === 'codex' && fork.forked && (!(Date.parse(row && row.timestamp) > fork.forkAt) || !fork.totals)) return;
     if (inHold(Date.parse(row && row.timestamp))) withWork.add(file);   // any row of the agent's inside a hold
     if (provider === 'codex') {
       const p = (row && row.payload) || {};
@@ -308,7 +312,9 @@ async function providerWork(runner, dir, holds) {
           const src = String(p.input || '');
           for (let i = 0; i < (src.match(/tools\.exec_command\(/g) || []).length; i += 1) commandIds.add(id + ':' + i);
           if (/tools\.apply_patch\(/.test(src)) {
-            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ([^\n\\"]+)/g)].map((x) => x[1].trim()).filter(Boolean);
+            /* A relative path is the session's own folder's (review 1), so the same file reads the same either way. */
+            const paths = [...src.matchAll(/\*\*\* (?:Add|Update|Delete) File: ([^\n\\"]+)/g)].map((x) => x[1].trim()).filter(Boolean)
+              .map((f) => path.resolve(folder, f));
             if (paths.length) pendingPatches.set(id, paths);
           }
         } else if (p.type === 'local_shell_call' || (p.type === 'function_call' && CODEX_COMMAND_FUNCS.has(p.name))) {
@@ -335,8 +341,12 @@ async function providerWork(runner, dir, holds) {
   const problems = [];
   let homes;
   try { homes = up.defaultHomes(problems); } catch { homes = { codex: [], gemini: [] }; problems.push('homes'); }
-  if (runner === 'codex') await up.scanCodex(acc, homes.codex || []);
-  else await up.scanGemini(acc, homes.gemini || []);
+  /* One bad session file marks this agent's receipt partial (never kept), as a Claude transcript does; it does not fail
+     the receipt for every agent (review 1). */
+  try {
+    if (runner === 'codex') await up.scanCodex(acc, homes.codex || []);
+    else await up.scanGemini(acc, homes.gemini || []);
+  } catch { problems.push('scan'); }
   const files = new Map();
   for (const list of edits.values()) for (const f of list) files.set(f, true);
   for (const g of gemini.values()) if (g.ok) files.set(g.path, true);
@@ -376,6 +386,13 @@ function closedAtOf(task) {
   return best;
 }
 
+/* A receipt kept by slice 1 (VERSION 1) is still right when no agent on it was a Codex or Gemini agent, which is all
+   slice 2 changes; working it out again could only lose work whose transcripts have since been pruned (review 1). */
+function keptStillRight(kept) {
+  return kept.version === 1 && Array.isArray(kept.agents)
+    && !kept.agents.some((a) => a && OTHER_PROVIDERS.has(a.provider));
+}
+
 /* One computation per task at a time: a second request while the first is reading shares its answer. */
 const inFlight = new Map();
 
@@ -398,7 +415,7 @@ async function work(projectId, task, { now = Date.now() } = {}) {
   if (keep) {
     try {
       const kept = JSON.parse(fs.readFileSync(keep, 'utf8'));
-      if (kept && kept.version === VERSION && kept.closedAt === closedIso) return kept;
+      if (kept && kept.closedAt === closedIso && (kept.version === VERSION || keptStillRight(kept))) return kept;
     } catch { /* none kept yet */ }
   }
   const events = taskchat.read(projectId, task.number);
