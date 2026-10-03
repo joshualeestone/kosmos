@@ -179,6 +179,14 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   page on screen when it ends.
 - Selftest budget comment corrected; the temporary folder is removed on a timeout.
 
+## Review round 14 changes
+- Comments: the reserved-name copy says grandfathered holders are refused too; badgeOrigin's
+  declaration says it is also the board downloads are saved from; isBoardPage has its own doc.
+- A test pins every place badgeOrigin is set (four), so a badge change that moves it is seen.
+- Not changed: a navigation that leaves the board and redirects back to a board attachment is judged
+  on its final response URL. The file saved is the board's own, from the board's origin, and marked;
+  nothing foreign reaches the disk.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers

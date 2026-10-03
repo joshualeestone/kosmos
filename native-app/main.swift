@@ -334,13 +334,10 @@ func isSameOriginDownload(_ target: URL, page: URL?) -> Bool {
     return a == b
 }
 
-/// #5167: PURE, for --kosmos-app-mode-selftest. Whether the page on screen is a board this app may save
-/// downloads from: a Kosmos+ computer (isKosmosPlusURL), or the board this app loaded (`board`, the
-/// host and port it resolved; nil on a connect computer). A foreign site, or another local server, that
-/// ends up in the window is neither, so it cannot save its own files.
-/// #5167: the names no computer can be given on Kosmos+, so a page under one is a Kosmos+ service, not a
-/// board. A COPY of RESERVED_NAMES in kosmos-relay coordinator/src/signin.rs (2026-10-03, c91521c1); add a
-/// name there, add it here.
+/// #5167: the names the coordinator keeps for Kosmos+ itself, so a page under one is treated as a Kosmos+
+/// service, not a board. A computer that held one of them before it was reserved keeps it, and is refused
+/// here too. A COPY of RESERVED_NAMES in kosmos-relay coordinator/src/signin.rs (2026-10-03, c91521c1); add
+/// a name there, add it here.
 let kosmosPlusReservedLabels: Set<String> = [
     "www", "api", "app", "relay", "coordinator", "admin", "mail", "smtp", "mx", "ns", "ns1", "ns2", "dns",
     "status", "help", "support", "kosmos", "billing", "community", "docs", "forum", "blog", "news", "cdn", "static",
@@ -348,6 +345,10 @@ let kosmosPlusReservedLabels: Set<String> = [
     "register", "auth", "account", "accounts", "checkout", "pay", "payment", "payments", "secure", "verify",
 ]
 
+/// #5167: PURE, for --kosmos-app-mode-selftest. Whether the page on screen is a board this app may save
+/// downloads from: a Kosmos+ computer (isKosmosPlusURL), or the board this app loaded (`board`, the
+/// host and port it resolved; nil on a connect computer). A foreign site, or another local server, that
+/// ends up in the window is neither, so it cannot save its own files.
 func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
     guard let page = page else { return false }
     if isKosmosPlusURL(page) {
@@ -1684,7 +1685,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var badgeEverAnswered = false
     private var badgeMisses = 0
     // The board's own origin, the only page allowed to hand over a count (set where the board is chosen).
-    fileprivate var badgeOrigin: (host: String, port: Int)?   // #5167: the download selftest sets it
+    // #5167: also the board downloads are saved from (isBoardPage); a change made for the badge changes
+    // downloads too. fileprivate so the download selftest can set it.
+    fileprivate var badgeOrigin: (host: String, port: Int)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // #2124: single-instance. A fresh install could run this app from two bundle
