@@ -73,6 +73,18 @@ test('Gemini: a reply written twice counts once; thoughts are output, tool is in
   assert.equal(r.folders['2026-10-01']['/w/pixel'].rows, 1, 'kept against the project root');
 });
 
+test('Gemini: a reply with tokens but no model takes the model its session names elsewhere', async () => {
+  const h = tmp();
+  const slug = path.join(h, 'tmp', 'bix');
+  fs.mkdirSync(path.join(slug, 'chats'), { recursive: true });
+  const named = { id: 'a', timestamp: '2026-10-01T12:00:00Z', type: 'gemini', model: 'gemini-2.5-flash', tokens: { input: 10, output: 1 } };
+  const bare = { id: 'b', timestamp: '2026-10-01T12:01:00Z', type: 'gemini', tokens: { input: 20, output: 2 } };
+  fs.writeFileSync(path.join(slug, 'chats', 'session-2.jsonl'), jl([bare, named]));
+  const r = await scanProviders({ homes: { codex: [], gemini: [h], grok: [] } });
+  assert.equal(r.days['2026-10-01']['gemini-2.5-flash'].rows, 2, 'both replies counted under the session\'s model');
+  assert.ok(!r.days['2026-10-01'].unknown, 'nothing filed as unknown');
+});
+
 test('Grok: each turn once, split per model, input without its cached and cache-write parts', async () => {
   const h = tmp();
   const sd = path.join(h, 'sessions', encodeURIComponent('/w/bix'), 'sess1');
