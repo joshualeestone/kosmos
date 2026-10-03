@@ -322,6 +322,13 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Noted: each selftest run adds about 7 rows (agent "Kosmos", no addresses) to the build machine's
   LaunchServices quarantine history. Accepted: nothing sensitive, and it is what a real download does.
 
+## Review round 28 changes
+- Failures counted while the per-computer question was up are said after it (only a failure
+  alert's dismissal scheduled the summary).
+- If the page changed while the question was up, the waiting downloads are not saved and nothing is
+  recorded (it had become a recorded refusal the person never made).
+- Not changed: Don't Allow lasts the run, one quiet window for all causes (rounds 12, 19, 22).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
