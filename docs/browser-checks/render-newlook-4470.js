@@ -480,7 +480,7 @@ async function docsLook(page, projectId) {
     const was = sw.hidden; sw.hidden = false;
     try {
       const cs = getComputedStyle(sw), on = sw.querySelector('[aria-checked="true"]');
-      return { found: true, backShown: getComputedStyle(back).display !== 'none', chevShown: getComputedStyle(chev).display !== 'none', chevSize: Math.round(chev.getBoundingClientRect().width),
+      return { found: true, backShown: getComputedStyle(back).display !== 'none', chevShown: getComputedStyle(chev).display !== 'none', chevSize: Math.round(chev.getBoundingClientRect().width), chevGap: getComputedStyle(chev).marginRight,
         segRadius: cs.borderTopLeftRadius, segEdge: cs.borderTopColor, segBg: cs.backgroundColor, chosen: on ? getComputedStyle(on).backgroundColor : 'absent' };
     } finally { sw.hidden = was; }
   });
@@ -492,6 +492,31 @@ async function docsLook(page, projectId) {
   await page.evaluate(() => showTab('agents'));
   await page.waitForTimeout(300);
   return out;
+}
+/* #4470, Documents on a touch phone with the look on: under 400px the switch's segments share the row and may wrap
+   (#4937), so the pill becomes taller; each segment's words must fit inside it, nothing clipped. Shown by hand. */
+async function docsPhoneSeg(browser, url, width, projectId) {
+  const ctx = await browser.newContext({ viewport: { width, height: 800 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await ctx.newPage();
+    await page.addInitScript(() => { try { localStorage.setItem('kosmos-look', 'new'); } catch {} });
+    await page.goto(url, { waitUntil: 'networkidle' });
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, projectId);
+    await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 });
+    if (await page.isVisible('#pj-docs-all')) await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view:not([hidden])', { timeout: 8000 });
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
+    // NL_SHOTS=<dir> keeps a picture of the switch for a person to look at (the corners are judged by eye).
+    if (process.env.NL_SHOTS) await page.locator('#docs-seg').screenshot({ path: require('node:path').join(process.env.NL_SHOTS, 'docs-seg-' + width + '.png') }).catch(() => {});
+    return await page.evaluate(() => {
+      const sw = document.getElementById('docs-seg'); if (!sw) return { found: false };
+      const segs = [...sw.querySelectorAll('button')].map((b) => ({ text: b.textContent.trim(), w: b.clientWidth, sw: b.scrollWidth, h: b.clientHeight, sh: b.scrollHeight }));
+      const r = sw.getBoundingClientRect();
+      return { found: true, look: document.documentElement.getAttribute('data-look'), radius: getComputedStyle(sw).borderTopLeftRadius, h: Math.round(r.height),
+        segs, clipped: segs.some((x) => x.sw > x.w + 1 || x.sh > x.h + 1), wide: document.documentElement.scrollWidth > innerWidth + 1 };
+    });
+  } finally { await ctx.close(); }
 }
 /* #4470 (#718's phone row): with the look on, Add Project must not run under the sort or the view toggle on a phone.
    A touch phone context of its own (so the page takes its touch sizes, the sort at 16px), the look stored before
@@ -960,7 +985,14 @@ const AGENTS_LOOK = `(() => {
         }
       }
       const dcOn = await docsLook(page, proj.id);
-      chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevSize === 40 && dcOn.chevBack === true,
+      if (width < 600) {
+        for (const w of [320, 360]) {
+          const ds = await docsPhoneSeg(browser, URL, w, proj.id);
+          chk(ds.found && ds.look === 'new' && ds.radius === '999px' && ds.segs.length === 2 && !ds.clipped && !ds.wide,
+            `${tag} On, Documents at ${w} on a touch phone: the switch's words fit inside the pill, nothing clipped`, JSON.stringify(ds));
+        }
+      }
+      chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevSize === 40 && dcOn.chevGap === '14px' && dcOn.chevBack === true,
         `${tag} On, Documents: back is the round chevron at the project page's 40px (the text link hidden), and it returns to the project`, JSON.stringify(dcOn));
       chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.segBg === GREY_OF[theme],
         `${tag} On, Documents: the folder / conversation switch is a grey pill with no edge${theme === 'dark' ? ' (in dark today\'s switch already sits on this grey, so the pill and the edge carry this arm)' : ''}`, JSON.stringify(dcOn));
