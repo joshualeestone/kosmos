@@ -148,12 +148,12 @@ function busyAgy(c, now) {
    counting, so the cap can undercount then (the permissive side). */
 function heldForCap(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env) {
   if (quotaHoldOff(env)) return null;
+  let card = null;
+  try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
+  if (!isOurAgy(card) || busyAgy(card, now)) return null;   // review 13: before the setting is read, so other runners skip the disk
   let max = 0;
   try { max = Number(readCap().maxWorking) || 0; } catch { max = 0; }
   if (max <= 0) return null;
-  let card = null;
-  try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
-  if (!isOurAgy(card) || busyAgy(card, now)) return null;
   const self = String(card.sessionName);
   const busy = (Array.isArray(roster) ? roster : [])
     .filter((c) => c && String(c.sessionName) !== self && busyAgy(c, now)).length;

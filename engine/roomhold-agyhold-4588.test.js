@@ -498,10 +498,10 @@ test('#4624 follow-up review 2: the production shape, a quota-paused agy member 
   });
 });
 
-/* #4588 ask 3 review 1: under the Gemini cap a post can be held while its member is IDLE, and no wake will come for it.
-   So while a cap is set the retry flushes an idle member's plain posts; with no cap they wait for the next wake (the
-   #4624 rule, unchanged). Held here by the quota pause (the same hold file), then released after the reset. */
-test('#4588 ask 3: with a cap set, an idle agy member\'s held PLAIN post is flushed by the retry; with no cap it waits for the next wake (CONTROL)', async () => {
+/* #4588 ask 3 review 13: a plain post the ordinary #4624 idle hold kept waits for the member's next wake, cap or no cap.
+   Review 1 retried every held post while a cap was set, which typed up to `max` idle Gemini agents a minute into posts
+   that ask nothing of them. Both arms: no cap and a cap with room. */
+test('#4588 ask 3: an idle agy member\'s #4624-held PLAIN post waits for its next wake, with a cap set and without', async () => {
   const capSetting = require('./agycap-setting');
   for (const capOn of [false, true]) {
     chat.resetForTests(); messages.resetForTests(); poolReset();
@@ -509,27 +509,64 @@ test('#4588 ask 3: with a cap set, an idle agy member\'s held PLAIN post is flus
     if (capOn) assert.deepEqual(capSetting.set({ maxWorking: 2 }), { ok: true }); else fs.rmSync(capSetting.FILE, { force: true });
     try {
       await withFleetAsync(room3(), async (board) => {
-        // An AUTOMATIC idle report (by:'auto'), the only kind roomhold's idleNow counts, so the no-cap arm reaches the skip.
+        // An AUTOMATIC idle report (by:'auto'), the only kind roomhold's idleNow counts, so the #4624 hold keeps the post.
         const kept = selfreport.record('mara', { state: 'idle', because: 'test', auto: true });
         assert.equal(kept.recorded, true);
         assert.equal(selfreport.read('mara').by, 'auto', 'fixture: the idle report is automatic');
         armSender('leo-discord');
         arm();
-        const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, rosterOf(board, AHEAD()), MEMBERS);
-        assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'fixture: the plain post is held for mara');
-        poolReset();
+        const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, rosterOf(board, null), MEMBERS);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'fixture: the plain post is held for mara, unmarked');
         const tmux = arm();
         const r2 = rosterOf(board, null);
-        const after = await roomhold.flushReleased(r2, releasedDeps(r2, Date.now()));
-        if (capOn) {
-          assert.deepEqual(after.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]], 'cap on: the idle member is told');
-          assert.equal(typedTo(tmux, 'mara').length, 1);
-          // Review 4: told once. The next minute's retry finds nothing held for her and types nothing.
-          const again = arm();
-          assert.deepEqual(await roomhold.flushReleased(r2, releasedDeps(r2, Date.now())), [], 'the idle member was told twice');
-          assert.deepEqual(typedTo(again, 'mara'), []);
+        assert.deepEqual(await roomhold.flushReleased(r2, releasedDeps(r2, Date.now())), [], (capOn ? 'cap on' : 'no cap') + ': the idle member was woken for a plain post');
+        assert.deepEqual(typedTo(tmux, 'mara'), []);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'the post is still held for her next wake');
+      });
+    } finally { fs.rmSync(capSetting.FILE, { force: true }); agyquota.CAP_STARTS.clear(); }
+  }
+});
+
+/* #4588 ask 3 review 13, the other arm: a post the CAP held is marked, so once the cap lets the member through the
+   minute retry tells it, even though the member is idle by then (the cap held it while no wake was coming). CONTROL:
+   the same post with its mark taken off waits, which is what proves the mark (not the cap) is what lets it through. */
+test('#4588 ask 3: a post the cap held is marked and the retry tells it once the cap frees; unmarked, it waits (CONTROL)', async () => {
+  const capSetting = require('./agycap-setting');
+  const room = () => room3().concat([fleet.agent('zed', AGY)]);
+  // zed's card says working (the cap counts what the cards say); `busy` false is the same roster after its turn ended.
+  const withZed = (board, busy) => rosterOf(board, null).map((c) => (String(c.sessionName).replace(/-discord$/, '') === 'zed' ? { ...c, state: busy ? 'working' : 'idle' } : c));
+  for (const marked of [true, false]) {
+    chat.resetForTests(); messages.resetForTests(); poolReset();
+    for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
+    assert.deepEqual(capSetting.set({ maxWorking: 1 }), { ok: true });
+    try {
+      await withFleetAsync(room(), async (board) => {
+        // mara has no report, so the #4624 hold passes the post on; zed (another Gemini agent) is working, so the cap of 1 holds it.
+        armSender('leo-discord');
+        const first = arm();
+        const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, withZed(board, true), MEMBERS);
+        assert.deepEqual(typedTo(first, 'mara'), [], 'fixture: the cap held the post');
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.cappedId(sent.id)], 'the cap-held post carries the cap mark');
+        if (!marked) {
+          // CONTROL: the same held post, unmarked.
+          assert.deepEqual(roomhold.take('mara', PROJECT), [roomhold.cappedId(sent.id)]);
+          assert.equal(roomhold.hold('mara', PROJECT, sent.id), true);
+        }
+        // Then mara's turn-less idle arrives (automatic) and zed stops working: the cap now has room.
+        assert.equal(selfreport.record('mara', { state: 'idle', because: 'test', auto: true }).recorded, true);
+        const freed = withZed(board, false);
+        agyquota.CAP_STARTS.clear();
+        const tmux = arm();
+        const after = await roomhold.flushReleased(freed, releasedDeps(freed, Date.now()));
+        if (marked) {
+          assert.deepEqual(after.map((d) => [d.name, d.state]), [['mara', chat.DELIVERY.PLACED]], 'the cap-held post was not told');
+          const line = typedTo(tmux, 'mara')[0] || '';
+          assert.match(line, new RegExp('\\(' + sent.id + '\\)'), 'the line names the post by its plain id: ' + line);
+          assert.doesNotMatch(line, /\^/, 'the cap mark leaked into the line');
+          assert.match(line, /Nothing is asked of you/, 'a cap-held plain post is not told as asked');
+          assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'told once');
         } else {
-          assert.deepEqual(after, [], 'no cap: an idle member holding only plain posts waits for its next wake');
+          assert.deepEqual(after, [], 'an unmarked post woke the idle member');
           assert.deepEqual(typedTo(tmux, 'mara'), []);
         }
       });

@@ -77,7 +77,14 @@ function off(env) { return !!(env && env.AGENT_WORKFORCE_ROOM_HOLD_OFF === '1');
    line that later tells the member says which of the held posts ask for an answer. Board ids never start with it. */
 const ADDRESSED = '@';
 function addressedId(id) { return ADDRESSED + String(id); }
-function plainId(x) { return typeof x === 'string' && x.startsWith(ADDRESSED) ? x.slice(ADDRESSED.length) : x; }
+/* #4588 ask 3 (review 13): a post the Gemini cap held, that asks nothing of the member, is kept with this mark instead.
+   The cap holds it while the member is idle, when no wake is coming, so flushReleased retries it; a post the ordinary
+   #4624 idle hold kept is unmarked and waits for the member's next wake, cap or no cap. Board ids never start with it. */
+const CAPPED = '^';
+function cappedId(id) { return CAPPED + String(id); }
+function isAddressed(x) { return typeof x === 'string' && x.startsWith(ADDRESSED); }
+function isCapped(x) { return typeof x === 'string' && x.startsWith(CAPPED); }
+function plainId(x) { return isAddressed(x) ? x.slice(ADDRESSED.length) : isCapped(x) ? x.slice(CAPPED.length) : x; }
 
 /* The member's latest report is a fresh `working` (not older than the board's decay window). */
 function workingNow(readReport, name, now, decayMs) {
@@ -145,8 +152,10 @@ function hold(name, projectId, id) {
     const all = readAll(name);
     const prior = Array.isArray(all[projectId]) ? all[projectId] : [];
     const ids = prior.filter((x) => plainId(x) !== plainId(id));
-    // Kept once; a post that named the member keeps its mark if it is held again unmarked.
-    ids.push(prior.includes(addressedId(plainId(id))) ? addressedId(plainId(id)) : id);
+    // Kept once; a post keeps its mark if it is held again unmarked, and the addressed mark outranks the cap's.
+    const bare = plainId(id);
+    ids.push(isAddressed(id) || prior.includes(addressedId(bare)) ? addressedId(bare)
+      : isCapped(id) || prior.includes(cappedId(bare)) ? cappedId(bare) : bare);
     all[projectId] = ids.slice(-KEEP);
     return writeAll(name, all);
   } catch { return false; }
@@ -202,7 +211,7 @@ function clauseFor(projectId, shown, ids) {
   const name = String(shown == null ? '' : shown).trim();
   shown = name && /^[A-Za-z0-9._ -]+$/.test(name) ? name : projectId;
   const n = ids.length;
-  const asked = ids.filter((x) => plainId(x) !== x).map(plainId);
+  const asked = ids.filter(isAddressed).map(plainId);
   const plain = ids.map(plainId);
   const named = plain.slice(-SHOWN).join(', ') + (n > SHOWN ? ' and ' + (n - SHOWN) + ' earlier' : '');
   if (asked.length) {
@@ -230,9 +239,9 @@ function withoutStale(projectId, ids, stale, name) {
   let gone;
   try { gone = stale(projectId, ids.map(plainId), name); } catch { return ids; }
   if (!(gone instanceof Set) || !gone.size) return ids;
-  const kept = ids.filter((x) => plainId(x) !== x || !gone.has(x));
+  const kept = ids.filter((x) => isAddressed(x) || !gone.has(plainId(x)));
   // Review 7 (Opus): a drop is said, so "why did my agent never hear about mN" has an answer in the board's log.
-  if (kept.length < ids.length) { try { process.stdout.write('room-hold: ' + (name || '?') + ' dropped ' + (ids.length - kept.length) + ' stale held post(s) in ' + projectId + ' (' + ids.filter((x) => !kept.includes(x)).join(', ') + ')\n'); } catch { /* never breaks a flush */ } }
+  if (kept.length < ids.length) { try { process.stdout.write('room-hold: ' + (name || '?') + ' dropped ' + (ids.length - kept.length) + ' stale held post(s) in ' + projectId + ' (' + ids.filter((x) => !kept.includes(x)).map(plainId).join(', ') + ')\n'); } catch { /* never breaks a flush */ } }
   return kept;
 }
 
@@ -268,9 +277,6 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
 async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
   const out = [];
   if (off(env)) return out;
-  /* #4588 ask 3: whether a Gemini cap is set, read ONCE per pass (one disk read, one answer for every member). */
-  let capOn = false;
-  try { capOn = !require('./agyquota').quotaHoldOff(env || process.env) && Number(require('./agycap-setting').read().maxWorking) > 0; } catch { capOn = false; }   // the brake lifts the cap here too
   for (const card of Array.isArray(roster) ? roster : []) {
     try {
       if (!card || !card.sessionName || !isAgy(card)) continue;
@@ -280,12 +286,11 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
       /* #4624 follow-up (review 1/2): an idle member holding only posts that ask nothing of it waits for its next wake,
          as on every other runner; this minute retry is for posts the quota held that name it. That includes posts held
          while it worked whose turn-end line the quota refused: since the follow-up they wait for the next wake too. */
-      /* #4588 ask 3 (review 1): under the Gemini cap a post is held while its member is IDLE, so no wake will come for it;
-         while a cap is set, those posts flush here once the cap lets the member through (only Gemini members: this loop
-         skips every card isAgy refuses, above, so no other runner's timing changes). That changes every held post
-         while a cap is set, including one held because its member was working: it is told at the next minute the
-         member is idle and let through, rather than at its next wake. */
-      if (!capOn && idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => plainId(x) !== x))) continue;
+      /* #4588 ask 3 (review 13): the Gemini cap holds a post while its member is IDLE, so no wake will come for it; those
+         posts carry the cap's mark and flush here once the cap lets the member through. Only those: a plain post the
+         #4624 idle hold kept still waits for the next wake while a cap is set (review 1 retried every held post under a
+         cap, which woke idle agents for posts that ask nothing of them). */
+      if (idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => isAddressed(x) || isCapped(x)))) continue;
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */
       if (require('./chat').addressable(name, roster).ok !== true) continue;
@@ -313,4 +318,4 @@ function toldLine(name, d, after = '') {
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, cappedId, isAddressed, isCapped, plainId, flushReleased, toldLine };
