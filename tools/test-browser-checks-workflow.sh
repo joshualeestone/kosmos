@@ -580,7 +580,6 @@ while IFS= read -r line || [ -n "$line" ]; do
   [ -f "$REPO/docs/browser-checks/$name.js" ] || fail "bc-macos-only.txt names '$name', which is not a check in docs/browser-checks/"
   # The allowlist matches the LABEL a check runs under (a gated.txt line, or a run_one label in browser-checks.sh),
   # not its file name, so a routed name must be one of those or the macOS run reds with "never ran" (review, #4601).
-  # (The labels go through a variable, not a pipe into grep -q: under pipefail an early grep exit can SIGPIPE the producer.)
   rl_labels="$(grep -E '^[[:space:]]*run_one "' "$REPO/tools/browser-checks.sh" | sed 's/^[[:space:]]*run_one "\([^"]*\)".*/\1/')"
   { grep -qxF "$name" "$REPO/docs/browser-checks/gated.txt" || printf '%s\n' "$rl_labels" | grep -qxF "$name"; } \
     || fail "bc-macos-only.txt names '$name', which is neither a gated.txt check nor a run_one label, so no allowlist can select it"

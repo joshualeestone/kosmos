@@ -117,8 +117,12 @@ on the nightly full set (macOS), not on this PR.
    that opens the PR, so the first CI run selects a routed check.
 3. Push the revert ONLY after that run's browser-checks-macos job has FINISHED: the workflow has
    cancel-in-progress, so a revert pushed while the macOS job waits in the hosted queue cancels the measurement.
+   Confirm the macOS job RAN (its log shows the routed check), not only that CI is green: a skipped job reads green.
 4. Before merge: `git log origin/main..HEAD -- docs/browser-checks/render-tasks-view-3559.js` shows the pair, and the
    diff against main for that file is empty; the same check for browser-checks-full.yml.
-5. Round 4 fixes also in: a comments-only list routes nothing (grep exit 1 is not an error; a missing file still
+5. Review CONVERGED at round 5 (Sonnet, 19:48): nothing new; its NITs left (blank/CRLF tokens inert, the macOS
+   checkout's persist-credentials and fetch-depth match the Linux job's). One false comment of mine (a 'no pipe into
+   grep -q' claim the code does not keep) deleted after it.
+6. Round 4 fixes also in: a comments-only list routes nothing (grep exit 1 is not an error; a missing file still
    stops the step); the label lookup avoids a SIGPIPE-prone pipe; the font pin is pinned after install-deps.
 
