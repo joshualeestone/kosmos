@@ -23,3 +23,4 @@ converged: true
 - [FINDING] site plus.html (dead source behind a 308) --> FIXED anyway
 - [STRENGTH] the kosmos board (web/index.html, engine, server.js) states no price; the App Store listing is the one kosmos change
 - [STRENGTH] KOSMOSBETA is percent_off 100 forever with no product restriction, so a $20 checkout nets $0
+- [CORRECTION] the reviewer's first "no $19 left" count summed the wrong git grep -c field (it and its control read 0 regardless); re-measured by lines, every remaining $19.99 is a kept 09-30 ruling row or Josh's own 10-03 quote, so the verdict stands
