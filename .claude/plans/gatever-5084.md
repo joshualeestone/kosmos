@@ -39,4 +39,9 @@ old to have GET /api/version reads as "cannot read", so it HOLDS; the candidate 
   to a real board on 16180; the forced exit-3 agent result also carries the not-a-check note; docs/staging-channel.md.
   Measured 21:2x, each red: the route calling checkNow (installs > 0); the gate posting to /api/update/check (the
   forbidden record). 2/2 server, gate test all arms, promote test ALL PASS.
-- Round 2: PENDING.
+- Round 2 (sonnet, blind): 0 BLOCKER, 0 SHOULD-FIX, 3 NIT. CONVERGED (21:22). Measured: server test 2/2 with its control
+  armed and seams restored; the route inventory test (web.api-routes-3957) 29/29; the gate and promote tests. Reasoned:
+  /api/version is behind the board token (in no pre-token exemption set); HEAD-safe; suffixed versions compare exactly.
+  NITs not taken: no enforcing-board 403 arm for the route (the token gate covers every /api/ path by default; an
+  exemption would be a deliberate edit); a "v"-prefixed version would read as unreadable (package versions carry none);
+  a comment cites round 1.
