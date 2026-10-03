@@ -31,9 +31,13 @@ V="${1:-}"
 # staging only in a separate, proof-gated step AFTER the loop is demonstrated end-to-end on a
 # REAL fresh machine (staging cut -> fresh no-token pull -> experience verify -> pointer promote).
 CUT_CHANNEL="${KOSMOS_CUT_CHANNEL:-prod}"
+# #5032: the installer is channelled like the pointer. A staging cut publishes /setup-staging and
+# leaves /setup (what prod installs and prod updates run) at the prior prod installer; the promote
+# copies one onto the other (tools/promote-channel.sh). Before #5032 every cut wrote /setup, so a
+# staging cut's untested installer ran on every prod box against the OLD prod tarball.
 case "$CUT_CHANNEL" in
-  staging) POINTER_FILE="latest-staging.json" ;;
-  prod)    POINTER_FILE="latest.json" ;;
+  staging) POINTER_FILE="latest-staging.json"; SETUP_FILE="setup-staging" ;;
+  prod)    POINTER_FILE="latest.json"; SETUP_FILE="setup" ;;
   *) echo "release: KOSMOS_CUT_CHANNEL must be 'staging' or 'prod' (got '$CUT_CHANNEL')" >&2; exit 1 ;;
 esac
 # The cut's first line in the record, written the moment the version is known
@@ -659,6 +663,21 @@ if [ "$_q_rc" -ne 0 ]; then
   exit 1
 fi
 
+step "== 1f. the site serves /setup-staging uncached (#5032) =="
+# A staging cut publishes its installer as /setup-staging, which must be served like /setup (text/plain,
+# Cache-Control: no-store) or an edge can hand a staging box the previous installer (the 0.5.13 wedge shape).
+# Those headers live in the SITE's vercel.json, so a staging cut refuses until the site carries them. Here,
+# before the bump, so a refusal leaves nothing pushed.
+# Read from the site's origin/main, the tree 7b commits onto and step 8 deploys, never the local checkout (behind
+# would refuse falsely; ahead or dirty would pass falsely).
+if [ "$CUT_CHANNEL" = staging ]; then
+  git -C "$SITE" fetch -q origin || { echo "could not fetch the site's origin to check its vercel.json"; exit 1; }
+  # Captured, then matched: `git show | grep -q` can SIGPIPE-abort under pipefail once the file outgrows a pipe buffer.
+  _vj="$(git -C "$SITE" show origin/main:vercel.json 2>/dev/null)" || _vj=""
+  [[ "$_vj" =~ \"source\"[[:space:]]*:[[:space:]]*\"/setup-staging\" ]] || { echo "the site's origin/main vercel.json has no /setup-staging headers (no-store, text/plain): merge the site half of #5032 first"; exit 1; }
+  [[ "$_vj" =~ \"source\"[[:space:]]*:[[:space:]]*\"/setup-staging\.sha256\" ]] || { echo "the site's origin/main vercel.json has no /setup-staging.sha256 headers: merge the site half of #5032 first"; exit 1; }
+fi
+
 step "== 2. the version, in one place =="
 node -e "
 const fs=require('fs'),p='$REPO/package.json';
@@ -1215,7 +1234,12 @@ KM_ARTIFACT_SHA="$(awk '{print $1}' "$REPO/dist/kosmos-arm64.tar.gz.sha256")"
 # the staging and prod pointers cannot diverge in shape -- promote-channel.sh copies the
 # staging pointer verbatim onto latest.json. With KOSMOS_CUT_CHANNEL=prod, $POINTER_FILE is
 # latest.json and this is the old direct-to-prod behavior (escape hatch).
-KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" \
+# #5032: the pointer names the installer this build was cut with (setup_sha256), the bytes step 5
+# publishes as /$SETUP_FILE. Read from the build's own sidecar, checked against the bytes beside it.
+KM_SETUP_SHA="$(awk 'NR==1{print $1}' "$REPO/dist/setup.sha256")"
+[ -n "$KM_SETUP_SHA" ] && [ "$KM_SETUP_SHA" = "$(shasum -a 256 < "$REPO/dist/setup" | awk '{print $1}')" ] \
+  || { echo "dist/setup.sha256 does not name dist/setup's bytes" >&2; exit 1; }
+KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" KM_LJ_SETUP_SHA="$KM_SETUP_SHA" \
 KM_LJ_ARTIFACT="kosmos-$V-arm64.tar.gz" KM_LJ_MANIFEST="kosmos-$V-arm64.manifest.json" \
   node "$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js" "$SITE/dist/$POINTER_FILE"
 echo "   $POINTER_FILE ($CUT_CHANNEL) -> $(cat "$SITE/dist/$POINTER_FILE")"
@@ -1226,11 +1250,14 @@ echo "   $POINTER_FILE ($CUT_CHANNEL) -> $(cat "$SITE/dist/$POINTER_FILE")"
 # `setupUrl()`). It was stale on the site by a whole change before this step
 # existed, while three correct checks of the bundle passed.
 step "== 5. the installer =="
-cp "$REPO/dist/setup" "$SITE/setup"
-cp "$REPO/dist/setup.sha256" "$SITE/setup.sha256"
-diff -q "$SITE/setup" "$REPO/install/setup.sh" >/dev/null || { echo "the emitted installer is not install/setup.sh"; exit 1; }
-sh -n "$SITE/setup" || { echo "the installer about to be published does not parse"; exit 1; }
-echo "   /setup copied and parses"
+# #5032: to $SETUP_FILE, the CHANNEL's installer (/setup-staging on a staging cut, /setup on a prod
+# one). The .sha256 is copied verbatim (its name field reads "setup" in both): every reader takes
+# only its first field, and the promote copies the pair onto /setup unchanged.
+cp "$REPO/dist/setup" "$SITE/$SETUP_FILE"
+cp "$REPO/dist/setup.sha256" "$SITE/$SETUP_FILE.sha256"
+diff -q "$SITE/$SETUP_FILE" "$REPO/install/setup.sh" >/dev/null || { echo "the emitted installer is not install/setup.sh"; exit 1; }
+sh -n "$SITE/$SETUP_FILE" || { echo "the installer about to be published does not parse"; exit 1; }
+echo "   /$SETUP_FILE copied and parses ($CUT_CHANNEL)"
 
 step "== 6. what we are about to publish says $V =="
 # Read the VERSIONED artifact the channel pointer names (kosmos-$V-arm64.tar.gz), NOT the
@@ -1374,7 +1401,7 @@ step "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # #2036: the CHANNEL pointer ($POINTER_FILE). In the default staging channel this
 # is dist/latest-staging.json; dist/latest.json (prod) is deliberately NOT in the set,
 # so prod stays at its prior version until promote-channel.sh flips it.
-_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json setup setup.sha256 versions.html"
+_site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json $SETUP_FILE $SETUP_FILE.sha256 versions.html"
 _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry"
 # 🛑 #2276/#2278/#2286: BUILD THE RELEASE COMMIT ON THE FRESHLY-FETCHED origin/main,
 # never on the shared local main. Agents merge chaoskosmos-site PRs through GitHub
@@ -1411,8 +1438,8 @@ if ! release_versions_entry_present "$SITE" "$SITE_SHA" "$V"; then
 fi
 # Best-effort: bring the shared checkout back toward clean + current. The release
 # files are safely on origin/main now, so discard our working-tree copies of the
-# STRICTLY cut-owned artifacts (the channel pointer, the manifest, setup,
-# setup.sha256) -- those are generated only by the cut, so discarding them cannot
+# STRICTLY cut-owned artifacts (the channel pointer, the manifest, the channel's
+# installer pair $SETUP_FILE and $SETUP_FILE.sha256) -- those are generated only by the cut, so discarding them cannot
 # lose anyone's work -- then fast-forward local main to the pushed tip. NEVER abort
 # the cut on a cleanup miss: the release is already pushed and step 8 deploys from
 # SITE_SHA.
@@ -1443,6 +1470,10 @@ for _p in $_site_paths; do
   git -C "$SITE" checkout -- "$_p" 2>/dev/null || true
 done
 rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json"
+# #5032: likewise a first staging cut's /setup-staging pair, untracked locally until the checkout catches up.
+for _p in "$SETUP_FILE" "$SETUP_FILE.sha256"; do
+  git -C "$SITE" ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"
+done
 # The kept-dirty versions.html will usually make this ff decline -- expected and safe
 # (BEHIND, not diverged; the operator refreshes the checkout before the next cut).
 git -C "$SITE" merge --ff-only "$SITE_SHA" >/dev/null 2>&1 \
@@ -1507,7 +1538,8 @@ for i in 1 2 3 4 5 6; do
   # #2036: verify the CHANNEL pointer ($POINTER_FILE) names this version. In the default
   # staging channel this checks dist/latest-staging.json; the versioned-artifact, sha,
   # setup and tmux checks in verify-served.sh are pointer-independent and unchanged.
-  if KOSMOS_VERIFY_POINTER="$POINTER_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
+  # #5032: and the channel's installer (KOSMOS_VERIFY_SETUP), /setup-staging on a staging cut.
+  if KOSMOS_VERIFY_POINTER="$POINTER_FILE" KOSMOS_VERIFY_SETUP="$SETUP_FILE" SITE="$SITE" REPO="$REPO" bash "$REPO/tools/verify-served.sh"; then SERVED_OK=1; break; fi
   echo "   (attempt $i did not match; waiting)"
   sleep 10
 done
@@ -1654,7 +1686,8 @@ step "== 9e. the served artifact, audited from OUTSIDE the build (Splinter's che
 # check compares served /setup against ../chaoskosmos-site beside the repo,
 # and the build tree has no site beside it. 0.5.65's 9e reported that check
 # UNPROVEN and failed the cut on a sound artifact for exactly this reason.
-if ! bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$MAIN_REPO"; then
+# #5032: and the channel's installer, /setup-staging on a staging cut (its floor is this tree's).
+if ! KOSMOS_VERIFY_SETUP="$SETUP_FILE" bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$MAIN_REPO"; then
   echo "THE SERVED ARTIFACT FAILED THE OUTSIDE AUDIT (the lines above say which check). The pointer is live. Do not announce this cut as verified; read the red, and bump rather than republish if bytes must change."
   exit 1
 fi
@@ -1737,18 +1770,23 @@ REFRESH_CLI_SOURCE="$BUILD/install/kosmos" bash "$MAIN_REPO/tools/refresh-local-
 if [ "$CUT_CHANNEL" = staging ]; then
   echo ""
   echo "== $V is on STAGING, NOT prod =="
-  echo "   Prod (latest.json) still serves the prior release; nothing users have updates to $V yet."
+  echo "   Prod (latest.json, and the /setup installer) still serves the prior release; nothing users have updates to $V yet."
   echo "   To take $V to prod, on a FRESH (no-token) machine or account -- NOT this build machine,"
   echo "   which holds a board token and so is blind to the no-token failure class that killed 0.6.25:"
   echo "     1. install/update it on the staging channel:"
-  echo "          fresh install:  curl -fsSL ${HOST:-https://installkosmos.com}/setup | KOSMOS_UPDATE_CHANNEL=staging sh"
+  echo "          fresh install:  curl -fsSL ${HOST:-https://installkosmos.com}/setup-staging | KOSMOS_UPDATE_CHANNEL=staging sh"
   echo "                          (the var goes on the sh, NOT on curl: an env prefix binds to the LEFT of a pipe,"
   echo "                           so putting it before curl sets it for curl and setup then installs PROD)"
   echo "          existing box:   set AGENT_WORKFORCE_UPDATE_CHANNEL=staging for its auto-updater"
   echo "     2. exercise it: open the board and click (a person, or an agent driving a browser)"
   echo "     3. promote:  tools/promote-channel.sh \"$SITE\" <that-board's-port>"
   echo "        (promote-channel HOLDS unless a FRESH session can use the board -- the #2063 gate)"
-  echo "   Rollback is a pointer flip: promote a prior staging pointer, no rebuild."
+  echo "   Rollback is a pointer flip, no rebuild: restore the prior pointer AND the installer it names, by hand"
+  echo "   (#5032: deploy-site.sh refuses a /setup that does not hash to the pointer's setup_sha256; the prior"
+  echo "   installer is the setup pair committed with that pointer, docs/staging-channel.md step 5). Promoting a"
+  echo "   PRIOR staging pointer refuses once a newer staging cut replaced setup-staging; restore by hand instead."
+  echo "   (#5032 transition: staging boxes still on a build before #5032 update with /setup, prod's installer,"
+  echo "   until they run a build carrying it, so test THIS cut's installer with a FRESH install from /setup-staging.)"
 fi
 
 # #2159: on a PROD cut the build is now live to users, so generate the release-notes social posts.

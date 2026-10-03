@@ -76,12 +76,18 @@ cat > "$BIN/vercel" <<'VERCEL'
 # a real deploy replaces the site, but additive is enough to run the served-verify honestly).
 mkdir -p "$LIVE_DIR/dist"
 [ -d ./dist ] && cp -R ./dist/. "$LIVE_DIR/dist/" 2>/dev/null
-for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
+for f in setup setup.sha256 setup-staging setup-staging.sha256 index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
 # A deploy that silently drops one file (the #1669 shape): the post-deploy served-verify must catch it.
 [ -n "${DROP_FROM_DEPLOY:-}" ] && rm -f "$LIVE_DIR/dist/$DROP_FROM_DEPLOY"
 # A deploy that serves DIFFERENT bytes for one file than the export held (#4819).
 [ -n "${MANGLE_ON_DEPLOY:-}" ] && printf ' ' >> "$LIVE_DIR/dist/$MANGLE_ON_DEPLOY"
 [ -n "${LATE_ON_DEPLOY:-}" ] && mv "$LIVE_DIR/dist/$LATE_ON_DEPLOY" "$LIVE_DIR/dist/$LATE_ON_DEPLOY.late"
+# #5032: a site-root file served with different bytes than the export held.
+[ -n "${MANGLE_ROOT_ON_DEPLOY:-}" ] && printf ' ' >> "$LIVE_DIR/$MANGLE_ROOT_ON_DEPLOY"
+# #5032: a served sidecar whose FIRST field names other bytes (an appended byte would land after the newline).
+[ -n "${LIE_SIDECAR_ON_DEPLOY:-}" ] && printf '%064d  setup\n' 0 > "$LIVE_DIR/$LIE_SIDECAR_ON_DEPLOY"
+# #5032 review 13: an edge still serving an OLD but self-consistent /setup pair (the stale-cache shape after a promote).
+[ -n "${STALE_SETUP_ON_DEPLOY:-}" ] && printf 'OLD-INSTALLER\n' > "$LIVE_DIR/setup" && ( cd "$LIVE_DIR" && shasum -a 256 setup > setup.sha256 )
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -384,5 +390,61 @@ run_deploy "$S18" "$L18" --publish
 { [ "$RC" = 1 ] && has "$out" "live staging is 0.6.33" && [ ! -e "$S18/dist/$NEWART" ] && has "$(cat "$L18/dist/latest-staging.json")" "0.6.33"; } \
   && pass "mac staged (--publish): a site-copy deploy from a checkout behind LIVE's staging refuses before any fetch" || bad "mac staged publish stale (rc=$RC) out=$out"
 
+# =============================================================================================
+# #5032: the pointer NAMES its installer (setup_sha256). Every deploy refuses a committed /setup that is
+# not that installer. Scenarios 1-18 above use pointers with no field, so they are the "not checked" control.
+with_setup() {  # <site> <installer-text>: commit a setup pair with that text, and make the committed pointer name <named-sha> (arg 3, default the pair's own)
+  local s="$1"; printf '%s\n' "$2" > "$s/setup"; ( cd "$s" && shasum -a 256 setup > setup.sha256 )
+  local named="${3:-$(sha_of "$s/setup")}"
+  node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.setup_sha256=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$s/dist/latest.json" "$named"
+  git -C "$s" add setup setup.sha256 dist/latest.json && git -C "$s" commit -q -m "pointer names its installer"
+}
+# 19) a promote whose committed /setup IS the installer the pointer names: deploys, and serves it.
+read -r S19 L19 <<<"$(make_scenario)"; with_setup "$S19" "NEW-INSTALLER"
+run_deploy "$S19" "$L19" --promote
+{ [ "$RC" = 0 ] && [ "$(cat "$L19/setup")" = NEW-INSTALLER ]; } && pass "#5032: a promote whose /setup is the pointer's installer deploys and serves it" || bad "#5032 matching promote (rc=$RC) out=$out"
+# 20) a promote whose committed /setup is NOT that installer (promote-channel's copy not committed, or a
+#     rollback that kept the newer installer): refused before anything is served.
+read -r S20 L20 <<<"$(make_scenario)"; with_setup "$S20" "OLD-INSTALLER" "$(printf 'NEW-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"
+run_deploy "$S20" "$L20" --promote
+{ [ "$RC" = 1 ] && has "$out" "names installer" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L20/dist/latest.json")" = "$OLD" ] && [ "$(cat "$L20/setup")" = setup-script ]; } \
+  && pass "#5032: a promote whose /setup is not the pointer's installer is refused, nothing served" || bad "#5032 mismatched promote (rc=$RC) out=$out"
+# 21) the same mismatch on a site-copy --publish (committed pointer == live): refused too.
+read -r S21 L21 <<<"$(make_scenario)"; with_setup "$S21" "OLD-INSTALLER" "$(printf 'NEW-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"; cp "$S21/dist/latest.json" "$L21/dist/latest.json"
+run_deploy "$S21" "$L21" --publish
+{ [ "$RC" = 1 ] && has "$out" "names installer"; } && pass "#5032: a site-copy deploy whose /setup is not the pointer's installer is refused" || bad "#5032 mismatched publish (rc=$RC) out=$out"
+# 22) a sidecar that does not name the committed setup, under a pointer that does: refused.
+read -r S22 L22 <<<"$(make_scenario)"; with_setup "$S22" "NEW-INSTALLER"; printf '%064d  setup\n' 0 > "$S22/setup.sha256"; git -C "$S22" commit -qam "bad sidecar"
+run_deploy "$S22" "$L22" --promote
+{ [ "$RC" = 1 ] && has "$out" "setup.sha256 names"; } && pass "#5032: a committed setup.sha256 that does not name the installer is refused" || bad "#5032 bad sidecar (rc=$RC) out=$out"
+
+# 23) a committed /setup-staging pair is served and edge-checked after the deploy (review 3: run, not grepped).
+read -r S23 L23 <<<"$(make_scenario)"; with_setup "$S23" "NEW-INSTALLER"
+printf 'NEXT-STAGING-INSTALLER\n' > "$S23/setup-staging"; ( cd "$S23" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+git -C "$S23" add setup-staging setup-staging.sha256 && git -C "$S23" commit -q -m "staging installer"
+run_deploy "$S23" "$L23" --promote
+{ [ "$RC" = 0 ] && [ "$(cat "$L23/setup-staging")" = NEXT-STAGING-INSTALLER ]; } && pass "#5032: a committed /setup-staging pair deploys and passes its edge check" || bad "#5032 setup-staging edge (rc=$RC) out=$out"
+# 24) ...and a served /setup-staging.sha256 that does not describe the served script is refused.
+read -r S24 L24 <<<"$(make_scenario)"; with_setup "$S24" "NEW-INSTALLER"
+printf 'NEXT-STAGING-INSTALLER\n' > "$S24/setup-staging"; ( cd "$S24" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+git -C "$S24" add setup-staging setup-staging.sha256 && git -C "$S24" commit -q -m "staging installer"
+out="$(MANGLE_ROOT_ON_DEPLOY=setup-staging PATH="$BIN:$PATH" LIVE_DIR="$L24" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S24" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "is not the committed setup-staging"; } && pass "#5032: a served /setup-staging that is not the committed one is refused at the edge" || bad "#5032 setup-staging mangled (rc=$RC) out=$out"
+# 25) a pointer naming an installer over a commit with no setup.sha256: refused before anything is served.
+read -r S25 L25 <<<"$(make_scenario)"; with_setup "$S25" "NEW-INSTALLER"; git -C "$S25" rm -q setup.sha256 && git -C "$S25" commit -q -m "no sidecar"
+run_deploy "$S25" "$L25" --promote
+{ [ "$RC" = 1 ] && has "$out" "has no setup or setup.sha256" && [ "$(cat "$L25/setup")" = setup-script ]; } && pass "#5032: a pointer naming an installer over a commit with no sidecar is refused" || bad "#5032 missing sidecar (rc=$RC) out=$out"
+
+# 26) the served script is the committed one, but its served sidecar names other bytes: refused at the edge.
+read -r S26 L26 <<<"$(make_scenario)"; with_setup "$S26" "NEW-INSTALLER"
+printf 'NEXT-STAGING-INSTALLER\n' > "$S26/setup-staging"; ( cd "$S26" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+git -C "$S26" add setup-staging setup-staging.sha256 && git -C "$S26" commit -q -m "staging installer"
+out="$(LIE_SIDECAR_ON_DEPLOY=setup-staging.sha256 PATH="$BIN:$PATH" LIVE_DIR="$L26" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S26" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "does NOT match its served /setup-staging.sha256"; } && pass "#5032: a served /setup-staging.sha256 that names other bytes is refused at the edge" || bad "#5032 lying staging sidecar (rc=$RC) out=$out"
+# 27) the served /setup and its sidecar agree with each other but are an OLD installer, not the one the committed
+#     pointer names (a stale edge pair): refused. Case 19 is the control (the same promote, served fresh, passes).
+read -r S27 L27 <<<"$(make_scenario)"; with_setup "$S27" "NEW-INSTALLER"
+out="$(STALE_SETUP_ON_DEPLOY=1 PATH="$BIN:$PATH" LIVE_DIR="$L27" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S27" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "is not the installer the committed latest.json names"; } && pass "#5032: a served /setup pair that agrees with itself but is not the pointer's installer is refused at the edge" || bad "#5032 stale self-consistent /setup (rc=$RC) out=$out"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

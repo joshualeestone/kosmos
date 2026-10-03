@@ -63,7 +63,15 @@ SHA="$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")"
 POINTER_WRITER="$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js"
 PTMP="$(mktemp "$SITE/dist/.latest-staging.json.XXXXXX")" || { echo "publish-staging: could not make a temp file in $SITE/dist" >&2; exit 1; }
 trap 'rm -f "$PTMP"' EXIT   # a signal between mktemp and the rename must not leak the temp
-KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$MANIFEST" \
+# #5032: a pointer names the installer its build was cut with (setup_sha256). This tool cannot know
+# that for an arbitrary build, so it keeps the field only when it republishes the SAME version AND the
+# same artifact the current staging pointer already names; any other republish writes none, and a promote
+# of it then leaves /setup as it is, loudly.
+KEEP_SETUP=""
+if [ -f "$SITE/dist/latest-staging.json" ]; then
+  KEEP_SETUP="$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(p.version===process.argv[2]&&p.artifact===process.argv[3]&&p.sha256===process.argv[4]&&/^[0-9a-f]{64}$/.test(p.setup_sha256||""))process.stdout.write(p.setup_sha256)}catch{}' "$SITE/dist/latest-staging.json" "$V" "$ARTIFACT" "$SHA" 2>/dev/null || true)"
+fi
+KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$MANIFEST" KM_LJ_SETUP_SHA="$KEEP_SETUP" \
   node "$POINTER_WRITER" "$PTMP" \
   && mv "$PTMP" "$SITE/dist/latest-staging.json" \
   || { echo "publish-staging: could not write latest-staging.json" >&2; rm -f "$PTMP"; exit 1; }

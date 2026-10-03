@@ -318,11 +318,27 @@ release_site_restore() {
   # cut committed it), a changed one is checked out back to its committed value like latest.json.
   # The UNTRACKED case -- a first staging cut that created it and then aborted -- is handled by
   # the remove arm just below, because `git checkout` cannot restore a file with no committed copy.
-  for f in dist/latest.json dist/latest-staging.json setup.sha256; do
+  # #5032: and the staging installer pair, which a staging cut writes in place of the /setup pair (the script
+  # too: promote-channel.sh refuses a modified one).
+  # setup itself too (it used to put back only the sidecar): with #5032's setup_sha256 a committed setup and its
+  # sidecar that disagree make every deploy refuse.
+  for f in dist/latest.json dist/latest-staging.json setup setup.sha256 setup-staging setup-staging.sha256; do
     if git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
       if ! git -C "$site" diff --quiet -- "$f"; then
         git -C "$site" checkout -q -- "$f" && echo "   put back: $f (the cut had changed it; the site checkout no longer claims $v)"
       fi
+    fi
+  done
+  # #5032: an UNTRACKED /setup-staging pair is an aborted cut's leftover, unless origin/main already holds it
+  # WITH THESE BYTES (the release commit is pushed from a fresh origin/main at 7b, so a cut that died after that push
+  # and before its deploy committed it there without this checkout): then it is left, and the refresh catches up.
+  # Other bytes (an older copy on origin/main) are removed, or the next pull would refuse to overwrite them. Removed so a later promote, which copies the
+  # pair onto /setup, can never pick up an installer staging never served (promote-channel.sh also
+  # refuses an untracked or modified one).
+  for f in setup-staging setup-staging.sha256; do
+    if ! git -C "$site" ls-files --error-unmatch "$f" >/dev/null 2>&1 && [ -f "$site/$f" ] \
+       && [ "$(git -C "$site" hash-object "$site/$f")" != "$(git -C "$site" rev-parse -q --verify "origin/main:$f" 2>/dev/null)" ]; then
+      rm -f "$site/$f" && echo "   removed: $f (committed nowhere, so never served)"
     fi
   done
   # #2036: an UNTRACKED staging pointer this cut created (staging_ptr_had=0) and never served

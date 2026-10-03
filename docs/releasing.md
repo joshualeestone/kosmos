@@ -76,6 +76,12 @@ improvement it gained would have died with the session that wrote it.
    (`engine/update.js` re-runs `setupUrl()`). It was stale on the site by a
    whole change before this step existed, **while three correct checks of the
    bundle passed.**
+   **#5032: channelled.** A staging cut writes `/setup-staging` (+ `.sha256`) and
+   leaves `/setup` at the prior prod installer; `tools/promote-channel.sh` copies
+   the pair onto `/setup` at the promote. A prod-channel cut writes `/setup` as
+   before. Staging boxes update from `/setup-staging` (`setupUrl()` keys on the
+   install pointer). Before this, a staging cut's untested installer ran on every
+   prod box against the old prod tarball.
 6. **Confirm the bundle says the version** before publishing it.
 7. **The versions page needs its entry, re-checked at the moment of deploy.**
    Step 1 already asked; this asks again because the site checkout can change
@@ -106,7 +112,8 @@ each one**, and cites the line beside it:
 
 | artifact | who fetches it |
 |---|---|
-| `/setup` | new installs, and `engine/update.js:189` on every update |
+| `/setup` | new installs, and `setupUrl()` in `engine/update.js` on every update (prod) |
+| `/setup-staging` | staging installs and staging boxes' updates (#5032) |
 | `/dist/latest.json` | `engine/update.js:82`, every 15 minutes |
 | `/dist/kosmos-arm64.tar.gz` + `.sha256` | `install/setup.sh` |
 | `/dist/tmux-arm64.tar.gz` + `.sha256` | `install/setup.sh:373` |

@@ -8,6 +8,8 @@
 # so prod gets the exact artifact staging verified. That same-bytes property is the whole
 # reason the channel lives in the pointer and not in the artifact (Kitty, 2026-09-03).
 #
+# #5032: when the staging pointer names its installer (setup_sha256) it also rewrites `setup` and `setup.sha256`
+# (from setup-staging), which must be committed with `latest.json`.
 # 🛑 IT DOES NOT DEPLOY. It rewrites `latest.json` in the SITE CHECKOUT's dist/; the next
 # site deploy publishes it. Same boundary as publish-staging-pointer.sh / #2008.
 #
@@ -119,7 +121,8 @@ STAGING="$SITE/dist/$STAGING_NAME"
 # again right before the write.
 SNAP="$(mktemp "${TMPDIR:-/tmp}/promote-channel-staging.XXXXXX")" || { echo "promote-channel: could not make a temp file for the staging snapshot" >&2; exit 1; }
 PTMP=""
-trap 'rm -f "$SNAP" ${PTMP:+"$PTMP"}' EXIT   # a signal mid-promote must not leak either temp
+STMP=""
+trap 'rm -f "$SNAP" ${PTMP:+"$PTMP"} ${STMP:+"$STMP"}' EXIT   # a signal mid-promote must not leak either temp
 cp "$STAGING" "$SNAP" || { echo "promote-channel: could not snapshot $STAGING" >&2; exit 1; }
 
 # Read a pointer's fields via node (exact JSON, never a sed heuristic). read_field reads the
@@ -146,6 +149,37 @@ reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
   || { echo "promote-channel: $ARTIFACT does not verify against its sidecar - refusing to promote unverified bytes" >&2; exit 1; }
 DISK_SHA="$(awk '{print $1}' "$SITE/dist/$ARTIFACT.sha256")"
 [ "$DISK_SHA" = "$SHA" ] || { echo "promote-channel: staging pointer sha ($SHA) != the served artifact sha ($DISK_SHA) - refusing (the pointer does not describe the bytes on disk)" >&2; exit 1; }
+
+# #5032: the installer moves with the pointer. A staging cut publishes /setup-staging and leaves /setup
+# (what prod installs and prod updates run) at the prior prod installer, and its pointer NAMES that
+# installer (setup_sha256). The promote copies the pair onto /setup below. Checked HERE, before any
+# write and BEFORE the board gates (they take minutes; this is the predictable refusal on a stale checkout), so a
+# refusal leaves prod untouched and costs seconds:
+#   - the staging pointer names no installer: a cut before #5032, or a pointer republished by hand
+#     (publish-staging-pointer.sh cannot know which installer a build was cut with). /setup is left
+#     as it is, and the promote says so.
+#   - it names one: setup-staging must be COMMITTED and UNMODIFIED (a working-tree copy that was never
+#     committed was never served), it must hash to the pointer's setup_sha256, and its sidecar must name
+#     the same bytes. Anything else refuses: the promote would otherwise pair the build with an
+#     installer it was not cut with.
+SETUP_STAGING=""
+PTR_SETUP="$(read_field setup_sha256)"
+if [ "$FAMILY" = mac ] && [ -n "$PTR_SETUP" ]; then
+  for _f in setup-staging setup-staging.sha256; do
+    git -C "$SITE" ls-files --error-unmatch "$_f" >/dev/null 2>&1 \
+      || { echo "promote-channel: the staging pointer names installer $PTR_SETUP but $SITE/$_f is not committed - refusing; nothing was written. (Refresh the site checkout, or remove a leftover from an aborted cut.)" >&2; exit 1; }
+    git -C "$SITE" diff --quiet HEAD -- "$_f" \
+      || { echo "promote-channel: $SITE/$_f differs from its committed copy, so the working tree is not what staging served - refusing; nothing was written." >&2; exit 1; }
+  done
+  _sg="$(shasum -a 256 < "$SITE/setup-staging" | awk '{print $1}')"
+  _sw="$(awk 'NR==1{print $1}' "$SITE/setup-staging.sha256")"
+  [ "$_sg" = "$PTR_SETUP" ] \
+    || { echo "promote-channel: setup-staging hashes to $_sg but the staging pointer names installer $PTR_SETUP - refusing; nothing was written. (A later staging cut replaced it, or the checkout is stale.)" >&2; exit 1; }
+  [ "$_sw" = "$_sg" ] \
+    || { echo "promote-channel: setup-staging.sha256 names '${_sw:-nothing}', not the setup-staging bytes $_sg - refusing; nothing was written." >&2; exit 1; }
+  SETUP_STAGING="$_sg"
+fi
+
 
 if [ "$FAMILY" = mac ]; then
   # The pointer promote is about to copy to latest.json also advertises the manifest; do not
@@ -344,6 +378,13 @@ if [ "$FAMILY" = win ]; then
   echo "promote-channel: Josh's go recorded in $WIN_APPROVAL_LOG: $APPROVAL_LINE"
 fi
 
+# #5032: re-checked here, right before the first write: setup-staging must still be the bytes checked above (the
+# gates take minutes, and a site pull meanwhile could replace it).
+if [ -n "$SETUP_STAGING" ] && { [ "$(shasum -a 256 < "$SITE/setup-staging" | awk '{print $1}')" != "$SETUP_STAGING" ] \
+     || [ "$(awk 'NR==1{print $1}' "$SITE/setup-staging.sha256")" != "$SETUP_STAGING" ]; }; then
+  echo "promote-channel: setup-staging changed while the gates ran - refusing; nothing was written." >&2; exit 1
+fi
+
 # Promote: copy the staging SNAPSHOT to prod. A pointer copy - the artifact bytes are already
 # served and unchanged; only which pointer prod fetches changes. Written ATOMICALLY (temp in
 # the same dir + rename): latest.json is the prod pointer every install fetches, so an
@@ -371,6 +412,29 @@ if [ "$FAMILY" != win ] && [ "${PLUS_UNVERIFIED:-0}" = 1 ]; then
     echo "promote-channel: recorded in $PLUS_LOG (on this machine, $PLUS_HOST)" >&2
   else
     echo "promote-channel: WARNING could not append to ${PLUS_LOG:-the unverified-promote log (no HOME and no KOSMOS_PLUS_VERIFY_DIR)}; the promote happened and this output is the only record." >&2
+  fi
+fi
+# #5032: the staging installer onto /setup (checked before any write, above), right after the pointer
+# and its #3940 log line (so a failure here is still logged), and before the alias, so an alias failure never leaves
+# the pointer promoted with /setup not yet copied. Temp + rename, as the
+# pointer: /setup is what every prod install and update runs, so a cut-off copy must never be served.
+if [ -n "$SETUP_STAGING" ]; then
+  for _f in setup setup.sha256; do
+    _t="$(mktemp "$SITE/.$_f.XXXXXX")" && STMP="$_t" || { echo "promote-channel: could not make a temp file for $_f (latest.json is promoted; /setup is NOT yet). Finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE), then commit them with latest.json (re-running promote-channel.sh also works, but repeats the gates)." >&2; exit 1; }
+    cp "$SITE/setup-staging${_f#setup}" "$_t" && chmod 644 "$_t" && mv "$_t" "$SITE/$_f" && STMP="" \
+      || { rm -f "$_t"; echo "promote-channel: could not write $_f (latest.json is promoted; /setup is NOT yet). Finish by hand before any deploy: cp setup-staging setup && cp setup-staging.sha256 setup.sha256 (in $SITE), then commit them with latest.json." >&2; exit 1; }
+  done
+  cmp -s "$SITE/setup-staging" "$SITE/setup" && cmp -s "$SITE/setup-staging.sha256" "$SITE/setup.sha256" \
+    && [ "$(shasum -a 256 < "$SITE/setup" | awk '{print $1}')" = "$SETUP_STAGING" ] \
+    || { echo "promote-channel: /setup does not read back as the verified setup-staging - check both by hand before any deploy" >&2; exit 1; }
+  echo "   copied the staging installer onto /setup (sha256 $SETUP_STAGING)"
+elif [ "$FAMILY" = mac ]; then
+  echo "   the staging pointer names no installer (cut before #5032, or republished by hand): /setup left as it is"
+  # Review 2: say it loudly when a committed staging installer differs from /setup. Then prod gets this
+  # build beside the OLDER installer, the pairing #5032 removes; copying is not safe either, because
+  # nothing says the staging installer belongs to this build.
+  if [ -f "$SITE/setup-staging" ] && ! cmp -s "$SITE/setup-staging" "$SITE/setup"; then
+    echo "promote-channel: WARNING setup-staging differs from /setup and the promoted pointer names no installer, so prod now serves $V beside the OLDER /setup. If $V was cut with setup-staging, copy setup-staging (+ .sha256) onto setup (+ .sha256) by hand and commit them with $PROD_NAME." >&2
   fi
 fi
 # Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.
@@ -412,6 +476,7 @@ sha256_publish_as "$SITE/dist/$ARTIFACT.sha256" "$SITE/dist/$ALIAS.sha256" "$ALI
 [ "$(awk 'NR==1{print $1}' "$SITE/dist/$ALIAS.sha256")" = "$SHA" ] || { echo "promote-channel: the refreshed alias $ALIAS does not hash to the promoted sha $SHA - refresh it by hand before any deploy" >&2; exit 1; }
 echo "   refreshed the prod alias $ALIAS to $V"
 
+
 if [ "$FAMILY" = win ]; then
   # Not "to prod": users are served the Windows files from R2, which this does not write (#3725).
   echo "promote-channel: updated the SITE CHECKOUT's $PROD_NAME to $V ($ARTIFACT). This does NOT change what users are served: that is tools/windows/publish-r2.ps1 -Promote."
@@ -421,6 +486,7 @@ else
 fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
+[ -n "$SETUP_STAGING" ] && echo "promote-channel: COMMIT setup and setup.sha256 together with $PROD_NAME (#5032): a deploy serves the committed site, and deploy-site.sh refuses a committed /setup that does not hash to the pointer's setup_sha256."
 
 if [ "$FAMILY" = win ]; then
   win_append_approval_line "$(date -u +%FT%TZ) family=win path=promote version=$V sha256=$SHA approval_ref=$APPROVAL_REF promoted=yes" \

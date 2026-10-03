@@ -494,7 +494,7 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 ```
 
 **Check, on a staging install**
-(`curl -fsSL https://installkosmos.com/setup | KOSMOS_UPDATE_CHANNEL=staging sh`):
+(`curl -fsSL https://installkosmos.com/setup-staging | KOSMOS_UPDATE_CHANNEL=staging sh`):
 1. Settings, This computer, shows the "Phone notifications" section, with "Buzz my phone when
    an agent needs me" and a "Turn on" button. It is off by default.
 2. Pressing Turn on succeeds. It mints the Mac's notify credential through the new tunnel.
@@ -503,14 +503,16 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 **Promote to everyone:** follow steps 4 and 5 of `docs/staging-channel.md` exactly.
 - `tools/promote-channel.sh <site-checkout> <board-port>` rewrites `dist/latest.json` in the site
   checkout.
-- Commit and push that file.
+- Commit and push that file, with `setup` and `setup.sha256` (#5032: the promote copies the
+  staging installer onto them).
 - Then run `bash tools/deploy-site.sh --promote`. It refuses if the committed pointer already
   equals the live one.
 - Josh approves this, because it changes what every Mac downloads.
 
 **Undo:**
 - Point `latest.json` back at the previous release and redeploy the site
-  (`docs/staging-channel.md`). No rebuild.
+  (`docs/staging-channel.md`). No rebuild. If that pointer names an installer (`setup_sha256`, #5032),
+  put that installer back on `/setup` too, or the deploy refuses.
 - That does not take back the site copy published at the staging cut. The versions page entry and
   the install copy stay until the site is redeployed without them.
 - A Mac back on the old board has the lock closed again and sends nothing.
