@@ -11509,7 +11509,7 @@ test('kosmos#4648: /api/remote/computers is served, and when no signed list can 
   assert.match(body.because, /\w/, 'no reason given');
 });
 
-test('kosmos#4794: the pairing routes are served: GET join answers not-held when not enrolled, HEAD runs no round, confirm checks the code first', async () => {
+test('kosmos#4794: the pairing routes are served: GET join answers not-held when not enrolled, HEAD answers, confirm checks the code first', async () => {
   const st = await req('/api/remote/join');
   assert.equal(st.status, 200, st.body);
   assert.deepEqual(JSON.parse(st.body), { supported: true, held: false }, 'an unenrolled board is not joining');

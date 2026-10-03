@@ -198,14 +198,14 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(dl && dl.wait === 'This computer has added as many computers as it can today. Try again tomorrow.' && !dl.code && dl.allowOff && dl.denyOn,
         `${tag} #4794: no code yet (daily_limit): Mona's line, no code, Allow disabled, Not me enabled`, JSON.stringify(dl));
       const wac = await (async () => {   // was_a_computer comes on a row with no joining_computer (devices.rs)
-        pending = [{ device_id: 'd-wac', name: 'oldbox', code: '', first_seen: now() - 10, joining_computer: null, code_wait: 'was_a_computer' }];
+        pending = [{ device_id: 'd-wac', name: 'oldbox', code: '777777', first_seen: now() - 10, joining_computer: null, code_wait: 'was_a_computer' }];
         await page.evaluate(() => pollAsk());
         await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-wac"]', { timeout: 5000 }).catch(() => {});
         return page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); const a = r && r.querySelector('[data-ask="allow"]');
-          return r ? { wait: (r.querySelector('.askwait') || {}).textContent || '', allowOff: !!(a && a.disabled) } : null; });
+          return r ? { wait: (r.querySelector('.askwait') || {}).textContent || '', allowOff: !!(a && a.disabled), code: !!r.querySelector('.askcodebig') } : null; });
       })();
-      chk(wac && wac.wait === 'This started as a computer and now shows as a device, so it cannot be allowed. Press Not me.' && wac.allowOff,
-        `${tag} #4794: was_a_computer (no joining_computer): its line shows and Allow is disabled (review 1)`, JSON.stringify(wac));
+      chk(wac && wac.wait === 'This started as a computer and now shows as a device, so it cannot be allowed. Press Not me.' && wac.allowOff && !wac.code,
+        `${tag} #4794: was_a_computer (no joining_computer, even WITH a code): its line, no code, Allow disabled (reviews 1, 3)`, JSON.stringify(wac));
       const unk = await waitCase(null);
       chk(unk && unk.wait === 'Working out the code with laptop3. It shows here in a moment.' && unk.allowOff,
         `${tag} #4794: no code and no reason: the default line, Allow disabled`, JSON.stringify(unk));
@@ -219,6 +219,14 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const cc = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
       chk(/The code changed before you pressed Allow\. Check the new one on laptop4, then press Allow again\./.test(cc) && !/code_changed/.test(cc),
         `${tag} #4794: a refused code is worded ("The code changed..."), never the raw tag`, cc);
+      const heldOff = await page.evaluate(() => { const a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]'); return !!(a && a.disabled); });
+      chk(heldOff, `${tag} #4794: after "code changed", Allow waits while the same code shows (review 3)`);
+      pending = [{ device_id: 'd-cc', name: 'laptop4', code: '864201', first_seen: now() - 10, joining_computer: 'laptop4' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForTimeout(400);
+      const fresh = await page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); const a = r && r.querySelector('[data-ask="allow"]');
+        return r ? { allowOn: !!(a && !a.disabled), say: (r.querySelector('.asksay') || {}).textContent || '', code: (r.querySelector('.askcodebig') || {}).textContent || '' } : null; });
+      chk(fresh && fresh.allowOn && fresh.code === '864201' && !/code changed/.test(fresh.say), `${tag} #4794: a new code clears the refusal and Allow is back (review 3)`, JSON.stringify(fresh));
 
       /* #4794: this computer WAITING to be allowed. The pill says so; #plus-join replaces the coordinator's sentence. */
       let join = { supported: true, held: true, join_code: '', on: null, asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false };
@@ -272,7 +280,22 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       jr = await readJoin();
       chk(jr.text === 'Too many tries. On homemac, press Not me on this request, then sign this computer in again.' && !jr.button,
         `${tag} #4794 waiting: too many tries says the recovery`, JSON.stringify(jr));
-      /* CONTROL: connected (not waiting), the block is gone. */
+      /* Review 3 (the tunnel's own contract): after the other computer's Allow this computer is connected and no longer
+         held, but the code stays until it is confirmed here. The block must still show it, with the button. */
+      join = { ...join, held: false, failed: false, confirm_expired: false, confirmed: false, join_code: '246810', on: 'homemac' };
+      remoteNow = REMOTE;   // connected
+      jr = await readJoin();
+      chk(jr.shown && /^Check that homemac shows this same code\./.test(jr.text) && jr.code === '246810' && jr.button && jr.pill === 'Connected' && jr.status === '',
+        `${tag} #4794: allowed but not yet confirmed: the code and The codes match stay (the pill says Connected, the sentence stays away)`, JSON.stringify(jr));
+      /* By the page's clock a code older than the tunnel's 10 minutes is shown as run out, even if rounds keep failing. */
+      await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; });
+      remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting' } };
+      join = { ...join, held: true };
+      await page.evaluate(() => paintPlusJoin());
+      const old = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim());
+      chk(old === 'That code ran out. A new one is on its way.', `${tag} #4794: a code past 10 minutes by the page's clock reads as run out`, old);
+      /* CONTROL: connected and confirmed (not waiting), the block is gone. */
+      join = { ...join, held: false, confirmed: true };
       remoteNow = REMOTE;
       jr = await readJoin();
       chk(!jr.shown && jr.pill === 'Connected', `${tag} #4794 CONTROL: connected, no pairing block`, JSON.stringify(jr));

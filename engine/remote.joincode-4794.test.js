@@ -3,8 +3,8 @@
  * kosmos#4794 slice 1, the app's wiring for pairing two computers with a code both screens show. Every tunnel call goes
  * to a FAKE binary through AGENT_WORKFORCE_TUNNEL_BIN; nothing reaches a network.
  *  - pendingDevices passes code_wait only from the fixed list;
- *  - deviceAllow sends --code for a six-digit code (and never anything else), and words the tunnel's sas_mismatch and
- *    sas_pending refusals as code_changed / code_pending;
+ *  - deviceAllow sends --code for a six-digit code (and never anything else), and tags the tunnel's refusals:
+ *    code_many (more than one computer showing a code), code_changed, code_pending; joinConfirm tags code_expired;
  *  - joinStatus hands the page only checked fields (its JSON read past the tunnel's log lines), and answers
  *    supported:false for a tunnel with no join verb;
  *  - joinConfirm refuses a code that is not six digits without spawning, and passes the tunnel's answer through.
