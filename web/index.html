@@ -47341,11 +47341,12 @@ const SWITCH_ACCT_ALLDEAD = 'None of your OpenAI sign-ins are working right now,
    history with a state other than 'none'): the switch would restart it onto a dead or separate login. */
 function claudeNoTarget(accounts, unreadable) {
   if (unreadable) return false;
+  /* Round 7: NO Claude rows is the commoner empty case (a main account with no login is left out of the list), so it
+     counts too: the list was read and nothing can take the agent. */
   const claude = (accounts || []).filter((x) => x && acctProvider(x) === 'anthropic');
-  if (!claude.length) return false;
   return !claude.some((x) => x.memoryShared && (!x.connection || x.connection.state !== 'none') && x.offerable !== false);
 }
-const SWITCH_CLAUDE_NONE = 'There is no Claude account on this computer that can take it: the main one is signed out and no other shares your agents\u2019 history. Sign in to Claude in Settings, AI Models, then switch.';
+const SWITCH_CLAUDE_NONE = 'There is no Claude account on this computer that can take it: none is signed in that shares your agents\u2019 history. Sign in to Claude in Settings, AI Models, then switch.';
 function openaiAllDead(accounts, unreadable) {
   if (unreadable) return false;
   const openai = (accounts || []).filter((x) => x && x.provider === 'openai');
@@ -47497,6 +47498,11 @@ function fillSwitchAccounts() {
        ordinary and a fault line would be noise.
        📌 It writes only into our own region and only when that region is empty, so it
        cannot overwrite somebody else's status text. */
+    /* Round 7: Claude chosen and nothing can take it: say so under the menu now, not after a dialog. */
+    if (prov.value === 'anthropic' && armed && ACCOUNTS_LOADED && claudeNoTarget(ACCOUNTS, ACCOUNTS_UNREADABLE) && pmsg0 && !pmsg0.textContent) {
+      pmsg0.textContent = SWITCH_CLAUDE_NONE;
+      SWITCH_ACCT_SAID = SWITCH_CLAUDE_NONE;
+    }
     if (openai && armed && ACCOUNTS_UNREADABLE && pmsg0 && !pmsg0.textContent) {
       pmsg0.textContent = SWITCH_ACCT_UNREADABLE;
       SWITCH_ACCT_SAID = SWITCH_ACCT_UNREADABLE;
@@ -48402,6 +48408,12 @@ async function changeProviderNow(say) {
 }
 
 document.getElementById('d-provider-go').addEventListener('click', () => {
+  /* Round 7: refuse before the dialog, which would otherwise promise the main Claude account first. */
+  { const p0 = document.getElementById('d-provider'); const m0 = document.getElementById('d-provider-msg');
+    if (p0 && p0.value === 'anthropic' && ACCOUNTS_LOADED && claudeNoTarget(ACCOUNTS, ACCOUNTS_UNREADABLE)) {
+      if (m0) { m0.textContent = SWITCH_CLAUDE_NONE; SWITCH_ACCT_SAID = SWITCH_CLAUDE_NONE; }
+      return;
+    } }
   const sel = document.getElementById('d-provider');
   if (!CURRENT || !sel.value) return;
   const toOpenai = sel.value === 'openai';

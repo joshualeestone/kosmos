@@ -95,4 +95,11 @@ account and need a second restart.
   disagree. NITs not taken: the check does not cover an account with no email (the fixture rows all have one; the code path
   falls back exactly as acctParenthetical does); the tense is "Right now:" on a partial too (as repaintRunsOnName already did).
   Reviewer confirmed the rebuild loses nothing (#d-runson is the lead, one <b>, an optional bracket).
-- Round 7: PENDING.
+- Round 7 (opus, blind, whole change): 0 BLOCKER, 2 SHOULD-FIX, 2 NIT, all taken (23:4x). SF1 (measured): a main account with
+  no login is LEFT OUT of accounts.list, so a machine with no Claude rows got no list, no line, and a switch onto a dead login;
+  my round-3 claudeNoTarget returned false for an empty list (and round 4's "pre-existing" NIT5 reason was wrong: the card's
+  Expected asks for exactly this). It now counts no rows as no target. SF2: the refusal came only AFTER a confirm dialog that
+  promised the main account; the remedy line shows under the menu when Claude is chosen, and Switch refuses before the
+  dialog. NIT1: the sentence no longer claims "the main one is signed out". NIT2: the route says "your main Claude account"
+  when the main is the one used.
+- Round 8: PENDING.
