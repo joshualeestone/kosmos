@@ -372,6 +372,14 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   message on a busy build box cannot fail a good product.
 - The question says "View > Reload" asks again (a page reloading itself does not).
 
+## Review round 33 changes
+- One refusal and one summary per page load, on every path (the action, the attachment and the
+  unshowable-file refusals, a refused computer, failures): the once-per-load cap covered only the
+  not-a-board action path, so a looping page could bring a summary back every few seconds. A new
+  commit, or View > Reload, lets the page be told once again.
+- One summary waits at a time (schedulePendingSay), not one timer per refusal.
+- The "sign in again" hint appears only on a Kosmos+ page.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
