@@ -10,10 +10,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const NOTE = '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the exact name, like @frost.';
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'ambig-cli-'));
+const DATA = path.join(SANDBOX, 'data');
+test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch {} });
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
@@ -39,7 +44,7 @@ function postAgainst(delivery) {
     server.listen(0, '127.0.0.1', async () => {
       let out = null; let failure = null;
       try {
-        const env = { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
+        const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
         delete env.KOSMOS_AGENT_TOKEN; delete env.KOSMOS_AGENT_SESSION;
         out = await runCli(['post', 'proj', '@Sub-Zero please look'], env);
       } catch (e) { failure = e; }
