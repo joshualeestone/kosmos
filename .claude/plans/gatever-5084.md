@@ -45,3 +45,13 @@ old to have GET /api/version reads as "cannot read", so it HOLDS; the candidate 
   NITs not taken: no enforcing-board 403 arm for the route (the token gate covers every /api/ path by default; an
   exemption would be a deliberate edit); a "v"-prefixed version would read as unreadable (package versions carry none);
   a comment cites round 1.
+- Baron's independent review on PR #5085 (release lead, 21:3x): no blocker; two warnings and four NITs. Taken: W1 "update that
+  board first" cannot be done on a prod-channel board; the message now names what can (a staging-channel board, or force and
+  re-run the gate once the board reports the version). W2: with every fleet promote now cannot-tell, the #2023 check runs only
+  if someone runs it afterwards; promote prints the exact re-run line when forced, and docs step 5 says it. NIT: "could not
+  read" names its cause (no node, HTTP 404 = a board older than the route, no answer in 15 s, another code). NIT: the
+  always-passing note line is now a NOTE, not a PASS. Not taken: reading the version before minting the nonce (an unreachable
+  board would then read cannot-tell instead of its loud exit 1); a token-refused arm (fails closed by construction).
+  Measured 21:3x: gate test all arms (the 404 arm now asserts its cause; the mismatch arm asserts the re-run line); promote
+  test ALL PASS with the new re-run assertion; server test 2/2.
+- Round 3: PENDING.

@@ -66,10 +66,10 @@ fake_gate() {   # $1 board version ("" = none reported), $2 expected ("" = unset
   printf '%s\n%s\n' "$rc" "$out"
 }
 r="$(fake_gate 0.7.18 0.7.19)"
-[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"runs 0.7.18, not 0.7.19"*"another release"*) true;; *) false;; esac \
+[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"runs 0.7.18, not 0.7.19"*"another release"*"KOSMOS_GATE_EXPECT_VERSION=0.7.19 bash tools/staging-experience-check.sh"*) true;; *) false;; esac \
   && pass "#5084: a board on the previous release is cannot-tell (exit 2) and says which version it runs" || bad "#5084 previous-release board: $r"
 r="$(fake_gate "" 0.7.19)"
-[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"could not read which version"*) true;; *) false;; esac \
+[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"could not read which version"*"HTTP 404, a board older than this route"*) true;; *) false;; esac \
   && pass "#5084: a board whose version cannot be read is cannot-tell (exit 2)" || bad "#5084 unreadable version: $r"
 r="$(fake_gate 0.7.19 0.7.19)"
 [ "$(printf '%s' "$r" | head -1)" = 0 ] && case "$r" in *"USABLE on 0.7.19:"*) true;; *) false;; esac \
@@ -82,7 +82,7 @@ rm -rf "${FAKE:?}"
 
 # The exit-0 USABLE path is also exercised above against the #5084 fake board (the four requests the gate
 # makes); a REAL board is still validated by hand, since the fake answers what the gate asks, not what Kosmos does.
-pass "note: the exit-0 path runs here against a fake board; a real board is validated by hand"
+printf 'NOTE  the exit-0 path runs here against a fake board; a real board is validated by hand\n'
 
 if [ "$fail" = 0 ]; then
   echo "test-staging-experience-check: all CI-runnable arms passed"
