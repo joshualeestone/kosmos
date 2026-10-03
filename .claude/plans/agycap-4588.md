@@ -215,3 +215,11 @@ Left as accepted: one setting read per call.
 - A blind review of the fix (iteration 12, sonnet): `capOn` was read from disk per member inside flushReleased's loop;
   now read once per pass (375 related tests pass). Duplicates of decisions above: a person's own restart counts toward
   the cap (it reserves, by design); CAP_STARTS is cleared by the tests that use it (server.agyhold-4588.test.js).
+- OPEN (review iteration 13, opus, 21:11): the `capOn` bypass in flushReleased (roomhold.js, "while a cap is set, those
+  posts flush here") also catches plain posts the ordinary #4624 idle hold held (shouldHold holds every plain post to an
+  auto-idle member before the cap is consulted), so setting a cap WAKES up to `max` idle Gemini agents per minute that
+  would otherwise wait for their next wake. The test at roomhold-agyhold-4588.test.js:503-538 asserts exactly that.
+  This overturns the review-1 decision recorded above. Fix to build: mark posts the CAP held (`sent.heldBy === 'cap'` in
+  messages.js finish, as addressedId marks asked posts) and retry only those; drop the blanket capOn bypass; add an arm
+  where a plain #4624-held post to an idle member is NOT typed while a cap is set (and a control where a cap-held one is).
+  Also cheap: heldForCap should check isOurAgy before reading agycap.json (non-Gemini sends skip the disk read).
