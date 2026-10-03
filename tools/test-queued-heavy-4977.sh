@@ -187,11 +187,12 @@ run5064() {   # run5064 <wrapper> <marker dir>: prints the order the two command
   local q="$1" m="$2"; mkdir -p "$m"; : > "$m.order"
   printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > "$m/machine-claim"
   ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" QH_TEST_LOSE_TAKES=1 perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "A-5064" sh -c "echo A >> $m.order; sleep 2" > "$m.a" 2>&1 ) & local pa=$!
-  until_true 20 "[ -n \"\$(ls $m 2>/dev/null | grep -v machine-claim)\" ]" || true; sleep 1
+  until_true 20 "[ -n \"\$(ls $m 2>/dev/null | grep '^suitewait\.[0-9]*$')\" ]" || echo "RUN5064-TIMEOUT: A never queued" >> "$m.order"; sleep 1
   ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "B-5064" sh -c "echo B >> $m.order" > "$m.b" 2>&1 ) & local pb=$!
   # Release the box only once BOTH waiters are queued (review 1: a fixed sleep let a slow B miss its place on a loaded
   # Mac, turning the CONTROL red for the wrong reason).
-  until_true 20 "[ \$(ls $m 2>/dev/null | grep -vc machine-claim) -ge 2 ]" || true; rm -f "$m/machine-claim"
+  # A timeout is written into the order, so the ORDER= arms go red rather than pass on a run that never raced (review 2).
+  until_true 20 "[ \$(ls $m 2>/dev/null | grep -c '^suitewait\.[0-9]*$') -ge 2 ]" || echo "RUN5064-TIMEOUT: both waiters never queued" >> "$m.order"; rm -f "$m/machine-claim"
   wait $pa $pb
   printf 'ORDER=%s\n' "$(tr '\n' ' ' < "$m.order")"; cat "$m.a"
 }
