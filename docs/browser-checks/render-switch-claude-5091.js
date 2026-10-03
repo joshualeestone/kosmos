@@ -145,10 +145,12 @@ const CODEX_OUT_OF_CREDITS = [
     await page.goto(URL + '/?tab=detail&agent=liu', { waitUntil: 'load' }); await page.waitForTimeout(1200);
     await page.click('#d-nav [data-go="model"]'); await page.waitForTimeout(400);
     await page.selectOption('#d-provider', 'anthropic'); await page.waitForTimeout(300);
+    const early = await page.$eval('#d-provider-msg', (e) => e.textContent);
+    chk(/no Claude account on this computer that can take it/.test(early), '#5091: the remedy shows under the menu as soon as Claude is chosen', JSON.stringify(early));
     await page.click('#d-provider-go');
-    await page.waitForFunction(() => { const m = document.getElementById('chg-modal'); return m && !m.hidden; }, null, { timeout: 8000 }).catch(() => {});
-    if (await page.$('#chg-modal:not([hidden])')) await page.click('#chg-go');
     await page.waitForTimeout(800);
+    const dialog = await page.evaluate(() => { const m = document.getElementById('chg-modal'); return !!m && !m.hidden; });
+    chk(dialog === false, '#5091: no confirm dialog promises the main account when nothing can take it');
     const none = await page.evaluate(() => document.getElementById('d-provider-msg').textContent + ' | ' + ((document.getElementById('chg-msg') || {}).textContent || ''));
     chk(posted === null && /no Claude account on this computer that can take it/.test(none),
       '#5091: with no Claude account that can take it, the switch refuses with the remedy and sends nothing', JSON.stringify({ posted, none }));

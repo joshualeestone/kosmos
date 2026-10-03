@@ -7913,7 +7913,7 @@ const server = http.createServer(async (req, res) => {
         const acctNoun = wrote.provider === 'openai' ? 'OpenAI sign-in'
           : wrote.provider === 'google' ? 'Gemini account'
             : wrote.provider === 'xai' ? 'Grok account'
-              : wrote.provider === 'anthropic' ? 'Claude account'
+              : wrote.provider === 'anthropic' ? (acct && acct.isDefault ? 'main Claude account' : 'Claude account')   // #5091 round 7
                 : 'account';
         /* #1373: "you picked this" and "we picked this and are telling you"
            are different promises, so they get different sentences. Saying
