@@ -112,7 +112,8 @@ for (const [reason, want] of [['two stops..', 'two stops.'], ['a space. ', 'a sp
       const r = await cli(port, ['agent', 'create', 'PM', 'pm'], 'abc123');
       assert.notEqual(r.code, 0);
       assert.ok(r.out.includes('Kosmos did not make that agent: ' + want), r.out);
-      assert.ok(!r.out.includes(want + '.'), 'a stop after the reason\'s own end');
+      assert.ok(r.out.split('\n').map((x) => x.trim()).includes('Kosmos did not make that agent: ' + want),
+        'the line must be exactly the reason with one end (nothing after it, even after a space)');
     }));
 }
 

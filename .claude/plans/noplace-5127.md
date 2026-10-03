@@ -4,7 +4,7 @@ Card: kosmos#5127 (the #5114 class). Found by Baron's What's New review, 2026-10
 
 ## Finished looks like
 When Claude Code is not installed yet, the create refusal a newcomer meets says "Connect a Claude account in
-Settings, AI Models. Kosmos will then set it up." (it named no place), and the OpenAI alternative is its own
+Settings, AI Models. Kosmos will then set up Claude Code." (it named no place), and the OpenAI alternative is its own
 sentence ("Or create this agent on OpenAI instead."), as the #5126 refusals already read.
 
 ## Also
@@ -22,7 +22,8 @@ alternative); runners.test.js pins the install refusal; web.aimodels-name-5114.t
 create tests match "or create this agent on OpenAI instead" case-insensitively, so the moved capital is covered.
 
 ## CLI ends
-Both CLIs print 'Kosmos did not make that agent: <reason>.' and now end that line the same way: the reason's own
+Both CLIs print 'Kosmos did not make that agent: <reason>.' and now end that line the same way for any reason
+that is not empty (an empty reason, and a newline inside one, were already handled differently and are untouched): the reason's own
 trailing stops and spaces go, then one '.' (none after a '?' or '!'), and a reason that was only stops says it did
 not say why. So a reason that ends a sentence (these, and #5126's) never prints '..'. Tests cover both CLIs on
 '..', a trailing space, '?' and a stops-only reason.

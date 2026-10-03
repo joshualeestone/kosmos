@@ -4224,7 +4224,7 @@ cmd_agent() {
       true
       ;;
     create)
-      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because label="" from="" data
+      local name role why esc_name esc_role esc_why _tok="" parsed outcome made because label="" from="" data end
       name="$1"; role="$2"; why="${3:-the person asked for it}"
       if [ "$role" = "--new-role" ]; then role="own"; label="$3"; from="$5"; why="${6:-the person asked for it}"; fi
       case "${KOSMOS_AGENT_TOKEN:-}" in
