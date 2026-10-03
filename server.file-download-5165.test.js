@@ -149,8 +149,8 @@ test('an agent\u2019s Files that is a link to somewhere else is not downloaded f
   assert.doesNotMatch(said, /not this agent/);
 });
 
-test('a file the gates pass but that cannot be opened is refused with a sentence, never a 200 that stops short', {
-  skip: (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) && 'needs POSIX permissions and a non-root user',
+test('a file the gates pass but that cannot be opened is refused as unreadable (it is still there), never a 200 that stops short', {
+  skip: (typeof process.getuid !== 'function' || process.getuid() === 0) && 'needs POSIX permissions and a non-root user',
 }, async () => {
   const folder = fs.mkdtempSync(path.join(SANDBOX, 'projects', 'locked-'));
   const locked = path.join(folder, 'locked.pptx');
@@ -162,7 +162,7 @@ test('a file the gates pass but that cannot be opened is refused with a sentence
     const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=locked.pptx');
     const body = await r.text();
     assert.equal(r.status, 404, body);
-    assert.match(JSON.parse(body).because, /not there any more, or it was moved/);
+    assert.equal(JSON.parse(body).because, 'that file could not be read on the computer Kosmos runs on');
   } finally {
     fs.chmodSync(locked, 0o600);
   }
@@ -175,4 +175,21 @@ test('a name with characters RFC 5987 does not allow is percent-encoded in the d
   const r = await fetch(base + '/api/agent/rfc/files/download?name=' + encodeURIComponent("Q3 (final)'s*!.pptx"));
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-disposition'), "attachment; filename*=UTF-8''Q3%20%28final%29%27s%2A%21.pptx");
+});
+
+test('?check=1 passes the same gates and answers 204 with no body; a refused check is the refusal', async () => {
+  const files = path.join(SANDBOX, 'workers', 'chk', 'Files');
+  fs.mkdirSync(files, { recursive: true });
+  fs.writeFileSync(path.join(files, 'deck.pptx'), PPTX);
+  const before = calls.length;
+  const ok = await fetch(base + '/api/agent/chk/files/download?check=1&name=deck.pptx');
+  assert.equal(ok.status, 204);
+  assert.equal((await ok.arrayBuffer()).byteLength, 0, 'the look moved the file');
+  assert.equal(ok.headers.get('content-disposition'), null, 'a look is not a download');
+  const gone = await fetch(base + '/api/agent/chk/files/download?check=1&name=gone.pptx');
+  assert.equal(gone.status, 404);
+  assert.match((await gone.json()).because, /not there any more|not a file/);
+  const out = await fetch(base + '/api/agent/chk/files/download?check=1&name=' + encodeURIComponent('../CLAUDE.md'));
+  assert.equal(out.status, 404);
+  assert.equal(calls.length, before, 'a look asked the board\u2019s computer to open something');
 });

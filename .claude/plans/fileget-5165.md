@@ -22,10 +22,16 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   so a request another site triggers carries no auth and is refused before the route; and adding it would make every
   Kosmos+ download depend on that rewrite, which nobody has measured end to end. A Sec-Fetch-Site: cross-site arm was
   considered and rejected for the same reason (the cookie already refuses that case). Matches /api/attachment.
+- The look beside the download is `?check=1`: the same gates and open, then 204 with no body, so it never moves
+  the file a second time (review 3: a full GET cut off by the page depends on the relay passing the abort upstream).
+- A refusal after the gates says what is true: ENOENT is "not there any more, or it was moved", anything else
+  (a lock, a permission) is "could not be read on the computer Kosmos runs on".
+- Deliberately NOT done: opening with O_NONBLOCK against a FIFO swapped in after the gates (review 3). Only the
+  agent can put one in its folder, and the agent already runs commands on that computer, so a held worker thread
+  gives it nothing; openFile has the same exposure; and the flag is undefined on Windows (a #1732 inventory row).
 - The download starts IN the person's click (the anchor is clicked synchronously, so no browser can call it a
-  download nobody asked for). Alongside it the page sends one GET to the same address, cut off once its headers
-  arrive, and on a refusal shows the board's own sentence under the list, rather than leaving it to the browser's
-  downloads. Rejected: HEAD-then-click (review 2): the click after an await has no user activation, which WebKit
+  download nobody asked for). Alongside it the page looks with `?check=1` (above), and on a refusal shows the
+  board's own sentence under the list, rather than leaving it to the browser's downloads. Rejected: HEAD-then-click (review 2): the click after an await has no user activation, which WebKit
   may refuse, and it depends on how the relay treats HEAD. The cost: a refused file may ALSO show as a failed item
   in the browser's downloads, beside the sentence.
 - Every message line is written only while the person is still on the same project or agent (kplusSayer).
@@ -38,8 +44,6 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   vanishes over Kosmos+ is a second layout to keep right; the sentence says why).
 - Not changed: the attachment preview's reveal (already Download over Kosmos+, #4930); the sleep and accessibility
   settings buttons (setup steps at the computer, not files).
-- No cross-site check on the GET routes, matching `/api/attachment/:id`: `crossSiteRead`'s referer arm only knows
-  loopback and AGENT_WORKFORCE_ALLOWED_HOSTS, so it would refuse the very page this is for.
 
 ## Not covered, filed separately
 - The Mac app in connect mode loads the board from a Kosmos+ address, so kplusRemote() is true there too, and its

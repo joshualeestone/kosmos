@@ -3766,10 +3766,15 @@ function statusForSibling(json) {
    (#4930): over Kosmos+ the person is on another device, so opening it on this computer shows them nothing.
    Whatever the type it is an attachment, and it never renders on the board's origin. The file is opened ONCE,
    before the headers go out; the open descriptor must be the same file the gates passed (device and inode), and
-   it is sized and streamed from that descriptor, to exactly that size. A file that went, was locked, or was
-   swapped for a link since the gates checked it is `refuse()`d rather than sent; `pipeline` closes the
-   descriptor when the person cancels or the relay drops. */
+   it is sized and streamed from that descriptor, to exactly that size. `strictContentLength` turns a file that
+   shrank meanwhile into a reset rather than a download that hangs short. `?check=1` (the page's look beside the
+   download) passes the same gates and answers 204 with no body, so the look never moves the file a second time. A refusal
+   goes to `refuse(because)`, with ENOENT said as gone and anything else as unreadable. */
+const DOWNLOAD_GONE = 'that file is not there any more, or it was moved';
+const DOWNLOAD_UNREADABLE = 'that file could not be read on the computer Kosmos runs on';
 function sendFileDownload(req, res, found, refuse) {
+  let checkOnly = false;
+  try { checkOnly = new URL(req.url, ROUTING_BASE).searchParams.get('check') === '1'; } catch { checkOnly = false; }
   const headersFor = (size) => ({
     'content-type': 'application/octet-stream', 'content-length': size, 'x-content-type-options': 'nosniff',
     // RFC 5987 ext-value: encodeURIComponent leaves ' ( ) * ! as they are, and the attr-char set does not allow them.
@@ -3778,15 +3783,17 @@ function sendFileDownload(req, res, found, refuse) {
     'content-security-policy': "default-src 'none'; sandbox", 'cache-control': 'no-store',
   });
   fs.open(found.target, 'r', (openErr, fd) => {
-    if (openErr) { refuse(); return; }
+    if (openErr) { refuse(openErr.code === 'ENOENT' ? DOWNLOAD_GONE : DOWNLOAD_UNREADABLE); return; }
     fs.fstat(fd, (statErr, st) => {
       if (statErr || !st.isFile() || st.dev !== found.st.dev || st.ino !== found.st.ino) {
         fs.close(fd, () => {});
-        refuse();
+        refuse(DOWNLOAD_GONE);
         return;
       }
+      if (checkOnly) { fs.close(fd, () => {}); res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
       res.writeHead(200, headersFor(st.size));
       if (req.method === 'HEAD' || st.size === 0) { fs.close(fd, () => {}); res.end(); return; }
+      res.strictContentLength = true;
       const stream = fs.createReadStream(null, { fd, start: 0, end: st.size - 1 });   // autoClose closes fd
       require('node:stream').pipeline(stream, res, () => {});
     });
@@ -6238,7 +6245,7 @@ const server = http.createServer(async (req, res) => {
       try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
       const found = projects.fileInFolder(folder, named, 'this agent\u2019s Files folder');
       if (!found.ok) { sendJson(res, 404, { ok: false, because: found.because }); return; }
-      sendFileDownload(req, res, found, () => sendJson(res, 404, { ok: false, because: 'that file is not there any more, or it was moved' }));
+      sendFileDownload(req, res, found, (because) => sendJson(res, 404, { ok: false, because }));
       return;
     }
     if (verb === 'reveal' && req.method === 'POST') {
@@ -17263,7 +17270,7 @@ const server = http.createServer(async (req, res) => {
     try { named = new URL(req.url, ROUTING_BASE).searchParams.get('name') || ''; } catch { named = ''; }
     const found = projects.fileInFolder(record.folder, named);
     if (!found.ok) { sendJson(res, 404, { ok: false, because: found.because }); return; }
-    sendFileDownload(req, res, found, () => sendJson(res, 404, { ok: false, because: 'that file is not there any more, or it was moved' }));
+    sendFileDownload(req, res, found, (because) => sendJson(res, 404, { ok: false, because }));
     return;
   }
 
