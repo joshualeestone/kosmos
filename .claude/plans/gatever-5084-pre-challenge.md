@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: gatever-5084
-diff_hash: a1142b7f7be36ab1557f26e52eac91ee5483b042e841adc96891bb68b562378f
+diff_hash: 951790b07f9840f003467909b8ea446c06398368b016626e4b2aeba39ba5bf46
 validation: focused on Agent1s 2026-10-02 21:2x CDT: server.version-5084.test.js 2/2 (control armed), web.api-routes-3957.test.js 29/29, tools/test-staging-experience-check.sh all arms, tools/test-staging-channel-2036.sh ALL PASS; merge-tree with origin/main clean. The full suite is the PR's own CI on the merged tree; the watcher merges only when every check passes.
 subdir_audit: not run (the diff changes no subdirectory CLAUDE.md)
 timestamp: 2026-10-03T02:22:55Z
-iterations: 2
+iterations: 3
 converged: true
 ---
 
@@ -32,3 +32,7 @@ converged: true
 #### Iteration 2 (Sonnet): CONVERGED
 - 0 BLOCKER, 0 SHOULD-FIX. Route behind the token, HEAD-safe, inventory test green.
 - NITs not taken: an enforcing-board 403 arm; "v"-prefixed versions; a comment citing round 1.
+
+#### Iteration 3 (Sonnet, after Baron's independent review): CONVERGED
+- Baron's two warnings and two NITs taken (operator advice that works on a prod-channel board; the post-deploy re-run line; the cause of an unread version).
+- Round 3 on that commit: 0 BLOCKER, 0 SHOULD-FIX; three NITs taken (absolute paths, which board, no-answer wording).
