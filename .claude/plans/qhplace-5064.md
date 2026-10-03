@@ -27,3 +27,7 @@ The instant race between two takes is not closed; only the loser's place is kept
   stale comment ("a main-lane loser has already left the queue"); a 170-character comment line.
 - NIT left: QH_JOINED is taken a few seconds before the library's own join time (the library's check runs in a
   subshell); the only effect is a few-second tie between a light and a heavy waiter, no starvation. Same as installed.
+
+## Review 2 (blind Sonnet): converged, 0 blockers, 0 warnings, 2 nits, both taken
+- A timed-out wait for the waiters is now written into the order file, so the ORDER= arms go red instead of passing a
+  run that never raced; both waits count exactly the lib's suitewait.<pid> markers (cut-guard.sh:549).
