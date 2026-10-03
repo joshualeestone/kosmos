@@ -60,6 +60,22 @@ test('#2225: an agent with no account renders NO parenthetical (empty string, no
   assert.equal(acctParenthetical(null), '');
 });
 
+test('#5150: a Gemini or Grok key account (no name, email or label) is named by its key, in the server\'s words', () => {
+  const a = { account: { name: null, email: null, label: null, keyTail: '4f2a' } };
+  assert.equal(acctParenthetical(a), 'API key ending 4f2a');
+});
+
+test('#5150: the key is the LAST rung: a name, an email or a label still wins over it', () => {
+  assert.equal(acctParenthetical({ account: { name: 'Research', keyTail: '4f2a' } }), 'Research');
+  assert.equal(acctParenthetical({ account: { email: 'g@example.com', keyTail: '4f2a' } }), 'g@example.com');
+  assert.equal(acctParenthetical({ account: { label: 'gemini-b', keyTail: '4f2a' } }), 'gemini-b');
+});
+
+test('#5150 CONTROL: a row with nothing at all, keyTail included, still gives no bracket', () => {
+  assert.equal(acctParenthetical({ account: { name: null, email: null, label: null, keyTail: null } }), '');
+  assert.equal(acctParenthetical({ account: { keyTail: '' } }), '');
+});
+
 test('#2225 CONTROL: the caller still gates on the return, so "" omits the parens', () => {
   // The render site is `acctEmail ? ' (' + esc(acctEmail) + ')' : ''`; '' is falsy,
   // so an account-less agent gets no empty "()" -- pin that the helper returns a
