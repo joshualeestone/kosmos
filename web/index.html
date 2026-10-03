@@ -38110,7 +38110,7 @@ function usageCharts4Html(series, totals, grandTotal) {
    🛑 SOURCE + DATE, because published prices change (Splinter's requirement):
      - Anthropic (claude.com/pricing, fetched 2026-09-14): all four classes are
        separately published (input / output / 5-min cache write / cache read).
-     - OpenAI (developers.openai.com/api/docs/pricing, 2026-09-14): input / cached
+     - OpenAI (developers.openai.com/api/docs/pricing, 2026-09-14; the pre-5.6 rows): input / cached
        input / output are published; there is NO separate cache-WRITE charge, so
        cw is the input rate (how OpenAI bills a first-seen token) and cr is the
        published cached-input rate -- a mapping of published behaviour, not a guess.
@@ -38119,7 +38119,8 @@ function usageCharts4Html(series, totals, grandTotal) {
        write-token, so cw is the input rate here too.
      - #5158 (fetched 2026-10-03), the models Codex, Gemini CLI and Grok agents run:
        gpt-5.6-sol from developers.openai.com/api/docs/models/gpt-5.6-sol, which now
-       publishes cache writes at 1.25x the uncached input rate (so cw = 5.00);
+       publishes cache writes at 1.25x the uncached input rate (so cw = 5.00), at a
+       promotional price "available at least through November 21, 2026" (check it then);
        gemini-3.8-flash from ai.google.dev/gemini-api/docs/pricing, an introductory
        rate through 2026-12-31 that DOUBLES on 2027-01-01 (update this row then);
        grok-4.6 from docs.x.ai/docs/models/grok-4.6, cached input published, no
