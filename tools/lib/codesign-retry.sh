@@ -6,7 +6,8 @@
 # (wrong identity, locked keychain, errSecInternalComponent) returns at once with codesign's own
 # exit status. Each retry is printed, so the cut log shows it happened. codesign's output is
 # indented four spaces, as the build printed it before.
-# KOSMOS_CODESIGN_CMD names the codesign to run (tools/test-codesign-retry-5149.sh passes a stub).
+# KOSMOS_CODESIGN_CMD names the codesign to run (tools/test-codesign-retry-5149.sh passes a stub). It is read in a
+# real build too, like KOSMOS_CODESIGN_ID: leave it unset on a cut.
 # It returns codesign's status, so call it as `codesign_ts_retry ... || { <fail> }`, as the bundle build does.
 CODESIGN_TS_UNAVAILABLE='The timestamp service is not available'
 
