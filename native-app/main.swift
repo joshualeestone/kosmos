@@ -2887,7 +2887,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// said. The selftest sets it to 0 except for its burst arm.
     static var downloadQuietSeconds: TimeInterval = 5
     private var lastDownloadTold: Date?
-    private var downloadSheetShownAt: Date?   // a sheet that never reports its dismissal stops counting after 60s
+    private var downloadSheetShownAt: Date?   // a download alert on screen (cleared when dismissed; 60s at most)
     fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
 
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {
@@ -2917,12 +2917,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             self.downloadSheetShownAt = nil
             if quiet { self.lastDownloadTold = Date() }
         }
-        if let window = webView?.window {
-            alert.beginSheetModal(for: window) { _ in dismissed() }
-        } else {
-            alert.runModal()
-            dismissed()
-        }
+        // Modal, never a sheet: a sheet over another sheet can be dropped (#2807), and a failure must be said.
+        alert.runModal()
+        dismissed()
     }
 
     /// #5167: where each running download is being saved, so its end can be told to the Dock.

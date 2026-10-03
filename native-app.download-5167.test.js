@@ -304,3 +304,9 @@ test('#5167 review 21: the per-computer question is modal (a dropped sheet would
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.ok(b.indexOf('http.statusCode == 204') < b.indexOf('"attachment"'), 'a 204 sent as an attachment is saved as an empty file');
 });
+
+test('#5167 review 22: every download alert is modal (a sheet over a sheet can be dropped, #2807)', () => {
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
+  assert.doesNotMatch(tell, /beginSheetModal/, 'a download failure is a sheet, which another sheet can drop');
+  assert.match(tell, /alert\.runModal\(\)\n\s+dismissed\(\)/);
+});
