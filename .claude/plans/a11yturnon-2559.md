@@ -76,3 +76,17 @@ test strength (each guard has an arm that reds without it).
   only shows Turn On early.
 - [NIT] A failed fetch counts as uncheckable, so a briefly-down board also offers Turn On after 4 s. Accepted: never gates.
 - [NIT] No arm drives a route-supplied actionable:true. Dormant path; accepted.
+
+## Copy, ruled by Mona Lisa (06:38, then 06:50 after a correction)
+- The unsure state (uncheckable, Turn On offered) shows a NEUTRAL "Not confirmed" pill beside Turn On; the red
+  "Not activated" is kept for a grant Kosmos KNOWS is off; green "Activated" unchanged. (`data-unsure`, set only for
+  an uncheckable + actionable read.)
+- One quiet dhint line directly under the row, in the unsure state only: "Kosmos cannot check this yet. If you have
+  already turned it on, press Next." Her first ruling dropped this line on the belief that Next was disabled there;
+  I corrected that (an uncheckable row never gates Next) and she added it, correcting her #2559 comment in place.
+- No data-win-hide on the line: on Windows the row is filtered out before any poll, so it never gets data-unsure.
+  (Adding it first broke web.win32-board-copy's count of hidden surfaces; removed.)
+This supersedes review 2's deferred WARNING and NIT (copy and the screen-reader hint): resolved by her ruling.
+render-gated-next (real browser, 06:58): the unsure arm shows Turn On + Not confirmed + the line, no red pill, no
+Checking, Next not blocked; the line stays hidden once the grant is read. click-first-run passes. 12 related node
+test files 132/132. Mutation: never setting data-unsure reds the unit test.
