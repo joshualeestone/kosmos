@@ -573,3 +573,27 @@ test('#4588 ask 3: a post the cap held is marked and the retry tells it once the
     } finally { fs.rmSync(capSetting.FILE, { force: true }); agyquota.CAP_STARTS.clear(); }
   }
 });
+
+/* #4588 ask 3 review 13: the cap's mark is bookkeeping, never a claim that the post asks anything. A stale cap-held post
+   is dropped like any plain one (an asked one never is), and a post held twice keeps the stronger mark (@ over ^). */
+test('#4588 ask 3: a cap-marked id is dropped when stale like a plain one, and the asked mark outranks it', () => {
+  const asked = roomhold.addressedId('m1');
+  const capped = roomhold.cappedId('m2');
+  const kept = roomhold.withoutStale(PROJECT, [asked, capped, 'm3'], () => new Set(['m1', 'm2']), 'mara');
+  assert.deepEqual(kept, [asked, 'm3'], 'a stale cap-held post was kept, or an asked one dropped');
+  assert.deepEqual(roomhold.withoutStale(PROJECT, [capped], () => new Set(['m9']), 'mara'), [capped], 'CONTROL: a fresh cap-held post is kept');
+  for (const [first, second, want] of [
+    [roomhold.cappedId('m5'), 'm5', roomhold.cappedId('m5')],
+    ['m5', roomhold.cappedId('m5'), roomhold.cappedId('m5')],
+    [roomhold.cappedId('m5'), roomhold.addressedId('m5'), roomhold.addressedId('m5')],
+    [roomhold.addressedId('m5'), roomhold.cappedId('m5'), roomhold.addressedId('m5')],
+    ['m5', 'm5', 'm5'],
+  ]) {
+    roomhold.forget('mara');
+    assert.equal(roomhold.hold('mara', PROJECT, first), true);
+    assert.equal(roomhold.hold('mara', PROJECT, second), true);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [want], first + ' then ' + second);
+  }
+  assert.equal(roomhold.plainId(capped), 'm2');
+  assert.equal(roomhold.isAddressed(capped), false);
+});
