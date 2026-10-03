@@ -147,6 +147,15 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Not changed: the local board check compares host and port, not scheme (the board is served over
   http; https on that port would be a different server, which cannot hold the board's port).
 
+## Review round 11 changes
+- A run where nothing saves is now judged, not timed out: file waits 5s, watchdog 150s, gate alarm
+  180s. Measured with every save sabotaged: 9 rows FAIL with a product verdict in 81s.
+- The Dock bounce is no longer skipped when only WebKit's mark is on a file.
+- The selftest's server binds 127.0.0.1 explicitly.
+- Stated: a CLICK on `<a download>` inside a same-origin frame on a board page does save (the action
+  check is the page's, not the frame's); only a frame's LOAD cannot. The board's previews are served
+  sandboxed (server.js content-security-policy), so no board frame runs script today.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers

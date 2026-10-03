@@ -192,7 +192,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
   assert.match(tell, /if let last = lastDownloadTold, Date\(\)\.timeIntervalSince\(last\) < AppDelegate\.downloadQuietSeconds \{/, 'a page clicking in a loop can stack sheets');
   assert.ok(tell.indexOf('lastDownloadTold = Date()') < tell.indexOf('downloadAlertPresenter'), 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
   assert.match(SRC, /static var downloadQuietSeconds: TimeInterval = 5\n/);
-  assert.match(body('@objc(downloadDidFinish:)'), /guard getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 else \{ return \}/,
+  assert.match(body('@objc(downloadDidFinish:)'), /if getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 \{\n\s+tellDownloadFailed\(/,
     'the person is told a file is unmarked when WebKit\'s own mark is on it');
 });
 
@@ -203,4 +203,13 @@ test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
   assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame == true \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
     'a frame inside the page can put up the app\'s sheet, or the refusal blames the page when the file is the cause');
+});
+
+test('#5167 review 11: a run where nothing saves is judged, not timed out (the watchdog sits above the worst case, the gate above the watchdog)', () => {
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
+  const watchdog = Number((hatch.match(/asyncAfter\(deadline: \.now\(\) \+ (\d+)\) \{ print\("download selftest TIMED OUT"\)/) || [])[1]);
+  const alarm = Number((BUILD.match(/alarm (\d+); exec @ARGV; exit 127' "\$STAGE\/app\/bin\/kosmos-app" --kosmos-app-download-selftest/) || [])[1]);
+  assert.ok(watchdog >= 150, 'the watchdog (' + watchdog + 's) is under a nothing-saves run (measured 81s), so a total break reads as a timeout');
+  assert.ok(alarm >= watchdog + 20, 'the gate\'s alarm (' + alarm + 's) does not sit above the hatch\'s own watchdog (' + watchdog + 's)');
+  assert.match(hatch, /wait\(expect == nil \? 20 : 50\)/);
 });
