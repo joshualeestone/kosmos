@@ -5203,6 +5203,9 @@ const server = http.createServer(async (req, res) => {
                    #668 row too: it answers "is there a pane here to act on",
                    and there is not. */
                 running: false,
+                /* #5154 slice A: stated on the offline row too. Between crashes a looping agent can have no session
+                   at all, which is exactly when this row is the one the board draws. */
+                crashLoop: crashloop.read(k.name),
                 stateConfidence: unseen ? 'none' : 'structured',
                 /* #310: when the job exists and launchd holds an override
                    against it, the Login Items switch is the story, and it is
