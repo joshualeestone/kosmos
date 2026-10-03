@@ -21264,12 +21264,33 @@ function paintUpdateAbort(ab) {
 }
 
 /* #3532: paint the per-account login-expiry advisories from the /api/status poll.
-   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, service, provider, email, names }
+   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, worksUntil, service, provider, email, names }
    (one per credential near expiry; #5018 added the last four, and service keys the X's dismissals); empty/absent clears the slot. dataset.v is a signature so an
    unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
 /* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
    the notice for this page's life, and it comes back on reload. */
 const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';
+/* #5164: when an advisory's agents stop working (epoch ms), while that is still ahead of this page's clock; else null.
+   The page's own clock decides, so a notice the board computed a minute before the time turns into "has expired" on
+   time rather than when the board next reads the credential. */
+function loginAdvWorksUntil(a) {
+  const t = a && typeof a.worksUntil === 'number' && Number.isFinite(a.worksUntil) ? a.worksUntil : null;
+  return t !== null && t > Date.now() ? t : null;
+}
+/* "at about 1:18 PM", or "tomorrow at about 1:05 AM" when it is not today on this page's clock (Mona Lisa: a bare 1:05 AM
+   read at 11 PM looks like the past). An access token lasts 8 hours (measured), so the time is never more than a day
+   ahead and "tomorrow" is the only other day it can be. "About": Claude Code tries its refresh around the time the token
+   runs out, not on the second. */
+function loginAdvWhen(ms) {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return 'at about ' + time;
+  if (d.toDateString() === tomorrow.toDateString()) return 'tomorrow at about ' + time;
+  // Never reached by an 8-hour token; a wrong page clock or a longer token still gets a true day, not "tomorrow".
+  return 'on ' + d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }) + ' at about ' + time;
+}
 let loginAdvHiddenMem = [];
 function paintLoginAdvisories(advs) {
   const slot = document.getElementById('login-adv-slot');
@@ -21278,8 +21299,10 @@ function paintLoginAdvisories(advs) {
      or expired). The key is the notice's own state, kept per viewer in this browser. */
   /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
      bring a closed notice back. */
-  /* Expired counts as one state: its days count keeps falling, but a closed expired notice says nothing new. */
-  const advKey = (a) => [a.severity || '', a.expired ? 'x' : a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
+  /* Expired counts as one state: its days count keeps falling, but a closed expired notice says nothing new.
+     #5164: except that "they stop at 1:18 pm" and "they have stopped" are two states: the second is news, so a closed
+     first notice comes back as the second. */
+  const advKey = (a) => [a.severity || '', a.expired ? 'x' : a.daysLeft, a.expired ? (loginAdvWorksUntil(a) ? 'w' : 'x') : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
   /* A dismissal lives while its account still has a notice: a reply with NO notice for that credential (the login was
      renewed, or its date could not be read this time) forgets it, so a later expiry of the same account is never born
      hidden. Keyed on the account, not the exact notice, so one agent's pane read failing for a moment does not bring a
@@ -21289,7 +21312,10 @@ function paintLoginAdvisories(advs) {
   const list = Array.isArray(advs)
     ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
-  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')).join('|');   // repaint on a new name or email too
+  /* #5164 (review): the stop time's words are in the signature too, so a notice painted before midnight as "tomorrow at
+     about 1:10 AM" repaints as "at about 1:10 AM" after it, rather than telling the person they have a day. */
+  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')
+    + ':' + (a.expired && loginAdvWorksUntil(a) ? loginAdvWhen(loginAdvWorksUntil(a)) : '')).join('|');   // repaint on a new name or email too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
@@ -21300,12 +21326,20 @@ function paintLoginAdvisories(advs) {
     const who = names.map(esc).join(', ');
     // #5018: which provider and account they run under; when the email could not be read, the provider only, never a guess.
     const acct = 'On ' + esc(a.provider || 'Claude') + (a.email ? ', ' + esc(a.email) : '') + ': ';
-    const head = a.expired
+    /* #5164 (measured on account-e, 2026-10-03): a login past its date keeps its agents working until the access token
+       they hold runs out, hours later. While that time is still ahead, the notice says when they stop, not that they
+       have: "expired" at 06:58 for agents that worked until 13:18 read as a false alarm. */
+    const until = a.expired ? loginAdvWorksUntil(a) : null;
+    const head = until
+      ? ((n === 1 ? 'An agent stops working ' : n + ' agents stop working ') + loginAdvWhen(until))
+      : a.expired
       ? (n === 1 ? 'An agent’s login has expired' : n + ' agents’ login has expired')
       : (a.daysLeft <= 0
         ? (n === 1 ? 'An agent’s login expires today' : n + ' agents’ login expires today')
         : ((n === 1 ? 'An agent’s login expires in ' : n + ' agents’ login expires in ') + a.daysLeft + (a.daysLeft === 1 ? ' day' : ' days')));
-    const tail = a.expired
+    const tail = until
+      ? ('Sign in again before then to keep ' + (n === 1 ? 'it' : 'them') + ' running.')   // Mona Lisa: the head carries the timing; the not-expired sibling's verb
+      : a.expired
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
     // role=status on the words, not the notice, so the close button is not read out with every announcement.

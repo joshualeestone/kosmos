@@ -81,17 +81,30 @@ function readCredAsync(service) {
   });
 }
 
-/* Returns claudeAiOauth.refreshTokenExpiresAt (epoch ms) for an agent's CCD env value, or
- * null. The credential body is parsed and dropped here; only the number leaves this function. */
-function refreshExpiryFor(ccd, { readCred = readCredDefault } = {}) {
+/* #5164: both dates from an agent's credential, as epoch ms (or null each): `refreshExpiresAt`, when the LOGIN ends,
+ * and `accessExpiresAt`, when the access token Claude Code is using right now runs out. The body is parsed and dropped
+ * here; only the two numbers leave this function.
+ * WHY BOTH (measured 2026-10-03 on account-e): the login ended at 06:58, yet its agents kept working until the access
+ * token they already held ran out at 13:18, and then failed with "OAuth session expired and could not be refreshed"
+ * (13:25). So a login past its date is not yet a stopped agent: it stops when the access token runs out, which can
+ * be hours later. A notice that said "expired" at 06:58 was right about the login and wrong about the agents. */
+function loginTimesFor(ccd, { readCred = readCredDefault } = {}) {
+  const none = { refreshExpiresAt: null, accessExpiresAt: null };
   const service = serviceNameFor(ccd);
   let raw;
-  try { raw = readCred(service); } catch { return null; }
-  if (!raw) return null;
+  try { raw = readCred(service); } catch { return none; }
+  if (!raw) return none;
   let obj;
-  try { obj = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return null; }
-  const ms = obj && obj.claudeAiOauth && obj.claudeAiOauth.refreshTokenExpiresAt;
-  return (typeof ms === 'number' && Number.isFinite(ms)) ? ms : null;
+  try { obj = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return none; }
+  const o = obj && obj.claudeAiOauth;
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+  return { refreshExpiresAt: num(o && o.refreshTokenExpiresAt), accessExpiresAt: num(o && o.expiresAt) };
+}
+
+/* Returns claudeAiOauth.refreshTokenExpiresAt (epoch ms) for an agent's CCD env value, or null: the login's own date,
+ * which connect.js watches move when a sign-in completes. */
+function refreshExpiryFor(ccd, opts = {}) {
+  return loginTimesFor(ccd, opts).refreshExpiresAt;
 }
 
 /* Extract CLAUDE_CONFIG_DIR from a `ps eww <pid>` line (macOS appends the process env after
@@ -129,10 +142,12 @@ function severityFor(daysLeft) {
 function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = WARN_WITHIN_DAYS, readCred } = {}) {
   const out = [];
   for (const acct of accounts) {
-    const expiresAt = refreshExpiryFor(acct.ccd, { readCred });
+    const times = loginTimesFor(acct.ccd, { readCred });
+    const expiresAt = times.refreshExpiresAt;
     if (expiresAt == null) continue;
     const daysLeft = Math.floor((expiresAt - now) / DAY_MS);
     if (daysLeft > warnWithinDays) continue;
+    const expired = daysLeft < 0;
     out.push({
       ccd: acct.ccd == null ? null : String(acct.ccd),
       account: acct.account || null,
@@ -140,7 +155,10 @@ function advisoriesFor({ accounts = [], now = Date.now(), warnWithinDays = WARN_
       service: serviceNameFor(acct.ccd),
       expiresAt,
       daysLeft,
-      expired: daysLeft < 0,
+      expired,
+      /* #5164: the login has ended but the agents still hold a working access token: they stop when it runs out, at
+         this time (epoch ms), not before. null otherwise (not ended yet, or already stopped, or not readable). */
+      worksUntil: expired && times.accessExpiresAt != null && times.accessExpiresAt > now ? times.accessExpiresAt : null,
       severity: severityFor(daysLeft),
     });
   }
@@ -194,6 +212,6 @@ function loginChanged() { loginGen += 1; }
 function loginGeneration() { return loginGen; }
 
 module.exports = {
-  serviceNameFor, refreshExpiryFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
+  serviceNameFor, refreshExpiryFor, loginTimesFor, readCredAsync, advisoriesFor, severityFor, ccdFromPsEnv, agentAdvisories,
   cachedAdvisories, loginChanged, loginGeneration, DEFAULT_SERVICE, DAY_MS, URGENT_DAYS, WARN_DAYS, WARN_WITHIN_DAYS,
 };

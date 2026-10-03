@@ -136,6 +136,31 @@ test('advisoriesFor: already-expired account is urgent + flagged expired', () =>
   assert.ok(out[0].daysLeft < 0);
 });
 
+/* #5164, measured on account-e 2026-10-03: the login ended at 06:58, the agents kept working on the access token they
+   held until it ran out at 13:18, then failed ("OAuth session expired and could not be refreshed", 13:25). */
+test('#5164: a login past its date with a live access token says when its agents stop (worksUntil); control arms', () => {
+  const now = 1_000_000_000_000;
+  const H = 3600000;
+  const adv = (claudeAiOauth) => le.advisoriesFor({ now, readCred: () => JSON.stringify({ claudeAiOauth }),
+    accounts: [{ ccd: '/Users/agent1/.claude-account-e', agents: ['a'] }] })[0];
+  const live = adv({ refreshTokenExpiresAt: now - 6 * H, expiresAt: now + 5 * H, accessToken: 'SECRET' });
+  assert.equal(live.expired, true, 'the login itself has ended');
+  assert.equal(live.worksUntil, now + 5 * H, 'the time the agents stop was not carried');
+  assert.ok(!JSON.stringify(live).includes('SECRET'), 'a token leaked into the advisory');
+  // Controls: the access token already ran out (stopped), none recorded, or the login has not ended (no worksUntil).
+  assert.equal(adv({ refreshTokenExpiresAt: now - 6 * H, expiresAt: now - 1 }).worksUntil, null, 'a run-out access token still said working');
+  assert.equal(adv({ refreshTokenExpiresAt: now - 6 * H }).worksUntil, null);
+  assert.equal(adv({ refreshTokenExpiresAt: now + 2 * 24 * H, expiresAt: now + 5 * H }).worksUntil, null, 'a login not yet ended carried a stop time');
+});
+
+test('#5164: loginTimesFor returns only the two dates; refreshExpiryFor is unchanged', () => {
+  const readCred = () => JSON.stringify({ claudeAiOauth: { accessToken: 'A', refreshToken: 'R', expiresAt: 5, refreshTokenExpiresAt: 7 } });
+  assert.deepStrictEqual(le.loginTimesFor('/x', { readCred }), { refreshExpiresAt: 7, accessExpiresAt: 5 });
+  assert.equal(le.refreshExpiryFor('/x', { readCred }), 7);
+  assert.deepStrictEqual(le.loginTimesFor('/x', { readCred: () => 'not json' }), { refreshExpiresAt: null, accessExpiresAt: null });
+  assert.deepStrictEqual(le.loginTimesFor('/x', { readCred: () => { throw new Error('locked'); } }), { refreshExpiresAt: null, accessExpiresAt: null });
+});
+
 test('advisoriesFor: an unreadable account is skipped, does not break the others', () => {
   const now = 1_000_000_000_000;
   const readCred = (svc) => svc.endsWith('bc18eb8e')
