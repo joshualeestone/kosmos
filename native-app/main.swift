@@ -2836,7 +2836,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     static var downloadAlertPresenter: ((String) -> Void)?
 
     /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
-    private var downloadsTold: Set<ObjectIdentifier> = []
+    // Weak keys: an entry goes with its download, so a later one at the same address never inherits it.
+    private let downloadsTold = NSHashTable<WKDownload>.weakObjects()
 
     /// #5167: whoever holds a Kosmos+ name runs that name's tunnel, so a Kosmos+ computer's page is only as
     /// trusted as its holder. The first time one asks to save a file, the person is asked, as Safari asks per
@@ -2948,7 +2949,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.allow)
         } else {
             logLine("#5167: refused a download's redirect to another origin")
-            downloadsTold.insert(ObjectIdentifier(download))
+            downloadsTold.add(download)
             tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.")
             decisionHandler(.cancel)
         }
@@ -2961,7 +2962,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard let dir = AppDelegate.downloadsDirOverride
                 ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else {
             logLine("#5167: no Downloads folder, so a download was not saved")
-            downloadsTold.insert(ObjectIdentifier(download))
+            downloadsTold.add(download)
             tellDownloadFailed("This computer has no Downloads folder Kosmos can find, so the file was not saved.")
             completionHandler(nil)
             return
@@ -2969,7 +2970,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // An error page is not the file: a 404 or 500 saved under the file's name would look like success.
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             logLine("#5167: a download answered \(http.statusCode), so nothing was saved")
-            downloadsTold.insert(ObjectIdentifier(download))
+            downloadsTold.add(download)
             tellDownloadFailed("The file is not available (the answer was \(http.statusCode)), so nothing was saved.")
             completionHandler(nil)
             return
@@ -2988,7 +2989,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// sees where it went. 📌 PINNED selector: an optional method with a wrong signature is never called.
     @objc(downloadDidFinish:)
     func downloadDidFinish(_ download: WKDownload) {
-        downloadsTold.remove(ObjectIdentifier(download))
+        downloadsTold.remove(download)
         guard let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download)) else { return }
         logLine("#5167: download saved: \(dest.lastPathComponent)")
         /* Marked as downloaded, as Safari marks its own, so Gatekeeper checks it when it is opened: the
@@ -3020,7 +3021,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
         // it did not start (WebKit refusing a download on its own) is said as a quiet refusal; any other
         // failure always.
-        if downloadsTold.remove(ObjectIdentifier(download)) == nil {
+        let alreadySaid = downloadsTold.contains(download)
+        downloadsTold.remove(download)
+        if !alreadySaid {
             if dest == nil && (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled {
                 // WebKit stopped it before it had anywhere to go (measured for a redirect to another origin, where
                 // the window may then show the file: #5169). Quiet, so one click cannot put up two sheets.

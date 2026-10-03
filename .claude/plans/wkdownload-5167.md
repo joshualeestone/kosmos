@@ -300,6 +300,15 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Test titles and the selftest budget comment corrected; the gate's fallback names a missing
   listener.
 
+## Review round 26 changes
+- The "already said" record is a weak hash table of downloads, not a set of object identifiers: an
+  entry goes with its download, so a later download allocated at the same address cannot inherit it
+  and have its real failure swallowed.
+- Not changed: a refused response's cancel (WebKit 102) reaching the reload recovery on a run
+  computer. A reload or the board's own load navigates to the board page, never to an attachment or
+  an unshowable file, so a refusal cannot be the cancel those paths see. The one quiet window for
+  all causes (round 12) and the reserved-name copy's drift (round 16) stand.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
