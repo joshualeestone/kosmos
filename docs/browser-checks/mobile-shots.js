@@ -184,6 +184,9 @@ async function connectPending(page) {
 async function joinWaiting(page) {
   const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
   await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
+  /* The devices list reads its own answer; unfaked, the throwaway board says on:false and the shot showed "Plus is off"
+     beside a switch that is on. A computer waiting to be allowed has its switch on and no devices yet. */
+  await page.route('**/api/remote/devices', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [], allowed: [], email: 'owner@example.com', on: true }) }));
   await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
     body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
 }
