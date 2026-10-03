@@ -78,19 +78,19 @@ test('#5167: a saved file is marked as downloaded, so Gatekeeper checks it when 
 
 test('#5167: a download that does not save is said to the person, once', () => {
   const fail = body('@objc(download:didFailWithError:resumeData:)');
-  const unsaid = fail.slice(fail.indexOf('if downloadsTold.remove(ObjectIdentifier(download)) == nil {'));
+  const unsaid = fail.slice(fail.indexOf('if !alreadySaid {'));
   assert.ok(unsaid.length < fail.length, 'a failed download is said whether or not it was already said');
   assert.equal((unsaid.match(/tellDownloadFailed\(/g) || []).length, 2, 'a branch of an unsaid failure is only logged');
   assert.equal((fail.match(/tellDownloadFailed\(/g) || []).length, 2, 'a failure already said is said again');
   assert.match(body('@objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)'),
-    /downloadsTold\.insert\(ObjectIdentifier\(download\)\)\n\s+tellDownloadFailed\(/);
+    /downloadsTold\.add\(download\)\n\s+tellDownloadFailed\(/);
   assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /if let present = AppDelegate\.downloadAlertPresenter \{[\s\S]*?\n\s+present\(title \+ ": " \+ detail\)\n\s+return\n\s+\}/);
 });
 
 test('#5167: an error page is not saved as the file, and every refusal before a destination is said once', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /!\(200\.\.<300\)\.contains\(http\.statusCode\)/, 'a 404 or 500 is saved under the file\'s name');
-  assert.equal((b.match(/downloadsTold\.insert\(ObjectIdentifier\(download\)\)/g) || []).length, 2,
+  assert.equal((b.match(/downloadsTold\.add\(download\)/g) || []).length, 2,
     'a refusal before a destination is not marked as said, so its cancel says it a second time');
 });
 
@@ -320,4 +320,9 @@ test('#5167 review 25: Allow cannot be clicked in the first second (the page tim
   assert.match(may, /allow\.isEnabled = false\n\s+let wake = Timer\(timeInterval: 1, repeats: false\) \{ _ in allow\.isEnabled = true \}\n\s+RunLoop\.main\.add\(wake, forMode: \.modalPanel\)/,
     'a timed click lands on Allow the moment the question appears');
   assert.match(may, /wake\.invalidate\(\)/);
+});
+
+test('#5167 review 26: the "already said" record is weak, so a later download at a reused address never inherits it', () => {
+  assert.match(SRC, /private let downloadsTold = NSHashTable<WKDownload>\.weakObjects\(\)/);
+  assert.doesNotMatch(SRC, /downloadsTold[^\n]*ObjectIdentifier/);
 });
