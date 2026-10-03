@@ -14017,6 +14017,14 @@ window.kosmosMeasureScrollbarWidth();
         .s3-gate-row[data-checking] .s3-req{display:none}
         .s3-gate-row[data-checking] .s3-granted{display:none}
         .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
+        /* #2559 (Mona Lisa's ruling, 2026-10-03): a row whose grant Kosmos cannot read, offered Turn On after a few seconds,
+           says "Not confirmed" in the neutral pill, never the red "Not activated": red means we KNOW it is off. */
+        .s3-pill-unsure{display:none}
+        .s3-gate-row[data-unsure] .s3-pill-req{display:none}
+        .s3-gate-row[data-unsure] .s3-pill-unsure{display:inline}
+        /* #2559 (Mona Lisa): in the unsure state ONLY, one quiet line says Next works; it sits right after the row. */
+        .s3-unsure-hint{display:none;margin:6px 0 0}
+        .s3-gate-row[data-unsure] + .s3-unsure-hint{display:block}
         /* #2587: on the laptop-that-sleeps-on-battery row (data-battonly, set by the poll)
            the useless "Turn On" (its Energy pane has no never-sleep-on-battery switch) is
            replaced by an honest note. The sleep step no longer gates Next (gatesNext:false),
@@ -14096,10 +14104,11 @@ window.kosmosMeasureScrollbarWidth();
              confirmation. Kosmos = data-gate="tmux" (app). -->
         <div class="s3-gate-row" data-gate="tmux" data-win-hide>
           <span class="s3-gate-lbl">Kosmos</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button" aria-label="Turn on Kosmos accessibility">Turn On</button></span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><span class="s3-pill s3-pill-wait s3-pill-unsure">Not confirmed</span><button class="s3-on" type="button" aria-label="Turn on Kosmos accessibility">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
+        <p class="dhint s3-unsure-hint">Kosmos cannot check this yet. If you have already turned it on, press Next.</p>
         <!-- install-flow-9screen: the "Turn On" buttons open System Settings
              (sleep row -> Energy; tmux row -> Accessibility). The delegated
              handler is on this pane; only a failure speaks here, the Settings
@@ -67252,6 +67261,8 @@ let FR_YOU_GEN = 0;
    too) and adds the pre-Allow entry case; a browser / no-native-app
    (nativePresent!==true) still never blocks. See kosmos#2347 (native half exposes
    nativePresent on /api/file-access-status). */
+// #2559: how long a gate row may show "Checking..." before it offers Turn On (see FR_GATES.tmux.turnOnAfterMs).
+const FR_CHECKING_TURN_ON_MS = 4000;
 const FR_GATES = {
   'file-access': {
     url: '/api/file-access-status',
@@ -67277,6 +67288,11 @@ const FR_GATES = {
     url: '/api/a11y-status',
     granted: (r) => r.checkable === true && r.trusted === true,
     blocked: (r) => r.checkable === true && r.trusted !== true,
+    // #2559 day-one (Splinter, 2026-10-03): on a fresh Mac with no Full Disk Access the route cannot read the grant
+    // (checkable:false), so the row sat on "Checking..." with no Turn On and a newcomer's first real screen offered
+    // no action. A row still uncheckable after this long paints "Not activated" + Turn On (which opens the same
+    // setting); it still never gates Next, and a granted read turns it green at once (frPollGates).
+    turnOnAfterMs: FR_CHECKING_TURN_ON_MS,
     // #2559/#2911 (Josh's #1, 2026-09-14): RE-GATED. This step blocks Next again --
     // Next stays disabled until Kosmos accessibility is granted (block-on-positive:
     // only a definite checkable:true + trusted:false blocks; an uncheckable reading
@@ -67296,6 +67312,9 @@ const FR_GATES = {
   },
 };
 let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
+// #2559: when each gate row (by its data-gate name) first read uncheckable on the showing screen; cleared by any
+// other reading and when a screen starts, so a row is offered Turn On only after FR_CHECKING_TURN_ON_MS of Checking.
+const FR_CHECKING_SINCE = new Map();
 // #2451/#2559 (Josh 0.6.50, 7.58.24): the gate poll used to run every 1500ms, so after a
 // user granted the permission the pill/Next could sit unchanged for over a second and the
 // screen felt stuck ("what the hell is going on, I can't continue forward"). Poll faster
@@ -67334,8 +67353,21 @@ async function frPollGates(screenEl, gen) {
   const reads = await Promise.all(rows.map(frReadGate));
   if (gen !== FR_GATE_GEN) return;
   let anyBlocked = false;
+  const nowMs = Date.now();
   rows.forEach((row, i) => {
     const st = reads[i].state;
+    // #2559: a row uncheckable for longer than its turnOnAfterMs becomes ACTIONABLE (Turn On), never blocked.
+    {
+      const gname = row.getAttribute('data-gate');
+      const gspec = FR_GATES[gname];
+      if (st !== 'uncheckable') FR_CHECKING_SINCE.delete(gname);
+      else {
+        // Review 1: a clock set BACKWARD (network time on a fresh Mac) restarts the spell rather than leaving the row
+        // on Checking until the clock catches up, which is the very trap this fixes.
+        if (!FR_CHECKING_SINCE.has(gname) || FR_CHECKING_SINCE.get(gname) > nowMs) FR_CHECKING_SINCE.set(gname, nowMs);
+        if (gspec && gspec.turnOnAfterMs > 0 && nowMs - FR_CHECKING_SINCE.get(gname) >= gspec.turnOnAfterMs) reads[i].actionable = true;
+      }
+    }
     // #2085: three visual states, exactly one attribute set (or neither = the
     // red "Not activated" + Turn On default for 'blocked'). granted -> green
     // "Activated"; uncheckable -> neutral "Checking..." (Mona's 3rd state); the
@@ -67353,6 +67385,8 @@ async function frPollGates(screenEl, gen) {
     // uncheckable (a browser / no-FDA box) keeps the honest "Checking..." (nothing to grant).
     else if (st === 'uncheckable' && !reads[i].actionable) { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
+    // #2559 (Mona Lisa): an uncheckable row offering Turn On says "Not confirmed" (neutral), not "Not activated".
+    if (st === 'uncheckable' && reads[i].actionable) row.setAttribute('data-unsure', ''); else row.removeAttribute('data-unsure');
     // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
     // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
     if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
@@ -67409,6 +67443,7 @@ function frSyncSwitchOverlays() {
 if (typeof window !== 'undefined') window.addEventListener('resize', frSyncSwitchOverlays);
 function frGateStart(screenEl) {
   frGateStop();
+  FR_CHECKING_SINCE.clear();   // #2559: a new screen's rows start their Checking clock afresh
   const gen = ++FR_GATE_GEN;
   FR_GATE_SCREEN = screenEl;   // #2451: so the manual "Check again" button can re-poll this screen now
   frPollGates(screenEl, gen);
