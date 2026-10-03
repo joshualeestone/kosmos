@@ -18816,19 +18816,12 @@ function kplusRemote() {
    is instead. At the computer itself (kplusRemote() false) both keep opening there. */
 const KPLUS_FOLDER_ELSEWHERE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
 const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosmos runs on, not on this device, so it opens only there.';
-/* Asks first (HEAD) so a refusal is SAID in `msg`, in the board's own sentence, rather than surfacing as a failed
-   item in the browser's downloads or a saved file of JSON. HEAD carries no body, so a refusal is read with one
-   small GET. On success `msg` gets `after` (a sentence the line already showed, such as a cut-short list). */
-async function kplusDownload(url, name, msg, after) {
-  let head;
-  try { head = await fetch(url, { method: 'HEAD', cache: 'no-store' }); } catch { head = null; }
-  if (!head) { if (msg) msg.textContent = 'We could not reach Kosmos to download that file.'; return; }
-  if (!head.ok) {
-    let said = '';
-    try { const b = await (await fetch(url, { cache: 'no-store' })).json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
-    if (msg) msg.textContent = asSentence(said) || 'That file could not be downloaded.';
-    return;
-  }
+/* The download starts IN the person's click (an anchor clicked synchronously), so no browser can treat it as a
+   download nobody asked for. Alongside it one GET asks the same address and is cut off as soon as its headers
+   arrive: on a refusal the board's own sentence is shown through `say` (a kplusSayer), rather than left to the
+   browser's downloads; on success `say` gets `after`, a sentence the line was already showing (a cut-short list).
+   A GET rather than HEAD, so the answer does not depend on how a relay treats HEAD. */
+function kplusDownload(url, name, say, after) {
   const a = document.createElement('a');
   a.href = url;
   a.download = String(name || '').split('/').pop() || '';
@@ -18836,7 +18829,19 @@ async function kplusDownload(url, name, msg, after) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  if (msg) msg.textContent = after || '';
+  if (say) say(after || '');
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  fetch(url, { cache: 'no-store', signal: ctl ? ctl.signal : undefined }).then(async (res) => {
+    if (res.ok) { if (ctl) ctl.abort(); return; }
+    let said = '';
+    try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
+    if (say) say(asSentence(said) || 'That file could not be downloaded.');
+  }).catch(() => { /* the download itself is already under way; a failed look is not a failed download */ });
+}
+/* A sentence-setter for one message line that writes only while `stillHere()` holds, so an answer that arrives after
+   the person moved to another project or agent never lands under the new one. */
+function kplusSayer(el, stillHere) {
+  return (text) => { if (el && (!stillHere || stillHere())) el.textContent = text; };
 }
 function kplusFolderElsewhere(msg) {
   if (!kplusRemote()) return false;
@@ -36695,7 +36700,7 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   const msg = document.getElementById(msgId);
   if (kplusRemote()) {   // #5165: download it to this device
     kplusDownload('/api/agent/' + encodeURIComponent(who) + '/files/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
-      msg && { set textContent(t) { if (CURRENT && CURRENT.sessionName === who) msg.textContent = t; } });
+      kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
     return;
   }
   let say;
@@ -56328,6 +56333,10 @@ let PJ_DOC_NAMES = null;
 let PJ_DOCS_VIEW_PARTIAL = false; // #2245: the open View All list was cut short
 let PJ_DOCS_RAIL_PARTIAL = false; // #2245: the rail's last list was cut short
 const PJ_DOCS_PARTIAL = 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here. Open the folder to see everything.';
+/* #5165: over Kosmos+ the folder cannot open on this device, so the cut-short sentence does not point at it there. */
+function pjDocsPartialHere() {
+  return kplusRemote() ? 'This folder holds a lot, so Kosmos stopped looking partway through its subfolders. Some files may not be listed here.' : PJ_DOCS_PARTIAL;
+}
 let TK_OPEN = null;        // the task number the task page is showing
 
 /** Re-read the store; loadProjects itself repaints the open project on
@@ -59400,7 +59409,7 @@ async function openDocsView() {
     if (body.ok === false) { msg.textContent = pjSentence(body.because || 'we cannot read that folder right now'); return; }
     const files = Array.isArray(body.files) ? body.files : [];
     PJ_DOCS_VIEW_PARTIAL = body.truncated === true;
-    if (!files.length) { msg.textContent = PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
+    if (!files.length) { msg.textContent = PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.'; return; }
     msg.textContent = '';
     /* Paginated (#535, Josh: 'a paginated list of project files'). Fifty a
        page: enough to scan, never a wall. The floor sentence survives at the
@@ -59410,7 +59419,7 @@ async function openDocsView() {
     PJ_DOCS_PAGE = 0;
     pjDocsPaintPage();
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
-    if (body.truncated === true) msg.textContent = PJ_DOCS_PARTIAL;
+    if (body.truncated === true) msg.textContent = pjDocsPartialHere();
   } catch {
     if (PJ_CURRENT === forProject && PJ_VIEW === 'docs' && docsOpen === DOCS_OPEN_GEN) msg.textContent = 'We could not reach Kosmos to list the documents.';
   }
@@ -59432,8 +59441,9 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
   if (!row || !PJ_CURRENT) return;
   const msg = document.getElementById('docs-msg');
   if (kplusRemote()) {   // #5165: download it to this device
-    kplusDownload('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/file-download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
-      msg, PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : '');
+    const forProject = PJ_CURRENT;
+    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/file-download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
+      kplusSayer(msg, () => PJ_CURRENT === forProject), PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : '');
     return;
   }
   try {
@@ -59558,12 +59568,12 @@ async function pjLoadDocs(id) {
   const files = Array.isArray(body.files) ? body.files : [];
   PJ_DOCS_RAIL_PARTIAL = body.truncated === true;
   if (!files.length) {
-    msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
+    msg.textContent = body.truncated === true ? pjDocsPartialHere() : 'Nothing here yet. Files you or your agents put in this project\u2019s folder show up here.';
     all.hidden = true;
     return;
   }
   /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
-  msg.textContent = body.truncated === true ? PJ_DOCS_PARTIAL : '';
+  msg.textContent = body.truncated === true ? pjDocsPartialHere() : '';
   for (const f of files) {
     /* A BUTTON, not a div with a handler: this opens a file, and an action
        that cannot be reached from the keyboard is not an action for everyone. */
@@ -60511,7 +60521,7 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   const forProject = PJ_CURRENT;
   if (kplusRemote()) {   // #5165: download it to this device
     kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/file-download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
-      { set textContent(t) { if (PJ_CURRENT === forProject) msg.textContent = t; } }, PJ_DOCS_RAIL_PARTIAL ? PJ_DOCS_PARTIAL : '');
+      kplusSayer(msg, () => PJ_CURRENT === forProject), PJ_DOCS_RAIL_PARTIAL ? pjDocsPartialHere() : '');
     return;
   }
   try {
@@ -60548,7 +60558,7 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   const forProject = PJ_CURRENT;
   if (kplusRemote()) {   // #5165: download it to this device
     kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/file-download?name=' + encodeURIComponent(go.dataset.ref), go.dataset.ref,
-      { set textContent(t) { if (PJ_CURRENT === forProject) msg.textContent = t; } });
+      kplusSayer(msg, () => PJ_CURRENT === forProject));
     return;
   }
   try {

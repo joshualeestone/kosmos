@@ -125,3 +125,54 @@ test('open is unchanged at the computer: the same file still opens through the r
   assert.equal(calls[calls.length - 1][0], '/usr/bin/open');
   assert.equal(fs.realpathSync(calls[calls.length - 1][1][0]), fs.realpathSync(path.join(files, 'deck.pptx')));
 });
+
+test('HEAD answers like GET with no body, on both routes; a refused HEAD is a 404 the page can see', async () => {
+  const files = path.join(SANDBOX, 'workers', 'hed', 'Files');
+  fs.mkdirSync(files, { recursive: true });
+  fs.writeFileSync(path.join(files, 'deck.pptx'), PPTX);
+  const ok = await fetch(base + '/api/agent/hed/files/download?name=deck.pptx', { method: 'HEAD' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('content-length'), String(PPTX.length));
+  assert.equal((await ok.arrayBuffer()).byteLength, 0);
+  const gone = await fetch(base + '/api/agent/hed/files/download?name=gone.pptx', { method: 'HEAD' });
+  assert.equal(gone.status, 404);
+});
+
+test('an agent\u2019s Files that is a link to somewhere else is not downloaded from', async () => {
+  const elsewhere = fs.mkdtempSync(path.join(SANDBOX, 'elsewhere-'));
+  fs.writeFileSync(path.join(elsewhere, 'theirs.pptx'), 'not this agent\u2019s');
+  fs.mkdirSync(path.join(SANDBOX, 'workers', 'lnk'), { recursive: true });
+  fs.symlinkSync(elsewhere, path.join(SANDBOX, 'workers', 'lnk', 'Files'));
+  const r = await fetch(base + '/api/agent/lnk/files/download?name=theirs.pptx');
+  const said = await r.text();
+  assert.equal(r.status, 409, said);
+  assert.doesNotMatch(said, /not this agent/);
+});
+
+test('a file the gates pass but that cannot be opened is refused with a sentence, never a 200 that stops short', {
+  skip: (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) && 'needs POSIX permissions and a non-root user',
+}, async () => {
+  const folder = fs.mkdtempSync(path.join(SANDBOX, 'projects', 'locked-'));
+  const locked = path.join(folder, 'locked.pptx');
+  fs.writeFileSync(locked, PPTX);
+  fs.chmodSync(locked, 0o000);
+  try {
+    const p = projects.create({ name: 'Locked Room 5165', folder, agents: [], roster: [] });
+    assert.equal(projects.fileInFolder(folder, 'locked.pptx').ok, true, 'fixture: the gates must PASS this file, or this tests the gates instead');
+    const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=locked.pptx');
+    const body = await r.text();
+    assert.equal(r.status, 404, body);
+    assert.match(JSON.parse(body).because, /not there any more, or it was moved/);
+  } finally {
+    fs.chmodSync(locked, 0o600);
+  }
+});
+
+test('a name with characters RFC 5987 does not allow is percent-encoded in the download\u2019s name', async () => {
+  const files = path.join(SANDBOX, 'workers', 'rfc', 'Files');
+  fs.mkdirSync(files, { recursive: true });
+  fs.writeFileSync(path.join(files, "Q3 (final)'s*!.pptx"), PPTX);
+  const r = await fetch(base + '/api/agent/rfc/files/download?name=' + encodeURIComponent("Q3 (final)'s*!.pptx"));
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-disposition'), "attachment; filename*=UTF-8''Q3%20%28final%29%27s%2A%21.pptx");
+});
