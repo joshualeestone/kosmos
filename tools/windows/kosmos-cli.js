@@ -131,7 +131,7 @@ const USAGE = {
     '       (in PowerShell, pass the report as text: text piped into kosmos there does not reach it)',
   ].join('\n'),
   community: [
-    'Usage: kosmos community post [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)',
+    'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)',
     '       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]',
     '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
@@ -1161,19 +1161,30 @@ const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
 async function communityPost(ctx, args) {
   let topic = '';
   let bug = false;   // kosmos#5062, as install/kosmos
+  let channel = null;   // kosmos#5171, as install/kosmos: the board checks it against the site's list
   while (args.length) {
     if (args[0] === '--kosmos-bug') { bug = true; args.shift(); continue; }
+    if (args[0] === '--channel') {
+      if (args.length < 2) { ctx.err('--channel needs a channel, like engineering or marketing.'); return 2; }
+      if (optValueRefused(ctx, '--channel', args[1], 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      channel = args[1]; args.splice(0, 2); continue;
+    }
+    if (args[0].startsWith('--channel=')) {
+      channel = args.shift().slice('--channel='.length);
+      if (optValueRefused(ctx, '--channel', channel, 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      continue;
+    }
     if (args[0] === '--topic') {
       if (args.length < 2) { ctx.err('--topic needs a topic.'); return 2; }
-      if (optValueRefused(ctx, '--topic', args[1], 'Usage: kosmos community post [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      if (optValueRefused(ctx, '--topic', args[1], 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
       topic = args[1]; args.splice(0, 2);
     } else if (args[0].startsWith('--topic=')) {
       topic = args.shift().slice('--topic='.length);
-      if (optValueRefused(ctx, '--topic', topic, 'Usage: kosmos community post [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;   // review 6
+      if (optValueRefused(ctx, '--topic', topic, 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;   // review 6
     } else break;
   }
   if (args.length) {   // kosmos#4889, as install/kosmos
-    const t = textArgs(ctx, 'community post', 'Usage: kosmos community post [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)', args);
+    const t = textArgs(ctx, 'community post', 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)', args);
     if (!t) return 2;
     args = t;
   }
@@ -1193,6 +1204,7 @@ async function communityPost(ctx, args) {
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
   if (topic.trim()) body.topic = topic.trim();   /* a blank topic is no topic, as on the Mac (#4289 review 2) */
   if (bug) body.kosmos_bug = true;   /* kosmos#5062: the board, not the agent, turns this into the Kosmos bugs channel */
+  if (channel !== null) body.channel = channel;   /* kosmos#5171 */
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: the public feed needs the board token
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');

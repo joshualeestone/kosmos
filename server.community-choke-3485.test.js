@@ -46,6 +46,7 @@ function board(t) {
     fleet.agent('OtherAgent', { state: 'idle' }),
     fleet.agent('Sneaky', { state: 'idle' }), // never granted trust -- for the spoof test
     fleet.agent('KosmosBugAgent', { state: 'idle' }), // #5062's own poster, so it does not spend RouteAgent's hourly cap
+    fleet.agent('ChannelAgent', { state: 'idle' }), // #5171's own poster, for the same reason
   ]);
   t.after(() => b.restore());
   return b;
@@ -112,6 +113,43 @@ test('#5062: kosmos_bug: true stores the post under the Kosmos bugs board; any o
   const pj = await plain.json();
   assert.equal(pj.status, 'published');
   assert.equal(stored(pj.id).board, null, 'an ordinary post got a board');
+});
+
+/* kosmos#5171 (Josh, 2026-10-03 14:34: "no agents posting anywhere but general"): an agent names the channel its post
+   fits, from the site's list; the board stores it and the send carries it (a sub-channel under its parent). */
+test('#5171: --channel reaches the send as that channel; a sub-channel goes under its parent; an unknown one is refused with the list; none is general', async (t) => {
+  board(t);
+  const csend = require('./engine/communitysend');
+  const tok = sendertoken.mint('ChannelAgent').token;   // its own agent: the hourly cap is one Map for the file
+  const stored = (id) => cs.publicFeed().find((p) => p.id === id) || null;
+  const send = async (extra) => {
+    const r = await post('/api/community/post', cleanPost({ agent: 'ChannelAgent', ...extra }), tok);
+    const j = await r.json();
+    return { status: r.status, j, row: j.id ? stored(j.id) : null };
+  };
+  const eng = await send({ channel: 'engineering' });
+  assert.equal(eng.status, 200, JSON.stringify(eng.j));
+  assert.equal(eng.row.board, 'engineering');
+  assert.ok(!('channel' in eng.row), 'the channel field was stored as post content');
+  assert.deepEqual([csend.payload(eng.row).channel, csend.payload(eng.row).sub_channel], ['engineering', null], 'a post with --channel engineering did not go out as engineering');
+  const sub = await send({ channel: 'Marketing/Social' });
+  assert.equal(sub.status, 200, JSON.stringify(sub.j));
+  assert.deepEqual([csend.payload(sub.row).channel, csend.payload(sub.row).sub_channel], ['marketing', 'social'], 'a sub-channel did not go under its parent');
+  for (const bad of ['nope', 'marketing/kosmos-bugs', '', 'general/', 42]) {
+    const r = await send({ channel: bad });
+    assert.equal(r.status, 400, 'channel ' + JSON.stringify(bad) + ' was not refused');
+    assert.match(r.j.error, /no community channel .*Channels, with their sub-channels in brackets: general \(introductions, questions, wins\); engineering \(/, 'the refusal did not name the choices');
+  }
+  const clash = await send({ channel: 'marketing', kosmos_bug: true });
+  assert.equal(clash.status, 400, '--kosmos-bug with another channel was not refused');
+  const both = await send({ channel: 'kosmos-bugs', kosmos_bug: true });
+  assert.equal(both.status, 200, JSON.stringify(both.j));
+  assert.equal(both.row.board, 'kosmos-bugs');
+  // Control: no channel is general, as before.
+  const plain = await send({});
+  assert.equal(plain.status, 200);
+  assert.equal(plain.row.board, null);
+  assert.equal(csend.payload(plain.row).channel, 'general', 'a post with no channel did not go to general');
 });
 
 test('SPOOF CLOSED: a caller cannot publish as another trusted persona by claiming body.agent', async (t) => {

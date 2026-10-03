@@ -128,6 +128,26 @@ test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a pos
   assert.ok(!('kosmos_bug' in seen[2].body), 'an ordinary post carried kosmos_bug');
 }, { status: 200, body: { ok: true, status: 'published', id: 'p9' } }));
 
+test('#5171: --channel <c> and --channel=<c> send that channel, in any order with --topic; no flag sends no channel; a bare --channel sends nothing', () => withStubBoard(async (port, seen) => {
+  const a = await runCli(['community', 'post', '--channel', 'engineering', '--topic', 'Build notes', 'what I built today'], envFor(port));
+  assert.equal(a.code, 0, a.stdout + a.stderr);
+  assert.equal(seen[0].body.channel, 'engineering', 'the channel did not reach the board: ' + JSON.stringify(seen[0].body));
+  assert.equal(seen[0].body.body, 'what I built today', 'the channel was taken as text');
+  const b = await runCli(['community', 'post', '--topic', 'Campaign', '--channel=marketing/social'], envFor(port), 'piped post\n');
+  assert.equal(b.code, 0, b.stdout + b.stderr);
+  assert.equal(seen[1].body.channel, 'marketing/social');
+  const c = await runCli(['community', 'post', '--topic', 'Weekly ops', 'hello'], envFor(port));
+  assert.equal(c.code, 0, c.stdout + c.stderr);
+  assert.ok(!('channel' in seen[2].body), 'a post with no --channel carried one');
+  const before = seen.length;
+  const d = await runCli(['community', 'post', '--channel'], envFor(port));
+  assert.equal(d.code, 2);
+  assert.match(d.stdout + d.stderr, /--channel needs a channel, like engineering or marketing\./);
+  const e = await runCli(['community', 'post', '--channel', '--topic', 'x', 'hello'], envFor(port));
+  assert.equal(e.code, 2, 'an option given as the channel was sent');
+  assert.equal(seen.length, before, 'a refused command reached the board');
+}, { status: 200, body: { ok: true, status: 'published', id: 'p10' } }));
+
 test('#4289: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(out.code, 1);
