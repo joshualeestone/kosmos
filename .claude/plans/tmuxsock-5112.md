@@ -30,3 +30,10 @@ through realpath, which is where the fleet's $TMUX points (/private/tmp/tmux-501
 servers: a probe against the fleet's own server was refused by the permission check, correctly. If a person runs their
 real board inside a tmux on a non-default socket (-L/-S), the board now reads the default socket, which is where its
 launchd agents are; before, it read their private one and saw none of its agents.
+
+## Review 1 (blind Opus): converged, 0 blockers, 0 warnings, 5 nits; 4 fixed
+- TMUX_PANE is dropped too (a pane id belongs to one server; install/kosmos and boardrestart already drop it).
+- status.js's comment that "$TMUX ... stays a way to hold this fact wrongly" now says the board covers it.
+- worldenv.launchEnv() notes it is not a spawn env (taken before the drop, still carries $TMUX).
+- The source-order test anchors the call at line start and asserts exactly one.
+- Left: a SIGKILLed test run leaves two private tmux servers under /tmp/k5112*; t.after covers failures and timeouts.

@@ -85,10 +85,10 @@ test('server.js as a program refuses a half-sandboxed environment with exit 2 an
    the call. */
 const { dropInheritedTmux } = require('./sandbox');
 
-test('#5112: dropInheritedTmux removes TMUX only, and says whether it did', () => {
+test('#5112: dropInheritedTmux removes TMUX and TMUX_PANE, and says whether TMUX was there', () => {
   const env = { TMUX: '/private/tmp/tmux-501/default,990,33', TMUX_PANE: '%7', TMUX_TMPDIR: '/tmp/sb', PATH: '/bin' };
   assert.equal(dropInheritedTmux(env), true);
-  assert.deepEqual(env, { TMUX_PANE: '%7', TMUX_TMPDIR: '/tmp/sb', PATH: '/bin' });
+  assert.deepEqual(env, { TMUX_TMPDIR: '/tmp/sb', PATH: '/bin' }, 'TMUX and TMUX_PANE go; TMUX_TMPDIR (the sandbox) stays');
   assert.equal(dropInheritedTmux(env), false, 'nothing to drop the second time');
 });
 
@@ -130,8 +130,10 @@ test('#5112: with $TMUX dropped, tmux answers from the TMUX_TMPDIR server, not t
 
 test('#5112: the board drops $TMUX on its real start, before the first engine module that asks tmux anything', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const call = src.indexOf("if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);");
-  assert.ok(call > 0, 'server.js calls dropInheritedTmux on the real-start path only');
+  /* Anchored at the start of a line, so a comment quoting the call cannot stand in for it. */
+  const calls = [...src.matchAll(/^if \(require\.main === module\) require\('\.\/engine\/sandbox'\)\.dropInheritedTmux\(process\.env\);$/gm)];
+  assert.equal(calls.length, 1, 'server.js calls dropInheritedTmux once, on the real-start path only');
+  const call = calls[0].index;
   const status = src.search(/require\(['"]\.\/engine\/status['"]\)/);
   assert.ok(status > 0, 'control: the scan finds the status require');
   assert.ok(call < status, 'the drop comes before engine/status (the roster reader) is loaded');

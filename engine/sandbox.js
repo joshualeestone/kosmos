@@ -71,12 +71,14 @@ function sentence(a) {
    (or the default) names, which is the one create.plistFor carries. So the board drops $TMUX at start and every tmux
    call it makes lands on the server its own agents are on. On a standard machine that is the same socket as before
    ($TMUX names the default socket there); only a board started inside a tmux on another socket changes, and that
-   board was reading the wrong server. TMUX_PANE is left: it names a pane, not a server, so it cannot move a tmux
-   call to another server; whether a board should carry it at all is a separate question. */
+   board was reading the wrong server. TMUX_PANE goes too: a pane id belongs to one server, so once $TMUX is gone it
+   would name some other pane on this one (install/kosmos already starts the board with -u TMUX_PANE, and
+   boardrestart.js deletes it; this covers a board started by hand). Returns whether $TMUX was there. */
 function dropInheritedTmux(env) {
-  if (!Object.prototype.hasOwnProperty.call(env, 'TMUX')) return false;
+  const had = Object.prototype.hasOwnProperty.call(env, 'TMUX');
   delete env.TMUX;
-  return true;
+  delete env.TMUX_PANE;
+  return had;
 }
 
 module.exports = { audit, sentence, DIRS, dropInheritedTmux };
