@@ -7,7 +7,7 @@ run it again.
 
 The facts this copy relies on, and where each came from (read 2026-09-25):
 
-- Kosmos+ is a paid web service, $19.99 a month, sold on kosmosplus.com.
+- Kosmos+ is a paid web service, $20 a month, sold on kosmosplus.com.
 - The iOS app sells nothing and shows no purchase (Josh, 2026-09-25 07:03 CDT:
   "We won't have Apple in-app purchases for Kosmos"; kosmos-relay #117).
 - The app signs in at login.kosmosplus.com, then shows the person's own Mac
