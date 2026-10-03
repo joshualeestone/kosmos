@@ -41,3 +41,17 @@ for the two proven files. Converting the rest one by one is not this card.
   a leg (run 2026-10-02 18:54 and 18:58 CDT).
 - The two node files: NOT run yet (a suite was live). Run both alone with no locale (env -u LANG -u LC_ALL -u LC_CTYPE) and with LANG, before
   the PR; the card's measurement is 6 pass / 4 fail without LANG on main for runner-dir.
+
+## Review (challenge loop, blind, alternating Opus/Sonnet)
+Converged at iteration 4 (Sonnet): no BLOCKER/WARNING/CONVENTION. Fixed along the way: last-look's server uses the
+tmux status.js reads through, pins all three locale names, runs sleep, ignores ~/.tmux.conf (1, 3); the locale test
+reads LANG from a child so an unexported pin reds (1); stale comments in last-look and the workflow (1); a named
+error when tmux is missing (2); the cut's isolation rerun applies the pin (3).
+NITs left: the #5073 source block in cut-rerun-guard.sh sits between kosmos_failing_test_files' doc comment and the
+function; the rerun's subshell discards the pin's warning (the effect is right; the cut log will not say a caller's
+non-UTF-8 locale kept a red red); the last-look test name's "clears an older one" is not exercised (pre-existing).
+
+## Next
+A queued job (pete-5073-node.log) runs both node files on this branch and on main, each with no locale and with
+LANG, plus tools/test-cut-rerun-guard.sh and the locale test. Expected: main runner-dir red with no locale, this
+branch green both ways. Then full validation, proof, PR.
