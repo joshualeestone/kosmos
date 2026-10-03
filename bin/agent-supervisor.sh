@@ -658,7 +658,13 @@ if [ -z "$adopt" ]; then
     # ⚠️ RUN_STARTED is set by EVERY path that creates the session: launch_pane, and the
     # Antigravity arm, which calls new-session itself. A new such path must set it too, or
     # its live run loses its token here (supervisor.retire-token-4530 runs both).
-    if [ "${RUN_STARTED:-0}" != 1 ]; then retire_run_token; fi
+    if [ "${RUN_STARTED:-0}" != 1 ]; then
+      retire_run_token
+      # #5154 review 2: a launch that never made its session FAILED, so its run gets a real end line here (every
+      # `|| exit 1` of the launch block reaches this trap). A start with NO end line (a TERM or bootout of a live run)
+      # is not counted as a crash (engine/crashloop.js), so this line is what makes a failing launch count.
+      record_run end
+    fi
   }
   trap cleanup_launch_secrets EXIT
   trap 'exit 129' HUP

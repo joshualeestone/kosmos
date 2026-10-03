@@ -78,12 +78,24 @@ test('#5154: parse reads the supervisor lines, and a start with no end ends at t
   assert.deepEqual(runs.deliberate, [NOW - 5 * MIN]);
 });
 
-test('#5154 review 1: a launch that fails before its watch loop (no end lines at all) still reads as a loop', () => {
+test('#5154 review 2: a FAILED launch (start + the trap\'s end) counts; a BOUNCED agent (start-only lines) does not', () => {
   const s = (ms) => Math.floor(ms / 1000);
-  // launchd retries every 30 s; each attempt writes only its start.
-  const text = [0, 1, 2, 3].map((k) => 'start ' + s(NOW - 2 * MIN + k * 30e3)).join('\n');
-  const r = cl.assess(cl.parse(text), NOW, null);
-  assert.equal(r.looping, true, 'a fast-failing launch was not seen');
+  // launchd retries every 30 s; each failed launch writes its start and, from the EXIT trap, its end a moment later.
+  const failed = [0, 1, 2, 3].flatMap((k) => ['start ' + s(NOW - 2 * MIN + k * 30e3), 'end ' + s(NOW - 2 * MIN + k * 30e3 + 1e3)]).join('\n');
+  assert.equal(cl.assess(cl.parse(failed), NOW, null).looping, true, 'a fast-failing launch was not seen');
+  // A person or an update bouncing a live agent 4 times in 8 minutes: TERM'd supervisors write no end line.
+  const bounced = [0, 1, 2, 3].map((k) => 'start ' + s(NOW - 6 * MIN + k * 90e3)).join('\n');
+  const runs = cl.parse(bounced);
+  assert.equal(runs.filter((r) => r.orphan).length, 3, 'fixture: three orphaned runs');
+  assert.equal(cl.assess(runs, NOW, null).looping, false, 'bounced agents read as a crash loop (false alarm)');
+});
+
+test('#5154 review 2: the supervisor writes the end line for a launch that never made its session', () => {
+  const { src } = supervisorRecordRun();
+  const t = src.indexOf('if [ "${RUN_STARTED:-0}" != 1 ]; then');
+  assert.ok(t > 0, 'the trap branch moved');
+  const body = src.slice(t, src.indexOf('fi', t));
+  assert.match(body, /retire_run_token[\s\S]*record_run end/, 'a failed launch must get its end line in the EXIT trap');
 });
 
 test('#5154 review 1: a deliberate restart is excluded through read(), even after its disruption record is cleared', () => {

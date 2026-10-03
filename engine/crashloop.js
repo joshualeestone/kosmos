@@ -48,10 +48,10 @@ function parse(text) {
     const ms = Number(m[2]) * 1000;
     if (m[1] === 'kosmos') { deliberate.push(ms); continue; }
     if (m[1] === 'start') {
-      // Review 1: a start whose end never came (a launch that failed before its watch loop, or a supervisor stopped
-      // by TERM) ends at the next start: an upper bound, so a fast failure still reads short (about launchd's 30 s
-      // throttle), a deliberate restart's "kosmos" mark falls inside it, and a reboot reads long.
-      if (open) open.end = ms;
+      // A start whose end never came (a supervisor stopped by TERM or bootout, a reboot) ends at the next start and is
+      // marked ORPHAN. Review 2: an orphan is never counted as a crash, because a person or an update bouncing an agent
+      // leaves exactly this shape. A launch that FAILS writes a real end line (the supervisor's EXIT trap), so it counts.
+      if (open) { open.end = ms; open.orphan = true; }
       open = { start: ms, end: null }; runs.push(open);
     }
     else if (open && ms >= open.start) { open.end = ms; open = null; }
@@ -73,7 +73,7 @@ function assess(runs, now, deliberateAt) {
   }
   const marks = [].concat(deliberateAt == null ? [] : deliberateAt, Array.isArray(list.deliberate) ? list.deliberate : [])
     .filter((t) => Number.isFinite(t));
-  const short = list.filter((r) => r.end !== null
+  const short = list.filter((r) => r.end !== null && r.orphan !== true
     && r.end - r.start <= SHORT_RUN_MS
     && r.end >= now - WINDOW_MS && r.end <= now + DISRUPTION_SLACK_MS
     && !marks.some((t) => t >= r.start - DISRUPTION_SLACK_MS && t <= r.end + DISRUPTION_SLACK_MS));
