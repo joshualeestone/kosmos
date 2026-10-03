@@ -410,6 +410,14 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   gate alarm 360s. The settle waits for the ten messages the arms say (the eleventh comes from the
   rows' own direct questions).
 
+## Review round 36 changes
+- A download alert is shown on the next main-queue turn, so the caller answers WebKit's decision first
+  (a refusal held the navigation undecided under a modal until OK). Bookkeeping stays synchronous.
+- Accepted, and now said plainly: the cap counts files, not bytes; a computer the person allowed can
+  still send one large file. Renamed savesPerComputerCap.
+- Quote characters are stripped from the file name shown in the question, so it cannot close the
+  quotation.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
