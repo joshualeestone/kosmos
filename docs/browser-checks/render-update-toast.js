@@ -272,6 +272,28 @@ const RELPORT = freePort();
     if (edge.sw > edge.vw) die('mobile: the page scrolls sideways ' + JSON.stringify(edge));
     await p.screenshot({ path: path.join(OUT, 'update-toast-375.png') });
 
+    // #5140 (day-one): a brand-new user on a phone, past the welcome, with no agents yet. Their first action is New
+    // agent, and a floating notice must not sit on it. The pass above dismisses the welcome with Escape, where New
+    // agent is not shown at all, so its "toast overlaps newagent" test had nothing to compare (newagent: null). Here the
+    // welcome is completed, the way a person finishes it, and New agent must render (CONTROL) before "not covered" counts.
+    await p.evaluate(async () => { await fetch('/api/first-run/complete', { method: 'POST' }).then((r) => r.text()); });
+    await p.evaluate(() => localStorage.removeItem('kosmos-update-later'));
+    await p.reload({ waitUntil: 'networkidle' });
+    await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
+    const empty = await p.evaluate(() => {
+      const box = (el) => { if (!el || !el.getClientRects().length) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+      const na = box(document.getElementById('new-agent')); const chip = box(document.querySelector('.uchip'));
+      const hit = na ? document.elementFromPoint(na.left + na.width / 2, na.top + na.height / 2) : null;
+      const cover = na && chip && na.left < chip.right && chip.left < na.right && na.top < chip.bottom && chip.top < na.bottom;
+      return { welcomeShown: !document.getElementById('firstrun').hidden, newAgent: na && [Math.round(na.left), Math.round(na.top), Math.round(na.width), Math.round(na.height)],
+        chip: chip && [Math.round(chip.left), Math.round(chip.top), Math.round(chip.width), Math.round(chip.height)], cover: !!cover,
+        takesClick: !!(hit && document.getElementById('new-agent').contains(hit)) };
+    });
+    if (empty.welcomeShown || !empty.newAgent || !empty.chip) die('CONTROL #5140: past the welcome on an empty board at 375, New agent and the update notice must both render ' + JSON.stringify(empty));
+    if (empty.cover || !empty.takesClick) die('#5140: on an empty board at 375 the update notice covers New agent, a new user\'s first action ' + JSON.stringify(empty));
+    console.log('PASS  #5140: empty board at 375, the update notice clears New agent and New agent takes the click ' + JSON.stringify(empty));
+    await p.screenshot({ path: path.join(OUT, 'update-toast-375-empty.png') });
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
     console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
   } finally {
