@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: queuewrap-4977
-diff_hash: e454560a575fc1f0e6518cdfbcac8594f8c981c8f3422810fcc2320c234e0e7a
-validation: passed (Mortals full suite at 477ecc6c0, 2026-10-03 02:20 CDT, hash e454560a575f)
+diff_hash: 286e17eeeb155bb24c7cd6f851f1a16877f3fa4c0a954d65456c51124d9210ab
+validation: passed (Mortals full suite at 477ecc6c0; after rebasing onto main 2026-10-03 16:19 CDT at d021c8810 (package.json test:shell conflict only, main's steps kept, the branch's three added in its order): bash -n both scripts and tools/test-queued-heavy-4977.sh 79/79 OK)
 subdir_audit: passed
-timestamp: 2026-10-03T07:28:48Z
+timestamp: 2026-10-03T21:19:58Z
 iterations: 8
 converged: true
 ---
