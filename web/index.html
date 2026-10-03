@@ -47486,9 +47486,10 @@ function fillSwitchAccounts() {
        ⇒ Strip OUR half and leave the engine's, which is the more specific sentence and not
        ours to delete. */
     if (pmsg0 && SWITCH_ACCT_SAID && pmsg0.textContent === SWITCH_ACCT_SAID) { pmsg0.textContent = ''; SWITCH_ACCT_SAID = ''; }
-    else if (pmsg0 && [SWITCH_ACCT_UNREADABLE, switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic')].some((u) => pmsg0.textContent.endsWith(' ' + u))) {
+    else if (pmsg0 && (pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE)
+                       || pmsg0.textContent.endsWith(' ' + switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic')))) {
       /* #5091: a refused Claude switch appends Claude's form of the line, so either form is ours to strip. */
-      const u = [SWITCH_ACCT_UNREADABLE, switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic')].find((x) => pmsg0.textContent.endsWith(' ' + x));
+      const u = pmsg0.textContent.endsWith(' ' + SWITCH_ACCT_UNREADABLE) ? SWITCH_ACCT_UNREADABLE : switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic');
       pmsg0.textContent = pmsg0.textContent.slice(0, -(u.length + 1));
       SWITCH_ACCT_SAID = '';  /* same reset as the sibling branch; an asymmetry here is what goes wrong on the next edit */
     }
@@ -48195,7 +48196,7 @@ async function changeProviderNow(say) {
   if (acctSel) acctSel.disabled = true;
   msg.textContent = 'Switching…';
   try {
-    const sentAccount = (acctSel && !acctSel.hidden) ? acctSel.value : null;   // #5091: kept for the repaint after
+    let sentAccount = null;   // #5091: what `account` below sent, kept for the repaint after
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/provider', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -48211,7 +48212,7 @@ async function changeProviderNow(say) {
          The claim about who chose it travels separately and stays conservative. */
       body: JSON.stringify({
         provider: want,
-        account: sentAccount,
+        account: (sentAccount = (acctSel && !acctSel.hidden) ? acctSel.value : null),
         picked: !!(acctSel && !acctSel.hidden && SWITCH_ACCT_TOUCHED),
       }),
     });
@@ -48385,9 +48386,9 @@ async function changeProviderNow(say) {
        longer describes the region. A tracker that outlives what it tracks is the drift it
        was introduced to prevent. */
     SWITCH_ACCT_SAID = '';
-    const unreadableLine = want === 'anthropic' ? switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic') : SWITCH_ACCT_UNREADABLE;   // #5091
-    if (ACCOUNTS_UNREADABLE && msg && msg.textContent && msg.textContent.indexOf(unreadableLine) === -1) {
-      msg.textContent = msg.textContent + ' ' + unreadableLine;
+    if (ACCOUNTS_UNREADABLE && msg && msg.textContent
+        && msg.textContent.indexOf(want === 'anthropic' ? switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic') : SWITCH_ACCT_UNREADABLE) === -1) {
+      msg.textContent = msg.textContent + ' ' + (want === 'anthropic' ? switchKeyedSay(SWITCH_ACCT_UNREADABLE, 'anthropic') : SWITCH_ACCT_UNREADABLE);   // #5091: Claude's form for a Claude switch
     }
   } finally {
     if (CURRENT && CURRENT.sessionName === forAgent) {
