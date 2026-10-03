@@ -504,6 +504,8 @@ const SCREENS = [
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
     await page.click('#pj-docs-all');
     await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+    /* Shown by hand, as in nl-project-docs, so the pair compares the switch like for like. */
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
   } },
   { name: 'nl-project-docs', owner: 'Mona Lisa', go: async (page, data) => {
     await newLook(page);

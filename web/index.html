@@ -3955,8 +3955,8 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
    a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
-   reuses the crumb's Open project path); on Documents only in the consolidated view (the tab view keeps
-   its "<- name" back). The title takes the free space, so the chevron sits against it, not across the row. */
+   reuses the crumb's Open project path); on Documents in the consolidated view (the tab view keeps
+   its "<- name" back, except under the new look, #4470). The title takes the free space, so the chevron sits against it, not across the row. */
 .sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
             color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
@@ -10500,6 +10500,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #docs-chev { display: grid; }
 :root[data-look="new"] body:not(.consolidated) #docs-seg { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
 :root[data-look="new"] body:not(.consolidated) #docs-seg button + button { border-left-color: transparent; }
+/* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the switch already
+   clips its fill). */
 :root[data-look="new"] body:not(.consolidated) #docs-seg button:first-child { border-radius: 999px 0 0 999px; }
 :root[data-look="new"] body:not(.consolidated) #docs-seg button:last-child { border-radius: 0 999px 999px 0; }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
@@ -16217,7 +16219,8 @@ window.kosmosMeasureScrollbarWidth();
       <div class="pjtitle">
         <!-- #4586 (Josh, 2026-09-29 11:35): the back chevron beside the title, straight back to the
              project's room. #3502 hid #docs-back in the consolidated view; Josh reversed that. The tab
-             view keeps its own "<- name" back above, so this one shows only in the consolidated view. -->
+             view keeps its own "<- name" back above, so this one shows only in the consolidated view, and in the
+             tab view under the new look (#4470), which hides that link. -->
         <button class="sub-back" id="docs-chev" type="button" aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
