@@ -369,9 +369,10 @@ function shDetail(cmd, args, timeoutMs) {
  * through its own fix for it. Two seams now hold it closed: `create.plistFor`
  * carries the creating server's `TMUX_TMPDIR` into every job, and the offline
  * roster (server.js) checks `launchctl list` so a job launchd says is RUNNING
- * with no visible session says so instead of claiming stopped. Neither seam
- * covers `$TMUX` pointing this process at a non-default server; that stays a
- * way to hold this fact wrongly about the machine.
+ * with no visible session says so instead of claiming stopped. A third covers
+ * `$TMUX` pointing this process at another server (#5112): the board drops it
+ * at its real start (server.js, engine/sandbox.js dropInheritedTmux). A bare
+ * `require('./server')`, as the tests do, keeps the caller's $TMUX.
  *
  * ⚠️ MATCHED ON TMUX'S OWN MESSAGE, not on the exit code alone. Exit 1 also
  * covers errors we have no business reading as an empty machine, so anything

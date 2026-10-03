@@ -53,6 +53,9 @@ if (require.main === module) {
   logstamp.install(process.stdout, 1, { shared, logPaths });
   logstamp.install(process.stderr, 2, { shared, logPaths });
 }
+/* #5112: before any tmux is asked anything, forget an inherited $TMUX (engine/sandbox.js says why). The real start only:
+   the routing tests require this file, and the test runner's own $TMUX is not this board's to change. */
+if (require.main === module) require('./engine/sandbox').dropInheritedTmux(process.env);
 // `STATE` travels with them: the thread route compares a member's state, and a
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.

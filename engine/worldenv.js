@@ -176,6 +176,7 @@ function bootedBaseDir() { return bootedBase; }
 function lastAbandonedWorld() { return abandonedWorld ? { ...abandonedWorld } : null; }
 
 /* #2628: the launch environment captured at boot (frozen), or null before a boot. */
+/* Not a spawn env: taken before server.js drops an inherited $TMUX and TMUX_PANE (#5112), so it still carries them. */
 function launchEnv() { return launchEnvAtBoot; }
 
 module.exports = { bootstrapWorldEnv, bootedWorld, bootedBaseDir, lastAbandonedWorld, launchEnv };
