@@ -46,3 +46,16 @@ Browser checks render-gated-next and click-first-run, through tools/browser-chec
 ## Status
 - [x] fix + test (cf. commit "a11yturnon-2559 -- the Kosmos row offers Turn On ...")
 - [ ] browser checks, blind review, full validation, proof, PR, merge (0.7.21 if before Baron pins it, else 0.7.22)
+
+## Review 1 (blind, opus, 06:3x)
+- [WARNING] A clock set BACKWARD (network time on a fresh Mac) made `now - since` negative, leaving the row on Checking
+  until the clock caught up, which is the bug itself. FIXED: a start time in the future restarts the spell. New arm:
+  an hour's backward jump, then Turn On after the grace period. Mutation (no reset): 1 red.
+- [NIT] A browser tester (no native app) now sees "Not activated" for a grant the page cannot read, and Turn On opens
+  System Settings on the BOARD's Mac. ACCEPTED: Next is never gated, and Splinter's ruling is client-side. The
+  `nativePresent` server variant stays the option if it ever bites (recorded under Rejected above).
+- [NIT] Overlapping polls (interval + Check again) can land out of order and repaint Checking for one tick. Predates
+  this branch and self-corrects; no change.
+Checked clean by the reviewer: Check again shares the clock (correct), S2 and sleep have no turnOnAfterMs, the Turn On
+handler has no condition on data-checking, the mock switch mirror, Windows (platformHides filters the row out), no
+browser check asserts Checking on this row, and sibling suites 1214 (11), 2620 (5), win32-board-copy (29).
