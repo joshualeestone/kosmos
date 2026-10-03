@@ -268,6 +268,9 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
 async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
   const out = [];
   if (off(env)) return out;
+  /* #4588 ask 3: whether a Gemini cap is set, read ONCE per pass (one disk read, one answer for every member). */
+  let capOn = false;
+  try { capOn = !require('./agyquota').quotaHoldOff(env || process.env) && Number(require('./agycap-setting').read().maxWorking) > 0; } catch { capOn = false; }   // the brake lifts the cap here too
   for (const card of Array.isArray(roster) ? roster : []) {
     try {
       if (!card || !card.sessionName || !isAgy(card)) continue;
@@ -282,8 +285,6 @@ async function flushReleased(roster, { isAgy, readReport, now, decayMs, deliver,
          skips every card isAgy refuses, above, so no other runner's timing changes). That changes every held post
          while a cap is set, including one held because its member was working: it is told at the next minute the
          member is idle and let through, rather than at its next wake. */
-      let capOn = false;
-      try { capOn = !require('./agyquota').quotaHoldOff(env || process.env) && Number(require('./agycap-setting').read().maxWorking) > 0; } catch { capOn = false; }   // the brake lifts the cap here too
       if (!capOn && idleNow(readReport, name) && !heldProjects(name).some((p) => heldIn(name, p).some((x) => plainId(x) !== x))) continue;
       /* Review round 6: a member nothing can type into (stopped, no agent process, no target) is skipped, so its ids
          wait for the next typed arrival instead of a COULD_NOT, and a room-hold log line, every minute. */

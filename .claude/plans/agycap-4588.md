@@ -208,3 +208,10 @@ No BLOCKER, WARNING or CONVENTION. Nits applied:
 - the hint is the select's aria-describedby
 
 Left as accepted: one setting read per call.
+
+## After convergence (10-02 21:10)
+- The full validation went red only on the #4273 leak gate (all 14,363 tests passed): server.agycap-4588.test.js left
+  five aw-agycap-* temp dirs. Fixed with test-support/tmpscope; control: 5 left without the line, 0 with.
+- A blind review of the fix (iteration 12, sonnet): `capOn` was read from disk per member inside flushReleased's loop;
+  now read once per pass (375 related tests pass). Duplicates of decisions above: a person's own restart counts toward
+  the cap (it reserves, by design); CAP_STARTS is cleared by the tests that use it (server.agyhold-4588.test.js).
