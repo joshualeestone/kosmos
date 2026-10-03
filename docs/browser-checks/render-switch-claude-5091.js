@@ -106,6 +106,8 @@ const CODEX_OUT_OF_CREDITS = [
     chk(curBox === null, '#5091: and they take no space on screen', JSON.stringify(curBox));
 
     await page.selectOption('#d-provider-account', ACCOUNTS[1].dir);
+    // Round 4: the open agent carries its OLD model's name, as a real Codex agent does; the switch must not keep it.
+    await page.evaluate(() => { CURRENT.modelName = 'GPT 5.6 Sol'; CURRENT.plannedModelName = 'GPT 5.6 Sol'; });
     await page.click('#d-provider-go');
     await page.waitForFunction(() => { const m = document.getElementById('chg-modal'); return m && !m.hidden; }, null, { timeout: 8000 });
     const said = await page.$eval('#chg-small', (e) => e.textContent);
@@ -119,6 +121,8 @@ const CODEX_OUT_OF_CREDITS = [
     await page.waitForTimeout(1500);
     const after = await page.evaluate(() => { const c = document.getElementById('d-current-rows'); return { current: !!c && !c.hidden, menu: document.getElementById('d-provider').value }; });
     chk(after.current === true, "#5091: after the switch the agent's rows are back (a reset menu does not count as a switch being set up)", JSON.stringify(after));
+    const modelRow = await page.evaluate(() => { const m = document.getElementById('d-model'); return m ? [...m.options].map((o) => o.textContent).join(' | ') : 'no #d-model'; });
+    chk(!/GPT|Sol/.test(modelRow), "#5091: after the switch the model row does not name the old provider's model", modelRow.slice(0, 200));
     // Round 3: and they speak for the NEW provider: the Move row lists the Claude accounts, on the one picked.
     // The Move menu's first option ("") names the account it is ON; the rest are the Claude accounts it could move to.
     const rows = await page.evaluate(() => { const s = document.getElementById('d-account'); return { here: (s.options[0] || {}).textContent || '', opts: [...s.options].slice(1).map((o) => o.value), msg: document.getElementById('d-account-msg').textContent }; });

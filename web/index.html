@@ -48064,8 +48064,14 @@ async function changeProviderNow(say) {
     if (moved && CURRENT && CURRENT.sessionName === forAgent) {
       const RUNNER = { openai: 'codex', google: 'gemini', xai: 'grok', antigravity: 'antigravity', meta: 'muse', anthropic: '' };
       if (Object.prototype.hasOwnProperty.call(RUNNER, want)) CURRENT.runner = RUNNER[want];
-      CURRENT.model = null;
-      CURRENT.account = (want === 'anthropic' && sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null;
+      /* Round 4: the row carries modelName / plannedModelName (there is no `model`), and both name the OLD runner's model. */
+      CURRENT.modelName = null; CURRENT.plannedModelName = null;
+      /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
+         would disable Move for an agent that is on main. */
+      const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
+      CURRENT.account = want === 'anthropic'
+        ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (mainClaude ? { dir: mainClaude.dir } : null))
+        : null;
       accountsDropped();
       try { await paintAccountPicker(CURRENT); } catch { /* the switch's own sentence is the answer */ }
       try { if (CURRENT && CURRENT.sessionName === forAgent) await paintModelPicker(CURRENT); } catch { /* same */ }
