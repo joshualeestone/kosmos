@@ -128,6 +128,29 @@ async function measure(page, view, notice) {
       else if (!(tall.noteTop >= tall.headBottom)) problems.push(`${width}px ${view}: the notice sits inside the header (top ${tall.noteTop}, header bottom ${tall.headBottom}), not over the page below it`);
       if (tall.headH !== plain.headH) problems.push(`${width}px ${view}: the notice grew the header (${plain.headH} -> ${tall.headH}); it must float over the page`);
     }
+    // Mona Lisa, 2026-10-03: the Claude-unreachable line (#conn) shows on the same day as an expiring login, and a
+    // floating notice painted over it. It must sit below the notice stack, the way the Allow card does. CONTROL: both
+    // render (a box each), so "below" is not two hidden elements comparing zeros.
+    for (const view of ['tabs', 'consolidated']) {
+      await measure(page, view, true);
+      await page.evaluate(() => {
+        const ask = document.getElementById('askcard'); if (ask) ask.hidden = true;
+        const c = document.getElementById('conn'); c.hidden = false;
+        c.textContent = 'Kosmos cannot reach a Claude subscription on this computer, so agents on it cannot answer.';
+      });
+      // --topnotes-h is written by a ResizeObserver, which runs after layout: give it two frames.
+      await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+      const c = await page.evaluate(() => {
+        const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+        const conn = box(document.getElementById('conn')); const stack = box(document.getElementById('topnotes'));
+        return { connTop: conn ? Math.round(conn.top) : null, stackBottom: stack ? Math.round(stack.bottom) : null };
+      });
+      const where = `${width}px ${view} with a notice and the Claude-unreachable line`;
+      if (c.connTop === null || c.stackBottom === null) problems.push(`CONTROL failed: ${where}: ${c.connTop === null ? '#conn' : 'the notice stack'} did not render`);
+      else if (c.connTop < c.stackBottom) problems.push(`${where}: the line starts at ${c.connTop}, under the notice (stack bottom ${c.stackBottom}); it must move below it`);
+      else console.log(`  PASS  ${where}: the line starts at ${c.connTop}, below the notice stack (bottom ${c.stackBottom})`);
+      await page.evaluate(() => { const c = document.getElementById('conn'); c.hidden = true; c.textContent = ''; });
+    }
     await page.close();
   }
 
