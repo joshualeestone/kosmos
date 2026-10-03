@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: avatar-4885
-diff_hash: cc8d4079b4453c863374846e89aa1cab6dce2e0116c26ec62a1fddedb2aa798f
-validation: pending (full suite queued on Agent1s and on Mortals at 21:33-21:35 CDT 2026-10-01; PR CI runs the same tools/run-tests.sh)
+diff_hash: cf8cbfae1e2fc8ae0d852ca6919fc8b9ed26f818a30d1aeed2a7c299e4411fbf
+validation: passed (full suite on Agent1s for head 89ff81f89, VALIDATION-RC=0 at 00:28 CDT 2026-10-03, hash cc8d4079b445); after rebasing onto main 01e20e83f, the 229 test files that read communitysend, store, the picture code or avatars ran on the rebased head: 4872 pass, 0 fail, 55 skipped
 subdir_audit: not run (no subdir CLAUDE.md in this diff)
-timestamp: 2026-10-02T02:36:00Z
+timestamp: 2026-10-03T05:31:13Z
 iterations: 12
 converged: true
 ---
@@ -74,3 +74,7 @@ full suite is queued on two machines and runs again as PR CI; the merge waits fo
 
 ### Strengths (across all iterations)
 - Every removal path is guarded by a test a single-pass implementation would fail; saves are atomic (write beside, rename).
+
+## Rebase onto main, 2026-10-03 00:2x CDT
+
+One conflict, in engine/communitysend.js's export list only: main had dropped postLater and postWaits; the list keeps main's names plus pictureUnreachable and pictureUnsendable. Every other changed line is identical to 89ff81f89 (1031 lines, compared sorted). Not re-reviewed by the loop; checked by the focused run above.
