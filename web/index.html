@@ -1240,6 +1240,14 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
    expiring login, so it moves down the same way. Only when the Allow card is hidden: a showing Allow card already
    moved down and #conn follows it in the flow. The agent talk view gives #conn its own top gap, plus the stack. */
 #askcard[hidden] + #conn { margin-top: var(--topnotes-clear, 0px); }
+/* #5140 (day-one): a new user on a phone with no agents yet has one thing to press, New agent, and it sits right
+   under the floating stack, so an update or offline notice clipped it. On that empty board (the grid holds only its
+   empty-state block) and only at phone widths, the board row moves below the stack, by the same clearance. Nothing else
+   is on the page for it to push, so Josh's ruling (notices float, never push the page) still holds everywhere there is a
+   page. When the Allow card or the Claude-unreachable line shows, it has already moved down and the row follows it. */
+@media (max-width: 720px) {
+  body:has(#grid > .pj-empty) #askcard[hidden] + #conn[hidden] ~ #boardbar:not([hidden]) { margin-top: var(--topnotes-clear, 0px); }
+}
 /* Scoped to the two ranges where the talk view's own #conn gap applies (the rules beside #3708's), so between them
    nothing changes with no notice. */
 @media (min-width: 56.01rem), (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
