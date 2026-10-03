@@ -14,7 +14,7 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
 - Destination: ~/Downloads, safe unique name; quarantine mark with origin-only URLs; a file that
   cannot be marked is kept and the person is told.
 - Measured live: `--kosmos-app-download-selftest`, 22 rows, run at bundle build (loud skip without
-  a console). Pure rules: `--kosmos-app-mode-selftest`, 81 rows.
+  a console). Pure rules: `--kosmos-app-mode-selftest`, 82 rows.
 - Known and filed: on a computer that runs agents, a plain link or a refused cross-origin redirect
   still navigates the window (#5169).
 
@@ -254,13 +254,22 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - The selftest presenter receives the title; a row checks a failure says "could not" and a refusal
   "did not" (sabotage: one title for both turns it red). 22 live rows.
 
+## Review round 21 changes
+- The per-computer question is a modal alert, not a sheet: every download from that computer waits
+  on it, and a sheet over a sheet can be dropped (#2807), which would leave them waiting for good.
+- Every download sheet (not only refusals) holds back the quiet ones, so a refusal cannot queue
+  behind a failure sheet.
+- A 204/205 is checked before the attachment branch (an empty 204 sent as an attachment is not
+  saved; live row). The early-stop says "It stopped before it began." (it repeated its title).
+- C1 controls in a name become spaces (82 pure rows); the selftest comment names the mode it runs in.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
 (Content-Disposition passthrough) are reasoned, not observed.
 
 ## Tests (current)
-- Pure functions: `--kosmos-app-mode-selftest`, 81 rows in all (the #5167 ones: same-origin, board
+- Pure functions: `--kosmos-app-mode-selftest`, 82 rows in all (the #5167 ones: same-origin, board
   page, destination name).
 - Live: 22 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.

@@ -125,8 +125,8 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   assert.match(st, /downloadDestination\(dir: dir, suggested: suggested\)/, 'the mode selftest no longer drives downloadDestination');
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
-  assert.equal(dl + dest, 28, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 81\b/);
+  assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
+  assert.match(st, /let expected = 82\b/);
 });
 
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
@@ -196,7 +196,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.match(tell, /if sheetUp \|\| \(lastDownloadTold\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < AppDelegate\.downloadQuietSeconds \} \?\? false\) \{/, 'a page clicking in a loop can stack sheets');
   assert.match(tell, /if let present = AppDelegate\.downloadAlertPresenter \{[^}]*if quiet \{ lastDownloadTold = Date\(\) \}/, 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
-  assert.match(tell, /self\.downloadSheetShownAt = nil\n\s+self\.lastDownloadTold = Date\(\)/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
+  assert.match(tell, /self\.downloadSheetShownAt = nil\n\s+if quiet \{ self\.lastDownloadTold = Date\(\) \}/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
   assert.match(SRC, /static var downloadQuietSeconds: TimeInterval = 5\n/);
   assert.match(body('@objc(downloadDidFinish:)'), /if getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 \{\n\s+tellDownloadFailed\(/,
     'the person is told a file is unmarked when WebKit\'s own mark is on it');
@@ -224,7 +224,7 @@ test('#5167 review 12: a foreign file the window cannot show is said; an early s
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /if !navigationResponse\.canShowMIMEType \{\n[^\n]*\n[^\n]*\n\s+if committedPageURL != nil \{ tellDownloadFailed\(isBoardPage[^\n]*\n[^\n]*not opened or saved\."\n[^\n]*not opened or saved\.", quiet: true\)/,
     'a foreign file the window cannot show is cancelled with nothing said');
-  assert.match(body('@objc(download:didFailWithError:resumeData:)'), /tellDownloadFailed\("Kosmos did not save that file to Downloads\.", quiet: true\)/,
+  assert.match(body('@objc(download:didFailWithError:resumeData:)'), /tellDownloadFailed\("It stopped before it began\.", quiet: true\)/,
     'an early stop is said with a cause it may not have, or can stack a second sheet');
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.ok(hatch.includes('"A FRAME LOADING AN ATTACHMENT SAVES NOTHING') && hatch.includes('"A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED'));
@@ -293,4 +293,14 @@ test('#5167 review 20: a 204 or 205 says nothing; a sheet that never reports its
   assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'),
     /let sheetUp = downloadSheetShownAt\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < 60 \} \?\? false/,
     'a sheet whose dismissal never arrives silences every later refusal for the rest of the run');
+});
+
+test('#5167 review 21: the per-computer question is modal (a dropped sheet would leave downloads waiting for good); every download sheet holds back the quiet ones', () => {
+  const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
+  assert.match(may, /answer\(alert\.runModal\(\) == \.alertFirstButtonReturn\)/);
+  assert.doesNotMatch(may, /beginSheetModal/, 'the question is a sheet, whose completion may never come');
+  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /downloadSheetShownAt = Date\(\)   \/\/ any download sheet/,
+    'only quiet sheets hold back the quiet ones, so two can stack');
+  const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
+  assert.ok(b.indexOf('http.statusCode == 204') < b.indexOf('"attachment"'), 'a 204 sent as an attachment is saved as an empty file');
 });
