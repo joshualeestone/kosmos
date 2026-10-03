@@ -6264,6 +6264,15 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
 .tkact .tkact-what { flex: 1; min-width: 0; }
+/* #5153: the change receipt under a closed task's activity. */
+.tkreceipt { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--k-rule); }
+.tkreceipt h4 { margin: 0 0 4px; font-size: .9rem; }
+.tkr-agent { padding: 8px 0; }
+.tkr-agent + .tkr-agent { border-top: 1px solid var(--k-rule); }
+.tkr-name { font-weight: 600; }
+.tkr-line { margin-top: 2px; }
+.tkr-where, .tkr-files li { color: var(--label-2); font-size: .85rem; overflow-wrap: anywhere; }
+.tkr-files ul { margin: 4px 0 0; padding-left: 18px; }
 /* ⚠️ THE ADD ROW HAD TO BE SIZED DOWN, and rendering is the only thing that
    showed it: `.frow` gives the input `flex: 1` and `.btn-quiet` is a
    full-weight control, so at this column's width the pair WRAPPED and Add
@@ -16192,6 +16201,8 @@ window.kosmosMeasureScrollbarWidth();
       <section class="pjcol tkconvcol">
         <h3 class="dlab">Conversation</h3>
         <div id="tk-activity" class="tkacts" aria-live="polite"></div>
+        <!-- #5153: a closed task's change receipt, drawn by paintTaskReceipt; hidden while the task is open. -->
+        <div id="tk-receipt" class="tkreceipt" hidden></div>
         <!-- #768: the composer. A message typed here is recorded on the task, shows
              in the activity above (engine tasks.say -> taskchat), AND is delivered to
              the agents assigned to the task (the server route notifies them via
@@ -57583,6 +57594,75 @@ function tkActPhrase(ev, p) {
    a lifecycle event is rare, so a per-open + per-action read stays fresh without
    a request every tick. `n` is checked against TK_OPEN after the await so a fetch
    that lands after the person has left the task cannot paint the wrong page. */
+/* #5153: the receipt's words for one agent's row. Pure (node-testable): `a` is one entry of the receipt's `agents`,
+   `name` its display name. Commands are a COUNT (their text is Josh's call); dollars come from usageApiCost, the one
+   price table, and say "at API prices" because a subscription is not billed this. */
+const TKR_PROVIDER = { codex: 'Codex', gemini: 'Gemini CLI', grok: 'Grok', antigravity: 'Antigravity', muse: 'Muse' };
+function tkReceiptAgentHtml(a, name) {
+  const head = '<div class="tkr-name">' + esc(name) + '</div>';
+  if (!a.available) {
+    const why = a.because === 'provider'
+      ? 'A receipt is not available for ' + (TKR_PROVIDER[a.provider] || a.provider || 'this provider') + ' agents yet.'
+      : 'Not an agent with a folder on this computer, so there is nothing to read.';
+    return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">' + esc(why) + '</div></div>';
+  }
+  if (!a.sessions) {
+    return '<div class="tkr-agent">' + head + '<div class="tkr-line dhint">No Claude Code activity found while it held this task.</div></div>';
+  }
+  const models = a.models || {};
+  let tokens = 0;
+  for (const b of Object.values(models)) tokens += usageRowTokenTotal(b);
+  const { cost, unpriced } = usageApiCost({ receipt: models });
+  const nFiles = (a.files || []).length + (Number(a.filesMore) || 0);
+  const bits = [
+    nFiles === 1 ? 'Changed 1 file' : 'Changed ' + usageNum(nFiles) + ' files',
+    a.commands === 1 ? 'ran 1 command' : 'ran ' + usageNum(Number(a.commands) || 0) + ' commands',
+    usageAbbr(tokens) + ' tokens',
+  ];
+  if (cost !== null) bits.push(usageUsd(cost) + ' at API prices' + (unpriced.length ? ' (not counting ' + unpriced.join(', ') + ', which has no published price)' : ''));
+  else if (unpriced.length) bits.push('no published price for ' + unpriced.join(', '));
+  const list = (a.files || []).map((f) => '<li>' + esc(f) + '</li>').join('')
+    + (a.filesMore ? '<li>and ' + usageNum(a.filesMore) + ' more</li>' : '');
+  return '<div class="tkr-agent">' + head
+    + '<div class="tkr-line" title="' + esc(usageNum(tokens)) + ' tokens">' + esc(bits.join(', ')) + '.</div>'
+    + (list ? '<details class="tkr-files"><summary>Files</summary><ul>' + list + '</ul></details>' : '')
+    + (a.folder ? '<div class="tkr-where">In ' + esc(a.folder) + '</div>' : '')
+    + '</div>';
+}
+/* #5153: the whole receipt. Pure. */
+function tkReceiptHtml(r, p) {
+  const agents = Array.isArray(r && r.agents) ? r.agents : [];
+  const rt = (r && r.retries) || {};
+  const times = (k) => (k === 1 ? '1 time' : usageNum(k) + ' times');
+  const again = [rt.reopened ? 'put back ' + times(rt.reopened) : '', rt.handoffs ? 'handed on ' + times(rt.handoffs) : ''].filter(Boolean);
+  const body = agents.length
+    ? agents.map((a) => tkReceiptAgentHtml(a, tkMemberName(p, a.who))).join('')
+    : '<p class="dhint">Nobody held this task, so there is no work to show.</p>';
+  return '<h4>Receipt</h4>'
+    + '<p class="dhint">What each agent did while it held this task. Anything else it did in that time is included.</p>'
+    + body
+    + '<p class="dhint">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>';
+}
+/* #5153: fetch and draw the receipt for task `n` when it is closed; hidden otherwise. Same stale-page guards as the
+   activity below. A failed read hides it rather than showing a receipt of nothing. */
+async function paintTaskReceipt(n) {
+  const holder = document.getElementById('tk-receipt');
+  if (!holder) return;
+  const p = pjById(PJ_CURRENT);
+  const t = p && n != null && (p.tasks || []).find((x) => x.number === n);
+  if (!t || !t.closedAt) { holder.hidden = true; holder.innerHTML = ''; return; }
+  let r = null;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/receipt', { cache: 'no-store' });
+    if (n !== TK_OPEN) return;
+    if (!res.ok) throw new Error('not ok');
+    r = await res.json();
+  } catch { r = null; }
+  if (n !== TK_OPEN) return;
+  if (!r || r.ready === false) { holder.hidden = true; holder.innerHTML = ''; return; }
+  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
+  holder.hidden = false;
+}
 async function paintTaskActivity(n) {
   const holder = document.getElementById('tk-activity');
   if (!holder) return;
@@ -57641,7 +57721,10 @@ function openTaskPage(n) {
      cannot leave the previous task's events on screen. */
   const acts = document.getElementById('tk-activity');
   if (acts) acts.innerHTML = '';
+  const receipt = document.getElementById('tk-receipt');
+  if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   paintTaskActivity(n);
+  paintTaskReceipt(n);   // #5153
   pjView('task');
   document.getElementById('tk-back').focus();   // the top of the new page
 }
@@ -57680,6 +57763,7 @@ async function tkPartPost(url, body) {
     msg.textContent = heardSentence(spokenHeard(pjById(PJ_CURRENT), out && out.heard));
     // #768: the change just recorded a lifecycle event, so refresh the activity.
     paintTaskActivity(TK_OPEN);
+    paintTaskReceipt(TK_OPEN);   // #5153: closing the last part closes the task
     return true;
   } catch {
     msg.textContent = 'we could not change that';
@@ -57800,6 +57884,7 @@ document.getElementById('tk-done').addEventListener('click', async () => {
     await pjReload();
     // #768: close/reopen recorded a lifecycle event, so refresh the activity.
     paintTaskActivity(TK_OPEN);
+    paintTaskReceipt(TK_OPEN);   // #5153: a closed task shows its receipt, a reopened one hides it
     /* ⚠️ AND IT STAYS ON THE PAGE. The dialog closed itself here, which was
        right for a dialog: the act was the reason it was open. A page is not
        dismissed by succeeding, and being thrown back to the project on a

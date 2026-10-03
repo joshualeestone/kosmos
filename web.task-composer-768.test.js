@@ -117,9 +117,9 @@ test('opening a task clears a leftover composer draft + refusal band (no cross-t
   const project = { id: 'p1', tasks: [{ number: 5, sentence: 'a task' }] };
   const src = fnSource('openTaskPage');
   const openTaskPage = new Function(
-    'document', 'pjById', 'PJ_CURRENT', 'paintTaskPage', 'paintTaskActivity', 'pjView',
+    'document', 'pjById', 'PJ_CURRENT', 'paintTaskPage', 'paintTaskActivity', 'paintTaskReceipt', 'pjView',
     'var TK_OPEN = null;\n' + src + '\n; return openTaskPage;',
-  )(doc, () => project, project.id, () => {}, () => {}, () => {});
+  )(doc, () => project, project.id, () => {}, () => {}, () => {}, () => {});   // #5153: the receipt painter, a no-op here
   openTaskPage(5);
   assert.equal(say.value, '', 'the leftover draft was not cleared on opening the task');
   assert.equal(sayMsg.textContent, '', 'the stale refusal band was not cleared on opening the task');
