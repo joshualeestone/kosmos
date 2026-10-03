@@ -14,12 +14,14 @@ CODESIGN_TS_UNAVAILABLE='The timestamp service is not available'
 codesign_ts_retry() {
   local cs="${KOSMOS_CODESIGN_CMD:-codesign}" out rc d try=1 tries ts nc= tmp
   local -a delays
-  read -r -a delays <<< "${KOSMOS_CODESIGN_TS_DELAYS-5 15 45}"   # split on spaces, never glob-expanded
+  IFS=$' \t\n' read -r -a delays <<< "${KOSMOS_CODESIGN_TS_DELAYS-5 15 45}"   # split on blanks whatever the caller's IFS; never globbed
   tries=$(( ${#delays[@]} + 1 ))
   while :; do
     # Streamed live as before (a stalled sign is visible while it stalls), and kept in a file to read the message.
     tmp="$(mktemp "${TMPDIR:-/tmp}/codesign-retry.XXXXXX")" || return 1
-    "$cs" "$@" 2>&1 | tee "$tmp" | sed 's/^/    /' && rc=0 || rc=${PIPESTATUS[0]}
+    # codesign's status from PIPESTATUS, so it holds with or without the caller's pipefail; the group's || keeps
+    # a failing pipeline from ending a set -e caller before the status is read.
+    { "$cs" "$@" 2>&1 | tee "$tmp" | sed 's/^/    /'; rc=${PIPESTATUS[0]}; } || :
     out="$(cat "$tmp")"; rm -f "$tmp"
     [ "$rc" -eq 0 ] && return 0
     # Case-insensitive, so a recapitalised message from a newer codesign is still retried.

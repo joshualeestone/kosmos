@@ -77,6 +77,14 @@ shopt -u nocasematch
 rm -f "$WORK/calls"; ( cd "$WORK" && KOSMOS_CODESIGN_TS_DELAYS='*' KOSMOS_CODESIGN_CMD=cs_ts_always codesign_ts_retry -s x y >/dev/null 2>"$WORK/err" )
 grep -q 'trying again in \*s' "$WORK/err" && ok "a '*' delay is not glob-expanded" || bad "a '*' delay was expanded: $(head -2 "$WORK/err")"
 
+# 5d. The status is codesign's own even when the caller has no pipefail (the tee | sed pipe must not hide it),
+#     and a caller's IFS does not change how the delays split.
+rc=$(bash -c 'set -eu; set +o pipefail; . "$1/tools/lib/codesign-retry.sh"; cs(){ echo "x: errSecInternalComponent" >&2; return 3; }; KOSMOS_CODESIGN_CMD=cs codesign_ts_retry -s x y >/dev/null 2>&1 && echo 0 || echo $?' _ "$REPO")
+[ "$rc" = 3 ] && ok "no pipefail in the caller: codesign's exit 3 still comes back" || bad "no pipefail in the caller: got $rc, want 3"
+cs_ts_one() { echo x >> "$WORK/calls"; echo "$TS" >&2; return 1; }   # one line per call whatever IFS joins "$*" with
+rm -f "$WORK/calls"; rc=$(IFS=$'\n'; run cs_ts_one)
+[ "$(calls)" = 4 ] && ok "a newline-only IFS in the caller still gives 4 tries" || bad "newline-only IFS: codesign ran $(calls) times, want 4"
+
 # 6. An empty delay list means one try and no retry, so the behaviour can be turned off.
 rc=$(KOSMOS_CODESIGN_TS_DELAYS="" run cs_ts_always)
 { [ "$rc" = 1 ] && [ "$(calls)" = 1 ]; } && ok "KOSMOS_CODESIGN_TS_DELAYS empty: one try" || bad "empty delays: exit $rc, $(calls) calls, want 1 and 1"
@@ -91,4 +99,4 @@ n=$(grep -E '(^|[^_[:alnum:]])codesign [^|]*--timestamp( |=|$)' "$B" | grep -vc 
 [ "$n" = 0 ] && ok "no bare timestamped codesign left in build-kosmos-bundle.sh" || bad "$n bare timestamped codesign line(s) in build-kosmos-bundle.sh"
 
 echo "test-codesign-retry-5149: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" = 21 ]
+[ "$fails" = 0 ] && [ "$passes" = 23 ]
