@@ -58063,12 +58063,19 @@ function tkTaskClosed(n) {
    calls this, so a task closed or put back by an agent or another window shows or hides its receipt without a fetch on
    every tick (review 2). openTaskPage forgets the last key, so a task opened again is painted again. */
 let TKR_SHOWN = null;
+let TKR_FAILED = null;   // { key, at } of the last read that failed
+const TKR_RETRY_MS = 30000;
 function tkReceiptSync() {
   const p = pjById(PJ_CURRENT);
   const t = p && TK_OPEN != null && (p.tasks || []).find((x) => x.number === TK_OPEN);
-  /* The close time is in the key, so closed, put back and closed again between two polls paints the new close (review 3). */
-  const key = PJ_CURRENT + ':' + TK_OPEN + ':' + tkTaskClosed(TK_OPEN) + ':' + ((t && t.closedAt) || (t && t.progress ? t.progress.done : ''));
+  /* The close time is in the key (the task's own, or its newest part's), so closed, put back and closed again between
+     two polls paints the new close (review 3). */
+  const partClose = t ? (Array.isArray(t.parts) ? t.parts : []).map((x) => (x && x.closedAt) || '').sort().pop() || '' : '';
+  const key = PJ_CURRENT + ':' + TK_OPEN + ':' + tkTaskClosed(TK_OPEN) + ':' + ((t && t.closedAt) || partClose);
   if (key === TKR_SHOWN) return;
+  /* After a failed read, the same receipt is asked for again only after TKR_RETRY_MS (review 4: a read that keeps
+     failing would otherwise re-read the transcripts on every poll). */
+  if (TKR_FAILED && TKR_FAILED.key === key && Date.now() - TKR_FAILED.at < TKR_RETRY_MS) return;
   TKR_SHOWN = key;
   paintTaskReceipt(TK_OPEN);
 }
@@ -58086,7 +58093,9 @@ async function paintTaskReceipt(n) {
     r = await res.json();
   } catch { r = null; }
   if (seq !== TKR_SEQ || n !== TK_OPEN) return;
-  if (!r) TKR_SHOWN = null;   // a failed read is tried again on the next poll, not left hidden (review 3)
+  /* A failed read is tried again (after TKR_RETRY_MS), not left hidden while the page stays open (review 3). */
+  if (!r) { TKR_FAILED = TKR_SHOWN ? { key: TKR_SHOWN, at: Date.now() } : null; TKR_SHOWN = null; }
+  else TKR_FAILED = null;
   if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; return; }
   holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p);
   holder.hidden = false;

@@ -651,9 +651,9 @@ const SCREENS = [
     for (const want of ['Not sent. It stayed on this computer.', LEFTOVER.claim + ' (deleted agent)']) {
       if (!t.includes(want)) throw new Error('the community list does not say "' + want + '": ' + JSON.stringify(t.slice(0, 400)));
     }
-  } },  /* #5153: a closed task's change receipt. Task 1 is closed through the board's own route (a repeat close is harmless;
-     LAST in this list so no earlier screen sees it closed); only the receipt's answer is faked, since the throwaway
-     board has no agent transcripts to read. The folder is an invented path, never this Mac's. */
+  } },  /* #5153: a closed task's change receipt. The board is NOT changed (review 4: a real close would show task 1 closed on
+     every later pass of every other screen): this page's own read of the projects marks task 1 closed, and the receipt's
+     answer is faked, since the throwaway board has no agent transcripts to read. The folder is invented, never this Mac's. */
   { name: 'task-receipt', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
     const b = (i, o, cw, cr) => ({ input_tokens: i, output_tokens: o, cache_creation_input_tokens: cw, cache_read_input_tokens: cr, rows: 40 });
     const receipt = { version: 1, closedAt: new Date(Date.now() - 3600e3).toISOString(), retries: { reopened: 1, handoffs: 1 }, agents: [
@@ -663,14 +663,24 @@ const SCREENS = [
       { who: data.askAgent, provider: 'codex', available: false, because: 'provider' },
     ] };
     await page.route('**/api/project/*/task/*/receipt', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(receipt) }));
+    await page.route('**/api/projects', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      let res, body;
+      try { res = await route.fetch(); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      for (const proj of body.projects || []) {
+        if (proj.id !== data.projectId) continue;
+        for (const t of proj.tasks || []) {
+          if (t.number !== 1) continue;
+          t.closedAt = receipt.closedAt;
+          if (t.progress) t.progress.closed = true;
+        }
+      }
+      await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
-    await page.evaluate(async (id) => {
-      await fetch('/api/project/' + encodeURIComponent(id) + '/task/1/close', { method: 'POST' });
-      await pjReload();
-      openTaskPage(1);
-    }, data.projectId);
+    await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
     await page.waitForSelector('#tk-receipt:not([hidden]) .tkr-agent', { state: 'visible', timeout: 8000 });
     await page.evaluate(() => {
       const d = document.querySelector('#tk-receipt details');
