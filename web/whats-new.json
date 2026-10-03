@@ -1,25 +1,10 @@
 {
-  "version": "0.7.20",
+  "version": "0.7.21",
   "highlights": [
     {
       "icon": "chat",
-      "title": "A sign-in notice you can close",
-      "line": "The warning that your agents' sign-in is ending now floats over the page instead of pushing it down, names the account, and has an X."
-    },
-    {
-      "icon": "shield",
-      "title": "Gemini sign-in asks about your data",
-      "line": "On a Mac, signing Gemini in with a Google subscription shows Antigravity's terms in Kosmos, and you choose if Google may use your data."
-    },
-    {
-      "icon": "list",
-      "title": "Settings stays clickable",
-      "line": "On a long Settings section, the section buttons stay below the top bar instead of sliding under it."
-    },
-    {
-      "icon": "spark",
-      "title": "A running agent's files stay safe",
-      "line": "Deleting a removed agent's files no longer touches a running agent whose name differs from it only in capitals."
+      "title": "Agents speak your language",
+      "line": "On a Mac set to another language, a new agent now starts and posts in that language instead of English."
     }
   ]
 }
