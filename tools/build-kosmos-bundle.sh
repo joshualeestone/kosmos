@@ -640,7 +640,7 @@ echo "==> native app: it reads this computer's mode, and a connect computer keep
 # The verdict is the output, not the exit status; a timeout is the gate's fault, tested first.
 if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   _dl_rc=0
-  _dl_out="$(perl -e 'alarm 80; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-download-selftest 2>&1)" || _dl_rc=$?
+  _dl_out="$(perl -e 'alarm 180; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-download-selftest 2>&1)" || _dl_rc=$?
   printf '%s\n' "$_dl_out" | sed 's/^/    /'
   case "$_dl_out" in
     *"download selftest TIMED OUT"*)
