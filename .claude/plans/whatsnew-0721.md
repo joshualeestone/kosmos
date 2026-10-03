@@ -10,8 +10,10 @@ against the MERGED diff before the cut (the 0.7.19/0.7.20 lesson: lines drafted 
    no claim about other providers).
 
 ## Drafted, added as each merges (ranked by the day-one path; the top five that have merged go in)
-1. #5114 (issue; fix not up yet) spark "A clearer first step": "If you have no Claude account yet, your first agent now
-   points you to AI Models in Settings, where you add one." Wording depends on the fix.
+1. #5114 (Mona, branch aimodels-5114 @ 72c7eff72; merges CI-starved on its validation) spark "Points to the right
+   place": "When an agent cannot start without a Claude or OpenAI account, Kosmos now sends you to Settings, AI Models,
+   where you add one." Checked against the branch: every refusal and remedy now names "Settings, AI Models" (was "the
+   Accounts tab", which does not exist); covers Claude and OpenAI wording.
 2. #5101 swarm "Switching to Claude works": "Switching an agent to Claude now offers your Claude accounts to pick from,
    and the panel stops describing the old provider."
 3. #5093 phone "Honest computer status": "With remote access off on a computer, your Kosmos+ account page says so
