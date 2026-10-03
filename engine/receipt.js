@@ -297,10 +297,14 @@ async function providerWork(runner, dir, holds) {
   let unnamed = 0;
   acc.onRow = (provider, row, file, folder, fork = {}) => {
     if (!sameFolder(folder)) return;
-    /* A forked Codex rollout begins with the parent's history replayed into it, its tool calls included: skipped by the
-       rule the token count uses for the parent's totals (stamped at or before the fork, or before the first total), so
-       work done before this hold in the parent is not counted as this hold's (review 1). */
-    if (provider === 'codex' && fork.forked && (!(Date.parse(row && row.timestamp) > fork.forkAt) || !fork.totals)) return;
+    /* A forked Codex rollout begins with the parent's history replayed into it, its tool calls included, so work done
+       in the parent is not counted as this hold's (review 1). When the fork's time is known, a row stamped at or before it
+       is the replay; only when it is not known is everything before the file's first total taken as the replay (the
+       token count's fallback). Time alone where it can: a turn's calls come BEFORE its total, so the first-total rule
+       would drop the first real turn's calls and edits, not just its tokens (review 2). */
+    if (provider === 'codex' && fork.forked) {
+      if (Number.isFinite(fork.forkAt) ? !(Date.parse(row && row.timestamp) > fork.forkAt) : !fork.totals) return;
+    }
     if (inHold(Date.parse(row && row.timestamp))) withWork.add(file);   // any row of the agent's inside a hold
     if (provider === 'codex') {
       const p = (row && row.payload) || {};
@@ -360,8 +364,14 @@ async function providerWork(runner, dir, holds) {
 
 /* A file inside the agent's folder by its path there; anything else in full (it is this person's own computer). */
 function shownPath(dir, file) {
-  const rel = path.relative(dir, file);
-  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : file;
+  /* Either spelling of the folder (a link and its target, /tmp and /private/tmp): a session records the one it ran in. */
+  let canon = dir;
+  try { canon = require('./trust').canonicalOnDisk(dir); } catch { /* the recorded spelling only */ }
+  for (const base of [...new Set([dir, canon])]) {
+    const rel = path.relative(base, file);
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+  }
+  return file;
 }
 
 function receiptFile(projectId, number) {
