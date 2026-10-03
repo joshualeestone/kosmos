@@ -53,3 +53,12 @@ build), it does not pass.
   and parsed as JSON. A failure lasting past the retries still refuses (fail closed; rerun the cut).
 - A coordinator deployed from the pre-squash branch carries #4869 by content but is refused even with that branch
   fetched (the squash commit is never its ancestor); it needs the override. Intended, by the by-ancestry choice.
+
+## Review and validation record
+- 13 blind rounds on the gate; converged at round 13 (opus). NITs left: an all-commented floor file passes with a
+  misleading message; floor lines accept any commit-ish, not only a 40-hex sha.
+- The full validation (Mortals, 14:58) caught 4 release-gate arms stopping at step 1d2 because their sandbox had no
+  tools/coordinator-floor. Fixed in the test (11a2ec836): a fixture relay commit newer than the connector plus a sandbox
+  floor naming it, so 1d2 passes through its real exemption path with no network. Review converged (sonnet).
+- Focused at 11a2ec836: tools.release-gate.test.js 53/53, test-coordinator-floor-5037 ALL PASS.
+- Full validation PASSED on Mortals at 11a2ec836 (2026-10-03 00:02, hash 4c6885e7d10d, LANG set).
