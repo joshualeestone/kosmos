@@ -282,6 +282,46 @@ function markServiceCommentNotSent(id) {
 }
 
 /**
+ * #4994: an agent was deleted. Every post and service comment of it the board received up to `at` (published, held or
+ * quarantined) is marked never to send, so none goes out under a new agent that takes the name, whichever service or ON
+ * period the send layer reads later, and whenever a held one is released. Synchronous, like every write here. Returns
+ * how many rows were marked.
+ * `notSent` means "never send from now", not "was never sent": rows already on the service are marked too, and their
+ * records still say they were sent. `at` and `receivedAt` are both toISOString() output with milliseconds, so they
+ * compare as strings; a hand-written time without milliseconds would not.
+ */
+function markAgentNotSent(agent, at) {
+  // Read strictly: loadJson sets an unreadable file aside and answers [], which would mark nothing and read as done.
+  // Throwing keeps the caller's request pending while the file stays unreadable. Once the board's own loader sets it
+  // aside, it reads as missing, so a copy restored from the set-aside file later is not marked.
+  const strict = (file) => {
+    let raw;
+    try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') return []; throw e; }
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) throw new Error(`${path.basename(file)} is not a list`);
+    return v;
+  };
+  let n = 0;
+  const mark = (rows, keep) => {
+    let changed = false;
+    for (const r of rows) {
+      if (!r || r.agent !== agent || !r.author || r.author.type !== 'agent' || !keep(r)) continue;
+      // A row with no time is older than the fields that carry one, so it counts as before the delete.
+      if ((typeof r.receivedAt === 'string' && r.receivedAt > at) || r.notSent === true) continue;
+      r.notSent = true;
+      changed = true;
+      n++;
+    }
+    return changed;
+  };
+  const posts = strict(postsFile());
+  if (mark(posts, () => true)) saveJson(postsFile(), posts);
+  const comments = strict(commentsFile());
+  if (mark(comments, (c) => Boolean(c.remotePostId))) saveJson(commentsFile(), comments);
+  return n;
+}
+
+/**
  * #4373 part B: insert a comment on a post in the PUBLIC community service. Same row
  * shape, status model and moderation as insertComment, but it names the service's post
  * (`remotePostId`, a UUID) and has no local postId: getComments filters on the local
@@ -321,8 +361,8 @@ function insertServiceComment(rec) {
 }
 
 // #4373 part B: the board's published comments on SERVICE posts, oldest first, as
-// stored, except those marked never to send. For the send layer only; never serve these
-// rows on a public surface.
+// stored, except those marked never to send (#4994: including a deleted agent's, sent or not). For the send
+// layer only; never serve these rows on a public surface.
 function publishedServiceComments() {
   return loadJson(commentsFile(), [])
     .filter((c) => c && c.remotePostId && c.status === 'published' && c.notSent !== true)
@@ -440,6 +480,71 @@ function publishedPosts() {
     .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)));
 }
 
+/* #5023: whether this agent has any post on this board, in any status (published, held or quarantined): the
+   community block asks for an introduction only from an agent that has never posted, so a held first post counts
+   too, and a held post the person discards stops counting (nothing was posted). Matched on the trust key the post
+   carries (`agent`), else its agent author name, case-insensitively.
+   true / false, or null when it cannot tell: a missing file is false (nothing posted yet), but an unreadable or
+   wrong-shape one is null, so the caller does not read "no posts" into it. So is any "no" while a posts.json.corrupt-*
+   sits beside the file: another reader's loadJson quarantined it, the earlier posts are in the sidecar, and a fresh
+   posts.json holds only what came after. Decided: after a corruption no agent is asked again (a lost introduction is
+   better than a repeated one) until someone deals with the sidecar.
+   Read directly rather than through loadJson, so asking never quarantines the file itself. Only agent posts count:
+   a person's own post can carry a matching name in `agent` (communitysite), so author.type 'user' is skipped. */
+function postedBy(agentKey) {
+  const want = String(agentKey == null ? '' : agentKey).trim().toLowerCase();
+  if (!want) return null;
+  let posts;
+  try {
+    posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
+  } catch (e) {
+    if (!e || e.code !== 'ENOENT') return null;
+    posts = [];
+  }
+  if (!Array.isArray(posts)) return null;
+  const found = posts.some((p) => {
+    if (!p || typeof p !== 'object' || (p.author && p.author.type === 'user')) return false;
+    const who = typeof p.agent === 'string' && p.agent ? p.agent
+      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '');
+    return who.trim().toLowerCase() === want;
+  });
+  if (found) return true;
+  try {
+    const base = path.basename(postsFile()) + '.corrupt-';
+    if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
+  } catch { /* no folder at all: nothing was ever posted */ }
+  return false;
+}
+
+/* #4947 slice 2: every agent's post times on this board, ONE read: a Map of lower-cased agent key -> ISO receivedAt
+   strings (any status), keyed exactly as postedBy matches (the trust key the post carries, `agent`, else its agent
+   author name; agent posts only). null when the file cannot be read or a posts.json.corrupt-* sidecar sits beside it
+   (postedBy's guard: the earlier posts are in the sidecar, so a count from the fresh file would be too low). */
+function postTimesAll() {
+  let posts;
+  try {
+    posts = JSON.parse(fs.readFileSync(postsFile(), 'utf8'));
+  } catch (e) {
+    if (!e || e.code !== 'ENOENT') return null;
+    posts = [];
+  }
+  if (!Array.isArray(posts)) return null;
+  try {
+    const base = path.basename(postsFile()) + '.corrupt-';
+    if (fs.readdirSync(dir()).some((f) => f.startsWith(base))) return null;
+  } catch { /* no folder at all: nothing was ever posted */ }
+  const out = new Map();
+  for (const p of posts) {
+    if (!p || typeof p !== 'object' || (p.author && p.author.type === 'user') || typeof p.receivedAt !== 'string') continue;
+    const who = (typeof p.agent === 'string' && p.agent ? p.agent
+      : (p.author && p.author.type === 'agent' && typeof p.author.name === 'string' ? p.author.name : '')).trim().toLowerCase();
+    if (!who) continue;
+    if (!out.has(who)) out.set(who, []);
+    out.get(who).push(p.receivedAt);
+  }
+  return out;
+}
+
 // #4287: a post's status and author type, or null when there is no such post.
 function postMeta(id) {
   const key = String(id);
@@ -531,7 +636,7 @@ function releaseHeld(id) {
     saveJson(postsFile(), posts);
     // Credit the author agent (user authors have no agent-trust ladder).
     if (post.author && post.author.type === 'agent' && post.author.name) {
-      recordApproval(post.author.name);
+      recordApproval(post.author.name, post.receivedAt);
     }
     return post;
   }
@@ -587,10 +692,18 @@ function discardHeld(id) {
 
 // Increment an agent's approved_count; flip to trusted at K. Idempotent-safe:
 // an already-trusted agent stays trusted.
-function recordApproval(agentId) {
+//
+// #5000: `receivedAt` is the released post's. A post the board received before the name was
+// forgotten (forgetTrust, when its agent was deleted) belongs to the deleted agent, so it credits
+// nobody: the name's ladder is the NEW agent's now. Without a receivedAt there is nothing to
+// compare, so the old behaviour stands (a direct caller, the tests).
+function recordApproval(agentId, receivedAt) {
   const key = trustKey(agentId);
   const all = loadTrust();
   const rec = all[key] || { trust: 'untrusted', approved_count: 0 };
+  if (typeof rec.forgottenAt === 'string' && typeof receivedAt === 'string' && receivedAt <= rec.forgottenAt) {
+    return rec;
+  }
   if (rec.trust !== 'trusted') {
     rec.approved_count = (rec.approved_count || 0) + 1;
     if (rec.approved_count >= PROMOTE_THRESHOLD) rec.trust = 'trusted';
@@ -600,10 +713,17 @@ function recordApproval(agentId) {
   return rec;
 }
 
+// #5000: a grant or a revoke keeps a forgotten name's forgottenAt, so a held post the deleted agent left behind still
+// credits nobody afterwards.
+function keepForgotten(prev, rec) {
+  if (prev && typeof prev.forgottenAt === 'string') rec.forgottenAt = prev.forgottenAt;
+  return rec;
+}
+
 // Explicit operator/admin grant — promotes immediately, no ladder.
 function grantTrust(agentId) {
   const all = loadTrust();
-  all[trustKey(agentId)] = { trust: 'trusted', approved_count: PROMOTE_THRESHOLD };
+  all[trustKey(agentId)] = keepForgotten(all[trustKey(agentId)], { trust: 'trusted', approved_count: PROMOTE_THRESHOLD });
   saveJson(trustFile(), all);
   return all[trustKey(agentId)];
 }
@@ -612,7 +732,18 @@ function grantTrust(agentId) {
 // untrusted, to re-earn trust. Resets the ladder.
 function revokeTrust(agentId) {
   const all = loadTrust();
-  all[trustKey(agentId)] = { trust: 'untrusted', approved_count: 0 };
+  all[trustKey(agentId)] = keepForgotten(all[trustKey(agentId)], { trust: 'untrusted', approved_count: 0 });
+  saveJson(trustFile(), all);
+  return all[trustKey(agentId)];
+}
+
+// #5000: an agent was deleted and its name is free for a new agent. The name's standing goes back
+// to the start (untrusted, no approvals), and the time is kept so a held post the deleted agent
+// left behind cannot credit the new agent when someone releases it (recordApproval above). Only
+// the deleted name's record changes; every other agent's is untouched. Returns the new record.
+function forgetTrust(agentId) {
+  const all = loadTrust();
+  all[trustKey(agentId)] = { trust: 'untrusted', approved_count: 0, forgottenAt: nowISO() };
   saveJson(trustFile(), all);
   return all[trustKey(agentId)];
 }
@@ -628,6 +759,7 @@ module.exports = {
   insertServiceComment,
   publishedServiceComments,
   markServiceCommentNotSent,
+  markAgentNotSent,
   serviceComments,
   commentMeta,
   publicFeed,
@@ -635,6 +767,7 @@ module.exports = {
   moderationQueue,
   toPublic,
   publishedPosts,
+  postedBy, postTimesAll,
   postMeta,
   // trust
   trustState,
@@ -644,6 +777,7 @@ module.exports = {
   recordApproval,
   grantTrust,
   revokeTrust,
+  forgetTrust,
   // paths (for tests / diagnostics)
   _paths: { dir, postsFile, commentsFile, trustFile },
 };

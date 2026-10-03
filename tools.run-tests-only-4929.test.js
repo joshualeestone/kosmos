@@ -38,6 +38,8 @@ const RUNNER_SET = ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL
   'KOSMOS_TEST_PART', 'KOSMOS_TEST_PART_LOCAL', 'KOSMOS_SHELL_SHARD',
   // A queue turn or a cut runs this file holding a machine claim; its cookie would make the test's own claims ours.
   'KOSMOS_MACHINE_CLAIM_COOKIE',
+  // #4911: likewise a light run's side-turn cookie; run inside a side turn, every inner run would refuse with exit 2.
+  'KOSMOS_LIGHT_SIDE_COOKIE',
   // node --test marks its children with NODE_TEST_CONTEXT; a nested node --test that inherits it reports to this one
   // instead of printing. The runs below are separate runs, so it goes too.
   'NODE_TEST_CONTEXT'];

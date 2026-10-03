@@ -3122,6 +3122,20 @@ function launcherTmuxSafe() {
  * creation refuses, on the screen whose entire job is telling them it will
  * work. One definition, or the two drift.
  */
+function linuxTmuxBin(platform = process.platform, env = process.env, runnable = runners.isRunnable) {
+  /* #4917: Linux packages tmux into /usr/bin or /usr/local/bin, and custom
+   * installs may expose it only through PATH. Resolve an executable directly,
+   * without a shell, and keep the long-standing Mac and Windows fallback
+   * unchanged. The explicit option and environment override remain authoritative
+   * on every platform. */
+  if (platform === 'linux') {
+    const pathDirs = String(env.PATH || '').split(path.delimiter).filter(Boolean);
+    const dirs = [...new Set([...pathDirs, '/usr/local/bin', '/usr/bin', '/bin', '/snap/bin', '/home/linuxbrew/.linuxbrew/bin'])];
+    return dirs.map((dir) => path.join(dir, 'tmux')).find((candidate) => runnable(candidate)) || null;
+  }
+  return null;
+}
+
 function binPaths(opts) {
   return {
     // Claude's resolution moved to engine/runners.js (#979, same
@@ -3134,10 +3148,12 @@ function binPaths(opts) {
     /* #2955: the launcher's pick, not a tmux the board switched to at runtime (status.tmuxRepick): a NEW agent bakes
        what Kosmos chose at launch, and its supervisor makes the same switch at start while the wall is there, so a
        removed Homebrew tmux cannot strand it. An existing agent's plist rewrite passes its own baked path
-       straight to plistFor and is not touched by this. */
+       straight to plistFor and is not touched by this.
+       #4917: adaptive pick -> env override -> Linux PATH and common binary directories -> Homebrew fallback */
     tmuxBin: (opts && opts.tmuxBin)
       || launcherTmuxSafe()
       || process.env.AGENT_WORKFORCE_TMUX_BIN
+      || linuxTmuxBin((opts && opts.platform) || process.platform)
       || '/opt/homebrew/bin/tmux',
     // The OpenAI runner (#245, resolution moved to engine/runners.js for
     // #979). ONE priority list -- env override, then the managed location
@@ -3795,10 +3811,21 @@ function defaultClaudeProbe(configDir) {
  * dead -- capacity, rate, overload, network, or an unrunnable claude).
  */
 async function claudeAccountLive(configDir) {
+  return (await claudeAccountCheck(configDir)).state;
+}
+/* #3997 review 1: the same verdict, plus `refused`: an UNKNOWN whose probe reported an exit code other than 0 and
+   whose output has neither the capacity nor the dead-sign-in words. With the real probe (defaultClaudeProbe) that is
+   BROAD, measured from its code by reviews 2 and 3: it reports 1 for any error without a numeric code, so a refusal
+   (a 403 permission error, a disabled organisation), a timeout (killed, no code) or a failed exec all count. Every one
+   of those is a Check now that failed, which Josh's ruling A keeps non-green, so the row falls back to unverified
+   until a later outcome. Not `refused`: capacity (the account is fine, only busy), a probe that throws, and a claude
+   that cannot be found at all (the probe reports no exit code then). Check now uses it so a row's login-green does not outlive a failed
+   check it just saw; the create gate still reads only the state, so it is unchanged. */
+async function claudeAccountCheck(configDir) {
   const subscription = require('./subscription');
   const run = claudeProbe || defaultClaudeProbe;
   let res;
-  try { res = await run(configDir); } catch { return subscription.STATE.UNKNOWN; }
+  try { res = await run(configDir); } catch { return { state: subscription.STATE.UNKNOWN, refused: false }; }
   const text = String((res && res.out) || '');
   const exit = res && typeof res.exitCode === 'number' ? res.exitCode : null;
   /* CONTENT before EXIT CODE, the module's own doctrine (a status code is the
@@ -3808,10 +3835,12 @@ async function claudeAccountLive(configDir) {
      REGARDLESS of exit code -- so a dead token that somehow exits 0 while
      printing its 401 is still caught, not false-accepted by the exit-0 shortcut.
      A clean exit 0 with neither marker (the "reply ok" response) is CONNECTED. */
-  if (CLAUDE_CAPACITY.test(text)) return subscription.STATE.UNKNOWN; // live but capped/overloaded
-  if (CLAUDE_DEAD_AUTH.test(text)) return subscription.STATE.NONE;   // positively dead
-  if (exit === 0) return subscription.STATE.CONNECTED;           // a real call went through cleanly
-  return subscription.STATE.UNKNOWN;                             // network/unrunnable/other
+  if (CLAUDE_CAPACITY.test(text)) return { state: subscription.STATE.UNKNOWN, refused: false }; // live but capped/overloaded
+  if (CLAUDE_DEAD_AUTH.test(text)) return { state: subscription.STATE.NONE, refused: false };   // positively dead
+  if (exit === 0) return { state: subscription.STATE.CONNECTED, refused: false };           // a real call went through cleanly
+  // network/unrunnable/other. A non-zero exit code is a failed check (see above); no exit code (claude was not
+  // found) is not.
+  return { state: subscription.STATE.UNKNOWN, refused: exit !== null && exit !== 0 };
 }
 
 /**
@@ -4662,9 +4691,9 @@ function createAgentInner(opts) {
      this is the other one, AND IT IS REACHED WITHOUT DELETING ANYTHING.
 
      TWO CHECKS GUARD THIS NAME AND NEITHER LOOKS AT THE TOKEN STORE: the
-     clash check above refuses a name that is RUNNING, and the one further up
-     refuses `hasFolder && hasJob` -- BOTH, so a name whose files are gone, or
-     only half present, passes them both.
+     clash check above refuses a name that is RUNNING, and the ones further up
+     refuse a folder or a job of the name (either alone, #4994 checked), so a
+     name whose files are all gone passes them both.
 
      Tokens outlive the files whenever they went away by any route other than
      a fully successful `delete-leftover` (a hand-deleted folder, a PARTIAL
@@ -4691,6 +4720,26 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `we could not clear the sender tokens left by an earlier ${shown}, so we will not make a new agent that an old one could speak for`,
+      steps,
+    };
+  }
+  /* #4994: the same for the name's community account. A name freed by any route other than a clean delete-leftover
+     (files removed by hand, a delete whose retirement could not be recorded) still holds the old agent's account, and a
+     new agent would post as it. REFUSES like the tokens above, for the same reason.
+
+     Asked always, not only when this service's keys show an account: those keys can be unreadable, the account can be
+     another service's, and an agent that never got a key can still leave unsent posts. For a name with no history it
+     changes nothing, though it still writes and removes one request file.
+
+     It runs before gates below that can still refuse, deliberately, as the token revoke does: every check above has
+     found the name free (a folder alone or a job alone is refused, not only both), so the old account belongs to nobody
+     on this board whether or not this create goes on. */
+  try {
+    require('./communitysend').requestRetire(name);
+  } catch {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not save a community record for ${shown} (one that makes sure no earlier agent's community account carries over), so we did not make the agent`,
       steps,
     };
   }
@@ -5139,8 +5188,12 @@ function createAgentInner(opts) {
         if (cm) {
           let communityLanded = false;
           try {
-            const spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
+            // #5023: a new agent is asked to introduce itself, unless its key already has posts or the store cannot
+            // tell (shouldIntroduce leaves it out on an unknown answer).
             const { MAX_BYTES } = require('./instructions');
+            let spliced = require('./projects').spliceBlock(text, cm.blockBody({ introduce: cm.shouldIntroduce(wantedKey || name) }), cm.START, cm.END);
+            // The introduction is optional: at the size limit, the block without it rather than no block.
+            if (Buffer.byteLength(spliced, 'utf8') > MAX_BYTES) spliced = require('./projects').spliceBlock(text, cm.blockBody(), cm.START, cm.END);
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; communityLanded = true; }
           } catch { /* reported below rather than swallowed */ }
           if (!communityLanded) {
@@ -5435,7 +5488,10 @@ function createAgentInner(opts) {
        (`already === false` proves only that no other agent needed it at PREACCEPT time, not
        at rollback time). Leaving an inert account preference set is the safe direction -- the
        operator chose bypass mode for this account when they started the creation -- so this
-       is fire-and-forget with no undo, unlike the trust write. */
+       is fire-and-forget with no undo, unlike the trust write. The same call also writes
+       #5039's switchModelsOnFlag. That one is not inert and the operator did not choose it here
+       (Josh ruled the default, 2026-10-02); it is left in place on rollback for the same
+       account-shared reason. */
     if (provider === 'anthropic') {
       try { require('./trust').preacceptBypass(configDir, !configDir); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
@@ -5789,8 +5845,10 @@ module.exports = {
   createAgent,
   accountConnectable,
   claudeAccountLive,
+  claudeAccountCheck,
   setClaudeProbe,
   binPaths,
+  linuxTmuxBin,
   unusablePath,
   nameProblem,
   cleanName,

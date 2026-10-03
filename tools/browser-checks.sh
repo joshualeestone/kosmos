@@ -157,6 +157,22 @@ declare -F bc_quarantine_note >/dev/null && declare -F bc_quarantine_verdict >/d
 # and refuse ITSELF. Skip the guard in the child -- the parent cleared the field
 # once, for both.
 if [ "${KOSMOS_HARNESS_IGNORE_CUT:-0}" != 1 ] && [ -z "${KOSMOS_BC_FROZEN_RUNNER:-}" ]; then
+  # #4911: a light run's SIDE turn (beside a heavy run, kosmos_light_side_clear) ends in minutes (queued-heavy.sh stops
+  # it at its cap, inside this wait's 20-minute bound). When one is live, WAIT for it rather than refuse: this page
+  # layer is likely the heavy holder's own, and refusing would turn its run red for a neighbour it was promised. Then
+  # the browser-run check is not WAITED on, as before (it is asked before and after this wait): waiting on it too made two page layers that both met a side turn wait
+  # on each other's markers until the bound (review 2). A side turn's own page layer carries its cookie, so it is not
+  # foreign to itself.
+  if ! kosmos_refuse_if_light_side_live "this page layer" 2>/dev/null; then
+    # Review 4: first refuse beside another browser run, as before #4911, so a page layer that arrives while one is
+    # already waiting out the side turn refuses at once. Asked only after the wait, the two met when it ended and
+    # either could lose (reproduced: the heavy holder's own lost). Review 5: but NOT for the side turn's own page
+    # layer (its process group, published beside the side claim): that one is what this waits out, and refusing on
+    # it turned the heavy holder red. The check after the wait excludes nothing.
+    KOSMOS_EXCLUDE_PGID="$(_kosmos_light_side_pgid)" kosmos_refuse_if_browser_run_live "this page layer" || exit 1
+    _bc_side() { kosmos_refuse_if_light_side_live "this page layer"; }
+    kosmos_wait_until_clear "this page layer" _bc_side || exit 1
+  fi
   kosmos_refuse_if_browser_run_live "this page layer" || exit 1
 fi
 
@@ -1028,6 +1044,11 @@ fi
 # That is #812's "a check that is never run catches nothing at all", on a
 # check one day old.
 run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
+
+# --- #4885: an agent's picture fits the Kosmos+ community -------------------
+# Needs no board: it lifts fitPicture out of web/index.html and runs it in both engines (WebKit cannot write WebP,
+# so it is the engine that exercises the JPEG fallback).
+run_one "render-picture-fit-4885" env ENGINES=chromium,webkit node docs/browser-checks/render-picture-fit-4885.js
 
 # --- #4930: click a file a message carries to see it full page ---------------
 # Needs no board: it serves the real page with every /api call stubbed and draws real attachment cards.

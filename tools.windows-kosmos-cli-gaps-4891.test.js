@@ -65,7 +65,7 @@ test('#4891 N6 Windows: the CLI says the board\'s 404 and exits 1 (wiring only: 
   assert.match(empty.out, /No tasks for this project yet/);
 });
 
-test('#4891 review 2/3 Windows: `report clear --auto` is refused by name; a note mentioning --auto is a note', async () => {
+test('#4891 review 2/3 Windows: `report clear --auto` is refused by name; --auto in a note needs a -- (kosmos#4889)', async () => {
   for (const argv of [['report', 'clear', '--auto'], ['report', 'clear', '--on', 'x', '--auto', 'back']]) {
     const r = await run(argv, () => ({ body: JSON.stringify({ recorded: true }) }));
     assert.equal(r.code, 2, argv.join(' '));
@@ -78,7 +78,13 @@ test('#4891 review 2/3 Windows: `report clear --auto` is refused by name; a note
   const hookBody = JSON.parse(hook.calls.find((c) => c.method === 'POST').body);
   assert.equal(hookBody.state, 'working');
   assert.equal(hookBody.auto, true);
-  const note = await run(['report', 'clear', 'back', 'to', 'it,', 'dropped', '--auto'], () => ({ body: JSON.stringify({ recorded: true }) }));
+  /* kosmos#4889: an option after the note is refused, as it is for every other state (it used to be note text). */
+  const late = await run(['report', 'clear', 'back', 'to', 'it,', 'dropped', '--auto'], () => ({ body: JSON.stringify({ recorded: true }) }));
+  assert.equal(late.code, 2, late.err);
+  assert.match(late.err, /--auto is not an option of kosmos report/);
+  assert.equal(late.calls.filter((c) => c.method === 'POST').length, 0, 'a refused note reached the board');
+  /* CONTROL: after a bare --, --auto is note text. */
+  const note = await run(['report', 'clear', '--', 'back', 'to', 'it,', 'dropped', '--auto'], () => ({ body: JSON.stringify({ recorded: true }) }));
   assert.equal(note.code, 0, note.err);
   const body = JSON.parse(note.calls.find((c) => c.method === 'POST').body);
   assert.equal(body.state, 'working');

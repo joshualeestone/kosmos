@@ -49,6 +49,14 @@ function backend() {
       }
       const t = (req.headers.authorization || '').replace(/^Bearer /, '');
       const a = [...st.agents.values()].find((x) => x.token === t && x.active);
+      // #4939 review 3: posts too, for the post pass's in-flight test below.
+      if (req.method === 'POST' && req.url === '/posts') {
+        if (!a) return send(401, { detail: 'invalid or expired token' });
+        st.posts = st.posts || [];
+        const id = crypto.randomUUID();
+        st.posts.push({ id, agent: a.id, title: body.title, body: body.body });
+        return send(201, { id });
+      }
       const m = /^\/posts\/([^/]+)\/comments$/.exec(req.url);
       if (req.method === 'POST' && m) {
         if (!a) return send(401, { detail: 'invalid or expired token' });
@@ -82,7 +90,7 @@ function fresh() {
   cs.setSender((url, init) => fetch(url, init));
   cs.setTimeoutMs(2000);
 }
-test.beforeEach(async () => { fresh(); be = await backend(); });
+test.beforeEach(async () => { fresh(); cs.resetPauses(); be = await backend(); });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); });
 
 function comment(agent, text, { trusted = true, post = POST } = {}) {
@@ -242,6 +250,56 @@ test('the daily cap waits the server\'s Retry-After, then sends', async () => {
   be.st.mode = {};
   await cs.sweep();
   assert.equal(sends().length, 1, 'sent again before the Retry-After ran out');
+});
+
+/* #4953: the limiter's 429 on a comment is a short pause: commentRetryAt (which tells an agent its comment goes
+   "later") is not written, and the first sweep after the minute sends the comment. */
+test('#4953 a per-minute limiter 429 on a comment is a short pause, not the daily cap', async () => {
+  await on();
+  be.st.mode = { status: 429, json: { error: 'rate_limit_exceeded', retry_after: 60 }, headers: { 'retry-after': '60' } };
+  const r = comment('limo', 'a minute too soon');
+  await cs.sweep();
+  be.st.mode = {};
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.limo && keys.limo.commentRetryAt, undefined, 'the limiter\'s 429 was written as the daily cap');
+  assert.equal(cs.commentStatuses()[r.id].state, 'pending');
+  await cs.sweep();                          // inside the minute: paused, not sent again
+  assert.equal(sends().length, 1, 'sent again inside the limiter\'s minute');
+  await cs.sweep(Date.now() + 61 * 1000);
+  assert.equal(sends().length, 2, 'not sent once the minute was out');
+});
+
+/* #4953: ONE pause per agent covers its posts and its comments (the service's limiter is one bucket per agent): a
+   comment the limiter refused holds the same agent's post back too, until a sweep after the minute. */
+test('#4953 a limiter 429 on a comment also holds the same agent\'s post for the minute', async () => {
+  await on();
+  be.st.mode = { status: 429, json: { error: 'rate_limit_exceeded', retry_after: 60 }, headers: { 'retry-after': '60' } };
+  comment('both', 'refused by the limiter');
+  await cs.sweep();
+  be.st.mode = {};
+  communitystore.grantTrust('both');
+  feedpublish.publishPost({ kind: 'community_post', agent: 'both', at: new Date().toISOString(), topic: 'held', body: 'a post' }, { agentId: 'both' });
+  await cs.sweep();   // inside the minute: neither the comment nor the post goes
+  const postsSent = () => be.st.seen.filter((x) => x.method === 'POST' && x.url === '/posts').length;
+  assert.equal(postsSent(), 0, 'the post went inside the minute the comment was refused');
+  assert.equal(sends().length, 1, 'the comment went again inside the minute');
+  await cs.sweep(Date.now() + 61 * 1000);   // control: after the minute the post does go, so the 0 above meant held
+  assert.equal(postsSent(), 1, 'the post did not go after the minute');
+});
+
+/* #4953: an unreadable 429 on a comment is a short pause (no commentRetryAt), held to 10 minutes. */
+test('#4953 an unreadable 429 on a comment is a pause of at most 10 minutes, never the daily cap', async () => {
+  await on();
+  be.st.mode = { status: 429, json: { detail: 'slow down' }, headers: { 'retry-after': '7200' } };
+  comment('oddc', 'unreadable refusal');
+  await cs.sweep();
+  be.st.mode = {};
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  assert.equal(keys.oddc && keys.oddc.commentRetryAt, undefined, 'an unreadable 429 was written as the daily cap');
+  await cs.sweep(Date.now() + 590 * 1000);
+  assert.equal(sends().length, 1, 'sent again inside the 10 minutes');
+  await cs.sweep(Date.now() + 601 * 1000);
+  assert.equal(sends().length, 2, 'not sent once the 10 minutes were out');
 });
 
 test('no answer: recorded unconfirmed and never sent again (a doubled public comment is worse)', async () => {
@@ -418,6 +476,15 @@ test('review 4: willSend is false with the switch off, an unreadable state, or a
   assert.equal(cs.willSend('bo').sends, true);
 });
 
+test('#4939 review 7: an agent whose community name is held (no key yet) is told its post goes later, not shortly', () => {
+  SW = { on: true, ok: true };
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { registering: { taken: true } }, bo: { apiKey: 'k', registering: { taken: true } } }));
+  assert.deepEqual(cs.willSend('ava', Date.now(), 'post'), { sends: true, later: true }, 'a held name read as sending on the next pass');
+  assert.deepEqual(cs.willSend('ava', Date.now(), 'comment'), { sends: true, later: true });
+  assert.deepEqual(cs.willSend('bo', Date.now(), 'post'), { sends: true, later: false }, 'CONTROL: an agent with its key is not held');
+});
+
 test('review 5: FIRST WRITER WINS: a sweep holding an old copy of the state cannot move the period\'s start later', async () => {
   await on();
   comment('ava', 'first, to register the agent for real');
@@ -531,6 +598,78 @@ test('review (in flight): CONTROL: with no OFF, the same held sweep sends the se
   assert.equal(await inFlight(false), 1);
 });
 
+/* #4939 review 3: the POST pass too. Status says a post from an ended ON period "will not be sent, post it again", so a
+   sweep that began before an OFF then ON must not send it, as the comment pass already does not. */
+async function postsInFlight(flip) {
+  await on();
+  const pub = (topic) => { communitystore.grantTrust('ava'); const r = feedpublish.publishPost({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), topic, body: topic + ' body.' }, { agentId: 'ava' }); assert.equal(r.ok, true, JSON.stringify(r)); };
+  pub('first, to register');
+  await cs.sweep();
+  pub('P1');
+  pub('P2');
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  cs.setSender(async (url, init) => { await gate; return fetch(url, init); });
+  const sweeping = cs.sweep();
+  await new Promise((res) => setTimeout(res, 50));
+  if (flip) {
+    SW = { on: false, ok: true };
+    cs.endOnPeriodNow();
+    await new Promise((res) => setTimeout(res, 5));
+    SW = { on: true, ok: true };
+    assert.equal(cs.recordPeriodStart(), true, 'a new ON period started');
+  }
+  release();
+  await sweeping;
+  return (be.st.posts || []).filter((x) => x.title === 'P2').length;
+}
+test('#4939 review 3 (in flight): a post sweep across an OFF then ON sends nothing more from the old ON period', async () => {
+  assert.equal(await postsInFlight(true), 0, 'a post from the ended ON period went out after it ended');
+});
+test('#4939 review 3 (in flight): CONTROL: with no OFF, the same held post sweep sends the second post', async () => {
+  assert.equal(await postsInFlight(false), 1);
+});
+
+/* #4939 review 4: a first-time agent is registered INSIDE sendPost/sendComment, which can take many seconds; switching
+   off meanwhile must stop the send, as status already says it will not go. The request is held at /agents/register. */
+async function heldAtRegister(kind, flip) {
+  await on();
+  let localId = null;
+  if (kind === 'post') {
+    communitystore.grantTrust('ava');
+    const r = feedpublish.publishPost({ kind: 'community_post', agent: 'ava', at: new Date().toISOString(), topic: 'R1', body: 'R1 body.' }, { agentId: 'ava' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    localId = r.id;
+  } else comment('ava', 'R1');
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  let reached = false;
+  cs.setSender(async (url, init) => { if (/\/agents\/register$/.test(url)) { reached = true; await gate; } return fetch(url, init); });
+  const sweeping = cs.sweep();
+  for (let i = 0; i < 100 && !reached; i++) await new Promise((res) => setTimeout(res, 10));
+  assert.equal(reached, true, 'control: the sweep reached registration');
+  if (flip === 'delete') assert.equal(cs.requestDelete(localId).ok, true, 'fixture: the delete was not recorded');
+  else if (flip) { SW = { on: false, ok: true }; cs.endOnPeriodNow(); }
+  release();
+  await sweeping;
+  return kind === 'post' ? (be.st.posts || []).filter((x) => x.title === 'R1').length : be.st.comments.filter((c) => c.body === 'R1').length;
+}
+test('#4939 review 4 (registering): switched off while a first post\'s agent registers, the post does not go', async () => {
+  assert.equal(await heldAtRegister('post', true), 0, 'a post went out after Community was switched off');
+});
+test('#4939 review 4 (registering): switched off while a first comment\'s agent registers, the comment does not go', async () => {
+  assert.equal(await heldAtRegister('comment', true), 0, 'a comment went out after Community was switched off');
+});
+test('#4939 review 4 (registering): a post the owner removed while its agent registered does not go', async () => {
+  assert.equal(await heldAtRegister('post', 'delete'), 0, 'a post the owner removed went out');
+});
+test('#4939 review 4 (registering): CONTROL: with no OFF, the post and the comment go', async () => {
+  assert.equal(await heldAtRegister('post', false), 1);
+});
+test('#4939 review 4 (registering): CONTROL: with no OFF, the comment goes', async () => {
+  assert.equal(await heldAtRegister('comment', false), 1);
+});
+
 test('review 6: willSend is false while a file the sweep needs is unreadable', async () => {
   await on();
   SW = { on: true, ok: true };
@@ -572,8 +711,11 @@ test('review 9: recordPeriodStart records nothing for an address the sweep will 
   assert.equal(cs.recordPeriodStart(), true, 'control: the loopback address records a start');
 });
 
-test('#4947: postLater says whether this agent\'s next post waits past the daily post cap (and only that agent\'s)', () => {
+/* #4947's postLater and postWaits were folded into willSend(.., 'post') by #4939, which the post route asks; these ask
+   it the same questions. */
+test('#4947: willSend(post).later says whether this agent\'s next post waits past the daily post cap (and only that agent\'s)', () => {
   fresh();
+  SW = { on: true, ok: true };
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
   const now = Date.now();
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({
@@ -581,27 +723,28 @@ test('#4947: postLater says whether this agent\'s next post waits past the daily
     bo: { retryAt: new Date(now - 60000).toISOString() },                // the wait is over
     cy: { commentRetryAt: new Date(now + 3600000).toISOString() },       // a COMMENT cap does not hold posts
   }));
-  assert.equal(cs.postLater('ava', now), true, 'a capped agent\'s post was not said to wait');
-  assert.equal(cs.postLater('bo', now), false);
-  assert.equal(cs.postLater('cy', now), false, 'a comment cap was taken for a post cap');
-  assert.equal(cs.postLater('nobody', now), false);
+  assert.equal(cs.willSend('ava', now, 'post').later, true, 'a capped agent\'s post was not said to wait');
+  assert.equal(cs.willSend('bo', now, 'post').later, false);
+  assert.equal(cs.willSend('cy', now, 'post').later, false, 'a comment cap was taken for a post cap');
+  assert.equal(cs.willSend('nobody', now, 'post').later, false);
   fs.writeFileSync(cs._paths.keysFile(), '{not json');
-  assert.equal(cs.postLater('ava', now), false, 'unreadable state promised a wait');
+  assert.equal(cs.willSend('ava', now, 'post').later, false, 'unreadable state promised a wait');
 });
 
-test('#4947: postWaits promises "once the cap lifts" only for a post that will be sent at all', () => {
+test('#4947: willSend(post) promises "once the cap lifts" only for a post that will be sent at all', () => {
+  const waits = (k, now) => { const w = cs.willSend(k, now, 'post'); return w.sends && w.later; };
   fresh();
   SW = { on: true, ok: true };
   const now = Date.now();
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ava: { retryAt: new Date(now + 3600000).toISOString() }, bo: { retryAt: new Date(now + 3600000).toISOString(), refused: true } }));
-  assert.equal(cs.postWaits('ava', now), true, 'control: on, capped, will be sent');
-  assert.equal(cs.postWaits('bo', now), false, 'a refused key was promised a send once the cap lifts');
+  assert.equal(waits('ava', now), true, 'control: on, capped, will be sent');
+  assert.equal(waits('bo', now), false, 'a refused key was promised a send once the cap lifts');
   SW = { on: false, ok: true };
-  assert.equal(cs.postWaits('ava', now), false, 'with Community off a post was promised a send once the cap lifts');
+  assert.equal(waits('ava', now), false, 'with Community off a post was promised a send once the cap lifts');
 });
 
-test('#4947: asking postWaits (the post route does, before the store) records the ON period\'s start, as a comment\'s willSend does', () => {
+test('#4947: asking willSend(post) (the post route does, before the store) records the ON period\'s start, as a comment\'s willSend does', () => {
   /* So a post made in the minutes before the first sweep of an ON period is inside the window and sent: a change in what
      gets sent (written under Decided in the plan), and it holds for a post the safety check holds too (that one is not
      due until it is released, so the earlier start costs nothing). */
@@ -610,7 +753,7 @@ test('#4947: asking postWaits (the post route does, before the store) records th
   const stateFile = cs._paths.stateFile();
   const before = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')).since : undefined;
   assert.equal(before, undefined, 'fixture: no sweep has recorded the period\'s start yet');
-  cs.postWaits('ava');
+  cs.willSend('ava', Date.now(), 'post');
   assert.equal(typeof JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, 'string', 'the post route\'s question did not record the period\'s start');
 });
 
@@ -629,7 +772,7 @@ test('#4940: a register 429 asking for an hour waits at most five minutes, so th
   // Review 1: what the agent is told while it waits is true, says to run it again, and ends with no period (the CLI adds one).
   const r = await cs.agentCall('ava', 'POST', '/agents/by-name/x/follow', {});
   assert.equal(r.ok, false);
-  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then \(its posts and comments are queued, not lost\)$/);
+  assert.match(r.because, /^this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then \(what it has queued is kept, not lost; kosmos community status says what will go\)$/);
 });
 
 test('#4940 review 2: a registration that fails with no wait set (a server error) says it is tried on the next pass', async () => {
@@ -639,5 +782,5 @@ test('#4940 review 2: a registration that fails with no wait set (a server error
     : fetch(url, init)));
   const r = await cs.agentCall('zed', 'POST', '/agents/by-name/x/follow', {});
   assert.equal(r.ok, false);
-  assert.match(r.because, /^the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes \(its posts and comments are queued, not lost\)$/);
+  assert.match(r.because, /^the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes \(what it has queued is kept, not lost; kosmos community status says what will go\)$/);
 });

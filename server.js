@@ -905,6 +905,7 @@ const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
+const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
@@ -8150,7 +8151,15 @@ const server = http.createServer(async (req, res) => {
     const r = communityindustry.read();
     let unreachable = 0;
     try { unreachable = communitysend.industryUnreachable(); } catch { unreachable = null; }   // cannot tell: promise nothing
-    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable };
+    /* #4885: agents whose community picture Kosmos can no longer take down (the community shut them out). Read here
+       because Settings reads this route at page load and each time its Automation section opens. 0 on a board whose send layer has no pictures;
+       null when it cannot tell, as `unreachable` beside it. */
+    let picturesStuck = 0;
+    try { picturesStuck = typeof communitysend.pictureUnreachable === 'function' ? communitysend.pictureUnreachable() : 0; } catch { picturesStuck = null; }
+    // #4885: pictures saved before Kosmos fitted them that cannot go as they are (too big, not a still picture, refused).
+    let picturesUnsendable = 0;
+    try { picturesUnsendable = typeof communitysend.pictureUnsendable === 'function' ? communitysend.pictureUnsendable() : 0; } catch { picturesUnsendable = null; }
+    return { industry: r.industry, ok: r.ok, industries: communityindustry.INDUSTRIES, unreachable, picturesStuck, picturesUnsendable };
   };
   if (pathname === '/api/community-industry' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, industryBody()); }
@@ -8260,6 +8269,15 @@ const server = http.createServer(async (req, res) => {
        bearer), so it is keyed on the authenticated session, never on anything in the query. */
     /* #4833 slice 2: `?replies=1` is the replies to the reader's OWN posts, keyed on the authenticated session like
        Following, never on anything in the query. */
+    /* #4939: `?status=1` is the reader's own posts and comments and where each stands, from the board's records only
+       (no service call), keyed on the authenticated session like replies. */
+    if (q.get('status') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      let r;
+      try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
+      sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+      return;
+    }
     if (q.get('replies') === '1') {
       if (q.get('channel') || q.get('post') || q.get('following')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
       communityread.readReplies(reader.card.sessionName)
@@ -8357,11 +8375,10 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         candidate.agent = agentId;
-        // #4947: will this post wait past the service's daily post cap? Asked before the store write. The ON period's start
-        // is recorded by #4938's recordPeriodStart just below (postWaits' willSend records the same first-writer-wins
-        // start, so whichever runs first wins and the other changes nothing).
-        let later = false;
-        try { later = communitysend.postWaits(agentId); } catch { later = false; }
+        // #4939: asked BEFORE the store write, as the comment route does: it records the ON period's start, which must
+        // not be later than this post (the sweep sends only posts made at or after it), and says whether it will go.
+        let will = { sends: false, later: false };
+        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false }; }
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
@@ -8380,7 +8397,9 @@ const server = http.createServer(async (req, res) => {
         // against it are bounded by the per-agent hourly cap above (10 by default), and
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, ...(later && r.status === 'published' ? { later: true } : {}) });   // a held post is not going yet at all
+        // A held post is not going yet at all (#4947): it is neither sent nor waiting until it is released.
+        const going = r.status === 'published' && will.sends;
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later });
         if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
@@ -9200,7 +9219,7 @@ const server = http.createServer(async (req, res) => {
              board started, carries that date; the page shows it as a calm "login good until". Green only with the
              switch on. */
           const loginArgs = { badge: v.badge, checkLiveState: a.connection && a.connection.state,
-            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), now: nowMs };
+            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), checkRefused: claudeloginlive.checkRefused(a.dir, obs && obs.at), now: nowMs };
           const loginOk = claudeloginlive.loginGood(loginArgs);
           const loginGreen = loginOk && claudeloginlive.greenFromLogin(loginArgs);
           return {
@@ -9534,10 +9553,11 @@ const server = http.createServer(async (req, res) => {
     catch { sendJson(res, 500, { ok: false, error: 'we could not forget that just now' }); }
     return;
   }
-  /* Four exact addresses, not a startsWith family (#3957's route check counts only exact comparisons,
+  /* Five exact addresses (#4960 added agree), not a startsWith family (#3957's route check counts only exact comparisons,
      and an unknown sub-address falls through to the board's own 404). */
   if (pathname === '/api/antigravity/signin' || pathname === '/api/antigravity/signin/code'
-    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop') {
+    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop'
+    || pathname === '/api/antigravity/signin/agree') {
     const signin = require('./engine/agysignin');
     const agy = require('./engine/agystatus');
     const sub = pathname.slice('/api/antigravity/signin'.length);
@@ -9567,7 +9587,7 @@ const server = http.createServer(async (req, res) => {
     }
     /* Code, Show and Stop name the sign-in they mean (the id start() answered), so one tab never
        stops or types into a sign-in another tab started since. */
-    if (sub === '/code' || sub === '/show' || sub === '/stop') {
+    if (sub === '/code' || sub === '/show' || sub === '/stop' || sub === '/agree') {
       readBody(req).then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
@@ -9575,6 +9595,13 @@ const server = http.createServer(async (req, res) => {
         if (sub === '/code') {
           let r;
           try { r = signin.code(body && body.code, id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass the code just now' }); return; }
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+          return;
+        }
+        /* #4960: the person's answer to Antigravity's terms (and the OPTIONAL data-sharing box), from Kosmos's panel. */
+        if (sub === '/agree') {
+          let r;
+          try { r = signin.agree(id, { dataUse: body ? body.dataUse : undefined }); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass your answer just now' }); return; }
           sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
           return;
         }
@@ -9962,8 +9989,10 @@ const server = http.createServer(async (req, res) => {
         // the same #1916 rule the create gate states: a broken checker is not a
         // dead account. claudeAccountLive already returns UNKNOWN (not a throw)
         // for every environmental case, so a throw here is our own bug, logged.
-        try { state = await create.claudeAccountLive(probeDir); }
+        let refused = false;
+        try { ({ state, refused } = await create.claudeAccountCheck(probeDir)); }
         catch (err) { console.error('#3136: claude check-now errored (failing open):', (err && err.stack) || err); state = subscription.STATE.UNKNOWN; }
+        claudeloginlive.noteCheck(acct.dir, { state, refused });   // #3997 review 1: a refusal blocks the login-green
         if (state === subscription.STATE.CONNECTED) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.OK);
         else if (state === subscription.STATE.NONE) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.REJECTED);
         // UNKNOWN records nothing — the prior badge stands, unclobbered.
@@ -19814,6 +19843,42 @@ function start(port = PORT) {
         }).catch(() => null).finally(() => { replyNudgeRunning = false; });
       }, replynudge.REPLY_NUDGE_INTERVAL_MS);
       if (replyNudgeTick && typeof replyNudgeTick.unref === 'function') replyNudgeTick.unref();
+      /* #4947 slice 2: the community turn. An idle agent in the community whose last post is 3 h old, with fewer than
+         the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
+         gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
+         Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
+         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause). unref'd;
+         first run one interval after boot. */
+      const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
+      const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
+      const communityTurnTick = setInterval(() => {
+        const cb = require('./engine/communityblock');
+        let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
+        const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
+        const done = communityturn.tickOnce({
+          allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
+          switchOn: () => communitysend.switchOn(),
+          prompterOn: () => heartbeatSetting.read().on === true,
+          roster: () => safeRoster(), readProjects: () => projects.readAll(),
+          readLimit: () => limits.read(), limitDefaults: limits.DEFAULTS,
+          sent: AGENT_NUDGE_SENT,   // the board-wide hour log the other agent nudges share
+          idleSince: (session) => { const r = selfreport.read(session); const t = r && r.found && r.state === 'idle' ? Date.parse(r.at) : NaN; return Number.isFinite(t) ? t : null; },
+          quotaHeld: (session, roster) => require('./engine/agyquota').heldForQuota(session, roster, Date.now()) !== null,
+          inCommunity: (session) => {
+            const cur = instructions.read(session);
+            if (!cur || !cur.exists) return false;
+            const f = projects.findBlock(cur.text || '', cb.START, cb.END);
+            return Boolean(f) && f.ambiguous !== true;
+          },
+          postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
+          book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
+          deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+          DELIVERY: chat.DELIVERY,
+          log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
+        });
+        if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
+      }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
+      if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
       resolve(server);
     };
     server.once('error', onError);

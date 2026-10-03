@@ -71,6 +71,10 @@ test('#4938 a published post starts a send at once; a held one does not', async 
   await settled();
   assert.equal(h.status, 'held');
   assert.equal(soon, 0, 'a held post started a send');
+  // #4947 (kept by #4939): a held post is not going yet at all, so it is reported neither as sending nor as waiting.
+  assert.equal(j.sends, true, 'CONTROL: the published post was not reported as sending, so the held check below proves nothing');
+  assert.equal(h.sends, false, 'a held post was reported as sending');
+  assert.equal(h.later, false, 'a held post was reported as waiting for the cap');
   // CONTROL: with Community OFF a published post starts no pass (nothing is sent while OFF).
   communityswitch.setOn(false);
   try {

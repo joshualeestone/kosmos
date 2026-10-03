@@ -49,7 +49,7 @@
  * that reboots to a locked login screen brings back no fleet on either platform
  * until somebody signs in. That is a property shared with the Mac, not a Windows
  * shortfall, but it is the thing people read "survives a reboot" to mean. */
-const SUPPORTED = Object.freeze(['darwin', 'win32']);
+const SUPPORTED = Object.freeze(['darwin', 'win32', 'linux']);
 
 /* 🛑 AND THE SECOND QUESTION, WHICH THIS MODULE USED TO CONFLATE WITH THE FIRST.
  * Two gates read a DOWNLOAD predicate to refuse fetching a runner binary, not to

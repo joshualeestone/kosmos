@@ -4107,6 +4107,224 @@ test('#966: the Fable 5 promo banner does not read as a spent limit', () => {
     'the real 2026-08-21 block regression stopped matching');
 });
 
+test('#5039: the safeguards model-switch menu says what it is asking, not only that it is asking', () => {
+  /* VERBATIM FROM ANGEL'S PANE, 2026-10-02 ~11:07 CDT (Splinter's capture, Claude Code 2.1.287, Opus 5.5). That capture
+     dropped blank lines and the menu's border rule; both are put back here where Claude Code draws them (a blank row
+     after the frame, the rule above the menu). Every text row is as captured. The board ALREADY read this as needs_you
+     (measured on main b56e37c30, generic option-menu detection); what was missing is WHAT it asks. */
+  const { ASKING_GENERIC } = require('./status');
+  const pane = { session: 'angel', name: 'angel', claim: 'angel', command: '2.1.287', title: '✳ Claude Code' };
+  const MODAL = [
+    '⏺ Opus 5.5\'s safeguards stopped the response above · continuing once',
+    '  with that noted',
+    '',
+    ' ☐ Model switch',
+    '',
+    '│ Opus 5.5\'s safeguards flagged this session. You may be seeing this for the',
+    '│ first time: Opus 5.5 is more capable and has stronger safeguards as a result,',
+    '│ which can sometimes flag non-cybersecurity work. We\'re improving these',
+    '│ safeguards to reduce the amount of incorrectly flagged messages. Switch to',
+    '│ Opus 4.8 and keep going whenever this happens? You can change this later in',
+    '│ /config.',
+    '',
+    '─'.repeat(80),
+    '❯ 1. Switch automatically',
+    '     Continue on Opus 4.8 now, and switch without asking from now on',
+    '  2. Stay on Opus 5.5',
+    '     Stop here without switching, and ask me each time a message is flagged',
+    '  3. Type something.',
+    '  4. Chat about this',
+    'Enter to select · ↑/↓ to navigate · Esc to cancel',
+    '✻ Waiting for API response · will retry in 2m 40s · check your network',
+  ].join('\n') + '\n';
+  const r = classify(pane, MODAL);
+  assert.equal(r.state, STATE.NEEDS_YOU, 'the safeguards menu reads ' + r.state + ' (the retry row under it must not win)');
+  assert.notEqual(r.because, ASKING_GENERIC, 'the board still says only that it is asking, not what');
+  assert.match(r.because, /safeguards/, 'the reason does not say the safeguards flagged it: ' + r.because);
+  assert.match(r.because, /Opus 5\.5/, 'the reason does not name the model it would leave: ' + r.because);
+  assert.match(r.evidence || '', /Switch automatically.*Stay on Opus 5\.5/, 'the evidence does not name the choice and the model: ' + r.evidence);
+  assert.doesNotMatch(r.because + ' ' + (r.evidence || ''), /—/, 'an em dash reached a person-facing string');
+
+  /* Controls. Another drawn menu keeps the generic reason; the modal's words in an agent's PROSE, with no menu drawn,
+     are not this modal. */
+  const OTHER = ' Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  assert.equal(classify(pane, OTHER).because, ASKING_GENERIC, 'an ordinary menu lost its generic reason');
+  /* Claude Code 2.1.287 also draws "Switch automatically" then "Ask each time" (a settings choice, vendor strings, not a
+     capture). Same first option, not a safeguards stop: it keeps the generic reason. */
+  const SETTING = ' How should model switches work?\n ❯ 1. Switch automatically\n   2. Ask each time\n';
+  assert.equal(classify(pane, SETTING).because, ASKING_GENERIC, 'a menu whose second option is not "Stay on" was named a safeguards stop');
+  /* Review round 1: the modal's rows ABOVE a live, different menu (an agent writing about it, or an old answered one)
+     are not the live menu, so the live permission prompt keeps the generic reason. */
+  const ABOVE = '⏺ The choices are:\n  1. Switch automatically\n  2. Stay on Opus 5.5\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  const above = classify(pane, ABOVE);
+  assert.equal(above.state, STATE.NEEDS_YOU);
+  assert.equal(above.because, ASKING_GENERIC, 'a live permission prompt was named the safeguards menu: ' + above.because);
+  /* Review round 1, decided: a live safeguards menu leads over the agent's own standing question, because the agent
+     is stopped on the menu, not on its question. */
+  const { reconcileReport: reconcile } = require('./status');
+  const now = Date.now();
+  const asked = reconcile({ found: true, state: 'needs_you', because: 'should I squash these commits?', by: 'agent', at: now - 60000, reportedAt: now - 60000, ts: now - 60000 }, r, now);
+  assert.equal(asked.state, STATE.NEEDS_YOU);
+  assert.match(asked.evidence || '', /Switch automatically/, 'the live safeguards menu did not lead over the agent\'s standing question');
+  const PROSE = '● The modal offers "1. Switch automatically" and "2. Stay on Opus 5.5"; I picked neither.\n\n> ready\n';
+  assert.notEqual(classify(pane, PROSE).state, STATE.NEEDS_YOU, 'the modal\'s words in prose read as the modal');
+});
+
+test('#5029: the weekly-limit screen of a capped Claude Code reads as rate_limited, not idle', () => {
+  /**
+   * 🛑 VERBATIM FROM THREE CAPPED PANES, 2026-10-02 09:55 CDT (donnie, irma,
+   * jennika, all on one spent account), and the modal menu the same sessions
+   * showed at 2026-10-01 22:41. Josh's Guide hit this and went silent (#5029).
+   *
+   *   You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
+   *
+   * Two of the three panes had a second line, "/usage-credits to finish what
+   * you're working on.", which the 2026-08-21 marker catches. JENNIKA'S DID
+   * NOT, and neither does the modal: "hit your" is not "reached your", so the
+   * card read idle, guideFailure saw nothing, and the hosted fallback (#3660)
+   * never switched on. Both shapes are pinned whole, as observed.
+   */
+  const pane = { session: 'guide', name: 'guide', claim: 'guide', command: '2.1.239', title: '✳ Claude Code' };
+  const RULE = '────────────────────────────────────────────────────────────────────────────────\n';
+  const STATUS = RULE + '❯ \n' + RULE + '  guide · Opus 4.8 · 7d 100%\n'
+    + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
+  const NO_CREDITS_LINE = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Sautéed for 0s · done 10:35 PM\n' + STATUS;
+  const MODAL = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Cooked for 0s · done 10:35 PM\n'
+    + '   What do you want to do?\n'
+    + '   ❯ 1. Stop and wait for limit to reset\n'
+    + '     2. Wait here, then continue automatically at Oct 5 at 12am\n'
+    + '     3. Switch to usage credits\n'
+    + '   Enter to confirm · Esc to cancel\n';
+  const WITH_CREDITS_LINE = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     /usage-credits to finish what you’re working on.\n'
+    + '✻ Cogitated for 0s · done 8:20 AM\n' + STATUS;
+
+  for (const [label, text] of [['no /usage-credits line', NO_CREDITS_LINE], ['the modal menu', MODAL], ['with the /usage-credits line', WITH_CREDITS_LINE]]) {
+    const r = classify(pane, text);
+    assert.equal(r.state, STATE.RATE_LIMITED, label + ': a capped Claude Code still reads as ' + r.state);
+    assert.match(r.evidence, /^You've hit your weekly limit · resets Oct 5 at 12am/,
+      label + ': the vendor line (and its reset time) is not the evidence: ' + JSON.stringify(r.evidence));
+    /* 🔑 THE LINK THAT WAS BROKEN, end to end in the engine: the Guide's card as the board builds it is what
+       #3660's guideFailure reads to switch the bubble to the hosted backup. A browser check would stub this
+       state and pass on main too; this is the arm that reds there. */
+    const failing = require('./setup-assistant').guideFailure({ ...r, runner: 'claude' });
+    assert.deepEqual(failing, { problem: STATE.RATE_LIMITED, runner: 'claude' },
+      label + ': the Guide would stay silent: guideFailure gave ' + JSON.stringify(failing));
+  }
+
+  /* 🔑 THE CONTROLS. The 2026-08-26 promo says "If you hit your limit" about a
+     FEATURE on a healthy agent and must stay calm (#966), and an agent merely
+     talking about limits in prose must not pause.
+     Review round 3: since round 2 the marker counts only with a column-0 turn footer within two rows, so a
+     control WITHOUT one stays calm whatever the regex says and cannot fail. Each control below carries a real
+     footer right after its limit row, so the anchoring alone is what keeps it calm: the mutant
+     /hit your .{0,40}limit/i reds the one-line promo, ASKING and EXPLAINING (recorded in the plan). The anchor itself is pinned by
+     CAPITAL_PROSE below: these lowercase controls are kept calm by case as well. */
+  const DONE = '✻ Worked for 4s · done 9:01 AM\n';
+  const PROMO = 'Fable 5 is now a standard part of your Max plan\n'
+    + 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit\n'
+    + 'your limit, you can continue on Fable 5 with usage credits...\n' + DONE + '\n> ready\n';
+  assert.notEqual(classify(pane, PROMO).state, STATE.RATE_LIMITED, 'the promo banner is pausing a healthy agent');
+  /* The wrapped PROMO above cannot fail against a marker that drops the
+     "you've": no single row holds "hit your ... limit". capture-pane -J
+     (#1234) delivers the banner as ONE logical line, so pin that shape too. */
+  const PROMO_ONE_LINE = 'You can use up to 50% of your weekly usage limit on Fable 5. If you hit your limit, you can continue on Fable 5 with usage credits.\n' + DONE + '\n> ready\n';
+  assert.notEqual(classify(pane, PROMO_ONE_LINE).state, STATE.RATE_LIMITED, 'the one-line promo banner is pausing a healthy agent');
+  /* Review round 1: an agent ASKING about some other limit, and a healthy Guide EXPLAINING the Claude one, both in
+     its own prose (●). Unanchored, the marker read both as capped: the question was hidden behind Paused, and the
+     Guide switched itself to the backup. The question must still surface as needs_you. */
+  const ASKING = '● Looks like you\'ve hit your GitHub API rate limit. Want me to wait for it to reset?\n' + DONE + '\n'
+    + ' Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  assert.equal(classify(pane, ASKING).state, STATE.NEEDS_YOU, 'an agent asking about a limit had its question hidden');
+  const EXPLAINING = '● If you\'ve hit your weekly limit, Kosmos switches the Guide to its hosted backup until it resets.\n' + DONE + '\n> ready\n';
+  assert.notEqual(classify(pane, EXPLAINING).state, STATE.RATE_LIMITED, 'a healthy Guide explaining limits reads as capped');
+  /* Review round 2: a healthy agent that CATS a capture of a capped pane prints the vendor's row under ⎿, the same
+     shape as the real one. Its copied footer is indented inside the tool result; the real footer is at column 0. */
+  const CATTED = '● Bash(cat ~/.cache/claude-handoffs/capped-claude-pane-captures-20261002.txt)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     ✻ Sautéed for 0s · done 10:35 PM\n'
+    + '● That is the capped screen; the marker is the fix.\n' + STATUS;
+  assert.notEqual(classify(pane, CATTED).state, STATE.RATE_LIMITED, 'a healthy agent that read a capture reads as capped');
+  /* Review round 4: the footer must come AFTER the vendor row and within two rows. Each arm is a healthy agent that
+     catted a capture with a column-0 ✻ footer nearby; a gate that accepts a footer anywhere, or a wider window, reads
+     it as capped. */
+  const EARLIER_FOOTER = '✻ Worked for 4s · done 9:01 AM\n● Bash(cat x)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     more\n● done\n' + STATUS;
+  assert.notEqual(classify(pane, EARLIER_FOOTER).state, STATE.RATE_LIMITED, 'a footer BEFORE the vendor row counted');
+  const LATER_FOOTER = '● Bash(cat x)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     more\n     more\n● done\n✻ Worked for 4s · done 9:01 AM\n' + STATUS;
+  assert.notEqual(classify(pane, LATER_FOOTER).state, STATE.RATE_LIMITED, 'a footer four rows later counted');
+  /* Review round 5: the mid-turn spinner uses the ✻ frame too, and sits right under a tool result while the turn runs.
+     Spinner text as observed in this repo's fixtures ("Improvising… (35s · ↓ 1.5k tokens · thought for 8s)"). A gate
+     that takes any ✻ row reads a healthy agent mid-turn as capped. */
+  const SPINNER = '● Bash(cat x)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Improvising… (35s · ↓ 1.5k tokens · thought for 8s)\n' + STATUS;
+  assert.notEqual(classify(pane, SPINNER).state, STATE.RATE_LIMITED, 'the mid-turn spinner counted as a turn footer');
+  /* Review round 5: Claude Code's own footer slot. The clock is optional ("✻ Cooked for 12s", the shape in
+     status.pane-states-1889's binary-derived screen), and with a background agent pending the slot holds the waiting
+     row instead. All are a capped pane, and must not read idle. Every shape here is vendor render code (2.1.287),
+     not a capture: its duration formatter prints "0.0s" under a millisecond and "1d 2h 3m" past a day. */
+  for (const [label, footer] of [['a footer with no clock', '✻ Cooked for 12s'], ['a sub-second footer', '✻ Cooked for 0.0s'],
+    ['a footer past a day', '✻ Cooked for 1d 2h 3m · done 1:00 PM'],
+    ['the background-agent waiting row', '✻ Waiting for 1 background agent to finish']]) {
+    const capped = '> hello\n'
+      + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n" + footer + '\n' + STATUS;
+    assert.equal(classify(pane, capped).state, STATE.RATE_LIMITED, label + ': a capped Claude Code reads ' + classify(pane, capped).state);
+  }
+  /* Review round 7: Claude Code draws up to five rows of its own between the limit line and the footer, all in the
+     indented ⎿ column (vendor render code, 2.1.287; not yet captured live). A two-row window left these idle: the
+     #5029 silence again. And the bound: a seventh row is past anything the vendor draws, so it does not count. */
+  for (const [label, between] of [
+    ['the press-to-continue and upgrade rows', ['     Press ⏎ to continue after reset', '     /upgrade to increase your usage limit.']],
+    ['the login upsell', ['     Press ⏎ to continue after reset', '     /login to switch to an API usage-billed account.']],
+    ['the checkpoint rows', ['     Press ⏎ to continue after reset', '     ✓ checkpointed — see ~/.claude/x.jsonl', "       or /rewind to undo this turn's file edits"]],
+    ['all five rows', ['     A note from your admin', '     Press ⏎ to continue after reset', '     ✓ checkpointed — see ~/.claude/x.jsonl', "       or /rewind to undo this turn's file edits", '     /upgrade to increase your usage limit.']],
+  ]) {
+    const capped = '> hello\n' + "  ⎿  You've hit your session limit · resets 4pm (America/Chicago)\n"
+      + between.join('\n') + '\n✻ Cooked for 0s · done 10:35 PM\n' + STATUS;
+    assert.equal(classify(pane, capped).state, STATE.RATE_LIMITED, label + ': a capped Claude Code reads ' + classify(pane, capped).state);
+  }
+  const SIX_BETWEEN = '● Bash(cat x)\n' + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '     row\n'.repeat(6) + DONE + STATUS;
+  assert.notEqual(classify(pane, SIX_BETWEEN).state, STATE.RATE_LIMITED, 'a footer seven rows down, past what the vendor draws, counted');
+  /* Review round 6: the waiting alternative needs a COUNT. "✻ Waiting for permission" is a live row on a healthy agent
+     (observed, see the #-wait tests above); a bare /Waiting for/ would read this catted capture as capped. */
+  const PERMISSION_WAIT = '● Bash(cat x)\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Waiting for permission\n' + STATUS;
+  assert.notEqual(classify(pane, PERMISSION_WAIT).state, STATE.RATE_LIMITED, 'a permission wait counted as a turn footer');
+  /* Review round 6: "You've hit your fast limit" is in Claude Code's binary; Fast mode falls back to normal speed, so
+     that agent is healthy. The shape under ⎿ is ASSUMED (vendor string, not a capture). */
+  const FAST = '> hello\n'
+    + "  ⎿  You've hit your fast limit · resets in 4m\n"
+    + DONE + STATUS;
+  assert.notEqual(classify(pane, FAST).state, STATE.RATE_LIMITED, 'a fast-mode limit (which falls back, healthy) read as capped');
+  /* Review round 5: the ANCHOR, pinned. ASKING and EXPLAINING say "you've" in lowercase, so case-sensitivity alone kept
+     them calm and an unanchored marker passed every test. An agent's own capitalised sentence, with a real footer: */
+  const CAPITAL_PROSE = '● You\'ve hit your GitHub API rate limit. Want me to wait for it to reset?\n' + DONE + '\n'
+    + ' Do you want to proceed?\n ❯ 1. Yes\n   2. No\n';
+  assert.equal(classify(pane, CAPITAL_PROSE).state, STATE.NEEDS_YOU, 'an agent asking about a limit, capitalised, had its question hidden');
+  /* Case-sensitive, as the doc says: the vendor capitalises it; an agent's lowercase line under a real footer must not count. */
+  const LOWERCASE = "  ⎿  you've hit your weekly limit, so I'll pause here\n✻ Worked for 4s · done 9:01 AM\n" + STATUS;
+  assert.notEqual(classify(pane, LOWERCASE).state, STATE.RATE_LIMITED, 'the marker is not case-sensitive');
+  /* And the reason the rule is the footer and not "no ● row after it": on Irma's real capped pane Claude Code's own
+     survey followed the limit as a ● row. Built from two observed pieces (Jennika's no-credits limit, Irma's survey). */
+  const WITH_SURVEY = '> hello\n'
+    + "  ⎿  You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)\n"
+    + '✻ Cooked for 0s · done 10:35 PM\n'
+    + '● How is Claude doing this session? (optional)\n'
+    + '  1: Bad    2: Fine   3: Good   0: Dismiss\n' + STATUS;
+  assert.equal(classify(pane, WITH_SURVEY).state, STATE.RATE_LIMITED, 'Claude Code\'s own survey after the limit hid a capped pane');
+});
+
 test('#887: the prompt glyph ❯ (and Codex\'s ›) is stripped from the evidence line', () => {
   /* Observed live on 0.5.31's #880 walk: the API's stateEvidence read
      "❯ 401 {...}" because the strip class covered ASCII > and the box glyphs

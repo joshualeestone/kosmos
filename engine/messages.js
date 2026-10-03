@@ -2004,7 +2004,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, project, proje
        id already appears in the envelope; this only makes the command consume it.
        The flag is emitted BEFORE the project: both CLIs parse --in-reply-to as a
        LEADING-only flag (the first non-flag token ends flag parsing), so a flag after
-       the project would be swept into message text and the reply would post unbound.
+       the project is refused (kosmos#4889; before that it was swept into the message
+       text and the reply posted unbound).
        A round-trip test runs this exact emitted command through the CLI parser. */
     const answerClause = replyExpected === false
       ? ' \u00b7 FYI, no reply requested'
