@@ -35,5 +35,11 @@ where New agent is not shown, so it could not fail.
 - The arm's CONTROL also requires the empty state (`#grid > .pj-empty`), and it measures once `--topnotes-clear` is set.
 - Plan wording: the failure boxes count as empty.
 
+## Review 2 (sonnet) WARNING taken
+- The Kosmos+ 16px floor sat under the 720px block, but that layout's own 16px applies only at 40rem and below (or a
+  landscape phone), so a Kosmos+ window of 641 to 720px would have moved 16px with no notice. FIXED: the floor rule is
+  scoped with exactly the media condition of `html.kremote #boardbar`.
+- NIT not taken: no browser-check arm for the Kosmos+ (kremote) variant.
+
 ## Validation
 - The new arm: RED on main (overlap true), GREEN with the fix (New agent at y 145, clear of the notice's bottom 118).
