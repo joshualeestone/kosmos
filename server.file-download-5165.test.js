@@ -193,3 +193,19 @@ test('?check=1 passes the same gates and answers 204 with no body; a refused che
   assert.equal(out.status, 404);
   assert.equal(calls.length, before, 'a look asked the board\u2019s computer to open something');
 });
+
+test('a zero-byte file and a file of many stream chunks both arrive whole', async () => {
+  const files = path.join(SANDBOX, 'workers', 'siz', 'Files');
+  fs.mkdirSync(files, { recursive: true });
+  fs.writeFileSync(path.join(files, 'empty.txt'), '');
+  const big = Buffer.alloc(3 * 1024 * 1024 + 17);
+  for (let i = 0; i < big.length; i += 1) big[i] = (i * 31 + 7) & 0xff;
+  fs.writeFileSync(path.join(files, 'big.bin'), big);
+  const e = await fetch(base + '/api/agent/siz/files/download?name=empty.txt');
+  assert.equal(e.status, 200);
+  assert.equal(e.headers.get('content-length'), '0');
+  assert.equal((await e.arrayBuffer()).byteLength, 0);
+  const b = await fetch(base + '/api/agent/siz/files/download?name=big.bin');
+  assert.equal(b.status, 200);
+  assert.deepEqual(Buffer.from(await b.arrayBuffer()), big, 'a multi-chunk file arrived changed or short');
+});

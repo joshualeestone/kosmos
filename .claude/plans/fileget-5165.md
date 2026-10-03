@@ -12,7 +12,13 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
   stream the file as `application/octet-stream`, `content-disposition: attachment`, nosniff, sandbox CSP, no-store.
   The file is opened ONCE, before the headers go out; the descriptor must be the same file the gates passed (dev and
   inode, so a link swapped in after the gates is refused), and it is sized and streamed from that descriptor to
-  exactly that size (a file still being written cannot overrun content-length). `pipeline` closes it on a cancel.
+  never past that size (a file still being written cannot overrun content-length). A read that ends SHORT (the file
+  shrank) destroys the response, a reset, rather than ending it short. Rejected: strictContentLength (review 4): its
+  mismatch throws inside an event handler, and server.js has no uncaughtException handler, so a shrinking file
+  could take the board down. Off Windows the identity is dev and inode; on Windows inode only, and a zero inode is
+  not compared, because a mapped or network drive's handle answers are unmeasured. `pipeline` closes it on a cancel.
+- Only the latest download asked through a message line may write a refusal to it (KPLUS_LATEST), so a slow look
+  for an earlier click cannot land under a later one.
 - The PATHS and the refusal shape (404 `{ ok: false, because }`) are April's from #4997 (PR #5119, after Monday),
   which adds the same two download routes for the Files-list preview. Same URL, same shape, so when #5119 rebases
   onto this one route body survives and the page's calls keep working (April agreed, 13:01). Not taken from
@@ -54,6 +60,9 @@ Card: joshualeestone/kosmos#5165 (a Kosmos+ user, via Josh 12:33; Splinter: day-
 ## Not tested, stated so it is not read as covered
 - A real Safari or iPhone over a live relay: Playwright WebKit with a stubbed route is the nearest arm.
 - A cancelled download closing the descriptor (pipeline's documented behaviour, not exercised).
+- A file that shrinks between the fstat and the read (the reset path), and a file swapped between the gates and
+  the open (the identity refusal): both need a seam between two async steps to test, and neither has one.
+- The identity check on a Windows mapped or network drive.
 - The route glue on a real Windows board (the win32 test covers the gate, not the HTTP path).
 
 ## Weakest premise

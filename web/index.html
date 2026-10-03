@@ -18822,8 +18822,11 @@ const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosm
    `say` (a kplusSayer), rather than left to the browser's downloads; on success `say` gets `after`, a sentence the
    line was already showing (a cut-short list). `kind` is 'agent' (an agent's Files) or 'project'; the addresses are
    written out here, once each, so every fetch on the page keeps a URL the route test can read. */
+const KPLUS_LATEST = new WeakMap();   // message line -> the last download asked through it
 function kplusDownload(kind, owner, name, say, after) {
   const q = 'name=' + encodeURIComponent(name);
+  const ticket = {};
+  if (say && say.el) KPLUS_LATEST.set(say.el, ticket);   // an older look's answer then never lands on a newer click
   const base = kind === 'agent'
     ? '/api/agent/' + encodeURIComponent(owner) + '/files/download?' + q
     : '/api/project/' + encodeURIComponent(owner) + '/file-download?' + q;
@@ -18839,7 +18842,7 @@ function kplusDownload(kind, owner, name, say, after) {
     ? fetch('/api/agent/' + encodeURIComponent(owner) + '/files/download?check=1&' + q, { cache: 'no-store' })
     : fetch('/api/project/' + encodeURIComponent(owner) + '/file-download?check=1&' + q, { cache: 'no-store' });
   look.then(async (res) => {
-    if (res.ok) return;
+    if (res.ok || (say && say.el && KPLUS_LATEST.get(say.el) !== ticket)) return;
     let said = '';
     try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
     if (say) say(asSentence(said) || 'That file could not be downloaded.');
@@ -18848,7 +18851,9 @@ function kplusDownload(kind, owner, name, say, after) {
 /* A sentence-setter for one message line that writes only while `stillHere()` holds, so an answer that arrives after
    the person moved to another project or agent never lands under the new one. */
 function kplusSayer(el, stillHere) {
-  return (text) => { if (el && (!stillHere || stillHere())) el.textContent = text; };
+  const say = (text) => { if (el && (!stillHere || stillHere())) el.textContent = text; };
+  say.el = el;
+  return say;
 }
 function kplusFolderElsewhere(msg) {
   if (!kplusRemote()) return false;
