@@ -11,9 +11,10 @@ section Add a provider is in ("Set up in Settings, AI Models").
 ## The thirteen sentences
 - server.js: the agent-not-running message ("if it stays off, look under AI Settings on its page").
 - engine/chat.js: ten refusals from answering a Codex hook question. They are shown in the question box ON the agent's
-  page, and are about its screen, so they say what to look for and where: "...; look for its screen under AI
-  Settings on this page". This meets every review ask on the wording at once: an action (iteration 6), the thing to
-  find (iterations 2 and 5), and no promise that it shows anything (iteration 3; "look for" is not "you can see").
+  page, and they only ever reach a Mac (answerCodexHooksOnce turns Windows away first, "Kosmos cannot answer this on
+  Windows yet"), so they name the heading the person sees and where it is: "...; look at This agent's Terminal under
+  AI Settings on this page". That is an action, the exact thing to find, and the place, with no promise of what the
+  box shows (iterations 2, 3, 5, 6 and 7 on the wording, settled by iteration 7's finding that they are Mac-only).
 - web/index.html: the greyed Gemini (Antigravity) and Meta (Muse) provider hints.
 
 ## The sweep, so the next person does not redo it
@@ -28,7 +29,8 @@ site, or was a comment.
 - Saying what is there ("you can see its screen under AI Settings"), tried in iteration 2 for precision: with no
   session, or when Kosmos itself could not read the screen, that box shows nothing, so the sentence would promise what
   the page cannot show (iteration 3). The sentences point at the place only, which holds in every case, as #1663 ruled.
-- Naming the box itself ("its Terminal"): it is called something else on Windows; the pill is the same on both.
+- Naming the box ("This agent's Terminal") in sentences that can reach Windows, where it is "Live output": only the
+  not-running message can, so it names the pill alone. The Codex refusals are Mac-only and do name it.
 
 ## Weakest premise
 That naming "its screen" as the thing under AI Settings is enough to find the third of four sections there. The
