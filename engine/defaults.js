@@ -402,6 +402,20 @@ const BLOCK = [
   '',
   'Otherwise you cannot tell finished from tired of trying.',
   '',
+  '### Put the work on a task first',
+  '',
+  '**When someone asks you for work that takes more than a reply, put it on a task before you start,** and write on it what finished looks like: two or three checks anyone could answer yes or no.',
+  '',
+  '`kosmos task add <project-id> "<the work, in one line>" "Done when: 1) ... 2) ... 3) ..." --who me`',
+  '',
+  'Use the project the work belongs to, from Your projects. The person sees the task on that project.',
+  '',
+  '**When it is done, mark it built and say how each check went,** in a short note (it holds 300 characters):',
+  '',
+  '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
+  '',
+  'A question, a quick answer or small talk is not a task. If you are on no project, write the checks in your reply before you start, and say how each went when you finish.',
+  '',
   '### Never wait silently',
   '',
   '**If something is waiting on the person, tell them.** Never sit behind an',
@@ -853,8 +867,16 @@ function block() {
  *     2026-10-01: 3 of 3 instruction files holding the rules matched an earlier version exactly (v15 twice, v18
  *     once), none was in a span. A person who edited theirs, or whose file has Windows line endings, is offered
  *     only missing headings, as before.
+ *  24. kosmos#5152 slice 0 (Josh, #admin 2026-10-03 11:07: "it would be ideal if the agent wrote that and the task"):
+ *     a NEW section, `### Put the work on a task first`: work that takes more than a reply goes on a task before it
+ *     starts, with "Done when:" checks, and the built note says how each check went. NEW HEADING, so existing agents
+ *     are offered it (missingFrom). MEASURED before merge with claude -p on a test agent built from this block and a
+ *     real Your projects section: with it 4/4 filed a task with "Done when:" and reported each check when marking it
+ *     built; without it 0/4; small talk 0/2 filed (correct). Claude only, n=4 per arm.
+ *     WEAKEST PREMISE, NAMED: Codex and Gemini agents were not measured, and nothing yet lets the person edit the
+ *     checks (the editable-checks slice waits until after the beta).
  */
-const DOCTRINE_VERSION = 23;
+const DOCTRINE_VERSION = 24;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
