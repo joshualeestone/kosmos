@@ -8,12 +8,11 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
   whose name is not one the coordinator reserves (`kosmosPlusReservedLabels`, a copy of kosmos-relay
   RESERVED_NAMES, 45 names), or the board this app loaded) and the file is from its origin.
 - Refused and said: a download from a page that is not the board (any mode), an attachment or an
-  unshowable file from anywhere else (these three at most once in 5 seconds), a non-2xx answer, a
-  download WebKit stops before it has a destination (these always).
+  unshowable file from anywhere else (these, and a download WebKit stops, are not said while one is on screen or for 5 seconds after it is dismissed), a non-2xx answer, a failed save (these always).
 - Destination: ~/Downloads, safe unique name; quarantine mark with origin-only URLs; a file that
   cannot be marked is kept and the person is told.
 - Measured live: `--kosmos-app-download-selftest`, 17 rows, run at bundle build (loud skip without
-  a console). Pure rules: `--kosmos-app-mode-selftest`, 79 rows.
+  a console). Pure rules: `--kosmos-app-mode-selftest`, 81 rows.
 - Known and filed: on a computer that runs agents, a plain link or a refused cross-origin redirect
   still navigates the window (#5169).
 
@@ -187,13 +186,23 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   on its final response URL. The file saved is the board's own, from the board's origin, and marked;
   nothing foreign reaches the disk.
 
+## Review round 15 changes
+- Names: leading dots and spaces are stripped until the name stops changing (". .zshrc" was
+  ".zshrc", ". ." was "." the Downloads folder itself); two rows added (81).
+- The no-destination cancel says "Kosmos did not save that file to Downloads." (true even when the
+  window then shows the file, #5169) and is quiet, so one click cannot put up two sheets.
+- The quiet window: nothing quiet is said while a refusal sheet is up, and the 5 seconds start when
+  the person dismisses it (it started when the sheet appeared, so a quick dismiss left the next
+  click silent).
+- Wording: a non-2xx says "the answer was N" (over Kosmos+ the relay may answer, not the board).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
 (Content-Disposition passthrough) are reasoned, not observed.
 
 ## Tests (current)
-- Pure functions: `--kosmos-app-mode-selftest`, 77 rows in all (the #5167 ones: same-origin, board
+- Pure functions: `--kosmos-app-mode-selftest`, 81 rows in all (the #5167 ones: same-origin, board
   page, destination name).
 - Live: 17 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
