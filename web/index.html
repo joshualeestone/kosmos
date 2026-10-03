@@ -1243,8 +1243,8 @@ html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: p
 /* #5140 (day-one): a new user on a phone with no agents yet has one thing to press, New agent, and it sits right
    under the floating stack, so an update or offline notice clipped it. When the grid holds only its empty-state block
    (no agents, or a sign-in / offline / cannot-read box) and only at phone widths, the board row moves below the stack,
-   by the same clearance. Below the row there is only that box, so Josh's ruling (notices float, never push the page) still holds everywhere there is a
-   page. When the Allow card or the Claude-unreachable line shows, it has already moved down and the row follows it. */
+   by the same clearance. Below the row there is only that box, so Josh's ruling (notices float, never push the page)
+   holds wherever there is a page to push. When the Allow card or the Claude-unreachable line shows, it has already moved down and the row follows it. */
 @media (max-width: 720px) {
   body:has(#grid > .pj-empty) #askcard[hidden] + #conn[hidden] ~ #boardbar:not([hidden]) { margin-top: var(--topnotes-clear, 0px); }
 }
