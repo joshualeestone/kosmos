@@ -4269,7 +4269,8 @@ cmd_agent() {
       because=$(printf '%s' "$parsed" | cut -f3)
       case "$outcome" in
         created) say "Made \"${made:-$name}\". It's on your board now: $URL/" ;;
-        error|refused) say "Kosmos did not make that agent: ${because:-it did not say why}."; exit 1 ;;
+        # #5127: a reason that already ends a sentence keeps its own stop, never a second one.
+        error|refused) because="${because%.}"; say "Kosmos did not make that agent: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when making that agent."; exit 1 ;;
       esac
       ;;

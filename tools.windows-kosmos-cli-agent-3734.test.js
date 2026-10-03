@@ -56,6 +56,14 @@ test('#3734 Windows agent create reads a timeout as "may have been made", not "n
   assert.doesNotMatch(h.lines.err.join('\n'), /could not reach/);
 });
 
+test('#5127 Windows: a reason that ends a sentence is printed with one full stop, not two', async () => {
+  const h = harness({ answer: () => [400, { outcome: 'refused', created: [], refused: [{ name: 'PM', because: 'connect a Claude account in Settings, AI Models.' }] }] });
+  const code = await cli.main(['agent', 'create', 'PM', 'pm'], h.io);
+  assert.equal(code, 1);
+  assert.match(h.lines.err.join('\n'), /did not make that agent: connect a Claude account in Settings, AI Models\.$/m);
+  assert.doesNotMatch(h.lines.err.join('\n'), /\.\./, 'a doubled full stop');
+});
+
 test('#3734 Windows agent create says a refused member\'s reason', async () => {
   const h = harness({ answer: () => [400, { outcome: 'refused', created: [], refused: [{ name: 'PM', because: 'there is already an agent called PM' }] }] });
   const code = await cli.main(['agent', 'create', 'PM', 'pm'], h.io);
