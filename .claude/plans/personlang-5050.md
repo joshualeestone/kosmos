@@ -95,3 +95,8 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - Known, unchanged: a sure read is kept for the process, so a language changed while the board runs reaches new agents
   at the next start; `languageName` names the base language only (zh-Hans and zh-Hant both "Chinese"; the tag beside
   it carries the script).
+
+## Review 6 (blind, sonnet)
+- The header says the override is read once per process, like the setting.
+- Deferred, as the sibling blocks do: a create-time step reports "may start in English" if the read itself throws
+  (it does not in practice: `read` catches every failure), and an agent at the size limit logs once per boot.

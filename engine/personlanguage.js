@@ -13,7 +13,7 @@
  *
  * The language comes from this computer's setting: on a Mac the first preferred language (`defaults read -g
  * AppleLanguages`), or the AGENT_WORKFORCE_PERSON_LOCALE override (the test runners set it to en; a Settings picker is
- * not built). Only those two act. Node's Intl locale is the only other source, and it is ICU's user locale (the
+ * not built). Either is read once per process, the override included. Only those two act. Node's Intl locale is the only other source, and it is ICU's user locale (the
  * REGION setting on Windows, LANG on Linux), not the display language, so it neither adds nor removes a block: off a
  * Mac, and on a Mac whose read failed, an agent's file is left exactly as it is. A sure English read writes no block
  * and removes one an agent already has.
