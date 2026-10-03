@@ -10,6 +10,12 @@ prompted with an English Kosmos notice ("say hello to the room"). No language bl
 agents follow a person who writes first, but do not START in the person's language, because Kosmos's first words to
 them are English; one block fixes that, and the instructions themselves stay English.
 
+## Re-measured on THIS branch's bytes (Renet, 19:20 CDT 10-02)
+April's setup exactly (claude -p --restricted --model sonnet --append-system-prompt-file, zz-test-4491's 7,600-word
+file, her English "say hello to the room" notice), the file built by this branch's `applyTo` (block at the end).
+A probe first: asked for the last section's heading, it answered "## The person's language", so the file is loaded.
+No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested before): Portuguese 2/2.
+
 ## Change
 - engine/personlanguage.js: reads the language once (the AGENT_WORKFORCE_PERSON_LOCALE override, then the Mac's first
   AppleLanguages entry, then Node's Intl locale, which follows the OS setting on Windows); `blockBody` is April's
@@ -35,4 +41,4 @@ The Settings picker that overrides the OS setting; measuring Codex, Gemini and G
 That the computer's language setting is the language the person wants their agents to use. Someone can run an
 English Mac and work in Spanish (then nothing changes, as today), or a Spanish Mac and want English agents (the
 block's "unless they write to you in another language" is the behaviour April measured, not a guarantee). And the
-wording was measured on Claude Sonnet only, in Spanish only.
+wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese only.
