@@ -38117,6 +38117,16 @@ function usageCharts4Html(series, totals, grandTotal) {
      - Google (ai.google.dev/gemini-api/docs/pricing, 2026-09-14): input / output /
        cached are published (per-token); cache storage is billed per-hour, not per
        write-token, so cw is the input rate here too.
+     - #5158 (fetched 2026-10-03), the models Codex, Gemini CLI and Grok agents run:
+       gpt-5.6-sol from developers.openai.com/api/docs/models/gpt-5.6-sol, which now
+       publishes cache writes at 1.25x the uncached input rate (so cw = 5.00);
+       gemini-3.8-flash from ai.google.dev/gemini-api/docs/pricing, an introductory
+       rate through 2026-12-31 that DOUBLES on 2027-01-01 (update this row then);
+       grok-4.6 from docs.x.ai/docs/models/grok-4.6, cached input published, no
+       cache-write price, so cw is the input rate. All three charge more above a
+       long-context threshold (OpenAI >272K, xAI >=200K); the standard rate is used.
+       grok-4.6-build, the id Grok's own usage file records, has NO published price,
+       so it stays unpriced and named rather than borrowing grok-4.6's.
    🛑 NO GUESSING (Splinter): a model with no published price is EXCLUDED from the
    figure and named in `unpriced`, never estimated. gpt-5.1-codex is the live case:
    OpenAI does not list a Codex price, so its tokens are left out and flagged. */
@@ -38142,6 +38152,9 @@ const USAGE_MODEL_PRICES = {
   'claude-fable-5': { in: 10, out: 50, cw: 12.50, cr: 1.00 },
   'gpt-5.1': { in: 1.25, out: 10, cw: 1.25, cr: 0.125 },
   'gemini-2.5-flash': { in: 0.375, out: 1.875, cw: 0.375, cr: 0.0375 },
+  'gpt-5.6-sol': { in: 4, out: 20, cw: 5.00, cr: 0.40 },
+  'gemini-3.8-flash': { in: 0.75, out: 3.75, cw: 0.75, cr: 0.075 },
+  'grok-4.6': { in: 2, out: 6, cw: 2, cr: 0.50 },
 };
 /* Resolve a model id to a price row: exact match first, then strip a trailing
    -YYYYMMDD date-stamp (Claude Code writes e.g. claude-haiku-4-5-20251001). Returns

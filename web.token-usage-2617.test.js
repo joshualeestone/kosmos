@@ -506,3 +506,18 @@ test('#2617: two agents with the same display name are named apart', () => {
     agents: [{ name: 'pm-a', shown: 'PM', ...B(9, 0) }, { name: 'pm-b', shown: 'PM', ...Z }] });
   assert.deepEqual(one.map((r) => r.name), ['PM'], 'a zero-token namesake still forced a suffix');
 });
+
+test('#5158: the models Codex, Gemini CLI and Grok agents run carry their published prices; an unpublished id stays unpriced', () => {
+  // $ per million tokens, from each provider's own page (fetched 2026-10-03; the sources are in the comment above the table).
+  assert.deepEqual(U.usageModelPrice('gpt-5.6-sol'), { in: 4, out: 20, cw: 5.00, cr: 0.40 });
+  assert.deepEqual(U.usageModelPrice('gemini-3.8-flash'), { in: 0.75, out: 3.75, cw: 0.75, cr: 0.075 });
+  assert.deepEqual(U.usageModelPrice('grok-4.6'), { in: 2, out: 6, cw: 2, cr: 0.50 });
+  assert.equal(U.usageModelPrice('grok-4.6-build'), null, 'grok-4.6-build has no published price and must not borrow one');
+  // A Codex day: 1M fresh input, 1M cache reads, 0.1M output = 4 + 0.40 + 2 = $6.40, and grok-4.6-build named as unpriced.
+  const cost = U.usageApiCost({ '2026-10-02': {
+    'gpt-5.6-sol': { input_tokens: 1e6, output_tokens: 1e5, cache_creation_input_tokens: 0, cache_read_input_tokens: 1e6 },
+    'grok-4.6-build': { input_tokens: 1e6, output_tokens: 1e5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+  } });
+  assert.ok(Math.abs(cost.cost - 6.40) < 1e-9, 'gpt-5.6-sol priced from its published rates: ' + JSON.stringify(cost));
+  assert.ok((cost.unpriced || []).includes('grok-4.6-build'), 'the unpriced model is named: ' + JSON.stringify(cost));
+});
