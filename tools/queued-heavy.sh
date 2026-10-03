@@ -180,8 +180,8 @@ _qh_take() {
   fi
   return "$rc"
 }
-# #5064: this run's place in the queue is its join time (taken here, within a few seconds of the library's own). A MAIN-lane wait that finds the box clear drops the run's marker
-# before the take; if the take then loses, the next wait used to write a NEW marker stamped now, sending the oldest waiter
+# #5064: this run's place in the queue is its join time (taken here, within a few seconds of the library's own).
+# A MAIN-lane wait that finds the box clear drops the run's marker before the take; if the take then loses, the next wait used to write a NEW marker stamped now, sending the oldest waiter
 # to the back (Kitty's ick 5031 full, 15:28:59 2026-10-02: first in line, then 21 ahead, its clock restarted). A lost
 # take now writes the marker back with the original join time, and the library's resume path keeps that place.
 QH_JOINED="$(date +%s)"
@@ -189,10 +189,12 @@ until { kosmos_wait_until_clear "$WHAT" --suite-queue ${SIDE_ARGS[@]+"${SIDE_ARG
   echo "QUEUED-HEAVY $(date '+%H:%M:%S') another run took the turn first; waiting again: $WHAT"
   if [ "${KOSMOS_WAIT_LANE:-main}" != side ]; then
     kosmos_mark_suite_waiting "$QH_JOINED"
-    echo "QUEUED-HEAVY $(date '+%H:%M:%S') kept its place in the queue (joined $(date -r "$QH_JOINED" '+%H:%M:%S')) (#5064): $WHAT"
+    # Said as an attempt: an unwritable marker dir, or a cut-guard lib older than #4911, keeps no place (review 1).
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') re-marked its place in the queue (joined $(date -r "$QH_JOINED" '+%H:%M:%S')) (#5064): $WHAT"
   fi
   # A side wait returns before any sleep, so a take that keeps losing (say, a marker dir it cannot write) would spin.
-  # Side lane only: a main-lane loser has already left the queue, and a pause there only lets a later joiner past it.
+  # Side lane only: a main-lane loser is re-marked at its old place above, and a pause there only lets a later
+  # joiner past it.
   [ "${KOSMOS_WAIT_LANE:-main}" = side ] && sleep "${KOSMOS_WAIT_EVERY_S:-30}"
 done
 RENEWER=""
