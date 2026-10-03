@@ -111,7 +111,9 @@ if [ -n "$pat" ] && printf 'QUARANTINED  regress-a-night (exited 0 ...)\n' | gre
 # --- release step 1e refuses an expiring quarantine BEFORE the bump, and says why ---
 # Run release.sh's own step-1e block, under release.sh's shell options, against a fixture
 # tree holding the real guard test and one planted check.
-blk="$(awk '/^step "== 1e\./{on=1; next} on&&/^step "== 2\./{exit} on{print}' "$REPO/tools/release.sh")"
+# Up to the NEXT step header, whatever it is (#5032 added a step 1f after 1e; stopping only at step 2
+# swept its `step` call into this block, which has no `step` function).
+blk="$(awk '/^step "== 1e\./{on=1; next} on&&/^step "== /{exit} on{print}' "$REPO/tools/release.sh")"
 case "$blk" in *'KOSMOS_QUARANTINE_AT_VERSION="$V"'*'exit 1'*) ok "step 1e runs the guard test against the version being cut" ;; *) bad "step 1e block not found or changed: $blk" ;; esac
 fx="$TMP/fx"; mkdir -p "$fx/docs/browser-checks"
 cp "$REPO/browser-checks-quarantine-guard.test.js" "$fx/"
