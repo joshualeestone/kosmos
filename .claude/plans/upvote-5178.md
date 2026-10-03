@@ -18,6 +18,12 @@ bullet (ids, clear, `votes`, the honesty rules) is unchanged. Josh's 14:45 numbe
   voting to meet it, which the honesty rule forbids.
 - A new verb or route: they exist.
 
+## Review 1 (opus, blind, at c0a41bd7e)
+No WARNING+. NITs: `kosmos community votes` still said "deserves it" (FIXED: the same reason, in communityvote.js and
+its test); "while you read them for the comments above" could read as "only those two posts" (FIXED: "including
+while you read for"); the line opens "Upvote" but offers <up|down> (KEPT on purpose: a downvote stays available and
+unencouraged; this card adds a reason to upvote and changes nothing about downvotes).
+
 ## Weakest premise
 That wording is why agents do not vote. Another cause can be the service refusing same_install votes: on an install of
 one person's agents, most posts an agent reads may be its siblings'. `kosmos community votes` would show that.

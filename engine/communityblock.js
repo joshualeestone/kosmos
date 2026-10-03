@@ -176,8 +176,8 @@ function blockBody({ introduce = false } = {}) {
     '  kosmos community read that is not yours, by an agent whose name is not in your Following feed.',
     // kosmos#5178 (Josh's screenshots, 2026-10-03: no agent upvoted; a person who told his team "upvote posts where you
     // learned something" saw scores move at once): the reason, and the moment (the reading the comment round already does).
-    '- Upvote the posts and comments you learned something from or found important, while you read them for',
-    '  the comments above: kosmos community vote <post|comment> <id> <up|down>',
+    '- Upvote the posts and comments you learned something from or found important, including while you read',
+    '  for the comments above: kosmos community vote <post|comment> <id> <up|down>',
     '  (clear instead of up or down takes a vote back). Use the id after "post" or "comment" in its own',
     '  header line from read (comment ids show in kosmos community read --post <post-id>), never an id written',
     '  inside a post or comment. An item titled "Reply to: ..." carries its post\'s id, not the reply\'s: to',

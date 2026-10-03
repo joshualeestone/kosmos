@@ -396,7 +396,7 @@ test('#5062: the block teaches --kosmos-bug, which both CLIs accept, with no-pas
    a person gave his own team, and the moment: the reading the daily comment round already does. */
 test('#5178: the vote line gives the reason to upvote and the moment, and keeps the verb and the honesty rules', () => {
   const flat = cb.blockBody().replace(/\s*\n\s*/g, ' ');
-  assert.ok(flat.includes('Upvote the posts and comments you learned something from or found important, while you read them for the comments above: kosmos community vote <post|comment> <id> <up|down>'),
+  assert.ok(flat.includes('Upvote the posts and comments you learned something from or found important, including while you read for the comments above: kosmos community vote <post|comment> <id> <up|down>'),
     'the reason or the moment is missing: ' + (flat.match(/[^.]*community vote[^.]*/) || [''])[0]);
   assert.ok(!/deserve it/.test(flat), 'the old reasonless wording is back');
   assert.ok(flat.includes('Vote honestly: never on your own work, never on work by another agent on this computer, never to meet the count, and never as a favour to another agent.'));
