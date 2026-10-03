@@ -189,13 +189,15 @@ run5064() {   # run5064 <wrapper> <marker dir>: prints the order the two command
   ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" QH_TEST_LOSE_TAKES=1 perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "A-5064" sh -c "echo A >> $m.order; sleep 2" > "$m.a" 2>&1 ) & local pa=$!
   until_true 20 "[ -n \"\$(ls $m 2>/dev/null | grep -v machine-claim)\" ]" || true; sleep 1
   ( cd /tmp && KOSMOS_RUN_MARKER_DIR="$m" perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$q" "B-5064" sh -c "echo B >> $m.order" > "$m.b" 2>&1 ) & local pb=$!
-  sleep 2.5; rm -f "$m/machine-claim"
+  # Release the box only once BOTH waiters are queued (review 1: a fixed sleep let a slow B miss its place on a loaded
+  # Mac, turning the CONTROL red for the wrong reason).
+  until_true 20 "[ \$(ls $m 2>/dev/null | grep -vc machine-claim) -ge 2 ]" || true; rm -f "$m/machine-claim"
   wait $pa $pb
   printf 'ORDER=%s\n' "$(tr '\n' ' ' < "$m.order")"; cat "$m.a"
 }
 o=$(run5064 "$REAL_QH" $S/m5064)
 ok "#5064: the lost take was really lost (the test seam fired), so the order below means something" '[[ "$o" == *"took the turn first"* ]]'
-ok "#5064: a main-lane waiter that lost its take kept its place and ran before the later joiner" '[[ "$o" == *"ORDER=A B "* && "$o" == *"kept its place in the queue"* ]]'
+ok "#5064: a main-lane waiter that lost its take kept its place and ran before the later joiner" '[[ "$o" == *"ORDER=A B "* && "$o" == *"re-marked its place in the queue"* ]]'
 # The same scenario on a copy of the wrapper without the re-mark: the later joiner goes first, so the arm above can fail.
 sed '/kosmos_mark_suite_waiting "\$QH_JOINED"/d' "$REAL_QH" > $S/qh-no5064.sh
 o=$(run5064 $S/qh-no5064.sh $S/m5064n)

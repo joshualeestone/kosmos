@@ -17,3 +17,13 @@ branch.
 
 ## Weakest premise
 The instant race between two takes is not closed; only the loser's place is kept (as on the card).
+
+## Review 1 (blind Opus, on Angel's 90d07ad85): 0 blockers, 1 warning, 4 nits
+- Verified: parity with the installed copy line for line; mutants (re-mark writes now, seam off) turn the arms red;
+  the fixed arm passed 15 of 15 in a loop.
+- WARNING fixed: the test released the box after a fixed 2.5 s, so on a loaded Mac a slow B could miss its place and
+  turn the CONTROL red for the wrong reason. It now waits until both waiters have a marker.
+- NITs fixed: the message says "re-marked its place" (an unwritable marker dir or a pre-#4911 lib keeps none); a
+  stale comment ("a main-lane loser has already left the queue"); a 170-character comment line.
+- NIT left: QH_JOINED is taken a few seconds before the library's own join time (the library's check runs in a
+  subshell); the only effect is a few-second tie between a light and a heavy waiter, no starvation. Same as installed.
