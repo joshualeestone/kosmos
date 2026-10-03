@@ -31,4 +31,10 @@ sentence ever diverge, both are wrong together.
   PICK (b@example.com). Sabotage (page fallback removed): exactly the two 11b2 checks red.
 
 ## Review log
-(challenge loop below)
+- Review 1 (opus, blind): 1 B, 2 W, 3 N. B: the Gemini/Grok computed default ("this computer's own key") is not a
+  listed row; recording it made the page say the account was gone ("cannot run") -> the page uses accountDir only when
+  ACCOUNTS has that row (arm 11b3). W1: for non-Claude, the engine's landed account now wins over the sent row (codex
+  can fall back from an unpicked unknown row). W2: OpenAI and Grok route tests added. N1: accountDir is path.resolve'd.
+  N2/N3: comments made true. Sabotage (listed-row test removed): 11b3's "NOT recorded" check reds; its "no bracket"
+  check passes either way (with no row there is never a bracket), so the account check is the guard, stated here.
+  Meta tests (reviewer): 514 files, 7428 tests, 0 fail. Server: 22/22. 2716: 32/32.
