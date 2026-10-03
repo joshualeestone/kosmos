@@ -5,7 +5,8 @@
  * legitimate, since the Mac box is headed "This agent's Terminal".
  * - There is no "Terminal tab": an agent's screen is a box under the AI Settings pill on its page ("This agent's
  *   Terminal" on a Mac, "Live output" on Windows), so sentences point at AI Settings, which both platforms show.
- *   The Codex hook refusals are shown ON the agent's page and say what to look for and where ("look for its screen under AI Settings on this page"); the
+ *   The Codex hook refusals are shown ON the agent's page and only ever reach a Mac (Windows is turned away first), so they name the Mac heading and
+ *   where it is ("look at This agent's Terminal under AI Settings on this page"); the
  *   not-running message can show elsewhere, with no session, so it names only the place ("on its page").
  * - "Add a provider" lives under Settings, AI Models; a hint that says "Settings: Add a provider" skips the section.
  *
@@ -84,5 +85,5 @@ test('#5127: the scan finds the old names and skips comments (control)', () => {
   assert.equal(hits("  echo 'open the Terminal tab'", true).length, 1, 'a shell echo is read');
   assert.equal(markupHits('<p>Open its Terminal tab.</p>').length, 1, 'text in the markup');
   assert.equal(markupHits('<script>x = 1 > 0 && "the Terminal tab" < 2</script>').length, 0, 'a script is not markup text');
-  assert.equal(hits("  x = 'look for its screen under AI Settings on this page';").length, 0, 'the new words are not a hit');
+  assert.equal(hits("  x = 'look at This agent\\u2019s Terminal under AI Settings on this page';").length, 0, 'the new words are not a hit');
 });
