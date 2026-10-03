@@ -9,9 +9,10 @@ pill on its page, "This agent's Terminal" on a Mac, "Live output" on Windows), a
 section Add a provider is in ("Set up in Settings, AI Models").
 
 ## The thirteen sentences
-- server.js: the agent-not-running message ("if it stays off, look under AI Settings on its page").
+- server.js: the agent-not-running message ("if it stays off, you can see its screen under AI Settings on its page").
 - engine/chat.js: ten refusals from answering a Codex hook question. They are shown in the question box ON the agent's
-  page, so they say "...; look under AI Settings on this page to see it".
+  page, so they say "...; you can see its screen under AI Settings on this page". "Its screen" names the box (its
+  heading differs by platform; what it shows does not).
 - web/index.html: the greyed Gemini (Antigravity) and Meta (Muse) provider hints.
 
 ## The sweep, so the next person does not redo it
@@ -26,7 +27,8 @@ site, or was a comment.
 - Naming the box itself ("its Terminal"): it is called something else on Windows; the pill is the same on both.
 
 ## Weakest premise
-That "AI Settings on its page" is findable without saying "scroll down". The box is the third section under that pill.
+That "its screen under AI Settings" is findable: the box is the third of four sections under that pill (iteration 2
+asked for the box to be named; the sentence now says what the box shows).
 
 ## Checks
 - web.place-names-5127.test.js: quoted strings and the page markup's text; red on main (lists exactly the thirteen); an

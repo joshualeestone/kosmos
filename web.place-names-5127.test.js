@@ -81,5 +81,5 @@ test('#5127: the scan finds the old names and skips comments (control)', () => {
   assert.equal(hits("  echo 'open the Terminal tab'", true).length, 1, 'a shell echo is read');
   assert.equal(markupHits('<p>Open its Terminal tab.</p>').length, 1, 'text in the markup');
   assert.equal(markupHits('<script>x = 1 > 0 && "the Terminal tab" < 2</script>').length, 0, 'a script is not markup text');
-  assert.equal(hits("  x = 'look under AI Settings on this page';").length, 0, 'the new words are not a hit');
+  assert.equal(hits("  x = 'you can see its screen under AI Settings on this page';").length, 0, 'the new words are not a hit');
 });

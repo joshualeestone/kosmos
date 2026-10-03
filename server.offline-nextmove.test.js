@@ -107,7 +107,7 @@ test('#671: the plain offline sentence carries the launch model and the honest c
      Asserted as a PROPERTY rather than a new exact string: the sentence must
      still send the person somewhere (#671's intent, which this keeps), and must
      no longer claim that no explanation exists. */
-  assert.match(row.because, /if it stays off, look under AI Settings on its page/,
+  assert.match(row.because, /if it stays off, you can see its screen under AI Settings on its page/,
     'the where-to-look half is missing: a person whose agent stays off is told nothing');
   assert.doesNotMatch(row.because, /not saying why/,
     'the sentence still asserts the cause is unknowable, beside the box that holds it (#1663)');

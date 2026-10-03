@@ -5268,7 +5268,7 @@ const server = http.createServer(async (req, res) => {
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
                       // #5127: there is no Terminal tab; the agent's screen is under AI Settings on its page.
-                      + '; if it stays off, look under AI Settings on its page'
+                      + '; if it stays off, you can see its screen under AI Settings on its page'
                     : 'this agent is not running: nothing on this computer has a session for it'),
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 /* #2698: a version that moves when the picture changes, so a view
