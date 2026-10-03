@@ -5245,19 +5245,24 @@ function createAgentInner(opts) {
        so a new agent's file ends with it, unless pasted instructions already hold one with their own text after it
        (then it is replaced where it is). Non-gating like the blocks above. */
     {
-      let langLanded = false;
+      let langStep = null;   // null: nothing to report
       try {
         const plMod = require('./personlanguage');
         const got = plMod.read();
-        const spliced = plMod.applyTo(text, got.tag, { keep: !got.sure });
-        const { MAX_BYTES } = require('./instructions');
-        // Two language blocks (custom instructions pasted from another agent) leave the text unchanged: say so.
-        const twice = got.sure && require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous;   // English too (review 13)
-        if (!twice && Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; langLanded = true; }
-      } catch { /* reported below rather than swallowed */ }
-      if (!langLanded) {
-        steps.push({ label: 'could not add your language to its instructions, so it may start in English; edit its instructions or remake it', ok: false });
-      }
+        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). */
+        if (got.sure) {
+          const { MAX_BYTES } = require('./instructions');
+          if (require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous) {
+            // Two language blocks (instructions pasted from another computer): left as they are, on any sure read.
+            langStep = 'found two language sections in its instructions, so left them as they are; edit its instructions to keep one';
+          } else {
+            const spliced = plMod.applyTo(text, got.tag);
+            if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+            else if (plMod.blockBody(got.tag)) langStep = 'could not add your language to its instructions (they are at the size limit), so it may start in English';
+          }
+        }
+      } catch { langStep = 'could not add your language to its instructions, so it may start in English; edit its instructions or remake it'; }
+      if (langStep) steps.push({ label: langStep, ok: false });
     }
     // #2245: pass the in-scope runner -- the plist is not yet written, so the
     // birth brief must be routed to AGENTS.md (codex) or CLAUDE.md (claude) by

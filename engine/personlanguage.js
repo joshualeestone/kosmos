@@ -178,14 +178,9 @@ function tellAgent(sessionName, roster, opts) {
     // Nothing to do (a read that is not sure changes nothing): told, without touching the file (review 4: no boot noise).
     if (!got.sure) return { state: projects.TOLD.TOLD, because: null };
     const current = instructions.read(sessionName);
-    // English with no file, or one we may not change: there is no block to remove, so nothing to report either.
-    if (!blockBody(got.tag) && !current.exists) return { state: projects.TOLD.TOLD, because: null };
-    if (!current.exists && !current.editable) {
-      return { state: projects.TOLD.COULD_NOT, because: current.because || 'it keeps its instructions somewhere we cannot safely change' };
-    }
-    if (!current.exists) {
-      return { state: projects.TOLD.COULD_NOT, because: 'it has no instructions file yet, and we will not create one' };
-    }
+    // No instructions file: this module never creates one, so there is nothing to change and nothing to report, in any
+    // language (review 14: a non-English Mac's boot logged a failure for every agent without a file).
+    if (!current.exists) return { state: projects.TOLD.TOLD, because: null };
     const found = projects.findBlock(current.text || '', START, END);
     if (found && found.ambiguous) {
       return {

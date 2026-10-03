@@ -120,15 +120,16 @@ test('#5050: the marker pair is in the registry, so the neutralisers cover it', 
 test('#5050: a new agent gets the block at create, and the board refreshes every agent at boot', () => {
   const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
-  assert.match(create, /const got = plMod\.read\(\);\s*const spliced = plMod\.applyTo\(text, got\.tag, \{ keep: !got\.sure \}\)/, 'create.js no longer writes the language block (from a sure read only) into a new agent');
+  assert.match(create, /const got = plMod\.read\(\);\s*if \(got\.sure\) \{/, 'create.js no longer acts on a sure read only');
+  assert.match(create, /const spliced = plMod\.applyTo\(text, got\.tag\);/, 'create.js no longer writes the language block into a new agent');
   // LAST before the file is written, so it ends the file (where April measured it); a block spliced after it would
   // leave it mid-file, a position nobody tested.
-  const at = create.indexOf('plMod.applyTo(text, got.tag, { keep: !got.sure })');
+  const at = create.indexOf('plMod.applyTo(text, got.tag)');
   const write = create.indexOf('fs.writeFileSync(instructionFile(name, runner), text', at);
   assert.ok(write > at, 'the instruction file is no longer written after the language block');
-  const own = create.indexOf('text = spliced; langLanded = true;', at);
+  const own = create.indexOf('<= MAX_BYTES) text = spliced;', at);
   assert.ok(own > at, 'the language block no longer assigns its own result');
-  assert.doesNotMatch(create.slice(own + 1, write), /\btext\s*=[^=]/, 'the file text is changed after the language block, so it may no longer be last');
+  assert.doesNotMatch(create.slice(own + '<= MAX_BYTES) text = spliced;'.length, write), /\btext\s*=[^=]/, 'the file text is changed after the language block, so it may no longer be last');
   const server = strip(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
   assert.match(server, /require\('\.\/engine\/personlanguage'\)/);
   assert.match(server, /personlanguage\.syncEveryone\(safeRoster\(\)\)/, 'the boot sweep no longer refreshes the language block');
@@ -221,8 +222,9 @@ test('#5050 review 4: nothing to do is told without touching the file (no boot n
   try {
     assert.equal(pl.tellAgent('nofile', board.roster, { tag: 'en-US', sure: true }).state, projects.TOLD.TOLD, 'English with no file reported a failure');
     assert.equal(pl.tellAgent('nofile', board.roster, { tag: 'es-MX', sure: false }).state, projects.TOLD.TOLD, 'an unsure read reported a failure');
-    // CONTROL: a sure non-English read for an agent with no file still says it could not.
-    assert.equal(pl.tellAgent('nofile', board.roster, { tag: 'es-MX', sure: true }).state, projects.TOLD.COULD_NOT);
+    // Review 14: nor a sure non-English one (this module never creates a file, so there is nothing to report).
+    assert.equal(pl.tellAgent('nofile', board.roster, { tag: 'es-MX', sure: true }).state, projects.TOLD.TOLD);
+    assert.ok(!fs.existsSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'nofile', 'CLAUDE.md')), 'a file was created');
   } finally { board.restore(); }
 });
 
@@ -281,7 +283,7 @@ test('#5050 review 11: a new agent whose pasted instructions already hold two la
   const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
   assert.match(create, /findBlock\(text, plMod\.START, plMod\.END\)\?\.ambiguous/);
-  assert.match(create, /if \(!twice && Buffer\.byteLength\(spliced, 'utf8'\) <= MAX_BYTES\)/);
+  assert.match(create, /found two language sections in its instructions/);
 });
 
 test('#5050 review 13: a stray start marker cannot pass the person\'s words off as a Kosmos block', () => {

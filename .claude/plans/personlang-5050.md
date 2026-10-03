@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (24 after the reviews below), plus two create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (24 after the reviews below), plus three create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -124,7 +124,7 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   exactly. Probe: it quoted the last heading ("## A note from the person"), so the file is loaded. Result: Spanish 2/2.
   So the end position is what April measured, and the mid-file gap between boots is measured too, not assumed.
 - Moving the block strips only newlines before it, so a person's markdown hard break (two trailing spaces) survives.
-- The header says a failed read is retried after FALLBACK_MS (5 minutes); the plan's test count is 19.
+- The header says a failed read is retried after FALLBACK_MS (5 minutes).
 
 ## Review 10 (blind, sonnet)
 - The header, create and boot comments now say what the code does: appended at the end, moved back behind a Kosmos
@@ -162,3 +162,12 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - The earlier create test asserts `steps` is an array, so its no-failure check cannot pass vacuously.
 - Comments: the projects block is no longer called LAST; "spliced last" names the pasted-instructions exception;
   cutOut says it leaves exactly one final newline. The unused `trusted` bypass copied from connections.js is removed.
+
+## Review 14 (blind, sonnet)
+- create acts on a sure read only, and its step speaks only for what it did: two pasted blocks get their own message
+  ("found two language sections ... left them as they are"); the size-limit message only when there was a block to
+  add; an unsure read reports nothing. A create test runs the unsure case (a failing Mac read, Spanish region): no block,
+  no step. Mutation (acting on an unsure read) reds.
+- An agent with no instructions file is told, in any language: this module never creates a file, so a non-English
+  Mac's boot no longer logs a failure for each such agent. Mutation reds.
+- The opt-out warning repeats review 12 (deferred to the Settings picker).

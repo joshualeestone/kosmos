@@ -2380,7 +2380,7 @@ test('#5050: on a Spanish Mac the new agent file ENDS with the language block; o
     assert.ok(text.trimEnd().endsWith(pl.END), 'the language block is not the last thing in the new file');
     assert.match(text, /reads Spanish \(es-MX, from this computer's language setting\)/);
     assert.ok(Array.isArray(made.steps), 'createAgent returned no steps, so the check below would be vacuous');
-    assert.ok(!made.steps.some((st) => /your language/.test(st.label || '') && st.ok === false), 'the language step reported a failure');
+    assert.ok(!made.steps.some((st) => /language/.test(st.label || '') && st.ok === false), 'the language step reported a failure');
 
     process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'en-US';
     pl._resetForTests();
@@ -2406,7 +2406,7 @@ test('#5050 review 13: pasted instructions with two language blocks are left alo
       const made = create.createAgent({ ...BINS, name, role: 'pm', instructions: two });
       assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
       assert.ok(Array.isArray(made.steps));
-      assert.ok(made.steps.some((st) => /could not add your language/.test(st.label || '') && st.ok === false), tag + ': the two-block case was not reported');
+      assert.ok(made.steps.some((st) => /found two language sections/.test(st.label || '') && st.ok === false), tag + ': the two-block case was not reported');
       const text = fs.readFileSync(create.instructionFile(name), 'utf8');
       assert.equal(text.split(pl.START).length - 1, 2, tag + ': the two pasted blocks were changed');
       assert.match(text, /old one/);
@@ -2416,6 +2416,20 @@ test('#5050 review 13: pasted instructions with two language blocks are left alo
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
     pl._resetForTests();
   }
+});
+
+test('#5050 review 14: a read that is not sure (a Mac whose defaults failed, Spanish region) writes and reports nothing', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  try {
+    pl._resetForTests({ env: {}, platform: 'darwin', run: () => { throw new Error('timed out'); }, intl: 'es-ES' });
+    assert.equal(pl.read().sure, false, 'CONTROL: the read really is a fallback');
+    const made = create.createAgent({ ...BINS, name: 'lang-unsure', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    assert.ok(!fs.readFileSync(create.instructionFile('lang-unsure'), 'utf8').includes(pl.START), 'an unsure read wrote a language block');
+    assert.ok(Array.isArray(made.steps) && !made.steps.some((st) => /language/.test(st.label || '')), 'an unsure read reported a language step');
+  } finally { pl._resetForTests(); }
 });
 
 test('custom instructions are written verbatim with a trailing newline, and the role template is not', () => {
