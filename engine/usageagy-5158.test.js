@@ -69,14 +69,16 @@ test('calls either side of UTC midnight land on their own days', async () => {
   assert.equal(r.days['2026-10-02']['gemini-3.8-flash'].input_tokens, 200);
 });
 
-/* The scanner skips a call with no usage message; the tally would also drop its all-zero row, so this pins the outcome,
-   not which of the two does it. */
-test('a failed call with no usage adds nothing; a call with tokens is counted once', async () => {
-  const c = agyConversation([generation({ prompt: 500, reply: 5 }), generation({})], {
-    steps: [{ type: 15, secs: secs('2026-10-02T10:00:00Z') }, { type: 17, secs: secs('2026-10-02T10:00:01Z'), idx: 1 }],
+test('a failed call adds nothing and, having no step, does not hold a fresh scan open', async () => {
+  /* As measured: the failed call's usage message holds only the constant field, every token count zero, and its steps are
+     of type 17 (no type 15). The conversation was written just now, so an undated call with tokens would mark it
+     incomplete. */
+  const c = agyConversation([generation({ prompt: 500, reply: 5 }), generation({ prompt: null, reply: 0 })], {
+    steps: [{ type: 15, secs: secs('2026-10-02T10:00:00Z') }, { type: 17, secs: secs('2026-10-02T10:00:01Z') }],
   });
   const r = await only(c.home);
   assert.equal(r.days['2026-10-02']['gemini-3.8-flash'].rows, 1);
+  assert.equal(r.complete, true);
 });
 
 test('a conversation with no steps or folder still counts every call, under "elsewhere", on a day that never moves', async () => {
@@ -126,21 +128,69 @@ test('the conversation is only read: its bytes are unchanged', async () => {
   assert.equal(hash(), before);
 });
 
-test('a conversation read again counts each call once: new calls are added, read calls are not repeated', async () => {
+/* Write into a conversation the way agy appends: a call row and its type-15 step. */
+function addCall(file, idx, gen, whenIso) {
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(file);
+  db.prepare('INSERT OR REPLACE INTO gen_metadata (idx, data, size) VALUES (?, ?, ?)').run(idx, gen, gen.length);
+  if (whenIso) {
+    const t = varintOf(secs(whenIso));
+    const meta = Buffer.from([0x0a, t.length + 1, 0x08, ...t, ...(idx ? [0xa2, 0x01, 0x02, 0x18, idx] : [])]);
+    db.prepare('INSERT INTO steps (idx, step_type, metadata) VALUES ((SELECT coalesce(max(idx), -1) + 1 FROM steps), 15, ?)').run(meta);
+  }
+  db.close();
+}
+const cold = async (home) => { _agyCache.clear(); return only(home); };
+
+test('a cached read equals a cold read: a call committed late BELOW others, a rewritten call, an appended call', async () => {
   const c = agyConversation([generation({ prompt: 100, reply: 1 })], { steps: [{ type: 15, secs: secs('2026-10-02T10:00:00Z') }] });
-  assert.equal((await only(c.home)).days['2026-10-02']['gemini-3.8-flash'].rows, 1);
+  addCall(c.file, 2, generation({ prompt: 300, reply: 3 }), '2026-10-02T10:02:00Z');
+  const first = (await only(c.home)).days['2026-10-02']['gemini-3.8-flash'];
+  assert.equal(first.rows, 2);
+  assert.equal(_agyCache.get(c.file).calls.size, 2, 'the cache holds the decoded calls');
+  addCall(c.file, 1, generation({ prompt: 200, reply: 2 }), '2026-10-02T10:01:00Z');   // a parallel call landing late
+  addCall(c.file, 2, generation({ prompt: 300000, reply: 30 }));                       // call 2 rewritten, a new size
+  addCall(c.file, 3, generation({ prompt: 400, reply: 4 }), '2026-10-02T10:03:00Z');
+  const warm = (await only(c.home)).days['2026-10-02']['gemini-3.8-flash'];
+  assert.equal(warm.rows, 4);
+  assert.equal(warm.input_tokens, 100 + 200 + 300000 + 400);
+  assert.deepEqual((await cold(c.home)).days['2026-10-02']['gemini-3.8-flash'], warm, 'a cold read agrees');
   const { DatabaseSync } = require('node:sqlite');
   const db = new DatabaseSync(c.file);
-  const g = generation({ prompt: 200, reply: 2 });
-  db.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (1, ?, ?)').run(g, g.length);
-  const meta = Buffer.from([0x0a, 0x06, 0x08, ...varintOf(secs('2026-10-02T11:00:00Z')), 0xa2, 0x01, 0x02, 0x18, 0x01]);
-  db.prepare('INSERT INTO steps (idx, step_type, metadata) VALUES (1, 15, ?)').run(meta);
+  db.exec('DELETE FROM gen_metadata WHERE idx = 1');   // a rewind removes a call
   db.close();
-  const b = (await only(c.home)).days['2026-10-02']['gemini-3.8-flash'];
-  assert.equal(b.rows, 2, 'the cached call is not counted twice');
-  assert.equal(b.input_tokens, 300);
-  _agyCache.clear();
-  assert.deepEqual((await only(c.home)).days['2026-10-02']['gemini-3.8-flash'], b, 'a cold read agrees with the cached one');
+  const after = (await only(c.home)).days['2026-10-02']['gemini-3.8-flash'];
+  assert.equal(after.input_tokens, 100 + 300000 + 400, 'a removed call is no longer counted');
+  assert.deepEqual((await cold(c.home)).days['2026-10-02']['gemini-3.8-flash'], after);
+});
+
+test('a call decoded once is not decoded again', async (t) => {
+  const c = agyConversation([generation({ prompt: 100, reply: 1 })], { steps: [{ type: 15, secs: secs('2026-10-02T10:00:00Z') }] });
+  await only(c.home);
+  const agy = require('./agysession');
+  const spy = t.mock.method(agy, 'generationUsage');
+  addCall(c.file, 1, generation({ prompt: 200, reply: 2 }), '2026-10-02T10:01:00Z');
+  await only(c.home);
+  assert.equal(spy.mock.callCount(), 1, 'only the new call was decoded (it is also the newest, decoded every time)');
+});
+
+test('a call whose step is not written yet, in a conversation being written, is shown but not frozen', async () => {
+  const c = agyConversation([generation({ prompt: 100, reply: 1 })], { steps: [{ type: 15, secs: secs('2026-10-02T10:00:00Z') }] });
+  assert.equal((await only(c.home)).complete, true, 'control: every call dated');
+  addCall(c.file, 1, generation({ prompt: 200, reply: 2 }));   // the call, before its step
+  assert.equal((await only(c.home)).complete, false);
+  const old = new Date(Date.now() - 60 * 60 * 1000);
+  fs.utimesSync(c.file, old, old);
+  assert.equal((await only(c.home)).complete, true, 'once quiet, a step-less call is counted on the fallback day');
+});
+
+test('a conversation deleted from the folder is forgotten', async () => {
+  const c = agyConversation([generation({ prompt: 100, reply: 1 })], { steps: [{ type: 15, secs: secs('2026-10-02T10:00:00Z') }] });
+  await only(c.home);
+  assert.ok(_agyCache.has(c.file));
+  fs.rmSync(c.file);
+  await only(c.home);
+  assert.equal(_agyCache.has(c.file), false);
 });
 
 test('an error reading the steps that is not a missing table keeps the scan from being frozen', async () => {
