@@ -83,7 +83,7 @@ test('#5167: a download that does not save is said to the person, once', () => {
   assert.equal((fail.match(/tellDownloadFailed\(/g) || []).length, 2, 'a failure already said is said again');
   assert.match(body('@objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)'),
     /downloadsTold\.insert\(ObjectIdentifier\(download\)\)\n\s+tellDownloadFailed\(/);
-  assert.match(body('private func tellDownloadFailed(_ detail: String)'), /if let present = AppDelegate\.downloadAlertPresenter \{ present\(detail\); return \}/);
+  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String'), /if let present = AppDelegate\.downloadAlertPresenter \{ present\(detail\); return \}/);
 });
 
 test('#5167: an error page is not saved as the file, and every refusal before a destination is said once', () => {
@@ -124,7 +124,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 26, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 75\b/);
+  assert.match(st, /let expected = 77\b/);
 });
 
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
@@ -139,7 +139,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries the quarantine mark', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 13\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 15\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -172,4 +172,12 @@ test('#5167 review 6: a board file the window cannot show is saved; an unmarkabl
   const fin = body('@objc(downloadDidFinish:)');
   assert.doesNotMatch(fin, /removeItem/, 'a finished download is deleted when it cannot be marked');
   assert.match(fin, /could not be marked as downloaded, so macOS will not check it/);
+});
+
+test('#5167 review 7: Kosmos+ service sites are not boards; the unmarked-file message has its own title', () => {
+  assert.match(body('func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {'),
+    /return !\["login", "community", "www"\]\.contains\(label\)/, 'Kosmos+ sign-in or the public feed can save files');
+  assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String = "Kosmos could not save that file"\)/);
+  assert.match(body('@objc(downloadDidFinish:)'), /title: "Kosmos saved that file without its download mark"/,
+    'a kept file is reported under a title saying it was not saved');
 });
