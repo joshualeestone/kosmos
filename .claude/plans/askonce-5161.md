@@ -37,3 +37,9 @@ NITs: builtAt is redundant (a built task is open, which blocks the ask); readLog
 ## Known edge (accepted)
 Switching the Assigner off resets its memory (step returns emptyMemory, as before), and the file then saves empty.
 Switching it back on asks once per project again. That is the existing off/on behaviour, kept.
+
+## Review 2 (opus, blind, at 26b79aaa1)
+No WARNING+. Checked: no leftovers of room marks; no re-ask or forever-silence path beyond the accepted edges; the
+membership arm is real (addAgent/removeAgent write p.agents through mutate, read by projects.readAll). NITs: the
+goalProject comment still stated the old rule (FIXED); a duplicate test header (NOT FOUND: only one exists, line 475);
+an agent removed and re-added gives the same signature, so no re-ask (accepted: nothing about the project changed).
