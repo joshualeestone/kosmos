@@ -174,3 +174,13 @@ remote-unreadable-4308, engine.reachable, fixture-discipline) pass.
 That one bit about remote access is not something #4731 meant to keep back. #4731's comment says "no
 remote report" while off; this sends no report FIELDS, only the switch's state, which the computer's owner
 sees on their own account page.
+
+## Shipping order: SATISFIED 2026-10-02 15:56 CDT
+The coordinator half (kosmos-relay #261, a798dbd1) is merged and DEPLOYED (live /v1/meta build a798dbd1; macs has
+remote_off_since and remote_switch_ts). The ship-order warnings in earlier rounds are satisfied.
+
+## Review 17 (sonnet, blind, 2026-10-02 21:08, against the live coordinator code): CONVERGED
+Off / on-without-report / on-with-report / out-of-order check-ins all match the coordinator's semantics (remote_switch_ts
+ordering; the stored diagnosis kept on an off check-in); no lost flip found; tests pinned with deepEqual on the exact
+JSON; no stale coordinator-unmerged wording. LEFT NITs: the mac-standing.js header does not name the unreadable-settings
+null (#4308).
