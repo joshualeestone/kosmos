@@ -963,7 +963,7 @@ const AGENTS_LOOK = `(() => {
       chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevSize === 40 && dcOn.chevBack === true,
         `${tag} On, Documents: back is the round chevron at the project page's 40px (the text link hidden), and it returns to the project`, JSON.stringify(dcOn));
       chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.segBg === GREY_OF[theme],
-        `${tag} On, Documents: the folder / conversation switch is a grey pill with no edge`, JSON.stringify(dcOn));
+        `${tag} On, Documents: the folder / conversation switch is a grey pill with no edge${theme === 'dark' ? ' (in dark today\'s switch already sits on this grey, so the pill and the edge carry this arm)' : ''}`, JSON.stringify(dcOn));
       const plOn = await projectsLook(page);
       chk(plOn.found && plOn.card === 'rgba(0, 0, 0, 0)' && plOn.shadow === 'none' && plOn.radius === '24px',
         `${tag} On, Projects: a plain project card loses its border and shadow and takes 24px corners`, JSON.stringify(plOn));
