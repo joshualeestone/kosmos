@@ -374,10 +374,11 @@ const folderOf = (pid) => projects.readAll().find((p) => p.id === pid).folder;
 const writeBrief = (pid, text) => fs.writeFileSync(path.join(folderOf(pid), 'BRIEF.md'), text);
 
 /* tick on real reads, with the REAL goal reader; asks and gives recorded. */
-function goalTick(w, prev, now, answer = DELIVERY.PLACED) {
+function goalTick(w, prev, now, answer = DELIVERY.PLACED, posts = []) {
   const calls = { asks: [], gives: [] };
   const out = a.tick({
     prev, now, DELIVERY,
+    readPosts: () => posts,
     readSetting: () => ON,
     readRoster: () => w.cards,
     readRecords: () => projects.readAll(),
@@ -462,9 +463,86 @@ test('once per project per day; a COULD_NOT ask is retried after ASK_RETRY_MS, n
     assert.equal(retry.calls.asks.length, 1, 'the lost ask was never tried again');
     const again = goalTick(w, retry.out.next, retryAt + 60000);
     assert.equal(again.calls.asks.length, 0, 'the same project was asked about twice in a day');
+    /* #5161: a day later with NOTHING changed, it is not asked again (it was, before: the same question every day).
+       Control: once the brief's goal changes, it is. */
     const nextDay = goalTick(w, again.out.next, retryAt + 60000 + a.GOAL_ASK_MS);
-    assert.equal(nextDay.calls.asks.length, 1, 'the project was never asked about again');
+    assert.equal(nextDay.calls.asks.length, 0, 'an unchanged project was asked the same question again the next day');
+    writeBrief(w.pid, '## Goal\n\nA new goal.\n');
+    const changed = goalTick(w, nextDay.out.next, retryAt + 120000 + a.GOAL_ASK_MS);
+    assert.equal(changed.calls.asks.length, 1, 'control: a project whose goal changed was never asked again');
   } finally { w.restore(); }
+});
+
+/* ---- #5161: ask once per state of the project, and remember it across a restart ---- */
+
+const post = (id, project, from) => ({ kind: 'post', id, project, from, to: [], text: 'x', at: '2026-10-02T19:44:00.000Z' });
+
+test('#5161: the agent\'s own "nothing to add" post does not re-arm the ask; a post by the person does', () => {
+  const w = world([{ name: 'gpost' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1);
+    const later = T0 + a.IDLE_MS + a.GOAL_ASK_MS + 60000;
+    const own = goalTick(w, asked.out.next, later, DELIVERY.PLACED, [post('m1', w.pid, w.key.gpost)]);
+    assert.equal(own.calls.asks.length, 0, 'the agent\'s answer to the last ask re-armed the same ask');
+    const person = goalTick(w, own.out.next, later + 60000, DELIVERY.PLACED, [post('m1', w.pid, w.key.gpost), post('m2', w.pid, 'josh')]);
+    assert.equal(person.calls.asks.length, 1, 'control: a new post by the person did not let the project be asked again');
+    // ...and a post in ANOTHER project's room is not this project's change.
+    const elsewhere = goalTick(w, person.out.next, later + 60000 + a.GOAL_ASK_MS, DELIVERY.PLACED,
+      [post('m1', w.pid, w.key.gpost), post('m2', w.pid, 'josh'), post('m3', 'someotherproject', 'josh')]);
+    assert.equal(elsewhere.calls.asks.length, 0, 'a post in another project\'s room re-armed this one');
+  } finally { w.restore(); }
+});
+
+test('#5161: a task added and closed since the last ask lets the project be asked again; still within the day, it does not', () => {
+  const w = world([{ name: 'gtask' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1);
+    const t = tasks.create(w.pid, { sentence: 'a step', made: { via: 'screen' } });
+    tasks.close(w.pid, t.number || 1);
+    const sameDay = goalTick(w, asked.out.next, T0 + a.IDLE_MS + 2 * 60 * 60 * 1000);
+    assert.equal(sameDay.calls.asks.length, 0, 'the once-a-day floor no longer holds for a changed project');
+    const nextDay = goalTick(w, sameDay.out.next, T0 + a.IDLE_MS + a.GOAL_ASK_MS + 60000);
+    assert.equal(nextDay.calls.asks.length, 1, 'a project whose tasks changed was never asked again');
+  } finally { w.restore(); }
+});
+
+test('#5161: the ask memory survives a restart (saveMemory then loadMemory); control: an empty memory asks again', () => {
+  const w = world([{ name: 'grestart' }]);
+  try {
+    writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+    const asked = idleTicks(w);
+    assert.equal(asked.calls.asks.length, 1);
+    fs.rmSync(a.MEMORY_FILE(), { force: true });
+    const saved = a.saveMemory(asked.out.next, null);
+    assert.ok(saved && fs.existsSync(a.MEMORY_FILE()), 'nothing was written');
+    assert.ok(a.MEMORY_FILE().startsWith(SANDBOX), 'the memory file is outside the sandbox: ' + a.MEMORY_FILE());
+    assert.equal(a.saveMemory(asked.out.next, saved), saved, 'an unchanged memory was written again');
+    const restartAt = T0 + a.IDLE_MS + 6 * 60 * 60 * 1000;   // the 14:44 -> 21:20 gap, with a restart between
+    const reloaded = a.loadMemory(restartAt);
+    const r1 = goalTick(w, reloaded, restartAt);
+    const r2 = goalTick(w, r1.out.next, restartAt + a.IDLE_MS);
+    assert.equal(r2.calls.asks.length, 0, 'after a restart the same project was asked again with nothing changed');
+    const f1 = goalTick(w, a.restoredMemory(null, restartAt), restartAt);
+    const f2 = goalTick(w, f1.out.next, restartAt + a.IDLE_MS);
+    assert.equal(f2.calls.asks.length, 1, 'control: with the memory forgotten (the old behaviour) it was not asked');
+  } finally { w.restore(); fs.rmSync(a.MEMORY_FILE(), { force: true }); }
+});
+
+test('#5161: restoredMemory drops what it cannot trust', () => {
+  const now = T0;
+  const m = a.restoredMemory({ v: 1, asked: [['ok', now - 1], ['future', now + 1000], [7, now], ['nan', 'x']],
+    askedSig: [['ok', '0123456789abcdef'], ['bad', 'not-a-sig'], ['short', 'abc']] }, now);
+  assert.deepEqual([...m.asked], [['ok', now - 1]]);
+  assert.deepEqual([...m.askedSig], [['ok', '0123456789abcdef']]);
+  assert.equal(a.restoredMemory({ v: 2, asked: [['ok', now - 1]] }, now).asked.size, 0, 'an unknown version was trusted');
+  assert.equal(a.restoredMemory('junk', now).asked.size, 0);
+  // Round trip.
+  const back = a.restoredMemory(JSON.parse(JSON.stringify(a.savedForm(m))), now);
+  assert.deepEqual([...back.askedSig], [...m.askedSig]);
 });
 
 test('two idle agents in one project: only one is asked', () => {
