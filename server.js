@@ -8887,6 +8887,27 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read your computers' }));
     return;
   }
+  /* kosmos#4794 slice 1: this computer joining. GET runs one pairing round and answers the page-safe status; POST
+     is the person's "The codes match", with the code this screen showed. */
+  if (pathname === '/api/remote/join' && (req.method === 'GET' || req.method === 'HEAD')) {
+    remote.joinStatus()
+      .then((got) => { if (!got.ok) { sendJson(res, 502, { error: got.because }); return; } sendJson(res, 200, got.data); })
+      .catch(() => sendJson(res, 500, { error: 'we could not read the pairing' }));
+    return;
+  }
+  if (pathname === '/api/remote/join/confirm' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const got = await remote.joinConfirm(typeof body.code === 'string' ? body.code : '');
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true, ...(got.data || {}) });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not confirm that' }));
+    return;
+  }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
     remote.devicesList()
       .then((list) => {
@@ -8910,7 +8931,7 @@ const server = http.createServer(async (req, res) => {
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const id = typeof body.device_id === 'string' ? body.device_id : '';
         const verb = deviceVerb[1];
-        const got = verb === 'allow' ? await remote.deviceAllow(id, body.name)
+        const got = verb === 'allow' ? await remote.deviceAllow(id, body.name, body.code)
           : verb === 'deny' ? await remote.deviceDeny(id)
             : await remote.deviceRemove(id);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
