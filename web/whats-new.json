@@ -4,7 +4,7 @@
     {
       "icon": "spark",
       "title": "Setup points to the right place",
-      "line": "When an agent cannot be created because its AI account is missing or not working, Kosmos now points you to Settings, AI Models."
+      "line": "When an agent cannot be created because its AI account has no working sign-in or key, Kosmos now points you to Settings, AI Models."
     },
     {
       "icon": "chat",

@@ -65,3 +65,9 @@ Claude Code's safeguards menu; both are plausible, neither measured.
   Now conditional on a refusal: "When an agent cannot be created because its AI account is missing or not working,
   Kosmos now points you to Settings, AI Models." (every refusal of that kind names it: create.js 3937-3940, 3966-3967,
   4019, 4035, 4063, 4094).
+
+## Review 4 (sonnet, 05:12): 1 WARNING taken, 1 NIT left
+- Line 1 "missing" overclaimed: REFUSE_ACCOUNT / unknownAccountRefusal (a stale account folder, e.g. removed after it
+  was picked) say "we do not know that account on this computer" and name no Settings page. Now "has no working
+  sign-in or key" (every such refusal names Settings, AI Models).
+- NIT left: line 2 "agents" unqualified (the sweep touches only agents Kosmos made; on a board that is every agent).
