@@ -2736,11 +2736,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.download)
             return
         }
-        // A download this app will not save is refused, not loaded in the window instead. Said only when it
-        // targets the page's own frame; a frame's own download, or one with no target frame, is only logged.
+        // A download this app will not save is refused, not loaded in the window instead. Said unless a frame
+        // inside the page asked for it (that is only logged); one with no target frame (a new window) is said.
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
-            if navigationAction.targetFrame?.isMainFrame == true {
+            if navigationAction.targetFrame?.isMainFrame != false {
                 tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
                     ? "That file is not from this board, so it was not saved."
                     : "This page is not a board Kosmos saves files from, so the file was not saved.", quiet: true)
@@ -5112,7 +5112,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     let params = NWParameters.tcp
     params.requiredInterfaceType = .loopback   // nothing off this computer can reach it during a build
     params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
-    guard let listener = try? NWListener(using: params, on: .any) else { print("download selftest: no listener"); exit(1) }
+    guard let listener = try? NWListener(using: params, on: .any) else {
+        try? FileManager.default.removeItem(at: dl)
+        print("download selftest: no listener"); exit(1)
+    }
     listener.newConnectionHandler = { conn in
         conn.start(queue: .main)
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
@@ -5134,7 +5137,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         func poll(_ tries: Int) {
             web.evaluateJavaScript("window.__probeReady === 1 && location.host === '127.0.0.1:\(port)'") { r, _ in
                 if (r as? Bool) == true { then(); return }
-                guard tries > 0 else { print("download selftest TIMED OUT: the probe page never loaded"); exit(1) }
+                guard tries > 0 else {
+                    try? FileManager.default.removeItem(at: dl)
+                    print("download selftest TIMED OUT: the probe page never loaded"); exit(1)
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
             }
         }
@@ -5161,7 +5167,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                     }
                     return
                 }
-                guard tries > 0 else { print("download selftest TIMED OUT: the non-board page never loaded"); exit(1) }
+                guard tries > 0 else {
+                    try? FileManager.default.removeItem(at: dl)
+                    print("download selftest TIMED OUT: the non-board page never loaded"); exit(1)
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
             }
         }
