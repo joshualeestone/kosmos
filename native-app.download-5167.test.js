@@ -126,7 +126,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 26, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 77\b/);
+  assert.match(st, /let expected = 79\b/);
 });
 
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
@@ -158,7 +158,7 @@ test('#5167 review 5: refused downloads stay out of the window, quarantine recor
     'a download this app will not save falls through to .allow and loads in the window');
   const fin = body('@objc(downloadDidFinish:)');
   assert.match(fin, /c\.query = nil; c\.fragment = nil/, 'the quarantine record keeps the page\'s query or fragment, which carry the board token');
-  assert.match(fin, /if let page = originOnly\(committedPageURL\)/);
+  assert.match(fin, /if let page = originOnly\(fromPage\)/);
   assert.match(fin, /if let from = originOnly\(download\.originalRequest\?\.url\)/);
   assert.match(body('private func switchToConnect(home: String)'), /badgeOrigin = nil/, 'a computer switched to connect still treats its old board as one');
   assert.match(BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest')),
@@ -178,7 +178,12 @@ test('#5167 review 6: a board file the window cannot show is saved; an unmarkabl
 
 test('#5167 review 7: Kosmos+ service sites are not boards; the unmarked-file message has its own title', () => {
   assert.match(body('func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {'),
-    /return !\["login", "community", "www"\]\.contains\(label\)/, 'Kosmos+ sign-in or the public feed can save files');
+    /return !kosmosPlusReservedLabels\.contains\(label\)/, 'a Kosmos+ service site can save files');
+  const reserved = (SRC.match(/\nlet kosmosPlusReservedLabels: Set<String> = \[([\s\S]*?)\n\]/) || [])[1] || '';
+  for (const n of ['login', 'community', 'www', 'coordinator', 'api', 'status', 'docs', 'relay']) {
+    assert.ok(reserved.includes('"' + n + '"'), n + ' is missing from the copy of the coordinator\'s RESERVED_NAMES');
+  }
+  assert.equal((reserved.match(/"[a-z0-9-]+"/g) || []).length, 45, 'the copy of RESERVED_NAMES changed size; re-copy it from kosmos-relay coordinator/src/signin.rs');
   assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String = "Kosmos could not save that file", quiet: Bool = false\)/);
   assert.match(body('@objc(downloadDidFinish:)'), /title: "Kosmos saved that file without its download mark"/,
     'a kept file is reported under a title saying it was not saved');
@@ -207,7 +212,7 @@ test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a
 
 test('#5167 review 11: a run where nothing saves is judged, not timed out (the watchdog sits above the worst case, the gate above the watchdog)', () => {
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
-  const watchdog = Number((hatch.match(/asyncAfter\(deadline: \.now\(\) \+ (\d+)\) \{ print\("download selftest TIMED OUT"\)/) || [])[1]);
+  const watchdog = Number((hatch.match(/asyncAfter\(deadline: \.now\(\) \+ (\d+)\) \{\n[^\n]*\n\s+print\("download selftest TIMED OUT"\)/) || [])[1]);
   const alarm = Number((BUILD.match(/alarm (\d+); exec @ARGV; exit 127' "\$STAGE\/app\/bin\/kosmos-app" --kosmos-app-download-selftest/) || [])[1]);
   assert.ok(watchdog >= 150, 'the watchdog (' + watchdog + 's) is under a nothing-saves run (measured 81s), so a total break reads as a timeout');
   assert.ok(alarm >= watchdog + 20, 'the gate\'s alarm (' + alarm + 's) does not sit above the hatch\'s own watchdog (' + watchdog + 's)');
@@ -216,10 +221,18 @@ test('#5167 review 11: a run where nothing saves is judged, not timed out (the w
 
 test('#5167 review 12: a foreign file the window cannot show is said; an early stop is not blamed on a cause', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
-  assert.match(b, /if !navigationResponse\.canShowMIMEType \{\n[^\n]*\n\s+tellDownloadFailed\("That file came from somewhere Kosmos does not save from, so it was not opened or saved\.", quiet: true\)/,
+  assert.match(b, /if !navigationResponse\.canShowMIMEType \{\n[^\n]*\n\s+tellDownloadFailed\(isBoardPage[^\n]*\n[^\n]*not opened or saved\."\n[^\n]*not opened or saved\.", quiet: true\)/,
     'a foreign file the window cannot show is cancelled with nothing said');
   assert.match(body('@objc(download:didFailWithError:resumeData:)'), /tellDownloadFailed\("The download stopped before it began, so nothing was saved\."\)/,
     'an early stop is said with a cause it may not have');
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   assert.ok(hatch.includes('"A FRAME LOADING AN ATTACHMENT SAVES NOTHING') && hatch.includes('"A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED'));
+});
+
+test('#5167 review 13: response refusals name their cause; the mark records the page the download came from', () => {
+  const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
+  assert.equal((b.match(/tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? /g) || []).length, 2,
+    'a response refusal blames the file when the page is the cause');
+  assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'), /downloadPages\[ObjectIdentifier\(download\)\] = committedPageURL/);
+  assert.match(body('@objc(downloadDidFinish:)'), /if let page = originOnly\(fromPage\)/, 'the mark names whatever page is on screen at the end');
 });
