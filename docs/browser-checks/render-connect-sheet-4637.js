@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-asks plus-ask-rows plus-asks-title askcard ask-rows
+// Browser-check-surface: plus-asks plus-ask-rows plus-asks-title askcard ask-rows plus-join plus-join-match askwait JOIN_WAIT_WORDS
 'use strict';
 /**
  * The "wants to connect" sheet (#4637, Josh 09-29: "radically redesign... doesn't fit the branding"; Mona Lisa's flow
@@ -14,6 +14,11 @@
  *  - on another page the notice says the sheet's words ("Your computer "windowsbox" wants to join." for one, "2 devices want
  *    to connect to your Kosmos." for two) with Review;
  *  - an Allow that fails leaves the request waiting (the heading stays, its sheet first); with nothing waiting the heading goes;
+ *  - #4794 slice 1: the computer's sheet says "Allow it if windowsbox shows this same code." and Allow sends that code (a
+ *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value
+ *    gets the default) and Allow is disabled; a refused code ("code_changed") is worded;
+ *  - #4794: on the computer WAITING, #plus-join replaces the coordinator's sentence: working out, the code with "The
+ *    codes match" (which posts that code), "Matched. Now press Allow on <name>.", ran out, too many tries;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -72,14 +77,18 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       page.on('pageerror', (e) => errs.push(e.message));
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       let pending = [
-        { device_id: 'd-pc', name: 'windowsbox', code: 'X3-P2', first_seen: now() - 30, joining_computer: 'windowsbox' },
+        { device_id: 'd-pc', name: 'windowsbox', code: '482915', first_seen: now() - 30, joining_computer: 'windowsbox' },
         { device_id: 'd-ph', name: 'iPhone', code: 'K7-4M', first_seen: now() - 90, joining_computer: null },
       ];
-      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
+      let remoteNow = REMOTE;   // #4794: switched to waiting-allow for the joining arms
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? remoteNow : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: pending, email: 'you@example.com' })));
       let phoneFailsOnce = true;   // the phone's first Allow fails: its sheet must still read as waiting
+      const allowBodies = {};      // #4794: what each Allow sent
+      let codeChangedOnce = false; // #4794: set to refuse one computer Allow with code_changed
       await page.route('**/api/remote/devices/allow', (route, req) => {
-        const id = JSON.parse(req.postData() || '{}').device_id;
+        const sent = JSON.parse(req.postData() || '{}'); const id = sent.device_id; allowBodies[id] = sent;
+        if (codeChangedOnce) { codeChangedOnce = false; return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'code_changed' }) }); }
         if (id === 'd-ph' && phoneFailsOnce) { phoneFailsOnce = false; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) }); }
         pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true }));
       });
@@ -141,13 +150,13 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(Object.values(contrast).every((r) => r >= 4.5), `${tag} the sheet's small text reads on the navy (4.5:1 against every stop of its gradient)`, JSON.stringify(contrast));
       const pc = sheets.find((x) => /windowsbox/.test(x.head)) || {};
       const ph = sheets.find((x) => /iPhone/.test(x.head)) || {};
-      chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Allow it if you just signed it in, and it shows this code.',
+      chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Allow it if windowsbox shows this same code.',
         `${tag} a computer joining reads as one of your own computers`, JSON.stringify(pc));
       chk(ph.head === 'iPhone wants to connect to your Kosmos' && /Allow only if this code is showing on the device in your hand\./.test(ph.say) && !/signed it in/.test(ph.say),
         `${tag} CONTROL: a phone keeps its own name and the device-in-your-hand line`, JSON.stringify(ph));
       chk(sheets.length === 2 && sheets.every((x) => /kosmos\+/i.test(x.brand) && x.boxes === 0 && x.size >= 28 && x.aboveActs && x.inside && x.headShare >= 0.5 && JSON.stringify(x.acts) === JSON.stringify(['Allow', 'Not me'])),
         `${tag} each sheet: the Kosmos+ brand, a headline across the sheet, the code once and large (no boxes), directly above Allow and Not me`, JSON.stringify(sheets));
-      chk(pc.code === 'X3-P2' && pc.label === 'X 3, P 2', `${tag} the code is read out a character at a time`, JSON.stringify([pc.code, pc.label]));
+      chk(pc.code === '482915' && pc.label === '4 8 2 9 1 5', `${tag} the code is read out a character at a time`, JSON.stringify([pc.code, pc.label]));
       chk(await page.evaluate(() => document.getElementById('plus-asks-title').textContent) === 'Waiting for you', `${tag} the section says Waiting for you, not the old wording`);
 
       /* Allow the computer: its sheet says it is connected. */
@@ -157,6 +166,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(/windowsbox is connected\. You can remove it any time under Devices\./.test(done) && !/trust each other/.test(done),
         `${tag} after Allow: "windowsbox is connected." and where to remove it`, done);
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
+      chk(allowBodies['d-pc'] && allowBodies['d-pc'].code === '482915', `${tag} #4794: Allow on the computer sends the code it showed`, JSON.stringify(allowBodies['d-pc']));
       chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);
       /* Review W1: under the heading, what waits comes first; the answered line follows it. */
       const order = await page.evaluate(() => [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered'));
@@ -171,9 +181,70 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-ph"]');
       await page.waitForFunction(() => /iPhone is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const after = await page.evaluate(() => ({ title: !document.getElementById('plus-asks-title').hidden, text: (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' ') }));
+      chk(allowBodies['d-ph'] && allowBodies['d-ph'].code === undefined, `${tag} #4794 CONTROL: a phone's Allow sends no code`, JSON.stringify(allowBodies['d-ph']));
       chk(!after.title && /windowsbox is connected\./.test(after.text) && /iPhone is connected\./.test(after.text), `${tag} nothing waiting: no "Waiting for you" over the success lines`, JSON.stringify(after));
 
       chk(nowrap, `${tag} "a moment ago" stays on one line`);
+      /* #4794: a computer whose code is not worked out yet: a quiet line in the code's place, Allow disabled, Not me enabled. */
+      const waitCase = async (code_wait) => {
+        pending = [{ device_id: 'd-w', name: 'laptop3', code: '', first_seen: now() - 10, joining_computer: 'laptop3', code_wait }];
+        await page.evaluate(() => pollAsk());
+        await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-w"]', { timeout: 5000 }).catch(() => {});
+        return page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); if (!r) return null;
+          const a = r.querySelector('[data-ask="allow"]'), n = r.querySelector('[data-ask="deny"]');
+          return { wait: (r.querySelector('.askwait') || {}).textContent || '', code: !!r.querySelector('.askcodebig'), allowOff: !!(a && a.disabled), denyOn: !!(n && !n.disabled) }; });
+      };
+      const dl = await waitCase('daily_limit');
+      chk(dl && dl.wait === 'This computer has added as many computers as it can today. Try again tomorrow.' && !dl.code && dl.allowOff && dl.denyOn,
+        `${tag} #4794: no code yet (daily_limit): Mona's line, no code, Allow disabled, Not me enabled`, JSON.stringify(dl));
+      const unk = await waitCase(null);
+      chk(unk && unk.wait === 'Working out the code with laptop3. It shows here in a moment.' && unk.allowOff,
+        `${tag} #4794: no code and no reason: the default line, Allow disabled`, JSON.stringify(unk));
+      /* #4794: Allow refused because the code changed is worded, not relayed raw. */
+      pending = [{ device_id: 'd-cc', name: 'laptop4', code: '135792', first_seen: now() - 10, joining_computer: 'laptop4' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]', { timeout: 5000 }).catch(() => {});
+      codeChangedOnce = true;
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]');
+      await page.waitForFunction(() => /code changed/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const cc = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
+      chk(/The code changed before you pressed Allow\. Check the new one on laptop4, then press Allow again\./.test(cc) && !/code_changed/.test(cc),
+        `${tag} #4794: a refused code is worded ("The code changed..."), never the raw tag`, cc);
+
+      /* #4794: this computer WAITING to be allowed. The pill says so; #plus-join replaces the coordinator's sentence. */
+      let join = { supported: true, held: true, join_code: '', on: null, asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false };
+      let confirmBody = null;
+      remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
+      await page.route('**/api/remote/join', (route) => route.fulfill(json(join)));
+      await page.route('**/api/remote/join/confirm', (route, req) => { confirmBody = JSON.parse(req.postData() || '{}'); join = { ...join, confirmed: true }; return route.fulfill(json({ ok: true, confirmed: true, with: 'homemac' })); });
+      const readJoin = async () => { await page.evaluate(() => { PLUS_JOIN_AT = 0; return paintPlus(); }); await page.waitForTimeout(700);
+        return page.evaluate(() => { const j = document.getElementById('plus-join'), b = document.getElementById('plus-join-match'), c = j && j.querySelector('.askcodebig');
+          return { shown: !!(j && !j.hidden), text: (j && j.innerText || '').replace(/\s+/g, ' ').trim(), code: c ? c.textContent : '', label: c ? c.getAttribute('aria-label') : '',
+            size: c ? parseFloat(getComputedStyle(c).fontSize) : 0, button: b ? b.getAttribute('aria-label') : null, status: document.getElementById('plus-status').textContent,
+            pill: document.getElementById('plus-pill').textContent }; }); };
+      let jr = await readJoin();
+      chk(jr.shown && jr.text === 'Working out the code with homemac...' && !jr.button && jr.status === '' && jr.pill === 'Waiting to be allowed',
+        `${tag} #4794 waiting: "Working out the code with homemac...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
+      join = { ...join, join_code: '482915', on: 'homemac' };
+      jr = await readJoin();
+      chk(jr.shown && /^Check that homemac shows this same code\./.test(jr.text) && jr.code === '482915' && jr.label === '4 8 2 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2 9 1 5',
+        `${tag} #4794 waiting: the code large (as on the Allow card) and "The codes match"`, JSON.stringify(jr));
+      await page.click('#plus-join-match');
+      await page.waitForFunction(() => /Matched\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
+      jr = await readJoin();
+      chk(confirmBody && confirmBody.code === '482915' && /^Matched\. Now press Allow on homemac\./.test(jr.text) && jr.code === '482915' && !jr.button,
+        `${tag} #4794 waiting: "The codes match" posts the code shown; then "Matched. Now press Allow on homemac." and the code stays`, JSON.stringify({ confirmBody, jr }));
+      join = { ...join, join_code: '', confirmed: false, confirm_expired: true };
+      jr = await readJoin();
+      chk(jr.text === 'That code ran out. A new one is on its way.' && !jr.button && !jr.code, `${tag} #4794 waiting: a code that ran out says a new one follows, no button`, JSON.stringify(jr));
+      join = { ...join, failed: true };
+      jr = await readJoin();
+      chk(jr.text === 'Too many tries. On homemac, press Not me on this request, then sign this computer in again.' && !jr.button,
+        `${tag} #4794 waiting: too many tries says the recovery`, JSON.stringify(jr));
+      /* CONTROL: connected (not waiting), the block is gone. */
+      remoteNow = REMOTE;
+      jr = await readJoin();
+      chk(!jr.shown && jr.pill === 'Connected', `${tag} #4794 CONTROL: connected, no pairing block`, JSON.stringify(jr));
       /* Not me on a computer joining names it the way its sheet did (review round 5). */
       pending = [{ device_id: 'd-pc2', name: 'Laptop2', code: 'M5-N6', first_seen: now() - 20, joining_computer: 'laptop2' }];
       await page.evaluate(() => pollAsk());
