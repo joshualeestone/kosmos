@@ -1158,7 +1158,7 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    120px at 1440 through 440, then the header WRAPS -- 138px at 420, 154px
    at 400 -- so one value padded from one width put focus 22px under the
    bar at 400. */
-html { scroll-padding-top: 132px; }
+html { scroll-padding-top: calc(132px + var(--topnotes-h, 0px)); }   /* #5018: plus the floating notices, see below */
   /* 🔑 RESERVE THE SCROLLBAR GUTTER SO THE LAYOUT DOES NOT MOVE (kosmos#1309).
      Josh, on 0.5.97: "when I hit Connections or This Computer, it is a slightly
      wider design and kicks the page over ... because the content scrolls off the
@@ -1178,35 +1178,30 @@ html { scroll-padding-top: 132px; }
      treats the symptom and the next Settings row that overflows brings it back. */
   html:not([data-layout="consolidated"]) { scrollbar-gutter: stable; }
   /* (The wide agent Talk view is exempted from this gutter, and wide headers are padded to match: see the #3497 block.) */
-/* Re-measured 2026-08-17 with the inline update notice PRESENT (the worst
-   case; the comment above says per width, and the notice changed the
-   heights): desktop stays 128 tall so 132 still clears; between 441 and
-   720 the notice wraps onto its own row (157 measured at 600); at 440 and
-   below the header wraps further (179 measured at 375). Padded to clear
-   the with-notice height; without a notice the rescue lands a little low,
-   which is harmless in the direction the guard cares about. */
-@media (max-width: 720px) { html { scroll-padding-top: 165px; } }
-@media (max-width: 440px) { html { scroll-padding-top: 187px; } }
+/* Measured 2026-08-17 with the then-inline update notice present: desktop 128, 157 at 600, 179 at 375. Since #5018
+   the notices float below the header instead, so these values now clear the header with room to spare, and
+   --topnotes-h (the floating stack's height, kept by topnotesTrack) adds whatever notices are showing, so a focused
+   element never lands under one. A little low without a notice is harmless in the direction the guard cares about,
+   and so is consolidated, where the header is not sticky and the stack scrolls away (the padding then over-shoots). */
+@media (max-width: 720px) { html { scroll-padding-top: calc(165px + var(--topnotes-h, 0px)); } }
+@media (max-width: 440px) { html { scroll-padding-top: calc(187px + var(--topnotes-h, 0px)); } }
 /* ⚠️ THE UPDATE NOTICE, ported from the frozen pack. The decisions it
    carries are the pack's, recorded there and not re-opened here: RED
    (Josh's call, twice, wanting it unmissable), and #b3261e specifically
    (the app's one attention red; a second red would be permanent drift).
-   PLACEMENT superseded 2026-08-17 (Josh; pack 2e4e100): it sits IN THE
-   FLOW of the header's left group beside the mark. The old absolute float
-   -- whose own comment called absolute "the requirement" -- carried a
-   measured offset and a history of covering the agent-status stamp; in
-   the flow it cannot overlap anything, the row's x-positions are pinned
-   unshifted by the toast drive, and the header growing ~8px taller while
-   a notice waits is the accepted trade (the pack's mobile note blessed
-   exactly that direction). The Install button is gold (#e3b341, the
+   PLACEMENT: since #5018 it floats with the other notices (.topnotes, below).
+   HISTORY: 2026-08-17 (Josh; pack 2e4e100) to #5018 it sat in the flow of the
+   header's left group beside the mark, because an older absolute float had
+   covered the agent-status stamp. The Install button is gold (#e3b341, the
    pack's --gold-bright): gold is the primary ACTION colour, and an
    all-red notice would read as an error rather than something waiting. */
 .utoast {
   --utone: #b3261e;
-  /* IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100). The old
-     absolute float carried a measured top:79 offset and a history of
-     covering the agent-status stamp; an element in the flow cannot overlap
-     anything, so the measurement and its bug class both retire. */
+  /* Was IN THE FLOW, beside the mark (Josh 2026-08-17; pack 2e4e100), because an
+     old float covered the agent-status stamp. Since #5018 (Josh 2026-10-02) the
+     notices float again, over the page centred under the navigation (.topnotes),
+     anchored to the header rather than a measured offset, so the header never
+     grows. */
   display: flex; align-items: center; gap: 11px;
   padding: 7px 8px 7px 12px; border-radius: 11px;
   background: var(--bg-elevated); border: 1px solid var(--utone);
@@ -1229,6 +1224,26 @@ html { scroll-padding-top: 132px; }
 .utoast.login-adv.notice .utxt b { color: var(--label); }
 .utoast.login-adv.warn { --utone: var(--warn-ink); }
 .utoast.login-adv.urgent { --utone: #b3261e; }
+/* #5018: the notices float over the page, centred on the header (under the navigation), instead of growing it (Josh). The
+   header is their anchor (position: relative below); the stack takes no room, and only the notices take clicks.
+   Centred, not under the K mark: the left column holds the page's primary actions (New agent, the agents rail), and
+   a notice there covered New agent (render-update-toast). */
+.apphead header { position: relative; }
+.apphead .topnotes { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 4;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; width: max-content;
+  max-width: min(460px, 100%); pointer-events: none; }
+.apphead .topnotes > div > * { pointer-events: auto; }   /* a notice goes in a slot div, never straight in #topnotes */
+/* The Allow card (#567) sits right under the header and is a security decision (the device and the code to compare):
+   a floating notice must never paint over it, so it moves down by the stack's height (0 with no notice). */
+#askcard { margin-top: calc(10px + var(--topnotes-h, 0px)); }
+/* In consolidated, .apphead is position: static, so it makes no stacking context and the stack stacks with the
+   page, where the sticky project rail (z-index 4) comes later and would paint over it. Above the rail, below the
+   reaction picker (20) and the header menus (40). */
+html[data-layout="consolidated"] body.consolidated > .apphead .topnotes { z-index: 10; }
+.utoast .ux { flex: 0 0 auto; width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 7px; cursor: pointer;
+  background: none; color: var(--label-2); font-size: 1.125rem; line-height: 1; }
+.utoast .ux:hover { background: var(--bg); color: var(--label); }
+.utoast .ux:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .utoast .udot { width: 8px; height: 8px; border-radius: 50%; background: var(--utone); flex: 0 0 8px; }
 .utoast .utxt b { display: block; font-size: .8125rem; line-height: 1.3; color: var(--utone); }
 .utoast .utxt small { font-size: .6875rem; color: var(--label-2); }
@@ -1336,16 +1351,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .sfoot-live { align-items: center; gap: var(--space-4); }
 #pjs-save-live { margin: 0; min-height: 0; }
 #pjs-save-live:empty { display: none; }
-/* Narrow screens: in-flow like everywhere else now (the float this rule
-   used to break against is retired). The version line hides and the left
-   group wraps the notice onto its own row -- "the header grows when an
-   update is waiting" is the harm a person can live with, per the original
-   trade. */
+/* Narrow screens drop the update notice's version line. */
 @media (max-width: 720px) {
-  /* Inline everywhere now; narrow screens just drop the version line and
-     let the header's left group wrap the notice onto its own row. */
   .headleft { flex-wrap: wrap; }
   .utoast .utxt small { display: none; }
+  /* #5018: the login notice's line is who and which account, the point of it; it floats, so it costs no header room. */
+  .utoast.login-adv .utxt small { display: block; }
 }
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
@@ -1414,11 +1425,10 @@ html[data-layout="consolidated"] body.consolidated > .apphead > .kplus-bar { mar
   html.kremote .apphead header .klink, html.kremote .apphead header .worldsw, html.kremote .apphead header .userpop,
   html.kremote .apphead header .burger, html.kremote .apphead .tabs { display: none; }
   /* With those gone the header row holds only notices, which are empty on a quiet board: no gap, no padding, no rule,
-     so the navy bar is the whole header (the mock). A notice that shows still takes its own row. */
+     so the navy bar is the whole header (the mock). */
   html.kremote .apphead { border-bottom: 0; }
   html.kremote .apphead header { padding: 0; gap: 0; }
   html.kremote .apphead header .headleft { gap: 8px; }
-  html.kremote .apphead header:has(.headleft > [id$="-slot"]:not(:empty)) { padding: 8px 0; }
 }
 /* #4823: the phone menu, Josh's navigation-mock.png ("copied almost identically from Apple's website"): full screen,
    Kosmos+ navy in both themes, large white type, red bubbles, an X where the two lines were. Settings goes one level
@@ -1541,7 +1551,9 @@ html.pnav-up { overflow: hidden; scrollbar-gutter: auto; }
    view's bottom padding makes its bottom rule land where consolidated's does (y=50).
    Measured after, both widths, notices on and off: K mark top 8, switcher and You 9,
    rule at 50, in both views. render-tophead-stable-2624 pins it. Below 960px there is
-   only the tab view, so nothing there can jump and it keeps its own spacing. */
+   only the tab view, so nothing there can jump and it keeps its own spacing.
+   Since #5018 the notices float over the page (.topnotes), so they no longer sit in this
+   row or grow the bar; the top alignment stays. */
 @media (min-width: 960px) {
   body:not(.consolidated) > .apphead { padding-top: 0; }
   body:not(.consolidated) > .apphead header { padding-top: 8px; padding-bottom: 4px; }
@@ -2006,7 +2018,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#utoast-slot:empty, #uabort-slot:empty, #uoffline-slot:empty { display: none; }
+#utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -2039,7 +2051,6 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
      and the name WRAPPED to a second row (main red after #4848, run 36821115449). With no floor it can only shrink. */
   .apphead .headleft > .worldsw { flex: 1 1 0; min-width: 0; }
   .apphead .headleft > .worldsw > .worldsw-btn { max-width: min(220px, 100%); min-width: 0; }
-  .apphead .headleft > [id$="-slot"]:not(:empty) { flex-basis: 100%; }
   /* #4847: on a phone the person's menu shows just their face (and the arrow): their name, which they know, gives its
      room to the computer's name, which is the one that tells them where they are. The name stays the button's
      accessible name (hidden visually as .vh does, not removed). On a phone it is then shown nowhere on screen; their
@@ -3272,7 +3283,7 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    by what the back row used to occupy. Pinned by docs/browser-checks/render-talk-fill-2622.js. */
 @media (min-width: 56.01rem) {
   /* The body becomes a viewport-tall flex column and the panel takes what is left under the
-     header, so a taller header (a wrapped notice, other fonts) shrinks the box instead of
+     header, so a taller header (a wrap, other fonts) shrinks the box instead of
      pushing it past the bottom. */
   body:has(> #panel-detail:not([hidden]) #d-sec-talk:not([hidden])) {
     display: flex; flex-direction: column; height: 100vh; padding-bottom: 0; }
@@ -3333,14 +3344,16 @@ body.filter-noproj #orgview .onode:not([data-noproj]) { opacity: .26; }
    window, 77px at 900px where it wraps), so it is measured into --apphead-h; unmeasured, this is the
    old 16px. Not in the consolidated view (body.consolidated): Settings is its own scroll box inside
    Projects there and the header does not stick, so the nav keeps 16px from the panel's top. Below
-   56rem .snav is static and none of this applies. */
-body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + 16px); }
+   56rem .snav is static and none of this applies.
+   #5018: notices no longer grow the header; they float 8px below it (.topnotes). So the nav also clears a showing
+   stack: its height is --topnotes-h (topnotesTrack), 0 with no notice, and the stack's 8px gap sits inside the 16px. */
+body:not(.consolidated) #s-nav { top: calc(var(--apphead-h, 0px) + var(--topnotes-h, 0px) + 16px); }
 /* #4979: on a window too short to hold the whole nav below the header, a stuck nav hangs its last
    pills off the bottom and, at the page's end, pushes its first ones back under the header. There
    it scrolls with the page instead, as the agent page's does. Whether it fits is measured, not a
-   fixed height: the header grows with the Kosmos+ bar, an update or offline notice, or a wrap, so
-   the script beside the #s-nav handler sets snav-loose on the root when the header, the nav and
-   16px above and below it are taller than the window. */
+   fixed height: the header grows with the Kosmos+ bar or a wrap, and (#5018) a floating notice stack below it adds
+   its own height, so the script beside the #s-nav handler sets snav-loose on the root when the header, the stack,
+   the nav and 16px above and below it are taller than the window. */
 html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 /* #3045 (Josh, 6.63 review) kept the old "Model and Memory" pill on one line with nowrap + extra
    side padding, because that centered full-width pill was the longest label and word-wrapped.
@@ -3955,8 +3968,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
    a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
-   reuses the crumb's Open project path); on Documents only in the consolidated view (the tab view keeps
-   its "<- name" back). The title takes the free space, so the chevron sits against it, not across the row. */
+   reuses the crumb's Open project path); on Documents in the consolidated view (the tab view keeps
+   its "<- name" back, except under the new look, #4470). The title takes the free space, so the chevron
+   sits against it, not across the row. */
 .sub-back { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--k-rule); background: none;
             color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
@@ -4789,7 +4803,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      by later source order, so the slot stays gone whenever consolidated is active. */
   html[data-layout="consolidated"] body.consolidated > #rail-me { display: none; }
   /* The header gives way (Josh, 15:32: "header gone is what I'm going
-     for"). Its notice slots stay in the flow, so an update note or the
+     for"). Its notice slots stay (floating since #5018), so an update note or the
      offline warning still has somewhere to appear; the tabs, the K link,
      the status line and the theme pill are elsewhere in this view. */
   /* 🛑 margin MUST be reset here, and its absence was a shipped clip.
@@ -4824,10 +4838,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
       /* #2282: the consolidated-only notice-slot bottom-margins are GONE. They existed
          for the OLD collapsed-header design, where a shown update/offline notice was the
          only visible header content and its margin separated it from the board. The
-         header is now a real bar with its own border-bottom, and the notices ride inside
-         it exactly as they do in the tab view -- so a consolidated-only bottom margin
-         made a shown notice the tallest item in the header's flex row, growing and
-         misaligning the bar. Dropping them keeps the notices consistent across views
+         header is now a real bar with its own border-bottom, and (until #5018 floated them
+         over the page) the notices rode inside it as they do in the tab view -- so a
+         consolidated-only bottom margin made a shown notice the tallest item in the
+         header's flex row, growing and misaligning the bar. Dropping them keeps the notices consistent across views
          (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
          :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
   /* 🔑 `margin: 0` IS WHY THERE IS NO GREY BAND (kosmos#1303 A, HISTORY -- since
@@ -10119,6 +10133,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   --k-rule: #e8e8ed;
   --nl-grey: #f5f5f7; --nl-ink-3: #6e6e73; --nl-ink-4: #aeaeb2;
   --nl-green: #2e9a5a;
+  --nl-raise: #ffffff; --nl-raise-hover: #ffffff;   /* a button's fill on the grey box: above it, never the field's */
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"])[data-look="new"] {
@@ -10129,6 +10144,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366;
     --nl-green: #30d158;
+    --nl-raise: #3a3a3c; --nl-raise-hover: #48484a;
   }
 }
 /* #4470: the top bar in the new look (every page): tabs are plain words, the current one in full
@@ -10205,6 +10221,85 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on .dnav-ico { color: var(--k-ink); }
 :root[data-look="new"] body:not(.consolidated) #panel-detail #d-files.pjcard { border: 0; border-radius: 0; background: none; padding: 22px 0 0; margin-top: 22px; border-top: 1px solid var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #d-files .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
+/* #4470, an agent's page, slice 3: the boxes of every section but the conversation (Profile, AI Settings and the
+   rest; the conversation's box stays edge to edge, #3414). They take the left column's dress, the one grey with no
+   edge and its 28px corners. Their headings take the project page's grey sentence case, as Files did, and their field
+   labels lose the spaced capitals for sentence case in full ink (a label, not a heading). Buttons and fields are the
+   whole app's and are left for their own slice. */
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox { border-color: transparent; border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
+/* #4470, Settings in the new look: the agent page's dress. The section nav is one grey box (on a wider screen; on a
+   phone it stays today's sideways scroller with its fade) with its items flat, no edge and no gold, the current one a
+   tile in the page's ground (on a phone, where there is no box, a grey tile) in full ink and today's heavier weight.
+   The boxes have no edge and 28px corners, headings take the grey sentence case and field labels sentence case in
+   full ink. Buttons and fields are the whole app's and are left for their own slice. The Kosmos+ section repaints
+   the page navy (body.plus-active), which the look's greys know nothing of, so it keeps today's chrome. The needs-you
+   dot on the current item takes --warn-ink, as on the agent page: the dark red was tuned for the gold. */
+@media (min-width: 40.01rem) {
+  :root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav { background: var(--nl-grey); border-radius: 28px; padding: 12px; }
+}
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button { border-color: transparent; background: none; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button:not(.on):hover { background: color-mix(in srgb, var(--k-bg) 55%, transparent); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on { background: var(--k-bg); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on .dot { background: var(--warn-ink); }
+@media (max-width: 40rem) {
+  :root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on { background: var(--nl-grey); }
+}
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox { border-color: transparent; border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
+/* #4470, the controls in the new look, in the agent page's boxes and Settings' (not the conversation, not Kosmos+'s navy
+   page): as Josh's drawing draws them (Files/kosmos-project-two-col-v9), a button is a pill. A plain or quiet button
+   has no edge ("Use the left", "Use the right"), the main one keeps its gold ("Post"), a danger button keeps its edge,
+   which says what it does. The Terminal's send button keeps today's corners, as its composer does. Fields keep today's
+   edge: a white field on the grey box has no other boundary. A button stays raised and a field recessed (the ruling
+   above .dbox .btn): a button's fill is --nl-raise, above the box (white with a hairline shadow in light, a step
+   lighter than the box in dark, where a shadow cannot show), a field's is the page's ground with its edge. Under the
+   pointer a button lifts further, never toward the box. A disabled plain button is an outlined pill, so it reads as
+   unavailable rather than missing. ⚠️ Today's gold edge on a plain button is the one control boundary that clears WCAG
+   1.4.11's 3:1 (see .dbox .btn above); the pill's label identifies it instead, as in the drawing. */
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.cpost) { border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn) { background: var(--nl-raise); border-color: transparent; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):not(:disabled):hover { background: var(--nl-raise-hover); box-shadow: 0 2px 6px rgba(0, 0, 0, .18); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):disabled { background: transparent; border-color: currentColor; box-shadow: none; }
+/* #4470, the last page in the card's order, the phone (and what it showed on a desktop too). An agent's message has
+   no bubble in the new look, so its avatar no longer sits beside a bubble's tail: it goes to the top, beside the name
+   and time, as Josh's drawing draws it (Files/kosmos-project-two-col-v9). Your own messages keep their bubble and
+   today's foot-aligned avatar, and so does an outside sender's message, which keeps its drawn box. Tasks' "+ New task"
+   is the drawing's main action, a gold pill ("Post"). Up to 60rem, where the project header stacks (the 60rem block
+   for .pjmidhead), the project's gear sits in the crumb's row instead of a line of its own; "Made by" stays below. */
+:root[data-look="new"] body:not(.consolidated) :is(#pj-one-view, #d-dmthread) .msg:not(.you):not(.ext) { align-items: flex-start; }   /* .ext keeps its drawn box, so its foot avatar */
+:root[data-look="new"] body:not(.consolidated) #panel-tasks #tsk-new { border-radius: 999px; }
+@media (max-width: 60rem) {
+  /* placeLook moves the crumb row into .pjmidhead beside .pjhead, so the gear (in .pjhead > .pjtitle > .pjtitle-row)
+     is not the crumb's sibling, and up to 60rem .pjmidhead is a column: it becomes a wrapping row and the two
+     wrappers dissolve, so the gear's row joins the crumb's line. ⚠️ With .pjhead and .pjtitle dissolved, a rule that
+     sizes either box does nothing here, under the look. */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .pjhead,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle { display: contents; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmid .pjmidhead > .pj-crumbrow { flex: 1 1 0; min-width: 0; }   /* .pjmid: outweighs the look's later flex: 1 1 auto */
+  /* 4px of room on the right: on touch the cog's tap area is 36px centred on its 28px (#4663, "room all round"),
+     and at the row's end it would reach 4px past the page. */
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead .pjtitle-row { flex: none; margin-right: 4px; }
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead #pj-one-made,
+  :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjmidhead > .tsearch { flex: 1 0 100%; }
+}
+/* #4470, Create an agent in the new look. The option cards on every create step (the kind picker's and the role
+   step's) lose their hairline at rest (the look's cards have none; the grey bounds them on the white page): a chosen
+   card keeps its ink outline and check mark (the choice is marked by shape, not colour), and an enabled card under
+   the pointer keeps today's edge as its feedback (on touch a tapped card can keep :hover until the next tap; the
+   chosen card's own outline still marks the choice). Every button in the create flow is a pill, as every button in
+   the look is (the controls slice): the gold ones, main and inline, Single's and Team's alike (Josh, #4935: Team
+   matches Single), and the plain ones beside them (Cancel, Back, Keep them), which keep their fill and edge because
+   here they sit on the white page, not on a grey box. Unchanged on purpose: the cards' size (#737, Josh), their order
+   (Josh, 2026-08-22), the Recommended pill (#737: Josh asked for it back after the pack), and the role menu's own
+   edged box (it holds fields, which keep their edge everywhere in the look). A resting card on white is about 1.09:1,
+   under WCAG 1.4.11's 3:1, as the controls slice records for buttons: its label identifies it, and the chosen card's
+   2px outline is the state. */
+:root[data-look="new"] body:not(.consolidated) #panel-create :is(.pick2:not(:has(input:checked)), .nak-btn):not(:hover:not(:disabled)) { border-color: transparent; }
+:root[data-look="new"] body:not(.consolidated) #panel-create :is(.btn, .btn-quiet) { border-radius: 999px; }
 /* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
    there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
@@ -10375,6 +10470,56 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    solid could-not-read board note already uses, on the list and on the cards alike. */
 :root[data-look="new"] body:not(.consolidated) #alist .lrow.unk,
 :root[data-look="new"] body:not(.consolidated) #grid .acard.unk { border-color: var(--border-strong); }
+/* #4470, the Projects list in the new look: the Agents page's language, since the Projects list is drawn in the
+   same grammar (count tiles, the dashed add tile, the sort menu and view toggle, then cards). No drawing exists for
+   this page; this is that approved language applied, not a new design.
+   The count tiles (Projects, Messages) do nothing when pressed, so like the Agents page's inert tiles they never show
+   a box. The Issue tile keeps its red outline (#4470 Agents rule: an alert keeps what it says). Add Project becomes the
+   round grey button with its words beside it, as New agent did; the sort menu and the grid / roadmap toggle are grey
+   pills and the current view stays GOLD (Josh, 2026-08-17: "selected is gold, not ink").
+   A plain project card loses its border and shadow at rest (its grey ground is the separation, as on the Agents
+   cards) and KEEPS today's hover border and lift, as the
+   Agents list rows do. A needs-you card is left as today (its red edge and resting shadow). The tiles,
+   Add Project and the two pills are the same in both views; the roadmap ROWS are left as they are (render-newlook-4470 compares them with the look off):
+   they are already flat rows with no border, with Josh's stripes (#4730) and a red ring for needs-you.
+   The tile rule has no [role="button"] exclusion (the Agents page needs one for its Messages filter) because no tile
+   here is clickable; a tile made clickable later needs one. */
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .statsrow .stats .stat:not(.alert) { border-color: transparent; background: transparent; padding-inline: 10px; }
+:root[data-look="new"] body:not(.consolidated) #pj-new { border: 0; background: transparent; padding: 0; gap: 12px; min-height: 44px; }
+:root[data-look="new"] body:not(.consolidated) #pj-new .plus { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--nl-grey); color: var(--k-ink); font-size: 1.375rem; }
+:root[data-look="new"] body:not(.consolidated) #pj-new:hover .plus { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: nowrap; }
+/* #718 on a phone: Add Project keeps its narrowest width (its words on two lines) so the sort and the view toggle
+   fit beside it down to 320; on one line the new look would use up the margin #718 left there. */
+@media (max-width: 30rem) {
+  :root[data-look="new"] body:not(.consolidated) #pj-new .slab { white-space: normal; }
+}
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .sortctl select:hover { background: var(--k-rule); }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .vt + .vt { border-left-color: transparent; }
+/* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the toggle already clips
+   its fill), as on the Agents page. */
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:last-child { border-radius: 0 999px 999px 0; }
+:root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row { border-radius: 24px; }
+:root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row:not(.attn):not(:hover) { border-color: transparent; box-shadow: none; }
+/* #4470, a project's Documents screen in the new look, in the project page's language (no drawing of this screen):
+   back is the round chevron beside the title, as on the project page this screen opens from (Josh's #4586 chevron,
+   which the consolidated view already shows; the tab view's text link hides under the look). Both run the same
+   pjView('one'). The In the project folder | From this conversation switch is a grey pill like the look's other
+   toggles; the chosen segment stays GOLD (Josh, 2026-08-17: "selected is gold, not ink"). */
+:root[data-look="new"] body:not(.consolidated) #docs-back { display: none; }
+/* 40px with a 14px gap in the tab view (the project page's back frame under the look); the consolidated view keeps the
+   32px chevron its own sub-view headers use. The two sizes are deliberate. */
+:root[data-look="new"] body:not(.consolidated) #docs-chev { display: grid; width: 40px; height: 40px; margin-right: 14px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg { border-color: transparent; border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button + button { border-left-color: transparent; }
+/* The end segments take the pill's round so the inset keyboard focus ring follows the curve (the switch already
+   clips its fill). */
+:root[data-look="new"] body:not(.consolidated) #docs-seg button:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button:last-child { border-radius: 0 999px 999px 0; }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
@@ -10564,6 +10709,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366;
     --nl-green: #30d158;
+    --nl-raise: #3a3a3c; --nl-raise-hover: #48484a;
   }
 
 :root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
@@ -11365,16 +11511,14 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
     </div>
-    <!-- ⚠️ THE UPDATE NOTICE SITS BESIDE THE MARK, Josh 2026-08-17: "make
-         that appear to the right of the icon in the upper left corner...
-         so that it is right in line with everything else." It used to be
-         absolutely positioned over the header, which is why it once covered
-         the agent-status stamp and needed an 8px nudge. Inline is the
-         structural fix rather than a better offset: an element in the flow
-         CANNOT overlap anything, so the whole class of bug stops being
-         possible instead of being avoided by a number (the pack's own
-         reasoning, drawn 2e4e100). Renders only when a newer version is
-         published; role=status per the pack. -->
+    <!-- HISTORY: from 2026-08-17 (Josh, pack 2e4e100) to #5018 the update notice sat in the flow beside the mark,
+         because an earlier absolute float covered the agent-status stamp. The current placement is the next
+         comment. The update chip renders only when a newer version is published; role=status per the pack. -->
+    <!-- #5018 (Josh, 2026-10-02): "i hate that these push the navigation down.. i would much rather they appear over
+         the content". The four notice slots float together just under the header, over the page, so the header
+         never changes height. This reverses the in-flow placement above (2026-08-17) at his request; the stack is
+         centred under the navigation, clear of the left column's primary actions. -->
+    <div class="topnotes" id="topnotes">
     <div id="utoast-slot"></div>
     <!-- #2055: the update-abort notice. Its own slot so it can co-occur with the
          post-update note and the offline note rather than overwriting either; a
@@ -11390,6 +11534,7 @@ window.kosmosMeasureScrollbarWidth();
          since #3955 the post-update message is the "Kosmos has been updated" window,
          and this line must not overwrite the update chip. -->
     <div id="uoffline-slot"></div>
+    </div>
   </div>
   <!-- The pack's centre column: the nav lives IN the header grid, centred,
        and collapses behind the burger under 56rem. THREE tabs, the pack's,
@@ -16089,7 +16234,8 @@ window.kosmosMeasureScrollbarWidth();
       <div class="pjtitle">
         <!-- #4586 (Josh, 2026-09-29 11:35): the back chevron beside the title, straight back to the
              project's room. #3502 hid #docs-back in the consolidated view; Josh reversed that. The tab
-             view keeps its own "<- name" back above, so this one shows only in the consolidated view. -->
+             view keeps its own "<- name" back above, so this one shows only in the consolidated view, and in the
+             tab view under the new look (#4470), which hides that link. -->
         <button class="sub-back" id="docs-chev" type="button" aria-label="Back to the project"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
@@ -21035,21 +21181,42 @@ function paintUpdateAbort(ab) {
 }
 
 /* #3532: paint the per-account login-expiry advisories from the /api/status poll.
-   data.loginAdvisories is an array of { agents, daysLeft, severity, expired } (one per
-   credential near expiry); empty/absent clears the slot. dataset.v is a signature so an
+   data.loginAdvisories is an array of { agents, daysLeft, severity, expired, service, provider, email, names }
+   (one per credential near expiry; #5018 added the last four, and service keys the X's dismissals); empty/absent clears the slot. dataset.v is a signature so an
    unchanged advisory does not repaint. Fail soft: any shape we do not understand clears. */
+/* #5018: the dismissed login notices, per viewer. Storage can be refused (a private window): then the X still hides
+   the notice for this page's life, and it comes back on reload. */
+const LOGIN_ADV_HIDE_KEY = 'kosmos.loginAdvDismissed';
+let loginAdvHiddenMem = [];
 function paintLoginAdvisories(advs) {
   const slot = document.getElementById('login-adv-slot');
   if (!slot) return;
-  const list = Array.isArray(advs) ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length) : [];
+  /* #5018 (Josh): a small X hides a notice until it says something new (fewer days, other agents, another account,
+     or expired). The key is the notice's own state, kept per viewer in this browser. */
+  /* The account is keyed by its credential (a.service), not its email: an email read that fails once would otherwise
+     bring a closed notice back. */
+  /* Expired counts as one state: its days count keeps falling, but a closed expired notice says nothing new. */
+  const advKey = (a) => [a.severity || '', a.expired ? 'x' : a.daysLeft, a.expired ? 'x' : '', a.service || '', a.agents.slice().sort().join(',')].join(':');
+  /* A dismissal lives while its account still has a notice: a reply with NO notice for that credential (the login was
+     renewed, or its date could not be read this time) forgets it, so a later expiry of the same account is never born
+     hidden. Keyed on the account, not the exact notice, so one agent's pane read failing for a moment does not bring a
+     closed notice back; a failed read of the account's own date can, once. */
+  if (Array.isArray(advs)) loginAdvPrune(advs.filter((a) => a && a.service).map((a) => a.service));
+  const hidden = loginAdvDismissed();
+  const list = Array.isArray(advs)
+    ? advs.filter((a) => a && Array.isArray(a.agents) && a.agents.length && !hidden.includes(advKey(a))) : [];
   if (!list.length) { slot.innerHTML = ''; delete slot.dataset.v; return; }
-  const sig = list.map((a) => (a.severity || '') + ':' + a.daysLeft + ':' + a.agents.join(',')).join('|');
+  const sig = list.map((a) => advKey(a) + ':' + (a.email || '') + ':' + (Array.isArray(a.names) ? a.names.join(',') : '')).join('|');   // repaint on a new name or email too
   if (slot.dataset.v === sig) return;
   slot.dataset.v = sig;
   slot.innerHTML = list.map((a) => {
     const sev = (a.severity === 'urgent' || a.severity === 'warn') ? a.severity : 'notice';
     const n = a.agents.length;
-    const who = a.agents.map(esc).join(', ');
+    // #5018: the names the person gave the agents (the board sends them as names, same order as agents).
+    const names = (Array.isArray(a.names) && a.names.length === n) ? a.names : a.agents;
+    const who = names.map(esc).join(', ');
+    // #5018: which provider and account they run under; when the email could not be read, the provider only, never a guess.
+    const acct = 'On ' + esc(a.provider || 'Claude') + (a.email ? ', ' + esc(a.email) : '') + ': ';
     const head = a.expired
       ? (n === 1 ? 'An agent’s login has expired' : n + ' agents’ login has expired')
       : (a.daysLeft <= 0
@@ -21058,11 +21225,56 @@ function paintLoginAdvisories(advs) {
     const tail = a.expired
       ? ('Sign in again to bring ' + (n === 1 ? 'it' : 'them') + ' back.')
       : ('Sign in again to keep ' + (n === 1 ? 'it' : 'them') + ' running.');
-    return '<div class="utoast login-adv ' + sev + '" role="status">'
+    // role=status on the words, not the notice, so the close button is not read out with every announcement.
+    return '<div class="utoast login-adv ' + sev + '">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + esc(head) + '</b><small>' + who + '. ' + esc(tail) + '</small></div>'
+      + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + acct + who + '. ' + esc(tail) + '</small></div>'
+      + '<button type="button" class="ux" data-adv-key="' + esc(advKey(a)) + '" aria-label="' + esc('Close: ' + head) + '">&times;</button>'
       + '</div>';
   }).join('');
+  slot.querySelectorAll('.ux').forEach((btn) => btn.addEventListener('click', () => {
+    loginAdvDismiss(btn.getAttribute('data-adv-key'));
+    delete slot.dataset.v;   // always repaint, so an X that did not stick shows as a notice still there, never a dead button
+    paintLoginAdvisories(advs);
+    // Keyboard focus stays on the notices while any is left, then goes to the first visible of the K mark, the
+    // Kosmos+ bar's menu (the phone remote view hides the mark) and the page heading.
+    const next = slot.querySelector('.ux')
+      || ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+    if (next) next.focus();
+  }));
+}
+/* #5018: the floating notice stack's height, as --topnotes-h on <html>, so scroll-padding-top clears a showing
+   notice (a focused element scrolled into view must not land under it). 0 when nothing shows. */
+(function topnotesTrack() {
+  if (typeof document === 'undefined' || typeof ResizeObserver !== 'function') return;
+  const stack = document.getElementById('topnotes');
+  if (!stack) return;
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--topnotes-h', Math.ceil(stack.getBoundingClientRect().height) + 'px');
+  }).observe(stack);
+})();
+function loginAdvDismissed() {
+  try { const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]'); if (Array.isArray(v)) return v.concat(loginAdvHiddenMem); } catch { /* refused */ }
+  return loginAdvHiddenMem.slice();
+}
+function loginAdvPrune(liveServices) {
+  // A key's 4th field is its credential (advKey); a credential name carries no colon. A key with no credential (an
+  // advisory without one) is never forgotten here, since no reply can say its account was renewed.
+  const keep = (k) => { const svc = String(k).split(':')[3]; return !svc || liveServices.includes(svc); };
+  loginAdvHiddenMem = loginAdvHiddenMem.filter(keep);
+  try {
+    const v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
+    if (Array.isArray(v) && v.some((k) => !keep(k))) localStorage.setItem(LOGIN_ADV_HIDE_KEY, JSON.stringify(v.filter(keep)));
+  } catch { /* refused: nothing stored to prune */ }
+}
+function loginAdvDismiss(key) {
+  if (!key) return;
+  loginAdvHiddenMem = loginAdvHiddenMem.concat(key);
+  try {
+    let v = JSON.parse(localStorage.getItem(LOGIN_ADV_HIDE_KEY) || '[]');
+    if (!Array.isArray(v)) v = [];
+    localStorage.setItem(LOGIN_ADV_HIDE_KEY, JSON.stringify(v.concat(key).slice(-40)));
+  } catch { /* refused: the in-memory copy still hides it */ }
 }
 
 /* #3955: reload an old page by itself, but only when that cannot lose anything: the window is in the
@@ -38071,12 +38283,13 @@ function settingsOpen(sec, opts) {
   if (sec === 'usage') paintUsage();
 }
 /* #4979: the app header's height, for the sticky Settings nav's top, and whether the whole nav
-   fits below it (see the #s-nav rules). Observers on the header's and the nav's border boxes and a
-   window resize recompute both, so a header that wraps or gains a bar or a notice moves the nav,
-   and a window too short for it lets the nav scroll with the page. */
+   fits below it (see the #s-nav rules). Observers on the header's, the nav's and (#5018) the floating notice stack's
+   border boxes and a window resize recompute both, so a header that wraps or gains a bar, or a notice that shows,
+   moves the nav, and a window too short for it lets the nav scroll with the page. */
 (() => {
   const head = document.querySelector('.apphead');
   const nav = document.getElementById('s-nav');
+  const notes = document.getElementById('topnotes');   // #5018: floats below the header, outside its height
   if (!head || !nav || typeof head.getBoundingClientRect !== 'function' || typeof nav.getBoundingClientRect !== 'function') return;
   const root = document.documentElement;
   const write = () => {
@@ -38085,7 +38298,10 @@ function settingsOpen(sec, opts) {
       if (typeof h !== 'number' || !Number.isFinite(h)) return;
       root.style.setProperty('--apphead-h', h + 'px');
       const n = nav.getBoundingClientRect().height;   // 0 while Settings is not showing: nothing to fit
-      root.classList.toggle('snav-loose', n > 0 && h + n + 32 > window.innerHeight);   // 16px above the nav and 16px below it
+      let t = 0;
+      try { t = notes && typeof notes.getBoundingClientRect === 'function' ? notes.getBoundingClientRect().height : 0; } catch { t = 0; }
+      if (typeof t !== 'number' || !Number.isFinite(t)) t = 0;
+      root.classList.toggle('snav-loose', n > 0 && h + t + n + 32 > window.innerHeight);   // 16px above the nav and 16px below it
     } catch { /* unmeasured: the nav keeps the old 16px and stays sticky */ }
   };
   write();
@@ -38094,6 +38310,7 @@ function settingsOpen(sec, opts) {
       const ro = new ResizeObserver(write);
       ro.observe(head, { box: 'border-box' });
       ro.observe(nav, { box: 'border-box' });
+      if (notes) ro.observe(notes, { box: 'border-box' });
     }
     if (typeof window.addEventListener === 'function') window.addEventListener('resize', write);
   } catch { /* not a real element (a test harness's stub): the one measurement above stands */ }

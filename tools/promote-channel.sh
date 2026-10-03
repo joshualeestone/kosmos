@@ -162,15 +162,19 @@ if [ "$FAMILY" = mac ]; then
   # the fresh staging board's real port here is what keeps a wrong-port HOLD from pushing an
   # operator toward --force. When no port is given the gate falls back to KOSMOS_PORT/16180.
   echo "promote-channel: running the experience gate: $GATE_CMD${PORT:+ (port $PORT)}"
-  $GATE_CMD ${PORT:+"$PORT"}; GATE_RC=$?
+  # #5084: the gate refuses to speak for $V from a board on another version (cannot-tell, exit 2).
+  KOSMOS_GATE_EXPECT_VERSION="$V" $GATE_CMD ${PORT:+"$PORT"}; GATE_RC=$?
   case "$GATE_RC" in
-    0) echo "promote-channel: gate PASSED - a fresh session can use $V." ;;
+    0) echo "promote-channel: gate PASSED - a fresh session can use $V (the gate checked a board running $V)." ;;
     1) echo "promote-channel: gate FAILED (exit 1) - the board is broken for a fresh session (the #2023 class). REFUSING to promote; --force does not override a provably-broken board." >&2; exit 1 ;;
     2)
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: the experience was NOT automatically verified." >&2
+        # #5084 (Baron's review): on a fleet board the gate HOLDS for every promote, so the #2023 check runs only if
+        # someone runs it after the deploy. Say exactly how.
+        echo "promote-channel: AFTER the deploy, once the board the gate checked${PORT:+ (:$PORT)}${PORT:- (KOSMOS_PORT, else :16180)} reports $V, run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash $(cd "$(dirname "$0")/.." && pwd)/tools/staging-experience-check.sh${PORT:+ $PORT}" >&2
       else
-        echo "promote-channel: gate could not run here (exit 2, cannot-tell) - no fresh enforcing board on this machine. HOLDING. Run this on/against the fresh staging machine, or pass --force after verifying by hand." >&2
+        echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084). HOLDING. Run this on/against a fresh staging board on $V, or pass --force after verifying $V by hand." >&2
         exit 2
       fi ;;
     *) echo "promote-channel: gate returned an unexpected code ($GATE_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
@@ -188,7 +192,11 @@ if [ "$FAMILY" = mac ]; then
   echo "promote-channel: running the agent-spawn gate: $AGENT_GATE_CMD${PORT:+ (port $PORT)}"
   $AGENT_GATE_CMD ${PORT:+"$PORT"}; AGENT_RC=$?
   case "$AGENT_RC" in
-    0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online (the #2129 class is not present)." ;;
+    0) echo "promote-channel: agent-spawn gate PASSED - a fresh Claude and OpenAI agent came online (the #2129 class is not present)."
+       # #5084: it ran on the same board. When the experience gate could not tie that board to $V (cannot-tell,
+       # then --force), this pass is not a check of $V either; say so beside it rather than let it read as one.
+       [ "$GATE_RC" = 2 ] && echo "promote-channel: NOTE: that board was not shown to run $V (the experience gate above could not tell), so this agent-spawn pass is not a check of $V." >&2
+       ;;
     1) echo "promote-channel: agent-spawn gate FAILED (exit 1) - the CLAUDE agent did not come online (trust wedge/auth/timeout, the #2129 class). REFUSING to promote; --force does not override a provably-broken build." >&2; exit 1 ;;
     2)
       if [ "$FORCE" = 1 ]; then
@@ -203,6 +211,7 @@ if [ "$FAMILY" = mac ]; then
       # whole promote (Splinter, 2026-09-04). It is forceable: the operator routes the decision
       # (typically promote the Claude fix + OpenAI gating and chase the codex issue separately).
       if [ "$FORCE" = 1 ]; then
+        [ "$GATE_RC" = 2 ] && echo "promote-channel: NOTE: that board was not shown to run $V (the experience gate above could not tell), so this agent-spawn result is not a check of $V." >&2
         echo "promote-channel: agent-spawn gate PARTIAL (exit 3, Claude online / OpenAI-Codex arm failed) and --force was given - promoting the Claude fix + OpenAI gating; the OpenAI/Codex spawn issue is a separate card. NOTE: the OpenAI arm was NOT verified online." >&2
       else
         echo "promote-channel: agent-spawn gate PARTIAL (exit 3) - the CLAUDE arm is ONLINE (the #2129 fix works) but the OpenAI/Codex arm did NOT come online. This may be a separate codex-spawn issue #2129 does not fix. NOT auto-holding: surface WHICH arm failed to the operator - the Claude fix + OpenAI gating are shippable. Re-run with --force to promote them now and chase the codex issue separately, or hold for an operator ruling." >&2

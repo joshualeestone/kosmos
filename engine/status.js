@@ -2508,14 +2508,108 @@ if (!HIT_YOUR_LIMIT) throw new Error('status.js: no "hit your" marker in RATE_LI
    What it must NOT take is the mid-turn spinner, which also uses the ✻ frame ("✻ Improvising… (35s · thought for 8s)"):
    a healthy agent that cats a capture mid-turn has that spinner right under the tool result. */
 const TURN_FOOTER = /^✻ (?:\S+ for \d[\d.dhms ]*(?: · |\s*$)|Waiting for \d+ .* to finish)/;
+/* The index of the turn footer that makes rows[i] Claude Code's own limit row, or -1: the first non-blank column-0 row
+   within six after it (#5029 review 7). Shared by limitMarkersFor and #5031's retireResetLimits so the two cannot
+   disagree about which rows are the vendor's. */
+function vendorFooterAt(rows, i) {
+  for (let k = i + 1; k < Math.min(rows.length, i + 7); k++) {
+    if (/^\S/.test(rows[k])) return TURN_FOOTER.test(rows[k]) ? k : -1;
+  }
+  return -1;
+}
 function limitMarkersFor(tail) {
   const rows = String(tail == null ? '' : tail).split('\n');
-  const vendor = rows.some((row, i) => {
-    if (!HIT_YOUR_LIMIT.test(row)) return false;
-    const next = rows.slice(i + 1, i + 7).find((r) => /^\S/.test(r));
-    return next !== undefined && TURN_FOOTER.test(next);
-  });
+  const vendor = rows.some((row, i) => HIT_YOUR_LIMIT.test(row) && vendorFooterAt(rows, i) >= 0);
   return vendor ? RATE_LIMIT_MARKERS : RATE_LIMIT_MARKERS.filter((re) => re !== HIT_YOUR_LIMIT);
+}
+
+/* #5031: when a Claude limit's own line says it has reset. Observed 2026-10-02 (#5029):
+     You've hit your weekly limit · resets Oct 5 at 12am (America/Chicago)
+   The time is wall-clock in the zone the line names. Claude Code 2.1.287 adds ", <year>" when the reset falls in
+   another year, and writes a time with no date when the reset is under a day away (review round 1, from its formatter;
+   neither is in a capture). Returns epoch ms, or null for anything it cannot place: a time with no date, an unknown
+   zone, no reset at all. Null keeps the pane capped, as before, so an unread wording fails toward Paused, never toward
+   a false "answering again". With no year, the reset is the LATEST candidate no more than 35 days ahead: no Claude
+   limit resets further out, so a line left on screen for months still reads as passed, and a January reset read in
+   late December lands next year. A wall time the fall-back hour repeats resolves to the LATER instant (stay capped). */
+const LIMIT_RESET = /\bresets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})(?:, (\d{4}))?(?: at|,) (\d{1,2})(?::(\d{2}))? ?(am|pm) \(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)*)\)/i;
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const RESET_HORIZON_MS = 35 * 24 * 3600 * 1000;
+const RESET_GRACE_MS = 60 * 1000;
+function zoneOffsetMs(zone, ms) {
+  const at = Math.floor(ms / 1000) * 1000;
+  const p = {};
+  for (const part of new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric',
+    day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(new Date(at))) p[part.type] = part.value;
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - at;
+}
+function limitResetAt(line, nowMs) {
+  const m = LIMIT_RESET.exec(String(line == null ? '' : line));
+  if (!m) return null;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const month = MONTHS.indexOf(m[1].toLowerCase());
+  const day = Number(m[2]);
+  const hour12 = Number(m[4]);
+  const minute = m[5] === undefined ? 0 : Number(m[5]);
+  if (day < 1 || day > 31 || hour12 < 1 || hour12 > 12 || minute > 59) return null;
+  const hour = (hour12 % 12) + (m[6].toLowerCase() === 'pm' ? 12 : 0);
+  const zone = m[7];
+  const instant = (y) => {
+    const wall = Date.UTC(y, month, day, hour, minute);
+    if (new Date(wall).getUTCDate() !== day) return null;   // Feb 30 and the like
+    /* Twice: the offset AT the instant, not at the wall time read as UTC (they differ near a DST change). */
+    let at = wall - zoneOffsetMs(zone, wall);
+    at = wall - zoneOffsetMs(zone, at);
+    if (at + 3600000 + zoneOffsetMs(zone, at + 3600000) === wall) at += 3600000;   // the repeated fall-back hour: later
+    return at;
+  };
+  try {
+    if (m[3] !== undefined) return instant(Number(m[3]));
+    const year = new Date(now).getUTCFullYear();
+    let best = null;
+    for (const y of [year - 1, year, year + 1]) {
+      const at = instant(y);
+      if (at !== null && at <= now + RESET_HORIZON_MS && (best === null || at > best)) best = at;
+    }
+    return best;
+  } catch { return null; }   // RangeError: a zone this runtime's Intl does not know
+}
+
+/* #5031: the screen with every Claude limit block whose own reset has PASSED taken out, so classify reads what is
+   left (review round 1: relabelling the whole reading idle read only the OLDEST limit line and hid whatever else the
+   screen showed). A limit line stays on screen until the agent gets a new turn, and a capped Guide gets none (the
+   bubble is on the backup, #3660), so without this its card read capped forever. Removed: a vendor limit row (the
+   #5029 gate: its first column-0 row within six is a turn footer) and Claude Code's own indented rows under it, up
+   to that footer. Kept, so the pane stays capped: a row whose reset this cannot read or has not passed, and any row
+   with a limit menu still on screen after it, because that menu holds the session until a key is pressed and a
+   message sent to it would land in the menu. Keyed on the menu's TITLE, "What do you want to do?" (observed
+   2026-10-01), not an option: Claude Code 2.1.287 labels option 1 "Stop and wait for limit to reset" (observed),
+   "Stop" (usage-based billing) or "Wait for limit to reset" (the spend-limit menu), all under that one title, which
+   it uses only for the limit, spend-limit and trial-ended menus (review round 3). The reset gets a minute's grace:
+   the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
+function retireResetLimits(text, nowMs) {
+  const rows = String(text == null ? '' : text).split('\n');
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  /* Anchored to the row's start (the menu draws it indented, 3 spaces observed): an agent's own sentence that contains
+     the phrase, or a tool result quoting it, is not a menu (review round 4). */
+  const lastMenu = rows.reduce((at, row, i) => (/^\s*What do you want to do\?/.test(row) ? i : at), -1);
+  const drop = new Set();
+  rows.forEach((row, i) => {
+    if (!HIT_YOUR_LIMIT.test(row) || lastMenu > i) return;
+    const footer = vendorFooterAt(rows, i);
+    if (footer < 0) return;
+    const resetAt = limitResetAt(row, now);
+    if (resetAt === null || now < resetAt + RESET_GRACE_MS) return;
+    /* Up to the footer, or to the NEXT limit row of any wording if one shares this footer (review rounds 2 and 3): an
+       expired row must never take a live one with it. The vendor's own /usage-credits upsell row is part of this
+       block, not another limit, so it goes with it. A "hit your" row is judged on its own when the loop reaches it. */
+    /* The upsell row STARTS with the command ("     /usage-credits to finish..."); a limit row that merely mentions it
+       ("You've reached your Fable 5 limit. Run /usage-credits to continue or", observed 2026-08-21) is another limit
+       (review round 5). */
+    const anotherLimit = (row) => !/^\s*\/usage-credits\b/.test(row) && RATE_LIMIT_MARKERS.some((re) => re.test(row));
+    for (let k = i; k < footer && (k === i || !anotherLimit(rows[k])); k++) drop.add(k);
+  });
+  return drop.size ? rows.filter((_, k) => !drop.has(k)).join('\n') : text;
 }
 
 /**
@@ -7718,7 +7812,29 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
       const onClaude = (p) => !nonClaude(p.runner)
         && !isAntigravityCommand(p.command) && !isCodexCommand(p.command) && !isGrokCommand(p.command);   // a pane not yet tagged: its command says
       const agents = panes.filter((p) => isNamedOurs(p) && onClaude(p)).map((p) => ({ name: p.name, target: p.target }));
-      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred });
+      /* #5018 (Josh): say which provider and email account the agents are signed in under, and name them the way he
+         named them. Every agent here runs on Claude (filtered above). The email is the account the credential's config
+         folder is signed in to (unset or empty: the default ~/.claude); null when it cannot be read, and the page then
+         names no email rather than a guess. */
+      const accounts = require('./accounts');
+      const nameOf = opts.displayName || ((n) => { try { return readIdentity(n).displayName || n; } catch { return n; } });
+      const emailOf = opts.emailOf || ((ccd) => {
+        try {
+          const set = ccd == null ? '' : String(ccd).replace(/[\r\n]+$/, '');
+          /* Unset or empty: the default account's record (~/.claude.json, accounts.identityOf). Set to any value,
+             even ~/.claude itself: Claude Code reads <that folder>/.claude.json, the same set-vs-unset split as the
+             keychain entry (loginexpiry.serviceNameFor), so that file is read directly. */
+          if (!set) {
+            const id = accounts.identityOf(path.join(accounts.homeDir(), '.claude'));
+            return id && typeof id.email === 'string' && id.email ? id.email : null;
+          }
+          const acct = JSON.parse(fs.readFileSync(path.join(set, '.claude.json'), 'utf8')).oauthAccount;
+          const email = acct && (typeof acct.emailAddress === 'string' ? acct.emailAddress : acct.email);
+          return typeof email === 'string' && email ? email : null;
+        } catch { return null; }
+      });
+      return le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
+        .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf) }));
     },
   });
 }
@@ -7728,7 +7844,7 @@ function snapshot() {
   const panes = onePanePerSession(read);
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
-    const scrapedStatus = classify(pane, text);
+    const scrapedStatus = classify(pane, retireResetLimits(text, Date.now()));   // #5031
     /* The agent's own account outranks the scrape when fresh (#188); only a
        pane TIED to the name may read that name's record, the same gate every
        name-keyed read below honours. */
@@ -8626,7 +8742,7 @@ module.exports = {
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, retireResetLimits, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

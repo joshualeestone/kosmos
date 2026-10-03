@@ -344,6 +344,11 @@ async function readCapped(r, cap) {
    anything is sent. Only agentCallNow passes a deadline, and it turns this into its busy answer. */
 class OverBudget extends Error {}
 
+/* #4885: a body sent as raw bytes with its own content type (an agent's picture), rather than as JSON. Made only by
+   rawBody, so a JSON body can never be mistaken for one. */
+const RAW = Symbol('raw body');
+function rawBody(bytes, type) { return Object.freeze({ [RAW]: { bytes, type } }); }
+
 async function request(method, pathname, { token, body, cap = SWEEP_RESPONSE_CAP, deadline = null } = {}) {
   if (deadline != null && deadline - Date.now() < timeoutMs) throw new OverBudget('over budget');
   const post = sender || ((url, init) => fetch(url, init));
@@ -351,12 +356,13 @@ async function request(method, pathname, { token, body, cap = SWEEP_RESPONSE_CAP
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const headers = { accept: 'application/json' };
-    if (body !== undefined) headers['content-type'] = 'application/json';
+    const raw = body !== undefined && body !== null && body[RAW];
+    if (body !== undefined) headers['content-type'] = raw ? raw.type : 'application/json';
     if (token) headers.authorization = 'Bearer ' + token;
     const res = await post(endpoint() + pathname, {
       // A redirect would re-send the body (a key, on login) to wherever it points.
       method, headers, signal: ctl.signal, redirect: 'error',
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      ...(body !== undefined ? { body: raw ? raw.bytes : JSON.stringify(body) } : {}),
     });
     let json = null;
     /* #4774 review 1: read through a cap, never whole: a huge or endless answer must not sit in the board's memory.
@@ -1103,6 +1109,158 @@ async function sweepIndustry(keys, on) {
   }
 }
 
+/**
+ * #4885: each registered agent's Kosmos picture on its community profile, posts and replies, as
+ * PUT /agents/me/avatar (the raw image) and DELETE /agents/me/avatar (kosmos-community v0.4.0, app/routers/home.py).
+ * The same shape as sweepIndustry above: what is wanted is the sha256 of the picture's bytes (or null for none), sent
+ * when it differs from `avatarSent`, written ahead as `avatarUnsure` so an unanswered request is sent again, retried
+ * on anything that is not an answer about the picture, and a picture the service refuses (422) not sent again until
+ * it changes. A removal goes out whatever the switch says, like an industry clear; a new picture only while ON.
+ */
+const AVATAR_MAX_BYTES = 60000;                     // the service's cap (app/avatars.py MAX_BYTES)
+const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const AVATAR_FAILS_BEFORE_WAIT = 3;
+const AVATAR_WAIT_MS = 60 * 60 * 1000;
+const AVATAR_WAIT_MAX_MS = 6 * 60 * 60 * 1000;
+
+/* The last picture read per agent, keyed by its file and its inode, size, mtime and ctime, so an unchanged picture is
+   not read and hashed again by every half of every sweep. In memory only: a restart reads each once more. */
+const avatarSeen = new Map();
+const sameFile = (a, b) => a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+
+/* The picture to send for `agentKey`: { id, type, bytes }, or { id: null, why } when there is none to send, or
+   { busy, why } when it cannot be told this sweep. A picture the community cannot take (too big, a GIF) is "none"
+   here, so one sent earlier is taken back rather than left showing a picture the person has since replaced. */
+function avatarWanted(agentKey) {
+  let found;
+  try { found = store.avatarLookup(agentKey); } catch { return { busy: true, why: 'name' }; }
+  // Only a confirmed absence is "no picture"; a folder that could not be read is not a reason to take anything down.
+  if (found.error) return { busy: true, why: 'unreadable:' + found.error };
+  const file = found.file;
+  if (!file) { avatarSeen.delete(agentKey); return { id: null, why: null }; }
+  let before;
+  // Gone between the lookup and here: looked at again next sweep rather than read as a removal.
+  try { before = fs.statSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { busy: true } : { busy: true, why: 'unreadable:' + ((e && e.code) || 'stat') }; }
+  if (before.size > AVATAR_MAX_BYTES) return { id: null, why: 'too-big:' + before.size };
+  const memo = avatarSeen.get(agentKey);
+  if (memo && memo.file === file && sameFile(memo.stat, before)) return memo.wanted;
+  let bytes;
+  let after;
+  try { bytes = fs.readFileSync(file); after = fs.statSync(file); } catch (e) { return { busy: true, why: 'unreadable:' + ((e && e.code) || 'read') }; }
+  // Changed while it was read: left for the next sweep, neither sent nor read as "none".
+  if (!sameFile(after, before) || bytes.length !== before.size) return { busy: true };
+  // Empty is not "no picture": said once, and nothing is sent or taken down.
+  if (!bytes.length) return { busy: true, why: 'unreadable:empty' };
+  const type = store.imageTypeOf(bytes);
+  const wanted = AVATAR_TYPES.has(type)
+    ? { id: crypto.createHash('sha256').update(bytes).digest('hex'), type, bytes }
+    : { id: null, why: 'type:' + (type || 'unknown') };
+  avatarSeen.set(agentKey, { file, stat: before, wanted });
+  return wanted;
+}
+
+function serviceRefusedAvatar(r) {
+  const d = r.json && r.json.detail;
+  return r.status === 422 && Boolean(d) && typeof d === 'object' && d.error === 'bad_avatar';
+}
+
+/* `removals` true: only take pictures down (run before comments, like every other take-down); false: only send new
+   pictures (run last, so a failing picture route never holds back comments). */
+async function sweepAvatars(keys, on, { removals }) {
+  for (const agentKey of Object.keys(keys)) {
+    const k = keys[agentKey];
+    if (!k || !k.apiKey) continue;
+    const w = avatarWanted(agentKey);
+    if (w.busy) {
+      // A picture that cannot be read is said once, so an agent that never syncs again is not silent about why.
+      if (w.why && k.avatarSkipLogged !== w.why) {
+        k.avatarSkipLogged = w.why;
+        saveJson(keysFile(), keys);
+        log(w.why === 'name'
+          ? `picture for ${agentKey}: this agent's name cannot name a picture file, so its picture is not sent`
+          : `picture for ${agentKey}: could not be read (${w.why.slice('unreadable:'.length)}); nothing is sent or taken down until it can`);
+      }
+      continue;
+    }
+    const want = w.id;
+    if (k.refused) {
+      // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
+      // so it is on record (as sweepIndustry does for a clear).
+      const shown = (Object.prototype.hasOwnProperty.call(k, 'avatarSent') && k.avatarSent !== null) || k.avatarUnsure;
+      // The community may be showing a picture the person has removed or replaced, and nothing here can change it.
+      // Said once per picture the person wants (a later change is said again).
+      const stuckFor = want === null ? 'none' : want;
+      if (shown && want !== k.avatarSent && k.avatarRemoveUnreachable !== stuckFor) {
+        k.avatarRemoveUnreachable = stuckFor;
+        saveJson(keysFile(), keys);
+        log(`picture for ${agentKey}: the service refused this agent's key, so its community picture cannot be changed or taken down from here`);
+      }
+      continue;
+    }
+    if (!w.why && k.avatarSkipLogged) { delete k.avatarSkipLogged; saveJson(keysFile(), keys); }
+    if (w.why && k.avatarSkipLogged !== w.why) {
+      k.avatarSkipLogged = w.why;
+      saveJson(keysFile(), keys);
+      log(`picture for ${agentKey}: not sent (${w.why.startsWith('too-big') ? 'over ' + AVATAR_MAX_BYTES + ' bytes' : 'not a PNG, JPEG or WebP'}); the community shows its own mark`);
+    }
+    const sent = Object.prototype.hasOwnProperty.call(k, 'avatarSent') ? k.avatarSent : null;
+    // A picture the service refused is not sent again until it changes, and while it is wanted the community shows
+    // no picture rather than the one the person replaced: the target is then "none".
+    if (Object.prototype.hasOwnProperty.call(k, 'avatarRefused') && k.avatarRefused !== want) {
+      delete k.avatarRefused;
+      saveJson(keysFile(), keys);
+    }
+    const target = want !== null && k.avatarRefused === want ? null : want;
+    if (!k.avatarUnsure && sent === target) continue;
+    if ((target === null) !== removals) continue;          // this call's half: removals, or new pictures
+    if (target !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
+    // A new picture that keeps failing waits longer between tries (each is a full upload); a removal never waits.
+    if (k.avatarRetrying !== target) { delete k.avatarFails; delete k.avatarNextTry; }
+    if (target !== null && k.avatarNextTry && Date.now() < k.avatarNextTry) continue;
+    const wasUnsure = k.avatarUnsure === true;
+    if (!wasUnsure) { k.avatarUnsure = true; saveJson(keysFile(), keys); }
+    const r = target === null
+      ? await asAgent(agentKey, keys, 'DELETE', '/agents/me/avatar')
+      : await asAgent(agentKey, keys, 'PUT', '/agents/me/avatar', rawBody(w.bytes, w.type));
+    if (k.refused) {
+      // The service just refused this agent's key (a 401 that a login could not mend): the request did not land.
+      if (!wasUnsure) delete k.avatarUnsure;
+      saveJson(keysFile(), keys);
+      continue;
+    }
+    if (r.status >= 200 && r.status < 300) {
+      k.avatarSent = target;
+      delete k.avatarRetrying;
+      delete k.avatarFails;
+      delete k.avatarNextTry;
+      delete k.avatarUnsure;
+      saveJson(keysFile(), keys);
+    } else if (target !== null && serviceRefusedAvatar(r)) {
+      // This PUT changed nothing; an earlier unanswered one may still have landed, so the mark is put back as it was.
+      if (!wasUnsure) delete k.avatarUnsure;
+      delete k.avatarRetrying;
+      k.avatarRefused = want;
+      saveJson(keysFile(), keys);
+      log(`picture for ${agentKey}: the community refused it (${r.status}); not sent again until it changes${sent !== null || wasUnsure ? ', and the one it showed before will be taken down from the next sweep' : ''}`);
+    } else {
+      // An answer that says the request was not taken (a route that is not there, a body a proxy refused) puts the
+      // write-ahead mark back as it was; only a timeout, a 5xx, a 408 or a 429 may have landed.
+      if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429 && !wasUnsure) delete k.avatarUnsure;
+      const first = k.avatarRetrying !== target;
+      k.avatarRetrying = target;
+      if (target !== null) {
+        // Two more tries at once, then an hour, doubling to six hours.
+        k.avatarFails = (k.avatarFails || 0) + 1;
+        if (k.avatarFails >= AVATAR_FAILS_BEFORE_WAIT) {
+          k.avatarNextTry = Date.now() + Math.min(AVATAR_WAIT_MAX_MS, AVATAR_WAIT_MS * 2 ** (k.avatarFails - AVATAR_FAILS_BEFORE_WAIT));
+        }
+      }
+      saveJson(keysFile(), keys);
+      if (first) log(`picture for ${agentKey}: no usable answer (status ${r.status || 'none'}); trying again until it lands${target !== null ? ', less often after ' + AVATAR_FAILS_BEFORE_WAIT + ' tries' : ''}`);
+    }
+  }
+}
+
 async function sweepOnce(now) {
   if (!sender && underTest()) return { skipped: 'test' };
   const on = switchOn();
@@ -1169,15 +1327,21 @@ async function sweepOnce(now) {
   } catch (e) { log(`take-down reads: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepIndustry(keys, on); }
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // #4373 part B: comments go after the owner's deletes, the take-down reads and the industry pass, so a slow comment
-  // pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
+  try { await sweepAvatars(keys, on, { removals: true }); }   // #4885: taking a picture down is a take-down
+  catch (e) { log(`picture removals: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #4373 part B: comments go after the owner's deletes, the take-down reads, the industry pass and picture removals,
+  // so a slow comment pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
-  // #4922: last, the least urgent: a service slow on this route must not hold back the passes above.
+  // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // #4885: new pictures last. A failing picture route costs a timeout per agent, so it must not hold back comments
+  // or the install group.
+  try { await sweepAvatars(keys, on, { removals: false }); }
+  catch (e) { log(`pictures: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -1541,7 +1705,7 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
 
 /**
  * #4774: one request to the community AS an agent, for the board's own agent-facing verbs (follow, unfollow, the
- * Following feed). The key never leaves this module, the same as a post. Always resolves:
+ * Following feed, and #4884's vote and vote standing). The key never leaves this module, the same as a post. Always resolves:
  *   { ok: true, status, json }  the service answered (any status; the caller reads it)
  *   { ok: true, answered }      a hook below answered, and nothing more was sent
  *   { ok: false, because }      nothing could be asked, in words a person reads; `local: true` when the reason is on
@@ -1555,6 +1719,7 @@ const busy = () => ({ ok: false, local: true, because: 'Kosmos is busy talking t
  * hold a key. `budget` is { remainingMs, requestMs }: the time left of AGENT_BUDGET_MS when the hook is called, and one
  * request's timeout, so a hook doing optional work can skip it when the time is short.
  * Review 2 (BLOCKER): every answer here is read up to RESPONSE_CAP (256 KiB), not the sweep's larger default.
+ * #4884: `body` is sent as JSON with the request (a vote's { value }); left out, nothing is sent, as before.
  */
 /* #4940: what an agent is told while it cannot be registered yet. A follow is NOT queued (run it again); what it has
    queued is kept, and `kosmos community status` says which of it will go (#4939 review 7). No trailing period: the CLIs add their own. */
@@ -1563,6 +1728,15 @@ function registerWaitWords(agentKey) {
   if (waiting === 'limit') return 'this agent is still waiting to join the community, and Kosmos asks again in about five minutes; run this again then (what it has queued is kept, not lost; kosmos community status says what will go)';
   if (waiting === 'held') return 'this agent\'s community name is held by an earlier try, and Kosmos checks it again in about an hour; run this again after that (what it has queued is kept, not lost; kosmos community status says what will go)';
   return 'the community could not register this agent just now, and Kosmos tries again on its next pass; run this again in a few minutes (what it has queued is kept, not lost; kosmos community status says what will go)';
+}
+
+/* #4884: why an agent with no key cannot act yet, or null when it simply has no account. A held name (an earlier
+   try that never finished) is checked again later; a registration under way or rate-limited has the board's own
+   wait words. */
+function joiningWords(agentKey, k) {
+  if (k && k.registering && k.registering.taken) return 'this agent\'s community name is held by an earlier try that never finished, and Kosmos checks it again later; run this again after that';
+  if ((k && k.registering) || (registerRetryAt.get(agentKey) || 0) > Date.now()) return registerWaitWords(agentKey);
+  return null;
 }
 
 function agentCall(agentKey, method, pathname, opts = {}) {
@@ -1595,7 +1769,7 @@ async function agentCallNow(agentKey, method, pathname, opts = {}) {
   }
 }
 
-async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null } = {}) {
+async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null, body } = {}) {
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
@@ -1612,7 +1786,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const k = keys[agentKey];
   if (k && k.refused) return local('the community switched off this agent\'s account');
   if (!(k && k.apiKey)) {
-    if (!register) return { ok: true, status: 0, json: null, unregistered: true };
+    if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: joiningWords(agentKey, k) };
     if (beforeRegister) {
       const a = await beforeRegister(publicGet, budget());
       if (a != null) return { ok: true, answered: a };
@@ -1627,8 +1801,8 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     const a = await beforeCall(publicGet, String(keys[agentKey].name || ''), budget());
     if (a != null) return { ok: true, answered: a };
   }
-  const r = await asAgent(agentKey, keys, method, pathname, undefined, ctx);
-  if (r.status === 0) return { ok: false, because: 'the community could not be reached' };
+  const r = await asAgent(agentKey, keys, method, pathname, body, ctx);
+  if (r.status === 0) return { ok: false, sent: true, because: 'the community could not be reached' };   // #4884: sent = the call was attempted and no answer came; status 0 cannot tell "never connected" from "answer lost", so a caller may only say it MAY have happened (a vote is idempotent, so it says "may have been counted")
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
 }
@@ -1896,6 +2070,25 @@ function industryUnreachable() {
   return Object.values(keys).filter((k) => k && k.refused && ((typeof k.industrySent === 'string' && k.industrySent) || k.industryUnsure)).length;
 }
 
+/* #4885: how many agents' community pictures this board cannot take down (the service refused their keys), for the
+   page to say so, as industryUnreachable does. null when the sweep cannot run at all. */
+function pictureUnreachable() {
+  const keys = loadJson(keysFile());
+  if (!keys || !loadJson(sentFile()) || !loadJson(deletesFile()) || !endpointAllowed()) return null;
+  return Object.values(keys).filter((k) => k && k.refused && ((typeof k.avatarSent === 'string' && k.avatarSent) || k.avatarUnsure)).length;
+}
+
+/* #4885: how many registered agents' pictures cannot go as they are (over the cap, not a still PNG, JPEG or WebP, or
+   refused by the community), for the page to say so and to say that choosing it again in Kosmos fits it. null when the
+   sweep cannot run at all. */
+function pictureUnsendable() {
+  const keys = loadJson(keysFile());
+  if (!keys || !endpointAllowed()) return null;
+  return Object.values(keys).filter((k) => k && k.apiKey && !k.refused && (
+    (typeof k.avatarSkipLogged === 'string' && /^(too-big|type):/.test(k.avatarSkipLogged))
+    || (typeof k.avatarRefused === 'string' && k.avatarRefused))).length;
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
@@ -1905,7 +2098,7 @@ function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
 module.exports = {
-  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, sweep, sendSoon, agentCall, requestDelete,
+  switchOn, willSend, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, sweep, sendSoon, agentCall, requestDelete,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   setSender, resetPauses, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed,

@@ -183,6 +183,20 @@ async function connectPending(page) {
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
+  /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
+     given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
+  { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
+      email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
+    await page.route('**/api/status', async (route) => {
+      let res, data;
+      try { res = await route.fetch(); data = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+      data.loginAdvisories = adv;
+      await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    });
+    await at(page, '');
+    await page.waitForSelector('#login-adv-slot .login-adv', { state: 'visible', timeout: 12000 });
+  } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
@@ -399,7 +413,21 @@ const SCREENS = [
     await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
   } },
+  /* #4470: Create an agent in the new look, for the side by side with 'create-single'. */
+  { name: 'nl-create-single', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="single"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-role', { state: 'visible', timeout: 5000 });
+  } },
   { name: 'create-team', owner: 'Angel', go: async (page) => {
+    await page.click('#new-agent', { timeout: 5000 });
+    await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
+    await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470: Create a Team in the new look, for the side by side with 'create-team'. */
+  { name: 'nl-create-team', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
     await page.click('#new-agent', { timeout: 5000 });
     await page.click('#cstep-kind [data-path="team"]', { timeout: 5000 });
     await page.waitForSelector('#cstep-team', { state: 'visible', timeout: 5000 });
@@ -469,12 +497,52 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #4470, the Projects list in the new look: its grid (the default) and its roadmap, and the roadmap with the look off
+     to set beside it. */
+  { name: 'nl-projects', owner: 'Mona Lisa', go: async (page) => { await newLook(page); await openTab(page, 'projects'); } },
+  { name: 'projects-roadmap', owner: 'Mona Lisa', go: async (page) => {
+    await openTab(page, 'projects');
+    await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
+    await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  { name: 'nl-projects-roadmap', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
+    await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  /* #4470, a project's Documents screen (opened from the project page's Files), with the look off and on. */
+  { name: 'project-docs', owner: 'Mona Lisa', go: async (page, data) => {
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+    /* Shown by hand, as in nl-project-docs, so the pair compares the switch like for like. */
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
+  } },
+  { name: 'nl-project-docs', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+    /* The sample room has no files, so the folder / conversation switch is hidden; shown by hand for the shot. */
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
+  } },
   /* #4470: an agent's page in the new look, for the side by side with 'agent-chat' and 'agent-profile'. */
   { name: 'nl-agent-chat', owner: 'Mona Lisa', go: async (page, data) => {
     await newLook(page);
     await at(page, '?agent=' + data.chatAgent);
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470: Settings in the new look, for the side by side with 'settings'. */
+  { name: 'nl-settings', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await at(page, '?tab=settings');
+    await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
   } },
   { name: 'nl-agent-profile', owner: 'Mona Lisa', go: async (page, data) => {
     await newLook(page);

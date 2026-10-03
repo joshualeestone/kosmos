@@ -30,36 +30,7 @@ const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe';
    quotes, &, %VAR%, a caret and a pipe. */
 const HARD = 'She said "go & echo INJECTED" ok, 100%PATH% ^ | done';
 
-/* #5010: Windows will not remove a folder while a process still runs from it or holds a
-   file in it, and a child of the shell under test (the zip's runtime\node.exe) can
-   outlive that shell by a moment. A bare rmSync then threw EPERM and the test went red
-   on unrelated PRs. So cleanup retries the codes Windows gives for that, pausing a
-   little longer each time (about 7 s in all), and only then throws, naming the folder so
-   a red reads as cleanup, not as the shims. That throw still replaces an assertion error
-   from the test body (as the bare rmSync's did): a folder left behind must stay red. */
-const REMOVE_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'ENOTEMPTY', 'EACCES']);
-function removeTree(dir, opts) {
-  const o = opts || {};
-  const rm = o.rm || ((d) => fs.rmSync(d, { recursive: true, force: true }));
-  const pause = o.pause || ((ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms));
-  const tries = o.tries ?? 8;
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      rm(dir);
-      // Say so when it took more than one try: something outlived the run it belongs to.
-      if (attempt > 1 && !o.quiet) process.stderr.write('#5010: cleanup of ' + dir + ' took ' + attempt + ' tries\n');
-      return attempt;
-    } catch (err) {
-      if (!REMOVE_RETRY_CODES.has(err && err.code)) throw err;
-      if (attempt >= tries) {
-        const e = new Error('cleanup could not remove ' + dir + ' after ' + attempt + ' tries (still busy or denied, ' + err.code + '): ' + err.message);
-        e.code = err.code;
-        throw e;
-      }
-      pause(250 * attempt);
-    }
-  }
-}
+const { removeTree } = require('./test-support/remove-tree');
 
 function zipRoot() {
   /* Long form (#4267): a runner's temp can be an 8.3 name (C:\Users\RUNNER~1\...),
@@ -331,50 +302,4 @@ test('PowerShell: numbers go as the text the agent typed, not PowerShell\'s read
     const r = ps(root, ['kosmos msg a 007 1kb 2.50 0x10']);
     assert.deepEqual(JSON.parse(r.lines[0]), ['msg', 'a', '007', '1kb', '2.50', '0x10']);
   } finally { removeTree(root); }
-});
-
-// ── #5010: cleanup outlasts a child that still holds the folder ────────────────
-// These run everywhere: they drive removeTree with a stand-in rm, so a Mac can show
-// the retry is reached, and one real folder shows the plain path still removes.
-
-function failingRm(codes) {
-  const calls = [];
-  const rm = (dir) => { calls.push(dir); const code = codes.shift(); if (code) { const e = new Error(code + ': busy'); e.code = code; throw e; } };
-  return { rm, calls };
-}
-
-test('#5010: cleanup retries EPERM and EBUSY with a growing pause, then removes', () => {
-  const { rm, calls } = failingRm(['EPERM', 'EBUSY']);
-  const pauses = [];
-  const attempts = removeTree('X', { rm, pause: (ms) => pauses.push(ms), quiet: true });
-  assert.equal(attempts, 3);
-  assert.deepEqual(calls, ['X', 'X', 'X']);
-  assert.deepEqual(pauses, [250, 500]);
-});
-
-test('#5010: cleanup gives up after its tries and throws the last error', () => {
-  const { rm, calls } = failingRm(['EPERM', 'EPERM', 'EPERM', 'EPERM']);
-  assert.throws(() => removeTree('X', { rm, pause: () => {}, tries: 3 }), { code: 'EPERM', message: /^cleanup could not remove X after 3 tries \(still busy or denied, EPERM\)/ });
-  assert.equal(calls.length, 3);
-});
-
-test('#5010: the default pause really waits before the next try', () => {
-  const { rm, calls } = failingRm(['EBUSY']);
-  const started = Date.now();
-  assert.equal(removeTree('X', { rm, quiet: true }), 2);
-  assert.ok(Date.now() - started >= 200, 'the second try came without the first pause');
-  assert.equal(calls.length, 2);
-});
-
-test('#5010: cleanup does not retry an error that waiting cannot fix', () => {
-  const { rm, calls } = failingRm(['EINVAL']);
-  assert.throws(() => removeTree('X', { rm, pause: () => { throw new Error('paused'); } }), { code: 'EINVAL' });
-  assert.equal(calls.length, 1);
-});
-
-test('#5010: a real folder is removed on the first try', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kosmos-shims-5010-'));
-  fs.writeFileSync(path.join(dir, 'f'), 'x');
-  assert.equal(removeTree(dir), 1);
-  assert.equal(fs.existsSync(dir), false);
 });

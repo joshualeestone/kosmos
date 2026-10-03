@@ -102,7 +102,11 @@ function chk(ok, label, extra) {
     // G3 (run before G2 makes a project: with a project on the board, driving the view this way hands a resize back
     // to the projects view, and the chart is not on screen to measure). No repaint loop in the consolidated Agents view. Its own page, with timers stubbed so only the watcher can
     // repaint, a 60-agent fleet (big enough that the chart is fitted to its width, and so its height follows it),
-    // and the band of window heights where the pane's scrollbar used to come and go (measured: 924 to 936 at 1280).
+    // and the band of window heights around where the pane starts to scroll at 1280 (where its scrollbar came and went).
+    // Measured 2026-10-02 with this check's own sweep widened to 840..1000 by 8: before #5018 the pane scrolled up to 928
+    // and not from 936 (the old band, 920..940, straddled that); with #5018 applied it scrolls up to 912 and not from
+    // 920 (what in #5018 moved it was not isolated). The band is that start with room either side, and
+    // the G3b precondition below fails if the start ever leaves it.
     // One fresh page per height, each loaded at that size, of web/index.html itself (file://, as render-agent-sort-4428
     // and others do): a served board opens its Getting started project by itself and takes the chart off screen.
     // Timers are stubbed so only the watcher can repaint.
@@ -110,7 +114,7 @@ function chk(ok, label, extra) {
     const g3 = [], g3b = [];
     // G3b runs the same sweep with the pane's gutter NOT reserved (scrollbar-gutter overridden to auto), which is what
     // an engine without scrollbar-gutter (Safari before 18.2) does: the loop must be stopped by the chart's own guard.
-    for (const noGutter of [false, true]) for (let h = 920; h <= 940; h += 4) {
+    for (const noGutter of [false, true]) for (let h = 900; h <= 932; h += 4) {
       const p3 = await ctx3.newPage();
       await p3.setViewportSize({ width: 1280, height: h });
       p3.on('pageerror', (e) => errs.push(e.message));

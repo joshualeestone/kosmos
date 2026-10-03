@@ -906,6 +906,8 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
+const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the daily ask, through its board
+const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
@@ -965,6 +967,7 @@ const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
 const activity = require('./engine/activity');
 const connections = require('./engine/connections');
+const personlanguage = require('./engine/personlanguage'); // #5050: the person's language block
 const dmfiles = require('./engine/dmfiles');          // #3614: where an agent saves the files it makes in a DM
 const doctrine = require('./engine/doctrine');
 const githubdevice = require('./engine/githubdevice');
@@ -2162,8 +2165,19 @@ function communityValveTripped(agentId) {
 }
 function communityValveRecord(agentId) {
   const arr = communitySends.get(agentId) || [];
-  arr.push(Date.now());
+  const at = Date.now();
+  arr.push(at);
   communitySends.set(agentId, arr);
+  return at;
+}
+// Gives back one slot taken by communityValveRecord (the value it returned), for a route that must take the slot
+// before an await and only learns afterwards whether the write counts.
+function communityValveRelease(agentId, at) {
+  const arr = communitySends.get(agentId);
+  if (!arr) return;
+  const i = arr.indexOf(at);
+  if (i >= 0) arr.splice(i, 1);
+  if (!arr.length) communitySends.delete(agentId);
 }
 // #3485: the human write path (board-token gated, one operator today) shares this
 // same sliding-window valve, under a Symbol key so it is STRUCTURALLY impossible for
@@ -5616,7 +5630,8 @@ const server = http.createServer(async (req, res) => {
     let file = null;
     try { file = store.avatarPath(name); } catch { /* invalid name */ }
     if (!file) { sendJson(res, 404, { error: 'no picture for that agent' }); return; }
-    const ext = path.extname(file);
+    // #4885: the lookup also takes `.jpeg` and any case, so the type is read the same way.
+    const ext = path.extname(file).toLowerCase().replace(/^\.jpeg$/, '.jpg');
     const type = Object.keys(store.ALLOWED_IMAGES).find((k) => store.ALLOWED_IMAGES[k] === ext) || 'application/octet-stream';
     // Three things have to hold here, and each failed a different way before.
     //
@@ -5627,8 +5642,8 @@ const server = http.createServer(async (req, res) => {
     //    exists to remove.
     // 2. `open` succeeding is not enough: a directory opens fine and fails on
     //    first read, past the header. So the entry is stat'd and must be a
-    //    regular file. `store.avatarPath` prefix-scans the directory and will
-    //    return any matching entry, including a directory.
+    //    regular file. `store.avatarPath` returns any entry named like a
+    //    picture, including a directory.
     // 3. `pipeline` rather than `pipe`, because `pipe` neither forwards the
     //    source's errors (an unhandled 'error' event exits the process) nor
     //    destroys the source when the client goes away (60 aborted requests
@@ -5636,9 +5651,8 @@ const server = http.createServer(async (req, res) => {
     //    can reach).
     fs.stat(file, (statErr, stat) => {
       if (statErr || !stat.isFile() || stat.size === 0) {
-        // Size matters as much as existence here. store.saveAvatar writes
-        // non-atomically, so an interrupted save leaves a zero-byte file that
-        // is a perfectly good file and a perfectly useless picture.
+        // Size matters as much as existence here: a zero-byte file is a
+        // perfectly good file and a perfectly useless picture.
         sendJson(res, 404, { error: 'no picture for that agent' });
         return;
       }
@@ -5656,8 +5670,8 @@ const server = http.createServer(async (req, res) => {
         // board.
         if (res.destroyed || res.writableEnded) { stream.destroy(); return; }
         // Deliberately no content-length. It would have to come from the stat,
-        // while the bytes come from a separate read of the same file, and
-        // store.saveAvatar writes non-atomically -- so a stat that under-reports
+        // while the bytes come from a separate read of the same path, and a save
+        // can replace the file between the two -- so a stat that under-reports
         // yields a clean 200 truncated to the declared length, with the surplus
         // bytes landing on the wire afterwards and desyncing a keep-alive
         // connection. Chunked costs a few bytes and cannot do that.
@@ -8310,6 +8324,88 @@ const server = http.createServer(async (req, res) => {
           /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
              failed, 400 for everything on this side (a bad name, the switch off, busy). */
           .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4884: an agent votes a post or a comment up or down (or takes its vote back), and reads where it stands against
+     the daily ask, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
+     name in the body; the body names only what is voted on. A vote, like a follow, is a public act, so it
+     needs the board token as well; the standing read keeps the same gate (the safer default, though it is the
+     agent's own data). Neither is in the agent-token-only set. */
+  if ((pathname === '/api/community/vote' && req.method === 'POST') || (pathname === '/api/community/votes' && req.method === 'GET')) {
+    const casting = req.method === 'POST';
+    (casting ? readBody(req) : Promise.resolve(null))
+      .then((buf) => {
+        let body = null;
+        if (casting) {
+          try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+          catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'voting in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is voting' }); return;
+        }
+        const str = (v) => (typeof v === 'string' ? v : '');
+        const work = casting
+          ? communityvote.vote(who.card.sessionName, str(body.kind), str(body.id), str(body.direction))
+          : communityvote.standing(who.card.sessionName);
+        /* 429 over the service's daily cap, 202 when a vote was sent but not confirmed (it may have been counted),
+           502 when the service failed, 400 for everything on this side. */
+        return work
+          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4913 step 4: an agent endorses another community agent (1 to 5 stars and a short review), or takes it back
+     ({ takeBack: true }), through its board. The ENDORSER is the agent authenticated by its token
+     (resolveAgentSender), never a name in the body; the body names only who is endorsed. A public act, so it needs
+     the board token as well (not in the agent-token-only set). An endorsement counts against the agent's hourly
+     community writes as a post does (communityendorse marks which answers count); a take-back does not. */
+  if (pathname === '/api/community/endorse' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'endorsing in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is endorsing' }); return;
+        }
+        const agentId = who.card.sessionName;
+        const str = (v) => (typeof v === 'string' ? v : '');
+        const takingBack = body.takeBack === true;
+        if (!takingBack && communityValveTripped(agentId)) {
+          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts, comments and endorsements. Do not try again this hour' }); return;
+        }
+        // The slot is taken BEFORE the await, so endorsements sent at the same moment cannot all pass the check.
+        const held = takingBack ? null : communityValveRecord(agentId);
+        const work = takingBack
+          ? communityendorse.takeBack(agentId, str(body.name))
+          : communityendorse.endorse(agentId, str(body.name), typeof body.stars === 'number' ? String(body.stars) : str(body.stars), str(body.text));
+        /* As a vote: 429 over the service's daily cap, 202 when it was sent but not confirmed, 502 when the service
+           failed, 400 for everything on this side. */
+        return work
+          .then((r) => {
+            if (held !== null && !r.counts) { try { communityValveRelease(agentId, held); } catch { /* the answer still goes */ } }
+            sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because });
+          })
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -12532,6 +12628,15 @@ const server = http.createServer(async (req, res) => {
      the answer carries reachability so the screen can say "could not
      reach" instead of a false "up to date". POST because it makes a
      network request on the person's behalf (cross-site guard). */
+  /* #5084: which release this board runs, and nothing else. The promote gate needs it to say which version
+     it checked, and POST /api/update/check (the only other place `running` is answered) can START an
+     install (checkNow -> refresh -> maybeAutoInstall), so a gate must never use that to read it. Read-only:
+     a constant, no update check, no fetch. Behind the board token like every /api/* route. */
+  if (pathname === '/api/version' && (req.method === 'GET' || req.method === 'HEAD')) {
+    sendJson(res, 200, { running: updates.RUNNING });
+    return;
+  }
+
   if (pathname === '/api/update/check' && req.method === 'POST') {
     updates.checkNow()
       // offer is the newer()-gated verdict (same gate the toast rides), so
@@ -20271,6 +20376,25 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about who they work for: ${String(err && err.message)}\n`);
+  }
+  /* #5050: the person's language block, refreshed at boot (an agent made before it existed, or the computer's language
+     setting changed): written when the Mac's setting is not English, removed when it is; off a Mac, or when the read
+     failed, nothing changes. Last of the boot sweeps, so an agent made before the block existed gets it appended
+     after the blocks the sweeps above may add. */
+  try {
+    /* Review 17: a Mac whose language could not be read changes nothing (see personlanguage.read), which would otherwise
+       look exactly like an English Mac. Say it once. */
+    if (process.platform === 'darwin' && !personlanguage.read().sure) {
+      process.stderr.write('Kosmos could not read this computer\'s language setting; agents\' language blocks were left as they are (it is read again at the next start)\n');
+    }
+    const told = personlanguage.syncEveryone(safeRoster());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about your language; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about your language: ${String(err && err.message)}\n`);
   }
   /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
      hands itself to its headless logon task and leaves, so the launcher is never

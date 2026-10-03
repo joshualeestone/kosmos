@@ -34,6 +34,12 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    - **Board reachability (#2063), `tools/staging-experience-check.sh`:** mints a nonce with the
      board token off argv, redeems `?boot=` for the cookie, and asserts a fresh session can use a
      sensitive `/api/*` -- the #2023 class every 0.6.25 verification was blind to.
+     **It also says which release it checked (#5084):** it reads the board's version from
+     `GET /api/version` (read-only; never `POST /api/update/check`, which can start an install) and
+     prints `USABLE on <version>`. Given `KOSMOS_GATE_EXPECT_VERSION` (promote-channel passes the
+     version it promotes), a board on another version, or one too old to report it, is cannot-tell
+     (exit 2): it cannot speak for the candidate. On the 0.7.19 promote a board still on 0.7.18
+     passed and the line read "a fresh session can use 0.7.19".
    - **Agent spawn (#2129), `tools/staging-agent-online-check.sh`:** the board gate does NOT
      exercise agent spawn, and #2129 was exactly that gap -- spawned agents wedged at the Claude
      Code trust prompt while the board served fine, so the board gate alone would PASS a #2129
@@ -55,7 +61,9 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    at the same bytes `latest-staging.json` names, gated on (a) the served sha matching, (b) the
    board-reachability gate passing, and (c) the agent-spawn gate passing. Either gate: exit 1
    (provably broken) refuses and is **not** `--force`able; exit 2 (cannot-tell -- e.g. the dev box,
-   or a provider not signed in) **HOLDS**, `--force`able only after a hand check. The agent gate's
+   a provider not signed in, or a board not running the version being promoted) **HOLDS**,
+   `--force`able only after a hand check. After a forced cannot-tell from the board gate, the agent
+   gate's result is printed with a note that it is not a check of that version (same board). The agent gate's
    exit 3 (Claude online, OpenAI/Codex arm failed) also HOLDS but is `--force`able and prints
    which arm failed -- a routed decision (ship the Claude fix + gating now and chase the codex
    issue separately, or hold for a ruling), never a hard auto-hold. So you cannot promote from a
@@ -78,6 +86,11 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    git -C "$HOME/work/chaoskosmos-site" push origin HEAD:refs/heads/main   # a deploy serves committed HEAD
    bash tools/deploy-site.sh --promote
    ```
+
+   **After a forced cannot-tell (#5084):** a fleet board on the prod channel runs the PREVIOUS release during a
+   promote, so the experience gate HOLDS and the #2023 check has not run on the new one. Once that board
+   auto-updates and reports the promoted version, run it: `KOSMOS_GATE_EXPECT_VERSION=<V> bash tools/staging-experience-check.sh <port>`
+   (promote-channel prints this exact line when forced).
 
    `--promote` derives the artifact from the COMMITTED pointer, fetches + sha-verifies it (proving the
    promoted bytes are really served), skips the committed-vs-live guard (the pointer moved on

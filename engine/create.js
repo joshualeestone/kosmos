@@ -5222,8 +5222,8 @@ function createAgentInner(opts) {
     // button, sixty seconds old. Composed here, before the first write, the
     // later sync finds the file already saying this and `instructions.write`
     // declines a byte-identical save, so nothing is newer than the session.
-    // ⚠️ LAST, AFTER THE DEFAULTS, because that is where `spliceBlock` puts a
-    // block a file does not yet have, and the later sync has to compose the
+    // ⚠️ AFTER THE DEFAULTS (only the #5050 language block follows it), because that is where
+    // `spliceBlock` puts a block a file does not yet have, and the later sync has to compose the
     // SAME bytes or it writes after all. Both paths, unlike the two blocks
     // above: this block is written into a person's own words on every
     // membership change already, so at birth it is the same invitation.
@@ -5239,6 +5239,35 @@ function createAgentInner(opts) {
           if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
         }
       } catch { /* the sync after the session is up still does it, the old way */ }
+    }
+    /* #5050: the person's language, from this computer's language setting, so the agent starts and posts in it. An
+       English Mac writes none (and removes one that came in with pasted instructions); off a Mac, or when the Mac's read
+       failed, nothing changes. Spliced last,
+       so a new agent's file ends with it, unless pasted instructions already hold one with their own text after it
+       (then it is replaced where it is). Non-gating like the blocks above. */
+    {
+      let langStep = null;   // null: nothing to report
+      try {
+        const plMod = require('./personlanguage');
+        const got = plMod.read();
+        /* A read that is not sure changes nothing, so there is nothing to report either way (review 14). */
+        if (got.sure) {
+          const { MAX_BYTES } = require('./instructions');
+          if (require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous) {
+            // Two language blocks (instructions pasted from another computer): left as they are, on any sure read.
+            langStep = plMod.blockBody(got.tag)
+              ? 'found two language sections in its instructions, so left them as they are; edit its instructions to keep one'
+              : 'found two language sections in its instructions, so left them as they are; edit its instructions to remove them';
+          } else {
+            const spliced = plMod.applyTo(text, got.tag);
+            // Review 20: a sure English read removes a language section that came in with pasted instructions; say so.
+            if (!plMod.blockBody(got.tag) && spliced !== text) steps.push({ label: 'took out a language section from its instructions, because this computer\'s language is English', ok: true });
+            if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;
+            else if (plMod.blockBody(got.tag)) langStep = 'could not add your language to its instructions (they are at the size limit), so it may start in English';
+          }
+        }
+      } catch { langStep = 'could not add your language to its instructions, so it may start in English; edit its instructions or remake it'; }
+      if (langStep) steps.push({ label: langStep, ok: false });
     }
     // #2245: pass the in-scope runner -- the plist is not yet written, so the
     // birth brief must be routed to AGENTS.md (codex) or CLAUDE.md (claude) by

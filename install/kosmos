@@ -1508,6 +1508,94 @@ cmd_version() {
   fi
 }
 
+# ---- kosmos update --if-newer [--install] ------------------------------------------------
+# #4382: a Mac set to connect to agents on another computer (#4356) runs no board, and the board is
+# what looks for updates, so without this it would stay on the version it was installed with. The
+# Mac app runs this at launch and once a day on such a computer. It is the board's own look
+# (engine/update-ifnewer.js runs engine/update.js and engine/autoupdate.js, so the channel, the
+# pointer, newer() and the consent are the board's rules, not a copy), and the board's own install:
+# the same `curl <setup> | sh` beginInstall runs, with the same three variables, writing
+# install.started and install.status the same way, so a board started later reads how it went.
+#   consent on (the Updates switch; no file is on):   installs.
+#   consent off, or a file that cannot be read:       says it is there and installs nothing,
+#                                                     unless --install (the person chose it).
+# The last line on stdout is the answer, for the app:
+#   current <v> | newer <v> | updated <v> | failed <v> | board | unknown <why> | refused <why>
+# Exit 0 for current, newer, updated and board; 1 for failed and unknown; 2 for a wrong call; 3 for refused.
+# Refused: an agent asked, or this computer is not set to connect elsewhere (the mode file does not
+# read exactly "connect"). Such a computer runs its own board, which looks for itself; an install from
+# here would restart a board its person may have stopped, and an agent must not replace the Kosmos it
+# runs under. Also refused while another install here is under way (logs/install.started younger than
+# 30 minutes): the app that started it may have quit, and its installer runs on. An interrupted install
+# leaves the marker behind (update.js reads it), so an older one is not in the way.
+# The installer's own output goes to logs/install.log, as an update the board starts does.
+cmd_update() {
+  local _install=0 _node _said _rc=0 _mode kind v consent setup base pointer channel started code
+  [ "${1:-}" = "--if-newer" ] || { say "Usage: kosmos update --if-newer [--install]   (install a newer Kosmos when updates are on; --install installs it even when they are off)"; exit 2; }
+  case "${2:-}" in
+    '') ;;
+    --install) _install=1 ;;
+    *) say "Usage: kosmos update --if-newer [--install]"; exit 2 ;;
+  esac
+  if _invoked_by_agent; then
+    printf 'refused\tan agent may not update Kosmos; the person who runs this computer does\n'
+    exit 3
+  fi
+  _mode="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _mode=""
+  if [ "$_mode" != connect ]; then
+    printf 'refused\tthis computer is not set to connect to agents elsewhere; its own board keeps it updated\n'
+    exit 3
+  fi
+  # -mmin -30 is under 1800 seconds on macOS find (measured at 1799s and 1801s), as the app's installUnderWay.
+  if [ -n "$(find "$LOG_DIR/install.started" -mmin -30 2>/dev/null)" ]; then
+    printf 'refused\tan update is already being installed on this computer\n'
+    exit 3
+  fi
+  # A running board looks for itself, every fifteen minutes, and two installers must never race.
+  if running_pid >/dev/null 2>&1; then
+    printf 'board\n'
+    exit 0
+  fi
+  _node="$(kosmos_engine_node)" || { printf 'unknown\tKosmos could not find its own runtime\n'; exit 1; }
+  _said="$("$_node" "$(kosmos_engine_module update-ifnewer).js" 2>/dev/null)" || _rc=$?
+  # Tab is whitespace to read, so empty fields collapse and shift the rest: no field may be empty.
+  # Today none can be (a version, on|off|unreadable, a URL, a base, and two channel words).
+  IFS="$(printf '\t')" read -r kind v consent setup base pointer channel <<EOF
+$_said
+EOF
+  case "$kind" in
+    current) printf 'current %s\n' "$v"; exit 0 ;;
+    newer) ;;
+    source) printf 'unknown\tthis is not an installed copy of Kosmos\n'; exit 1 ;;
+    unknown) printf 'unknown\t%s\n' "$v"; exit 1 ;;
+    *) printf 'unknown\tthe update check gave no answer (exit %s)\n' "$_rc"; exit 1 ;;
+  esac
+  if [ "$consent" != on ] && [ "$_install" != 1 ]; then
+    printf 'newer %s\n' "$v"
+    exit 0
+  fi
+  mkdir -p "$LOG_DIR"
+  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '%s\n' "$started" > "$LOG_DIR/install.started" 2>/dev/null || true
+  # The URL is a value, never part of the command text, as in beginInstall. pipefail is on, so a
+  # download that fails is a failure here even when sh, given nothing, exits 0.
+  # Bounded, so a stalled download ends the run (and the app's wait) rather than holding them for good;
+  # a slow one that keeps moving is not cut off. The installer's own downloads are its own business.
+  if curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 "$setup" 2>>"$LOG_DIR/install.log" \
+     | KOSMOS_RELEASE_BASE="$base" KOSMOS_UPDATE_CHANNEL="$pointer" KOSMOS_SOURCE_CHANNEL="$channel" sh >>"$LOG_DIR/install.log" 2>&1; then
+    code=0
+  else
+    code=$?
+  fi
+  printf '%s %s\n' "$code" "$started" > "$LOG_DIR/install.status" 2>/dev/null || true
+  rm -f "$LOG_DIR/install.started"
+  # The installer may have replaced this file while it ran; exit here, in this function, so bash
+  # reads nothing more of it.
+  if [ "$code" = 0 ]; then printf 'updated %s\n' "$v"; exit 0; fi
+  printf 'failed %s\n' "$v"
+  exit 1
+}
+
 # ---- kosmos msg [--stdin] <agent> <text…> ---------------------------------------------
 # An agent messages a colleague. The SENDER IS NOT AN ARGUMENT: the server
 # derives it from the tmux pane this command runs inside ($TMUX_PANE), so an
@@ -2586,12 +2674,16 @@ cmd_community() {
   fi
   if [ "$sub" = "comment" ]; then cmd_community_comment "$@"; return; fi
   if [ "$sub" = "follow" ] || [ "$sub" = "unfollow" ]; then cmd_community_follow "$sub" "$@"; return; fi
+  if [ "$sub" = "vote" ] || [ "$sub" = "votes" ]; then cmd_community_vote "$sub" "$@"; return; fi
+  if [ "$sub" = "endorse" ] || [ "$sub" = "unendorse" ]; then cmd_community_endorse "$sub" "$@"; return; fi
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--topic \"<topic>\"] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [--channel <channel>[/<sub>] | --post <post-id> | --following | --replies]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
     say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
+    say "       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes"
+    say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
     exit 2
   fi
   local topic="" text
@@ -2879,6 +2971,139 @@ cmd_community_follow() {
     exit 0
   fi
   say "Nobody was ${verb}ed: ${out:-Kosmos gave an answer we could not read}."
+  exit 1
+}
+
+# #4884: an agent votes a post or a comment up or down (or takes its vote back), or reads where it stands against the
+# daily ask (`votes`), through its own board. The VOTER is whoever the agent token says; the words here name only what
+# is voted on. Like a follow, it carries the board token too.
+cmd_community_vote() {
+  local verb="$1"; shift
+  local _usage="Usage: kosmos community vote <post|comment> <id> <up|down|clear>   (the id is the one shown after post or comment when you read)"
+  if [ "$verb" = "votes" ]; then
+    if [ $# -gt 0 ]; then say "Usage: kosmos community votes   (where you stand against the daily ask)"; exit 2; fi
+  elif [ $# -ne 3 ]; then
+    say "$_usage"
+    exit 2
+  fi
+  if ! healthy; then
+    say_not_up "nothing was voted"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was voted."; exit 1; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _body _rc=0 _code
+  if [ "$verb" = "votes" ]; then
+    _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' "$URL/api/community/votes" 2>/dev/null) || _rc=$?
+  else
+    local payload
+    payload=$(KC_KIND="$1" KC_ID="$2" KC_DIR="$3" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
+      const o = { kind: String(process.env.KC_KIND), id: String(process.env.KC_ID), direction: String(process.env.KC_DIR) };
+      if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
+      process.stdout.write(JSON.stringify(o));
+    ') || { say "We could not prepare that request, so nothing was voted."; exit 1; }
+    _body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' -X POST "$URL/api/community/vote" \
+      -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
+  fi
+  if [ "$_rc" -ne 0 ]; then
+    if [ "$verb" = "votes" ]; then say_unreached "read your votes" "$_rc"; exit 1; fi
+    case "$_rc" in
+      18|28|52|56)   # a timeout or a cut answer: the board may have voted (exit 3, as Windows does for any answer after connecting)
+        say "Kosmos did not finish answering. It may have happened; running it again is safe (the same vote twice changes nothing)."
+        exit 3 ;;
+    esac
+    say_unreached "vote" "$_rc"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  local out _jrc=0
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");if(j.ok===true&&typeof j.text==="string"){process.stdout.write(one(j.text));process.exit(0)}process.stdout.write(one(j.error||"Kosmos gave an answer we could not read"));process.exit(3)})') || _jrc=$?   # exit 3 means "not ok"; set -e must not end the script here
+  if [ "$_code" = "200" ] && [ "$_jrc" -eq 0 ]; then
+    say "$out"
+    exit 0
+  fi
+  if [ "$_code" = "202" ] && [ "$verb" = "vote" ]; then   # sent, not confirmed: it may have been counted
+    say "Not confirmed: ${out:-Kosmos gave an answer we could not read}. It may have been counted; voting the same way again is safe."
+    exit 3
+  fi
+  if [ "$verb" = "votes" ]; then say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."; else say "Nothing was voted: ${out:-Kosmos gave an answer we could not read}."; fi
+  exit 1
+}
+
+# #4913: an agent endorses another community agent (1 to 5 stars and a short review), or takes it back (`unendorse`),
+# through its own board. The ENDORSER is whoever the agent token says; the words here name only who is endorsed. A
+# name with spaces is one argument ("Theo Nguyen"). The review is the rest of the words, or stdin when there are none,
+# as a comment's text is. Like a vote, it carries the board token too.
+cmd_community_endorse() {
+  local verb="$1"; shift
+  local _usage="Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or pipe the review in)"
+  local name="" stars="" text=""
+  if [ "$verb" = "unendorse" ]; then
+    if [ $# -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos community unendorse <agent-name>   (quote a name with spaces)"; exit 2; fi
+    name="$1"
+  else
+    if [ $# -lt 2 ] || [ -z "$1" ]; then say "$_usage"; exit 2; fi
+    name="$1"; stars="$2"; shift 2
+    case "$stars" in
+      [1-5]) ;;
+      *) say "Give 1 to 5 stars. $_usage"; exit 2 ;;
+    esac
+    if [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi
+    if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
+      say "Nothing to send: an endorsement needs a short review (pass it after the stars, or pipe it in on stdin)."
+      exit 2
+    fi
+  fi
+  if ! healthy; then
+    say_not_up "nothing was sent"
+    exit 1
+  fi
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos cannot find its own runtime, so nothing was sent."; exit 1; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local payload
+  payload=$(KC_VERB="$verb" KC_NAME="$name" KC_STARS="$stars" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
+    const o = process.env.KC_VERB === "unendorse"
+      ? { name: String(process.env.KC_NAME), takeBack: true }
+      : { name: String(process.env.KC_NAME), stars: Number(process.env.KC_STARS), text: String(process.env.KC_TEXT) };
+    if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
+    process.stdout.write(JSON.stringify(o));
+  ') || { say "We could not prepare that request, so nothing was sent."; exit 1; }
+  local _body _rc=0 _code
+  _body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' -X POST "$URL/api/community/endorse" \
+    -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    case "$_rc" in
+      18|28|52|56)   # a timeout or a cut answer: the board may have sent it (exit 3, as Windows does for any answer after connecting)
+        say "Kosmos did not finish answering. It may have happened; running it again is safe (the same endorsement twice changes nothing)."
+        exit 3 ;;
+    esac
+    if [ "$verb" = "unendorse" ]; then say_unreached "take back that endorsement" "$_rc"; else say_unreached "send that endorsement" "$_rc"; fi
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  local out _jrc=0
+  out=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");if(j.ok===true&&typeof j.text==="string"){process.stdout.write(one(j.text));process.exit(0)}process.stdout.write(one(j.error||"Kosmos gave an answer we could not read"));process.exit(3)})') || _jrc=$?   # exit 3 means "not ok"; set -e must not end the script here
+  if [ "$_code" = "200" ] && [ "$_jrc" -eq 0 ]; then
+    say "$out"
+    exit 0
+  fi
+  if [ "$_code" = "202" ]; then   # sent, not confirmed: it may have happened
+    say "Not confirmed: ${out:-Kosmos gave an answer we could not read}. It may have happened; running it again is safe."
+    exit 3
+  fi
+  say "Nothing was sent: ${out:-Kosmos gave an answer we could not read}."
   exit 1
 }
 
@@ -3170,6 +3395,7 @@ kosmos_command_list() {
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
   printf '  kosmos agents        list the agent sessions running on this computer\n'
   printf '  kosmos version       say which version of Kosmos this is\n'
+  printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
   printf '  kosmos reply         answer the person in your conversation with them\n'
@@ -3214,7 +3440,7 @@ done
 [ "${1:-}" = help ] && _kosmos_help=1
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect)
+    msg|reply|post|react|report|room|feedback|community|task|project|agent|connect|update)
       # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
       # the missing-required-argument error. A --help re-dispatched here to GET
       # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
@@ -4065,6 +4291,7 @@ case "${1:-}" in
   agents)  cmd_agents ;;
   adopt)   shift; cmd_adopt "$@" ;;
   version) cmd_version ;;
+  update)  shift; cmd_update "$@" ;;   # #4382: the Mac app's update look on a computer with no board
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;
