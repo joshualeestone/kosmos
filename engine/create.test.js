@@ -5758,7 +5758,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
   for (const [sentence, constant, uses] of [
     ['that is not a name we can act on', 'REFUSE_NAME', 3],
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
-    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 5],
+    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 6],
   ]) {
     const literals = src.split(`'${sentence}'`).length - 1;
     assert.equal(
