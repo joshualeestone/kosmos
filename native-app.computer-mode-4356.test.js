@@ -4,7 +4,7 @@
  * #4356: a computer either runs agents or connects to agents on another computer.
  *
  * Reading the choice and deciding a connect computer's links are pure Swift functions that
- * --kosmos-app-mode-selftest drives at bundle build (40 rows). What no selftest can reach is the
+ * --kosmos-app-mode-selftest drives at bundle build (62 rows). What no selftest can reach is the
  * wiring in the AppKit delegate, so that is read here from source: a connect computer never starts
  * its board, not at launch, not on Reload, not after an unreadable choice; switching stops what
  * belongs to a board before sign-in loads; only the board's own page, and only while the app is
@@ -268,5 +268,5 @@ test('#4356: quitting a connect computer does not say its agents keep running', 
 test('#4356: the bundle build runs the mode selftest and fails on a wrong row or a hollow run', () => {
   assert.match(BUILD, /--kosmos-app-mode-selftest/);
   assert.match(BUILD, /\*"mode-check: all good"\*\) ;;/);
-  assert.match(SRC, /let expected = 40\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
+  assert.match(SRC, /let expected = 62\n\s+if ran != expected \{\n\s+print\("\\nmode-check: only/);
 });
