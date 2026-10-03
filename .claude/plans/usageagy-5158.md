@@ -29,7 +29,7 @@ One row per (conversation id, idx): the idx is gen_metadata's primary key, and e
 
 ## Day
 The linked step's time; a call with no linked step that still has tokens takes the earliest step time carrying its idx at
-20.3, else the conversation's last write (db or its -wal), which is never earlier than the call. A day is frozen only
+20.3, else the day the conversation file was created (review 1: a fixed day, never later than the call). A day is frozen only
 from a complete scan, as slice 1 does: a db that cannot be opened while fresh keeps the scan incomplete.
 
 ## Decisions
@@ -71,3 +71,13 @@ from a complete scan, as slice 1 does: a db that cannot be opened while fresh ke
   the measured failed call; its mutant fails it.
 - NITs taken: a conversation deleted from a listed folder is forgotten. Not taken: a type-15 step whose 20.3 is not yet
   written is read as call 0 (proto3 cannot tell absent from 0); it can only touch call 0's day when call 0 has no step.
+
+## Review 3 (opus): 2 WARNINGs, both taken
+- A conversation that fails to open (busy mid-write) was judged stale by the db's own mtime, which agy leaves alone
+  while it writes the -wal, so the scan could be frozen without it: freshness now takes the -wal's write too. Test: an
+  old db with a fresh -wal that cannot be opened keeps the scan incomplete; its mutant fails it.
+- The steps-error test could pass with the error swallowed (the freshness guard also fired): it now asserts the call was
+  not filed, which the mutant does.
+- NITs taken: no creation time (mtime fallback moves) means an undated call is never frozen; a -wal that cannot be
+  stat'ed (not missing) marks the scan incomplete and the conversation is read; the plan's Day section names the
+  creation day.

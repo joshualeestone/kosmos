@@ -90,9 +90,10 @@ async function touchedSince(file, sinceDay, acc = null) {
    stayed bad (a zero-byte file from a crashed session, a permanent permission error) is skipped and said once, or it
    would keep every day in the window unfrozen and re-read on every request (review 2). */
 const FRESH_MS = 10 * 60 * 1000;
-async function badFile(acc, file, why) {
+async function badFile(acc, file, why, lastWriteMs = null) {
   let fresh = true;
-  try { fresh = Date.now() - (await fsp.stat(file)).mtimeMs < FRESH_MS; } catch { fresh = true; }
+  /* `lastWriteMs`: a caller that knows a later write than the file's own mtime (an Antigravity -wal) passes it. */
+  try { fresh = Date.now() - Math.max((await fsp.stat(file)).mtimeMs, lastWriteMs || 0) < FRESH_MS; } catch { fresh = true; }
   if (fresh) acc.incomplete = true;
   else console.error('usage: skipping an unreadable ' + why + ': ' + file);
 }
@@ -318,12 +319,15 @@ async function scanAntigravity(acc, agyHomes) {
       let st;
       try { st = await fsp.stat(file); } catch (err) { if (err && err.code !== 'ENOENT') acc.incomplete = true; continue; }
       let walMs = 0;
-      try { const w = await fsp.stat(file + '-wal'); if (w.size > 0) walMs = w.mtimeMs; } catch { /* none */ }
+      try { const w = await fsp.stat(file + '-wal'); if (w.size > 0) walMs = w.mtimeMs; }
+      catch (err) { if (err && err.code !== 'ENOENT') { acc.incomplete = true; walMs = Date.now(); } }   // unknown: read it
       if (Math.max(st.mtimeMs, walMs) < since) continue;
       /* A call with no dated step takes the day the conversation file was CREATED (its mtime where the filesystem keeps
          no creation time): fixed for the file's life, so a call's day never moves after its day is frozen (review 1).
-         It is never later than the call; at worst it is the conversation's first day. */
-      const born = st.birthtimeMs > 0 ? st.birthtimeMs : st.mtimeMs;
+         It is never later than the call; at worst it is the conversation's first day. Where the filesystem keeps no
+         creation time the mtime moves with every write, so an undated call there is shown but never frozen (review 3). */
+      const hasBirth = st.birthtimeMs > 0;
+      const born = hasBirth ? st.birthtimeMs : st.mtimeMs;
       const key = st.ino + ':' + born;
       const c = agyCache.get(file) && agyCache.get(file).key === key ? agyCache.get(file) : { key, cwd: '', calls: new Map() };
       let listed;
@@ -349,7 +353,7 @@ async function scanAntigravity(acc, agyHomes) {
         if (!c.cwd) meta = unlessAbsent(() => db.prepare("SELECT data FROM trajectory_metadata_blob WHERE id = 'main'").get(), null);
         db.exec('COMMIT');
       } catch {
-        await badFile(acc, file, 'Antigravity conversation');
+        await badFile(acc, file, 'Antigravity conversation', walMs);   // busy mid-write: the -wal is the write (review 3)
         continue;
       } finally {
         try { if (db) db.close(); } catch { /* already closed */ }
@@ -381,7 +385,7 @@ async function scanAntigravity(acc, agyHomes) {
         const secs = byCall.get(idx) || anyStep.get(idx);
         /* A call whose step is not written yet would be filed on the fallback day and move once its step lands: while
            the conversation is being written, such a scan is shown but not frozen (review 2). */
-        if (!secs && recent) acc.incomplete = true;
+        if (!secs && (recent || !hasBirth)) acc.incomplete = true;
         acc.add(utcDay(new Date(secs ? secs * 1000 : born).toISOString()), u.model, c.cwd, {
           input_tokens: u.uncached,
           output_tokens: u.reply + u.thoughts,
