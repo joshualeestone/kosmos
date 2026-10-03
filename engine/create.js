@@ -2200,7 +2200,9 @@ function setProvider(name, provider, opts) {
     provider,
     /* Which OpenAI sign-in it actually landed on, so the route can say it.
        Null for a switch back to Claude, and null under dry-run, where nothing
-       was looked at and claiming an account would be an invention. */
+       was looked at and claiming an account would be an invention.
+       #5091: `account` below is the exception for a Claude pick: it is checked against the real account list even
+       under dry-run (a read, not a write), so it names a real account; setAccount then honours DRY_RUN itself. */
     openaiAccount,
     /* #3296/#3391: the Gemini/Grok account the switch landed on, so the route can
        name it -- the generic analog of `openaiAccount`. Null for a switch to

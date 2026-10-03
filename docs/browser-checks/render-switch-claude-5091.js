@@ -67,7 +67,8 @@ const CODEX_OUT_OF_CREDITS = [
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1300, height: 900 } });
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-  await page.route('**/api/accounts', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ accounts: ACCOUNTS }) }));
+  let served = ACCOUNTS;   // round 3: swapped for a no-target world below
+  await page.route('**/api/accounts', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ accounts: served }) }));
   let posted = null;
   await page.route('**/api/agent/*/provider', (r) => { posted = JSON.parse(r.request().postData() || '{}'); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'changed', provider: 'anthropic', because: 'Claude it is.' }) }); });
   try {
@@ -118,6 +119,10 @@ const CODEX_OUT_OF_CREDITS = [
     await page.waitForTimeout(1500);
     const after = await page.evaluate(() => { const c = document.getElementById('d-current-rows'); return { current: !!c && !c.hidden, menu: document.getElementById('d-provider').value }; });
     chk(after.current === true, "#5091: after the switch the agent's rows are back (a reset menu does not count as a switch being set up)", JSON.stringify(after));
+    // Round 3: and they speak for the NEW provider: the Move row lists the Claude accounts, on the one picked.
+    const rows = await page.evaluate(() => { const s = document.getElementById('d-account'); return { opts: [...s.options].map((o) => o.value), sel: s.value, msg: document.getElementById('d-account-msg').textContent }; });
+    chk(rows.sel === ACCOUNTS[1].dir && rows.opts.includes(ACCOUNTS[1].dir) && !/OpenAI|Codex|Antigravity|Gemini/.test(rows.msg),
+      "#5091: after the switch the account row speaks for Claude, on the picked account", JSON.stringify(rows));
 
     await page.goto(URL + '/?tab=detail&agent=liu', { waitUntil: 'load' }); await page.waitForTimeout(800);
     await page.click('#d-nav [data-go="model"]'); await page.waitForTimeout(400);
@@ -125,6 +130,20 @@ const CODEX_OUT_OF_CREDITS = [
     await page.selectOption('#d-provider', 'openai'); await page.waitForTimeout(300);
     const back = await page.evaluate(() => { const c = document.getElementById('d-current-rows'); return { picker: document.getElementById('d-provider-account').hidden, current: !!c && !c.hidden }; });
     chk(back.current === true, "#5091: back on the agent's own provider, its rows come back", JSON.stringify(back));
+    // Round 3: no Claude account can take it (the main signed out, nothing else shares history): the switch refuses,
+    // says where to fix it, and sends nothing.
+    served = ACCOUNTS.map((a) => (a.provider === 'anthropic' ? { ...a, connection: a.isDefault ? { state: 'none' } : a.connection, memoryShared: a.isDefault ? a.memoryShared : false } : a));
+    posted = null;
+    await page.goto(URL + '/?tab=detail&agent=liu', { waitUntil: 'load' }); await page.waitForTimeout(1200);
+    await page.click('#d-nav [data-go="model"]'); await page.waitForTimeout(400);
+    await page.selectOption('#d-provider', 'anthropic'); await page.waitForTimeout(300);
+    await page.click('#d-provider-go');
+    await page.waitForFunction(() => { const m = document.getElementById('chg-modal'); return m && !m.hidden; }, null, { timeout: 8000 }).catch(() => {});
+    if (await page.$('#chg-modal:not([hidden])')) await page.click('#chg-go');
+    await page.waitForTimeout(800);
+    const none = await page.evaluate(() => document.getElementById('d-provider-msg').textContent + ' | ' + ((document.getElementById('chg-msg') || {}).textContent || ''));
+    chk(posted === null && /no Claude account on this computer that can take it/.test(none),
+      '#5091: with no Claude account that can take it, the switch refuses with the remedy and sends nothing', JSON.stringify({ posted, none }));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     await browser.close();

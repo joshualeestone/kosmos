@@ -7990,6 +7990,7 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 200, {
             outcome: 'partial',
             provider: wrote.provider,
+            restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
             because: wrote.because + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
             steps: back.steps || [],
           });
