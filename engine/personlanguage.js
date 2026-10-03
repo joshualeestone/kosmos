@@ -55,10 +55,12 @@ function macPreferred(run) {
  * ({ env, platform, run, intl }); production passes nothing.
  */
 let source = null;   // test seam: what the no-argument read reads (production: the real machine)
-let cached;   // a SURE read is kept for the process; a fallback is read again next time (a Mac read can time out at boot)
+let cached;   // a SURE read is kept for the process; a fallback is read again once FALLBACK_MS has passed
+let fallbackAt = 0;
+const FALLBACK_MS = 5 * 60 * 1000;   // review 4: a hanging `defaults` (2 s timeout) must not stall every create
 function read(o) {
-  if (!o && cached !== undefined) return cached;
-  if (!o) { const got = read(source || {}); if (got.sure) cached = got; return got; }
+  if (!o && cached !== undefined && (cached.sure || Date.now() - fallbackAt < FALLBACK_MS)) return cached;
+  if (!o) { const got = read(source || {}); cached = got; fallbackAt = got.sure ? 0 : Date.now(); return got; }
   const opts = o;
   const env = opts.env || process.env;
   const forced = normalise(env.AGENT_WORKFORCE_PERSON_LOCALE);
@@ -127,7 +129,11 @@ function tellAgent(sessionName, roster, opts) {
       };
     }
     const got = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? { tag: opts.tag, sure: opts.sure !== false } : read();
+    // Nothing to do (a read that is not sure changes nothing): told, without touching the file (review 4: no boot noise).
+    if (!got.sure) return { state: projects.TOLD.TOLD, because: null };
     const current = instructions.read(sessionName);
+    // English with no file, or one we may not change: there is no block to remove, so nothing to report either.
+    if (!blockBody(got.tag) && !current.exists) return { state: projects.TOLD.TOLD, because: null };
     if (!current.exists && !current.editable) {
       return { state: projects.TOLD.COULD_NOT, because: current.because || 'it keeps its instructions somewhere we cannot safely change' };
     }
@@ -170,4 +176,4 @@ function syncEveryone(roster, opts) {
   return told;
 }
 
-module.exports = { _resetForTests: (src) => { cached = undefined; source = src || null; }, START, END, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
+module.exports = { _resetForTests: (src) => { cached = undefined; fallbackAt = 0; source = src || null; }, _ageFallbackForTests: () => { fallbackAt -= FALLBACK_MS; }, START, END, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };

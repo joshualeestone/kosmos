@@ -73,3 +73,12 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   caching, each red.
 - Kept as a known cosmetic: moving the block back to the end drops the blank line before the block that followed it
   (shared removeBlock behaviour).
+
+## Review 4 (blind, sonnet)
+- A failed Mac read is kept 5 minutes (FALLBACK_MS) before `defaults` is asked again, so a hanging `defaults` (2 s
+  timeout) costs at most one stall per 5 minutes, not one per create; a sure read is kept for the process.
+- Nothing to do is TOLD without touching the file: an unsure read, or a sure English read for an agent with no
+  instructions file. So an English Mac's boot log carries no "could not refresh ... your language" line for a no-op.
+- Documented, not changed: only the FIRST preferred language counts (an English-first list with Spanish second gets
+  no block), and a block added by hand on a sure-English Mac is removed at the next boot, as every managed block is.
+- Mutations: no negative cache, a fallback kept forever, the English no-file noise back: each reds.

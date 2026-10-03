@@ -197,16 +197,31 @@ test('#5050 review 2: a sure read never vouches for an agent (the sweep still re
   } finally { board.restore(); }
 });
 
-test('#5050 review 3: only a sure read is kept for the process; a fallback is read again', () => {
-  // A Mac whose defaults read fails (a busy boot), then answers.
+test('#5050 review 3/4: a sure read is kept for the process; a fallback is kept 5 minutes, then read again', () => {
+  // A Mac whose defaults read fails (a busy boot or a hang), then answers.
   let macAnswer = null;
-  const src = { env: {}, platform: 'darwin', intl: 'en-US', run: () => { if (!macAnswer) throw new Error('timed out'); return macAnswer; } };
+  let calls = 0;
+  const src = { env: {}, platform: 'darwin', intl: 'en-US', run: () => { calls += 1; if (!macAnswer) throw new Error('timed out'); return macAnswer; } };
   try {
     pl._resetForTests(src);
     assert.deepEqual(pl.read(), { tag: 'en-US', sure: false }, 'CONTROL: the first read is the fallback');
     macAnswer = '(\n    "es-MX"\n)\n';
-    assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true }, 'a fallback read was kept, so the Mac answering later was ignored');
+    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false }, 'a fallback was not kept: a hanging defaults would stall every create');
+    assert.equal(calls, 1, 'defaults was asked again inside the window');
+    pl._ageFallbackForTests();
+    assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true }, 'a fallback was kept past its window, so the Mac answering later was ignored');
     macAnswer = '(\n    "ja-JP"\n)\n';
     assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true }, 'a sure read was not kept for the process');
+    assert.equal(calls, 2);
   } finally { pl._resetForTests(); }
+});
+
+test('#5050 review 4: nothing to do is told without touching the file (no boot noise on an English Mac)', () => {
+  const board = fleet.install([fleet.agent('nofile')]);   // ours, but it has no instructions file
+  try {
+    assert.equal(pl.tellAgent('nofile', board.roster, { tag: 'en-US', sure: true }).state, projects.TOLD.TOLD, 'English with no file reported a failure');
+    assert.equal(pl.tellAgent('nofile', board.roster, { tag: 'es-MX', sure: false }).state, projects.TOLD.TOLD, 'an unsure read reported a failure');
+    // CONTROL: a sure non-English read for an agent with no file still says it could not.
+    assert.equal(pl.tellAgent('nofile', board.roster, { tag: 'es-MX', sure: true }).state, projects.TOLD.COULD_NOT);
+  } finally { board.restore(); }
 });
