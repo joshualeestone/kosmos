@@ -9,9 +9,11 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
   RESERVED_NAMES, 45 names), or the board this app loaded) and the file is from its origin.
 - Refused and said: a download from a page that is not the board (any mode), an attachment or an
   unshowable file from anywhere else (these, and a download WebKit stops, are not said while one is on screen or for 5 seconds after it is dismissed), a non-2xx answer, a failed save (these always).
+- Asked first: a Kosmos+ computer's page saves only after the person allows downloads from that
+  computer (once; Allow kept, Don't Allow for this run). This computer's own board is never asked.
 - Destination: ~/Downloads, safe unique name; quarantine mark with origin-only URLs; a file that
   cannot be marked is kept and the person is told.
-- Measured live: `--kosmos-app-download-selftest`, 17 rows, run at bundle build (loud skip without
+- Measured live: `--kosmos-app-download-selftest`, 20 rows, run at bundle build (loud skip without
   a console). Pure rules: `--kosmos-app-mode-selftest`, 81 rows.
 - Known and filed: on a computer that runs agents, a plain link or a refused cross-origin redirect
   still navigates the window (#5169).
@@ -207,6 +209,22 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - Not changed: the reserved-name copy is checked by count in this repo, not against kosmos-relay
   (no cross-repo check runs here); a skipped no-console run is said on stderr only (rounds 4, 7).
 
+## Review round 17 changes (BLOCKER)
+- The premise of rounds 7 and 9 was false: whoever holds a Kosmos+ name runs that name's tunnel
+  client (the gate runs Mac-side, and kosmos-relay's README documents pointing it at your own
+  relay), so a hostile holder serves any page under its name. That was the condition this plan said
+  would change my mind. Now a Kosmos+ computer's page saves only after the person allows downloads
+  from that computer, as Safari asks per site: Allow is kept (UserDefaults, per host), Don't Allow
+  holds for this run, one question at a time per host. The loopback board is never asked.
+- Live rows (driven directly, a throwaway defaults suite): own board not asked; a Kosmos+ computer
+  asked once and a refusal holds; Allow kept for that computer only. Sabotage (always allow) turns
+  two rows red.
+- No page committed yet: an unshowable response is the app's own load, not reported as a file.
+- Comments: the WebKit-cancel case is quiet; only blob:/data: reach the not-from-this-board refusal
+  on a board page. The reserved-name test says what it checks (count and eight names).
+- Rejected: requiring a user gesture (#5165's own download is a script click) and trusting only a
+  computer reached from sign-in (reasoned from the open= intent, not measured).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
@@ -215,6 +233,6 @@ live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunn
 ## Tests (current)
 - Pure functions: `--kosmos-app-mode-selftest`, 81 rows in all (the #5167 ones: same-origin, board
   page, destination name).
-- Live: 17 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
+- Live: 20 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
 - Wiring: `native-app.download-5167.test.js`.

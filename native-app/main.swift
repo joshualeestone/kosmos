@@ -2733,10 +2733,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            over Kosmos+) is SAVED when the page is a board and the file is from its origin. */
         if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-            decisionHandler(.download)
+            mayDownload { decisionHandler($0 ? .download : .cancel) }
             return
         }
-        // A download this app will not save is refused, not loaded in the window instead. Said unless a frame
+        // A download this app will not save is refused, not loaded in the window instead (on a board page only a
+        // blob: or data: download gets here: WebKit makes a cross-origin `download` link a plain link). Said unless a frame
         // inside the page asked for it (that is only logged); one with no target frame (a new window) is said.
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
@@ -2781,7 +2782,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
                .trimmingCharacters(in: .whitespaces).lowercased() == "attachment" {
             if isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-                decisionHandler(.download)
+                mayDownload { decisionHandler($0 ? .download : .cancel) }
             } else {
                 logLine("#5167: refused an attachment that is not from this board")
                 tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
@@ -2793,14 +2794,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if !navigationResponse.canShowMIMEType, let url = navigationResponse.response.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-            decisionHandler(.download)   // a board file the window cannot show (a .zip) is saved, as Safari does
+            mayDownload { decisionHandler($0 ? .download : .cancel) }   // a board file the window cannot show (a .zip) is saved, as Safari does
             return
         }
         if !navigationResponse.canShowMIMEType {
             logLine("#5167: a response this window cannot show, not from this board, was not loaded")
-            tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
+            // No page yet (start-up, a crash, a switch to connect): the app's own load, not a file the person asked for.
+            if committedPageURL != nil { tellDownloadFailed(isBoardPage(committedPageURL, board: badgeOrigin)
                 ? "That file came from somewhere Kosmos does not save from, so it was not opened or saved."
-                : "This page is not a board Kosmos saves files from, so the file was not opened or saved.", quiet: true)
+                : "This page is not a board Kosmos saves files from, so the file was not opened or saved.", quiet: true) }
         }
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
     }
@@ -2808,8 +2810,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #5167: only --kosmos-app-download-selftest sets this, so a measured run never writes to the real Downloads.
     static var downloadsDirOverride: URL?
 
-    /// #5167: the page on screen, as of its last main-frame commit.
-    private var committedPageURL: URL?
+    /// #5167: the page on screen, as of its last main-frame commit. fileprivate for the download selftest.
+    fileprivate var committedPageURL: URL?
 
     /// #5167: both ways a navigation becomes a download hand it to this delegate, which picks where it goes.
     @objc(webView:navigationAction:didBecomeDownload:)
@@ -2829,6 +2831,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
     private var downloadsTold: Set<ObjectIdentifier> = []
+
+    /// #5167: whoever holds a Kosmos+ name runs that name's tunnel, so a Kosmos+ computer's page is only as
+    /// trusted as its holder. The first time one asks to save a file, the person is asked, as Safari asks per
+    /// site; Allow is kept (UserDefaults), Don't Allow for this run of the app, so a page cannot ask again and
+    /// again. This computer's own board, which this app loaded, is never asked about.
+    static var downloadPermissionPresenter: ((String, @escaping (Bool) -> Void) -> Void)?
+    static let allowedDownloadHostsKey = "KosmosAllowedDownloadHosts"
+    static var downloadDefaults = UserDefaults.standard   // the selftest swaps in a throwaway suite
+    private var refusedDownloadHosts: Set<String> = []
+    private var downloadAsks: [String: [(Bool) -> Void]] = [:]
+
+    fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {
+        guard let page = committedPageURL, isKosmosPlusURL(page), let host = page.host?.lowercased() else { then(true); return }
+        let allowed = AppDelegate.downloadDefaults.stringArray(forKey: AppDelegate.allowedDownloadHostsKey) ?? []
+        if allowed.contains(host) { then(true); return }
+        if refusedDownloadHosts.contains(host) {
+            logLine("#5167: downloads from \(host) were not allowed this time")
+            then(false); return
+        }
+        if downloadAsks[host] != nil { downloadAsks[host]!.append(then); return }   // one question at a time
+        downloadAsks[host] = [then]
+        let answer: (Bool) -> Void = { [weak self] yes in
+            guard let self = self else { return }
+            if yes {
+                AppDelegate.downloadDefaults.set(allowed + [host], forKey: AppDelegate.allowedDownloadHostsKey)
+            } else {
+                self.refusedDownloadHosts.insert(host)
+            }
+            logLine("#5167: downloads from \(host) \(yes ? "allowed" : "not allowed")")
+            for waiting in self.downloadAsks.removeValue(forKey: host) ?? [] { waiting(yes) }
+        }
+        if let ask = AppDelegate.downloadPermissionPresenter { ask(host, answer); return }
+        let alert = NSAlert()
+        alert.messageText = "Allow downloads from \(host)?"
+        alert.informativeText = "This Kosmos+ computer wants to save a file to your Downloads folder. Allow it only if it is one of your own computers."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Allow")
+        alert.addButton(withTitle: "Don't Allow")
+        if let window = webView?.window {
+            alert.beginSheetModal(for: window) { answer($0 == .alertFirstButtonReturn) }
+        } else {
+            answer(alert.runModal() == .alertFirstButtonReturn)
+        }
+    }
 
     /// #5167: a policy refusal (`quiet: true`) is not said while one is on screen, nor for this many seconds
     /// after the person dismisses it, whatever its cause (one window for all, not one per cause); the rest are logged,
@@ -2965,7 +3011,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         downloadPages.removeValue(forKey: ObjectIdentifier(download))
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
-        // it did not start (WebKit refusing a download on its own) is said like any other failure.
+        // it did not start (WebKit refusing a download on its own) is said as a quiet refusal; any other
+        // failure always.
         if downloadsTold.remove(ObjectIdentifier(download)) == nil {
             if dest == nil && (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled {
                 // WebKit stopped it before it had anywhere to go (measured for a redirect to another origin, where
@@ -5202,6 +5249,30 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
+            // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
+            // computer can be served here. A throwaway defaults suite, never the build box's own.
+            let suite = "kosmos-download-selftest-\(getpid())"
+            AppDelegate.downloadDefaults = UserDefaults(suiteName: suite)!
+            var asked: [String] = []
+            var reply = false
+            AppDelegate.downloadPermissionPresenter = { host, answer in asked.append(host); answer(reply) }
+            var got: [Bool] = []
+            d.committedPageURL = URL(string: "http://127.0.0.1:\(port)/")
+            d.mayDownload { got.append($0) }
+            row(asked.isEmpty && got == [true], "this computer's own board is never asked about")
+            d.committedPageURL = URL(string: "https://amy.kosmosplus.com/")
+            d.mayDownload { got.append($0) }
+            d.mayDownload { got.append($0) }
+            row(asked == ["amy.kosmosplus.com"] && got == [true, false, false],
+                "A KOSMOS+ COMPUTER IS ASKED ABOUT ONCE, and Don't Allow holds without asking again (asked \(asked), got \(got))")
+            reply = true
+            d.committedPageURL = URL(string: "https://josh.kosmosplus.com/#kst=x")
+            d.mayDownload { got.append($0) }
+            d.mayDownload { got.append($0) }
+            let kept = AppDelegate.downloadDefaults.stringArray(forKey: AppDelegate.allowedDownloadHostsKey) ?? []
+            row(asked.count == 2 && got.suffix(2) == [true, true] && kept == ["josh.kosmosplus.com"],
+                "Allow is kept for that computer only, and not asked again (kept \(kept))")
+            UserDefaults.standard.removePersistentDomain(forName: suite)
             row(saved("same.txt"), "a same-origin <a download> is saved")
             row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
             row(saved("ok2.txt"), "a same-origin redirect is followed and saved")
@@ -5230,7 +5301,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 17
+            let expected = 20
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
