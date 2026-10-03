@@ -18817,22 +18817,29 @@ function kplusRemote() {
 const KPLUS_FOLDER_ELSEWHERE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
 const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosmos runs on, not on this device, so it opens only there.';
 /* The download starts IN the person's click (an anchor clicked synchronously), so no browser can treat it as a
-   download nobody asked for. Alongside it one GET asks the same address and is cut off as soon as its headers
-   arrive: on a refusal the board's own sentence is shown through `say` (a kplusSayer), rather than left to the
-   browser's downloads; on success `say` gets `after`, a sentence the line was already showing (a cut-short list).
-   A GET rather than HEAD, so the answer does not depend on how a relay treats HEAD. */
-function kplusDownload(url, name, say, after) {
+   download nobody asked for. Alongside it the page looks at the same file with ?check=1 (the route's gates, then
+   204 with no body, so the look never moves the file again): on a refusal the board's own sentence is shown through
+   `say` (a kplusSayer), rather than left to the browser's downloads; on success `say` gets `after`, a sentence the
+   line was already showing (a cut-short list). `kind` is 'agent' (an agent's Files) or 'project'; the addresses are
+   written out here, once each, so every fetch on the page keeps a URL the route test can read. */
+function kplusDownload(kind, owner, name, say, after) {
+  const q = 'name=' + encodeURIComponent(name);
+  const base = kind === 'agent'
+    ? '/api/agent/' + encodeURIComponent(owner) + '/files/download?' + q
+    : '/api/project/' + encodeURIComponent(owner) + '/file-download?' + q;
   const a = document.createElement('a');
-  a.href = url;
+  a.href = base;
   a.download = String(name || '').split('/').pop() || '';
   a.hidden = true;
   document.body.appendChild(a);
   a.click();
   a.remove();
   if (say) say(after || '');
-  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-  fetch(url, { cache: 'no-store', signal: ctl ? ctl.signal : undefined }).then(async (res) => {
-    if (res.ok) { if (ctl) ctl.abort(); return; }
+  const look = kind === 'agent'
+    ? fetch('/api/agent/' + encodeURIComponent(owner) + '/files/download?check=1&' + q, { cache: 'no-store' })
+    : fetch('/api/project/' + encodeURIComponent(owner) + '/file-download?check=1&' + q, { cache: 'no-store' });
+  look.then(async (res) => {
+    if (res.ok) return;
     let said = '';
     try { const b = await res.json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
     if (say) say(asSentence(said) || 'That file could not be downloaded.');
@@ -36699,8 +36706,7 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   const who = CURRENT.sessionName;
   const msg = document.getElementById(msgId);
   if (kplusRemote()) {   // #5165: download it to this device
-    kplusDownload('/api/agent/' + encodeURIComponent(who) + '/files/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
-      kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
+    kplusDownload('agent', who, row.dataset.doc, kplusSayer(msg, () => CURRENT && CURRENT.sessionName === who));
     return;
   }
   let say;
@@ -59442,8 +59448,8 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
   const msg = document.getElementById('docs-msg');
   if (kplusRemote()) {   // #5165: download it to this device
     const forProject = PJ_CURRENT;
-    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/file-download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
-      kplusSayer(msg, () => PJ_CURRENT === forProject), PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : '');
+    kplusDownload('project', forProject, row.dataset.doc, kplusSayer(msg, () => PJ_CURRENT === forProject && PJ_VIEW === 'docs'),
+      PJ_DOCS_VIEW_PARTIAL ? pjDocsPartialHere() : '');
     return;
   }
   try {
@@ -60520,8 +60526,8 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   const msg = document.getElementById('pj-docs-msg');
   const forProject = PJ_CURRENT;
   if (kplusRemote()) {   // #5165: download it to this device
-    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/file-download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
-      kplusSayer(msg, () => PJ_CURRENT === forProject), PJ_DOCS_RAIL_PARTIAL ? pjDocsPartialHere() : '');
+    kplusDownload('project', forProject, row.dataset.doc, kplusSayer(msg, () => PJ_CURRENT === forProject),
+      PJ_DOCS_RAIL_PARTIAL ? pjDocsPartialHere() : '');
     return;
   }
   try {
@@ -60557,8 +60563,7 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   const msg = document.getElementById('pj-room-msg');
   const forProject = PJ_CURRENT;
   if (kplusRemote()) {   // #5165: download it to this device
-    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/file-download?name=' + encodeURIComponent(go.dataset.ref), go.dataset.ref,
-      kplusSayer(msg, () => PJ_CURRENT === forProject));
+    kplusDownload('project', forProject, go.dataset.ref, kplusSayer(msg, () => PJ_CURRENT === forProject));
     return;
   }
   try {

@@ -19,7 +19,7 @@
  *   W   every arm above again with the page served as a WINDOWS board serves it (the platform marker filled with
  *       win32, so the page speaks of File Explorer): the user who found this was on Windows (Josh, 12:48), and the
  *       rule must not depend on the board's platform.
- * Against web/index.html from before #5165, R1 and R2 FAIL (the click POSTs open-file from kosmos-remote.test):
+ * Against web/index.html from before #5165, R1 to R3 FAIL (the click POSTs open-file from kosmos-remote.test):
  *   FILEGET_HTML=/path/to/old/index.html node docs/browser-checks/render-remote-file-download-5165.js
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
@@ -66,8 +66,9 @@ async function openPage(engine, origin, platform) {
     const u = new URL(req.url());
     if (u.pathname === '/' || u.pathname === '/index.html') return route.fulfill({ status: 200, contentType: 'text/html', body: page });
     if (/\/(file-)?download$/.test(u.pathname)) {
-      /* The browser's own download (the anchor) is a NAVIGATION and is recorded as DOWNLOAD; the page's look at the
-         same address is a fetch and keeps its method, so R1 cannot pass on the look alone. */
+      /* The browser's own download (the anchor) is expected to arrive as a navigation and is recorded as DOWNLOAD;
+         the page's look at the same address is a fetch and keeps its method, so R1 cannot pass on the look alone. If an
+         engine reported the anchor otherwise, R1 would go RED, not pass falsely. */
       asked.push((req.isNavigationRequest() ? 'DOWNLOAD' : req.method()) + ' ' + u.pathname + u.search);
       if (u.searchParams.get('name') === GONE) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'that file is not there any more, or it was moved' }) });
       return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="f.bin"' }, body: 'PK' });
@@ -86,6 +87,7 @@ async function openPage(engine, origin, platform) {
     /* The page's own state, as if this project and this agent were open. */
     PROJECTS = [{ id: PROJECT, name: 'Deck room', folder: '/Users/someone/Kosmos/Deck room', agents: [] }];
     PJ_CURRENT = PROJECT;
+    PJ_VIEW = 'docs';   // the Documents view's message line writes only while it is the view showing
     CURRENT = { sessionName: AGENT };
   }, { PROJECT, AGENT });
   return { browser, pg, asked, errors };
