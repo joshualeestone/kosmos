@@ -20376,7 +20376,7 @@ if (require.main === module) {
     /* Review 17: a Mac whose language could not be read changes nothing (see personlanguage.read), which would otherwise
        look exactly like an English Mac. Say it once. */
     if (process.platform === 'darwin' && !personlanguage.read().sure) {
-      process.stderr.write('Kosmos could not read this Mac\'s language setting; agents\' language blocks were left as they are (it is read again at the next start)\n');
+      process.stderr.write('Kosmos could not read this computer\'s language setting; agents\' language blocks were left as they are (it is read again at the next start)\n');
     }
     const told = personlanguage.syncEveryone(safeRoster());
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
