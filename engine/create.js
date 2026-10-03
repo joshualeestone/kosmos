@@ -4871,8 +4871,8 @@ function createAgentInner(opts) {
              sentence a real person meets, and the worse of the two remedies
              is the one it was handing them. */
           because: 'we could not find Claude Code on this computer, so an agent made now could not start. '
-            + 'Connect a Claude account and Kosmos will set it up'
-            + (codexConnected ? ', or create this agent on OpenAI instead' : ''),
+            + 'Connect a Claude account in Settings, AI Models, and Kosmos will set it up.'
+            + (codexConnected ? ' Or create this agent on OpenAI instead.' : ''),
           alternative: codexConnected
             ? { offered: true }
             /* 'not on this computer' covers a stripped file too (#1616), the same slightly-false
