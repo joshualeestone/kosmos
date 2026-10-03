@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (24 after the reviews below), plus three create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (24 after the reviews below), plus four create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -209,3 +209,10 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   "Simplified Chinese", es-MX still "Spanish" (the tag beside it keeps the region). Supersedes the review-5 "known"
   note. Test with a control; mutation (base language only) reds.
 - Two pasted blocks on an English Mac now say "remove them", not "keep one".
+
+## Review 20 (blind, sonnet)
+- On an English Mac, a language section that came in with pasted instructions is taken out at create AND a step says so
+  (ok: true, "took out a language section ... because this Mac is set to English"). Behavioural create test; mutation
+  (silent) reds.
+- Duplicates: no opt-out / destructive sure-English removal (reviews 8, 12, 16; stated on #5050, #5080), the defaults
+  stall (4, 15).
