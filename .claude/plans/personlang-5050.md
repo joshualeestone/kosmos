@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (9): the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (14 after the reviews below): the wording, English gives nothing, detection order, write/idempotent, English
 removes it byte for byte, the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -52,3 +52,15 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - "und" is no language; the language is read once per process.
 - Mutations (each restored, against a green baseline): a change to the file after the block at create, never moving
   it, always re-appending, "und" accepted, the runner unpinned, the sweep moved before About-you: each reds one test.
+
+## Review 2 (blind, sonnet)
+- A boot read that failed or timed out (Mac `defaults`) falls back to Node's locale, often en-US, which used to remove
+  the block from every agent. Now `read()` says whether the answer is sure (the override, or a Mac `defaults` answer)
+  or a fallback (Node's Intl locale): a fallback may ADD a block but never removes one, like the About-you sweep's
+  add-only boot. While building it I first named the flag `trusted`, which `tellAgent` already reads as "vouched for",
+  so a sure read would have skipped the agent guard; renamed to `sure`, and a test pins that a sure read still refuses
+  a stranger. Mutations: the fallback removing (red), `sure` vouching (red), Intl counted as sure (red).
+- Deferred, with reasons: the block says "from this computer's language setting" even on the Intl fallback (that is
+  still this computer's locale setting; the override is a test seam only); the block can sit mid-file until the next
+  boot (documented, resolved in review 1); a single `node --test` outside the runners is not pinned to English (the
+  same as every other runner-exported seam; those suites sandbox their workers).

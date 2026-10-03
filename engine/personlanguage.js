@@ -47,23 +47,30 @@ function macPreferred(run) {
 }
 
 /**
- * The person's locale: the override, else the Mac's preferred language, else Node's locale. `o` is a test seam
+ * The person's locale and how it was read: `{ tag, sure }`. The override and a Mac's `defaults` answer are sure;
+ * Node's Intl locale is a fallback (the region setting on Windows, LANG elsewhere, or a Mac whose `defaults` read failed
+ * or timed out), so it may ADD a block but never takes one away: one bad read at a busy boot must not strip every
+ * agent's block (review 2; the About-you sweep is add-only at boot for the same reason). `o` is a test seam
  * ({ env, platform, run, intl }); production passes nothing.
  */
 let cached;   // one read per process: the setting is read again at the next board start
-function detect(o) {
+function read(o) {
   if (!o && cached !== undefined) return cached;
-  if (!o) { cached = detect({}); return cached; }
+  if (!o) { cached = read({}); return cached; }
   const opts = o;
   const env = opts.env || process.env;
   const forced = normalise(env.AGENT_WORKFORCE_PERSON_LOCALE);
-  if (forced) return forced;
+  if (forced) return { tag: forced, sure: true };
   if ((opts.platform || process.platform) === 'darwin') {
     const mac = macPreferred(opts.run);
-    if (mac) return mac;
+    if (mac) return { tag: mac, sure: true };
   }
-  try { return normalise(opts.intl !== undefined ? opts.intl : Intl.DateTimeFormat().resolvedOptions().locale); } catch { return null; }
+  let tag = null;
+  try { tag = normalise(opts.intl !== undefined ? opts.intl : Intl.DateTimeFormat().resolvedOptions().locale); } catch { tag = null; }
+  return { tag, sure: false };
 }
+/** The person's locale (the tag alone). */
+function detect(o) { return read(o).tag; }
 
 /* English (any region), unknown, or unreadable: no block. */
 function isEnglish(tag) {
@@ -93,9 +100,10 @@ function blockBody(tag) {
 }
 
 /** `text` with the block for `tag` at its end, or without the block when the language is English. */
-function applyTo(text, tag) {
+function applyTo(text, tag, opts) {
   const body = blockBody(tag);
-  if (!body) return projects.removeBlock(text, START, END);
+  // English from a fallback read leaves an existing block alone (see read()); a sure English read removes it.
+  if (!body) return opts && opts.keep ? String(text == null ? '' : text) : projects.removeBlock(text, START, END);
   // Already the last thing in the file (or not there yet): replaced in place, or appended. Otherwise taken out and
   // appended again, so it ends the file. In place is byte-equal when nothing changed, so no write.
   const at = projects.findBlock(String(text == null ? '' : text), START, END);
@@ -115,7 +123,7 @@ function tellAgent(sessionName, roster, opts) {
           : 'we could not find an agent with exactly this name on this computer',
       };
     }
-    const tag = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? opts.tag : detect();
+    const got = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? { tag: opts.tag, sure: opts.sure !== false } : read();
     const current = instructions.read(sessionName);
     if (!current.exists && !current.editable) {
       return { state: projects.TOLD.COULD_NOT, because: current.because || 'it keeps its instructions somewhere we cannot safely change' };
@@ -130,7 +138,7 @@ function tellAgent(sessionName, roster, opts) {
         because: `its instructions contain ${found.pairs} Kosmos language blocks, so we cannot tell which is ours and did not change anything`,
       };
     }
-    const next = applyTo(current.text || '', tag);
+    const next = applyTo(current.text || '', got.tag, { keep: !got.sure });
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
     return { state: projects.TOLD.TOLD, because: null };
@@ -150,13 +158,13 @@ function syncEveryone(roster, opts) {
   if (!Array.isArray(roster)) {
     return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running' }];
   }
-  const tag = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? opts.tag : detect();
+  const got = opts && Object.prototype.hasOwnProperty.call(opts, 'tag') ? { tag: opts.tag, sure: opts.sure !== false } : read();
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
-    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, roster, { tag }) });
+    told.push({ agent: a.sessionName, ...tellAgent(a.sessionName, roster, { tag: got.tag, sure: got.sure }) });
   }
   return told;
 }
 
-module.exports = { _resetForTests: () => { cached = undefined; }, START, END, normalise, macPreferred, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
+module.exports = { _resetForTests: () => { cached = undefined; }, START, END, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };

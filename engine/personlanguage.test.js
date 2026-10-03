@@ -162,3 +162,37 @@ test('#5050: the test runners pin the language to English, so no test depends on
     assert.match(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /^export AGENT_WORKFORCE_PERSON_LOCALE=en\b/m, f);
   }
 });
+
+test('#5050 review 2: English from a fallback read never strips a block; a sure English read does', () => {
+  const original = '# Eve\n\nYou are Eve, who answers the post for the person.\n';
+  agentFile('eve', original);
+  const board = fleet.install([fleet.agent('eve')]);
+  try {
+    pl.tellAgent('eve', board.roster, { tag: 'es-MX', sure: true });
+    const withBlock = fileOf('eve');
+    assert.match(withBlock, /reads Spanish/, 'CONTROL: the block was written');
+    // A Mac whose `defaults` read failed falls back to Node's locale, often en-US: that must not remove anything.
+    assert.equal(pl.tellAgent('eve', board.roster, { tag: 'en-US', sure: false }).state, projects.TOLD.TOLD);
+    assert.equal(fileOf('eve'), withBlock, 'a fallback English read removed the block');
+    assert.equal(pl.tellAgent('eve', board.roster, { tag: 'en-US', sure: true }).state, projects.TOLD.TOLD);
+    assert.equal(fileOf('eve'), original, 'a sure English read did not remove the block');
+    // A fallback read can still ADD one (it is evidence of a non-English setting).
+    pl.tellAgent('eve', board.roster, { tag: 'pt-BR', sure: false });
+    assert.match(fileOf('eve'), /reads Portuguese/);
+  } finally { board.restore(); }
+  // Which reads are sure: the override and the Mac's defaults; Node's locale is not.
+  assert.equal(pl.read({ env: { AGENT_WORKFORCE_PERSON_LOCALE: 'es' }, platform: 'linux' }).sure, true);
+  assert.equal(pl.read({ env: {}, platform: 'darwin', run: () => '(\n    "es-MX"\n)\n' }).sure, true);
+  assert.equal(pl.read({ env: {}, platform: 'darwin', run: () => { throw new Error('timed out'); }, intl: 'en-US' }).sure, false);
+  assert.equal(pl.read({ env: {}, platform: 'win32', intl: 'es-ES' }).sure, false);
+});
+
+test('#5050 review 2: a sure read never vouches for an agent (the sweep still refuses a stranger)', () => {
+  agentFile('stray', '# Stray\n\nSomebody else\'s session with a long enough file.\n');
+  const board = fleet.install([fleet.stranger('stray')]);
+  try {
+    const out = pl.tellAgent('stray', board.roster, { tag: 'es-MX', sure: true });
+    assert.equal(out.state, projects.TOLD.COULD_NOT, 'a sure language read skipped the agent guard');
+    assert.doesNotMatch(fileOf('stray'), /reads Spanish/);
+  } finally { board.restore(); }
+});
