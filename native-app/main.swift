@@ -2779,6 +2779,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if !navigationResponse.canShowMIMEType {
             logLine("#5167: a response this window cannot show, not from this board, was not loaded")
+            tellDownloadFailed("That file came from somewhere Kosmos does not save from, so it was not opened or saved.", quiet: true)
         }
         decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
     }
@@ -2808,7 +2809,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
     private var downloadsTold: Set<ObjectIdentifier> = []
 
-    /// #5167: a policy refusal (`quiet: true`) is said at most once in this many seconds; the rest are logged,
+    /// #5167: a policy refusal (`quiet: true`) is said at most once in this many seconds, whatever its cause
+    /// (one window for all of them, not one per cause); the rest are logged,
     /// so a page clicking in a loop cannot stack sheets. Failures of a download the app took on are always
     /// said. The selftest sets it to 0 except for its burst arm.
     static var downloadQuietSeconds: TimeInterval = 5
@@ -2925,8 +2927,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // it did not start (WebKit refusing a download on its own) is said like any other failure.
         if downloadsTold.remove(ObjectIdentifier(download)) == nil {
             if dest == nil && (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled {
-                // WebKit stopped it before it had anywhere to go: measured for a redirect to another origin.
-                tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.")
+                // WebKit stopped it before it had anywhere to go (measured for a redirect to another origin).
+                tellDownloadFailed("The download stopped before it began, so nothing was saved.")
             } else {
                 tellDownloadFailed("The file could not be saved to Downloads (\(error.localizedDescription)).")
             }
@@ -5035,12 +5037,19 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=missing href=/missing download=missing.txt>h</a>"
                 + "<a id=zip href=/pack.zip>i</a>"
                 + "<a id=attstar href=/attstar>j</a>"
+                + "<a id=foreignzip href=http://localhost:\(port)/pack2.zip>k</a>"
+                + "<button id=frames onclick=\"document.body.insertAdjacentHTML('beforeend', '<iframe src=/attframe></iframe><iframe src=http://localhost:\(port)/attframe2></iframe>')\">l</button>"
                 + "<a id=foreign href=http://localhost:\(port)/foreign.txt download>d</a>"
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
                 + "<a id=last href=/last.txt download>f</a>"
                 + "<script>window.__probeReady = 1;</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
+        case "/attframe": return ok("Content-Disposition: attachment; filename=\"attframe.txt\"\r\n")
+        case "/attframe2": return ok("Content-Disposition: attachment; filename=\"attframe2.txt\"\r\n")
+        case "/pack2.zip":
+            let z = "PK not really a zip"
+            return "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: \(z.utf8.count)\r\nConnection: close\r\n\r\n" + z
         case "/attstar": return ok("Content-Disposition: attachment; filename*=UTF-8''%E6%96%87.txt\r\n")   // the board's own shape (server.js)
         case "/elsewhere":
             let page = "<!doctype html><meta charset=utf-8><a id=nb href=/nb.txt download>x</a><script>window.__probeReady = 1;</script>"
@@ -5136,7 +5145,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             row(saved("same.txt"), "a same-origin <a download> is saved")
@@ -5154,21 +5163,24 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(qmark.contains(";Kosmos;"), "a saved file carries THIS APP's quarantine mark (\(qmark))")
             let all = (try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []
             row(saved("\u{6587}.txt"), "the board's own attachment header (filename*=UTF-8'') is saved under its decoded name")
+            row(!saved("pack2.zip") && !leftBoard.contains("foreignzip"), "A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED, and the board stays")
+            row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 4, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, a BURST of three from a not-the-board page), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
-            row(told.contains { $0.contains("answered 404") } && told.contains { $0.contains("does not save from") },
+            row(told.count == 5, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, foreign .zip, a BURST of three from a not-the-board page; frames say nothing), and nothing else is (told \(told.count): \(told.joined(separator: " | ")))")
+            row(told.contains { $0.contains("answered 404") } && told.contains { $0.contains("stopped before it began") }
+                && told.contains { $0.contains("not opened or saved") } && told.contains { $0.contains("not a board") },
                 "and each is said in its own words")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
             // plain link, and a computer that runs agents loads every link in the window (#5169).
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (left the board on: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 15
+            let expected = 17
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } }
+        } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
