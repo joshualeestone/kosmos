@@ -57,3 +57,11 @@ Claude Code's safeguards menu; both are plausible, neither measured.
   now points you to Settings, AI Models, not an Accounts tab that does not exist." Title "Setup points to the right place".
 - Line 2 said "a new agent": the boot sweep (server.js #5050 block) refreshes EXISTING agents too. Now "your agents".
 - NITs left: #5101 title implies it was broken (it was, per Josh's live report); #5104 does not say "no buttons".
+
+## Review 3 (sonnet, confirmation, 05:11): NOT CONVERGED; 1 WARNING + 1 NIT, both taken
+- Line 2 read as a guarantee; fallbacks leave an agent in English (a full instructions file, an unsafe path). Now:
+  "agents are now told your language, so they start and post in it instead of English."
+- Line 1 NIT: a Gemini/Grok create with NO account is not refused at all, so "with no AI account" overclaimed for them.
+  Now conditional on a refusal: "When an agent cannot be created because its AI account is missing or not working,
+  Kosmos now points you to Settings, AI Models." (every refusal of that kind names it: create.js 3937-3940, 3966-3967,
+  4019, 4035, 4063, 4094).

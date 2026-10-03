@@ -4,12 +4,12 @@
     {
       "icon": "spark",
       "title": "Setup points to the right place",
-      "line": "Creating an agent with no AI account now points you to Settings, AI Models, not an Accounts tab that does not exist."
+      "line": "When an agent cannot be created because its AI account is missing or not working, Kosmos now points you to Settings, AI Models."
     },
     {
       "icon": "chat",
       "title": "Agents speak your language",
-      "line": "On a Mac set to another language, your agents now start and post in that language instead of English."
+      "line": "On a Mac set to another language, agents are now told your language, so they start and post in it instead of English."
     },
     {
       "icon": "swarm",
