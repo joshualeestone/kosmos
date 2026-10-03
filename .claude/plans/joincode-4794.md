@@ -48,3 +48,18 @@ A (computer already in): the existing request card (paintAsk askreq).
 - Allow refused because the code changed: "The code changed before you pressed Allow. Check the new one on <name>,
   then press Allow again." and the card repaints with the new code.
 Shots for Mona: both screens, light and dark, plus 390.
+
+## Review 5 (blind Opus, told to check every value against the tunnel source; all field shapes matched)
+- WARNING fixed: round 4's find-and-replace had also turned seven EMAIL one-time codes in server.test.js into "123 456";
+  reverted (coordinator util.rs makes those as six digits with no space).
+- WARNING fixed: a page loaded after the other computer's Allow never read the pairing, so a code still up never showed.
+  One read per page load when on and enrolled (PLUS_JOIN_PROBED); control arm proves only that read finds it.
+- WARNING fixed: "ran out" while held cannot come from the tunnel (a held round restarts and clears expired_unconfirmed,
+  pairing.rs owe_commitment). The real state is not held + confirm_expired: now shown, read every 60 s (it lasts until
+  this computer pairs again). The browser check's impossible held+expired fixture now uses held:false.
+- NIT fixed: not held with a code up, the line no longer tells the person to check the other screen (it shows no code).
+- NITs left: the engine shape fixture pairs a code with confirm_expired (it tests field filtering, not order);
+  peer_conflict and the round-lock timeout reach the page as escaped raw text.
+- New lines for Mona (not yet seen by her):
+  C (allowed, code still up): "If <name> showed this same code when you allowed it, press The codes match."
+  D (allowed, ran out): "This computer is connected, but the code ran out before it was matched here, so it does not trust <name> yet."

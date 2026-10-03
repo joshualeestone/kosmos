@@ -273,10 +273,16 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       jr = await readJoin();
       chk(confirmBody && confirmBody.code === '482 915' && /^Matched\. Now press Allow on homemac\./.test(jr.text) && jr.code === '482 915' && !jr.button,
         `${tag} #4794 waiting: "The codes match" posts the code shown; then "Matched. Now press Allow on homemac." and the code stays`, JSON.stringify({ confirmBody, jr }));
-      join = { ...join, join_code: '', confirmed: false, confirm_expired: true };
+      /* Review 5: the tunnel reports a code that ran out unconfirmed only once this computer is no longer held (a held
+         round restarts and clears it, pairing.rs owe_commitment), so the shape is connected, not held, no code. */
+      join = { ...join, held: false, join_code: '', confirmed: false, confirm_expired: true };
+      remoteNow = REMOTE;   // connected
       jr = await readJoin();
-      chk(jr.text === 'That code ran out. A new one is on its way.' && !jr.button && !jr.code, `${tag} #4794 waiting: a code that ran out says a new one follows, no button`, JSON.stringify(jr));
-      join = { ...join, failed: true };
+      chk(jr.shown && jr.text === 'This computer is connected, but the code ran out before it was matched here, so it does not trust homemac yet.' && !jr.button && !jr.code && jr.pill === 'Connected',
+        `${tag} #4794: allowed, then the code ran out unconfirmed: said, no button (review 5)`, JSON.stringify(jr));
+      /* Too many tries: still held, every attempt used, no code (the tunnel's failed). */
+      join = { ...join, held: true, failed: true };
+      remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
       jr = await readJoin();
       chk(jr.text === 'Too many tries. On homemac, press Not me on this request, then sign this computer in again.' && !jr.button,
         `${tag} #4794 waiting: too many tries says the recovery`, JSON.stringify(jr));
@@ -285,7 +291,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: false, failed: false, confirm_expired: false, confirmed: false, join_code: '246 810', on: 'homemac' };
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
-      chk(jr.shown && /^Check that homemac shows this same code\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
+      chk(jr.shown && /^If homemac showed this same code when you allowed it, press The codes match\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
         `${tag} #4794: allowed but not yet confirmed: the code and The codes match stay (the pill says Connected, the sentence stays away)`, JSON.stringify(jr));
       /* By the page's clock a code older than the tunnel's 10 minutes is shown as run out, even if rounds keep failing. */
       await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; });
@@ -299,6 +305,15 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       remoteNow = REMOTE;
       jr = await readJoin();
       chk(!jr.shown && jr.pill === 'Connected', `${tag} #4794 CONTROL: connected, no pairing block`, JSON.stringify(jr));
+      /* Review 5: a page loaded AFTER the other computer's Allow, with the code still up. Nothing earlier on this page has
+         an answer, so only the one read on load can find it. CONTROL first: with that read already spent, it stays hidden. */
+      join = { ...join, held: false, confirmed: false, confirm_expired: false, failed: false, join_code: '135 790', on: 'homemac' };
+      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_PROBED = true; PLUS_JOIN_CODE_AT = 0; });
+      jr = await readJoin(); jr = await readJoin();
+      chk(!jr.shown, `${tag} #4794 CONTROL: without the read on load, a reloaded page never finds the code (review 5)`, JSON.stringify(jr));
+      await page.evaluate(() => { PLUS_JOIN = null; PLUS_JOIN_PROBED = false; PLUS_JOIN_CODE_AT = 0; });
+      jr = await readJoin(); jr = await readJoin();
+      chk(jr.shown && jr.code === '135 790' && jr.button && jr.pill === 'Connected', `${tag} #4794: reloaded after the Allow, the code and The codes match come back (review 5)`, JSON.stringify(jr));
       /* Not me on a computer joining names it the way its sheet did (review round 5). */
       pending = [{ device_id: 'd-pc2', name: 'Laptop2', code: 'M5-N6', first_seen: now() - 20, joining_computer: 'laptop2' }];
       await page.evaluate(() => pollAsk());
