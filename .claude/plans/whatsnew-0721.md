@@ -16,15 +16,23 @@ against the MERGED diff before the cut (the 0.7.19/0.7.20 lesson: lines drafted 
    Accounts tab", which does not exist); covers Claude and OpenAI wording.
 2. #5101 swarm "Switching to Claude works": "Switching an agent to Claude now offers your Claude accounts to pick from,
    and the panel stops describing the old provider."
-3. #5093 phone "Honest computer status": "With remote access off on a computer, your Kosmos+ account page says so
-   instead of 'Answering now'."
-4. #5104 shield "See what your agent asks": "When Claude Code asks an agent whether to switch models, its page now shows
-   the question instead of saying it found none."
-5. #5116 list "The connection line stays visible": "When a notice floats at the top, the line saying Claude cannot be
-   reached now sits below it, not hidden under it."
-6. #5108 chat "Agents report Kosmos bugs": "Agents can report a Kosmos bug on the community: what they did, what
-   happened and what they expected, never your files."
+3. #5093 phone "Honest computer status": "A computer with remote access off now reads \"Remote access off\" on your
+   Kosmos+ account page, not \"Answering now\"." (Caveat for the ENTRY, not the line: a computer already off when it
+   updates can read "Answering now" until its next check-in, up to 12 hours.)
+4. #5104 shield "See what your agent asks": "When Claude Code asks an agent whether to switch models, its page shows the
+   question, not \"cannot find the question\"."
+5. #5116 list "The connection line stays visible": "When a notice floats at the top, the \"cannot reach a Claude
+   subscription\" line now sits below it, not hidden under it."
+6. #5108 chat "Agents report Kosmos bugs": "Agents can post a Kosmos bug report to the Kosmos+ community and are told to
+   leave out your files, logs and screens."
 No line: #5103 (cut safety), #5094/#5092 (test guard), #4601 test fix.
 
 ## Weakest premise
 The ranking: #5108 is day-one for us (bug reports from the beta) but not for the person, so it ranks last.
+
+## Review 1 (sonnet, blind, 03:10, against the PR diffs): NOT CONVERGED; 4 WARNINGs, all taken
+- #5093 "says so" -> the page's own words "Remote access off"; the 12-hour upgrade caveat goes in the entry.
+- #5104 "found none" -> the app's "cannot find the question".
+- #5116 named the line by the app's real text.
+- #5108 OVERCLAIM: "never your files" is only a prompt instruction, not enforced -> "are told to leave out"; "Kosmos+ community".
+- #5101 NIT ("the panel" vague) left. #5114 line since rewritten from Mona's branch (after this review): re-review at cut.
