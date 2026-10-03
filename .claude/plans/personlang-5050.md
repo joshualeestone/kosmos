@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (18 after the reviews below), plus one create test in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (19 after the reviews below), plus one create test in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -117,3 +117,11 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - Deferred: a sure English read from the override strips the block at boot, a wider reach than the add-only About-you
   sweep. The override is a test seam (production boards run under launchd with a fixed env); the Mac `defaults`
   answer is the person's own first language. The create-time size-limit step was deferred in review 6.
+
+## Review 9 (blind, opus)
+- MEASURED the mid-file position the block spends time in between boots (a block added behind it, or the person's
+  note): the branch's block placed at 64% of zz-test-4491's 7,670-word file, the person's own note last, April's setup
+  exactly. Probe: it quoted the last heading ("## A note from the person"), so the file is loaded. Result: Spanish 2/2.
+  So the end position is what April measured, and the mid-file gap between boots is measured too, not assumed.
+- Moving the block strips only newlines before it, so a person's markdown hard break (two trailing spaces) survives.
+- The header says a failed read is retried after FALLBACK_MS (5 minutes); the plan's test count is 19.

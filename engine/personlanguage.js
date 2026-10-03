@@ -13,13 +13,14 @@
  *
  * The language comes from this computer's setting: on a Mac the first preferred language (`defaults read -g
  * AppleLanguages`), or the AGENT_WORKFORCE_PERSON_LOCALE override (the test runners set it to en; a Settings picker is
- * not built). A sure read (either of those) is kept for the process, the override included; a failed one is retried. Only those two act. Node's Intl locale is the only other source, and it is ICU's user locale (the
+ * not built). A sure read (either of those) is kept for the process, the override included; a failed one is retried
+ * after FALLBACK_MS (5 minutes). Only those two act. Node's Intl locale is the only other source, and it is ICU's user locale (the
  * REGION setting on Windows, LANG on Linux), not the display language, so it neither adds nor removes a block: off a
  * Mac, and on a Mac whose read failed, an agent's file is left exactly as it is. A sure English read writes no block
  * and removes one an agent already has.
  *
  * Where it sits: writing the block takes it out and appends it again, so it ends the file, where April measured it
- * (top of file was 2/2 too; mid-file is untested). A block added later goes behind it until the next board start,
+ * (top of file was 2/2 too; mid-file, at 64% of a 7,670-word file, was Spanish 2/2 on 10-02). A block added later goes behind it until the next board start,
  * whose sweep runs last and moves it back.
  */
 
@@ -121,7 +122,7 @@ function applyTo(text, tag, opts) {
      (review 7). In place is byte-equal when nothing changed, so no write. */
   if (!after.trim() || !onlyManaged(after)) return projects.spliceBlock(str, body, START, END);   // already last, or the person's words follow
   // Cut exactly the block, then rejoin what was before and after it with one blank line, and append it again.
-  const before = str.slice(0, at.start).replace(/\s+$/, '');
+  const before = str.slice(0, at.start).replace(/\n+$/, '');   // newlines only: the person's last line stays exactly as written
   const rest = after.replace(/^\s+/, '');
   const joined = (before + (rest ? (before ? '\n\n' : '') + rest : '')).replace(/\s+$/, '') + '\n';
   return projects.spliceBlock(joined, body, START, END);
