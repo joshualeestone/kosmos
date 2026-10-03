@@ -30,3 +30,15 @@ and the original modify control red; S3 (no skip) -> the skip, note and default-
 Replayed on the REAL Mortals liukang plist (copied read-only): live-owned under /Users/mortalkombat/work/workers,
 not under another root. 10 shell tests touching run-tests.sh pass (test-install.sh needs dist/, same on main);
 23 node files touching run-tests.sh: 541/0.
+
+## Review log
+- Review 1 (opus, blind): 0 B, 1 W, 5 N. W named worlds (<world>/workers) and connected-folder agents also write
+  plists to the shared LaunchAgents; restarting one mid-suite still reds -> ACCEPTED, documented in the lib comment
+  (a false red, the safe direction; widening means reading the worlds registry and recorded dirs from the shell).
+  N1/N2 comments made honest (the AGENT_WORKFORCE_WORKERS sandbox is a convention; #3605's real reach and its
+  residual hole named). N3 no notes file -> live root "/" turns the skip off (a skip is never silent); leg uses a
+  one-segment WorkingDirectory "/offagent", the only shape the off switch alone catches. N4 note wording:
+  "assumed to be the live install". N5 legs: a trailing-slash WorkingDirectory and an XML-escaped root both red.
+- Sabotages on the final code: S1 drop "was in snapshot" -> the NEW control reds; S2 everything live-owned -> all
+  shape controls red; S3 no skip -> skip, note and default-root legs red; S4 drop the empty-root check -> the "/"
+  leg reds (it did NOT before the leg used a one-segment path; fixed).

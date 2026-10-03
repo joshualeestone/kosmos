@@ -220,7 +220,8 @@ else
 fi
 rm -f "$D/com.kosmos.agent.ampagent.plist"
 # A live root of "/" turns the skip off (run-tests.sh passes it when it has no notes file, so no skip is silent).
-plist_wd "$D/com.kosmos.agent.offagent.plist" offagent "$LIVE/offagent"
+# WorkingDirectory "/offagent" is ONE segment under "/", the one shape the off switch alone must catch.
+plist_wd "$D/com.kosmos.agent.offagent.plist" offagent "/offagent"
 launchagent_snapshot "$D" > "$BEFORE"
 touch -t 204001010000 "$D/com.kosmos.agent.offagent.plist"
 if launchagent_leak_check "$D" "$BEFORE" "" "/" 2>/dev/null; then
