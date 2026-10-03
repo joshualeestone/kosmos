@@ -295,16 +295,275 @@ function emitPrefixes(src) {
   return out;
 }
 
+/* 🔑 AN EXACT COUNT OF THE SITES EXAMINED, PER CHECK, ONE LINE PER CHECK (#5071).
+   Each line is `'<check>.js': [<finding-emit sites>, <catch/launch sites>]`, and the
+   two scans below must match it file by file. It is an equality, not a floor, on
+   purpose: a floor whose slack exceeds the thing it guards is decoration, and a
+   matcher that drifted to zero would examine nothing, find nothing and pass. Every
+   line then goes red, which is what makes a clean `bad` list mean anything. Adding
+   a site is red until its line says so, which forces the new site to be checked for
+   quotability (the `bad` list) and the line written on purpose.
+   🛑 WHY ONE LINE PER CHECK, NOT ONE TOTAL. This used to be two integers
+   (EXPECTED_SITES, EXPECTED_CATCH_SITES) that every check-adding PR bumped, so any
+   two such PRs conflicted on the same line and the second needed a fresh full
+   validation after its rebase (#5071, same class as #3929). Two PRs now add two
+   different lines, which git merges. KEEP IT SORTED (a test below enforces it): an
+   appended line lands where every other PR appends too. Two new checks that sort
+   next to each other can still touch adjacent lines; that conflict is "keep both".
+   ONE LINE CAN COUNT IN BOTH SCANS: they tally different properties of a line, not a
+   partition, so a single-line top-level `.catch((e) => console.error('FAIL  x threw: ' + e))`
+   is [1, 1] on its own. That is not double counting.
+   The history of the old totals is in git, not here. */
+const SITE_COUNTS = {
+  'contrast.js': [0, 1],
+  'emoji-picker-2254.js': [1, 0],
+  'mobile-shots.js': [3, 0],
+  'named-controls.js': [0, 1],
+  'regress-a-night.js': [0, 1],
+  'render-account-badge-1921.js': [1, 1],
+  'render-account-dup-reauth-2584.js': [1, 1],
+  'render-account-name-2095.js': [1, 1],
+  'render-account-problem-3723.js': [2, 1],
+  'render-accounts-openai.js': [1, 1],
+  'render-acct-stop-focus-4271.js': [1, 1],
+  'render-addmem-flash-2429.js': [1, 0],
+  'render-adopt-1531.js': [1, 0],
+  'render-alltasks.js': [1, 0],
+  'render-assistant-bubble-3034.js': [2, 0],
+  'render-assistant-hosted-3660.js': [2, 0],
+  'render-autohello-2686.js': [0, 1],
+  'render-autohello-switch-2716.js': [0, 1],
+  'render-board-signin-403-2023.js': [1, 0],
+  'render-boot-no-flash.js': [1, 1],
+  'render-brief-note-agents.js': [1, 0],
+  'render-bubblepop-2407.js': [1, 0],
+  'render-build-marker-2066.js': [1, 1],
+  'render-busy-line.js': [1, 1],
+  'render-chatbox-phone-4108.js': [1, 0],
+  'render-chatgpt-green-4064.js': [1, 0],
+  'render-chatgpt-signin-no-name-2913.js': [1, 1],
+  'render-claude-connect-choice-2433.js': [1, 1],
+  'render-claude-login-green-3997.js': [1, 0],
+  'render-codex-account-picker-2811.js': [1, 2],
+  'render-codex-hooks-4607.js': [1, 0],
+  'render-community-industry-4375.js': [1, 1],
+  'render-community-switch-4288.js': [1, 1],
+  'render-composer-caret-4585.js': [2, 1],
+  'render-composer-reset.js': [1, 0],
+  'render-composer-stroke.js': [2, 2],
+  'render-conn-ask-4451.js': [1, 0],
+  'render-conn-top-3708.js': [1, 1],
+  'render-connect-skip.js': [1, 0],
+  'render-connlost-reconnect-3410.js': [2, 1],
+  'render-create-form.js': [1, 0],
+  'render-create-made.js': [1, 0],
+  'render-create-openai-model-2140.js': [1, 1],
+  'render-create-prefs-3081.js': [1, 1],
+  'render-createnav-2190.js': [1, 1],
+  'render-detail-header-1841.js': [1, 0],
+  'render-detail-openai-model-2140.js': [1, 1],
+  'render-device-signed-out-401-718.js': [1, 0],
+  'render-dialog-gutter-4506.js': [3, 2],
+  'render-disconnect-stop-2570.js': [2, 1],
+  'render-dm-emoji-3744.js': [2, 1],
+  'render-dm-owes-4340.js': [1, 1],
+  'render-dm-reactions-3650.js': [1, 1],
+  'render-dm-sideways-3969.js': [1, 0],
+  'render-emoji-mute-2357.js': [1, 1],
+  'render-fed-external-3311.js': [2, 0],
+  'render-fed-plus-gate.js': [2, 2],
+  'render-fields.js': [2, 0],
+  'render-file-preview-4930.js': [1, 0],
+  'render-first-run.js': [1, 0],
+  'render-firstrun-agy-4081.js': [3, 2],
+  'render-firstrun-choice-4356.js': [2, 0],
+  'render-firstrun-grok-3386.js': [1, 0],
+  'render-firstrun-import-1652.js': [1, 0],
+  'render-firstrun-keyed-connect-3658.js': [1, 1],
+  'render-firstrun-model-continue-2134.js': [1, 1],
+  'render-firstrun-openai-connectbox-2241.js': [1, 1],
+  'render-firstrun-openai-sub-2621.js': [2, 1],
+  'render-firstrun-s6-2037.js': [1, 1],
+  'render-firstrun-scan-on-grant-1652.js': [2, 1],
+  'render-firstrun-wizard-flow.js': [2, 1],
+  'render-found-undo.js': [1, 0],
+  'render-frame-phone-718.js': [1, 0],
+  'render-frnav-2647.js': [2, 2],
+  'render-gated-next.js': [1, 1],
+  'render-gemini-logo-3422.js': [1, 1],
+  'render-github-door.js': [1, 1],
+  'render-grid-card-width.js': [0, 1],
+  'render-grok-subscription-3391.js': [1, 1],
+  'render-gutter-return-4506.js': [2, 0],
+  'render-handoff-restart-3492.js': [1, 1],
+  'render-head-row.js': [1, 0],
+  'render-home-discovery-removed-3048.js': [2, 2],
+  'render-home-phone-718.js': [1, 0],
+  'render-import-add-inplace-2419.js': [1, 0],
+  'render-inline-field-errors-2606.js': [1, 0],
+  'render-keyed-install-3713.js': [3, 2],
+  'render-layer-gutter-4494.js': [3, 2],
+  'render-made-before.js': [1, 0],
+  'render-mobilenav-4823.js': [3, 1],
+  'render-model-restart-interstitial.js': [1, 1],
+  'render-model-spinners-2365.js': [1, 1],
+  'render-msg-counter-3403.js': [1, 0],
+  'render-muse-signin-3939.js': [2, 2],
+  'render-needsyou-dealarm-2808.js': [2, 2],
+  'render-newagent-paths-4556.js': [3, 2],
+  'render-no-conflict-3729.js': [2, 1],
+  'render-open-terminal-0644.js': [1, 1],
+  'render-openai-devicecode-3436.js': [1, 1],
+  'render-openai-install-refusal.js': [2, 2],
+  'render-openai-only-2096.js': [1, 1],
+  'render-optout-403-2020.js': [1, 1],
+  'render-orgchart-phone-718.js': [1, 0],
+  'render-owncode-4649.js': [1, 1],
+  'render-permission-slider-2620.js': [2, 2],
+  'render-personal-instr-4446.js': [1, 0],
+  'render-phone-offline-718.js': [2, 0],
+  'render-picker-provider-2097.js': [1, 1],
+  'render-picture-fit-4885.js': [1, 0],
+  'render-pj-clear-2575.js': [0, 1],
+  'render-pjadd-back-2850.js': [1, 0],
+  'render-pjcreate-nav-3134.js': [0, 1],
+  'render-pjmode-style-3495.js': [1, 0],
+  'render-pjmsg-prewrap-2294.js': [1, 1],
+  'render-pjsettings.js': [0, 1],
+  'render-plus-bar-3837.js': [2, 0],
+  'render-plus-blue-1615.js': [2, 2],
+  'render-plus-gutter-4542.js': [2, 1],
+  'render-plus-panel-3829.js': [1, 0],
+  'render-plus-stars-3778.js': [2, 1],
+  'render-profile-field-widths-2697.js': [2, 2],
+  'render-project-done-4583.js': [1, 0],
+  'render-project-members-3387.js': [1, 0],
+  'render-project-needsyou-2699.js': [2, 2],
+  'render-projects-badges-4730.js': [1, 0],
+  'render-projects-roadmap-3276.js': [1, 1],
+  'render-projects.js': [7, 0],
+  'render-provider-combobox-1040.js': [1, 1],
+  'render-provider-order-3651.js': [2, 1],
+  'render-push-718.js': [1, 0],
+  'render-pwa-installable-718.js': [2, 1],
+  'render-reactions-2255.js': [1, 0],
+  'render-reassign-restart-2829.js': [1, 0],
+  'render-reassign-update-3050.js': [1, 0],
+  'render-reauth-reach-1918.js': [1, 1],
+  'render-reload-toast.js': [1, 0],
+  'render-remote-file-download-5165.js': [2, 0],
+  'render-remove-force-2651.js': [1, 1],
+  'render-rename-4421.js': [1, 1],
+  'render-rename-followups-4423.js': [1, 1],
+  'render-restart-kloader-2831.js': [1, 1],
+  'render-restart-screen-4343.js': [3, 2],
+  'render-restore-dircheck-2615.js': [1, 1],
+  'render-richtext-room-2239.js': [1, 0],
+  'render-role-limit.js': [1, 0],
+  'render-role-order.js': [1, 0],
+  'render-room-busy-scope-2882.js': [1, 1],
+  'render-room-reply-3745.js': [2, 1],
+  'render-room-scroll.js': [1, 0],
+  'render-settings-403-2047.js': [1, 1],
+  'render-settings-agy-3874.js': [3, 2],
+  'render-settings-openai-goldbox.js': [1, 1],
+  'render-signin-visible-3892.js': [1, 0],
+  'render-sound-master-2436.js': [1, 1],
+  'render-special-purpose.js': [1, 0],
+  'render-subback-4586.js': [1, 0],
+  'render-subview-cleanup-3502.js': [1, 0],
+  'render-swarm-ui-3564.js': [2, 0],
+  'render-switch-claude-5091.js': [1, 1],
+  'render-talk-anchor-1926.js': [1, 1],
+  'render-talk.js': [1, 0],
+  'render-taskhover-4880.js': [1, 0],
+  'render-tasks.js': [0, 1],
+  'render-teamcreate-4557.js': [1, 1],
+  'render-thread.js': [1, 0],
+  'render-token-usage-2617.js': [2, 2],
+  'render-tophead-consolidated-2282.js': [1, 1],
+  'render-tophead-stable-2624.js': [1, 1],
+  'render-trust-restart-0644.js': [1, 1],
+  'render-type-to-focus-3283.js': [1, 0],
+  'render-update-abort-2055.js': [1, 0],
+  'render-update-toast.js': [0, 1],
+  'render-update-win32-manual.js': [1, 0],
+  'render-updates-stale.js': [1, 0],
+  'render-user-menu-3051.js': [2, 2],
+  'render-waiting-badge-4025.js': [3, 2],
+  'render-waiting-phone-718.js': [0, 2],
+  'render-workindicator-2146.js': [1, 1],
+  'render-world-import-2563.js': [1, 1],
+  'render-worldhide-2935.js': [1, 1],
+  'render-worldrename-1704.js': [1, 1],
+  'render-worldsw-abandon-2628.js': [1, 1],
+  'render-worldsw-height-2350.js': [1, 1],
+  'render-worldsw-lockout-3055.js': [2, 2],
+  'render-worldswitch-2238.js': [1, 1],
+};
+
+function assertSiteCounts(measured, slot, what) {
+  const wrong = [];
+  const files = new Set([...Object.keys(SITE_COUNTS), ...Object.keys(measured)]);
+  for (const f of [...files].sort()) {
+    const want = SITE_COUNTS[f] ? SITE_COUNTS[f][slot] : 0;
+    const got = measured[f] || 0;
+    if (want === got) continue;
+    wrong.push(SITE_COUNTS[f]
+      ? `${f}: ${got} ${what} sites matched, its SITE_COUNTS line says ${want}`
+      : `${f}: ${got} ${what} sites matched and it has no SITE_COUNTS line `
+        + `(add '${f}': [${slot === 0 ? got : 0}, ${slot === 1 ? got : 0}], in sorted order)`);
+  }
+  assert.deepEqual(wrong, [],
+    `${what} sites do not match SITE_COUNTS. The LIKELY cause is an emit site added or `
+    + 'removed without updating its line: check the diff first, and if that is it, fix the '
+    + `line deliberately (number ${slot + 1} of the pair is ${what}). If every line with a nonzero number in that slot is listed, `
+    + 'the matcher has drifted and examines nothing -- the dangerous cause, and the reason '
+    + 'this is an equality:\n  ' + wrong.join('\n  '));
+}
+
+test('SITE_COUNTS is sorted, one well-formed line per check, and names only checks that exist', () => {
+  const keys = Object.keys(SITE_COUNTS);
+  /* Code-unit order, the same as `LC_ALL=C sort` and JS's default sort. A locale sort
+     (glibc en_US ignores '-' and '.') puts some lines elsewhere. */
+  for (let i = 1; i < keys.length; i++) {
+    assert.ok(keys[i - 1] < keys[i],
+      `SITE_COUNTS is out of order: '${keys[i]}' must come before '${keys[i - 1]}' `
+      + '(code-unit order, as LC_ALL=C sort; keep it sorted so new lines do not all land in one place)');
+  }
+  /* 🛑 A DUPLICATE KEY IS INVISIBLE TO THE OBJECT: JS keeps the last one and Object.keys
+     shows it once, so a stale copy left by a "keep both" merge would sit there unread.
+     Count the keys in the SOURCE. */
+  const src = fs.readFileSync(__filename, 'utf8');
+  const start = src.indexOf('const SITE_COUNTS = {');
+  const end = src.indexOf('\n};', start);
+  assert.ok(start >= 0 && end > start, 'could not find the SITE_COUNTS table in this file to check it for duplicates');
+  const table = src.slice(start, end).split('\n').slice(1);
+  /* Any key spelling (either quote, any indent), so a reformatted copy cannot hide. */
+  const seen = table.map((l) => /^\s*(['"])(.+?)\1\s*:/.exec(l)).filter(Boolean).map((m) => m[2]);
+  const dups = seen.filter((k, i) => seen.indexOf(k) !== i);
+  assert.deepEqual(dups, [], 'SITE_COUNTS has a duplicate line (a merge kept both copies?): ' + dups.join(', '));
+  const odd = table.filter((l) => l.trim() && !/^  '[^']+': \[\d+, \d+\],$/.test(l));
+  assert.deepEqual(odd, [], "every SITE_COUNTS line is written `  '<check>.js': [n, n],`; these are not");
+  const onDisk = new Set(fs.readdirSync(DIR).filter((f) => f.endsWith('.js')));
+  for (const [f, pair] of Object.entries(SITE_COUNTS)) {
+    assert.ok(onDisk.has(f), `SITE_COUNTS names ${f}, which is not in docs/browser-checks`);
+    assert.ok(Array.isArray(pair) && pair.length === 2 && pair.every((n) => Number.isInteger(n) && n >= 0),
+      `SITE_COUNTS['${f}'] must be [findingSites, catchSites], got ${JSON.stringify(pair)}`);
+    assert.ok(pair[0] + pair[1] > 0, `SITE_COUNTS['${f}'] is [0, 0]; a check with no sites has no line`);
+  }
+});
+
 test('every emit site in every check prints a line the gate can quote', () => {
   const re = runnerReasonPattern();
   const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.js'));
   /* No file-count floor here. There was one, at `>= 40` against an actual 63,
      and by this file's own rule a floor with 23 of slack is decoration. The
      exact site count below is the real backstop: a broken directory read
-     yields zero sites, which is not 29. */
+     yields zero sites, and every SITE_COUNTS line then goes red. */
 
   const bad = [];
-  let sites = 0;
+  const perFile = Object.create(null);
   for (const f of files) {
     const src = fs.readFileSync(path.join(DIR, f), 'utf8');
     for (const prefix of emitPrefixes(src)) {
@@ -338,7 +597,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
          manufacture-work direction, which the structural rule above would
          otherwise reopen. */
       if (!/[^\s]/.test(prefix)) continue;
-      sites += 1;
+      perFile[f] = (perFile[f] || 0) + 1;
       /* A decoration needs a finding appended to become a line; a
          marker-carrying prefix already IS the start of one. */
       const printed = decorationOnly ? prefix + 'a sample finding' : prefix;
@@ -346,235 +605,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
     }
   }
 
-  /* 🔑 AN EXACT COUNT OF THE SITES EXAMINED, not a floor and not a file count.
-     A floor whose slack exceeds the thing it guards is decoration: at `>= 17`
-     this one was satisfied even with the stdout axis or the map axis dropped
-     entirely. And if the matcher drifts to zero the scan examines nothing,
-     finds nothing and passes, so the count is what makes a clean result below
-     mean anything. Update this number deliberately when you add or remove an
-     emit site. */
-  /* 🛑 ONE CONSTANT, USED BY BOTH THE ASSERTION AND ITS MESSAGE. Hardcoding the
-     number in the text made the message print "29 matched, expected 29" the
-     moment somebody changed the expected value -- found by deliberately firing
-     it rather than by reading it, which is the only way a failure message ever
-     gets tested. A message is untested prose until you have seen it fire. */
-  /* 🛑 27 IS AN EXACT COUNT ON MAIN, AND IT IS AN INTENTIONAL TRIPWIRE, NOT
-     BRITTLENESS. This file argues above that a floor whose slack exceeds the
-     thing it guards is decoration, so the count is an equality on purpose: it
-     goes RED the first time anyone adds a legitimate emit site, and that red is
-     the feature -- it forces the new site to be reviewed for quotability and the
-     number bumped deliberately, rather than a new unquotable emit slipping in
-     under a floor. When you add or remove an emit site, confirm the site is
-     quotable and update this number on purpose.
-     📌 Calibrated to current main. This guard found ELEVEN checks printing
-     unquotable failures on its FIRST run against main -- the class was 13 wide
-     and #1860 had fixed only 2. All 11 were fixed in the same PR that lifted this
-     file. A blind review then found render-first-run, whose only failure output
-     was an empty-prefix `console.log('\n' + ...)` this scan could not see; it was
-     rewritten to print each problem as `  FAIL  <problem>`, which is a SHAPE-1
-     site -- so it is now BOTH quotable and counted, taking the total to 28. `bad`
-     is empty and all 28 sites are quotable. The archaeology of the count's prior
-     values lives in that PR, not here. */
-  /* 34 after kosmos#2055 added render-update-abort-2055.js (one SHAPE-1 check()
-     finding-emit site, confirmed quotable), on top of main's 33. Was 33 after
-     kosmos#2020 added render-optout-403-2020.js (the same SHAPE-1 check() shape).
-     32 after kosmos#2023 added render-board-signin-403-2023.js, whose `check()`
-     helper prints `${pass ? 'PASS' : 'FAIL'}  ${name}` -- one SHAPE-1 finding-emit
-     site, confirmed quotable. Was 31 after kosmos#1531 added render-adopt-1531.js,
-     whose `check()` helper prints
-     `${pass ? 'PASS' : 'FAIL'}  ${name}` -- a SHAPE-1 finding-emit site, confirmed
-     quotable (the matcher counts it, so a red names the failing assertion). Was
-     30 after kosmos#1921 added render-account-badge-1921.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (the matcher counts it). Was 29 after kosmos#1918 added
-     render-reauth-reach-1918.js, whose loop is the same shape. */
-  /* 35 after kosmos#2047 added render-settings-403-2047.js, whose check() PASS/FAIL
-     loop is the same SHAPE-1 finding-emit site as its render-optout-403-2020 sibling,
-     confirmed quotable (the matcher counts it -- an unquotable emit would not raise
-     this number). */
-  /* 36 after kosmos#2066 added render-build-marker-2066.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-account-badge-1921's loop). */
-  /* 37 after kosmos#2096 added render-openai-only-2096.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-account-badge-1921). */
-  /* 38 after kosmos#2097/#2098 added render-picker-provider-2097.js (one SHAPE-1 FAIL loop).
-     39 after kosmos#2134 added render-firstrun-model-continue-2134.js (one more SHAPE-1 FAIL loop).
-     40 after kosmos#2140 added render-create-openai-model-2140.js (one more SHAPE-1 FAIL loop).
-     41 after kosmos#2140 Surface 2 added render-detail-openai-model-2140.js (one more SHAPE-1 FAIL loop). */
-  /* 42 after kosmos#2095 added render-account-name-2095.js, whose per-problem
-     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
-     finding-emit site, confirmed quotable (same shape as render-account-badge-1921). */
-  /* 43 after kosmos#1926 added render-talk-anchor-1926.js, whose per-problem
-     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
-     finding-emit site, confirmed quotable (same shape as render-account-name-2095). */
-  /* 44 after kosmos#2190 added render-createnav-2190.js, whose per-problem
-     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more SHAPE-1
-     finding-emit site, confirmed quotable (same shape). */
-  /* 45 after kosmos#2239 added render-richtext-room-2239.js, whose `bad()` helper
-     prints `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit
-     site, confirmed quotable (a `FAIL ` prefix the gate quotes). */
-  /* 46 after kosmos#2238 added render-worldswitch-2238.js, whose per-problem
-     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more SHAPE-1
-     finding-emit site, confirmed quotable (same shape). */
-  /* 47 after kosmos#2241 added render-firstrun-openai-connectbox-2241.js, whose per-problem
-     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more SHAPE-1
-     finding-emit site, confirmed quotable (same shape as render-firstrun-connect-box-2187). */
-  /* +1 after kosmos#2255 added render-reactions-2255.js, whose `bad()` helper prints
-     `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit site,
-     confirmed quotable (a `FAIL ` prefix the gate quotes). */
-  /* +1 more after the #2241 SETTINGS sibling render-settings-openai-goldbox.js, whose
-     per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more
-     SHAPE-1 finding-emit site, confirmed quotable. Both #2255 and this branch bumped from 48
-     to 49 independently; with both checks present the count is 50. */
-  /* 51 after install-flow-9screen: NET +1. It ADDED render-gated-next.js (whose `ok()`
-     helper prints `${cond ? '  ok  ' : ' FAIL '} ${what}` + the `${fails.length} FAILURES`
-     summary -- SHAPE finding-emit sites, confirmed quotable, a ` FAIL ` prefix the gate
-     quotes) and DELETED render-a11y-copy-1940 / render-a11y-gate-2125 / render-sleep-button
-     (their gate concern subsumed by render-gated-next). */
-  /* 52 and 53: two prior increments (51->52 and 52->53) landed here WITHOUT trail
-     comments -- 52 predates this branch, and 53 was #2329's render-worldrename-1704,
-     undocumented at merge. Noted so the trail is honest, not this branch's sites. */
-  /* 54 after kosmos#1652: added render-firstrun-import-1652.js, whose `bad()` helper
-     prints `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit
-     site, confirmed quotable (the same shape as render-reactions-2255's). */
-  /* 55 after kosmos#2146 added render-workindicator-2146.js, whose per-problem
-     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
-     finding-emit site, confirmed quotable (same shape as render-worldrename-1704). */
-  /* 56 after kosmos#1615 added render-plus-blue-1615.js, whose per-problem
-     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more
-     SHAPE-1 finding-emit site, confirmed quotable (a `  FAIL  ` prefix the gate
-     quotes; same shape as render-workindicator-2146). */
-  /* 57: render-plus-blue-1615.js ALSO carries a top-level
-     `.catch((e) => { console.error('FAIL  render-plus-blue-1615 threw: ' + ...) })`,
-     whose same-line `'FAIL  ...' +` is a second SHAPE-1 finding-emit site in that
-     one file (a deliberate quotable line so an unexpected throw in the body is not
-     the silent "(no FAIL line)" the gate exists to prevent). It is ALSO counted
-     once by the catch/launch scan below (34) — the two scans tally different
-     properties of the same line, not a partition. */
-  /* 59 after kosmos#1652: added render-firstrun-scan-on-grant-1652.js, which
-     carries TWO SHAPE-1 finding-emit sites, both confirmed quotable: its `bad()`
-     helper `console.log('FAIL  ' + n + '  --  ' + why)` (the same shape as
-     render-firstrun-import-1652's), and its top-level
-     `.catch((e) => { console.error('FAIL  ... threw: ' + ...) })` (the same shape
-     as render-optout-403-2020's, added after an iteration-1 challenge NIT so a
-     launch/spawn throw before the body's try is not the silent "(no FAIL line)"
-     the gate exists to prevent). That top-level catch is ALSO counted once by the
-     catch/launch scan below (35) -- the two scans tally different properties of
-     the same line, not a partition (same as render-plus-blue-1615 at 57). The
-     in-try `catch { bad('the check itself', …) }` adds no site (that scan matches
-     the top-level throw line shape, not a bad() call). */
-  /* 60 after kosmos#2350 added render-worldsw-height-2350.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (the matcher counts it, so a red names the failing assertion; same shape
-     as render-account-badge-1921's). Its launch-failure emit is counted once by the
-     catch/launch scan below (37), not here. */
-  /* 62 after kosmos#1652 added render-firstrun-wizard-flow.js (the first end-to-end
-     integration guard for the combined 1..9 first-run flow) -- merged alongside #2350's
-     +1 above -- which carries TWO SHAPE-1 finding-emit sites, both confirmed quotable:
-     its `bad()` helper `console.log('FAIL  ' + n + '  --  ' + why)` and its single-line
-     top-level `.catch((e) => { console.error('FAIL  ... threw: ' + ...) })` (same shapes
-     as render-firstrun-scan-on-grant-1652's). The catch is ALSO counted once by the
-     catch/launch scan below (37). */
-  /* 63 after kosmos#2357 added render-emoji-mute-2357.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
-     counted once by the catch/launch scan below (38), not here. */
-  /* 64 after kosmos#2294 added render-pjmsg-prewrap-2294.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
-     counted once by the catch/launch scan below (39), not here. */
-  /* 65 after kosmos#2365 added render-model-spinners-2365.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
-     counted once by the catch/launch scan below (40), not here. */
-  /* 66 after kosmos 0.6.44 added render-trust-restart-0644.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
-     counted once by the catch/launch scan below (41), not here. */
-  /* 67 after kosmos 0.6.44 added render-open-terminal-0644.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
-     counted once by the catch/launch scan below (42), not here. */
-  /* 68 after kosmos#2419 added render-import-add-inplace-2419.js, whose `bad()` helper
-     prints `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit
-     site, confirmed quotable (same shape as render-reactions-2255's). It self-boots via
-     an IIFE with an in-try `catch { bad('the check itself', …) }`, which the catch/launch
-     scan does NOT count (that scan matches the top-level throw-line shape, not a bad()
-     call), so EXPECTED_CATCH_SITES is unchanged. */
-  /* 69 after kosmos#2407 added render-bubblepop-2407.js, whose `bad()` helper prints
-     `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit site,
-     confirmed quotable (same shape as render-import-add-inplace-2419's). It self-boots
-     via an IIFE with an in-try `catch { bad('the check itself', …) }`, which the
-     catch/launch scan does NOT count, so EXPECTED_CATCH_SITES is unchanged. */
-  /* 70 after kosmos#2429 added render-addmem-flash-2429.js, whose `bad()` helper prints
-     `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit site,
-     confirmed quotable (same shape as render-bubblepop-2407's). Its in-try
-     `catch { bad('the check itself', …) }` adds no catch/launch site, so
-     EXPECTED_CATCH_SITES is unchanged. */
-  /* 71 after kosmos#2433 added render-claude-connect-choice-2433.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-settings-openai-goldbox's). Its launch-failure emit
-     is counted once by the catch/launch scan below (43), not here. */
-  /* 72 after kosmos#2436 added render-sound-master-2436.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-claude-connect-choice-2433's). Its launch-failure emit
-     is counted once by the catch/launch scan below (44), not here. */
-  /* 74 after kosmos#2458 added render-projects-map.js, whose per-problem
-     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
-     quotable (same shape as render-model-restart-interstitial.js's). Its launch-failure
-     emit is counted once by the catch/launch scan below (as the 46th), not here.
-     (73 was render-model-restart-interstitial's +1, which never got its own numbered
-     block above -- a pre-existing trail gap, noted rather than back-filled here.)
-     #3276: the org-chart Map was retired for the two-view (Grid + Roadmap) board, so
-     render-projects-map.js was deleted and render-projects-roadmap-3276.js added in its
-     place. The new check carries the SAME one SHAPE-1 loop + one launch catch, so this
-     count and the catch/launch count are UNCHANGED by the swap (measured, still green). */
-  /* 75/76 after kosmos#2617 added render-token-usage-2617.js, whose TWO literal-`FAIL `
-     emit lines are two SHAPE-1 finding-emit sites (same shape as render-permission-slider-2620's,
-     now on main): its `could not start a browser` launch catch and its top-level
-     `.catch(...) threw:` emit. Both are ALSO counted by the catch/launch scan below (+2 there).
-     Its ok() helper interpolates FAIL (empty literal prefix), so that is NOT counted -- matching
-     how every ok()-helper check on this page is treated. */
-  // +1: render-world-import-2563.js (#2563) -- its per-problem FAIL-emit loop is one SHAPE-1 finding-emit site (same shape as render-worldsw-abandon-2628); its launch catch is counted by the catch/launch scan below, not here.
-  // +1: render-device-signed-out-401-718 (#718 state 3) -- its closing `console.log('FAILED: ' + ...)` summary, SHAPE-1 and quotable, the same shape as render-board-signin-403-2023's; its check() PASS/FAIL line is the ternary-template form the scan does not count. MEASURED after rebasing onto main's 187 (-> 188). +1: render-brief-note-agents (Kano's state 7) -- its unknown-engine guard `console.log('FAIL  render-brief-note-agents: ENGINES names an unknown engine ...')`, SHAPE-1 and quotable, same as render-orgchart-phone-718's. MEASURED on main's 181 (-> 182). +1: render-reload-toast (#3955) -- its top-level catch's `console.log('FAIL  the check stopped: ' + ...)`, SHAPE-1 and quotable. MEASURED after merging main's 182 (-> 183). +1: render-chatbox-phone-4108 (#4108) -- its unknown-engine guard `console.log('FAIL  render-chatbox-phone-4108: ENGINES names an unknown engine ...')`, SHAPE-1 and quotable, same as render-orgchart-phone-718's. MEASURED on main's 186 (-> 187). // +3: render-firstrun-agy-4081 (#4081) -- its chk() PASS/FAIL line, its closing fail loop and its top-level `.catch`, all SHAPE-1 and quotable. MEASURED after merging main's 183 (-> 186). // +1: render-reload-toast (#3955) -- its top-level catch's `console.log('FAIL  the check stopped: ' + ...)`, SHAPE-1 and quotable. MEASURED after merging main's 182 (-> 183). // +1: render-brief-note-agents (Kano's state 7) -- its unknown-engine guard `console.log('FAIL  render-brief-note-agents: ENGINES names an unknown engine ...')`, SHAPE-1 and quotable, same as render-orgchart-phone-718's. MEASURED on main's 181 (-> 182). // +3: render-waiting-badge-4025 (#4025) -- its chk() PASS/FAIL line, its closing fail loop and its top-level `.catch`, all SHAPE-1 and quotable. MEASURED after merging main's 178 (-> 181). // +1: render-dm-sideways-3969 (#3969) -- its run-count guard `console.log(`FAIL  ran ${RAN} checks, expected ${want}`)`, SHAPE-4 like render-signin-visible-3892's. MEASURED after rebasing onto main's 177 (177 -> 178). // +1: render-projects (#3948) -- its consolidated-layout rail arm's `console.log(`  FAIL  #3948 ...`)`, the same template shape as the file's other FAIL lines. MEASURED (176 -> 177). // +1: render-projects (#3923) -- its Try again arm's `console.log(`  FAIL  #3923 ...`)`, the same template shape as the file's other FAIL lines. MEASURED after rebasing onto main's 175 (175 -> 176). // +1: render-frame-phone-718 (#718 row 5) -- its unknown-engine guard `console.log('FAIL  render-frame-phone-718: ENGINES names an unknown engine ...')`, SHAPE-1 and quotable, same as render-orgchart-phone-718's. MEASURED on main's 174 (-> 175). // +1: render-home-phone-718 (#718 row 6) -- its unknown-engine guard `console.log('FAIL  render-home-phone-718: ENGINES names an unknown engine ...')`, SHAPE-1 and quotable, same as render-orgchart-phone-718's. MEASURED on main's 173 (-> 174). // +1: render-signin-visible-3892 (#3892) -- its run-count guard `console.log(`FAIL  ran ${RAN} checks, expected ${want}`)`, a SHAPE-4 template carrying FAIL, quotable (this file's quote assertion accepted it; only the count moved). MEASURED (172 -> 173). // +3: mobile-shots (#718) -- its three `FAIL  mobile-shots: ...` lines (the top-level catch that carries a LEAK GUARD stop, the shots-could-not-be-taken summary, and the --strict overflow summary), each quotable by run_one's reason grep. The top-level catch sits on a separate line from its `.catch(` opener, so the catch/launch scan does not count it. MEASURED on main's 169 (-> 172). // +1: render-orgchart-phone-718 (#718) -- its unknown-engine guard `console.log('FAIL  render-orgchart-phone-718: ENGINES names an unknown engine ...')`, SHAPE-1 and quotable; its chk() PASS/FAIL line is the ternary-prefix form the scan does not count. MEASURED on main's 168 (-> 169). // +1: render-tophead-stable-2624 (#2624) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop, one SHAPE-1 site, same as render-tophead-consolidated-2282. MEASURED after rebasing onto main's 167 (167 -> 168). // +3: render-settings-agy-3874 (#3874) -- its chk() PASS/FAIL line, its closing fail loop and its top-level `.catch`, all SHAPE-1 and quotable. MEASURED (164 -> 167). // +2: render-fed-external-3311 (#3311), merged onto main's 162. // +2: render-plus-bar-3837 (#3837 F) -- its chk() FAIL line and its closing fail loop (SHAPE-1). MEASURED. // +1: render-plus-panel-3829 (#3829) -- its chk() PASS/FAIL line, SHAPE-1 and quotable. MEASURED after merging main (159 -> 160). // +2: render-room-reply-3745 (#3745) -- its closing `for (const f of fail) console.error('  FAIL  ' + f)` loop and its single-line top-level `.catch` emit, both SHAPE-1, quotable. MEASURED (157 -> 159). // +2: render-plus-stars-3778 (#3778) -- its chk() PASS/FAIL line and its top-level `.catch` `console.error('FAIL  render-plus-stars-3778: the check itself threw: ' + ...)`, both SHAPE-1 and quotable. MEASURED after merging main (155 -> 157). // +2: render-swarm-ui-3564 (#3564) -- its chk() FAIL line and its closing fail loop (SHAPE-1, as render-assistant-bubble-3034). MEASURED after merging main. // +1: render-openai-devicecode-3436 (#3436) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop, SHAPE-1 and quotable (same shape as render-firstrun-openai-sub-2621's); its launch catch is counted by the catch/launch scan below, and it has no top-level .catch. MEASURED after merging main (152 -> 153). // +2: render-dm-emoji-3744 (#3744) -- its chk() PASS/FAIL line and its top-level `.catch` `console.error('FAIL  render-dm-emoji-3744: the check itself threw: ' + ...)`, both SHAPE-1 and quotable. MEASURED after merging main (150 -> 152). // +2: render-account-problem-3723 (#3723) -- its closing `for (const f of fail) console.error('  FAIL  ' + f)` loop and its single-line top-level `.catch` emit, both SHAPE-1, quotable. MEASURED (148 -> 150). // +2: render-no-conflict-3729 (#3729) -- its chk() PASS/FAIL line and its per-failure `for (const f of fail) console.error('  FAIL  ' + f)` loop, SHAPE-1 and quotable. MEASURED (146 -> 148). // +3: render-keyed-install-3713 (#3713) -- its chk() PASS/FAIL line, its per-failure `for (const f of fail) console.error('  FAIL  ' + f)` loop, and its could-not-start-a-browser `console.error('FAIL  render-keyed-install-3713: ...')`, all SHAPE-1 and quotable. MEASURED after merging main (143 -> 146). // +2: render-assistant-hosted-3660 (#3660) -- its chk() FAIL line and its closing `for (const f of fail) console.error('  FAIL  ' + f)` loop, the same two SHAPE-1 sites as render-assistant-bubble-3034's. MEASURED after merging main (141 -> 143). // +2: render-connlost-reconnect-3410 (#3410) -- its closing `for (const f of fail) console.error('  FAIL  ' + f)` loop and its single-line top-level `.catch((e) => { console.error('FAIL  render-connlost-reconnect-3410: ' + ...) })`, both SHAPE-1, quotable; its chk() PASS/FAIL line is the ternary-prefix form the scan does not count. MEASURED (139 -> 141). // +1: render-conn-top-3708 (#3708) -- its chk() helper's `console.log((ok ? 'PASS  ' : 'FAIL  ') + label ...)` line, the same shape as render-help-tips-3574's; its single-line top-level `.catch` is counted by the catch scan below. MEASURED (138 -> 139). // +1: render-create-prefs-3081 (#3081) -- its single-line top-level `.catch((e) => { console.error('FAIL  render-create-prefs-3081: ' + ...) })`, SHAPE-1 concat, quotable; its chk() PASS/FAIL line is a ternary-prefix form the scan does not count. MEASURED (137 -> 138). // +2: render-assistant-bubble-3034 (#3034) -- its chk() helper's `console.log('FAIL  ' + label + ...)` and its closing `for (const f of fail) console.error('  FAIL  ' + f)` loop, both SHAPE-1 finding-emit sites (the same shapes as render-help-tips-3574's); its top-level `.catch((e) => { console.error(e); ... })` is the bare-object form the catch scan excludes, and it has no launch catch, so EXPECTED_CATCH_SITES is unchanged. MEASURED again after merging main. // +1: render-pjmode-style-3495 (#3495) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site (same shape as render-pjadd-back-2850's); its top-level `.catch` emit sits on a separate line from `.catch(` so it is counted nowhere, and it has no launch catch. MEASURED again after merging main. // +1: render-grok-subscription-3391 (#3391 part 2) -- its chk() helper's PASS/FAIL line, same shape as render-firstrun-keyed-connect-3658's. MEASURED (133 -> 134). // +1: render-dm-reactions-3650 (#3650). MEASURED as the count moving 132 -> 133 when the check was added; the quotability assertions in this file pass with it. // +1: render-firstrun-keyed-connect-3658 (#3658). MEASURED as the count moving 131 -> 132 when the check was added. // +2: render-provider-order-3651 (#3651). MEASURED as the count moving 129 -> 131 when the check was added; the quotability assertions in this file pass with it. // +1: render-msg-counter-3403.js (#3403) -- its bad() helper's `console.log('FAIL  ' + n + '  --  ' + why)` is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-type-to-focus-3283's bad()); its inner try/catch reuses that same bad() site, it has no could-not-start-a-browser launch catch (bare chromium.launch), and its async IIFE has no top-level `.catch`, so EXPECTED_CATCH_SITES is unchanged. MEASURED, not computed. // +1: render-push-718.js (#718) -- one SHAPE-1 finding-emit site, its final failed-list `failed.forEach((f) => console.log('  FAIL  ' + f.name + ...))`, confirmed quotable; its check() PASS/FAIL emit is an interpolation-first template (empty literal prefix) so NOT counted, and its top-level `.catch((e) => { console.error(e); ... })` is the bare-object crash form NOT counted by the catch/launch scan, so EXPECTED_CATCH_SITES is unchanged. MEASURED: 127 on current main plus this one = 128. // +1: render-subview-cleanup-3502 (#3502) -- its say() helper's `console.log('FAIL  ' + n + '  --  ' + (note || 'assertion failed'))` is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-composer-reset's bad() / render-type-to-focus-3283's); its `\n... FAILED` summary is empty-prefix (counted nowhere) and its bare-object top-level `.catch((e) => { console.error(e); ... })` is the runtime-stack form the catch/launch scan below deliberately excludes, so it adds no catch site. MEASURED, not computed. // -1: #3501 removed render-memory-words.js -- its per-problem FAIL-emit loop was one SHAPE-1 finding-emit site, MEASURED (127 on main minus this one). // +1: render-handoff-restart-3492 (#3492) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-restart-kloader-2831's); its launch catch is counted by the catch/launch scan below, and its top-level `.catch` emit sits on a separate line from `.catch(` so it is counted nowhere. MEASURED, not computed. // +1: render-gemini-logo-3422 (#3422) -- its per-problem `problems.forEach((p) => console.error('  FAIL  ' + p))` FAIL-emit loop is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-provider-combobox-1040's problems FAIL-emit loop); its launch catch is counted by the catch/launch scan below, and its async IIFE has no top-level `.catch`. MEASURED, not computed. // +2: render-pwa-installable-718 (#718) -- its per-problem `for (const p of problems) console.log('  FAIL  ' + p)` loop (SHAPE-1) AND its single-line top-level `.catch((e) => { console.error('FAIL  render-pwa-installable-718: ' + ...) })` (SHAPE-1 concat), both confirmed quotable; the top-level .catch is ALSO counted by the catch/launch scan (EXPECTED_CATCH_SITES). MEASURED, not computed. // +1: render-project-members-3387 (#3387 follow-up) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site (converted from the unquotable `console.log('problems:...')` blob the check shipped with); its `\n... FAILED` summary + top-level `.catch` are not per-finding `FAIL ` lines so counted nowhere. MEASURED. // +1: render-firstrun-grok-3386 (#3386) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-chatgpt-signin-no-name-2913); no launch catch, and its `\n... FAILED` summary + top-level `.catch` are not per-finding `FAIL ` lines so counted nowhere. MEASURED. // +2: render-composer-stroke (project composer stroke removal) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop AND its single-line top-level `.catch` emit `console.error('FAIL  render-composer-stroke: ' + ...)` are both SHAPE-1 finding-emit sites, confirmed quotable, same structure as render-user-menu-3051; its launch catch is counted only by the catch/launch scan below, not here. MEASURED, not computed. // +2: render-fed-plus-gate (#3330) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop and its `console.error('render-fed-plus-gate: ' + problems.length + ' problem(s)')` summary, same structure as render-openai-install-refusal; its launch catch + single-line top-level .catch are counted by the catch/launch scan below, not here. MEASURED, not computed. // +2: render-openai-install-refusal (Windows OpenAI install) -- its missing-button console.error('FAIL  render-openai-install-refusal: ...') and its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop, both SHAPE-1 quotable FAIL lines; its launch catch + single-line top-level .catch are counted by the catch/launch scan below. MEASURED, not computed. // +1: render-type-to-focus-3283 (#3283) -- its bad() helper's `console.log('FAIL  ' + n + '  --  ' + why)` is one SHAPE-1 finding-emit site (same shape as render-composer-reset's bad()); it has no launch catch and no top-level .catch (its inner try/catch uses the same bad() site). MEASURED. // +2: render-needsyou-dealarm-2808 (#2808) -- its r.error-path console.error and its fail.join console.error, both SHAPE-1 quotable FAIL lines (same shape as render-project-needsyou-2699's); its launch catch + single-line top-level .catch are counted by the catch/launch scan below, not here. MEASURED, not computed. // +2: render-user-menu-3051 (#3051) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop AND its single-line top-level `.catch` emit `console.error('FAIL  render-user-menu-3051: ' + ...)` are both SHAPE-1 finding-emit sites, confirmed quotable (the launch catch is counted only by the catch/launch scan below, not here). // +1: render-reassign-update-3050 (#3050) -- its chk() helper's PASS/FAIL console.log is one SHAPE-1 finding-emit site, the same shape as render-update-win32-manual.js's; its top-level `.catch` emit sits on a separate line from `.catch(` so it is MULTI-LINE and counted nowhere, and it has no launch catch. // +2: render-worldsw-lockout-3055 (#3055) -- its header `console.error('FAIL  render-worldsw-lockout-3055')` and its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop, both SHAPE-1 quotable FAIL lines (same shape as render-worldsw-abandon-2628's); its launch catch + top-level .catch are counted by the catch/launch scan below, not here. // +1: render-worldhide-2935 (#2935): landed on main's 106 (FAIL-emit loop). // +1 (#2811, rebased onto main's 105): render-codex-account-picker-2811's problems FAIL-emit loop; its launch catch + top-level .catch are counted by the catch/launch scan below, not here. MEASURED after the rebase, not computed. // +1: render-chatgpt-signin-no-name-2913 (#2913) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-firstrun-openai-sub-2621's); its launch catch is counted by the catch/launch scan below, and it has no top-level .catch. // +1: render-update-win32-manual.js (win32-update-check) -- its chk() helper's PASS/FAIL console.log is one finding-emit site, the same shape as render-updates-stale.js's. // +1: render-reassign-restart-2829 (#2829) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-pjadd-back-2850's); its top-level `.catch` emit sits on a separate line from `.catch(` so it is MULTI-LINE and counted nowhere, and it has no launch catch. // +1: render-pjadd-back-2850 (#2850) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-restart-kloader-2831's); its top-level `.catch` emit sits on a separate line from `.catch(` so it is MULTI-LINE and counted nowhere, and it has no launch catch. // +1: render-restart-kloader-2831 (#2831) -- its per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed quotable (same shape as render-model-restart-interstitial's); its launch catch is counted by the catch/launch scan below, and its top-level `.catch` emit sits on a separate line from `.catch(` so it is counted nowhere. // +1: render-room-busy-scope-2882 (#2882) -- its FAIL-reason emit (the fails-loop console.error); its launch catch is counted by the catch/launch scan below, not here. // MERGE(#2697 + #2699): base 95 + render-profile-field-widths-2697 (+2, now on main) + render-project-needsyou-2699 (+2). // +2: render-project-needsyou-2699 (#2699) - its r.error-path console.error and its fail.join console.error (its launch catch + top-level .catch are counted by the catch/launch scan below). // MERGE: main added render-remove-force-2651 (+1, its problems FAIL-emit loop) and this branch adds render-discovery-gate-2651 (+2), both land. // +2: render-discovery-gate-2651.js (#2651) -- its two SHAPE-1 FAIL-reason emits (the r.error-path console.error and the fail.join console.error); its launch catch + top-level .catch are counted by the catch/launch scan below, not here. // +1: render-remove-force-2651 (#2651): its problems FAIL-emit loop. // +2: render-frnav-2647.js (#2647), rebased onto main's 89. // +1: render-restore-dircheck-2615.js (#2615), rebased onto main's 88.   // +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (#2620) -- its launch catch + the final .catch() throw (the ok() helper's FAIL is interpolated -> not counted). +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b); // +2: render-profile-field-widths-2697 (#2697) - its r.error-path console.error and its fail.join console.error (its launch catch + top-level .catch are counted by the catch/launch scan below, not here). // MERGE: main added render-remove-force-2651 (+1, its problems FAIL-emit loop) and this branch adds render-discovery-gate-2651 (+2), both land. // +2: render-discovery-gate-2651.js (#2651) -- its two SHAPE-1 FAIL-reason emits (the r.error-path console.error and the fail.join console.error); its launch catch + top-level .catch are counted by the catch/launch scan below, not here. // +1: render-remove-force-2651 (#2651): its problems FAIL-emit loop. // +2: render-frnav-2647.js (#2647), rebased onto main's 89. // +1: render-restore-dircheck-2615.js (#2615), rebased onto main's 88.   // +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (#2620) -- its launch catch + the final .catch() throw (the ok() helper's FAIL is interpolated -> not counted). +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
-  // 189 -> 188 -> 189: render-chatbox-phone-4108 (#4108) was removed with its 0.7.01 revert (#4162, 32fc398a2) and re-landed for 0.7.03 (reland-4108); its unknown-engine guard is the one site, counted in the 189 below.
-  // +2: render-phone-offline-718 (#718 state 1) -- its chk() FAIL line and its closing `console.log('FAILED: ' + ...)` summary, both SHAPE-1 and quotable. MEASURED after rebasing onto main's 189 (-> 191).
-  const EXPECTED_SITES = 237; // +2 (#5165): render-remote-file-download-5165's unknown-engine guard and its missing-platform-marker guard, both one-line `console.log('FAIL  ...' + ...)` emits (its say() PASS/FAIL line is the ternary form the scan does not count); MEASURED by Mortals on 008696946 (237). // +1, MEASURED on main's 234: render-switch-claude-5091 (#5091), its top-level catch's 'FAIL  ... threw: ' line (its chk() PASS/FAIL line is the ternary form the scan does not count). // +1, MERGED: main's 233 (#4930 and #4885) + render-claude-login-green-3997 (#3997), its chk() 'PASS  '/'FAIL  ' line (measured by this test after the 19:2x rebase).
-  //                              +1: render-worldsw-abandon-2628.js (its `for (const p of problems)
-  //                              console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site,
-  //                              confirmed quotable; same shape as render-worldswitch-2238's. Its
-  //                              launch-failure catch is counted once by the catch/launch scan below
-  //                              (as the 50th), not here. #2633). 80 + 1 (#2633) + 2 (#2620) + 2 (#2617) = 85.
-  //                              +2: render-firstrun-openai-sub-2621.js (its r.error FAIL-emit + the problems FAIL-emit loop, #2621) -- MERGE of #2621 onto main.
-  //                              +1: #2497 -- the reconciled first-run checks emit a 'FAILED: <names>' summary
-  //                              line (a quotable failure), net +1 across the suppression rewrites.
-  //                              +1: render-account-dup-reauth-2584.js (its problems FAIL-emit loop, #2584)
-  //                              +1: render-inline-field-errors-2606.js (its problems FAIL-emit loop, #2606)
-  //                              +2: render-disconnect-stop-2570.js -- its `r.error` early emit and its
-  //                              per-finding `console.error('  FAIL  ' + f)` loop are two SHAPE-1 sites,
-  //                              both confirmed quotable. Its launch-failure catch is counted once by the
-  //                              catch/launch scan below (as the 49th), not here. (#2570)
-  //                              +1: render-tophead-consolidated-2282.js -- its per-problem
-  //                              `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
-  //                              finding-emit site, confirmed quotable. Its launch-failure literal
-  //                              `console.error('FAIL  render-tophead-consolidated-2282: could not start a browser' ...)`
-  //                              has no ` + <finding>`, so it is counted ONLY by the catch/launch scan below
-  //                              (as the 55th), NOT here -- same split as render-worldrename-1704. So the
-  //                              recent arithmetic runs 80 + 1 (#2633) + 2 (#2620) + 2 (#2617) + 1 (#2282) = 86.
-  //                              Added on the RE-merge of current origin/main into tophead-2282 (#2282/#2624).
-  //                              ⚠️ APPEND HERE, NEVER REPLACE, AND THAT GOES FOR A MERGE TOO. The first
-  //                              version of this row overwrote the #1040 line above it, which left both
-  //                              counters correct and their trails unable to reconcile. Then the MERGE with
-  //                              main tried it again from the other side: main's own +1 row for #2606 sits
-  //                              above, and taking either side of the conflict whole would have dropped one
-  //                              branch's row while its check kept emitting. 74 + 1 + 1 + 1 + 1 + 2 = 80.
-  assert.equal(sites, EXPECTED_SITES,
-    `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
-    + 'added or removed without updating this number: check the diff first, and if that is '
-    + 'it, update it deliberately. The DANGEROUS cause, and the reason this is an equality '
-    + 'rather than a floor, is a matcher that has drifted and now examines fewer sites -- a '
-    + 'clean result below would then be a zero from a query that never looked.');
+  assertSiteCounts(perFile, 0, 'finding-emit');
 
   assert.deepEqual(bad, [],
     'these checks print failures the gate cannot quote, so a red reports '
@@ -616,7 +647,7 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   const re = runnerReasonPattern();
   const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.js'));
   const bad = [];
-  let sites = 0;
+  const perFile = Object.create(null);
   for (const f of files) {
     const src = fs.readFileSync(path.join(DIR, f), 'utf8');
     for (const prefix of catchLaunchPrefixes(src)) {
@@ -624,133 +655,11 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
          emit, not a decoration awaiting a finding), so test them as they stand.
          An empty/whitespace-only prefix is not a marker and is skipped. */
       if (!/[^\s]/.test(prefix)) continue;
-      sites += 1;
+      perFile[f] = (perFile[f] || 0) + 1;
       if (!re.test(prefix)) bad.push(`${f}: catch/launch prints "${prefix}"`);
     }
   }
-  /* 🛑 EXACT COUNT, an intentional tripwire like the finding-emit count above: it
-     goes RED when a catch/launch emit site is added, forcing the new site to be
-     reviewed for quotability and this number bumped on purpose -- rather than a new
-     unquotable crash/launch emit slipping in unseen. Calibrated to current main
-     after kosmos#1864 made these shapes quotable. */
-  /* 15 after kosmos#1921 added render-account-badge-1921.js, whose launch-failure
-     `console.error('FAIL  render-account-badge-1921: could not start a browser' ...)` is
-     one catch/launch emit site, confirmed quotable (the matcher counts it). Was 14 after
-     kosmos#1918 added render-reauth-reach-1918.js, whose emit is the same shape. */
-  // 16 after kosmos#2020 added render-optout-403-2020.js, whose top-level
-  // `.catch((e) => { console.error('FAIL  render-optout-403-2020 threw: ' + ...) })`
-  // is one catch emit, confirmed quotable (the FAIL prefix matches the reason grep).
-  /* 17 after kosmos#2047 added render-settings-403-2047.js, whose top-level
-     `.catch((e) => { console.error('FAIL  render-settings-403-2047 threw: ' + ...) })`
-     is one catch emit, confirmed quotable (the FAIL prefix matches the reason grep). */
-  /* 18 after kosmos#2066 added render-build-marker-2066.js, whose launch-failure
-     `console.error('FAIL  render-build-marker-2066: could not start a browser' ...)` is
-     one catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921). */
-  /* 19 after kosmos#2096 added render-openai-only-2096.js, whose launch-failure
-     `console.error('FAIL  render-openai-only-2096: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921). */
-  /* 20 after kosmos#2097/#2098 added render-picker-provider-2097.js (one launch-failure emit).
-     21 after kosmos#2134 added render-firstrun-model-continue-2134.js (one more launch-failure emit).
-     22 after kosmos#2140 added render-create-openai-model-2140.js (one more launch-failure emit).
-     23 after kosmos#2140 Surface 2 added render-detail-openai-model-2140.js (one more launch-failure emit). */
-  /* 24 after kosmos#2095 added render-account-name-2095.js, whose launch-failure
-     `console.error('FAIL  render-account-name-2095: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921). */
-  /* 25 after kosmos#1926 added render-talk-anchor-1926.js, whose launch-failure
-     `console.error('FAIL  render-talk-anchor-1926: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-name-2095). */
-  /* 26 after kosmos#2190 added render-createnav-2190.js, whose launch-failure
-     `console.error('FAIL  render-createnav-2190: could not start a browser' ...)` is one more
-     catch/launch emit site, confirmed quotable (same shape). */
-  /* 27 after kosmos#2238 added render-worldswitch-2238.js, whose launch-failure
-     `console.error('FAIL  render-worldswitch-2238: could not start a browser' ...)` is one more
-     catch/launch emit site, confirmed quotable (same shape). */
-  /* 28 after kosmos#2241 added render-firstrun-openai-connectbox-2241.js, one launch-failure
-     catch, confirmed quotable (same shape as render-firstrun-connect-box-2187). */
-  /* 29 after the #2241 SETTINGS sibling render-settings-openai-goldbox.js, one launch-failure
-     catch (console.error('FAIL  render-settings-openai-goldbox: could not start a browser')),
-     confirmed quotable (starts with FAIL). */
-  /* 30 after kosmos#1704 added render-worldrename-1704.js, whose launch-failure
-     `console.error('FAIL  render-worldrename-1704: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921).
-     31 was already the origin/main value at this branch's point (an increment landed
-     without a trail comment; the 0.6.39 cut's render-firstrun-import-1652.js added a
-     finding-emit site but NO catch/launch site, so it left this count at 31).
-     32 after kosmos#2146 added render-workindicator-2146.js, whose launch-failure
-     `console.error('FAIL  render-workindicator-2146: could not start a browser' ...)`
-     is one more catch/launch emit site, confirmed quotable (same shape).
-     33 after kosmos#1615 added render-plus-blue-1615.js, whose launch-failure
-     `console.error('FAIL  render-plus-blue-1615: could not start a browser' ...)`
-     is one more catch/launch emit site, confirmed quotable (same shape).
-     34: the SAME check also carries a Shape-A top-level crash catch,
-     `})().catch((e) => { console.error('FAIL  render-plus-blue-1615 threw: ' ...) })`
-     with an explicit STRING first argument on the `.catch(` line, confirmed
-     quotable — a second catch/launch site in that one file (see the 57 note in
-     the finding-emit scan above; both scans count this line, for different reasons).
-     35 after kosmos#1652 added render-firstrun-scan-on-grant-1652.js, whose
-     single-line top-level crash catch (same Shape-A form as render-plus-blue-1615's,
-     added after an iteration-1 challenge NIT) is one catch/launch emit site,
-     confirmed quotable (a `FAIL  ... threw:` prefix the gate quotes). It is ALSO
-     counted once by the finding-emit scan above (59). */
-  /* 36 after kosmos#2350 added render-worldsw-height-2350.js, whose launch-failure
-     `console.error('FAIL  render-worldsw-height-2350: could not start a browser' ...)`
-     is one catch/launch emit site, confirmed quotable (same shape as
-     render-account-badge-1921's). Its per-problem finding-emit loop is counted once by
-     the finding-emit scan above (60), not here. */
-  /* 37 after kosmos#1652 added render-firstrun-wizard-flow.js -- merged alongside #2350's
-     +1 above -- whose single-line top-level crash catch (same Shape-A form as
-     render-firstrun-scan-on-grant-1652's) is one catch/launch emit site, confirmed
-     quotable (a `FAIL  ... threw:` prefix the gate quotes). ALSO counted once by the
-     finding-emit scan above (62). */
-  /* 38 after kosmos#2357 added render-emoji-mute-2357.js, whose launch-failure
-     `console.error('FAIL  render-emoji-mute-2357: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
-     Its per-problem finding-emit loop is counted once by the finding-emit scan above (63). */
-  /* 39 after kosmos#2294 added render-pjmsg-prewrap-2294.js, whose launch-failure
-     `console.error('FAIL  render-pjmsg-prewrap-2294: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
-     Its per-problem finding-emit loop is counted once by the finding-emit scan above (64). */
-  /* 40 after kosmos#2365 added render-model-spinners-2365.js, whose launch-failure
-     `console.error('FAIL  render-model-spinners-2365: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
-     Its per-problem finding-emit loop is counted once by the finding-emit scan above (65). */
-  /* 41 after kosmos 0.6.44 added render-trust-restart-0644.js, whose launch-failure
-     `console.error('FAIL  render-trust-restart-0644: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
-     Its per-problem finding-emit loop is counted once by the finding-emit scan above (66). */
-  /* 42 after kosmos 0.6.44 added render-open-terminal-0644.js, whose launch-failure
-     `console.error('FAIL  render-open-terminal-0644: could not start a browser' ...)` is one
-     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
-     Its per-problem finding-emit loop is counted once by the finding-emit scan above (67). */
-  /* 43 after kosmos#2433 added render-claude-connect-choice-2433.js, whose launch-failure
-     `console.error('FAIL  render-claude-connect-choice-2433: could not start a browser' ...)`
-     is one catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
-     Its per-problem finding-emit loop is counted once by the finding-emit scan above (71). */
-  /* 44 after kosmos#2436 added render-sound-master-2436.js, whose launch-failure
-     `console.error('FAIL  render-sound-master-2436: could not start a browser' ...)`
-     is one catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
-     Its per-problem finding-emit loop is counted once by the finding-emit scan above (72). */
-  /* 45/46 after kosmos#2617 added render-token-usage-2617.js, whose could-not-start-a-browser
-     launch catch AND its single-line top-level `.catch(...) threw:` crash catch are two
-     catch/launch emit sites, both confirmed quotable (`FAIL  render-token-usage-2617: ...`
-     and `FAIL  render-token-usage-2617 threw: ...`). Both are ALSO counted once by the
-     finding-emit scan above (75/76). Same shape as render-account-badge-1921's launch catch. */
-  // +1: render-world-import-2563.js (#2563) -- its could-not-start-a-browser launch catch is one catch/launch emit site (same shape as render-worldsw-abandon-2628); its per-problem finding loop is counted by the finding-emit scan above, not here.
-  // -1: render-qask-clear-2808.js REMOVED in #3419 (its "Clear this message" / "Show full command" controls were deleted from the product with the answer menu), taking its could-not-start-a-browser launch catch with it. EXPECTED_SITES is unchanged (its ternary check() emit was never a counted finding-emit SHAPE; qask always added 0 there).
-  const EXPECTED_CATCH_SITES = 137; // +1, MEASURED on main's 136: render-switch-claude-5091 (#5091), its single-line top-level .catch. // +1, MEASURED after merging main's 135 (-> 136): render-mobilenav-4823 (#4823), its single-line top-level .catch. // +1, MERGED with main's 134 (-> 135): render-teamcreate-4557 (#4557), its single-line top-level .catch FAIL line. // +2, MEASURED after merging main's 132 (-> 134): render-newagent-paths-4556 (#4556), its could-not-start-a-browser launch catch and its top-level .catch. // +2, MEASURED on main's 130 (-> 132): render-dialog-gutter-4506 (#4506), its launch catch and its top-level .catch. // +1, MEASURED on main's 129 (-> 130): render-owncode-4649 (kosmos#4649), its single-line top-level .catch FAIL line. // +1, MEASURED after merging main's 128 (-> 129): render-community-industry-4375 (#4375), its top-level .catch. // +1, MEASURED after merging main's 127 (-> 128): render-plus-gutter-4542 (#4542), its top-level .catch. // +1, MEASURED on main's 126 (-> 127): render-composer-caret-4585 (#4585), its single-line top-level .catch. // +2, MEASURED on main's 124 (-> 126): render-layer-gutter-4494 (#4494), its could-not-start-a-browser launch catch and its single-line top-level .catch. // +1, MEASURED (123 -> 124): render-rename-followups-4423 (#4423), its top-level .catch FAIL line. // +1, MEASURED on main's 122 (-> 123): render-rename-4421 (#4421), its top-level .catch FAIL line. // +2, MEASURED on main's 120 (-> 122): render-restart-screen-4343 (#4343), its could-not-start-a-browser launch catch and its single-line top-level .catch. // +1, MEASURED on main's 119 (-> 120): render-dm-owes-4340 (#4340), its top-level .catch FAIL line. // +1, MEASURED on main's 118 (-> 119): render-community-switch-4288 (#4288), its top-level .catch FAIL line. // +1: render-acct-stop-focus-4271 (#4271) -- its single-line top-level `.catch` (Shape A); no could-not-start-a-browser launch catch. MEASURED (117 -> 118). // +2: render-muse-signin-3939 (#3939 slice 3b) -- its could-not-start-a-browser launch line and its top-level .catch, MEASURED on main's 115 (-> 117). // +2: render-firstrun-agy-4081 (#4081) -- its could-not-start-a-browser launch catch and its single-line top-level `.catch`. MEASURED (113 -> 115). // +2: render-waiting-badge-4025 (#4025) -- its could-not-start-a-browser launch catch and its single-line top-level `.catch`, both quotable. MEASURED (111 -> 113). // +1: render-tophead-stable-2624 (#2624) -- its could-not-start-a-browser launch catch; it has no top-level .catch. MEASURED after rebasing onto main's 110 (110 -> 111). // +2: render-settings-agy-3874 (#3874) -- its could-not-start-a-browser launch catch and its single-line top-level `.catch`. MEASURED (108 -> 110). // +1: render-room-reply-3745 (#3745) -- its single-line top-level `.catch` (Shape A); no could-not-start-a-browser launch catch. MEASURED (107 -> 108). // +1: render-plus-stars-3778 (#3778) -- its launch catch `console.error('FAIL  render-plus-stars-3778: could not start a browser: ' + ...)`, quotable. MEASURED after merging main (106 -> 107). // +1: render-openai-devicecode-3436 (#3436) -- its could-not-start-a-browser launch catch, one quotable FAIL line; it has no top-level .catch. MEASURED after merging main (105 -> 106). // +1: render-dm-emoji-3744 (#3744) -- its could-not-start-a-browser launch catch; its top-level .catch is MULTI-LINE so Shape A does not count it. MEASURED after merging main (104 -> 105). // +1: render-account-problem-3723 (#3723) -- its single-line top-level `.catch` (Shape A); no could-not-start-a-browser launch catch. MEASURED (103 -> 104). // +1: render-no-conflict-3729 (#3729) -- its single-line top-level `.catch((e) => { console.error('FAIL  render-no-conflict-3729 crashed: ' + ...) })` (Shape A); no launch catch. MEASURED (102 -> 103). // +2: render-keyed-install-3713 (#3713) -- its could-not-start-a-browser launch catch and its single-line top-level `.catch((e) => { console.error('FAIL  render-keyed-install-3713 crashed: ' + ...) })` (Shape A). MEASURED after merging main (100 -> 102). // +1: render-connlost-reconnect-3410 (#3410) -- its single-line top-level `.catch` (Shape A); no could-not-start-a-browser launch catch. MEASURED (99 -> 100). // +1: render-conn-top-3708 (#3708) -- its single-line top-level `.catch((e) => { console.error('FAIL  render-conn-top-3708 crashed: ' + ...) })` (Shape A); it has no could-not-start-a-browser launch catch. MEASURED (98 -> 99). // +1: render-create-prefs-3081 (#3081) -- the same single-line top-level `.catch` (Shape A); it has no could-not-start-a-browser launch catch. MEASURED (97 -> 98). // +2: render-waiting-phone-718 (#718 mobile) -- its could-not-start-a-browser launch catch `console.error('FAIL  render-waiting-phone-718: could not start a browser' ...)` and its single-line top-level `.catch((e) => { console.error('FAIL  render-waiting-phone-718:', ...) })`, both confirmed quotable (same shape as render-needsyou-dealarm-2808's). MEASURED as the count moving 95 -> 97 when the check was added. // +1: render-grok-subscription-3391 (#3391 part 2) -- its could-not-start-a-browser launch catch; its top-level .catch is MULTI-LINE so Shape A does not count it. MEASURED (94 -> 95). // +1: render-dm-reactions-3650 (#3650) -- its could-not-start-a-browser launch catch; its top-level .catch is MULTI-LINE so Shape A does not count it. MEASURED (93 -> 94). // +1: render-firstrun-keyed-connect-3658 (#3658) -- its could-not-start-a-browser launch catch. MEASURED (92 -> 93). // +1: render-provider-order-3651 (#3651) -- its could-not-start-a-browser launch catch; its top-level .catch is MULTI-LINE so Shape A does not count it. MEASURED (91 -> 92). // +1: render-autohello-switch-2716 (#2716) -- its could-not-start-a-browser launch catch, one quotable FAIL line; its top-level .catch is MULTI-LINE so Shape A does not count it (+1, not +2), same as render-autohello-2686. // -1: #3501 removed render-memory-words.js -- its launch/catch emit site is gone, MEASURED (91 on main minus this one). // +1: render-handoff-restart-3492 (#3492) -- its could-not-start-a-browser launch catch `console.error('FAIL  render-handoff-restart-3492: could not start a browser' ...)` is one quotable FAIL line (Shape A); its top-level `.catch((err) => {...})` emit sits on a SEPARATE line from the `.catch(` opener, so it is MULTI-LINE and Shape A does not count it (+1, not +2), same as render-restart-kloader-2831. MEASURED, not computed. // +1: render-gemini-logo-3422 (#3422) -- its could-not-start-a-browser launch catch `console.error('FAIL  render-gemini-logo-3422: could not start a browser' ...)` is one quotable FAIL line (Shape A); its async IIFE has no top-level `.catch`, so only +1. MEASURED, not computed. // +1: render-pwa-installable-718 (#718) -- its single-line top-level `.catch((e) => { console.error('FAIL  render-pwa-installable-718: ' + ...); process.exit(1); })` (emit on the `.catch(` line -> SINGLE-LINE, Shape A), one quotable FAIL line; it has no could-not-start-a-browser launch catch. MEASURED, not computed. // +2: render-composer-stroke (project composer stroke removal) -- its could-not-start-a-browser launch catch AND its top-level `.catch((e) => { console.error('FAIL  render-composer-stroke: ' + ...); process.exit(1); })` (emit on the `.catch(` line -> SINGLE-LINE), both quotable FAIL lines (Shape A), same structure as render-user-menu-3051. MEASURED, not computed. // +2: render-fed-plus-gate (#3330) -- its could-not-start-a-browser launch catch AND its single-line top-level `.catch((err) => { console.error('FAIL  render-fed-plus-gate: crashed: ' + ...); process.exit(1); })` (emit on the `.catch(` line -> SINGLE-LINE), both quotable FAIL lines (Shape A). MEASURED, not computed. // +2: render-openai-install-refusal (Windows OpenAI install) -- its could-not-start-a-browser launch catch AND its single-line top-level .catch(console.error('FAIL  render-openai-install-refusal: crashed: ' + ...)), both quotable FAIL lines (Shape A). MEASURED, not computed. // +1: render-pjcreate-nav-3134 (#3134) -- its single-line top-level .catch((e) => { console.error('FAIL', e); process.exit(1); }) emit sits on the .catch( line (Shape A), one quotable FAIL line; it has no could-not-start-a-browser launch catch. MEASURED, not computed. // +2: render-needsyou-dealarm-2808 (#2808) -- its could-not-start-a-browser launch catch AND its top-level `.catch((e) => { console.error(...); process.exit(1); })` (emit on the `.catch(` line -> SINGLE-LINE), both quotable FAIL lines (Shape A). MEASURED, not computed. // +2: render-user-menu-3051 (#3051) -- its could-not-start-a-browser launch catch AND its top-level `.catch((e) => { console.error('FAIL  render-user-menu-3051: ' + ...); process.exit(1); })` (emit on the `.catch(` line -> SINGLE-LINE), both quotable FAIL lines (Shape A). // +2: render-worldsw-lockout-3055 (#3055) -- its could-not-start-a-browser launch catch AND its top-level `.catch((err) => { console.error('FAIL  render-worldsw-lockout-3055: ' + ... ); process.exit(1); })` (the emit is on the `.catch(` line -> SINGLE-LINE), both quotable FAIL lines (Shape A). // +1: render-worldhide-2935 (#2935): landed on main's 75 (launch catch). // +2 (#2811, rebased onto main's 73): render-codex-account-picker-2811's could-not-start-a-browser launch catch AND its top-level .catch throw, both SINGLE-LINE quotable FAIL lines (Shape A). MEASURED after the rebase, not computed. // +1: render-chatgpt-signin-no-name-2913 (#2913) -- its could-not-start-a-browser launch catch, one quotable FAIL line; it has no top-level .catch. // (render-pjadd-back-2850 (#2850) adds NOTHING here: it has no could-not-start-a-browser launch catch, and its top-level `.catch((err) => { ... })` emit sits on a separate line from the `.catch(` opener, so it is MULTI-LINE and Shape A does not count it -- same as render-autohello-2686 / render-restart-kloader-2831's top-level catch.) // +1: render-restart-kloader-2831 (#2831) -- its could-not-start-a-browser launch catch, one quotable FAIL line; its top-level .catch is MULTI-LINE (the emit is not on the `.catch(` line) so Shape A does not count it (+1, not +2), same as render-autohello-2686. // (render-qask-clear-2808's +1 launch catch was REMOVED in #3419 with the file.) // +1: render-room-busy-scope-2882 (#2882) -- its could-not-start-a-browser launch catch, one quotable FAIL line; it has no top-level .catch. // MERGE(#2697 + #2699): base 65 + render-profile-field-widths-2697 (+2) + render-project-needsyou-2699 (+2). // +2: render-project-needsyou-2699 (#2699) - its could-not-start-a-browser launch catch + its top-level .catch throw, both single-line quotable FAIL lines. // MERGE: this branch adds render-discovery-gate-2651 (+2); main added render-remove-force-2651 (+1) and render-autohello-2686 (+1); all land. // +2: render-discovery-gate-2651.js (#2651) -- its could-not-start-a-browser launch catch + its top-level .catch throw, both single-line quotable FAIL lines (Shape A). // +1: render-remove-force-2651 (#2651): its could-not-start-a-browser launch catch. // +1: render-autohello-2686.js (#2686) -- its could-not-start-a-browser launch catch, one quotable FAIL line; its top-level .catch is MULTI-LINE so Shape A does not count it (+1, not +2). // +2: render-frnav-2647.js (#2647), rebased onto main's 58 (which had just taken +1 for render-pj-clear-2575). // +1: render-pj-clear-2575.js (#2575) -- its could-not-start-a-browser launch catch, one quotable FAIL line. It ALSO has a top-level .catch, but MULTI-LINE like render-restore-dircheck-2615.js (the emit is not on the `.catch(` line), so Shape A does not count it -- +1, not +2. // +1: render-restore-dircheck-2615.js (#2615), rebased onto main's 56.   // +1: render-tophead-consolidated-2282.js (its could-not-start-a-browser launch catch; the 55th, #2282, added on the re-merge). +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (its could-not-start-a-browser launch catch + the final .catch() throw emit, #2620; both quotable FAIL lines). +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b) // +2: render-profile-field-widths-2697 (#2697) - its could-not-start-a-browser launch catch + its top-level .catch throw, both single-line quotable FAIL lines (Shape A). // MERGE: this branch adds render-discovery-gate-2651 (+2); main added render-remove-force-2651 (+1) and render-autohello-2686 (+1); all land. // +2: render-discovery-gate-2651.js (#2651) -- its could-not-start-a-browser launch catch + its top-level .catch throw, both single-line quotable FAIL lines (Shape A). // +1: render-remove-force-2651 (#2651): its could-not-start-a-browser launch catch. // +1: render-autohello-2686.js (#2686) -- its could-not-start-a-browser launch catch, one quotable FAIL line; its top-level .catch is MULTI-LINE so Shape A does not count it (+1, not +2). // +2: render-frnav-2647.js (#2647), rebased onto main's 58 (which had just taken +1 for render-pj-clear-2575). // +1: render-pj-clear-2575.js (#2575) -- its could-not-start-a-browser launch catch, one quotable FAIL line. It ALSO has a top-level .catch, but MULTI-LINE like render-restore-dircheck-2615.js (the emit is not on the `.catch(` line), so Shape A does not count it -- +1, not +2. // +1: render-restore-dircheck-2615.js (#2615), rebased onto main's 56.   // +1: render-tophead-consolidated-2282.js (its could-not-start-a-browser launch catch; the 55th, #2282, added on the re-merge). +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (its could-not-start-a-browser launch catch + the final .catch() throw emit, #2620; both quotable FAIL lines). +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
-  //                                   +1: render-worldsw-abandon-2628.js (its `console.error('FAIL
-  //                                   render-worldsw-abandon-2628: could not start a browser' ...)` launch catch
-  //                                   is one catch/launch emit site, confirmed quotable; same shape as
-  //                                   render-worldswitch-2238's. Its per-problem finding-emit loop is counted
-  //                                   once by the finding-emit scan above (81), not here. #2633)
-  //                                   +1: render-firstrun-openai-sub-2621.js (its could-not-start-a-browser launch catch, #2621) -- MERGE of #2621 onto main.
-  //                                   +1: render-account-dup-reauth-2584.js (its could-not-start-a-browser launch catch, #2584)
-  //                                   +1: render-disconnect-stop-2570.js (its could-not-start-a-browser launch
-  //                                   catch, #2570). Appended, not substituted: see the note on EXPECTED_SITES.
-  assert.equal(sites, EXPECTED_CATCH_SITES,
-    `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
-    + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
-    + 'new site is quotable; a matcher that drifted to zero would examine nothing and pass.');
+  assertSiteCounts(perFile, 1, 'catch/launch');
   assert.deepEqual(bad, [],
     'these checks print catch/launch failures the gate cannot quote, so a red reports '
     + '"(no FAIL or error line in its output)":\n  ' + bad.join('\n  '));
