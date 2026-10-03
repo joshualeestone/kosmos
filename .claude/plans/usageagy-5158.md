@@ -39,3 +39,7 @@ from a complete scan, as slice 1 does: a db that cannot be opened while fresh ke
   them, calls fall back to the conversation's last write (a day that may be later) and the folder to "elsewhere";
   totals stay right.
 - The reader is a 4th scanner in engine/usageproviders.js; the protobuf reading reuses agysession.js's helpers.
+- 🛑 Ship with slice 1 in the SAME release. Slice 1 freezes each past day's providers file once; a release with slice 1
+  and not this one would freeze past days without Antigravity, and this slice would never revisit them.
+- Gemini CLI and Antigravity share model names (gemini-3.8-flash): their rows add in the per-model view, which is right
+  (same model, same price); the per-agent view still separates them by folder.
