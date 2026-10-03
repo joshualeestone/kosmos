@@ -28,36 +28,36 @@ counts per iteration are from those messages, not from the lost ledger. Iteratio
 #### Iteration 1
 **Reviewer model:** opus
 **Self-generated:** 0
-- [CONVENTION] .claude/plans/boardkeychain-4491.md — em dashes in committed output --> FIXED (49c0afbb1)
-- [WARNING] engine/setup-assistant.js — inline managed-settings path literal; the managed-belt warning fired off darwin --> FIXED (49c0afbb1: MANAGED_SETTINGS_PATH, darwin only)
-- [CONVENTION] engine/sendertoken.js — two derivations of the token-only list --> FIXED (49c0afbb1: tokenOnlyList())
+- [CONVENTION] .claude/plans/boardkeychain-4491.md - em dashes in committed output --> FIXED (49c0afbb1)
+- [WARNING] engine/setup-assistant.js - inline managed-settings path literal; the managed-belt warning fired off darwin --> FIXED (49c0afbb1: MANAGED_SETTINGS_PATH, darwin only)
+- [CONVENTION] engine/sendertoken.js - two derivations of the token-only list --> FIXED (49c0afbb1: tokenOnlyList())
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **Self-generated:** 0
-- [WARNING] engine/setup-assistant.js — board.token denied only in the current store, not legacy roots or the default-world base --> FIXED (8af0f521d)
-- [WARNING] engine/setup-assistant.js — ~/.claude-* account config homes not covered --> FIXED (8af0f521d: Edit glob)
-- [WARNING] engine/setup-assistant.js — the sandbox denyWrite covered the whole ~/.claude dir, which would break Claude Code --> FIXED (8af0f521d: own .claude dir plus specific settings files)
-- [WARNING] engine/setup-assistant.js — sandbox paths not canonicalized (Seatbelt matches resolved paths) --> FIXED (8af0f521d: realOr)
+- [WARNING] engine/setup-assistant.js - board.token denied only in the current store, not legacy roots or the default-world base --> FIXED (8af0f521d)
+- [WARNING] engine/setup-assistant.js - ~/.claude-* account config homes not covered --> FIXED (8af0f521d: Edit glob)
+- [WARNING] engine/setup-assistant.js - the sandbox denyWrite covered the whole ~/.claude dir, which would break Claude Code --> FIXED (8af0f521d: own .claude dir plus specific settings files)
+- [WARNING] engine/setup-assistant.js - sandbox paths not canonicalized (Seatbelt matches resolved paths) --> FIXED (8af0f521d: realOr)
 
 #### Iteration 3
 **Reviewer model:** opus
 **Self-generated:** 1
-- [WARNING] engine/setup-assistant.js — a comment claimed the measured Read-glob translation also covered an Edit-glob write --> FIXED (2c0d76502: concrete settings-file denies for every existing account home)
-- [WARNING] engine/setup-assistant.js — realOr on an absent leaf left a symlinked parent unresolved --> FIXED (2c0d76502: realOrLeaf)
+- [WARNING] engine/setup-assistant.js - a comment claimed the measured Read-glob translation also covered an Edit-glob write --> FIXED (2c0d76502: concrete settings-file denies for every existing account home)
+- [WARNING] engine/setup-assistant.js - realOr on an absent leaf left a symlinked parent unresolved --> FIXED (2c0d76502: realOrLeaf)
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **Self-generated:** 1
-- [WARNING] engine/setup-assistant.js realOrLeaf — an existing symlink leaf was never canonicalized --> FIXED (1ecf9f6d1)
-- [WARNING] engine/create.js — a throw from tokenOnlyFor could escape createAgent --> FIXED (1ecf9f6d1: computed defensively)
-- [CONVENTION] engine/setup-assistant.js — the tokenOnlySettingsRules doc comment sat on another function --> FIXED (1ecf9f6d1)
-- [CONVENTION] .claude/plans/boardkeychain-4491.md — two residuals unrecorded --> FIXED (1ecf9f6d1)
+- [WARNING] engine/setup-assistant.js realOrLeaf - an existing symlink leaf was never canonicalized --> FIXED (1ecf9f6d1)
+- [WARNING] engine/create.js - a throw from tokenOnlyFor could escape createAgent --> FIXED (1ecf9f6d1: computed defensively)
+- [CONVENTION] engine/setup-assistant.js - the tokenOnlySettingsRules doc comment sat on another function --> FIXED (1ecf9f6d1)
+- [CONVENTION] .claude/plans/boardkeychain-4491.md - two residuals unrecorded --> FIXED (1ecf9f6d1)
 
 #### Iteration 5
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
-- [NIT] .claude/plans/boardkeychain-4491.md — a denyWrite summary line read as dir-level --> taken (57e130904)
+- [NIT] .claude/plans/boardkeychain-4491.md - a denyWrite summary line read as dir-level --> taken (57e130904)
 **Converged.**
 
 #### Iteration 6 (2026-10-02 21:07, after the Mortals run)
@@ -65,11 +65,11 @@ counts per iteration are from those messages, not from the lost ledger. Iteratio
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
 Reviewed 3299918cf (`require('../test-support/tmpscope')` first in engine/boardkeychain-4491.test.js, for the #4273
 leak guard that failed the stack's Mortals run on `boardkeychain-4491-*` and `realorleaf-*`).
-- [STRENGTH] — tmpscope loads before every mkdtemp and before any module that could compute a temp path; both leaked families (the SANDBOX and realorleaf mkdtemps) now land in its per-process dir; 17/17 pass and no new dirs remain.
-- [STRENGTH] — no path assertion compares against os.tmpdir() literally (all go through realOr/realOrLeaf), so the scoping breaks nothing.
-- [NIT] engine/setup-assistant.js — a throw between a tmp write and its rename could leave a `.new` file beside a settings file (not in os.tmpdir; the writer never throws).
-- [NIT] — the leaked family names are in the commit message, not the comment.
-**Converged** — no new actionable findings.
+- [STRENGTH] - tmpscope loads before every mkdtemp and before any module that could compute a temp path; both leaked families (the SANDBOX and realorleaf mkdtemps) now land in its per-process dir; 17/17 pass and no new dirs remain.
+- [STRENGTH] - no path assertion compares against os.tmpdir() literally (all go through realOr/realOrLeaf), so the scoping breaks nothing.
+- [NIT] engine/setup-assistant.js - a throw between a tmp write and its rename could leave a `.new` file beside a settings file (not in os.tmpdir; the writer never throws).
+- [NIT] - the leaked family names are in the commit message, not the comment.
+**Converged** - no new actionable findings.
 
 ### Final Ledger
 
