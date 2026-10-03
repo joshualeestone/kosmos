@@ -19,9 +19,9 @@
  * Mac, and on a Mac whose read failed, an agent's file is left exactly as it is. A sure English read writes no block
  * and removes one an agent already has.
  *
- * Where it sits: writing the block takes it out and appends it again, so it ends the file, where April measured it
- * (top of file was 2/2 too; mid-file, at 64% of a 7,670-word file, was Spanish 2/2 on 10-02). A block added later goes behind it until the next board start,
- * whose sweep runs last and moves it back.
+ * Where it sits: appended at the end; moved back behind any Kosmos block appended after it; left in place when the
+ * person wrote after it (their words are never reordered). Measured: end of file and top of file 2/2 each (April),
+ * and at 64% of a 7,670-word file 2/2 (10-02), so no position depends on the move.
  */
 
 const { execFileSync } = require('node:child_process');

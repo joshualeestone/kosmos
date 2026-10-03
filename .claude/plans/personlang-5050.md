@@ -125,3 +125,9 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   So the end position is what April measured, and the mid-file gap between boots is measured too, not assumed.
 - Moving the block strips only newlines before it, so a person's markdown hard break (two trailing spaces) survives.
 - The header says a failed read is retried after FALLBACK_MS (5 minutes); the plan's test count is 19.
+
+## Review 10 (blind, sonnet)
+- The header, create and boot comments now say what the code does: appended at the end, moved back behind a Kosmos
+  block appended after it, left in place when the person wrote after it; and that every measured position held (end,
+  top, 64%), so none depends on the move. Rewrapped.
+- Duplicates of deferred items: the size-limit drop and its boot log (review 6), the `defaults` stall (review 4).
