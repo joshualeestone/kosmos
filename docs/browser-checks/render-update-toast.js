@@ -278,25 +278,33 @@ const RELPORT = freePort();
     // welcome is completed, the way a person finishes it, and New agent must render (CONTROL) before "not covered" counts.
     await p.evaluate(async () => { await fetch('/api/first-run/complete', { method: 'POST' }).then((r) => r.text()); });
     await p.evaluate(() => localStorage.removeItem('kosmos-update-later'));
-    // The passes above end in Settings > Updates and a reload keeps that page; a new user lands on the agents board.
-    await p.goto(`http://127.0.0.1:${PORT}/?tab=agents`, { waitUntil: 'networkidle' });
-    await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
-    // --topnotes-clear is written by a ResizeObserver after layout; measure once it holds the notice's clearance.
-    await p.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--topnotes-clear').trim() !== '0px'
-      && getComputedStyle(document.documentElement).getPropertyValue('--topnotes-clear').trim() !== '', null, { timeout: 10000 }).catch(() => {});
-    const empty = await p.evaluate(() => {
-      const box = (el) => { if (!el || !el.getClientRects().length) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
-      const na = box(document.getElementById('new-agent')); const chip = box(document.querySelector('.uchip'));
-      const hit = na ? document.elementFromPoint(na.left + na.width / 2, na.top + na.height / 2) : null;
-      const cover = na && chip && na.left < chip.right && chip.left < na.right && na.top < chip.bottom && chip.top < na.bottom;
-      return { tab: new URLSearchParams(location.search).get('tab'), emptyBoard: !!document.querySelector('#grid > .pj-empty'), boardShown: !document.getElementById('boardbar').hidden, welcomeShown: !document.getElementById('firstrun').hidden, newAgent: na && [Math.round(na.left), Math.round(na.top), Math.round(na.width), Math.round(na.height)],
-        chip: chip && [Math.round(chip.left), Math.round(chip.top), Math.round(chip.width), Math.round(chip.height)], cover: !!cover,
-        takesClick: !!(hit && document.getElementById('new-agent').contains(hit)) };
-    });
-    if (!empty.emptyBoard || !empty.boardShown || empty.welcomeShown || !empty.newAgent || !empty.chip) die('CONTROL #5140: past the welcome on an empty board at 375, New agent and the update notice must both render, on the agents board ' + JSON.stringify(empty));
-    if (empty.cover || !empty.takesClick) die('#5140: on an empty board at 375 the update notice covers New agent, a new user\'s first action ' + JSON.stringify(empty));
-    console.log('PASS  #5140: empty board at 375, the update notice clears New agent and New agent takes the click ' + JSON.stringify(empty));
-    await p.screenshot({ path: path.join(OUT, 'update-toast-375-empty.png') });
+    // Renet's review: not only phones. A new user can be on a tablet or a narrow window, so the same measurement runs at
+    // phone, tablet and desktop widths; every width must leave New agent clear and clickable.
+    for (const width of [320, 375, 414, 768, 834, 1024, 1280]) {
+      await p.setViewportSize({ width, height: 900 });
+      // The passes above end in Settings > Updates and a reload keeps that page; a new user lands on the agents board.
+      await p.goto(`http://127.0.0.1:${PORT}/?tab=agents`, { waitUntil: 'networkidle' });
+      await p.waitForSelector('.uchip', { state: 'visible', timeout: 20000 });
+      // --topnotes-clear is written by a ResizeObserver after layout; measure once it holds the notice's clearance, and
+      // say so when it never did, so a pass at clearance 0 is visible rather than silent.
+      const clearSet = await p.waitForFunction(() => { const v = getComputedStyle(document.documentElement).getPropertyValue('--topnotes-clear').trim(); return v !== '' && v !== '0px'; }, null, { timeout: 10000 }).then(() => true, () => false);
+      const empty = await p.evaluate(() => {
+        const box = (el) => { if (!el || !el.getClientRects().length) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+        const na = box(document.getElementById('new-agent')); const chip = box(document.querySelector('.uchip'));
+        const hit = na ? document.elementFromPoint(na.left + na.width / 2, na.top + na.height / 2) : null;
+        const cover = na && chip && na.left < chip.right && chip.left < na.right && na.top < chip.bottom && chip.top < na.bottom;
+        return { emptyBoard: !!document.querySelector('#grid > .pj-empty'), boardShown: !document.getElementById('boardbar').hidden, welcomeShown: !document.getElementById('firstrun').hidden,
+          newAgent: na && [Math.round(na.left), Math.round(na.top), Math.round(na.width), Math.round(na.height)],
+          chip: chip && [Math.round(chip.left), Math.round(chip.top), Math.round(chip.width), Math.round(chip.height)], cover: !!cover,
+          takesClick: !!(hit && document.getElementById('new-agent').contains(hit)),
+          clear: getComputedStyle(document.documentElement).getPropertyValue('--topnotes-clear').trim() };
+      });
+      empty.width = width; empty.clearSet = clearSet;
+      if (!empty.emptyBoard || !empty.boardShown || empty.welcomeShown || !empty.newAgent || !empty.chip) die('CONTROL #5140: past the welcome on an empty board at ' + width + ', New agent and the update notice must both render, on the agents board ' + JSON.stringify(empty));
+      if (empty.cover || !empty.takesClick) die('#5140: on an empty board at ' + width + ' the update notice covers New agent, a new user\'s first action ' + JSON.stringify(empty));
+      console.log('PASS  #5140: empty board at ' + width + ', the update notice clears New agent and New agent takes the click ' + JSON.stringify(empty));
+      if (width === 375) await p.screenshot({ path: path.join(OUT, 'update-toast-375-empty.png') });
+    }
 
     if (errs.length) die('page errors: ' + errs.join(' | '));
     console.log('TOAST DRIVE OK: the one-line chip (#3955), geometry clear of header controls, frozen copy verbatim, opens on Not now, Update never pressed, a stored Later per version and back for a newer one and cleared by Check for Update, 0 page errors; shots in ' + OUT);
