@@ -72,6 +72,19 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         total: kids.length,
         hdrLabel: hdr ? (hdr.querySelector('.railname') || {}).textContent : null,
         hdrHasNewAgent: !!(hdr && hdr.querySelector('.alist-newagent')),
+        // #3129: where the sub-header's rule starts and ends against the rail's own box (inside its border), and
+        // where its label and + sit, so moving the rule cannot quietly move them.
+        rule: (() => {
+          if (!hdr) return null;
+          const al = document.getElementById('alist').getBoundingClientRect();
+          const inner = { left: al.left + document.getElementById('alist').clientLeft, right: al.left + document.getElementById('alist').clientLeft + document.getElementById('alist').clientWidth };
+          const r = hdr.getBoundingClientRect();
+          const name = hdr.querySelector('.railname'); const add = hdr.querySelector('.alist-newagent');
+          return { left: +(r.left - inner.left).toFixed(1), right: +(inner.right - r.right).toFixed(1),
+            border: getComputedStyle(hdr).borderTopWidth,
+            name: name ? +(name.getBoundingClientRect().left - inner.left).toFixed(1) : null,
+            add: add ? +(inner.right - add.getBoundingClientRect().right).toFixed(1) : null };
+        })(),
       };
     });
     // A throw inside evaluate rejects the promise and fails the run via the outer .catch, so
@@ -82,6 +95,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       grouped.plusLabel === 'Add an agent to this project' && grouped.plusTitle === 'Add an agent to this project', JSON.stringify(grouped));
     ok(t + ' #3387 an "Other Agents" sub-header with its own + sits between members and the rest (index 2 of 5)',
       grouped.hdrAt === 2 && grouped.total === 5 && grouped.hdrLabel === 'Other Agents' && grouped.hdrHasNewAgent === true, JSON.stringify(grouped));
+    // #3129 (Josh, 6.68): the rule runs the rail's full width, edge to edge (it stopped 14 px short on the left and
+    // 10 on the right), and the label and its + did not move with it.
+    ok(t + ' #3129 the "Other Agents" rule reaches both edges of the rail (0 px each side)',
+      !!grouped.rule && grouped.rule.border === '1px' && Math.abs(grouped.rule.left) <= 0.5 && Math.abs(grouped.rule.right) <= 0.5, JSON.stringify(grouped.rule));
+    ok(t + ' #3129 the label and its + stay where they were (14 px and 10 px in)',
+      !!grouped.rule && Math.abs(grouped.rule.name - 14) <= 1 && Math.abs(grouped.rule.add - 10) <= 1, JSON.stringify(grouped.rule));
 
     // 2) The top + opens the shared add-member modal, scoped to this project, picker populated
     //    with the FREE agents (out-a, out-b), not the members.
