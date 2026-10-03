@@ -2739,7 +2739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         // A download this app will not save is refused, not loaded in the window instead (on a board page only a
         // blob: or data: download gets here: WebKit makes a cross-origin `download` link a plain link). Said unless a frame
-        // inside the page asked for it (that is only logged); one with no target frame (a new window) is said.
+        // inside the page asked for it (that is only logged).
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
             if navigationAction.targetFrame?.isMainFrame != false {
@@ -2883,9 +2883,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         refuse.keyEquivalent = "\r"
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
-        downloadSheetShownAt = Date()   // nothing quiet is said over the question
+        downloadAlertsUp += 1   // nothing quiet is said over the question
         let yes = alert.runModal() == .alertFirstButtonReturn
-        downloadSheetShownAt = nil
+        downloadAlertsUp -= 1
         answer(yes)
     }
 
@@ -2895,14 +2895,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// said. The selftest sets it to 0 except for its burst arm.
     static var downloadQuietSeconds: TimeInterval = 5
     private var lastDownloadTold: Date?
-    private var downloadSheetShownAt: Date?   // a download alert on screen (cleared when dismissed; 60s at most)
+    private var downloadAlertsUp = 0   // download alerts on screen; a count, since one can open inside another's modal loop
     fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
 
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {
         // A refusal is Kosmos choosing not to save; anything else is a save that failed.
         let title = title ?? (quiet ? "Kosmos did not save that file" : "Kosmos could not save that file")
         if quiet {
-            let sheetUp = downloadSheetShownAt.map { Date().timeIntervalSince($0) < 60 } ?? false
+            let sheetUp = downloadAlertsUp > 0
             if sheetUp || (lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false) {
                 logLine("#5167: not said again so soon: \(detail)")
                 return
@@ -2919,10 +2919,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         // The quiet window starts when the person dismisses it, not when it appears.
-        downloadSheetShownAt = Date()   // any download sheet holds back the quiet ones
+        downloadAlertsUp += 1   // any download alert holds back the quiet ones
         let dismissed = { [weak self] in
             guard let self = self else { return }
-            self.downloadSheetShownAt = nil
+            self.downloadAlertsUp -= 1
             if quiet { self.lastDownloadTold = Date() }
         }
         // Modal, never a sheet: a sheet over another sheet can be dropped (#2807), and a failure must be said.
