@@ -48,7 +48,7 @@ grep -q 'errSecInternalComponent' "$WORK/out" && ok "a locked keychain's message
 rc=$(run cs_ts_always)
 [ "$rc" = 1 ] && ok "timestamp never answers: fails with codesign's exit 1" || bad "timestamp never answers: exit $rc, want 1"
 [ "$(calls)" = 4 ] && ok "timestamp never answers: codesign ran 4 times" || bad "timestamp never answers: codesign ran $(calls) times, want 4"
-grep -q 'did not answer on any of 4 tries' "$WORK/err" && ok "timestamp never answers: the give-up line names the 4 tries" || bad "no give-up line: $(cat "$WORK/err")"
+grep -q 'did not answer (tries: 4)' "$WORK/err" && ok "timestamp never answers: the give-up line names the 4 tries" || bad "no give-up line: $(cat "$WORK/err")"
 
 # 4. Success on the first try: one call, nothing printed about retries.
 rc=$(run cs_ok)
@@ -60,6 +60,16 @@ KOSMOS_CODESIGN_CMD=cs_argv codesign_ts_retry --force --entitlements "$WORK/a b.
 want="$(printf '%s\n' --force --entitlements "$WORK/a b.plist" -s "Developer ID Application: Test" "$WORK/x")"
 [ "$(cat "$WORK/argv")" = "$want" ] && ok "arguments pass through verbatim" || bad "arguments changed: $(cat "$WORK/argv")"
 
+# 5b. A recapitalised timestamp message is still retried (the match is case-insensitive).
+cs_ts_caps() { echo "$*" >> "$WORK/calls"; [ "$(calls)" -ge 2 ] && return 0; echo "x: THE TIMESTAMP SERVICE IS NOT AVAILABLE." >&2; return 1; }
+rc=$(run cs_ts_caps)
+{ [ "$rc" = 0 ] && [ "$(calls)" = 2 ]; } && ok "an upper-case timestamp message is retried" || bad "upper-case message: exit $rc, $(calls) calls, want 0 and 2"
+shopt -q nocasematch && bad "codesign_ts_retry left nocasematch on in its caller" || ok "codesign_ts_retry leaves the caller's nocasematch as it found it"
+
+# 5c. Delays are words, never globs: a "*" stays a "*" (sleep refuses it), it does not become file names.
+rm -f "$WORK/calls"; ( cd "$WORK" && KOSMOS_CODESIGN_TS_DELAYS='*' KOSMOS_CODESIGN_CMD=cs_ts_always codesign_ts_retry -s x y >/dev/null 2>"$WORK/err" )
+grep -q 'trying again in \*s' "$WORK/err" && ok "a '*' delay is not glob-expanded" || bad "a '*' delay was expanded: $(head -2 "$WORK/err")"
+
 # 6. An empty delay list means one try and no retry, so the behaviour can be turned off.
 rc=$(KOSMOS_CODESIGN_TS_DELAYS="" run cs_ts_always)
 { [ "$rc" = 1 ] && [ "$(calls)" = 1 ]; } && ok "KOSMOS_CODESIGN_TS_DELAYS empty: one try" || bad "empty delays: exit $rc, $(calls) calls, want 1 and 1"
@@ -70,8 +80,8 @@ B="$REPO/tools/build-kosmos-bundle.sh"
 n=$(grep -cE '^codesign_ts_retry --force --options runtime --timestamp' "$B")
 [ "$n" = 2 ] && ok "build-kosmos-bundle.sh signs both binaries through codesign_ts_retry" || bad "build-kosmos-bundle.sh: $n codesign_ts_retry signs, want 2"
 grep -qE '^\. "\$REPO/tools/lib/codesign-retry\.sh"' "$B" && ok "build-kosmos-bundle.sh sources codesign-retry.sh" || bad "build-kosmos-bundle.sh does not source codesign-retry.sh"
-n=$(grep -E '(^|[^_[:alnum:]])codesign [^|]*--timestamp( |$)' "$B" | grep -vc 'timestamp=none')
+n=$(grep -E '(^|[^_[:alnum:]])codesign [^|]*--timestamp( |=|$)' "$B" | grep -vc 'timestamp=none')
 [ "$n" = 0 ] && ok "no bare timestamped codesign left in build-kosmos-bundle.sh" || bad "$n bare timestamped codesign line(s) in build-kosmos-bundle.sh"
 
 echo "test-codesign-retry-5149: $passes passed, $fails failed"
-[ "$fails" = 0 ] && [ "$passes" = 17 ]
+[ "$fails" = 0 ] && [ "$passes" = 20 ]
