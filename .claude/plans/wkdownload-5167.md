@@ -25,11 +25,21 @@ Rejected: asking where to save (an NSSavePanel per click). Safari's default is D
 prompt, and the page already tells the person the file went to their device.
 Rejected: blob:/data: downloads. Nothing in the page builds one to download today.
 
+## Review round 1 changes
+- Response policy now requires the same origin as the COMMITTED page (`committedPageURL`, set in
+  didCommit), and its default is WebKit's own (`canShowMIMEType ? .allow : .cancel`).
+- A download's redirect to another origin is refused (`willPerformHTTPRedirection`).
+- A saved file gets the quarantine mark (Gatekeeper checks it on open).
+- `downloadDestination` no longer crashes on an extension of 200+ bytes.
+- `--kosmos-app-download-selftest`: a real WKWebView with this delegate against a local HTTP server.
+  7 rows, run at bundle build (skipped loudly without a console). Both sabotage arms turn it red.
+
 ## Weakest premise
-Not measured on a running app in connect mode. A browser check cannot cover it (Playwright WebKit is
-not this WKWebView with this delegate). Needs a run of the real app against a Kosmos+ board.
+Measured in a real WKWebView on this Mac, served over plain HTTP on 127.0.0.1. Not measured over a
+live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
+(Content-Disposition passthrough) are reasoned, not observed.
 
 ## Tests
-- Pure functions: 22 new rows in `--kosmos-app-mode-selftest` (62 total), run at bundle build.
-- Wiring: `native-app.download-5167.test.js` reads the delegate methods, pinned selectors, ordering
-  before the connect guard; sabotage of the check and the conformance turns it red.
+- Pure functions: 24 rows in `--kosmos-app-mode-selftest` (64 total).
+- Live: 7 rows in `--kosmos-app-download-selftest`, wired into tools/build-kosmos-bundle.sh.
+- Wiring: `native-app.download-5167.test.js`.

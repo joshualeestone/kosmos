@@ -40,16 +40,39 @@ test('#5167: a same-origin <a download> becomes a download, BEFORE the connect-o
   assert.notEqual(dl, -1, 'the action policy never looks at shouldPerformDownload');
   assert.notEqual(guardAt, -1, 'the connect policy guard moved; re-read this test');
   assert.ok(dl < guardAt, 'the download check sits after the connect guard, so a computer that runs agents never saves one');
-  assert.match(b, /if navigationAction\.shouldPerformDownload, let url = navigationAction\.request\.url,\n\s+isSameOriginDownload\(url, page: webView\.url\) \{\n\s+decisionHandler\(\.download\)\n\s+return\n\s+\}/,
+  assert.match(b, /if navigationAction\.shouldPerformDownload, let url = navigationAction\.request\.url,\n\s+isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)\n\s+return\n\s+\}/,
     'a download is saved without the same-origin check, or the check no longer decides it');
 });
 
-test('#5167: an attachment response is saved, and every other response is allowed as before', () => {
+test('#5167: only a same-origin attachment response is saved; every other response keeps WebKit\'s default', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
-  assert.match(b, /\.lowercased\(\)\.hasPrefix\("attachment"\)/, 'the attachment check is gone or case sensitive');
+  assert.match(b, /\.lowercased\(\)\.hasPrefix\("attachment"\),\n\s+isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+decisionHandler\(\.download\)/,
+    'an attachment is saved without the same-origin check, so any site in the window can write to Downloads');
   assert.equal((b.match(/decisionHandler\(/g) || []).length, 2, 'the response policy has a path that never answers, or a new one');
-  assert.match(b, /decisionHandler\(\.allow\)\n\s+\}$/, 'the default is no longer .allow, which changes every page load');
+  // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
+  // would fail a provisional load (a "cannot show" error reaching handleNavigationFailure) instead.
+  assert.match(b, /decisionHandler\(navigationResponse\.canShowMIMEType \? \.allow : \.cancel\)\n\s+\}$/,
+    'the default is no longer WebKit\'s own (show what it can, cancel what it cannot)');
+});
+
+test('#5167: the origin a download must share is the COMMITTED page, set on every main-frame commit', () => {
+  assert.match(SRC, /\n    private var committedPageURL: URL\?\n/);
+  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /committedPageURL = webView\.url/,
+    'nothing records the committed page, so every download is refused (or a stale origin is trusted)');
+  assert.equal((SRC.match(/committedPageURL = /g) || []).length, 1, 'something else writes the committed page');
+});
+
+test('#5167: a download\'s redirect to another origin is refused (pinned selector)', () => {
+  const b = body('@objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)');
+  assert.match(b, /if let to = request\.url, isSameOriginDownload\(to, page: download\.originalRequest\?\.url\) \{\n\s+decisionHandler\(\.allow\)\n\s+\} else \{[^}]*decisionHandler\(\.cancel\)/);
+});
+
+test('#5167: a saved file is marked as downloaded, so Gatekeeper checks it when opened', () => {
+  const b = body('@objc(downloadDidFinish:)');
+  assert.match(b, /values\.quarantineProperties = props/);
+  assert.match(b, /kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload/);
+  assert.match(b, /try marked\.setResourceValues\(values\)/);
 });
 
 test('#5167: both ways a navigation becomes a download hand it to this delegate (pinned selectors)', () => {
@@ -77,6 +100,27 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   assert.match(st, /downloadDestination\(dir: dir, suggested: suggested\)/, 'the mode selftest no longer drives downloadDestination');
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
-  assert.equal(dl + dest, 22, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 62\b/);
+  assert.equal(dl + dest, 24, 'the #5167 rows changed; update the expected count with them');
+  assert.match(st, /let expected = 64\b/);
+});
+
+const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
+
+test('#5167: the live download selftest exists, measures the dangerous answers, and the bundle build runs it', () => {
+  const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'),
+    SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest")'));
+  assert.ok(hatch.length > 1000, 'the --kosmos-app-download-selftest hatch is gone');
+  assert.match(hatch, /AppDelegate\.downloadsDirOverride = dl/, 'the selftest would write into the real Downloads');
+  assert.match(hatch, /d\.webView = web/, 'the hatch does not wire webView as the app does; a provisional failure would crash it');
+  for (const row of ['A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING', 'A LINK TO ANOTHER ORIGIN SAVES NOTHING',
+    'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries the quarantine mark', 'a same-origin <a download> is saved']) {
+    assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
+  }
+  assert.match(hatch, /all good \(7 rows\)/);
+  assert.match(SRC, /static var downloadsDirOverride: URL\?/);
+  assert.equal((SRC.match(/downloadsDirOverride = /g) || []).length, 1, 'something outside the selftest redirects downloads');
+  assert.match(BUILD, /"\$STAGE\/app\/bin\/kosmos-app" --kosmos-app-download-selftest/, 'the bundle build does not run the download selftest');
+  const gate = BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest'));
+  assert.ok(gate.indexOf('*"download selftest TIMED OUT"*') < gate.indexOf('*"download-check: all good"*'),
+    'a timeout must be read before any verdict, or a hang is judged on partial output');
 });

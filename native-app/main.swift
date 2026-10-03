@@ -38,6 +38,7 @@
 
 import Cocoa
 import WebKit
+import Network
 import ApplicationServices  // #2125 slice 3: AXIsProcessTrusted / AXIsProcessTrustedWithOptions
 import UserNotifications    // #3996: whether the person turned Kosmos's badges off
 import Speech               // #4409: dictation, on-device only
@@ -319,9 +320,8 @@ func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
 
 /// #5167: PURE, for --kosmos-app-mode-selftest. Whether a download the page asked for (an `<a download>`
 /// click, or a response sent as an attachment) is SAVED by this app. Only from the page's own origin: the
-/// board's files over Kosmos+ (#4930's attachments, #5165's Files lists) or on this computer. A download that
-/// points anywhere else keeps the link policy it had, so a page cannot use a `download` attribute to pull
-/// a foreign file onto the person's disk unasked. Scheme, host and port must all match; a missing port is
+/// board's files over Kosmos+ (#4930's attachments, #5165's Files lists) or on this computer. Scheme, host
+/// and port must all match; a missing port is
 /// the scheme's default, so `https://x.kosmosplus.com:443` is the same origin as `https://x.kosmosplus.com`.
 func isSameOriginDownload(_ target: URL, page: URL?) -> Bool {
     guard let page = page else { return false }
@@ -350,9 +350,11 @@ func downloadDestination(dir: URL, suggested: String, exists: (URL) -> Bool) -> 
     name = name.trimmingCharacters(in: .whitespacesAndNewlines)
     if name.isEmpty { name = "Download" }
     if name.utf8.count > 200 {   // HFS+/APFS cap a name at 255 bytes; leave room for " (999)"
-        let ext = (name as NSString).pathExtension
+        var ext = (name as NSString).pathExtension
         var stem = (name as NSString).deletingPathExtension
-        while stem.utf8.count + ext.utf8.count + 1 > 200 { stem.removeLast() }
+        if ext.utf8.count > 20 { ext = ""; stem = name }   // not an extension anyone opens by; it must not starve the stem
+        while !stem.isEmpty && stem.utf8.count + (ext.isEmpty ? 0 : ext.utf8.count + 1) > 200 { stem.removeLast() }
+        if stem.isEmpty { stem = "Download" }
         name = ext.isEmpty ? stem : stem + "." + ext
     }
     let first = dir.appendingPathComponent(name)
@@ -2694,7 +2696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            click did nothing at all. Only from the page's own origin (isSameOriginDownload); anything else
            falls through to the policy below unchanged. */
         if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,
-           isSameOriginDownload(url, page: webView.url) {
+           isSameOriginDownload(url, page: committedPageURL) {
             decisionHandler(.download)
             return
         }
@@ -2714,22 +2716,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    /* #5167: a response sent as an attachment (`Content-Disposition: attachment`) is saved rather than
-       shown, as Safari does. No origin check here, and none is needed: a response only reaches this after
-       its navigation passed the action policy above, which in connect mode never loads a foreign page in
-       the window. Everything else is `.allow`, exactly what having no such method meant before.
+    /* #5167: a response sent as an attachment (`Content-Disposition: attachment`) from the committed
+       page's own origin is saved rather than shown. Any other response gets WebKit's own default for a
+       delegate without this method: shown if WebKit can show its type, cancelled if not.
        📌 PINNED selector, as above: a near-miss Swift signature compiles and is never called. */
     @objc(webView:decidePolicyForNavigationResponse:decisionHandler:)
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        if let http = navigationResponse.response as? HTTPURLResponse,
+        if let http = navigationResponse.response as? HTTPURLResponse, let url = http.url,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
-           disposition.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("attachment") {
+           disposition.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("attachment"),
+           isSameOriginDownload(url, page: committedPageURL) {
             decisionHandler(.download)
             return
         }
-        decisionHandler(.allow)
+        decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
     }
+
+    /// #5167: only --kosmos-app-download-selftest sets this, so a measured run never writes to the real Downloads.
+    static var downloadsDirOverride: URL?
+
+    /// #5167: the page on screen, as of its last main-frame commit.
+    private var committedPageURL: URL?
 
     /// #5167: both ways a navigation becomes a download hand it to this delegate, which picks where it goes.
     @objc(webView:navigationAction:didBecomeDownload:)
@@ -2745,11 +2753,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #5167: where each running download is being saved, so its end can be told to the Dock.
     private var downloadsInFlight: [ObjectIdentifier: URL] = [:]
 
+    /// #5167: a download's redirect to another origin is refused, so the same-origin rule holds for
+    /// every hop, not only the first.
+    @objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)
+    func download(_ download: WKDownload, willPerformHTTPRedirection response: HTTPURLResponse,
+                  newRequest request: URLRequest, decisionHandler: @escaping (WKDownload.RedirectPolicy) -> Void) {
+        if let to = request.url, isSameOriginDownload(to, page: download.originalRequest?.url) {
+            decisionHandler(.allow)
+        } else {
+            logLine("#5167: refused a download's redirect to another origin")
+            decisionHandler(.cancel)
+        }
+    }
+
     /// #5167: into the person's Downloads folder, under a safe name that never replaces a file
     /// (downloadDestination). No Downloads folder: the download is cancelled rather than put elsewhere.
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
                   suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
-        guard let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else {
+        guard let dir = AppDelegate.downloadsDirOverride
+                ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else {
             logLine("#5167: no Downloads folder, so a download was not saved")
             completionHandler(nil)
             return
@@ -2768,6 +2790,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func downloadDidFinish(_ download: WKDownload) {
         guard let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download)) else { return }
         logLine("#5167: download saved: \(dest.lastPathComponent)")
+        /* Marked as downloaded, as Safari marks its own, so Gatekeeper checks it when it is opened: the
+           file came from another computer or an agent, and may be an app or a script. */
+        var values = URLResourceValues()
+        var props: [String: Any] = [kLSQuarantineAgentNameKey as String: "Kosmos",
+                                    kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String]
+        if let from = download.originalRequest?.url { props[kLSQuarantineDataURLKey as String] = from }
+        values.quarantineProperties = props
+        var marked = dest
+        do { try marked.setResourceValues(values) } catch {
+            logLine("#5167: could not mark \(dest.lastPathComponent) as downloaded: \(error.localizedDescription)")
+        }
         DistributedNotificationCenter.default().post(name: Notification.Name("com.apple.DownloadFileFinished"),
                                                      object: dest.path)
     }
@@ -4214,6 +4247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// listening must end with it. Main-frame commits only reach this delegate method.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         voice?.hostCancel("new page loaded")
+        committedPageURL = webView.url   // #5167: the origin a download must share
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -4856,6 +4890,102 @@ if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
 // IN A STANDALONE WKWebView: it does not. Both rows fire. Keeping the hidden
 // row means a future reader who reaches for that theory is answered by the
 // gate instead of rewriting five inputs for no reason.
+if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
+    /* #5167: MEASURES the download path in a real WKWebView driven by this app's own delegate, which the
+       mode selftest's pure rows and the source-reading test cannot: that WebKit actually calls the pinned
+       selectors, that a same-origin `<a download>` and a same-origin attachment land as files, that a
+       redirect to another origin and a link to another origin save nothing, and that a saved file carries
+       the quarantine mark. The page is served over HTTP on 127.0.0.1 (an ephemeral port); "another
+       origin" is `localhost` on the same port. Files go to a temporary folder (downloadsDirOverride), never
+       the real Downloads. Offscreen, and driven from JavaScript, like the filepanel selftest. */
+    setvbuf(stdout, nil, _IONBF, 0)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 60) { print("download selftest TIMED OUT"); exit(1) }
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
+    try? FileManager.default.createDirectory(at: dl, withIntermediateDirectories: true)
+    AppDelegate.downloadsDirOverride = dl
+    var port: UInt16 = 0
+    func reply(_ path: String) -> String {
+        let body = "kosmos " + path
+        func ok(_ extra: String) -> String {
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: \(body.utf8.count)\r\n" + extra + "Connection: close\r\n\r\n" + body
+        }
+        switch path {
+        case "/":
+            let page = "<!doctype html><meta charset=utf-8>"
+                + "<a id=same href=/same.txt download>a</a>"
+                + "<a id=att href=/att>b</a>"
+                + "<a id=redir href=/redir download>c</a>"
+                + "<a id=foreign href=http://localhost:\(port)/foreign.txt download>d</a>"
+                + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
+                + "<script>window.__probeReady = 1;</script>"
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
+        case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
+        case "/att2": return ok("Content-Disposition: attachment; filename=\"att2.txt\"\r\n")
+        case "/redir": return "HTTP/1.1 302 Found\r\nLocation: http://localhost:\(port)/redirected.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        default: return ok("")
+        }
+    }
+    guard let listener = try? NWListener(using: .tcp, on: .any) else { print("download selftest: no listener"); exit(1) }
+    listener.newConnectionHandler = { conn in
+        conn.start(queue: .main)
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, _, _ in
+            let head = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let path = head.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            conn.send(content: reply(path).data(using: .utf8), completion: .contentProcessed { _ in conn.cancel() })
+        }
+    }
+    let d = AppDelegate()
+    let frame = NSRect(x: 0, y: 0, width: 600, height: 300)
+    let web = AppDelegate.makeWebView(frame: frame, delegate: d)
+    d.webView = web   // as the app sets it: a navigation that becomes a download ends its provisional load
+    let win = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: frame.width, height: frame.height),
+                       styleMask: [.titled], backing: .buffered, defer: false)
+    win.contentView = web
+    win.orderFrontRegardless()
+    func load(then: @escaping () -> Void) {
+        web.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/")!))
+        func poll(_ tries: Int) {
+            web.evaluateJavaScript("window.__probeReady === 1 && location.host === '127.0.0.1:\(port)'") { r, _ in
+                if (r as? Bool) == true { then(); return }
+                guard tries > 0 else { print("download selftest TIMED OUT: the probe page never loaded"); exit(1) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
+            }
+        }
+        poll(150)
+    }
+    func click(_ id: String, then: @escaping () -> Void) {
+        load {
+            web.evaluateJavaScript("document.getElementById('\(id)').click()") { _, _ in }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: then)
+        }
+    }
+    func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
+    listener.stateUpdateHandler = { state in
+        guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
+        port = p
+        click("same") { click("att") { click("redir") { click("foreign") { click("foreignatt") {
+            var bad = 0
+            func row(_ ok: Bool, _ why: String) { if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
+            row(saved("same.txt"), "a same-origin <a download> is saved")
+            row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
+            row(!saved("redirected.txt"), "A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING")
+            row(!saved("foreign.txt"), "A LINK TO ANOTHER ORIGIN SAVES NOTHING")
+            row(!saved("att2.txt"), "AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING")
+            let q = getxattr(dl.appendingPathComponent("same.txt").path, "com.apple.quarantine", nil, 0, 0, 0)
+            row(q > 0, "a saved file carries the quarantine mark")
+            let all = (try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []
+            row(all.sorted() == ["att.txt", "same.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
+            try? FileManager.default.removeItem(at: dl)
+            print(bad == 0 ? "\ndownload-check: all good (7 rows)" : "\ndownload-check: \(bad) row(s) wrong")
+            exit(bad == 0 ? 0 : 1)
+        } } } } }
+    }
+    listener.start(queue: .main)
+    withExtendedLifetime((d, listener, win)) { app.run() }
+}
+
 if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
     /* #2807: make this hatch's stdout UNBUFFERED. The build gate captures this
        output through a pipe ($(...)), where Swift block-buffers stdout, so if an
@@ -5638,6 +5768,8 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     dest("", [], "Download", "an empty name gets one")
     dest("..", [], "Download", "and so does ..")
     dest(String(repeating: "x", count: 300) + ".pdf", [], String(repeating: "x", count: 196) + ".pdf", "a long name is cut to 200 bytes, keeping its extension")
+    dest("a." + String(repeating: "y", count: 210), [], "a." + String(repeating: "y", count: 198), "A LONG EXTENSION DOES NOT CRASH: it is not kept as one, and the name is cut")
+    dest(String(repeating: "\u{6587}", count: 160) + ".txt", [], String(repeating: "\u{6587}", count: 65) + ".txt", "a long multi-byte name is cut by bytes, never mid-character")
     // The file itself: a write the reader reads back, a missing file, and one that cannot be read.
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-mode-selftest-\(getpid())")
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -5656,7 +5788,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     try? FileManager.default.createDirectory(atPath: computerModePath(kosmosHome: dir.path), withIntermediateDirectories: false)
     disk(readComputerMode(kosmosHome: dir.path) == .unreadable, "a mode that cannot be read (a folder in its place) reads unreadable, not unset")
     try? FileManager.default.removeItem(at: dir)
-    let expected = 62
+    let expected = 64
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
