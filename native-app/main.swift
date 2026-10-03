@@ -318,10 +318,10 @@ func connectLinkDecision(for url: URL, clicked: Bool) -> ConnectLink {
     }
 }
 
-/// #5167: PURE, for --kosmos-app-mode-selftest. Whether a download the page asked for (an `<a download>`
-/// click, or a response sent as an attachment) is SAVED by this app. Only from the page's own origin: the
-/// board's files over Kosmos+ (#4930's attachments, #5165's Files lists) or on this computer. Scheme, host
-/// and port must all match; a missing port is the scheme's default, so `https://x.kosmosplus.com:443` is the same origin as `https://x.kosmosplus.com`.
+/// #5167: PURE, for --kosmos-app-mode-selftest. One of the two checks a saved download passes (the other
+/// is isBoardPage): the file is from the page's own origin. Scheme, host and port must all match; a
+/// missing port is the scheme's default, so `https://x.kosmosplus.com:443` is the same origin as
+/// `https://x.kosmosplus.com`.
 func isSameOriginDownload(_ target: URL, page: URL?) -> Bool {
     guard let page = page else { return false }
     func origin(_ u: URL) -> (String, String, Int)? {
@@ -2703,8 +2703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         updateBar?.isHidden = true
     }
 
-    /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. Nothing
-    /// changes on a computer that runs agents, which had no policy before this.
+    /// #4356: a connect computer's main-frame navigations follow connectLinkDecision. #5167: on every
+    /// computer, a download the page asks for is decided first.
     /* 📌 PINNED, as createWebViewWith is: an optional delegate method with a slightly wrong Swift
        signature compiles and is never called, which would switch the connect policy off silently.
        The selector is WebKit's own (WKNavigationDelegate.h). */
@@ -2721,7 +2721,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // A download this app will not save is refused and said, never loaded in the window instead.
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
-            tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.")
+            tellDownloadFailed("This page is not a board Kosmos saves files from, so the file was not saved.")
             decisionHandler(.cancel)
             return
         }
@@ -2748,6 +2748,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(webView:decidePolicyForNavigationResponse:decisionHandler:)
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        // A frame inside the page cannot save a file just by loading; only the page's own navigations can.
+        guard navigationResponse.isForMainFrame else {
+            decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
+            return
+        }
         if let http = navigationResponse.response as? HTTPURLResponse, let url = http.url,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
            String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
@@ -2797,7 +2802,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #5167: downloads whose failure this app has already said, so the failure that follows is not said twice.
     private var downloadsTold: Set<ObjectIdentifier> = []
 
+    /// #5167: a refusal is said at most once in this many seconds; the rest are logged, so a page clicking
+    /// in a loop cannot stack sheets. The selftest sets it to 0 except for its burst arm.
+    static var downloadQuietSeconds: TimeInterval = 5
+    private var lastDownloadTold: Date?
+    fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
+
     private func tellDownloadFailed(_ detail: String, title: String = "Kosmos could not save that file") {
+        if let last = lastDownloadTold, Date().timeIntervalSince(last) < AppDelegate.downloadQuietSeconds {
+            logLine("#5167: not said again so soon: \(detail)")
+            return
+        }
+        lastDownloadTold = Date()
         if let present = AppDelegate.downloadAlertPresenter { present(detail); return }
         let alert = NSAlert()
         alert.messageText = title
@@ -2880,6 +2896,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         do { try marked.setResourceValues(values) } catch {
             // Kept, as Safari keeps a download it cannot mark (a Downloads folder on a disk without the mark).
             logLine("#5167: could not mark \(dest.lastPathComponent) as downloaded: \(error.localizedDescription)")
+            // WebKit marks what it downloads too; the person is told only if the file carries no mark at all.
+            guard getxattr(dest.path, "com.apple.quarantine", nil, 0, 0, 0) <= 0 else { return }
             tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.",
                                title: "Kosmos saved that file without its download mark")
         }
@@ -4987,6 +5005,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     AppDelegate.downloadsDirOverride = dl
     var told: [String] = []
     AppDelegate.downloadAlertPresenter = { told.append($0) }
+    AppDelegate.downloadQuietSeconds = 0   // every refusal is counted; the burst arm turns it back on
     var port: UInt16 = 0
     func reply(_ path: String) -> String {
         let body = "kosmos " + path
@@ -5062,10 +5081,15 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         func poll(_ tries: Int) {
             web.evaluateJavaScript("window.__probeReady === 1 && location.host === 'localhost:\(port)'") { r, _ in
                 if (r as? Bool) == true {
-                    web.evaluateJavaScript("document.getElementById('nb').click()") { _, _ in }
+                    // A BURST: three refusals in a row, with the quiet window on, are said once.
+                    d.resetDownloadQuiet()
+                    AppDelegate.downloadQuietSeconds = 5
+                    web.evaluateJavaScript("for (let i = 0; i < 3; i++) document.getElementById('nb').click()") { _, _ in }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         notBoardStayed = web.url?.path == "/elsewhere"
-                        then()
+                        AppDelegate.downloadQuietSeconds = 0
+                        // the next refusal must not land inside the window this one opened
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { d.resetDownloadQuiet(); then() }
                     }
                     return
                 }
@@ -5109,13 +5133,16 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("redirected.txt"), "A REDIRECT TO ANOTHER ORIGIN SAVES NOTHING")
             row(!saved("foreign.txt"), "a download link to another origin saves nothing (WebKit treats it as a plain link)")
             row(!saved("att2.txt"), "AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING")
-            let q = getxattr(dl.appendingPathComponent("same.txt").path, "com.apple.quarantine", nil, 0, 0, 0)
-            row(q > 0, "a saved file carries the quarantine mark")
+            // WebKit marks every download itself, so the row reads THIS app's mark: its agent name.
+            var qbuf = [UInt8](repeating: 0, count: 512)
+            let qn = getxattr(dl.appendingPathComponent("same.txt").path, "com.apple.quarantine", &qbuf, qbuf.count, 0, 0)
+            let qmark = qn > 0 ? String(decoding: qbuf[0..<qn], as: UTF8.self) : ""
+            row(qmark.contains(";Kosmos;"), "a saved file carries THIS APP's quarantine mark (\(qmark))")
             let all = (try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []
             row(saved("\u{6587}.txt"), "the board's own attachment header (filename*=UTF-8'') is saved under its decoded name")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 4, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, not-the-board page), and nothing else is (told: \(told.count))")
+            row(told.count == 4, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment, a BURST of three from a not-the-board page), and nothing else is (told: \(told.count))")
             row(told.contains { $0.contains("answered 404") } && told.contains { $0.contains("does not save from") },
                 "and each is said in its own words")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
