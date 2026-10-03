@@ -68,6 +68,7 @@ function harness() {
 
 const checking = (row) => row.hasAttribute('data-checking');
 const granted = (row) => row.hasAttribute('data-granted');
+const unsure = (row) => row.hasAttribute('data-unsure');
 
 test('#2559: the Kosmos row shows Checking first, then Turn On once it has been uncheckable for the grace period', async () => {
   const h = harness();
@@ -82,6 +83,7 @@ test('#2559: the Kosmos row shows Checking first, then Turn On once it has been 
   assert.equal(checking(h.rows.tmux), false, 'still Checking... after the grace period: no Turn On for a newcomer');
   assert.equal(granted(h.rows.tmux), false, 'Turn On is the "Not activated" default, never a false green');
   assert.equal(h.next.disabled, false, 'an uncheckable row never gates Next, Turn On or not');
+  assert.equal(unsure(h.rows.tmux), true, 'Mona Lisa: the Turn On row reads "Not confirmed" (data-unsure), not the red "Not activated"');
 });
 
 test('#2559: a granted read still turns the row Activated at once, and a definite not-granted still blocks Next', async () => {
@@ -93,11 +95,13 @@ test('#2559: a granted read still turns the row Activated at once, and a definit
   h.answers['/api/a11y-status'] = { checkable: true, trusted: true };
   await h.poll();
   assert.equal(granted(h.rows.tmux), true, 'a measured grant is green at once');
+  assert.equal(unsure(h.rows.tmux), false, 'a measured grant drops "Not confirmed"');
   assert.equal(h.next.disabled, false);
   h.answers['/api/a11y-status'] = { checkable: true, trusted: false };
   await h.poll();
   assert.equal(granted(h.rows.tmux) || checking(h.rows.tmux), false, 'a measured not-granted is the red Turn On row');
   assert.equal(h.next.disabled, true, 'CONTROL: a definite not-granted still gates Next (#2911 re-gate unchanged)');
+  assert.equal(unsure(h.rows.tmux), false, 'a KNOWN not-granted is the red "Not activated", never "Not confirmed"');
 });
 
 test('#2559: the clock starts again after any other reading, so Checking always gets its grace period', async () => {
@@ -137,4 +141,12 @@ test('#2559: a new screen starts every row\'s Checking clock afresh (frGateStart
   assert.match(start, /FR_CHECKING_SINCE\.clear\(\)/, 'frGateStart does not reset the Checking clock');
   assert.ok(start.indexOf('FR_CHECKING_SINCE.clear()') < start.indexOf('frPollGates(screenEl, gen)'),
     'the clock must be cleared before the first poll of the new screen');
+});
+
+test('#2559 (Mona Lisa): the Kosmos row carries a neutral "Not confirmed" pill that shows only in the unsure state', () => {
+  const row = PAGE.slice(PAGE.indexOf('aria-label="Turn on Kosmos accessibility"') - 400, PAGE.indexOf('aria-label="Turn on Kosmos accessibility"'));
+  assert.match(row, /<span class="s3-pill s3-pill-wait s3-pill-unsure">Not confirmed<\/span>/, 'the neutral Not confirmed pill is gone from the Kosmos row');
+  assert.match(PAGE, /\.s3-pill-unsure\{display:none\}/, 'the Not confirmed pill must be hidden by default');
+  assert.match(PAGE, /\.s3-gate-row\[data-unsure\] \.s3-pill-req\{display:none\}/, 'the red pill must hide in the unsure state');
+  assert.match(PAGE, /\.s3-gate-row\[data-unsure\] \.s3-pill-unsure\{display:inline\}/, 'the Not confirmed pill must show in the unsure state');
 });

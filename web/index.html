@@ -14017,6 +14017,11 @@ window.kosmosMeasureScrollbarWidth();
         .s3-gate-row[data-checking] .s3-req{display:none}
         .s3-gate-row[data-checking] .s3-granted{display:none}
         .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
+        /* #2559 (Mona Lisa's ruling, 2026-10-03): a row whose grant Kosmos cannot read, offered Turn On after a few seconds,
+           says "Not confirmed" in the neutral pill, never the red "Not activated": red means we KNOW it is off. */
+        .s3-pill-unsure{display:none}
+        .s3-gate-row[data-unsure] .s3-pill-req{display:none}
+        .s3-gate-row[data-unsure] .s3-pill-unsure{display:inline}
         /* #2587: on the laptop-that-sleeps-on-battery row (data-battonly, set by the poll)
            the useless "Turn On" (its Energy pane has no never-sleep-on-battery switch) is
            replaced by an honest note. The sleep step no longer gates Next (gatesNext:false),
@@ -14096,7 +14101,7 @@ window.kosmosMeasureScrollbarWidth();
              confirmation. Kosmos = data-gate="tmux" (app). -->
         <div class="s3-gate-row" data-gate="tmux" data-win-hide>
           <span class="s3-gate-lbl">Kosmos</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button" aria-label="Turn on Kosmos accessibility">Turn On</button></span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><span class="s3-pill s3-pill-wait s3-pill-unsure">Not confirmed</span><button class="s3-on" type="button" aria-label="Turn on Kosmos accessibility">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
@@ -67376,6 +67381,8 @@ async function frPollGates(screenEl, gen) {
     // uncheckable (a browser / no-FDA box) keeps the honest "Checking..." (nothing to grant).
     else if (st === 'uncheckable' && !reads[i].actionable) { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
+    // #2559 (Mona Lisa): an uncheckable row offering Turn On says "Not confirmed" (neutral), not "Not activated".
+    if (st === 'uncheckable' && reads[i].actionable) row.setAttribute('data-unsure', ''); else row.removeAttribute('data-unsure');
     // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
     // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
     if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
