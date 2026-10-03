@@ -128,8 +128,8 @@ test('Mac `task add` says the number the board stored, and it counts up', async 
 });
 
 test('Mac `task add` keeps the sentence without a number when the answer has none it can use', async () => {
-  // A number hidden in the sentence, a string, a zero: none is the task's own leading number.
-  for (const body of ['{"task":{"sentence":"number\\":9"}}', '{"task":{"number":"7"}}', '{"task":{"number":0}}']) {
+  // A number hidden in the sentence, a string, a zero, a fraction, an exponent: none is a whole task number.
+  for (const body of ['{"task":{"sentence":"number\\":9"}}', '{"task":{"number":"7"}}', '{"task":{"number":0}}', '{"task":{"number":1.5}}', '{"task":{"number":12e3}}']) {
     const srv = await fakeBoard(body);
     try {
       const r = await mac(['task', 'add', 'p1', 'x'], srv.address().port);
