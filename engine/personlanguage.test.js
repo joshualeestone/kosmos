@@ -139,19 +139,6 @@ test('#5050: a new agent gets the block at create, and the board refreshes every
   assert.ok(you > 0 && lang > you, 'the language sweep no longer runs after the About-you sweep');
 });
 
-test('#5050: a block that is no longer last is moved to the end; one already last is left byte for byte', () => {
-  const base = pl.applyTo('# Cy\n\nYou are Cy, who keeps the calendar.\n', 'es-MX');
-  const after = projects.spliceBlock(base, 'a block added later', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
-  assert.ok(!after.trimEnd().endsWith(pl.END), 'CONTROL: the later block really sits after ours');
-  const moved = pl.applyTo(after, 'es-MX');
-  assert.ok(moved.trimEnd().endsWith(pl.END), 'the language block was not moved to the end');
-  assert.match(moved, /a block added later/);
-  assert.equal(moved.split(pl.START).length - 1, 1, 'the block was duplicated, not moved');
-  for (const t of [moved, base, pl.applyTo('# Dee\nbody\n\n\n', 'es-MX'), pl.applyTo('# Dee\nbody', 'es-MX')]) {
-    assert.equal(pl.applyTo(t, 'es-MX'), t, 'a block already at the end was rewritten (every boot would write the file)');
-  }
-});
-
 test('#5050: "und" (no language) and a C locale are no language, so no block', () => {
   assert.equal(pl.normalise('und'), null);
   assert.equal(pl.blockBody(pl.normalise('und')), null);
@@ -238,15 +225,6 @@ test('#5050 review 7: the person\'s own words after the block are never reordere
   assert.equal(pl.applyTo(mixed, 'es-MX'), mixed);
 });
 
-test('#5050 review 7: when only Kosmos blocks follow it, the move keeps a blank line between what remains', () => {
-  const base = pl.applyTo('# Gil\n\n- item one\n- item two\n', 'es-MX');
-  const after = projects.spliceBlock(base, 'later block', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
-  const moved = pl.applyTo(after, 'es-MX');
-  assert.ok(moved.trimEnd().endsWith(pl.END), 'CONTROL: it moved');
-  assert.match(moved, /- item two\n\n<!-- kosmos:connections:start -->/, 'the blank line before the following block was lost');
-  assert.match(moved, /<!-- kosmos:connections:end -->\n\n<!-- kosmos:language:start -->/);
-});
-
 test('#5050 review 8: only the FIRST preferred language is read; a malformed first entry is not sure', () => {
   assert.equal(pl.macPreferred(() => '(\n    "???",\n    "es-MX"\n)\n'), null, 'a malformed first entry fell through to the second language');
   assert.equal(pl.macPreferred(() => '()\n'), null);
@@ -274,9 +252,10 @@ test('#5050 review 11: an override that is not a 2 or 3 letter language is ignor
   assert.deepEqual(pl.read({ env: { AGENT_WORKFORCE_PERSON_LOCALE: 'es' }, platform: 'linux' }), { tag: 'es', sure: true });
 });
 
-test('#5050 review 11: the block-delivery report knows the language block (nothing to deliver unless a sure non-English read)', () => {
+test('#5050 review 11/15: the block-delivery report knows the language block (cannot tell on an unsure read)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'tools', 'check-block-delivery.js'), 'utf8');
-  assert.match(src, /case 'language':[^\n]*personlanguage\.js[^\n]*got\.sure && pl\.blockBody\(got\.tag\)/);
+  // An unsure read is CANNOT TELL (null): it leaves existing blocks alone, so "nothing to deliver" would call them stale.
+  assert.match(src, /case 'language':[^\n]*personlanguage\.js[^\n]*got\.sure \? !!pl\.blockBody\(got\.tag\) : null/);
 });
 
 test('#5050 review 11: a new agent whose pasted instructions already hold two language blocks reports the step failed', () => {
@@ -286,12 +265,28 @@ test('#5050 review 11: a new agent whose pasted instructions already hold two la
   assert.match(create, /found two language sections in its instructions/);
 });
 
-test('#5050 review 13: a stray start marker cannot pass the person\'s words off as a Kosmos block', () => {
-  const base = pl.applyTo('# Ida\n\nYou are Ida, who keeps the books.\n', 'es-MX');
-  const tricky = base + '\n' + projects.CONNECTIONS_START + '\nMY OWN NOTE\n\n'
-    + projects.spliceBlock('', 'a real block', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
-  assert.equal(pl.applyTo(tricky, 'es-MX'), tricky, 'the block was moved below the person\'s note');
-  // CONTROL: the same shape without the stray marker (a real block only) does move.
-  const real = projects.spliceBlock(base, 'a real block', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
-  assert.notEqual(pl.applyTo(real, 'es-MX'), real);
+
+test('#5050 review 15: the block is never moved: with a Kosmos block after it, it is replaced where it is, byte for byte', () => {
+  const base = pl.applyTo('# Cy\n\nYou are Cy, who keeps the calendar.\n', 'es-MX');
+  assert.ok(base.trimEnd().endsWith(pl.END), 'CONTROL: a missing block is appended at the end');
+  const after = projects.spliceBlock(base, 'a block added later', projects.CONNECTIONS_START, projects.CONNECTIONS_END);
+  assert.equal(pl.applyTo(after, 'es-MX'), after, 'the block was moved, which rewrites the file and rotates the person\'s undo');
+  // A stray marker from a hand edit changes nothing either.
+  const stray = after + '\n' + projects.CONNECTIONS_START + '\nMY OWN NOTE\n';
+  assert.equal(pl.applyTo(stray, 'es-MX'), stray);
+  // A language change is replaced in place.
+  const fr = pl.applyTo(after, 'fr-FR');
+  assert.ok(fr.includes('reads French') && !fr.includes('reads Spanish'));
+  assert.ok(fr.indexOf(pl.START) < fr.indexOf(projects.CONNECTIONS_START), 'the replaced block moved');
+  for (const t of [base, pl.applyTo('# Dee\nbody\n\n\n', 'es-MX'), pl.applyTo('# Dee\nbody', 'es-MX')]) assert.equal(pl.applyTo(t, 'es-MX'), t);
+});
+
+test('#5050 review 15: something at the instructions path that cannot be read is reported, not told', () => {
+  const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'oddfile');
+  fs.mkdirSync(path.join(dir, 'CLAUDE.md'), { recursive: true });   // a folder where the file should be
+  const board = fleet.install([fleet.agent('oddfile')]);
+  try {
+    const out = pl.tellAgent('oddfile', board.roster, { tag: 'es-MX', sure: true });
+    assert.equal(out.state, projects.TOLD.COULD_NOT, 'an unreadable instructions path was reported as told');
+  } finally { board.restore(); }
 });

@@ -5222,8 +5222,8 @@ function createAgentInner(opts) {
     // button, sixty seconds old. Composed here, before the first write, the
     // later sync finds the file already saying this and `instructions.write`
     // declines a byte-identical save, so nothing is newer than the session.
-    // ⚠️ AFTER THE DEFAULTS (only the #5050 language block follows it), because that is where `spliceBlock` puts a
-    // block a file does not yet have, and the later sync has to compose the
+    // ⚠️ AFTER THE DEFAULTS (only the #5050 language block follows it), because that is where
+    // `spliceBlock` puts a block a file does not yet have, and the later sync has to compose the
     // SAME bytes or it writes after all. Both paths, unlike the two blocks
     // above: this block is written into a person's own words on every
     // membership change already, so at birth it is the same invitation.

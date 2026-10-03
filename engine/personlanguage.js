@@ -19,9 +19,8 @@
  * Mac, and on a Mac whose read failed, an agent's file is left exactly as it is. A sure English read writes no block
  * and removes one an agent already has.
  *
- * Where it sits: appended at the end; moved back behind any Kosmos block appended after it; left in place when the
- * person wrote after it (their words are never reordered). Measured: end of file and top of file 2/2 each (April),
- * and at 64% of a 7,670-word file 2/2 (10-02), so no position depends on the move.
+ * Where it sits: appended at the end when it is missing, then replaced where it is; never moved. Measured: end and top
+ * of the file 2/2 each (April), and at 64% of a 7,670-word file 2/2 (10-02), so no position depends on where it sits.
  */
 
 const { execFileSync } = require('node:child_process');
@@ -60,7 +59,8 @@ let source = null;   // test seam: what the no-argument read reads (production: 
 let cached;   // a SURE read is kept for the process (a language changed while the board runs reaches new agents at
               // the next board start); a fallback is read again once FALLBACK_MS has passed
 let fallbackAt = 0;
-const FALLBACK_MS = 5 * 60 * 1000;   // review 4: a hanging `defaults` (2 s timeout) must not stall every create
+const FALLBACK_MS = 5 * 60 * 1000;   // review 4: a hanging `defaults` (2 s timeout, synchronous: it blocks the whole board's
+                                     // event loop) is asked at most once per window, not on every create
 function read(o) {
   if (!o && cached !== undefined && (cached.sure || Date.now() - fallbackAt < FALLBACK_MS)) return cached;
   if (!o) { const got = read(source || {}); cached = got; fallbackAt = got.sure ? 0 : Date.now(); return got; }
@@ -110,29 +110,20 @@ function blockBody(tag) {
 }
 
 /** `text` with the block for `tag` at its end, or without the block when the language is English. */
-function applyTo(text, tag, opts) {
+function applyTo(text, tag) {
   const body = blockBody(tag);
-  // A read that is not sure changes nothing, in either direction (see read()).
-  if (opts && opts.keep) return String(text == null ? '' : text);
+  const str = String(text == null ? '' : text);
   if (!body) {
-    const str0 = String(text == null ? '' : text);
-    const at0 = projects.findBlock(str0, START, END);
+    const at0 = projects.findBlock(str, START, END);
     // With the person's (or anyone's) text after it, cut exactly the block and keep one blank line between what remains
     // (review 11: removeBlock joins the paragraphs across the gap). Last in the file: removeBlock, byte for byte.
-    if (at0 && !at0.ambiguous && str0.slice(at0.end).trim()) return cutOut(str0, at0);
-    return projects.removeBlock(str0, START, END);
+    if (at0 && !at0.ambiguous && str.slice(at0.end).trim()) return cutOut(str, at0);
+    return projects.removeBlock(str, START, END);
   }
-  const str = String(text == null ? '' : text);
-  const at = projects.findBlock(str, START, END);
-  // Not there yet, or two of them (refused by the caller): spliceBlock appends, or returns the text unchanged.
-  if (!at || at.ambiguous) return projects.spliceBlock(str, body, START, END);
-  const after = str.slice(at.end);
-  /* Moved to the end only when everything after it is OTHER Kosmos blocks (ones Kosmos appended later). If the person
-     wrote anything after it, it stays where it is and is replaced in place: the board never reorders their words
-     (review 7). In place is byte-equal when nothing changed, so no write. */
-  if (!after.trim() || !onlyManaged(after)) return projects.spliceBlock(str, body, START, END);   // already last, or the person's words follow
-  // Cut exactly the block, then append it again.
-  return projects.spliceBlock(cutOut(str, at), body, START, END);
+  /* Replaced where it sits, or appended when missing; never moved (review 15). Every measured position held (end, top,
+     64%), so a move would only rewrite the file, rotate the person's one-deep undo and prompt a restart for nothing.
+     Byte-equal when nothing changed, so no write. Two blocks: spliceBlock returns the text unchanged. */
+  return projects.spliceBlock(str, body, START, END);
 }
 
 /* `str` without the block at `at`, what was before and after it rejoined with one blank line. Only line breaks are
@@ -145,22 +136,11 @@ function cutOut(str, at) {
   return joined.replace(/(\r?\n)+$/, '') + '\n';
 }
 
-/* Whether `text` holds nothing but whitespace and complete Kosmos blocks. Only TIGHT pairs count (a start, then its
-   end with no second start between, as findBlock pairs them), and any marker left over makes it the person's text:
-   a stray start from a hand edit must not pass their words off as a Kosmos block (review 13). */
-function onlyManaged(text) {
-  const marks = projects.ALL_MARKERS();
-  let left = String(text || '');
-  for (let i = 0; i + 1 < marks.length; i += 2) {
-    const a = marks[i];
-    const b = marks[i + 1];
-    for (let from = left.indexOf(a); from !== -1; from = left.indexOf(a)) {
-      const to = left.indexOf(b, from + a.length);
-      if (to === -1 || left.slice(from + a.length, to).includes(a)) return false;
-      left = left.slice(0, from) + left.slice(to + b.length);
-    }
-  }
-  return !left.trim() && !marks.some((m) => left.includes(m));
+
+/* Whether anything (a file, a link, a folder) is at `p`; lstat, so a dangling link counts as something. */
+function somethingAt(p) {
+  if (!p) return false;
+  try { require('node:fs').lstatSync(p); return true; } catch { return false; }
 }
 
 /** Put the block in (or take it out of) one agent's instructions. connections.tellAgent's guards, minus its bypass. */
@@ -178,9 +158,11 @@ function tellAgent(sessionName, roster, opts) {
     // Nothing to do (a read that is not sure changes nothing): told, without touching the file (review 4: no boot noise).
     if (!got.sure) return { state: projects.TOLD.TOLD, because: null };
     const current = instructions.read(sessionName);
-    // No instructions file: this module never creates one, so there is nothing to change and nothing to report, in any
-    // language (review 14: a non-English Mac's boot logged a failure for every agent without a file).
-    if (!current.exists) return { state: projects.TOLD.TOLD, because: null };
+    // Nothing at the instructions path (no file, or no folder at all, as for an agent with no worker folder): this module
+    // never creates one, so there is nothing to change and nothing to report, in any language (review 14). Something
+    // there that cannot be read safely is not that: it is reported, as connections.tellAgent does (review 15).
+    if (!current.exists && !somethingAt(current.path)) return { state: projects.TOLD.TOLD, because: null };
+    if (!current.exists) return { state: projects.TOLD.COULD_NOT, because: current.because || 'it keeps its instructions somewhere we cannot safely change' };
     const found = projects.findBlock(current.text || '', START, END);
     if (found && found.ambiguous) {
       return {

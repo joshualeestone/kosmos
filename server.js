@@ -20370,8 +20370,8 @@ if (require.main === module) {
   }
   /* #5050: the person's language block, refreshed at boot (an agent made before it existed, or the computer's language
      setting changed): written when the Mac's setting is not English, removed when it is; off a Mac, or when the read
-     failed, nothing changes. Last of the boot sweeps, because writing it moves it behind any Kosmos block appended
-     after it, and a later sweep could append one again. */
+     failed, nothing changes. Last of the boot sweeps, so an agent made before the block existed gets it appended
+     after the blocks the sweeps above may add. */
   try {
     const told = personlanguage.syncEveryone(safeRoster());
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);

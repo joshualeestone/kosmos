@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (24 after the reviews below), plus three create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (23 after the reviews below), plus three create tests in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -44,7 +44,7 @@ English Mac and work in Spanish (then nothing changes, as today), or a Spanish M
 block's "unless they write to you in another language" is the behaviour April measured, not a guarantee). And the
 wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese only.
 
-## Review 1 (blind, opus)
+## Review 1 (blind, opus) (its move-to-end is SUPERSEDED by review 15: the block is never moved)
 - The block is now kept at the END: writing it takes it out and appends it again unless it is already last (then it is
   replaced in place, byte-equal when unchanged, so no boot rewrites the file). The boot sweep runs after the About-you
   sweep, the last one that can append a block. A block added between boots sits behind it until the next start.
@@ -101,7 +101,7 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - Deferred, as the sibling blocks do: a create-time step reports "may start in English" if the read itself throws
   (it does not in practice: `read` catches every failure), and an agent at the size limit logs once per boot.
 
-## Review 7 (blind, opus)
+## Review 7 (blind, opus) (the move it fixes was removed in review 15)
 - Moving the block used removeBlock, which joined the person's own text after the block onto what came before it (a
   paragraph turned into a list item) and rewrote the file at every boot. Now the block moves ONLY when everything after
   it is other Kosmos blocks (the case moving exists for); if the person wrote anything after it, it stays where it is
@@ -153,7 +153,7 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   stall: a duplicate of review 4.
 - The CRLF note above is corrected (the rejoin writes LF).
 
-## Review 13 (blind, opus)
+## Review 13 (blind, opus) (its onlyManaged fix went with the move in review 15)
 - `onlyManaged` counts only TIGHT marker pairs (no second start between, as findBlock pairs them) and treats any
   leftover marker as the person's text, so a stray start from a hand edit cannot get the block moved below their words.
   Test with a control; mutation (loose pairing) reds.
@@ -171,3 +171,16 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - An agent with no instructions file is told, in any language: this module never creates a file, so a non-English
   Mac's boot no longer logs a failure for each such agent. Mutation reds.
 - The opt-out warning repeats review 12 (deferred to the Settings picker).
+
+## Review 15 (blind, opus)
+- The move to the end is REMOVED. Every measured position held (end, top, 64%), so moving only rewrote the file,
+  rotated the person's one-deep undo and prompted a restart for nothing, and it carried most of the module (onlyManaged
+  and the review 7/11/13 rules). The block is appended when missing and replaced where it is after that. create still
+  splices it last, so a new agent's file ends with it. A test pins that a block with a Kosmos block after it, or a stray
+  marker, is left byte for byte; a mutation that moves it back reds two.
+- "Nothing at the instructions path" (no file, or no worker folder) is told; something there that cannot be read
+  (a folder where the file should be) is reported COULD_NOT, as connections.tellAgent does. Mutations both ways red.
+- check-block-delivery says CANNOT TELL (null) on an unsure read, since an unsure read leaves existing blocks alone;
+  "nothing to deliver" would have called them stale. Mutation reds.
+- The comment says a hanging `defaults` blocks the whole board's event loop (at most once per 5-minute window).
+- Removal still cuts exactly the block when the person's text follows it (review 11).
