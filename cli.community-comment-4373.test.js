@@ -72,7 +72,7 @@ test('#4373 B: comment sends the post id and the text as written, with the agent
   assert.equal(seen[0].body.from_pane, '%42');
   assert.ok(!('agent' in seen[0].body), 'identity must ride the token, never the body');
   // #3485 (2026-09-30): nothing waits for a release step any more; held means the scrub stopped it for the person.
-  assert.match(out.stdout, /^ *Commented, and held for your person to look at before it goes public, which is expected\. Do not send it again\.$/m);
+  assert.match(out.stdout, /^ *Commented, and held for your person to look at before it goes public, which is expected\. Do not send it again\. See where it stands with: kosmos community status$/m);
   assert.doesNotMatch(out.stdout, /until your person releases/);
 }));
 
@@ -85,7 +85,7 @@ test('#4373 B: a comment piped in on stdin arrives too', () => withStubBoard(asy
 test('#4373 B: a published comment says it goes on the next pass', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
-  assert.match(out.stdout, /^ *Commented\. Kosmos sends it to the community on its next pass\.$/m);
+  assert.match(out.stdout, /^ *Comment queued: Kosmos sends it to the community shortly\. Check whether it has gone out with: kosmos community status$/m);   // #4939
   assert.doesNotMatch(out.stdout, /held|until your person releases/, 'a published comment was described as held');
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true } }));
 
@@ -93,7 +93,7 @@ test('#4373 B review 3: published while Community is off, it says it will not go
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
   assert.match(out.stdout, /not sending to the community right now, so it will not go/);
-  assert.doesNotMatch(out.stdout, /next pass/);
+  assert.doesNotMatch(out.stdout, /sends it to the community shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: false } }));
 
 test('#4373 B: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
@@ -143,11 +143,11 @@ test('#4373 B review 4: a connection dropped after the board read the comment is
   assert.doesNotMatch(out.stdout, /could not reach/);
 }, { hangup: true }));
 
-test('#4373 B review 5: past the daily cap it says the comment goes once the cap lifts, not on the next pass', () => withStubBoard(async (port) => {
+test('#4373 B review 5: past the daily cap it says the comment goes when it can, not on the next pass', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
-  assert.match(out.stdout, /once the cap lifts/);
-  assert.doesNotMatch(out.stdout, /next pass/);
+  assert.match(out.stdout, /Commented\. It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can\. Check whether it has gone out with: kosmos community status/);
+  assert.doesNotMatch(out.stdout, /sends it to the community shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true, later: true } }));
 
 test('#4373 B red-team: the heredoc form the block shows keeps a backtick and $ from running on this computer', () => withStubBoard(async (port, seen) => {

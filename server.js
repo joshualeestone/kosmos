@@ -8223,6 +8223,15 @@ const server = http.createServer(async (req, res) => {
        bearer), so it is keyed on the authenticated session, never on anything in the query. */
     /* #4833 slice 2: `?replies=1` is the replies to the reader's OWN posts, keyed on the authenticated session like
        Following, never on anything in the query. */
+    /* #4939: `?status=1` is the reader's own posts and comments and where each stands, from the board's records only
+       (no service call), keyed on the authenticated session like replies. */
+    if (q.get('status') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      let r;
+      try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
+      sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+      return;
+    }
     if (q.get('replies') === '1') {
       if (q.get('channel') || q.get('post') || q.get('following')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
       communityread.readReplies(reader.card.sessionName)
@@ -8320,11 +8329,10 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         candidate.agent = agentId;
-        // #4947: will this post wait past the service's daily post cap? Asked before the store write. The ON period's start
-        // is recorded by #4938's recordPeriodStart just below (postWaits' willSend records the same first-writer-wins
-        // start, so whichever runs first wins and the other changes nothing).
-        let later = false;
-        try { later = communitysend.postWaits(agentId); } catch { later = false; }
+        // #4939: asked BEFORE the store write, as the comment route does: it records the ON period's start, which must
+        // not be later than this post (the sweep sends only posts made at or after it), and says whether it will go.
+        let will = { sends: false, later: false };
+        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false }; }
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
@@ -8343,7 +8351,9 @@ const server = http.createServer(async (req, res) => {
         // against it are bounded by the per-agent hourly cap above (10 by default), and
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, ...(later && r.status === 'published' ? { later: true } : {}) });   // a held post is not going yet at all
+        // A held post is not going yet at all (#4947): it is neither sent nor waiting until it is released.
+        const going = r.status === 'published' && will.sends;
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later });
         if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
