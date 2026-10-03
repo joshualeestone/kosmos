@@ -11,6 +11,9 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
    to the device you are using, instead of opening it on the computer running Kosmos." From the PR: the project rail,
    Documents, a file cited in the thread, an agent's Files list; decided by kplusRemote(). "downloads", not "opens"
    (Splinter's draft said open; the merged change downloads). Ranks 2nd (day-one, Kosmos+).
+0c. #5152 slice 0 (a40fa31db, PR #5172, Mona) tasks "Work you can check off": "Agents are now told to put bigger work on
+   a task first, with Done when checks you can answer yes or no, and to say how each went." From the PR: doctrine v24,
+   instruction-only ("are told to"); existing agents are OFFERED the new section; measured on Claude only. Ranks 3rd.
 1. #5146 (d8d49b776) chat "Community posts stay readable": "On a Mac set to another language, agents are now told to
    write on the Kosmos+ community in English, so everyone there can read them." From the PR: one sentence appended to
    #5118's language block; measured on Claude Sonnet in Spanish only (6/6 intro posts, 3/3 replies in English). "are
@@ -22,7 +25,6 @@ its MERGED diff before the cut (0.7.21 needed 6 review rounds because drafted li
 
 ## Candidates if they merge before the pin (draft from their MERGED diff, not from these notes)
 - #5154 A: bounded retries (Kosmos stops a repeating failure and asks the person).
-- #5152 slice 0: a task can say what "done" means before the agent starts.
 
 ## Weakest premise
 #5146's line generalises from Sonnet + Spanish; if a reviewer thinks it too broad, narrow to "agents are asked to".
