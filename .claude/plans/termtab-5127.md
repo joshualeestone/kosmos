@@ -10,7 +10,8 @@ section Add a provider is in ("Set up in Settings, AI Models").
 
 ## The thirteen sentences
 - server.js: the agent-not-running message ("if it stays off, look under AI Settings on its page").
-- engine/chat.js: ten refusals from answering a Codex hook question ("...; look under AI Settings on its page to see it").
+- engine/chat.js: ten refusals from answering a Codex hook question. They are shown in the question box ON the agent's
+  page, so they say "...; look under AI Settings on this page to see it".
 - web/index.html: the greyed Gemini (Antigravity) and Meta (Muse) provider hints.
 
 ## The sweep, so the next person does not redo it
@@ -28,7 +29,8 @@ site, or was a comment.
 That "AI Settings on its page" is findable without saying "scroll down". The box is the third section under that pill.
 
 ## Checks
-- web.place-names-5127.test.js: red on main (lists exactly the thirteen); an arm that the AI Settings pill still holds
-  the agent's screen (red when the pill is renamed, measured); controls for the old names and the new words.
+- web.place-names-5127.test.js: quoted strings and the page markup's text; red on main (lists exactly the thirteen); an
+  arm that the AI Settings pill still holds the agent's screen (red when the pill is renamed, measured); a control for
+  each spelling and each comment kind it skips.
 - Tests pinning the old words updated: server.offline-nextmove.test.js, web.agy-on-3568.test.js,
   web.muse-create-3939.test.js, and the browser check render-muse-signin-3939.js.
