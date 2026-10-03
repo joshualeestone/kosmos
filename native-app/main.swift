@@ -2389,6 +2389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         recoverOnReloadFailure = false
         reloadNavigation = nil
         badgeTimer?.invalidate(); badgeTimer = nil
+        badgeOrigin = nil   // #5167: no board of its own to save downloads from any more
         a11yTimer?.invalidate(); a11yTimer = nil
         promptRequestTimer?.invalidate(); promptRequestTimer = nil
         NSApp.dockTile.badgeLabel = nil
@@ -2716,6 +2717,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             decisionHandler(.download)
             return
         }
+        // A download this app will not save does not load in the window instead (a computer that runs
+        // agents allows every navigation below). A connect computer keeps its link policy.
+        if navigationAction.shouldPerformDownload, computerMode != .connect {
+            logLine("#5167: refused a download that is not from this board")
+            tellDownloadFailed("The file pointed somewhere Kosmos does not save from, so it was not saved.")
+            decisionHandler(.cancel)
+            return
+        }
         guard computerMode == .connect, let url = navigationAction.request.url,
               let frame = navigationAction.targetFrame, frame.isMainFrame
         else { decisionHandler(.allow); return }
@@ -2742,9 +2751,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let http = navigationResponse.response as? HTTPURLResponse, let url = http.url,
            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
            disposition.split(separator: ";", maxSplits: 1).first
-               .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() == "attachment" }) == true,
-           isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-            decisionHandler(.download)
+               .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() == "attachment" }) == true {
+            if isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
+                decisionHandler(.download)
+            } else {
+                logLine("#5167: refused an attachment that is not from this board")
+                tellDownloadFailed("The file came from somewhere Kosmos does not save from, so it was not saved.")
+                decisionHandler(.cancel)
+            }
             return
         }
         if !navigationResponse.canShowMIMEType {
@@ -2847,8 +2861,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         var values = URLResourceValues()
         var props: [String: Any] = [kLSQuarantineAgentNameKey as String: "Kosmos",
                                     kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String]
-        if let from = download.originalRequest?.url { props[kLSQuarantineDataURLKey as String] = from }
-        if let page = committedPageURL { props[kLSQuarantineOriginURLKey as String] = page }
+        // Origins only: the page's address carries the board token (?token=, #kst=), and LaunchServices
+        // keeps these in a long-lived record.
+        func originOnly(_ u: URL?) -> URL? {
+            guard let u = u, var c = URLComponents(url: u, resolvingAgainstBaseURL: false) else { return nil }
+            c.user = nil; c.password = nil; c.path = "/"; c.query = nil; c.fragment = nil
+            return c.url
+        }
+        if let from = originOnly(download.originalRequest?.url) { props[kLSQuarantineDataURLKey as String] = from }
+        if let page = originOnly(committedPageURL) { props[kLSQuarantineOriginURLKey as String] = page }
         values.quarantineProperties = props
         var marked = dest
         do { try marked.setResourceValues(values) } catch {
@@ -4948,7 +4969,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        redirect to another origin and a link to another origin save nothing, and that a saved file carries
        the quarantine mark. The page is served over HTTP on 127.0.0.1 (an ephemeral port); "another
        origin" is `localhost` on the same port. Files go to a temporary folder (downloadsDirOverride), never
-       the real Downloads. Offscreen, and driven from JavaScript, like the filepanel selftest. */
+       the real Downloads. Offscreen, and driven from JavaScript, like the filepanel selftest. It runs as a
+       computer that runs agents (the default mode); a connect computer is not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) { print("download selftest TIMED OUT"); exit(1) }
     let app = NSApplication.shared
@@ -5015,6 +5037,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         }
         poll(150)
     }
+    var leftBoard: [String] = []
     func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
     /* A click that should save a file waits for that file (up to 10s), so a busy build box cannot fail a
        good product on a fixed sleep. One that should save nothing waits 2s, and a same-origin download
@@ -5025,7 +5048,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             web.evaluateJavaScript("document.getElementById('\(id)').click()") { _, _ in }
             func wait(_ tries: Int) {
                 if let e = expect, saved(e) || tries == 0 { then(); return }
-                if expect == nil && tries == 0 { then(); return }
+                if expect == nil && tries == 0 {
+                    if web.url?.host != "127.0.0.1" { leftBoard.append(id) }
+                    then(); return
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { wait(tries - 1) }
             }
             wait(expect == nil ? 20 : 100)
@@ -5049,11 +5075,15 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(q > 0, "a saved file carries the quarantine mark")
             let all = (try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []
             row(all.sorted() == ["att.txt", "last.txt", "ok2.txt", "same.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            row(told.count == 2, "THE 404 AND THE REFUSED REDIRECT ARE EACH SAID ONCE, and nothing else is (told: \(told.count))")
+            row(told.count == 3, "EVERY REFUSAL IS SAID ONCE (404, redirect, foreign attachment), and nothing else is (told: \(told.count))")
             row(told.contains { $0.contains("answered 404") } && told.contains { $0.contains("does not save from") },
                 "and each is said in its own words")
+            // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
+            // plain link, and a computer that runs agents loads every link in the window (#5169).
+            row(!leftBoard.contains("foreignatt"),
+                "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (left the board on: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 11
+            let expected = 12
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
