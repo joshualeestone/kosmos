@@ -39,7 +39,8 @@ test('#5050: the block is April\'s tested variant A, plus her one sentence from 
 
 test('#5050: an English computer gets no block, in any region, and an unreadable one is treated as English', () => {
   for (const tag of ['en', 'en-US', 'en-GB', 'en-AU', null, '']) assert.equal(pl.blockBody(tag), null, String(tag));
-  // CONTROL: a language whose code merely starts with "en"-like letters is not English.
+  // The boundary: a language whose code merely STARTS with "en" is not English (Middle English, enm).
+  assert.notEqual(pl.blockBody('enm'), null);
   assert.notEqual(pl.blockBody('es'), null);
 });
 
@@ -133,6 +134,8 @@ test('#5050: a new agent gets the block at create, and the board refreshes every
   const server = strip(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'));
   assert.match(server, /require\('\.\/engine\/personlanguage'\)/);
   assert.match(server, /personlanguage\.syncEveryone\(safeRoster\(\)\)/, 'the boot sweep no longer refreshes the language block');
+  // Review 17: a failed Mac read is said once at boot, so it cannot look like an English Mac.
+  assert.match(server, /process\.platform === 'darwin' && !personlanguage\.read\(\)\.sure\) \{\s*process\.stderr\.write\('Kosmos could not read this Mac/);
   // The boot sweep runs after the About-you sweep, the last one that can append a block.
   const you = server.indexOf('you.syncEveryone(safeRoster(), { addOnly: true })');
   const lang = server.indexOf('personlanguage.syncEveryone(safeRoster())');

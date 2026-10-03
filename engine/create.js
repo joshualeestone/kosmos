@@ -5241,7 +5241,8 @@ function createAgentInner(opts) {
       } catch { /* the sync after the session is up still does it, the old way */ }
     }
     /* #5050: the person's language, from this computer's language setting, so the agent starts and posts in it. An
-       English Mac writes nothing; off a Mac, or when the Mac's read failed, nothing is written either. Spliced last,
+       English Mac writes none (and removes one that came in with pasted instructions); off a Mac, or when the Mac's read
+       failed, nothing changes. Spliced last,
        so a new agent's file ends with it, unless pasted instructions already hold one with their own text after it
        (then it is replaced where it is). Non-gating like the blocks above. */
     {

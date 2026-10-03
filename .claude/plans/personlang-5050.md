@@ -188,3 +188,11 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 ## Review 16 (blind, sonnet)
 - Mac-only scope stated on #5050, and the follow-up filed as #5080 (Settings picker = the opt-out, a measured Windows
   source, Codex/Gemini/Grok). Duplicates: override removal (review 8), no opt-out and the restart prompt (review 12).
+
+## Review 17 (blind, opus)
+- A Mac whose language read failed now says so once at boot ("Kosmos could not read this Mac's language setting ..."),
+  so it no longer looks exactly like an English Mac. Pinned in the boot-wiring test.
+- The English boundary test uses enm (Middle English), which starts with "en" and is not English; the create comment
+  says a sure English read also removes a block that came in with pasted instructions.
+- Recorded, same trade-off as review 12: the first boot after upgrade on a non-English Mac writes every agent's file,
+  which rotates each one-deep `.previous` backup (the person's undo of their own last edit), as any new managed block does.
