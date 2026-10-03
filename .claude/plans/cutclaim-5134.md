@@ -68,3 +68,14 @@ arms), test-cut-parallel-region, and the 11 node test files that read release.sh
   That is the queued-heavy.sh bound, and the weakest premise above.
 Re-mutated on the new code, each red with the unmutated control at 0: no start (4), no cap (1), no cut-alive check
 (2), no stop at step (1), no stop at exit (3), no wait (1), no foreign check (3). The test now has 12 checks.
+
+## Review 2 (blind, sonnet, 05:3x): NO NEW ISSUES, converged
+No BLOCKER or WARNING. Checked: no step() in a subshell, the renewer's `trap - EXIT`, `10#` on odd env values
+(CLAIM_MINUTES=0 clamps to a 1 s interval; RENEW_MAX=0 exits at once), `_kosmos_machine_claim_active`'s delete
+branches (unreachable on our own live claim; the marker dir is machine-local), and the slice arithmetic.
+NITs: (1) after a kill -9 the renewer holds the cut's stdout up to 30 s; accepted, bounded. (2) a read-then-write
+window between the foreign check and the claim; milliseconds, the claim is advisory; accepted. (3) two positive arms
+used fixed sleeps with 1 s intervals and could red spuriously under load. TAKEN, because this test runs inside full
+suites and cuts: arm 1 needs one renewal, not two; arm 5 waits (bounded, 20 s) for the renewer to exit on its own and
+asserts it did. Re-mutated: no cap 1 red, no renewer 4 red, control 0. (A first edit put a comment mid-line and broke
+the script's syntax; caught by bash -n before commit.)
