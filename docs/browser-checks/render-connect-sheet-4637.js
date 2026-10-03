@@ -254,6 +254,12 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /ran out/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       const refused = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' '));
       chk(/That code ran out\. A new one is on its way\./.test(refused) && !/code_expired/.test(refused), `${tag} #4794: a refused confirm (expired) is worded`, refused);
+      /* Review 2: the same refusal again must leave the button pressable (an identical repaint was skipped before). */
+      confirmRefuse = 'code_expired';
+      await page.click('#plus-join-match');
+      await page.waitForTimeout(800);
+      const again2 = await page.evaluate(() => { const b = document.getElementById('plus-join-match'); return { there: !!b, enabled: !!(b && !b.disabled) }; });
+      chk(again2.there && again2.enabled, `${tag} #4794: after the same refusal twice the button can be pressed again`, JSON.stringify(again2));
       await page.click('#plus-join-match');
       await page.waitForFunction(() => /Matched\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       jr = await readJoin();

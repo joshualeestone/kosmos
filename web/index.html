@@ -44854,11 +44854,18 @@ var PLUS_JOIN_BUSY = false;
 var PLUS_JOIN_AT = 0;
 var PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
 var PLUS_JOIN_LAST_CODE = '';
+var PLUS_JOIN_GEN = 0;         // bumped by a confirm: a round that began before it is stale
 /* Each GET runs one pairing round in the tunnel, so it is paced (paintPlus repaints every few seconds). */
 async function plusJoinTick() {
   if (PLUS_JOIN_BUSY || Date.now() - PLUS_JOIN_AT < 4000) { paintPlusJoin(); return; }
   PLUS_JOIN_BUSY = true;
-  try { const res = await fetch('/api/remote/join'); PLUS_JOIN = res.ok ? await res.json() : null; } catch { PLUS_JOIN = null; }
+  const gen = PLUS_JOIN_GEN;
+  /* Only a real answer replaces the last one: a round that failed (the tunnel's round lock, a Forget in progress, a
+     restart) keeps what the person was looking at rather than hiding the code mid-check (review 2). A round that began
+     before a confirm is dropped, so it cannot undo "Matched". */
+  let got = null;
+  try { const res = await fetch('/api/remote/join'); got = res.ok ? await res.json() : null; } catch { got = null; }
+  if (got && gen === PLUS_JOIN_GEN) PLUS_JOIN = got;
   PLUS_JOIN_BUSY = false; PLUS_JOIN_AT = Date.now();
   paintPlusJoin();
 }
@@ -44894,6 +44901,7 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   b.disabled = true;
   let res = null;
   try { res = await fetch('/api/remote/join/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: b.getAttribute('data-code') }) }); } catch { res = null; }
+  PLUS_JOIN_GEN += 1;
   if (res && res.ok) { PLUS_JOIN_MSG = ''; if (PLUS_JOIN) PLUS_JOIN.confirmed = true; }
   else {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
@@ -44903,6 +44911,8 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
         : plusWords(why || 'That did not go through. Try again.');
   }
   PLUS_JOIN_AT = 0;   // read the pairing again now, not in a few seconds
+  /* Always repaint: an identical refusal would otherwise be skipped and leave this disabled button in place (review 2). */
+  { const el = document.getElementById('plus-join'); if (el) el.__lastJoin = null; }
   paintPlusJoin(); plusJoinTick();
 });
 /* The engine's honest-but-technical sentence for a missing binary, said
