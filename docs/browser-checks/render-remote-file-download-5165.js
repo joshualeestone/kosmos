@@ -8,13 +8,14 @@
  *   R1  over Kosmos+ (the page reached as kosmos-remote.test) a click on a file in the project rail, the project's
  *       Documents view, a cited file in the project thread, and an agent's Files list each fetches that file's
  *       DOWNLOAD route with its name (GET), and none asks the board to open it (no POST .../open-file, .../files/open);
- *   R2  over Kosmos+ every button that would open a folder window on the board's computer (the project's folder from
+ *   R2  over Kosmos+ every button that would open a window on the board's computer (the project's folder from
  *       Documents and from project settings, an agent's Files folder, the conversations folders, the Kosmos folder
- *       from Settings and from the update offer) asks the board for nothing and says the folder is on the computer
- *       Kosmos runs on;
- *   L1  CONTROL at the computer (127.0.0.1): the same project-rail and agent-file clicks still POST open and fetch no
- *       download, and the Documents folder button still asks the board to reveal it. This is the arm that keeps R1
- *       and R2 from passing on a page that simply stopped answering clicks.
+ *       from Settings and from the update offer, and an agent's Terminal) POSTs nothing and says where it opens;
+ *   R3  over Kosmos+ a file the board refuses (gone since the list was drawn) is SAID under the list, in the board's
+ *       own sentence, rather than left to the browser's downloads;
+ *   L1  CONTROL at the computer (127.0.0.1): every file surface above still POSTs open and downloads nothing, and
+ *       every button above still asks the board to act. This is the arm that keeps R1 and R2 from passing on a page
+ *       that simply stopped answering clicks, or whose guard was inverted.
  *   W   every arm above again with the page served as a WINDOWS board serves it (the platform marker filled with
  *       win32, so the page speaks of File Explorer): the user who found this was on Windows (Josh, 12:48), and the
  *       rule must not depend on the board's platform.
@@ -41,6 +42,9 @@ const PROJECT = 'p5165';
 const AGENT = 'ana';
 const DECK = 'out/Q3 deck.pptx';
 const FOLDER_SENTENCE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
+const TERMINAL_SENTENCE = 'The Terminal window opens on the computer Kosmos runs on, not on this device, so it opens only there.';
+const GONE = 'gone.pptx';
+const GONE_SAID = 'That file is not there any more, or it was moved.';
 
 const PLATFORM_MARKER = '__KOSMOS_PLATFORM__';   // server.js PAGE_PLATFORM_MARKER: the board fills it in
 if (!HTML.includes(PLATFORM_MARKER)) {
@@ -53,18 +57,20 @@ async function openPage(engine, origin, platform) {
   const browser = await pw[engine].launch({ headless: process.env.HEADED === '0' });
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
   const pg = await ctx.newPage();
-  const asked = [];   // every /api request the clicks made: "METHOD path?query"
+  const asked = [];   // the download requests and EVERY POST the clicks made: "METHOD path?query" (the page's own
+                     // background reads are GETs to other routes, so they stay out)
   const errors = [];
   pg.on('pageerror', (e) => errors.push(String(e && e.message)));
   await pg.route('**/*', async (route) => {
     const req = route.request();
     const u = new URL(req.url());
     if (u.pathname === '/' || u.pathname === '/index.html') return route.fulfill({ status: 200, contentType: 'text/html', body: page });
-    if (/\/download$/.test(u.pathname)) {
+    if (/\/(file-)?download$/.test(u.pathname)) {
       asked.push(req.method() + ' ' + u.pathname + u.search);
+      if (u.searchParams.get('name') === GONE) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'that file is not there any more, or it was moved' }) });
       return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="f.bin"' }, body: 'PK' });
     }
-    if (/\/(open-file|files\/open|reveal|reveal-folder|reveal-app)$/.test(u.pathname)) {
+    if (req.method() !== 'GET' && req.method() !== 'HEAD' && u.pathname.startsWith('/api/')) {
       asked.push(req.method() + ' ' + u.pathname);
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
     }
@@ -120,34 +126,25 @@ async function runRemote(engine, platform, say) {
   engine = engine + ' (' + platform + ' board)';
   try {
     say(await pg.evaluate(() => kplusRemote()) === true, engine + ' R0: the page reached as kosmos-remote.test counts as Kosmos+');
-    const rows = [
-      ['project rail', 'pj-docs', DECK, 'pj-doc', 'GET /api/project/' + PROJECT + '/download?name=' + encodeURIComponent(DECK)],
-      ['Documents view', 'docs-list', DECK, 'pj-doc', 'GET /api/project/' + PROJECT + '/download?name=' + encodeURIComponent(DECK)],
-      ['a cited file in the thread', 'pj-room', DECK, 'refgo', 'GET /api/project/' + PROJECT + '/download?name=' + encodeURIComponent(DECK)],
-      ['an agent’s Files', 'd-files-list', 'report.pptx', 'pj-doc', 'GET /api/agent/' + AGENT + '/files/download?name=report.pptx'],
-    ];
-    for (const [where, listId, name, cls, want] of rows) {
+    for (const [where, listId, name, cls, want] of ROWS) {
       asked.length = 0;
       const missing = await clickRow(pg, listId, name, cls);
-      const opened = asked.filter((a) => /^POST .*(open-file|files\/open)$/.test(a));
+      const opened = asked.filter((a) => /^POST /.test(a));
       say(!missing && asked.includes(want) && opened.length === 0,
         engine + ' R1: over Kosmos+ a click on a file in ' + where + ' downloads it and asks the board to open nothing',
         missing || JSON.stringify(asked));
     }
-    const buttons = [
-      ['the project folder from Documents', 'docs-finder', 'docs-msg'],
-      ['the project folder from project settings', 'pjs-reveal', 'pjs-reveal-msg'],
-      ['an agent’s Files folder', 'd-files-finder', 'd-filesall-msg'],
-      ['the project conversations folder', 'pjs-chats-reveal', 'pjs-chats-msg'],
-      ['the task conversations folder', 'tk-chats-reveal', 'tk-chats-msg'],
-      ['the Kosmos folder from Settings', 'set-reveal', 'set-reveal-msg'],
-      ['the Kosmos folder from the update offer', 'upd-open-folder', 'upd-open-folder-msg'],
-    ];
-    for (const [what, id, msgId] of buttons) {
+    asked.length = 0;
+    await clickRow(pg, 'pj-docs', GONE, 'pj-doc');
+    const gone = await pg.evaluate(() => document.getElementById('pj-docs-msg').textContent);
+    say(gone === GONE_SAID && !asked.some((a) => /^POST /.test(a)),
+      engine + ' R3: over Kosmos+ a file the board refuses is said under the list in the board\u2019s own sentence',
+      JSON.stringify({ said: gone, asked }));
+    for (const [what, id, msgId, sentence] of BUTTONS) {
       asked.length = 0;
       const r = await clickButton(pg, id, msgId);
-      say(!r.missing && asked.length === 0 && r.said === FOLDER_SENTENCE,
-        engine + ' R2: over Kosmos+ the button for ' + what + ' asks the board for nothing and says where the folder is',
+      say(!r.missing && !asked.some((a) => /^POST /.test(a)) && r.said === sentence,
+        engine + ' R2: over Kosmos+ the button for ' + what + ' asks the board for nothing and says where it opens',
         r.missing ? 'no #' + id : JSON.stringify({ asked, said: r.said }));
     }
     say(errors.length === 0, engine + ' R: no page errors', errors.slice(0, 3).join(' | '));
@@ -155,27 +152,42 @@ async function runRemote(engine, platform, say) {
     await browser.close();
   }
 }
+const BUTTONS = [
+      ['the project folder from Documents', 'docs-finder', 'docs-msg', FOLDER_SENTENCE],
+      ['the project folder from project settings', 'pjs-reveal', 'pjs-reveal-msg', FOLDER_SENTENCE],
+      ['an agent\u2019s Files folder', 'd-files-finder', 'd-filesall-msg', FOLDER_SENTENCE],
+      ['the project conversations folder', 'pjs-chats-reveal', 'pjs-chats-msg', FOLDER_SENTENCE],
+      ['the task conversations folder', 'tk-chats-reveal', 'tk-chats-msg', FOLDER_SENTENCE],
+      ['the Kosmos folder from Settings', 'set-reveal', 'set-reveal-msg', FOLDER_SENTENCE],
+      ['the Kosmos folder from the update offer', 'upd-open-folder', 'upd-open-folder-msg', FOLDER_SENTENCE],
+      ['an agent\u2019s Terminal', 'd-open-terminal', 'd-open-terminal-msg', TERMINAL_SENTENCE],
+];
+const ROWS = [
+      ['project rail', 'pj-docs', DECK, 'pj-doc', 'GET /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file'],
+      ['Documents view', 'docs-list', DECK, 'pj-doc', 'GET /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file'],
+      ['a cited file in the thread', 'pj-room', DECK, 'refgo', 'GET /api/project/' + PROJECT + '/file-download?name=' + encodeURIComponent(DECK), 'POST /api/project/' + PROJECT + '/open-file'],
+      ['an agent\u2019s Files', 'd-files-list', 'report.pptx', 'pj-doc', 'GET /api/agent/' + AGENT + '/files/download?name=report.pptx', 'POST /api/agent/' + AGENT + '/files/open'],
+];
 
 async function runLocal(engine, platform, say) {
   const { browser, pg, asked, errors } = await openPage(engine, 'http://127.0.0.1:59965', platform);
   engine = engine + ' (' + platform + ' board)';
   try {
     say(await pg.evaluate(() => kplusRemote()) === false, engine + ' L0: the page at 127.0.0.1 is at the computer');
-    for (const [where, listId, name, want] of [
-      ['project rail', 'pj-docs', DECK, 'POST /api/project/' + PROJECT + '/open-file'],
-      ['an agent’s Files', 'd-files-list', 'report.pptx', 'POST /api/agent/' + AGENT + '/files/open'],
-    ]) {
+    for (const [where, listId, name, cls, , want] of ROWS) {
       asked.length = 0;
-      const missing = await clickRow(pg, listId, name, 'pj-doc');
+      const missing = await clickRow(pg, listId, name, cls);
       say(!missing && asked.includes(want) && !asked.some((a) => /download/.test(a)),
         engine + ' L1: CONTROL at the computer a click on a file in ' + where + ' still opens it here and downloads nothing',
         missing || JSON.stringify(asked));
     }
-    asked.length = 0;
-    const r = await clickButton(pg, 'docs-finder', 'docs-msg');
-    say(!r.missing && asked.includes('POST /api/project/' + PROJECT + '/reveal-folder') && r.said !== FOLDER_SENTENCE,
-      engine + ' L1: CONTROL at the computer the Documents folder button still asks the board to show the folder',
-      JSON.stringify({ asked, said: r.said }));
+    for (const [what, id, msgId, sentence] of BUTTONS) {
+      asked.length = 0;
+      const r = await clickButton(pg, id, msgId);
+      say(!r.missing && asked.some((a) => /^POST /.test(a)) && r.said !== sentence,
+        engine + ' L1: CONTROL at the computer the button for ' + what + ' still asks the board to act',
+        r.missing ? 'no #' + id : JSON.stringify({ asked, said: r.said }));
+    }
     say(errors.length === 0, engine + ' L: no page errors', errors.slice(0, 3).join(' | '));
   } finally {
     await browser.close();

@@ -18828,7 +18828,20 @@ function kplusRemote() {
    already does (#4930), and a button that would open a folder window on the board's computer says where the folder
    is instead. At the computer itself (kplusRemote() false) both keep opening there. */
 const KPLUS_FOLDER_ELSEWHERE = 'That folder is on the computer Kosmos runs on, not on this device, so it opens only there.';
-function kplusDownload(url, name) {
+const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosmos runs on, not on this device, so it opens only there.';
+/* Asks first (HEAD) so a refusal is SAID in `msg`, in the board's own sentence, rather than surfacing as a failed
+   item in the browser's downloads or a saved file of JSON. HEAD carries no body, so a refusal is read with one
+   small GET. On success `msg` gets `after` (a sentence the line already showed, such as a cut-short list). */
+async function kplusDownload(url, name, msg, after) {
+  let head;
+  try { head = await fetch(url, { method: 'HEAD', cache: 'no-store' }); } catch { head = null; }
+  if (!head) { if (msg) msg.textContent = 'We could not reach Kosmos to download that file.'; return; }
+  if (!head.ok) {
+    let said = '';
+    try { const b = await (await fetch(url, { cache: 'no-store' })).json(); said = (b && (b.error || b.because)) || ''; } catch { said = ''; }
+    if (msg) msg.textContent = asSentence(said) || 'That file could not be downloaded.';
+    return;
+  }
   const a = document.createElement('a');
   a.href = url;
   a.download = String(name || '').split('/').pop() || '';
@@ -18836,6 +18849,7 @@ function kplusDownload(url, name) {
   document.body.appendChild(a);
   a.click();
   a.remove();
+  if (msg) msg.textContent = after || '';
 }
 function kplusFolderElsewhere(msg) {
   if (!kplusRemote()) return false;
@@ -36682,7 +36696,8 @@ async function paintAgentFilesAll(sessionName) {
   for (const f of files) list.append(agentFileRow(f));
   const rest = Number(body.total) - files.length;
   if (more && rest > 0) {
-    more.textContent = 'And ' + rest + ' more in the folder. Open in Finder shows them all.';
+    // #5165: over Kosmos+ the folder button cannot show them on this device, so it is not offered as the way.
+    more.textContent = 'And ' + rest + ' more in the folder.' + (kplusRemote() ? '' : ' Open in Finder shows them all.');
     more.hidden = false;
   }
 }
@@ -36692,8 +36707,8 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   const who = CURRENT.sessionName;
   const msg = document.getElementById(msgId);
   if (kplusRemote()) {   // #5165: download it to this device
-    kplusDownload('/api/agent/' + encodeURIComponent(who) + '/files/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc);
-    if (msg) msg.textContent = '';
+    kplusDownload('/api/agent/' + encodeURIComponent(who) + '/files/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
+      msg && { set textContent(t) { if (CURRENT && CURRENT.sessionName === who) msg.textContent = t; } });
     return;
   }
   let say;
@@ -43116,6 +43131,7 @@ document.getElementById('d-open-terminal').addEventListener('click', async () =>
   const forAgent = CURRENT.sessionName;
   const btn = document.getElementById('d-open-terminal');
   const msg = document.getElementById('d-open-terminal-msg');
+  if (kplusRemote()) { msg.textContent = KPLUS_TERMINAL_ELSEWHERE; return; }   // #5165
   btn.disabled = true;
   msg.textContent = 'Opening the Terminal window…';
   try {
@@ -59429,8 +59445,8 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
   if (!row || !PJ_CURRENT) return;
   const msg = document.getElementById('docs-msg');
   if (kplusRemote()) {   // #5165: download it to this device
-    kplusDownload('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc);
-    msg.textContent = '';
+    kplusDownload('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/file-download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
+      msg, PJ_DOCS_VIEW_PARTIAL ? PJ_DOCS_PARTIAL : '');
     return;
   }
   try {
@@ -60507,8 +60523,8 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
   const msg = document.getElementById('pj-docs-msg');
   const forProject = PJ_CURRENT;
   if (kplusRemote()) {   // #5165: download it to this device
-    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc);
-    msg.textContent = '';
+    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/file-download?name=' + encodeURIComponent(row.dataset.doc), row.dataset.doc,
+      { set textContent(t) { if (PJ_CURRENT === forProject) msg.textContent = t; } }, PJ_DOCS_RAIL_PARTIAL ? PJ_DOCS_PARTIAL : '');
     return;
   }
   try {
@@ -60544,8 +60560,8 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   const msg = document.getElementById('pj-room-msg');
   const forProject = PJ_CURRENT;
   if (kplusRemote()) {   // #5165: download it to this device
-    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/download?name=' + encodeURIComponent(go.dataset.ref), go.dataset.ref);
-    msg.textContent = '';
+    kplusDownload('/api/project/' + encodeURIComponent(forProject) + '/file-download?name=' + encodeURIComponent(go.dataset.ref), go.dataset.ref,
+      { set textContent(t) { if (PJ_CURRENT === forProject) msg.textContent = t; } });
     return;
   }
   try {

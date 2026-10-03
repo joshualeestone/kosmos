@@ -1,7 +1,7 @@
 'use strict';
 /* #5165: over Kosmos+ a file click downloads to the device the person is on. These are the two download routes
  * the page uses there, against a real sandboxed board:
- *   GET /api/project/:id/download?name=   and   GET /api/agent/:name/files/download?name=
+ *   GET /api/project/:id/file-download?name=   and   GET /api/agent/:name/files/download?name=
  * They pass the SAME gates as open (projects.fileInFolder), stream the bytes as an attachment, and never ask the
  * board's computer to open anything (the reveal runner is injected and must stay uncalled).
  *
@@ -51,7 +51,7 @@ test('a project file downloads: its exact bytes, as an attachment named for the 
   fs.writeFileSync(path.join(folder, 'out', 'Q3 deck.pptx'), PPTX);
   const p = projects.create({ name: 'Deck Room 5165', folder, agents: [], roster: [] });
   const before = calls.length;
-  const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/download?name=' + encodeURIComponent('out/Q3 deck.pptx'));
+  const r = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=' + encodeURIComponent('out/Q3 deck.pptx'));
   assert.equal(r.status, 200);
   assert.deepEqual(Buffer.from(await r.arrayBuffer()), PPTX, 'the bytes changed on the way');
   assert.equal(r.headers.get('content-disposition'), "attachment; filename*=UTF-8''Q3%20deck.pptx");
@@ -60,7 +60,7 @@ test('a project file downloads: its exact bytes, as an attachment named for the 
   assert.equal(r.headers.get('content-length'), String(PPTX.length));
   assert.equal(calls.length, before, 'a download asked the board’s computer to open something');
 
-  const head = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/download?name=' + encodeURIComponent('out/Q3 deck.pptx'), { method: 'HEAD' });
+  const head = await fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=' + encodeURIComponent('out/Q3 deck.pptx'), { method: 'HEAD' });
   assert.equal(head.status, 200);
   assert.equal(head.headers.get('content-length'), String(PPTX.length));
 });
@@ -72,7 +72,7 @@ test('a project download passes the open gates: escapes, links out, folders and 
   fs.symlinkSync(path.join(outside, 'secret.txt'), path.join(folder, 'link.txt'));
   fs.mkdirSync(path.join(folder, 'sub'));
   const p = projects.create({ name: 'Gate Room 5165', folder, agents: [], roster: [] });
-  const dl = (name) => fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/download' + (name === null ? '' : '?name=' + encodeURIComponent(name)));
+  const dl = (name) => fetch(base + '/api/project/' + encodeURIComponent(p.id) + '/file-download' + (name === null ? '' : '?name=' + encodeURIComponent(name)));
   for (const [name, said] of [
     ['../outside/secret.txt', /not a file in this project/],
     ['link.txt', /lives outside this project/],
@@ -83,11 +83,11 @@ test('a project download passes the open gates: escapes, links out, folders and 
   ]) {
     const r = await dl(name);
     const body = await r.text();
-    assert.equal(r.status, 409, name + ': ' + body);
-    assert.match(JSON.parse(body).error, said, name);
+    assert.equal(r.status, 404, name + ': ' + body);
+    assert.match(JSON.parse(body).because, said, name);
     assert.doesNotMatch(body, /not yours/, name + ' leaked the file');
   }
-  assert.equal((await fetch(base + '/api/project/nope/download?name=a.txt')).status, 404);
+  assert.equal((await fetch(base + '/api/project/nope/file-download?name=a.txt')).status, 404);
 });
 
 test('an agent’s Files file downloads the same way; a name outside Files is refused; POST is not the verb', async () => {
@@ -104,7 +104,7 @@ test('an agent’s Files file downloads the same way; a name outside Files is re
 
   const out = await fetch(base + '/api/agent/dex/files/download?name=' + encodeURIComponent('../CLAUDE.md'));
   const said = await out.text();
-  assert.equal(out.status, 409);
+  assert.equal(out.status, 404);
   assert.match(JSON.parse(said).because, /Files folder/);
   assert.doesNotMatch(said, /instructions, not a file/);
 
