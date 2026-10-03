@@ -14,7 +14,7 @@ Card: joshualeestone/kosmos#5167 (found by the blind review of #5165).
 - Destination: ~/Downloads, safe unique name; quarantine mark with this app's agent name and no
   addresses; a file that
   cannot be marked is kept and the person is told.
-- Measured live: `--kosmos-app-download-selftest`, 24 rows, run at bundle build (loud skip without
+- Measured live: `--kosmos-app-download-selftest`, 25 rows, run at bundle build (loud skip without
   a console). Pure rules: `--kosmos-app-mode-selftest`, 86 rows.
 - Known and filed: on a computer that runs agents, a plain link or a refused cross-origin redirect
   still navigates the window (#5169).
@@ -444,6 +444,19 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
 - pageSaysDownloadRefusal matches the encoded path (an encoded / in a name stays one part).
 - Test title and the plan's summary line corrected.
 
+## Review round 40 changes
+- A refusal in new words waits only while an alert is on screen, then is said in its own words (it
+  was folded into a generic summary, or dropped once the page's summary was said, against round 34's
+  "a different refusal is always heard").
+- The per-computer cap is a rolling window: 50 saves in 10 minutes, so a long-running connect app
+  cannot run into it over weeks.
+- Live control row: localhost answers (a plain foreign link loads), so the other-origin rows are not
+  vacuous. 25 live rows.
+- The gate names the build's own alarm (rc 142) as a timeout; the cap's message says Kosmos saved the
+  files; the unmarked-file warning brings the app forward.
+- Not changed (decided): a repeated refusal is said once, then once in the summary (round 34);
+  no automatic retry of the gate.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
@@ -452,6 +465,6 @@ live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunn
 ## Tests (current)
 - Pure functions: `--kosmos-app-mode-selftest`, 86 rows in all (the #5167 ones: same-origin, board
   page, destination name).
-- Live: 24 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
+- Live: 25 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
 - Wiring: `native-app.download-5167.test.js`.
