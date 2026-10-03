@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardkeychain-4491
-diff_hash: 4e6c559c3aebb85dc8bddb389166e403c0c3877f0bc905787ef212a5b81cfeaf
-validation: failed (Mortals run 2026-10-02 21:06 red on the #4273 leak guard; fixed in 3299918cf; rerun pending)
+diff_hash: a2a7c22befb3e7c7bd34348030b6c5260ab35b5a86b5a76a3a1ad25fe45a94a0
+validation: passed (Mortals full suite at the stack top agentmanage-4475 0eba704d2, which contains this branch at 0dd07d175 after rebasing onto main; 2026-10-03 02:39 CDT, hash 1263eca19544. The 21:06 red was the #4273 leak guard, fixed by tmpscope)
 subdir_audit: passed
-timestamp: 2026-10-03T02:12:00Z
+timestamp: 2026-10-03T07:50:24Z
 iterations: 6
 converged: true
 ---
