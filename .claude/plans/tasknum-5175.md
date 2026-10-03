@@ -23,3 +23,5 @@ Ask: #5175 (from #5152 slice 0 review round 3). Splinter 2026-10-03 15:04: Mona 
 ## Not done here
 - Doctrine v24 still says "run kosmos task list right after and note your number". Still correct, now redundant;
   changing it is a doctrine bump, for later.
+- Review round 2 NIT, kept: Windows reads task.number wherever the key sits; Mac reads only the leading position.
+  The real board always sends it first (engine/tasks.js), so the two cannot differ on a real answer.

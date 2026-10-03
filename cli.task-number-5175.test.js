@@ -139,3 +139,15 @@ test('Mac `task add` keeps the sentence without a number when the answer has non
     } finally { srv.close(); }
   }
 });
+
+test('both commands say the number when it is the task\'s last key too (the "}" ending)', async () => {
+  const srv = await fakeBoard('{"task":{"number":12}}');
+  try {
+    const m = await mac(['task', 'add', 'p1', 'x'], srv.address().port);
+    assert.equal(m.code, 0, m.out);
+    assert.match(m.out, /Task 12 added to p1\. See it with/);
+    const w = await win(['task', 'add', 'p1', 'x'], `http://127.0.0.1:${srv.address().port}`);
+    assert.equal(w.code, 0, w.err);
+    assert.match(w.out, /^Task 12 added to p1\. See it with/);
+  } finally { srv.close(); }
+});
