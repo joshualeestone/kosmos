@@ -186,3 +186,9 @@ test('the files are the page\'s own toggle ("N files", a plain list, the folder 
   assert.match(RAW, /@media \(max-width: 40rem\) \{ \.linkish\.tkr-files-btn \{ display: flex; width: 100%; min-height: 44px; \} \}/);
   // The rendered height is measured by the phone shots' tap audit (mobile-shots task-receipt: taps<44 must read 0).
 });
+
+test('slice 2: a Codex or Gemini agent with no activity names its own tool', () => {
+  assert.match(text(B.tkReceiptAgentHtml({ available: true, provider: 'codex', transcriptsWithWork: 0, models: {} }, 'Kay')), /No Codex activity found while it held this task/);
+  assert.match(text(B.tkReceiptAgentHtml({ available: true, provider: 'gemini', transcriptsWithWork: 0, models: {} }, 'Lu')), /No Gemini CLI activity found/);
+  assert.match(text(B.tkReceiptAgentHtml({ available: true, provider: 'claude', transcriptsWithWork: 0, models: {} }, 'Ann')), /No Claude Code activity found/);
+});
