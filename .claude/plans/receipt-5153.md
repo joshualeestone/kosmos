@@ -61,3 +61,12 @@ in this time", never a zero presented as fact.
   rejects rather than throws); a test with the tool result in another transcript file, in both orders.
 - Not taken: the ids of every tool result in a transcript are held while it is read (bounded by its tool calls; a
   result can come before its call in file order, so it cannot be narrowed to the edits seen so far).
+
+## Review 3 (opus): 1 WARNING, taken
+- A failed receipt read (a board restarting, a 500) left a closed task's receipt hidden for as long as the page stayed
+  open, because the poll's key was already recorded: a failed read forgets the key, so the next poll tries again; a
+  good read is not repeated. Test (fails once, then shows; a third poll does not read again); its mutant fails it.
+- NITs taken: the close time is in the poll's key (closed, put back and closed again between polls repaints);
+  `sessions` renamed `transcriptsWithWork` (it counts transcript files, which a resumed session can make two of).
+- Accepted, not taken: a receipt worked out in the first five minutes after the close is not refreshed on a page left
+  open; opening the task again (or the next close) works it out again, and from then it is kept.

@@ -181,7 +181,7 @@ async function claudeWork(dir, holds) {
   const failed = new Set();    // tool_use ids whose result was an error
   const answered = new Set();  // tool_use ids with any result
   let commands = 0;
-  let sessions = 0;
+  let withWork = 0;
   let read = 0;
   let complete = true;
   const seenMsg = new Set();
@@ -237,13 +237,13 @@ async function claudeWork(dir, holds) {
     } catch {
       complete = false;   // a transcript that could not be read through: show what was read, keep nothing
     }
-    if (counted) sessions += 1;
+    if (counted) withWork += 1;
   }
   /* An edit counts when its result came back and was not an error: a refused or failed edit changed nothing. */
   const files = new Map();
   for (const [id, shown] of edits) if (answered.has(id) && !failed.has(id)) files.set(shown, true);
   const all = [...files.keys()];
-  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands, sessions, transcriptsRead: read, complete };
+  return { models, files: all.slice(0, FILES_SHOWN), filesMore: Math.max(0, all.length - FILES_SHOWN), commands, transcriptsWithWork: withWork, transcriptsRead: read, complete };
 }
 
 /* A file inside the agent's folder by its path there; anything else in full (it is this person's own computer). */

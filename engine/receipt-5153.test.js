@@ -134,7 +134,7 @@ test('a closed task: files, a command COUNT, tokens once per message, only insid
   assert.ok(!JSON.stringify(r).includes('rm -rf'), 'never the text of a command');
   assert.deepEqual(a.models['claude-sonnet-5-5'], { input_tokens: 100 + 5 + 1, output_tokens: 50 + 5 + 2 + 1 + 1, cache_creation_input_tokens: 10, cache_read_input_tokens: 1000, rows: 5 });
   assert.equal(Object.keys(a.models).length, 1, 'a synthetic row is not a model');
-  assert.equal(a.sessions, 2, 'the session and its subagent');
+  assert.equal(a.transcriptsWithWork, 2, 'the session and its subagent');
   assert.equal(a.folder, ann);
   const b = r.agents.find((x) => x.who === 'bob');
   assert.deepEqual([b.available, b.provider, b.because], [false, 'codex', 'provider']);
@@ -174,7 +174,7 @@ test('an agent with no Claude activity while it held the task says so rather tha
   const before = new Date(ms('09:00'));
   fs.utimesSync(f, before, before);   // last written before the hold began: it cannot hold the hold's work
   const r = await receipt.forTask(project, { number: 1, closedAt: T('11:00') }, { now: ms('11:01') });
-  assert.equal(r.agents[0].sessions, 0);
+  assert.equal(r.agents[0].transcriptsWithWork, 0);
   assert.equal(r.agents[0].transcriptsRead, 0, 'a transcript last written before the hold is not read');
 });
 
