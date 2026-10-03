@@ -260,6 +260,13 @@ test('#3568/#3998: POST /api/antigravity/signin and /install answer through the 
       assert.equal((await stopAs('0000000000000000')).status, 409, 'another sign-in\'s Stop ended this one');
       const codeAs = await req('/api/antigravity/signin/code', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: '4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1', id: '0000000000000000' }) });
       assert.equal(codeAs.status, 409, 'a code for an ended sign-in is not a conflict like Stop\'s');
+      // #4960: the person's answer to the terms: refused off the terms (400), and for another sign-in (409).
+      const agreeAs = (who, dataUse) => req('/api/antigravity/signin/agree', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: who, dataUse }) });
+      const a1 = await agreeAs(id, false);
+      assert.equal(a1.status, 400, 'an answer to the terms was taken before Antigravity showed them');
+      assert.match(json(a1).error, /not showing its terms/);
+      assert.equal((await agreeAs('0000000000000000', false)).status, 409, 'an answer for another sign-in was not a conflict');
+      assert.equal((await req('/api/antigravity/signin/agree')).status, 405, 'a GET on agree did something');
       assert.equal((await req('/api/antigravity/signin/nowhere')).status, 404, 'a GET on an unknown address should be a 404');
       assert.equal(json(await req('/api/antigravity/signin')).state, 'starting');
       const x = await stopAs(id);

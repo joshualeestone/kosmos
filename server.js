@@ -906,6 +906,8 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
+const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the daily ask, through its board
+const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
@@ -2162,8 +2164,19 @@ function communityValveTripped(agentId) {
 }
 function communityValveRecord(agentId) {
   const arr = communitySends.get(agentId) || [];
-  arr.push(Date.now());
+  const at = Date.now();
+  arr.push(at);
   communitySends.set(agentId, arr);
+  return at;
+}
+// Gives back one slot taken by communityValveRecord (the value it returned), for a route that must take the slot
+// before an await and only learns afterwards whether the write counts.
+function communityValveRelease(agentId, at) {
+  const arr = communitySends.get(agentId);
+  if (!arr) return;
+  const i = arr.indexOf(at);
+  if (i >= 0) arr.splice(i, 1);
+  if (!arr.length) communitySends.delete(agentId);
 }
 // #3485: the human write path (board-token gated, one operator today) shares this
 // same sliding-window valve, under a Symbol key so it is STRUCTURALLY impossible for
@@ -2836,6 +2849,39 @@ function sessionOf(name) {
     return undefined;
   }
 }
+/* #5034: what an agent leaves on a project it is no longer on, cleared once it has left (taken off it, or the project
+   removed under it). Each half on its own, so one failing does not stop the other or the caller's answer:
+   - a question it raised about the project: a needs_you or blocked report that NAMED this project itself (review 1:
+     not one that only inherited it from an earlier report; that may be about anything, and a deliberate question at
+     an idle prompt does not come back on the next poll, so clearing it on a guess would lose its words). Cleared the
+     way the person's own clear does it (#2575: a `by: 'operator'` idle), never an automatic permission wait, which is
+     about the agent's screen and re-derives from it. The entry is built field by field like every record() caller;
+     `by: 'operator'` is safe here for the same reason as the clear route: both routes sit behind the board token.
+     The read and the write are two steps, so a report the agent makes in between is overwritten (a needs_you about
+     another project, in a window of one file read); record() has no compare-and-set, and the agent's next report
+     raises it again.
+   - room posts held for it there (its next idle line would tell it about a room it has left). The other projects'
+     holds are kept. A flush already in flight when it left can put this project's posts back if its line failed to
+     type (roomhold.restore); that line is then told once, at worst, about posts that are still in the room.
+   `why` is the start of the clear's sentence (what happened, naming the project). Returns { reportCleared,
+   heldDropped }. Never throws. */
+function clearLeftovers(name, projectId, why) {
+  const out = { reportCleared: false, heldDropped: 0 };
+  try {
+    const rep = selfreport.read(name);
+    if (rep && rep.found === true && selfreport.WAITING_ON_A_PERSON.includes(rep.state) && rep.project === projectId
+      && rep.projectInferred !== true && !selfreport.isAutoPermissionWait(rep)) {
+      /* `left` ends the carried project (review 3), so the agent's next report naming none is not tied to it. */
+      const kept = selfreport.record(name, { state: 'idle', by: 'operator', left: projectId,
+        because: why + ', so ' + (rep.state === 'blocked' ? 'what it was blocked on there' : 'its question about it')
+          + ' is no longer waiting on anyone' });
+      out.reportCleared = kept.recorded === true;
+    }
+  } catch { /* the report stays as it was; the person's clear still works */ }
+  try { out.heldDropped = roomhold.forgetProject(name, projectId); } catch { /* the posts stay held */ }
+  return out;
+}
+
 // ⚠️ Two roster reads per request is two SNAPSHOTS: the gate can be decided
 // against one and the session resolved against another, which is the same
 // one-fact-two-derivations problem one level up. Both callers below run
@@ -8223,6 +8269,15 @@ const server = http.createServer(async (req, res) => {
        bearer), so it is keyed on the authenticated session, never on anything in the query. */
     /* #4833 slice 2: `?replies=1` is the replies to the reader's OWN posts, keyed on the authenticated session like
        Following, never on anything in the query. */
+    /* #4939: `?status=1` is the reader's own posts and comments and where each stands, from the board's records only
+       (no service call), keyed on the authenticated session like replies. */
+    if (q.get('status') === '1') {
+      if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      let r;
+      try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
+      sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
+      return;
+    }
     if (q.get('replies') === '1') {
       if (q.get('channel') || q.get('post') || q.get('following')) { sendJson(res, 400, { error: 'read your replies, your Following feed, a channel or one post: one at a time' }); return; }
       communityread.readReplies(reader.card.sessionName)
@@ -8268,6 +8323,88 @@ const server = http.createServer(async (req, res) => {
           /* Review 1: 429 over the engine's hourly follow cap (communityfollow.FOLLOW_PER_HOUR), 502 when the service
              failed, 400 for everything on this side (a bad name, the switch off, busy). */
           .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.upstream ? 502 : 400)), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4884: an agent votes a post or a comment up or down (or takes its vote back), and reads where it stands against
+     the daily ask, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
+     name in the body; the body names only what is voted on. A vote, like a follow, is a public act, so it
+     needs the board token as well; the standing read keeps the same gate (the safer default, though it is the
+     agent's own data). Neither is in the agent-token-only set. */
+  if ((pathname === '/api/community/vote' && req.method === 'POST') || (pathname === '/api/community/votes' && req.method === 'GET')) {
+    const casting = req.method === 'POST';
+    (casting ? readBody(req) : Promise.resolve(null))
+      .then((buf) => {
+        let body = null;
+        if (casting) {
+          try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+          catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'voting in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is voting' }); return;
+        }
+        const str = (v) => (typeof v === 'string' ? v : '');
+        const work = casting
+          ? communityvote.vote(who.card.sessionName, str(body.kind), str(body.id), str(body.direction))
+          : communityvote.standing(who.card.sessionName);
+        /* 429 over the service's daily cap, 202 when a vote was sent but not confirmed (it may have been counted),
+           502 when the service failed, 400 for everything on this side. */
+        return work
+          .then((r) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because }))
+          .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #4913 step 4: an agent endorses another community agent (1 to 5 stars and a short review), or takes it back
+     ({ takeBack: true }), through its board. The ENDORSER is the agent authenticated by its token
+     (resolveAgentSender), never a name in the body; the body names only who is endorsed. A public act, so it needs
+     the board token as well (not in the agent-token-only set). An endorsement counts against the agent's hourly
+     community writes as a post does (communityendorse marks which answers count); a take-back does not. */
+  if (pathname === '/api/community/endorse' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'endorsing in the community requires an agent token' }); return; }
+        const authRoster = safeRoster();
+        if (authRoster === null) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so we could not verify who this is; try again' }); return;
+        }
+        const who = resolveAgentSender(req, body, authRoster);
+        if (!who.ok || !who.card || !who.card.sessionName) {
+          sendJson(res, 403, { error: who.because || 'we could not verify which agent is endorsing' }); return;
+        }
+        const agentId = who.card.sessionName;
+        const str = (v) => (typeof v === 'string' ? v : '');
+        const takingBack = body.takeBack === true;
+        if (!takingBack && communityValveTripped(agentId)) {
+          sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts, comments and endorsements. Do not try again this hour' }); return;
+        }
+        // The slot is taken BEFORE the await, so endorsements sent at the same moment cannot all pass the check.
+        const held = takingBack ? null : communityValveRecord(agentId);
+        const work = takingBack
+          ? communityendorse.takeBack(agentId, str(body.name))
+          : communityendorse.endorse(agentId, str(body.name), typeof body.stars === 'number' ? String(body.stars) : str(body.stars), str(body.text));
+        /* As a vote: 429 over the service's daily cap, 202 when it was sent but not confirmed, 502 when the service
+           failed, 400 for everything on this side. */
+        return work
+          .then((r) => {
+            if (held !== null && !r.counts) { try { communityValveRelease(agentId, held); } catch { /* the answer still goes */ } }
+            sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text } : { error: r.because });
+          })
           .catch(() => sendJson(res, 500, { error: 'we could not reach the community just now' }));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -8320,11 +8457,10 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         candidate.agent = agentId;
-        // #4947: will this post wait past the service's daily post cap? Asked before the store write. The ON period's start
-        // is recorded by #4938's recordPeriodStart just below (postWaits' willSend records the same first-writer-wins
-        // start, so whichever runs first wins and the other changes nothing).
-        let later = false;
-        try { later = communitysend.postWaits(agentId); } catch { later = false; }
+        // #4939: asked BEFORE the store write, as the comment route does: it records the ON period's start, which must
+        // not be later than this post (the sweep sends only posts made at or after it), and says whether it will go.
+        let will = { sends: false, later: false };
+        try { will = communitysend.willSend(agentId, Date.now(), 'post'); } catch { will = { sends: false, later: false }; }
         // The agent path does NOT set a board: the category taxonomy is the site's
         // controlled inventory, assigned there, not free text from an agent.
         let r;
@@ -8343,7 +8479,9 @@ const server = http.createServer(async (req, res) => {
         // against it are bounded by the per-agent hourly cap above (10 by default), and
         // by the community server's own feedguard pass and per-agent daily cap. The store
         // keeps the true status for the moderator surface.
-        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, ...(later && r.status === 'published' ? { later: true } : {}) });   // a held post is not going yet at all
+        // A held post is not going yet at all (#4947): it is neither sent nor waiting until it is released.
+        const going = r.status === 'published' && will.sends;
+        sendJson(res, 200, { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later });
         if (r.status === 'published') communitySendSoon();   // #4938
       })
       .catch((e) => { console.error('FAIL /api/community/post (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); });
@@ -9163,7 +9301,7 @@ const server = http.createServer(async (req, res) => {
              board started, carries that date; the page shows it as a calm "login good until". Green only with the
              switch on. */
           const loginArgs = { badge: v.badge, checkLiveState: a.connection && a.connection.state,
-            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), now: nowMs };
+            latestOutcome: obs && obs.outcome, until: loginUntil.get(a), checkRefused: claudeloginlive.checkRefused(a.dir, obs && obs.at), now: nowMs };
           const loginOk = claudeloginlive.loginGood(loginArgs);
           const loginGreen = loginOk && claudeloginlive.greenFromLogin(loginArgs);
           return {
@@ -9497,10 +9635,11 @@ const server = http.createServer(async (req, res) => {
     catch { sendJson(res, 500, { ok: false, error: 'we could not forget that just now' }); }
     return;
   }
-  /* Four exact addresses, not a startsWith family (#3957's route check counts only exact comparisons,
+  /* Five exact addresses (#4960 added agree), not a startsWith family (#3957's route check counts only exact comparisons,
      and an unknown sub-address falls through to the board's own 404). */
   if (pathname === '/api/antigravity/signin' || pathname === '/api/antigravity/signin/code'
-    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop') {
+    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop'
+    || pathname === '/api/antigravity/signin/agree') {
     const signin = require('./engine/agysignin');
     const agy = require('./engine/agystatus');
     const sub = pathname.slice('/api/antigravity/signin'.length);
@@ -9530,7 +9669,7 @@ const server = http.createServer(async (req, res) => {
     }
     /* Code, Show and Stop name the sign-in they mean (the id start() answered), so one tab never
        stops or types into a sign-in another tab started since. */
-    if (sub === '/code' || sub === '/show' || sub === '/stop') {
+    if (sub === '/code' || sub === '/show' || sub === '/stop' || sub === '/agree') {
       readBody(req).then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
@@ -9538,6 +9677,13 @@ const server = http.createServer(async (req, res) => {
         if (sub === '/code') {
           let r;
           try { r = signin.code(body && body.code, id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass the code just now' }); return; }
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+          return;
+        }
+        /* #4960: the person's answer to Antigravity's terms (and the OPTIONAL data-sharing box), from Kosmos's panel. */
+        if (sub === '/agree') {
+          let r;
+          try { r = signin.agree(id, { dataUse: body ? body.dataUse : undefined }); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass your answer just now' }); return; }
           sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
           return;
         }
@@ -9925,8 +10071,10 @@ const server = http.createServer(async (req, res) => {
         // the same #1916 rule the create gate states: a broken checker is not a
         // dead account. claudeAccountLive already returns UNKNOWN (not a throw)
         // for every environmental case, so a throw here is our own bug, logged.
-        try { state = await create.claudeAccountLive(probeDir); }
+        let refused = false;
+        try { ({ state, refused } = await create.claudeAccountCheck(probeDir)); }
         catch (err) { console.error('#3136: claude check-now errored (failing open):', (err && err.stack) || err); state = subscription.STATE.UNKNOWN; }
+        claudeloginlive.noteCheck(acct.dir, { state, refused });   // #3997 review 1: a refusal blocks the login-green
         if (state === subscription.STATE.CONNECTED) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.OK);
         else if (state === subscription.STATE.NONE) observed.sawDir(observed.PROVIDER.ANTHROPIC, acct.dir, observed.OUTCOME.REJECTED);
         // UNKNOWN records nothing — the prior badge stands, unclobbered.
@@ -16006,6 +16154,14 @@ const server = http.createServer(async (req, res) => {
       }
       for (const j of joined) if (j && j.claim) claims.set(p.id + '\u0000' + j.number, j.claim);
     }
+    /* Every record with the id, as a UNION (review 3): a registry holding an id twice must not check one record's
+       tasks against only the other's members. A union errs toward keeping a question red (an agent on either record
+       counts), never toward hiding one. (Not the token read's rule above, which requires EVERY record, for a refusal.) */
+    const membersOf = new Map();
+    for (const x of everyProject || []) {
+      if (!x || !x.id) continue;
+      membersOf.set(x.id, [...new Set([...(membersOf.get(x.id) || []), ...(x.agents || [])])]);
+    }
     const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
       /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
@@ -16015,7 +16171,8 @@ const server = http.createServer(async (req, res) => {
         claim = { claimed: null, because: 'we could not read what its agent reports', about, neverReported: false };
       }
       /* #3949: Needs Your Decision, from the same roster read (the engine's rule, tasks.waitingOnPerson). */
-      const waitingOnPerson = tasks.waitingOnPerson(t, roster);
+      /* #5034: with the project's members, so a holder taken off the project does not keep its card red. */
+      const waitingOnPerson = tasks.waitingOnPerson(t, roster, membersOf.get(t.projectId));
       return Object.assign({}, t, {
         claim,
         waitingOnPerson,
@@ -16448,6 +16605,10 @@ const server = http.createServer(async (req, res) => {
     // the project had actually been removed. The person was told their removal
     // failed for a removal that happened.
     let gone;
+    /* #5034 review 5: remove() drops EVERY record with this id but answers with the first, so the members to clean up
+       after are read from all of them first. */
+    let everyMember = [];
+    try { everyMember = [...new Set(projects.readAll().filter((p) => p && p.id === id).flatMap((p) => p.agents || []))]; } catch { everyMember = []; }
     try {
       gone = projects.remove(id);
       /* #3311: its seat and its link go with it NOW. Project ids are name slugs
@@ -16464,6 +16625,11 @@ const server = http.createServer(async (req, res) => {
         { error: String((err && err.message) || 'there is no project by that name') });
       return;
     }
+    /* #5034: project ids are name slugs and a freed one is reused, so its members' questions about it and the room
+       posts held for them there go with it, or a later project of the same id inherits both. Here, before the tell
+       below awaits (review 2): a project of the same name made and joined during the tell must not lose ITS
+       question or posts to this cleanup. */
+    for (const a of new Set([...everyMember, ...(gone.agents || [])])) clearLeftovers(a, gone.id, 'the project ' + (gone.name || gone.id) + ' was removed');
     // The members are re-told AFTER the project is gone, so the block in their
     // instructions stops naming a project that no longer exists.
     let told = [];
@@ -18314,6 +18480,15 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       verdict = { state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') };
     }
+    /* #5034: once the leave HAPPENED (moved), what it left on the project goes with it (clearLeftovers). "by the
+       person" is only as strong as isViaScreen, the same test the valve trusts; every caller here holds the board
+       token either way. No await between removeAgent and this, so a re-join cannot land in between. */
+    let leftBehind;
+    if (moved && req.method === 'DELETE') {
+      let shown = id;
+      try { const was = projects.readAll().find((x) => x && x.id === id); if (was && was.name) shown = String(was.name); } catch { /* the id reads fine */ }
+      leftBehind = clearLeftovers(name, id, 'taken off the project ' + shown + (viaScreenMember ? ' by the person' : ' (not from the screen)'));
+    }
     let project = null;
     try { project = projects.get(id, roster); } catch { project = null; }
     // The pane line, the only thing that reaches a RUNNING agent (#141/#143/
@@ -18326,7 +18501,7 @@ const server = http.createServer(async (req, res) => {
     }
     // #4583: a second coordinator joining is warned about, never refused.
     const coordinators = (req.method === 'POST' && moved && project) ? projects.coordinatorWarning(project, name) : null;
-    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}) });
+    sendJson(res, 200, { project, told: verdict, said, agentsUnreadable: roster === null, ...(coordinators ? { coordinators } : {}), ...(leftBehind ? { leftBehind } : {}) });
     return;
   }
 

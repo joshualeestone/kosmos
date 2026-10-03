@@ -769,8 +769,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    provider. Green (.acct-connected) = confirmed working. AMBER (.acct-unverified) = signed in, not confirmed yet,
    with Check now beside it. Red (.acct-none) = signed out, or a request was rejected. Muted grey (.acct-unknown) is
    left only for "we could not check at all". The pill stays a short "Signed in" (Josh 6.68, #3136); the reason is
-   in its title. Calm neutral (.acct-loginok, #3997 ruling C) = an idle Claude sign-in whose login date Kosmos read
-   from its stored login: not amber (nothing is wrong) and not green (nothing answered). */
+   in its title. Calm neutral (.acct-loginok, #3997 ruling C) was an idle Claude sign-in whose login date Kosmos read
+   from its stored login. Since ruling A (Josh, 2026-10-02) that sign-in is GREEN instead (the server's
+   GREEN_FROM_LOGIN), so .acct-loginok is drawn only if the switch is turned off again. */
 .acct-unverified { display: inline-flex; align-items: center; gap: 6px; font-size: .8125rem;
   font-weight: 600; color: var(--warn-ink); white-space: nowrap; }
 .acct-unverified .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); flex: 0 0 8px; }
@@ -3947,7 +3948,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
   text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 #panel-tasks .tsk-head h2 { font-size: 1.5rem; letter-spacing: -.015em; margin: 0; font-weight: 700; }
 /* #3703: the head carries "+ New task" beside the title, as Mona's mock draws it (.mh / .newbtn). */
-#panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+/* #5053: never wrapped as a row. With flex-wrap a project name too long for the row moved the TITLE to the next
+   line and left the back chevron alone above it (29px of room at 390 on a Mac with a short name). On a wide screen
+   the title shrinks and wraps inside its own box; at phone width the grid below takes over. */
+#panel-tasks .tsk-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: nowrap; }
 /* #4586 (Josh, 2026-09-29 11:35): "click the back button at the top left next to the title and go right
    back into the project." A round chevron, the #2928 back glyph in #4470's round frame, sized to sit beside
    a sub-view's title. On Tasks it shows only while the view is for one project (tskPaint sets it, and it
@@ -3957,8 +3961,23 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
             color: var(--k-ink-2); cursor: pointer; display: grid; place-items: center; flex: none; padding: 0; }
 .sub-back:hover { background: var(--k-sunk); color: var(--k-ink); }
 .sub-back[hidden] { display: none; }
-#panel-tasks .tsk-head > .sub-back { align-self: center; margin-right: -4px; }
-#panel-tasks .tsk-head > #tsk-title { margin-right: auto; }
+/* #5053: at the row's top, so beside a wrapped title it marks the first line, not the middle of the block. */
+#panel-tasks .tsk-head > .sub-back { align-self: flex-start; margin-right: -4px; }
+/* .panel h2's 20px line-height was set for 15px text; at this title's 24px, wrapped lines would touch. A wrapped title
+   is now possible at any width (the row no longer moves it to the next line), so this holds everywhere. The row is
+   already at least the button's height (34px, 44px on touch), so a one-line title does not make the head taller. */
+#panel-tasks .tsk-head > #tsk-title { margin-right: auto; min-width: 0; overflow-wrap: anywhere; line-height: 1.2; }
+#panel-tasks .tsk-head > #tsk-new { flex: none; }
+/* #5053, at phone width (Mona Lisa's design call): the chevron and the title share the first row, the title taking
+   all the width it has left, and "+ New task" ALWAYS sits on its own row below, left-aligned with the title's text,
+   so it stays in one place whatever the name's length. The chevron top-aligns with the title's first line. No
+   column gap: the chevron carries its own margin, so with the chevron hidden (all projects) the title is not indented. */
+@media (max-width: 40rem) {
+  #panel-tasks .tsk-head { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 0; row-gap: 10px; align-items: start; }
+  #panel-tasks .tsk-head > .sub-back { grid-column: 1; grid-row: 1; align-self: start; margin: 0 12px 0 0; }
+  #panel-tasks .tsk-head > #tsk-title { grid-column: 2; grid-row: 1; margin-right: 0; }
+  #panel-tasks .tsk-head > #tsk-new { grid-column: 2; grid-row: 2; justify-self: start; }
+}
 #pj-docs-view .pjtitle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
 #pj-docs-view .pjtitle > .sub-back { grid-column: 1; grid-row: 1; margin-right: 12px; }
 #pj-docs-view .pjtitle > :not(.sub-back) { grid-column: 2; }
@@ -10100,6 +10119,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   --k-rule: #e8e8ed;
   --nl-grey: #f5f5f7; --nl-ink-3: #6e6e73; --nl-ink-4: #aeaeb2;
   --nl-green: #2e9a5a;
+  --nl-raise: #ffffff; --nl-raise-hover: #ffffff;   /* a button's fill on the grey box: above it, never the field's */
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"])[data-look="new"] {
@@ -10110,6 +10130,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366;
     --nl-green: #30d158;
+    --nl-raise: #3a3a3c; --nl-raise-hover: #48484a;
   }
 }
 /* #4470: the top bar in the new look (every page): tabs are plain words, the current one in full
@@ -10186,6 +10207,48 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #d-nav.dnav-boxed button:not(.dnav-swarm).on .dnav-ico { color: var(--k-ink); }
 :root[data-look="new"] body:not(.consolidated) #panel-detail #d-files.pjcard { border: 0; border-radius: 0; background: none; padding: 22px 0 0; margin-top: 22px; border-top: 1px solid var(--k-rule); }
 :root[data-look="new"] body:not(.consolidated) #d-files .dlab { text-transform: none; letter-spacing: 0; font: 400 .9375rem var(--font-ui); color: var(--nl-ink-3); }
+/* #4470, an agent's page, slice 3: the boxes of every section but the conversation (Profile, AI Settings and the
+   rest; the conversation's box stays edge to edge, #3414). They take the left column's dress, the one grey with no
+   edge and its 28px corners. Their headings take the project page's grey sentence case, as Files did, and their field
+   labels lose the spaced capitals for sentence case in full ink (a label, not a heading). Buttons and fields are the
+   whole app's and are left for their own slice. */
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox { border-color: transparent; border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated) #panel-detail .dsec:not(#d-sec-talk) .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
+/* #4470, Settings in the new look: the agent page's dress. The section nav is one grey box (on a wider screen; on a
+   phone it stays today's sideways scroller with its fade) with its items flat, no edge and no gold, the current one a
+   tile in the page's ground (on a phone, where there is no box, a grey tile) in full ink and today's heavier weight.
+   The boxes have no edge and 28px corners, headings take the grey sentence case and field labels sentence case in
+   full ink. Buttons and fields are the whole app's and are left for their own slice. The Kosmos+ section repaints
+   the page navy (body.plus-active), which the look's greys know nothing of, so it keeps today's chrome. The needs-you
+   dot on the current item takes --warn-ink, as on the agent page: the dark red was tuned for the gold. */
+@media (min-width: 40.01rem) {
+  :root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav { background: var(--nl-grey); border-radius: 28px; padding: 12px; }
+}
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button { border-color: transparent; background: none; color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button:not(.on):hover { background: color-mix(in srgb, var(--k-bg) 55%, transparent); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on { background: var(--k-bg); color: var(--k-ink); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on .dot { background: var(--warn-ink); }
+@media (max-width: 40rem) {
+  :root[data-look="new"] body:not(.consolidated):not(.plus-active) #s-nav button.on { background: var(--nl-grey); }
+}
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox { border-color: transparent; border-radius: 28px; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .dlab { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: .9375rem; font-family: var(--font-ui); color: var(--nl-ink-3); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) #panel-settings .dbox .flabel { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: .9375rem; font-family: var(--font-ui); color: var(--k-ink); }
+/* #4470, the controls in the new look, in the agent page's boxes and Settings' (not the conversation, not Kosmos+'s navy
+   page): as Josh's drawing draws them (Files/kosmos-project-two-col-v9), a button is a pill. A plain or quiet button
+   has no edge ("Use the left", "Use the right"), the main one keeps its gold ("Post"), a danger button keeps its edge,
+   which says what it does. The Terminal's send button keeps today's corners, as its composer does. Fields keep today's
+   edge: a white field on the grey box has no other boundary. A button stays raised and a field recessed (the ruling
+   above .dbox .btn): a button's fill is --nl-raise, above the box (white with a hairline shadow in light, a step
+   lighter than the box in dark, where a shadow cannot show), a field's is the page's ground with its edge. Under the
+   pointer a button lifts further, never toward the box. A disabled plain button is an outlined pill, so it reads as
+   unavailable rather than missing. ⚠️ Today's gold edge on a plain button is the one control boundary that clears WCAG
+   1.4.11's 3:1 (see .dbox .btn above); the pill's label identifies it instead, as in the drawing. */
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.cpost) { border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn) { background: var(--nl-raise); border-color: transparent; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):not(:disabled):hover { background: var(--nl-raise-hover); box-shadow: 0 2px 6px rgba(0, 0, 0, .18); }
+:root[data-look="new"] body:not(.consolidated):not(.plus-active) :is(#panel-detail .dsec:not(#d-sec-talk), #panel-settings) .dbox :is(.btn, .btn-quiet):not(.uprime):not(.danger-btn):disabled { background: transparent; border-color: currentColor; box-shadow: none; }
 /* The phone chat (the same condition as its layout block) is sized to the pixel for the nav row and the thread, so
    there the column keeps today's geometry: no box, no padding. The open section is then a grey tile on the page. */
 @media (max-width: 40rem), (hover: none) and (orientation: landscape) and (max-height: 30rem) and (max-width: 56rem) {
@@ -10545,6 +10608,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
     --k-rule: #3a3a3c;
     --nl-grey: #2c2c2e; --nl-ink-3: #98989d; --nl-ink-4: #636366;
     --nl-green: #30d158;
+    --nl-raise: #3a3a3c; --nl-raise-hover: #48484a;
   }
 
 :root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
@@ -13151,6 +13215,13 @@ window.kosmosMeasureScrollbarWidth();
           </div>
           <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="acct-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
         </div>
+        <!-- #4960: Antigravity's terms, asked HERE: the links, and its optional data-sharing box as Antigravity has it.
+             Kosmos presses nothing on them until the person answers. -->
+        <div id="acct-gemini-sub-terms-row" hidden style="margin-top:8px;">
+          <p class="dhint" id="acct-gemini-sub-terms-intro" tabindex="-1" style="margin:0 0 6px;outline:none;">Antigravity asks you to accept Google's <a id="acct-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="acct-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
+          <label class="dhint" for="acct-gemini-sub-terms-share" style="display:flex;gap:8px;align-items:flex-start;margin:0;"><input type="checkbox" id="acct-gemini-sub-terms-share" style="margin-top:3px;"><span>Also let Google collect and use my Antigravity interactions to improve it. Optional: you can change this later in Antigravity's settings.</span></label>
+          <div class="frow" style="margin-top:8px;"><button class="btn uprime" id="acct-gemini-sub-terms-go" type="button">Agree and continue</button></div>
+        </div>
         <div class="frow" id="acct-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-show" type="button">Show the sign-in window</button></div>
         <div class="frow" id="acct-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
       </div>
@@ -14275,6 +14346,13 @@ window.kosmosMeasureScrollbarWidth();
                       <button class="btn uprime" id="fr-gemini-sub-paste-go" type="button">Continue</button>
                     </div>
                     <p class="acct-help" style="margin:6px 0 0;"><a class="btn-quiet" id="fr-gemini-sub-page" href="#" target="_blank" rel="noreferrer noopener">Open Google's sign-in page again<span class="vh"> (opens in your browser)</span></a></p>
+                  </div>
+                  <!-- #4960: Antigravity's terms, asked HERE: the links, and its optional data-sharing box as Antigravity has it.
+                       Kosmos presses nothing on them until the person answers. -->
+                  <div id="fr-gemini-sub-terms-row" hidden style="margin-top:8px;">
+                    <p class="dhint" id="fr-gemini-sub-terms-intro" tabindex="-1" style="margin:0 0 6px;outline:none;">Antigravity asks you to accept Google's <a id="fr-gemini-sub-terms-tos" href="#" target="_blank" rel="noreferrer noopener">Antigravity Terms of Service<span class="vh"> (opens in your browser)</span></a> and <a id="fr-gemini-sub-terms-privacy" href="#" target="_blank" rel="noreferrer noopener">Privacy Policy<span class="vh"> (opens in your browser)</span></a>.</p>
+                    <label class="dhint" for="fr-gemini-sub-terms-share" style="display:flex;gap:8px;align-items:flex-start;margin:0;"><input type="checkbox" id="fr-gemini-sub-terms-share" style="margin-top:3px;"><span>Also let Google collect and use my Antigravity interactions to improve it. Optional: you can change this later in Antigravity's settings.</span></label>
+                    <div class="frow" style="margin-top:8px;"><button class="btn uprime" id="fr-gemini-sub-terms-go" type="button">Agree and continue</button></div>
                   </div>
                   <div class="frow" id="fr-gemini-sub-show-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-show" type="button">Show the sign-in window</button></div>
                   <div class="frow" id="fr-gemini-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-gemini-sub-cancel" type="button">Stop this sign-in</button></div>
@@ -25179,7 +25257,8 @@ async function paintAccounts(opts) {
     const connectedWhy = 'this account is signed in. That does not prove a request would succeed, because a rejected token is not visible from here';
     /* #1921: the badge renders VERIFIED liveness from the last OBSERVED real call
        (server-side engine/observed), not the stored-login state alone. `working` is
-       the ONLY green and it means we SAW a request succeed -- so the pulsing dot's
+       the ONLY green and it means we SAW a request succeed, or (#3997 ruling A, observedFrom 'login') that a
+       Claude sign-in's own login is valid and unexpired with no rejection or failed check on record -- so the pulsing dot's
        "actively connected" (Josh, #864) is finally true rather than merely "a
        credential exists". A credential that only EXISTS is `signed_in_unverified`:
        amber since #3997 (it was muted grey), NOT green, which is the say-what-you-know half #874 could not reach.
@@ -25209,20 +25288,27 @@ async function paintAccounts(opts) {
     /* An expired key cannot be checked until Grok runs, so that title does not point at Check now (the server's
        structured verdict, not a match on its sentence: review round 4). */
     const unverifiedTitle = grokWhy ? ((a.connection.liveVerdict === 'expired' || a.connection.liveVerdict === 'pending') ? grokWhy + '.' : grokWhy + '. Use Check now to verify it.') : null;
-    /* #3997 (ruling C): an idle Claude sign-in whose login date Kosmos read from its stored login. Calm and
-       neutral, with the date; it turns green when an agent uses it or Check now answers. */
+    /* #3997: an idle Claude sign-in whose login date Kosmos read from its stored login. Ruling A (Josh, 10-02): green,
+       with the date (below). The calm neutral pill (ruling C) is drawn only if the server's switch is turned off. */
     const loginUntil = a.connection && Number.isFinite(a.connection.loginValidUntil) ? a.connection.loginValidUntil : null;
     // The year too when it is not this one (review iteration 3): a login can run for close to a year. The viewer's
     // own calendar on purpose, so it can read a day off near midnight UTC (see the plan); not a UTC string.
     const loginDate = loginUntil ? new Date(loginUntil).toLocaleDateString(undefined, new Date(loginUntil).getFullYear() === new Date().getFullYear()
       ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' }) : '';
     const loginOkWhy = loginDate ? 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. It turns green the first time an agent uses it, or when you press Check now.' : '';
+    /* #3997 ruling A (Josh, 10-02): the server's switch is on, so a good login is green. Its title says what the green
+       rests on, the sign-in itself, and that Check now asks Anthropic directly; not "turns green later", which it is. */
+    const loginGreenWhy = loginDate ? 'Kosmos read this account\'s sign-in on this computer: it is good until ' + loginDate + '. Press Check now to ask Anthropic directly.' : '';
     let connBadge;
+    /* Review 1: a login-green row with no date to show is not claimed as "a real request succeeded"; it falls back to
+       the unverified state, the honest reading of what the server knows. */
+    const loginGreenNoDate = badge === 'working' && a.connection && a.connection.observedFrom === 'login' && !loginDate;
     if (badge === 'working' && a.connection && a.connection.observedFrom === 'login' && loginDate) {
-      // Only with the server's switch on (Josh's call): the same words, in green.
-      connBadge = '<span class="acct-connected" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+      connBadge = '<span class="acct-connected" title="' + esc(loginGreenWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
     } else if (badge === 'signed_in_unverified' && loginDate) {
       connBadge = '<span class="acct-loginok" title="' + esc(loginOkWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · login good until ' + esc(loginDate) + '</span>';
+    } else if (loginGreenNoDate) {
+      connBadge = '<span class="acct-unverified" title="' + esc(unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else if (badge === 'working') {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? (fromCheck ? ' · checked ' : ' · active ') + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
@@ -25588,9 +25674,15 @@ async function paintAccounts(opts) {
         state = res.ok ? (j.state || 'unknown') : 'unknown';
       } catch { state = 'unknown'; }
       if (state === 'unknown') {
-        btn.textContent = 'Could not check, try again';
-        btn.disabled = false;
-        setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);
+        /* #3997 review 3: a failed check can take this row's login-green away on the server, so repaint before
+           saying so; otherwise the row stays green beside "Could not check". The repaint rebuilds the row, so the
+           sentence goes on the NEW button for this folder (or on the old one if the repaint failed). */
+        try { await paintAccounts(); } catch { /* the old row stays; the sentence still goes on its button */ }
+        const fresh = [...box.querySelectorAll('[data-check-claude]')].find((b) => b.dataset.checkClaude === dir) || btn;
+        const freshLabel = fresh === btn ? label : fresh.textContent;
+        fresh.textContent = 'Could not check, try again';
+        fresh.disabled = false;
+        setTimeout(() => { if (fresh.isConnected) fresh.textContent = freshLabel; }, 4000);
         return;
       }
       /* connected -> green, none -> the honest "not connected": both recorded, so
@@ -29113,6 +29205,9 @@ function agySubDriver(pre, onReady) { return {
   sendingCode: false,   // #3998: a code is on its way (a second press is ignored)
   codeError: '',   // #3998: why the last pasted code was refused, until the person types again
   windowOpen: false,   // #3998 round 26: the sign-in's window is open and the person is driving it
+  termsFor: '',    // #4960: the sign-in whose terms the box was last set for (set once, then it is the person's)
+  answeredFor: '', // #4960 round 2: the sign-in whose terms the person answered (a late poll does not ask again)
+  sendingTerms: false,   // #4960: an answer to the terms is on its way
   /* Round 28: the person pressed Stop this sign-in. That stops it even with its window open (only the
      passive ways out, closing the dialog or switching provider, leave an open window running). */
   stop() {
@@ -29133,19 +29228,20 @@ function agySubDriver(pre, onReady) { return {
     this.winLeave();   // #3568 (Windows): its own sign-in ends the same way
   },
   /* #3998: the paste box (with "Open Google's page again") and the last-resort window button. */
-  rows(paste, show, url) {
-    const pr = this.el('paste-row'); const sr = this.el('show-row');
+  rows(paste, show, url, terms) {
+    const pr = this.el('paste-row'); const sr = this.el('show-row'); const tr = this.el('terms-row');
     /* A row hidden with focus inside it would drop focus to the page behind the dialog (round 8): move
        it to Stop, or to the step itself. */
     const active = typeof document !== 'undefined' ? document.activeElement : null;
     const leaving = (row, keep) => row && !keep && active && typeof row.contains === 'function' && row.contains(active);
-    if (leaving(pr, paste) || leaving(sr, show)) {
+    if (leaving(pr, paste) || leaving(sr, show) || leaving(tr, terms)) {
       const cancel = this.el('cancel'); const cr = this.el('cancel-row');
       const to = cancel && cr && !cr.hidden ? cancel : this.el('step');
       if (to) { if (to !== cancel && to.setAttribute && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1'); if (to.focus) to.focus(); }
     }
     if (pr) pr.hidden = !paste;
     if (sr) sr.hidden = !show;
+    if (tr) tr.hidden = !terms;
     const pg = this.el('page'); if (pg) { pg.hidden = !url; pg.setAttribute('href', url || '#'); }
     // Its paragraph too (round 18): an empty paragraph keeps its margin in the layout.
     const pgp = pg && pg.closest ? pg.closest('p') : null; if (pgp) pgp.hidden = !url;
@@ -29180,11 +29276,33 @@ function agySubDriver(pre, onReady) { return {
            same as the first and must bring the cursor back too (round 7). */
         const refusalMark = String(st.refusals || 0) + '|' + (st.because || '');
         if (focusedFor === null || refusalMark !== focusedFor) { const i = this.el('paste'); if (i) i.focus(); focusedFor = refusalMark; }
+      } else if (state === 'terms' && this.answeredFor === this.signinId) {
+        this.rows(false, false);   // answered: a poll that left before the answer landed does not ask again (round 2)
+      } else if (state === 'terms') {
+        /* #4960: Antigravity's terms, asked here. The box starts as Antigravity has it, once per sign-in; after that it
+           is the person's (a poll never overwrites what they ticked). */
+        this.rows(false, false, '', true);
+        const tm = (st && st.terms) || {};
+        /* A link Kosmos would not open is plain words, and its "(opens in your browser)" goes with it (round 2). */
+        const link = (a, href) => {
+          if (!a) return;
+          if (href) a.setAttribute('href', href); else if (a.removeAttribute) a.removeAttribute('href');
+          const vh = a.querySelector ? a.querySelector('.vh') : null; if (vh) vh.hidden = !href;
+        };
+        link(this.el('terms-tos'), tm.termsUrl); link(this.el('terms-privacy'), tm.privacyUrl);
+        if (this.termsFor !== this.signinId) {
+          this.termsFor = this.signinId;
+          const box = this.el('terms-share'); if (box) box.checked = tm.dataUse === true;
+          /* Focus the terms' first words, not Agree (round 1): one Enter must not accept them for a keyboard user who
+             has not yet reached the links or the optional box. */
+          const intro = this.el('terms-intro'); if (intro && intro.focus) intro.focus();
+        }
+        this.say('Almost done. One last step from Google:', '', false);   // the details are the row below (one sentence, not two)
       } else if (state === 'checking' || state === 'setup') {
         this.rows(false, false);
         // "checking" is also Kosmos asking Antigravity whether it is signed in (round 9): the code only after one was sent.
         this.say(state === 'checking' ? (st.step === 'code-sent' ? 'Checking the code with Google…' : 'Checking with Antigravity…')
-          : "Finishing Antigravity's setup. Kosmos leaves Google's optional data sharing off; you can change that later in Antigravity's settings.", '', false);
+          : "Finishing Antigravity's setup…", '', false);
       } else if (state === 'stuck' && st.shown && st.showFailed) {
         // The window did not open: say so and offer it again (round 10).
         this.rows(false, true);
@@ -29231,6 +29349,18 @@ function agySubDriver(pre, onReady) { return {
     this.codeError = frCap((r && r.error) || 'Kosmos could not pass the code on just now') + '.';
     this.say(this.codeError, '', false);
   },
+  /* #4960: the person's answer to Antigravity's terms, with their choice for the optional data sharing. */
+  async agreeTerms() {
+    if (this.sendingTerms) return;
+    const box = this.el('terms-share');
+    const mine = this.gen; const id = this.signinId;
+    this.sendingTerms = true;
+    const r = await this.post('/api/antigravity/signin/agree', { id, dataUse: !!(box && box.checked) });
+    this.sendingTerms = false;
+    if (mine !== this.gen || id !== this.signinId) return;   // the step was left, or another sign-in began (round 2)
+    if (r && r.ok) { this.answeredFor = id; this.rows(false, false); this.say("Finishing Antigravity's setup…", '', false); return; }
+    this.say(frCap((r && r.error) || 'Kosmos could not pass your answer on just now') + '.', '', false);
+  },
   async showWindow() {
     const r = await this.post('/api/antigravity/signin/show', { id: this.signinId });
     if (!(r && r.ok)) this.say(frCap((r && r.error) || 'Kosmos could not open the sign-in window') + '.', '', false);
@@ -29240,6 +29370,7 @@ function agySubDriver(pre, onReady) { return {
     const i = this.el('paste'); if (i) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.sendCode(); } });
     if (i) i.addEventListener('input', () => { this.codeError = ''; });   // typing again retires the refusal
     const sh = this.el('show'); if (sh) sh.addEventListener('click', () => this.showWindow());
+    const tg = this.el('terms-go'); if (tg) tg.addEventListener('click', () => this.agreeTerms());
     return this;
   },
   /* #3568 on Windows: no Terminal. Kosmos runs agy's sign-in out of sight (POST

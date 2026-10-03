@@ -2313,6 +2313,32 @@ const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEED
    "the board is asking, in general" from "the agent told us this". */
 const ASKING_GENERIC = 'it is asking you something';
 
+/* #5039: Claude Code's safeguards model-switch menu, which stops a session until the person picks. Observed on Angel's
+   pane 2026-10-02 ~11:07 (Claude Code 2.1.287, Opus 5.5):
+     ❯ 1. Switch automatically
+       2. Stay on Opus 5.5
+   The board already read it as needs_you (a drawn menu); this says WHAT it asks, so the person knows it is a model
+   choice and not a permission prompt. Keyed on the two option rows, not the sentence above them, which differs
+   ("flagged this session" seen live, "flagged this message" in the binary). Only called once a menu is drawn, and
+   "1. Switch automatically" must be the LAST "1." row on screen, so it is the live menu: the words in an agent's
+   prose, or an old answered menu, above a live permission prompt are not this (review round 1). When it is live it
+   carries evidence, so it leads over an agent's own standing question (the agent really is stopped on it). Kosmos
+   never presses it: the choice is the person's (#5039). */
+function safeguardsMenu(tail) {
+  const rows = String(tail == null ? '' : tail).split('\n').map((r) => r.replace(/^[\s│❯›>]+/, '').trimEnd());
+  const first = rows.findIndex((r) => /^1\. Switch automatically$/.test(r));
+  if (first < 0) return null;
+  const lastOne = rows.reduce((at, r, i) => (/^1\.\s/.test(r) ? i : at), -1);
+  if (lastOne !== first) return null;
+  const stay = rows.slice(first + 1, first + 4).map((r) => /^2\. Stay on (\S.{0,40})$/.exec(r)).find(Boolean);
+  if (!stay) return null;
+  const model = stay[1];
+  return {
+    because: `${model}'s safeguards stopped it, and it is asking whether to switch models automatically or stay on ${model}`,
+    evidence: `1. Switch automatically / 2. Stay on ${model}`,
+  };
+}
+
 /**
  * 🛑 THE FIRST FOUR WERE GUESSES AT WORDING AND CLAUDE CODE SAYS SOMETHING ELSE.
  *
@@ -4455,6 +4481,8 @@ function classify(pane, paneText) {
      stays ABOVE the working checks. The #1155/#2146 "blocked beats busy" test
      pins this precedence. */
   if (drawsOptionMenu(tail)) {
+    const flagged = safeguardsMenu(tail);
+    if (flagged) return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, ...flagged };
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   /* #2456: the PROSE half, position-gated to the BOTTOM of the screen. A prose

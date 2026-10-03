@@ -69,11 +69,17 @@ test('#3998: the whole sign-in runs hidden: menu, code from Kosmos, colour, term
     // A code that is not one is refused before anything is typed.
     assert.equal(t.signin.code('rm -rf ~; echo', started.id).ok, false);
     assert.deepEqual(t.signin.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n', started.id), { ok: true });
+    // #4960: the terms wait for the person, with the box as agy has it (ticked) and its two links.
+    await until(() => t.signin.status().state === 'terms', 25000, 'the terms to be shown');
+    assert.deepEqual(t.signin.status().terms, { dataUse: true, termsUrl: 'https://antigravity.google/terms', privacyUrl: 'https://policies.google.com/privacy' });
+    assert.doesNotMatch(t.logText(), /^terms:/m, 'a key went to the terms before the person answered');
+    assert.deepEqual(t.signin.agree(started.id, { dataUse: false }), { ok: true });
     await until(() => t.signin.status().state === 'done', 25000, 'the sign-in to finish');
     const log = t.logText();
     assert.match(log, /^code:4\/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n$/m, 'the code did not reach agy intact');
     assert.match(log, /^theme:Enter$/m);
     assert.doesNotMatch(log, /terms:Space/, 'Kosmos pressed Space on the terms (that ticks the data-sharing box)');
+    assert.deepEqual(log.split('\n').filter((l) => l.startsWith('terms:')), ['terms:Enter', 'terms:Down', 'terms:Right', 'terms:Enter'], 'the terms were not driven as measured');
     assert.doesNotMatch(log, /terms:went-back/, 'Enter on "Previous" went back a step');
     assert.match(log, /^datashare:0$/m, 'the optional data sharing was ticked for the person');
     assert.match(log, /^trust:Enter$/m, 'its own sign-in folder was not trusted');
@@ -89,6 +95,8 @@ test('#3998: agy asking to trust any folder but Kosmos\'s own is left to the per
     const { id } = t.signin.start();
     await until(() => t.signin.status().state === 'code', 15000, 'the code step');
     t.signin.code('4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v-TZgGLs9n', id);
+    await until(() => t.signin.status().state === 'terms', 25000, 'the terms');
+    t.signin.agree(id, { dataUse: false });
     await until(() => t.signin.status().state === 'stuck', 25000, 'the refusal');
     assert.match(t.signin.status().because, /trust a folder Kosmos did not choose/);
     assert.doesNotMatch(t.logText(), /^trust:/m, 'Kosmos answered the trust question for the home folder');
@@ -203,8 +211,27 @@ function scripted(s, first) {
   return st;
 }
 const settle = () => new Promise((r) => setImmediate(r));
+/* agy 1.2.11's terms (each item on its own line), kept for the Down path. */
 const TERMS = (marked) => 'Terms of Service & Data Use\n\n' + ['[ ] Yes, I agree', 'Previous', '[Done]']
   .map((l) => (l === marked ? '> ' : '  ') + l).join('\n') + '\n';
+/* #4960: agy 1.2.12/1.2.14's terms, as MEASURED (capture-pane -p -J): the box focused and ticked at first, the buttons
+   on one row, the selected one unbracketed with its ">" mid-line. */
+const TERMS2 = ({ box = 'x', focus = 'box' } = {}) => 'Terms of Service & Data Use\n'
+  + 'AI coding agents are known to have certain security risks, including autonomous code execution, data exfiltration,\n'
+  + '------------------------------------------------------------------------------------------------------------------------\n'
+  + (focus === 'box' ? '  > ' : '    ') + '[' + box + '] Yes, I agree to help improve Antigravity CLI by allowing                                \n'
+  + '      Google to collect and use my Interactions data,                                           \n'
+  + '      Links:                                                                                    \n'
+  + '      - Terms of Service: https://antigravity.google/terms                                      \n'
+  + '      - Privacy Policy: https://policies.google.com/privacy                                     \n'
+  + (focus === 'previous' ? '  >  Previous       [Done]\n' : focus === 'done' ? '    [Previous]    >  Done \n' : '    [Previous]      [Done]\n')
+  + '  ↑/↓ Navigate · enter ' + (focus === 'box' ? 'Toggle' : 'Confirm') + ' \n';
+/* The person's answer, as the panel sends it: one tick shows the terms (no key), then agree. */
+function agreeOn(s, id, dataUse = false) {
+  s.tickForTests();
+  assert.equal(s.status().state, 'terms', 'precondition: the terms were not shown to the person');
+  assert.deepEqual(s.agree(id, { dataUse }), { ok: true });
+}
 
 test('#3998 B2: after the setup, an unknown screen asks agy a few times at most, and stuck stays stuck', async () => {
   const s = require('./agysignin');
@@ -224,22 +251,24 @@ test('#3998 B2: after the setup, an unknown screen asks agy a few times at most,
   } finally { s.resetForTests(); }
 });
 
-test('#3998 W1/W2: the terms get each key once, and a missing Done is shown, not ended', async () => {
+test('#3998 W1/W2 (#4960): the terms get each key once, and a missing Done is shown, not ended', async () => {
   const s = require('./agysignin');
-  const st = scripted(s, TERMS('Previous'));
+  const st = scripted(s, TERMS2({ focus: 'previous' }));
   try {
     const { id } = s.start();
+    agreeOn(s, id, true);
     s.tickForTests(); s.tickForTests(); s.tickForTests();     // the marker has not moved yet
-    assert.deepEqual(st.sent, ['Down'], 'a second Down went out before the first one landed');
-    st.screen = TERMS('[Done]');
+    assert.deepEqual(st.sent, ['Right'], 'a second Right went out before the first one landed');
+    st.screen = TERMS2({ focus: 'done' });
     s.tickForTests(); s.tickForTests(); s.tickForTests();
-    assert.deepEqual(st.sent, ['Down', 'Enter'], 'Enter went out more than once on [Done] (a slow redraw carries it onto the trust question)');
+    assert.deepEqual(st.sent, ['Right', 'Enter'], 'Enter went out more than once on Done (a slow redraw carries it onto the trust question)');
     assert.doesNotMatch(st.sent.join(' '), /Space/, 'Space ticks the optional data-sharing box');
     // A terms screen whose Done never comes under the marker:
-    const st2 = scripted(s, TERMS('Previous'));
+    const st2 = scripted(s, TERMS2({ focus: 'previous' }));
     const again = s.start();
-    const marks = ['Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree'];
-    for (const m of marks) { st2.screen = TERMS(m); s.tickForTests(); }
+    agreeOn(s, again.id, true);
+    const marks = ['box', 'previous', 'box', 'previous', 'box', 'previous', 'box', 'previous'];
+    for (const m of marks) { st2.screen = TERMS2({ focus: m }); s.tickForTests(); }
     assert.equal(s.status().state, 'stuck');
     assert.match(s.status().because, /Done button/);
     assert.equal(st2.killed, 1, 'the session was killed (only the start\'s own clean-up may kill one), so Show had nothing to show');
@@ -555,7 +584,8 @@ test('#3998 round 7: a Down that tmux could not send does not spend the terms sc
     return '';
   } });
   try {
-    s.start();
+    const { id } = s.start();
+    agreeOn(s, id);
     for (let i = 0; i < 3; i++) s.tickForTests();   // three hiccups
     s.tickForTests();                                // then it goes out
     assert.deepEqual(st.sent, ['Down'], 'CONTROL: one Down reached agy');
@@ -582,12 +612,13 @@ test('#3998 round 7: a second refused code is counted, so the page can bring the
 /* ---- review round 8 ---------------------------------------------------------------------- */
 test('#3998 round 8: the marker words must be the item the marker is on (a one-line button row)', () => {
   const s = require('./agysignin');
-  const st = scripted(s, 'Terms of Service & Data Use\n\n> Previous    [Done]\n');
+  const st = scripted(s, 'Terms of Service & Data Use\n\n  [ ] Yes, I agree\n> Previous    [Done]\n');
   try {
-    s.start();
+    const { id } = s.start();
+    agreeOn(s, id);
     s.tickForTests();
     assert.ok(!st.sent.includes('Enter'), 'Enter was pressed on Previous because [Done] shared its line');
-    assert.deepEqual(st.sent, ['Down'], 'CONTROL: it moved off Previous instead');
+    assert.deepEqual(st.sent, ['Right'], 'CONTROL: it moved off Previous (along its row) instead');
   } finally { s.resetForTests(); }
 });
 
@@ -698,7 +729,8 @@ test('#3998 round 12: a half-drawn frame does not re-arm a key (no second Enter 
   const TERMS_DONE = TERMS('[Done]');
   const st = scripted(s, TERMS_DONE);
   try {
-    s.start();
+    const { id } = s.start();
+    agreeOn(s, id);
     s.tickForTests();                                  // Enter on [Done]
     st.screen = 'Terms of Serv';                       // caught mid-redraw: matches no screen
     s.tickForTests();
@@ -754,7 +786,8 @@ test('#3998 round 14: a key whose send timed out is not pressed again (it may ha
     return '';
   } });
   try {
-    s.start();
+    const { id } = s.start();
+    agreeOn(s, id);
     s.tickForTests();                  // Enter goes out, then the call times out
     s.tickForTests();                  // agy has not redrawn yet: still the terms, [Done] marked
     assert.deepEqual(st.sent, ['Enter'], 'a second Enter went out and could land on the trust question');
@@ -832,7 +865,8 @@ test('#3998 round 16: a terms Down that timed out is not sent again', () => {
     return '';
   } });
   try {
-    s.start();
+    const { id } = s.start();
+    agreeOn(s, id);
     s.tickForTests();                  // Down goes out, then the call times out
     s.tickForTests();                  // the marker has not moved yet
     assert.deepEqual(st.sent, ['Down'], 'a second Down went out after a timeout');
@@ -911,7 +945,8 @@ test('#3998 round 20: after Show, a blank frame or a passing redraw is not asked
   st.answer = { signedIn: true };   // Google already took the code: a yes is what agy would say
   try {
     const { id } = s.start();
-    const marks = ['Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree'];
+    agreeOn(s, id);
+    const marks = ['Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree', 'Previous', '[ ] Yes, I agree'];
     for (const m of marks) { st.screen = TERMS(m); s.tickForTests(); }
     assert.equal(s.status().state, 'stuck', 'CONTROL: stuck on the terms, the case where Show is offered');
     s.setForTests({ openFile: (f, done) => done(null) });
@@ -936,7 +971,8 @@ test('#3998 round 20: agy\'s ready line under a setup screen before trust is tha
   const st = scripted(s, TERMS('Previous') + '\nj@example.com (Antigravity Starter Quota) - Gemini 3.8 Flash (High)\n');
   st.answer = { signedIn: true };
   try {
-    s.start();
+    const { id } = s.start();
+    agreeOn(s, id);
     s.tickForTests(); await settle();
     assert.equal(st.checks, 0, 'the ready footer under the terms was confirmed');
     assert.deepEqual(st.sent, ['Down'], 'CONTROL: the terms were driven as the terms');
@@ -1083,7 +1119,8 @@ test('#3998 round 26: a terms frame with no marker drawn yet gets no key', () =>
   const s = require('./agysignin');
   const st = scripted(s, 'Terms of Service & Data Use\n\n  [ ] Yes, I agree\n  Previous\n  [Done]\n');
   try {
-    s.start();
+    const { id } = s.start();
+    agreeOn(s, id);
     s.tickForTests();
     assert.deepEqual(st.sent, [], 'a Down went out before the marker was drawn');
     st.screen = TERMS('Previous'); s.tickForTests();
@@ -1140,5 +1177,154 @@ test('#3998 round 28: the prompt is read on its own line and the next, not from 
     st.screen = CODE + '\n\n  Press Ctrl+C to cancel\n';   // an empty prompt with a hint drawn further down
     st.t += 25000; s.tickForTests();
     assert.equal(s.status().state, 'code', 'a hint under an empty prompt was read as a held code (a refusal waited 90 s)');
+  } finally { s.resetForTests(); }
+});
+
+/* ---- #4960: the terms agy 1.2.12/1.2.14 draws (box ticked at first, buttons on one row) ---------------------------- */
+test('#4960: termsOf reads the measured frames: the box, where the marker is, and only Google\'s two links', () => {
+  const s = require('./agysignin');
+  assert.deepEqual(s.termsOf(TERMS2()), { dataUse: true, focus: 'box', sameRow: true, termsUrl: 'https://antigravity.google/terms', privacyUrl: 'https://policies.google.com/privacy' });
+  assert.equal(s.termsOf(TERMS2({ focus: 'previous' })).focus, 'previous');
+  assert.equal(s.termsOf(TERMS2({ focus: 'done' })).focus, 'done', 'Done selected mid-line ("[Previous]    >  Done") was not found');
+  assert.equal(s.termsOf(TERMS2({ box: ' ' })).dataUse, false);
+  assert.equal(s.termsOf(TERMS('[Done]')).focus, 'done', 'agy 1.2.11\'s "> [Done]" is no longer read');
+  const odd = TERMS2().replace('https://antigravity.google/terms', 'https://evil.example/terms').replace('https://policies.google.com/privacy', 'http://policies.google.com/privacy');
+  assert.equal(s.termsOf(odd).termsUrl, null, 'a link to another site would be shown to the person');
+  assert.equal(s.termsOf(odd).privacyUrl, null, 'a plain-http link would be shown');
+  const other = TERMS2().replace('https://antigravity.google/terms', 'https://sites.google.com/view/terms').replace('https://policies.google.com/privacy', 'https://policies.google.com/privacy).');
+  assert.equal(s.termsOf(other).termsUrl, null, 'round 1: any google.com page (sites.google.com) would be linked as the terms');
+  assert.equal(s.termsOf(other).privacyUrl, 'https://policies.google.com/privacy', 'round 1: trailing punctuation became part of the link');
+});
+
+test('#4960 round 1: Done is never pressed on a frame that does not show the box as the person chose', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS2());
+  try {
+    const { id } = s.start();
+    agreeOn(s, id, false);
+    st.screen = 'Terms of Service & Data Use\n    [Previous]    >  Done \n'; s.tickForTests(); s.tickForTests();
+    assert.deepEqual(st.sent, [], 'Done was pressed with the box not drawn (it may still be ticked)');
+    assert.notEqual(s.status().state, 'done');
+  } finally { s.resetForTests(); }
+});
+
+test('#4960 round 1: a half-drawn first terms frame is not handed to the panel (it would read the box as unticked)', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Terms of Service & Data Use\nAI coding agents are known\n');
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    assert.equal(s.status().state, 'setup', 'the terms were handed to the panel before the box was drawn');
+    assert.equal(s.status().terms, undefined);
+    assert.equal(s.agree(id, { dataUse: false }).ok, false, 'an answer was taken before the box was drawn');
+    st.screen = TERMS2(); s.tickForTests();
+    assert.equal(s.status().state, 'terms');
+    assert.equal(s.status().terms.dataUse, true, 'CONTROL: the full frame gives the box as Antigravity has it');
+    // A redraw with the box but not yet the link lines keeps the links read before (round 2).
+    st.screen = TERMS2().split('      Links:')[0]; s.tickForTests();
+    assert.equal(s.status().terms.termsUrl, 'https://antigravity.google/terms', 'a half-drawn redraw took the link away from the panel');
+  } finally { s.resetForTests(); }
+});
+
+test('#4960 round 2: a terms screen that never draws the box goes stuck (with the window offered), not a half-hour wait', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Terms of Service & Data Use\n  > [?] Yes, I consent to something new\n    [Previous]      [Done]\n');
+  try {
+    s.start();
+    for (let i = 0; i < 25; i++) { st.t += 1000; s.tickForTests(); }
+    assert.equal(s.status().state, 'stuck', 'a terms screen Kosmos cannot read waited without a way out');
+    assert.ok(s.status().seen && s.status().seen.length, 'it did not say what it saw');
+    assert.deepEqual(st.sent, [], 'a key went to a terms screen Kosmos could not read');
+  } finally { s.resetForTests(); }
+});
+
+test('#4960 round 1: Show on the terms hands them to the window; the panel stops asking', async () => {
+  const s = require('./agysignin');
+  scripted(s, TERMS2());
+  try {
+    const { id } = s.start();
+    s.tickForTests();
+    s.setForTests({ openFile: (f, done) => done(null) });
+    await s.show(id);
+    assert.equal(s.status().state, 'stuck', 'the panel kept asking the terms while the window had them');
+    assert.equal(s.status().shown, true);
+    assert.equal(s.status().terms, undefined);
+  } finally { s.resetForTests(); }
+});
+
+test('#4960: the terms wait for the person: no key, not stuck, and the panel gets the box as agy has it', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS2());
+  try {
+    s.start();
+    for (let i = 0; i < 60; i++) { st.t += 1000; s.tickForTests(); }
+    assert.deepEqual(st.sent, [], 'a key went to the terms before the person answered (the box is ticked: Done would opt them in)');
+    assert.equal(s.status().state, 'terms', 'the terms read as stuck while they wait for the person');
+    assert.deepEqual(s.status().terms, { dataUse: true, termsUrl: 'https://antigravity.google/terms', privacyUrl: 'https://policies.google.com/privacy' });
+  } finally { s.resetForTests(); }
+});
+
+test('#4960: "no" to data sharing unticks the box (one Enter), then Down, Right, Enter on Done', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS2());
+  try {
+    const { id } = s.start();
+    agreeOn(s, id, false);
+    s.tickForTests(); s.tickForTests();
+    assert.deepEqual(st.sent, ['Enter'], 'the toggle was not sent once');
+    st.screen = TERMS2({ box: ' ' }); s.tickForTests(); s.tickForTests();
+    assert.deepEqual(st.sent, ['Enter', 'Down']);
+    st.screen = TERMS2({ box: ' ', focus: 'previous' }); s.tickForTests(); s.tickForTests();
+    assert.deepEqual(st.sent, ['Enter', 'Down', 'Right']);
+    st.screen = TERMS2({ box: ' ', focus: 'done' }); s.tickForTests(); s.tickForTests();
+    assert.deepEqual(st.sent, ['Enter', 'Down', 'Right', 'Enter'], 'Done was not pressed once');
+  } finally { s.resetForTests(); }
+});
+
+test('#4960: "yes" leaves the ticked box alone; a box that did not take the answer is never carried past Done', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS2());
+  try {
+    const { id } = s.start();
+    agreeOn(s, id, true);
+    s.tickForTests();
+    assert.deepEqual(st.sent, ['Down'], 'the ticked box was toggled although the person said yes');
+    const st2 = scripted(s, TERMS2());
+    const again = s.start();
+    agreeOn(s, again.id, false);
+    st2.screen = TERMS2({ box: 'x', focus: 'done' }); s.tickForTests();
+    assert.deepEqual(st2.sent, [], 'Done was pressed with the box still ticked against the person\'s answer');
+    assert.equal(s.status().state, 'stuck');
+    assert.match(s.status().because, /data-sharing choice/);
+  } finally { s.resetForTests(); }
+});
+
+test('#4960: agree is refused for another sign-in, off the terms, in the shown window, or without a yes or no', async () => {
+  const s = require('./agysignin');
+  const st = scripted(s, TERMS2());
+  try {
+    const { id } = s.start();
+    assert.equal(s.agree(id, { dataUse: false }).ok, false, 'agreed before the terms were drawn');
+    s.tickForTests();
+    assert.equal(s.agree('0000000000000000', { dataUse: false }).because, s.NOT_MINE);
+    assert.equal(s.agree(id, {}).ok, false, 'agreed with no answer for the optional box');
+    assert.equal(s.agree(id, { dataUse: 'no' }).ok, false);
+    s.setForTests({ openFile: (f, done) => done(null) });
+    await s.show(id);
+    assert.equal(s.agree(id, { dataUse: false }).ok, false, 'agreed into a window the person is driving');
+    assert.deepEqual(st.sent, []);
+  } finally { s.resetForTests(); }
+});
+
+test('#4960: a screen Kosmos does not recognise says what it saw, with codes and addresses masked', () => {
+  const s = require('./agysignin');
+  const st = scripted(s, 'Choose your color scheme\n> terminal\n');
+  try {
+    s.start();
+    s.tickForTests();
+    st.screen = 'Old words\n1\n2\n3\n4\nA brand new screen\nSigned in as josh@example.com\ntoken 4/0AXlqoi78ZmW2ZEDHmXTxfTTbEqk1iq3YSD1LPLn9DJBTH8v\nin /Users/josh/x\n';
+    for (let i = 0; i < 12; i++) { st.t += 1000; s.tickForTests(); }
+    assert.equal(s.status().state, 'stuck');
+    assert.deepEqual(s.status().seen, ['3', '4', 'A brand new screen', 'Signed in as <email>', 'token <long>', 'in <path>'], 'not the newest lines, or not masked');
   } finally { s.resetForTests(); }
 });

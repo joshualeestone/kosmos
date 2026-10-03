@@ -29,7 +29,13 @@
  *    with no bubble, the composer a grey pill with no stroke; with the look off, today's (the control),
  *  - an agent's left column in the new look (DLEFT_LOOK): one grey box with 28px corners, the open section a tile in the
  *    page's ground and the rest flat, no edge and no gold; Files with no card under a hairline and a sentence-case
- *    heading; 300 to 380px wide on a desktop; with the look off, today's (the control),
+ *    heading; 300 to 380px wide on a desktop; the Profile boxes with no edge and 28px corners and sentence-case field
+ *    labels; with the look off, today's (the control),
+ *  - Settings in the new look (SETTINGS_LOOK): the nav a grey box with flat items, the current one a page tile (on a
+ *    phone the scroller stays, the current item a grey tile); boxes with no edge and 28px corners and sentence-case
+ *    labels; with the look off, today's (the control),
+ *  - the controls in the new look (CTRL_LOOK): a plain button a pill in the page's ground with no edge, the main one a
+ *    pill keeping its fill, a danger one keeping its edge; with the look off, today's (the control),
  *  - the Tasks page in the new look (tasksLook): a plain tile and the task list lose their border and take 16px corners;
  *    Needs Your Decision holding tasks keeps a red edge (red in both looks; its grey half is remapped) and a filtering
  *    tile its gold; at zero it is drawn like the others; a tile under the pointer shows its border;
@@ -165,8 +171,79 @@ const DLEFT_LOOK = `(() => {
       onBg: O.backgroundColor, onEdge: O.borderTopColor, onInk: O.color, offBg: X.backgroundColor, offEdge: X.borderTopColor, offInk: X.color,
       filesBg: F.backgroundColor, filesRule: F.borderTopWidth, headCase: H.textTransform, headSpacing: H.letterSpacing,
       padL: L.paddingLeft, talkOpen: !document.getElementById('d-sec-talk').hidden,
+      /* Slice 3: a Profile box and its first field label (computed style answers under the hidden section). */
+      ...(() => { const bx = document.querySelector('#d-sec-profile .dbox'), lb = bx && bx.querySelector('.flabel');
+        if (!bx || !lb) return { boxFound: false };
+        const B = getComputedStyle(bx), Lb = getComputedStyle(lb), hd = document.querySelector('#d-sec-model .dbox .dlab');
+        return { boxFound: true, boxEdge: B.borderTopColor, boxRadius: B.borderTopLeftRadius, labelCase: Lb.textTransform, labelSpacing: Lb.letterSpacing,
+          headCase2: hd ? getComputedStyle(hd).textTransform : 'absent',
+          /* Round 1: the box rule reached the conversation's box too; it must keep today's square edge (#3414). */
+          talkRadius: getComputedStyle(document.getElementById('d-talk-box')).borderTopLeftRadius }; })(),
       cut: [...document.querySelectorAll('#d-nav button:not([hidden]) .dnav-lab')].filter((l) => l.scrollWidth > l.clientWidth).map((l) => l.textContent.trim()) };
   } finally { files.hidden = filesHidden; if (panel) panel.hidden = wasHidden; }
+})()`;
+/* #4470, Settings in the new look: the section nav's ground and corners, the current item and another (ground, edge),
+   a box's edge and corners and its first field label's case. Read with the panel shown and put back. */
+const SETTINGS_LOOK = `(() => {
+  const nav = document.getElementById('s-nav'), panel = document.getElementById('panel-settings');
+  if (!nav || !panel) return { found: false };
+  const wasHidden = panel.hidden; panel.hidden = false;
+  try {
+    const on = nav.querySelector('button.on'), off = nav.querySelector('button:not(.on):not([hidden])');
+    const box = panel.querySelector('.dbox'), lab = panel.querySelector('.dbox .flabel');
+    if (!on || !off || !box || !lab) return { found: false, on: !!on, off: !!off, box: !!box, lab: !!lab };
+    const N = getComputedStyle(nav), O = getComputedStyle(on), X = getComputedStyle(off), B = getComputedStyle(box), L = getComputedStyle(lab);
+    const out = { found: true, navBg: N.backgroundColor, navRadius: N.borderTopLeftRadius, onBg: O.backgroundColor, onEdge: O.borderTopColor,
+      offBg: X.backgroundColor, offEdge: X.borderTopColor, boxEdge: B.borderTopColor, boxRadius: B.borderTopLeftRadius, labelCase: L.textTransform,
+      navW: Math.round(nav.getBoundingClientRect().width), vw: innerWidth, sw: document.documentElement.scrollWidth };
+    /* Round 1: the needs-you dot on the current item (the dark red was tuned for the gold), and the Kosmos+ section,
+       which repaints the page navy (body.plus-active) and must keep today's chrome. Both set here and put back. */
+    /* The dot is drawn only on the Kosmos+ item (the only one that carries one), so that item is made current with its
+       dot on for the read; with no dot element the read says 'absent' rather than reading the button's own ground. */
+    const plusBtn = nav.querySelector('button[data-go="plus"]'), dot = plusBtn && plusBtn.querySelector('.dot');
+    if (!dot) out.dotBg = 'absent';
+    else {
+      const wasOn = plusBtn.classList.contains('on'), hadDot = plusBtn.hasAttribute('data-dot');
+      on.classList.remove('on'); plusBtn.classList.add('on'); plusBtn.setAttribute('data-dot', '');
+      out.dotBg = getComputedStyle(dot).backgroundColor;
+      if (!wasOn) plusBtn.classList.remove('on'); if (!hadDot) plusBtn.removeAttribute('data-dot'); on.classList.add('on');
+    }
+    const hadPlus = document.body.classList.contains('plus-active'); document.body.classList.add('plus-active');
+    out.plusNavBg = getComputedStyle(nav).backgroundColor; out.plusOnEdge = getComputedStyle(on).borderTopColor;
+    if (!hadPlus) document.body.classList.remove('plus-active');
+    return out;
+  } finally { panel.hidden = wasHidden; }
+})()`;
+/* #4470, the controls in the new look: a plain button (Change picture), the main one (Settings' Save your name) and a
+   danger one (Remove this agent), read with both panels shown and put back. */
+const CTRL_LOOK = `(() => {
+  const pd = document.getElementById('panel-detail'), ps = document.getElementById('panel-settings');
+  const plain = document.getElementById('d-file-btn'), main = document.getElementById('you-name-save'), danger = document.getElementById('d-remove-start');
+  if (!pd || !ps || !plain || !main || !danger) return { found: false, plain: !!plain, main: !!main, danger: !!danger };
+  const h1 = pd.hidden, h2 = ps.hidden; pd.hidden = false; ps.hidden = false;
+  /* Round 1: Remove this agent sits outside any box, so it could not show the danger rule; a danger button is made inside
+     a Settings box for the read (as Settings' community rows build theirs) and removed after. Check for Update is the
+     quiet button. */
+  const box = ps.querySelector('.dbox'), quiet = document.getElementById('upd-btn');
+  const made = document.createElement('button'); made.className = 'btn danger-btn'; made.type = 'button'; made.textContent = 'x';
+  if (box) box.appendChild(made);
+  try {
+    const P = getComputedStyle(plain), M = getComputedStyle(main), D = getComputedStyle(made), Q = quiet ? getComputedStyle(quiet) : null;
+    return { found: !!box && !!quiet, plainBg: P.backgroundColor, plainEdge: P.borderTopColor, plainRadius: P.borderTopLeftRadius, plainShadow: P.boxShadow,
+      mainBg: M.backgroundColor, mainRadius: M.borderTopLeftRadius, dangerEdge: D.borderTopColor, dangerRadius: D.borderTopLeftRadius,
+      quietBg: Q && Q.backgroundColor, quietEdge: Q && Q.borderTopColor, quietRadius: Q && Q.borderTopLeftRadius,
+      /* Round 3: a disabled plain button (Change & Restart, disabled until a model is picked) as an outlined pill. */
+      ...(() => { const d = document.getElementById('d-model-go'); if (!d) return { disabledFound: false };
+        const was = d.disabled; d.disabled = true; const D2 = getComputedStyle(d);
+        const r = { disabledFound: true, disabledBg: D2.backgroundColor, disabledEdge: D2.borderTopColor }; d.disabled = was; return r; })(),
+      outsideDangerEdge: getComputedStyle(danger).borderTopColor, plainFocus: (() => {
+        /* Round 2: with the edge gone the focus ring is the pill's only cue beyond its label; focused as a keyboard
+           would focus it, read, and let go. */
+        const sec = plain.closest('.dsec'), secHidden = sec ? sec.hidden : false; if (sec) sec.hidden = false;
+        const was = document.activeElement; plain.focus({ focusVisible: true });
+        const o = document.activeElement === plain ? getComputedStyle(plain).outlineStyle : 'not focused';
+        plain.blur(); if (was && was.focus) was.focus(); if (sec) sec.hidden = secHidden; return o; })() };
+  } finally { made.remove(); pd.hidden = h1; ps.hidden = h2; }
 })()`;
 /* Each member row's ground: colour and image, and whether it is a working row. */
 /* #4765: the working pulse runs on the row's ::before layer now, so "no pulse" is read there too: no layer at all
@@ -382,6 +459,8 @@ const AGENTS_LOOK = `(() => {
       const before = await page.evaluate(PAGE_STATE);
       const dmBefore = await page.evaluate(DM_LOOK);   // today's DM, before the switch is ever touched (the off control's baseline)
       const dlBefore = await page.evaluate(DLEFT_LOOK);   // and today's left column, for the same control
+      const setBefore = await page.evaluate(SETTINGS_LOOK);   // and today's Settings
+      const ctlBefore = await page.evaluate(CTRL_LOOK);   // and today's buttons
       chk(before.look === null, `${tag} nothing stored: no data-look attribute`, JSON.stringify(before));
       chk(before.kbg && before.kbg !== NEW[theme], `${tag} nothing stored: today's page colour, not the new look's`, before.kbg);
 
@@ -450,6 +529,38 @@ const AGENTS_LOOK = `(() => {
         `${tag} On, an agent's page: Files has no card, a hairline above it, and a sentence-case heading`, JSON.stringify(dlOn));
       if (width >= 1088) chk(dlOn.found && dlOn.width >= 300 && dlOn.width <= 380, `${tag} On, an agent's page: the left column is the project page's 300 to 380px`, JSON.stringify(dlOn));
       chk(dlOn.found && dlOn.cut.length === 0, `${tag} On, an agent's page: no section button's label is cut off`, JSON.stringify(dlOn));
+      const setOn = await page.evaluate(SETTINGS_LOOK);
+      const navWide = width > 640;   // up to 40rem the nav is the sideways scroller, with no box
+      chk(setOn.found && setOn.navBg === (navWide ? GREY_OF[theme] : CLEAR) && setOn.onBg === (navWide ? PAGE_OF[theme] : GREY_OF[theme])
+        && setOn.onEdge === CLEAR && setOn.offBg === CLEAR && setOn.offEdge === CLEAR,
+        `${tag} On, Settings: the nav ${navWide ? 'is the grey box, the current item a tile in the page' : 'stays a scroller, the current item a grey tile'}; no edge and no gold`, JSON.stringify(setOn));
+      chk(setOn.found && setOn.boxEdge === CLEAR && setOn.boxRadius === '28px' && setOn.labelCase === 'none',
+        `${tag} On, Settings: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(setOn));
+      const ctlOn = await page.evaluate(CTRL_LOOK);
+      /* Round 3: a button's fill is above the box in both schemes (white in light; a step lighter than the box in dark,
+         where the field is black), never the field's. */
+      const RAISE_OF = { light: 'rgb(255, 255, 255)', dark: 'rgb(58, 58, 60)' };
+      chk(ctlOn.disabledFound && ctlOn.disabledBg === CLEAR && ctlOn.disabledEdge !== CLEAR,
+        `${tag} On, the controls: a disabled plain button is an outlined pill, not a faint shape`, JSON.stringify(ctlOn));
+      chk(ctlOn.found && ctlOn.plainBg === RAISE_OF[theme] && ctlOn.plainEdge === CLEAR && ctlOn.plainRadius === '999px'
+        && ctlOn.plainShadow !== 'none' && ctlOn.mainRadius === '999px' && ctlOn.mainBg !== PAGE_OF[theme] && ctlOn.mainBg !== CLEAR
+        && ctlOn.dangerEdge !== CLEAR && ctlOn.dangerRadius === '999px' && ctlOn.quietBg === RAISE_OF[theme] && ctlOn.quietEdge === CLEAR && ctlOn.quietRadius === '999px'
+        && ctlOn.plainFocus !== 'none' && ctlOn.plainFocus !== 'not focused' && ctlOn.outsideDangerEdge !== CLEAR,
+        `${tag} On, the controls: plain and quiet buttons are raised pills in the page's ground with no edge, the main one a pill that keeps its fill, a danger one a pill that keeps its edge`, JSON.stringify(ctlOn));
+      const OLD_DOT = 'rgb(122, 27, 18)';   // #7a1b12, tuned for the gold current item
+      chk(setOn.found && setOn.dotBg !== OLD_DOT && setOn.dotBg !== CLEAR && setOn.dotBg !== 'absent' && setOn.plusNavBg !== GREY_OF[theme] && setOn.plusOnEdge !== CLEAR,
+        `${tag} On, Settings: the current item's needs-you dot is not the gold-era dark red, and the Kosmos+ section keeps today's nav`, JSON.stringify(setOn));
+      if (width === 1280) {
+        await page.setViewportSize({ width: 800, height: 900 }); await page.waitForTimeout(150);
+        const set800 = await page.evaluate(SETTINGS_LOOK);
+        chk(set800.found && set800.navBg === GREY_OF[theme] && set800.navW <= set800.vw && set800.sw <= set800.vw,
+          `${tag} On, Settings at 800 wide: the nav box wraps its items inside the page, no sideways scroll`, JSON.stringify(set800));
+        await page.setViewportSize({ width, height: 900 }); await page.waitForTimeout(150);
+      }
+      chk(dlOn.boxFound && dlOn.boxEdge === CLEAR && dlOn.boxRadius === '28px' && dlOn.labelCase === 'none' && (dlOn.labelSpacing === 'normal' || dlOn.labelSpacing === '0px'),
+        `${tag} On, an agent's Profile: its boxes have no edge and 28px corners, its field labels are sentence case`, JSON.stringify(dlOn));
+      chk(dlOn.boxFound && dlOn.headCase2 === 'none' && dlOn.talkRadius === '0px',
+        `${tag} On, an agent's AI Settings: box headings sentence case, and the conversation's box still square`, JSON.stringify(dlOn));
       /* Round 1: between 56rem and 68rem the column was still 220px, which inside the box's padding left the file names
          a few letters each; and the phone chat, sized to the pixel, lost 56px of its nav row to the box. Both read here. */
       const atWidth = async (w) => { await page.setViewportSize({ width: w, height: 900 }); await page.waitForTimeout(150); return page.evaluate(DLEFT_LOOK); };
@@ -509,6 +620,9 @@ const AGENTS_LOOK = `(() => {
         const dmForced = await page.evaluate(DM_LOOK);   // the generated forced-dark rules sit later in the sheet (round 1)
         chk(dmForced.found && dmForced.box === 'rgb(0, 0, 0)' && dmForced.you === GREY_OF.dark && dmForced.agent === 'rgb(0, 0, 0)' && dmForced.tail === 'rgb(0, 0, 0)' && dmForced.composer === GREY_OF.dark,
           `${tag} On + chosen Dark: an agent's page has the black ground, dark-grey own messages and composer`, JSON.stringify(dmForced));
+        const ctlForced = await page.evaluate(CTRL_LOOK);
+        chk(ctlForced.found && ctlForced.plainBg === 'rgb(58, 58, 60)' && ctlForced.plainEdge === 'rgba(0, 0, 0, 0)',
+          `${tag} On + chosen Dark: a plain button is the raised dark pill, a step lighter than the box`, JSON.stringify(ctlForced));
         const dlForced = await page.evaluate(DLEFT_LOOK);
         chk(dlForced.found && dlForced.ground === GREY_OF.dark && dlForced.onBg === 'rgb(0, 0, 0)',
           `${tag} On + chosen Dark: an agent's left column is the dark grey box, the open section a black tile`, JSON.stringify(dlForced));
@@ -676,8 +790,14 @@ const AGENTS_LOOK = `(() => {
       /* Equal to the before-switch reading AND today's values pinned: the open button's gold edge, a closed one's
          edge, and FILES in capitals. */
       chk(dlOff.found && dlBefore.found && JSON.stringify(dlOff) === JSON.stringify(dlBefore) && dlOff.onEdge !== 'rgba(0, 0, 0, 0)' && dlOff.offEdge !== 'rgba(0, 0, 0, 0)'
-        && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme],
+        && dlOff.headCase === 'uppercase' && dlOff.ground !== GREY_OF[theme] && dlOff.boxEdge !== 'rgba(0, 0, 0, 0)' && dlOff.labelCase === 'uppercase' && dlOff.headCase2 === 'uppercase',
         `${tag} Off, an agent's page: exactly today's left column (edged buttons, FILES in capitals), as before the switch was touched (the control)`, JSON.stringify({ off: dlOff, before: dlBefore }));
+      const setOff = await page.evaluate(SETTINGS_LOOK);
+      chk(setOff.found && setBefore.found && JSON.stringify(setOff) === JSON.stringify(setBefore) && setOff.onEdge !== 'rgba(0, 0, 0, 0)' && setOff.boxEdge !== 'rgba(0, 0, 0, 0)' && setOff.labelCase === 'uppercase' && setOff.dotBg === 'rgb(122, 27, 18)',
+        `${tag} Off, Settings: exactly today's gold current item, edged boxes and capital labels, as before the switch was touched (the control)`, JSON.stringify({ off: setOff, before: setBefore }));
+      const ctlOff = await page.evaluate(CTRL_LOOK);
+      chk(ctlOff.found && ctlBefore.found && JSON.stringify(ctlOff) === JSON.stringify(ctlBefore) && ctlOff.plainEdge !== 'rgba(0, 0, 0, 0)' && ctlOff.plainRadius !== '999px',
+        `${tag} Off, the controls: exactly today's gold-edged buttons, as before the switch was touched (the control)`, JSON.stringify({ off: ctlOff, before: ctlBefore }));
       const listOff = await listLook(page);
       chk(listOff.found && listOff.border !== 'rgba(0, 0, 0, 0)' && listOff.radius === '12px' && listOff.nameAlign === 'center',
         `${tag} Off, Agents list: today's bordered row with 12px corners and today's centred name button`, JSON.stringify(listOff));

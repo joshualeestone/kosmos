@@ -50,8 +50,9 @@
  * Known limits: the held list is keyed like the self-report (store.safeKey of the board name), so two
  * names that key alike ("Pete" and "pete") share one list, as they share one report; an agent renamed
  * while it holds posts loses the line (the posts are still in the room). Removal forgets the list
- * (forget, called by engine/remove.js). A held post still counts toward the room's arrival budget,
- * which errs toward the valve closing sooner, never later.
+ * (forget, called by engine/remove.js). Taking it off one project, or removing the project, drops that project's
+ * list only (forgetProject, #5034, called through server.js clearLeftovers). A held post still counts toward the
+ * room's arrival budget, which errs toward the valve closing sooner, never later.
  */
 
 const fs = require('node:fs');
@@ -188,6 +189,13 @@ function restore(name, projectId, ids) {
   } catch { return false; }
 }
 
+/* #5034: the member was taken off ONE project: its held posts there are dropped, so its next idle line does not
+   tell it about a room it has left (the posts are still in the room). Its other projects' holds are kept. Returns
+   how many were dropped, 0 when none or they could not be. */
+function forgetProject(name, projectId) {
+  return take(name, projectId).length;
+}
+
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
@@ -305,4 +313,4 @@ function toldLine(name, d, after = '') {
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine };

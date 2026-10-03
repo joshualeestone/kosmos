@@ -3811,10 +3811,21 @@ function defaultClaudeProbe(configDir) {
  * dead -- capacity, rate, overload, network, or an unrunnable claude).
  */
 async function claudeAccountLive(configDir) {
+  return (await claudeAccountCheck(configDir)).state;
+}
+/* #3997 review 1: the same verdict, plus `refused`: an UNKNOWN whose probe reported an exit code other than 0 and
+   whose output has neither the capacity nor the dead-sign-in words. With the real probe (defaultClaudeProbe) that is
+   BROAD, measured from its code by reviews 2 and 3: it reports 1 for any error without a numeric code, so a refusal
+   (a 403 permission error, a disabled organisation), a timeout (killed, no code) or a failed exec all count. Every one
+   of those is a Check now that failed, which Josh's ruling A keeps non-green, so the row falls back to unverified
+   until a later outcome. Not `refused`: capacity (the account is fine, only busy), a probe that throws, and a claude
+   that cannot be found at all (the probe reports no exit code then). Check now uses it so a row's login-green does not outlive a failed
+   check it just saw; the create gate still reads only the state, so it is unchanged. */
+async function claudeAccountCheck(configDir) {
   const subscription = require('./subscription');
   const run = claudeProbe || defaultClaudeProbe;
   let res;
-  try { res = await run(configDir); } catch { return subscription.STATE.UNKNOWN; }
+  try { res = await run(configDir); } catch { return { state: subscription.STATE.UNKNOWN, refused: false }; }
   const text = String((res && res.out) || '');
   const exit = res && typeof res.exitCode === 'number' ? res.exitCode : null;
   /* CONTENT before EXIT CODE, the module's own doctrine (a status code is the
@@ -3824,10 +3835,12 @@ async function claudeAccountLive(configDir) {
      REGARDLESS of exit code -- so a dead token that somehow exits 0 while
      printing its 401 is still caught, not false-accepted by the exit-0 shortcut.
      A clean exit 0 with neither marker (the "reply ok" response) is CONNECTED. */
-  if (CLAUDE_CAPACITY.test(text)) return subscription.STATE.UNKNOWN; // live but capped/overloaded
-  if (CLAUDE_DEAD_AUTH.test(text)) return subscription.STATE.NONE;   // positively dead
-  if (exit === 0) return subscription.STATE.CONNECTED;           // a real call went through cleanly
-  return subscription.STATE.UNKNOWN;                             // network/unrunnable/other
+  if (CLAUDE_CAPACITY.test(text)) return { state: subscription.STATE.UNKNOWN, refused: false }; // live but capped/overloaded
+  if (CLAUDE_DEAD_AUTH.test(text)) return { state: subscription.STATE.NONE, refused: false };   // positively dead
+  if (exit === 0) return { state: subscription.STATE.CONNECTED, refused: false };           // a real call went through cleanly
+  // network/unrunnable/other. A non-zero exit code is a failed check (see above); no exit code (claude was not
+  // found) is not.
+  return { state: subscription.STATE.UNKNOWN, refused: exit !== null && exit !== 0 };
 }
 
 /**
@@ -5832,6 +5845,7 @@ module.exports = {
   createAgent,
   accountConnectable,
   claudeAccountLive,
+  claudeAccountCheck,
   setClaudeProbe,
   binPaths,
   linuxTmuxBin,

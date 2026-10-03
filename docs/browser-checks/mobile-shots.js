@@ -455,6 +455,14 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #5053: one project's Tasks view, with its back chevron beside the title. The built-in seed's project name is long
+     enough to wrap on a phone, so the shot shows the title wrapping beside the chevron (a store data set's may not). */
+  { name: 'project-tasks', owner: 'PigeonPete', go: async (page, data) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.evaluate((id) => openProjectTasks(id), data.projectId);
+    await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 5000 });
+  } },
   /* #4470: the Tasks view in the new look, for the side by side with 'tasks'. */
   { name: 'nl-tasks', owner: 'Mona Lisa', go: async (page) => {
     await newLook(page);
@@ -467,6 +475,12 @@ const SCREENS = [
     await at(page, '?agent=' + data.chatAgent);
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
+  } },
+  /* #4470: Settings in the new look, for the side by side with 'settings'. */
+  { name: 'nl-settings', owner: 'Mona Lisa', go: async (page) => {
+    await newLook(page);
+    await at(page, '?tab=settings');
+    await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
   } },
   { name: 'nl-agent-profile', owner: 'Mona Lisa', go: async (page, data) => {
     await newLook(page);

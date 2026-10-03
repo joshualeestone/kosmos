@@ -166,7 +166,7 @@ test('the parser really reads subcommands (a guard that cannot find any would pa
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'task')), ['add', 'assign', 'built', 'close', 'hold', 'list', 'message', 'unhold']);   // built: #3951; hold, unhold: #4771; assign: #4914
   assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'room')), ['reopen']);
   assert.ok(macSubcommands(MAC_CLI, 'feedback').includes('write'));
-  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['comment', 'follow', 'post', 'read', 'unfollow'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330; read: #4373; comment: #4373 part B; follow, unfollow: #4774
+  assert.deepEqual(sorted(macSubcommands(MAC_CLI, 'community')), ['comment', 'endorse', 'follow', 'post', 'read', 'status', 'unendorse', 'unfollow', 'vote', 'votes'], 'the first-argument compare is not read, or a board answer ($status) is');   // #4330; read: #4373; comment: #4373 part B; follow, unfollow: #4774; status: #4939   // vote, votes: #4884; endorse, unendorse: #4913
 });
 
 test('the verbs that require a subcommand are the same on both (Windows by behaviour)', async () => {
