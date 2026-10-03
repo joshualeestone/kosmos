@@ -271,6 +271,19 @@ const OFF_STANDING_TTL_MS = 12 * 60 * 60 * 1000;
    not after the whole 12 h, so one failed attempt cannot use up the slot and two cannot cross the one-day line. */
 const OFF_RETRY_MS = 30 * 60 * 1000;
 let standingRefreshInFlight = false;
+/* kosmos#4743: a switch flip the coordinator has not been told yet. Set by setOn when the value changes (it also asks at once),
+   by a sign-in that switches on and by a cancelled sign-in that switches off (neither asks inside the sign-in:
+   see turnOnAfterSignin). While set, the next standing poll is due whatever its stamp, and a refresh that
+   was already out re-asks when it ends. */
+let flipPending = false;
+function askAfterFlip() {
+  const cur = read();
+  // flipPending makes the refresh below due. Off (enrolled or not): the stamp is also set back, so if this
+  // ask's answer is thrown away by a Forget while it is out, the next poll asks again (a new identity comes
+  // from a sign-in, which stamps fresh; there the flag set by the sign-in paths is what re-asks).
+  if (cur.ok === true && cur.on !== true) write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 });
+  try { Promise.resolve(module.exports.refreshStandingIfStale({ ttlMs: 0 })).catch(() => {}); } catch { /* best-effort */ }
+}
 const FED_LIVE_TTL_MS = 60 * 1000;   // mirrors STANDING_TTL_MS; a launch flag changes rarely, but a lapse/rollback should still reach a board within ~one TTL
 let fedLiveRefreshInFlight = false;
 /* The isolated coordinator read: the CURRENT standing string, or null when it could
@@ -325,12 +338,19 @@ async function refreshStandingIfStale(opts) {
   const s = read();
   if (s.ok !== true) return;
   // #4731: off, the cadence is OFF_STANDING_TTL_MS whatever the caller asked (a 0 TTL included).
-  const due = s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS);
+  // kosmos#4743: a flip not yet told (no ask has started since it was made) is due at once, whatever stamp
+  // another writer left meanwhile. Once an ask starts the flag is cleared; if that ask then fails, the flip
+  // is retried on the ordinary cadence (OFF_RETRY_MS off, the TTL on), not at once.
+  const due = flipPending ? 0 : (s.on === true ? ttl : Math.max(ttl, OFF_STANDING_TTL_MS));
   // Math.abs (kosmos#4277): a wall clock stepped backwards (a wrong Mac clock being
   // corrected) leaves standing_at in the future; without it every refresh read as fresh, the early
   // tick's TTL 0 included, until the clock caught up. The same guard as reportNotEnrolledIfDue.
   if (Math.abs(now - (s.standing_at || 0)) < due) return;   // still fresh
   standingRefreshInFlight = true;
+  // This refresh reads the switch as it is now (mac-standing reads it at send time). Cleared when an ask
+  // starts. One that then stops early is not re-asked at once, and writes no stamp of its own: the stamp
+  // already there decides the next poll.
+  flipPending = false;
   // The answer is about the identity on disk when it was asked: a Forget, or a
   // Forget and a new sign-in, while it was out means it is about one that is gone,
   // and it must not be written onto another (#3827).
@@ -343,10 +363,16 @@ async function refreshStandingIfStale(opts) {
     } else {
       // could not determine: KEEP the last-known value, back the retry off to the next TTL; while OFF,
       // stamped so the retry lands OFF_RETRY_MS from now rather than a whole OFF_STANDING_TTL_MS (#4731).
+      // s.on is the switch as read before the ask; a flip made meanwhile set flipPending, which re-asks below.
       write({ standing_at: s.on === true ? Date.now() : Date.now() - (OFF_STANDING_TTL_MS - OFF_RETRY_MS) });
     }
   } catch { /* refresh is best-effort; a poll must never see this throw */ }
-  finally { standingRefreshInFlight = false; }
+  finally {
+    standingRefreshInFlight = false;
+    // Not cleared here: the ask clears it when it really proceeds (above), so a re-ask stopped early (busy,
+    // not enrolled) leaves it pending for the next refresh rather than dropping the flip (review 5).
+    if (flipPending) askAfterFlip();
+  }
 }
 /* kosmos#4277: the one report a board sends while it believes it is NOT enrolled, when its
    switch is on and it still holds a key: a board in that state never asks for a relay
@@ -591,10 +617,20 @@ function setOn(on) {
   if (on) { const b = busy(); if (b) return b; }
   // Off during a register is an answer the register must respect: it would
   // otherwise switch Kosmos+ back on when it finishes (turnOnAfterSignin).
+  // An unreadable file (#4308) says nothing about the old value, so a save over it counts as a flip.
+  const before = read();
+  const was = before.ok === true ? before.on === true : !on;
   const wrote = write({ on }, { repair: true });   // #4308: the person's switch repairs a damaged file
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
+  /* kosmos#4743: tell the coordinator about a real flip now, not at the next cadence (up to
+     OFF_STANDING_TTL_MS when off), or the account page reads the old state for hours ("Answering
+     now" for a computer just switched off). If a refresh is already out it carries the old state, so
+     the flip is told when it ends (flipPending). Best-effort and never awaited. Asked at once here, unlike
+     turnOnAfterSignin: this is the person's own toggle, and a Forget straight after it waits at most one
+     signed call's bound (MAC_REQUEST_TIMEOUT_MS, 20 s) for it. */
+  if (was !== on) { flipPending = true; askAfterFlip(); }
   return { ok: true };
 }
 
@@ -1090,6 +1126,7 @@ async function forgetNow() {
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
   write({ on: false }, { repair: true });
+  flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
   if (canRetire) {
@@ -1688,10 +1725,16 @@ function cancelledAfter(result, before, addressBefore, startedAt) {
   // that was on, on.
   if ((result && result.ok) || (enrolled() && macIdHere() !== before)) {
     try { write({ on: false }, { repair: true }); } catch { /* status says what happened */ }
+    // kosmos#4743: told at the next standing poll, not here (inside the sign-in, like turnOnAfterSignin).
+    // Set even if the switch was already off: one extra off check-in, which also tells a new identity.
+    flipPending = true;
     stopChild();
     // Another identity now: the previous account's cached standing must not
     // carry over to it (the fed gate reads it).
     if (macIdHere() !== before) { fedSetStanding(''); forgetPendingSnapshot(); }   // #4610
+    // kosmos#4743: AFTER fedSetStanding (which stamps standing_at fresh): the stamp is set back past the off
+    // cadence, so the off is told by the next standing poll even after a restart (flipPending lives in memory).
+    try { write({ standing_at: Date.now() - OFF_STANDING_TTL_MS - 1 }); } catch { /* best-effort */ }
   }
   return SIGNIN_CANCELLED;
 }
@@ -1991,8 +2034,16 @@ function busy() {
    Kosmos+ on. A failed save is logged: the Mac is registered either way, and the
    switch then still says off. */
 function turnOnAfterSignin() {
+  const before = read();
   const wrote = write({ on: true }, { repair: true });
-  if (!wrote.ok) process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n');
+  if (!wrote.ok) { process.stderr.write('remote: signed in, but could not switch Kosmos+ on: ' + wrote.because + '\n'); return; }
+  // kosmos#4743: an off-to-on flip made by signing in makes the NEXT standing poll due at once, whatever
+  // its stamp (the account page would otherwise read "Remote access off" until the next on-cadence
+  // refresh). Not asked here: a signed call started inside the sign-in would hold up a Forget right
+  // after it, which waits for signed calls in flight before it switches off. (A refresh already out when
+  // this runs still re-asks when it ends, once the register has finished: the same narrow window any
+  // signed call in flight has.)
+  if (!(before.ok === true && before.on === true)) flipPending = true;
 }
 
 /* kosmos#4754 / #4756 (Josh 2026-09-30, ruling "A"): a new computer is a purchase. Once the coordinator
@@ -2235,7 +2286,11 @@ module.exports = { ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDIN
      one the reachability sweep excuses for exactly this job) AND clears any
      in-flight sign-in and the device-id memo, so neither a held token/challenge
      nor a memoised device id leaks across cases. */
-  resetForTests: () => { lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
+  turnOnAfterSigninForTests: turnOnAfterSignin,   // kosmos#4743: tests only (it skips setOn's busy() check)
+  cancelledAfterForTests: cancelledAfter,   // kosmos#4743: tests only
+  standingQuietForTests: () => !standingRefreshInFlight && !flipPending,   // kosmos#4743: tests wait on it
+  standingOutForTests: () => standingRefreshInFlight,   // kosmos#4743: a test waits out a refresh another left
+  resetForTests: () => { flipPending = false; standingRefreshInFlight = false; lastTunnelFailure = null; dialingSince = null; notEnrolledReportAt = 0; notEnrolledReportInFlight = false; notEnrolledLastLogged = null; setupSpawn = spawn; signinSession = null; mintedDeviceId = null; registerInFlight = null; addressesInFlight = null; forgetInFlight = null; forgetting = false; signedInFlight.clear(); resetSelfGrant(); stopChild(); },
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   /* kosmos#4597 test seam: where an app keeps its connector, asked for a given app dir and platform. */
   bundledConnector,
