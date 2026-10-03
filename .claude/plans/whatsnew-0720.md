@@ -27,3 +27,4 @@ main for 0.7.20 (tools/whats-new-check.js).
   chooses and nothing is sent until Agree): "and you choose if Google may use your data". FIXED W: "leftover" is not a
   word the app uses (it says removed agents / "Delete its files..."): line 3 and its title reworded. Line 2 true in both
   layouts. Nothing important left out.
+- Round 2 (sonnet): all three JSON lines true (agysignin passes the terms and data box to the panel and never ticks or agrees for the person; s-nav below the measured header, static under 56rem; plan() case-blind on darwin/win32). One W on the release ENTRY draft (outside this repo): its 'instead of stopping on a screen Kosmos did not recognise' described the old failure wrongly; clause removed. The JSON is CONVERGED at 016e42db.
