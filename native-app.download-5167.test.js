@@ -49,7 +49,7 @@ test('#5167: the response policy saves only board files from a board page, refus
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
   assert.match(b, /\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n\s+mayDownload \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+\} else \{[^}]*tellDownloadFailed\([^}]*decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
     'an attachment is saved without the exact-token, board-page and same-origin checks, or a refused one loads in the window');
-  assert.equal((b.match(/decisionHandler\(/g) || []).length, 5, 'the response policy has a path that never answers, or a new one');
+  assert.equal((b.match(/decisionHandler\(/g) || []).length, 6, 'the response policy has a path that never answers, or a new one');
   // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
   // would fail a provisional load (a "cannot show" error reaching handleNavigationFailure) instead.
   assert.match(b, /decisionHandler\(navigationResponse\.canShowMIMEType \? \.allow : \.cancel\)\n\s+\}$/,
@@ -85,7 +85,7 @@ test('#5167: a download that does not save is said to the person, once', () => {
   assert.equal((fail.match(/tellDownloadFailed\(/g) || []).length, 2, 'a failure already said is said again');
   assert.match(body('@objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)'),
     /downloadsTold\.insert\(ObjectIdentifier\(download\)\)\n\s+tellDownloadFailed\(/);
-  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /if let present = AppDelegate\.downloadAlertPresenter \{[\s\S]*?\n\s+present\(detail\)\n\s+return\n\s+\}/);
+  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /if let present = AppDelegate\.downloadAlertPresenter \{[\s\S]*?\n\s+present\(title \+ ": " \+ detail\)\n\s+return\n\s+\}/);
 });
 
 test('#5167: an error page is not saved as the file, and every refusal before a destination is said once', () => {
@@ -141,7 +141,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 21\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 22\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -194,9 +194,9 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
   const guardAt = b.indexOf('guard navigationResponse.isForMainFrame else {');
   assert.ok(guardAt !== -1 && guardAt < b.indexOf('"attachment"'), 'a subframe response can be saved, or refused with an alert, just by loading');
   const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
-  assert.match(tell, /if downloadSheetUp \|\| \(lastDownloadTold\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < AppDelegate\.downloadQuietSeconds \} \?\? false\) \{/, 'a page clicking in a loop can stack sheets');
+  assert.match(tell, /if sheetUp \|\| \(lastDownloadTold\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < AppDelegate\.downloadQuietSeconds \} \?\? false\) \{/, 'a page clicking in a loop can stack sheets');
   assert.match(tell, /if let present = AppDelegate\.downloadAlertPresenter \{[^}]*if quiet \{ lastDownloadTold = Date\(\) \}/, 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
-  assert.match(tell, /self\.downloadSheetUp = false\n\s+self\.lastDownloadTold = Date\(\)/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
+  assert.match(tell, /self\.downloadSheetShownAt = nil\n\s+self\.lastDownloadTold = Date\(\)/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
   assert.match(SRC, /static var downloadQuietSeconds: TimeInterval = 5\n/);
   assert.match(body('@objc(downloadDidFinish:)'), /if getxattr\(dest\.path, "com\.apple\.quarantine", nil, 0, 0, 0\) <= 0 \{\n\s+tellDownloadFailed\(/,
     'the person is told a file is unmarked when WebKit\'s own mark is on it');
@@ -283,4 +283,14 @@ test('#5167 review 19: a computer already refused is said (quietly), refusals ca
   assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'),
     /\(try\? FileManager\.default\.attributesOfItem\(atPath: \$0\.path\)\) != nil \|\| taken\.contains/,
     'a dangling symlink in Downloads reads as free');
+});
+
+test('#5167 review 20: a 204 or 205 says nothing; a sheet that never reports its dismissal stops counting', () => {
+  const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
+  assert.ok(b.indexOf('http.statusCode == 204 || http.statusCode == 205') !== -1
+    && b.indexOf('http.statusCode == 204 || http.statusCode == 205') < b.indexOf('if !navigationResponse.canShowMIMEType'),
+    'a 204 is reported as a file the window cannot show');
+  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'),
+    /let sheetUp = downloadSheetShownAt\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < 60 \} \?\? false/,
+    'a sheet whose dismissal never arrives silences every later refusal for the rest of the run');
 });

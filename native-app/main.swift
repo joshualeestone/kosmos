@@ -2792,6 +2792,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
             return
         }
+        // A 204 or 205 has nothing to show or save; WebKit leaves the page as it is.
+        if let http = navigationResponse.response as? HTTPURLResponse, http.statusCode == 204 || http.statusCode == 205 {
+            decisionHandler(.allow)
+            return
+        }
         if !navigationResponse.canShowMIMEType, let url = navigationResponse.response.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
             mayDownload { decisionHandler($0 ? .download : .cancel) }   // a board file the window cannot show (a .zip) is saved, as Safari does
@@ -2884,21 +2889,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// said. The selftest sets it to 0 except for its burst arm.
     static var downloadQuietSeconds: TimeInterval = 5
     private var lastDownloadTold: Date?
-    private var downloadSheetUp = false
+    private var downloadSheetShownAt: Date?   // a sheet that never reports its dismissal stops counting after 60s
     fileprivate func resetDownloadQuiet() { lastDownloadTold = nil }   // the selftest, between its arms
 
     private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {
         // A refusal is Kosmos choosing not to save; anything else is a save that failed.
         let title = title ?? (quiet ? "Kosmos did not save that file" : "Kosmos could not save that file")
         if quiet {
-            if downloadSheetUp || (lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false) {
+            let sheetUp = downloadSheetShownAt.map { Date().timeIntervalSince($0) < 60 } ?? false
+            if sheetUp || (lastDownloadTold.map { Date().timeIntervalSince($0) < AppDelegate.downloadQuietSeconds } ?? false) {
                 logLine("#5167: not said again so soon: \(detail)")
                 return
             }
         }
         if let present = AppDelegate.downloadAlertPresenter {   // the selftest: nothing to dismiss
             if quiet { lastDownloadTold = Date() }
-            present(detail)
+            present(title + ": " + detail)
             return
         }
         let alert = NSAlert()
@@ -2907,10 +2913,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         // The quiet window starts when the person dismisses it, not when it appears.
-        if quiet { downloadSheetUp = true }
+        if quiet { downloadSheetShownAt = Date() }
         let dismissed = { [weak self] in
             guard quiet, let self = self else { return }
-            self.downloadSheetUp = false
+            self.downloadSheetShownAt = nil
             self.lastDownloadTold = Date()
         }
         if let window = webView?.window {
@@ -5141,6 +5147,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
                 + "<a id=last href=/last.txt download>f</a>"
                 + "<a id=askno href=/asked-no.txt download>m</a>"
+                + "<a id=empty href=/empty>o</a>"
                 + "<a id=askyes href=/asked-yes.txt download>n</a>"
                 + "<script>window.__probeReady = 1;</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
@@ -5158,6 +5165,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         case "/pack.zip":
             let z = "PK not really a zip"
             return "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: \(z.utf8.count)\r\nConnection: close\r\n\r\n" + z
+        case "/empty": return "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/missing": return "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found"
         case "/redir2": return "HTTP/1.1 302 Found\r\nLocation: /ok2.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/redir": return "HTTP/1.1 302 Found\r\nLocation: http://localhost:\(port)/redirected.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -5274,7 +5282,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
@@ -5323,16 +5331,20 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 && told.contains { $0.contains("not opened or saved") } && told.contains { $0.contains("not a board") }
                 && told.contains { $0.contains("amy.kosmosplus.com were not allowed") },
                 "and each is said in its own words")
+            row(told.filter { $0.contains("answer was 404") }.allSatisfy { $0.hasPrefix("Kosmos could not save that file: ") }
+                && told.filter { $0.contains("not a board") }.allSatisfy { $0.hasPrefix("Kosmos did not save that file: ") }
+                && told.contains { $0.contains("answer was 404") } && told.contains { $0.contains("not a board") },
+                "and each carries the right title: a failure \"could not\", a refusal \"did not\" (a 204 says nothing)")
             // Only the attachment: WebKit ignores `download` on a link to another origin, so "foreign" is a
             // plain link, and a computer that runs agents loads every link in the window (#5169).
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 21
+            let expected = 22
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
