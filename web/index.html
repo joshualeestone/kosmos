@@ -19944,6 +19944,26 @@ function menuRunsOn(a) {
    returns '' when nothing identifies the account so the caller omits the
    parenthetical entirely. Kept a pure helper so each fallback rung can be pinned
    directly. */
+/* #5145: which account an agent is on after a provider switch, as the page records it (CURRENT.account.dir), or
+   null. ONE function so its precedence can be tested (review 2). `landed` is the route's accountDir.
+   - Claude: the person's pick wins (it is what the engine resolved); else the landed account if listed; else, when the
+     route named an account the page's list does not have (a stale list), nothing; else the main Claude account.
+   - Others: the landed account wins (codex can fall back from an unpicked unknown row); if it is not listed (the
+     Gemini/Grok default with no key, or a stale list), nothing, unless it is exactly what was sent; with no landed
+     account (a dry-run, Antigravity), the sent row.
+   Listed rows are compared as stored; a dir that matches no row records nothing rather than a guess. */
+function chooseSwitchedAccount(want, sentDir, out, accounts, mainClaudeDir) {
+  const listed = (d) => typeof d === 'string' && d !== '' && (accounts || []).some((x) => x && x.dir === d);
+  const partial = !out || out.outcome === 'partial';
+  const landed = out && typeof out.accountDir === 'string' && out.accountDir ? out.accountDir : null;
+  if (want === 'anthropic') {
+    if (sentDir && !partial) return sentDir;
+    if (landed) return listed(landed) ? landed : null;
+    return mainClaudeDir || null;
+  }
+  if (landed) return listed(landed) ? landed : (sentDir && sentDir === landed ? sentDir : null);
+  return (sentDir && !partial) ? sentDir : null;
+}
 function acctParenthetical(a) {
   const acct = a && a.account;
   return (acct && (acct.name || acct.email || acct.label)) || '';
@@ -48344,17 +48364,9 @@ async function changeProviderNow(say) {
       /* On Claude it is on the picked account, or (a partial, or nothing sent) on the main one: never "no account", which
          would disable Move for an agent that is on main. */
       const mainClaude = (ACCOUNTS || []).find((x) => x && acctProvider(x) === 'anthropic' && x.isDefault);
-      /* #5145: the account the engine says it landed on (out.accountDir), so "Right now" names it instead of an empty
-         bracket. Only when it is a LISTED account (review 1 blocker): the Gemini/Grok default is "this computer's own
-         key", not a row, and recording it would read as an account that is gone ("cannot run"). An engine partial
-         carries no accountDir, so it never applies there. */
-      const landedDir = (out && typeof out.accountDir === 'string' && out.accountDir
-        && (ACCOUNTS || []).some((x) => x && x.dir === out.accountDir)) ? out.accountDir : null;
-      CURRENT.account = want === 'anthropic'
-        ? ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : (landedDir ? { dir: landedDir } : (mainClaude ? { dir: mainClaude.dir } : null)))
-        /* OpenAI/Gemini/Grok: where the engine actually landed wins over what was sent (review 1: codex can fall back
-           from an unpicked, unknown sent row to its first account, and its sentence names that one). */
-        : (landedDir ? { dir: landedDir } : ((sentAccount && out.outcome !== 'partial') ? { dir: sentAccount } : null));
+      /* #5145: the account the switch landed on, by chooseSwitchedAccount's precedence (tested there). */
+      const chosenDir = chooseSwitchedAccount(want, sentAccount, out, ACCOUNTS, mainClaude ? mainClaude.dir : null);
+      CURRENT.account = chosenDir ? { dir: chosenDir } : null;
       /* Round 5: "Right now: <name> (<account>)" kept the OLD account in its bracket; rebuild it from the new one. */
       {
         const drun = document.getElementById('d-runson');
