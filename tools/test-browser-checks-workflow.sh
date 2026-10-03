@@ -156,9 +156,10 @@ if command -v ruby >/dev/null 2>&1; then
     # #4601: on Linux the browsers need system libraries, from the SAME pinned playwright, before any check runs.
     gdi = gs.index { |st| st["run"].to_s.include?("node_modules/.bin/playwright\" install-deps chromium webkit") }
     gpi = gs.index { |st| st["run"].to_s.include?("tools/provision-pw.sh") }
-    abort "the allowlist job does not install the browsers system libraries after provisioning (#4601)" unless gdi && gpi && gpi < gdi && gdi < gi
+    abort "the allowlist job does not install the browsers system libraries after provisioning (#4601)" unless gdi && gpi && gi && gpi < gdi && gdi < gi
     abort "the allowlist job does not run tools/bc-pr-select.js (#4119)" unless si
     abort "the selection step must come BEFORE the checks step" unless gi && si < gi
+    abort "tmux must install AFTER install-deps (it uses the apt index install-deps refreshed, #4601)" unless gti && gdi && gdi < gti
     abort "the selection step does not export KOSMOS_BC_PR_SELECTED" unless gs[si]["run"].to_s.include?("KOSMOS_BC_PR_SELECTED=") && gs[si]["run"].to_s.include?("GITHUB_ENV")
     abort "the selection step must diff against the PR base sha" unless (gs[si]["env"] || {})["BASE_SHA"].to_s.gsub(/\s+/, "") == "${{github.event.pull_request.base.sha}}"
     # #4601: ROUTED, never dropped. The route step (after selection, before the checks) splits the allowlist PLUS
@@ -577,7 +578,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   [ -f "$REPO/docs/browser-checks/$name.js" ] || fail "bc-macos-only.txt names '$name', which is not a check in docs/browser-checks/"
   # The allowlist matches the LABEL a check runs under (a gated.txt line, or a run_one label in browser-checks.sh),
   # not its file name, so a routed name must be one of those or the macOS run reds with "never ran" (review, #4601).
-  { grep -qxF "$name" "$REPO/docs/browser-checks/gated.txt" || grep -qE "^[[:space:]]*run_one \"$name\"" "$REPO/tools/browser-checks.sh"; } \
+  { grep -qxF "$name" "$REPO/docs/browser-checks/gated.txt" || grep -E '^[[:space:]]*run_one "' "$REPO/tools/browser-checks.sh" | sed 's/^[[:space:]]*run_one "\([^"]*\)".*/\1/' | grep -qxF "$name"; } \
     || fail "bc-macos-only.txt names '$name', which is neither a gated.txt check nor a run_one label, so no allowlist can select it"
   routed=$((routed + 1))
 done < "$ROUTE"
@@ -587,7 +588,7 @@ pass "every check routed to macOS is a real check with its cause written beside 
 # #4601: the route step decides what runs where, so RUN it: extracted from the parsed YAML and executed in a scratch
 # tree whose tools/bc-macos-only.txt is a fixture, with GITHUB_ENV and GITHUB_OUTPUT pointed at files.
 if command -v ruby >/dev/null 2>&1; then
-  RT="$(mktemp -d)"
+  RT="$(mktemp -d)"   # removed by the EXIT trap set with BT above (it reads ${RT:-} at exit)
   ruby -ryaml -e '
     ss = YAML.load_file(ARGV[0])["jobs"]["browser-checks"]["steps"]
     st = ss.find { |s| s["id"] == "route" } or abort "no route step"
@@ -622,7 +623,7 @@ if command -v ruby >/dev/null 2>&1; then
   [ "$got" = "LINUX=a|MAC=m1|OUT=m1|rc=0" ] || fail "route: no-selection case gave $got"
   # Everything routed: the Linux set would be empty, which browser-checks.sh reads as "run every check", so refuse.
   got="$(route 'm1\tcause #1\n' 'm1' '')"
-  case "$got" in *"|rc=0") fail "route: an empty Linux set was not refused: $got" ;; esac
+  [ "$got" = "LINUX=|MAC=|OUT=|rc=1" ] || fail "route: an empty Linux set was not refused with exit 1 and nothing written: $got"
   # A missing list must stop the step (pipefail), not read as "nothing routed" and send every routed check to Linux.
   printf 'x' > "$RT/tools/bc-macos-only.txt"; rm -f "$RT/tools/bc-macos-only.txt"; : > "$RT/env"
   ( cd "$RT" && KOSMOS_BC_CI_ALLOWLIST='a m1' KOSMOS_BC_PR_SELECTED='' GITHUB_ENV="$RT/env" GITHUB_OUTPUT="$RT/out" bash -e route.sh ) >/dev/null 2>&1 \

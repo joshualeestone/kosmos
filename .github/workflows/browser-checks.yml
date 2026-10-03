@@ -69,7 +69,8 @@
 #      CI-vs-cut difference to keep in mind, but it is not why the check was dropped,
 #      and CI-isolation removes the CROSS-AGENT starvation that flaked the original cut.
 #   2) HEADLESS CI is SwiftShader SOFTWARE rendering, not the console box's real GPU
-#      compositor. The DOM/STATE checks in the allowlist (gate rendering -- element
+#      compositor (on the Linux runner as it was on the macOS one; the Linux-specific
+#      differences, fonts, the WebKit port and bash 5, are the fourth way, at runs-on). The DOM/STATE checks in the allowlist (gate rendering -- element
 #      present/hidden/clickable/labeled: render-gated-next, render-connect-skip, the
 #      settings/telemetry 403-safe checks) are fully covered headless and MEASURED
 #      green on the runner. Anything that leans on a compositor / paint-geometry /

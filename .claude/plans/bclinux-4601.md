@@ -10,6 +10,11 @@ The two levers are a bigger allowance (money, Josh's) or fewer macOS minutes per
 paint or timing checks. Its macOS pin was a consistency choice, not a measured need. Linux and Windows
 jobs start at once.
 
+> **SUPERSEDED in part (read "Design change" and the sections after it).** The "Change", "Not changed" and
+> "Verification" sections below describe the FIRST design: the whole job on Linux with the same checks. The built
+> design routes the checks in tools/bc-macos-only.txt to a browser-checks-macos job instead, so "the same checks
+> running on Linux" is no longer the acceptance test; "every check runs on Linux or on macOS, none dropped" is.
+
 ## Change
 1. .github/workflows/browser-checks.yml, job `browser-checks`: runs-on ubuntu-latest; after provision-pw,
    `sudo <pinned playwright> install-deps chromium webkit`; tmux from apt (after an apt-get update).
@@ -94,3 +99,14 @@ It runs both workflows' paths filter, so the Linux job runs and proves the font 
 under it. The macOS job runs only if this diff's selection names a routed check, which a workflow-only diff likely
 does not, so the macOS job may be SKIPPED and its steps unproven by this PR. The seven routed checks' macOS passes rest
 on the nightly full set (macOS), not on this PR.
+
+## Review round 3 (Sonnet, 19:42) and the end-to-end proof of the macOS job
+- The macOS job (the mac_set hand-off, its tmux install, the routed run, and the hand-off when the Linux job ends red)
+  is not exercised by a workflow-only PR. DECISION: the PR carries one MEASUREMENT commit that touches a routed check
+  (a comment line in docs/browser-checks/render-tasks-view-3559.js), so the PR's first CI run selects it and the macOS
+  job runs for real. Reverted before merge, paired the same way as the earlier measurement commits; the check before
+  the PR is `git log origin/main..HEAD -- docs/browser-checks/render-tasks-view-3559.js` showing the pair and an empty
+  diff against main for that file.
+- Fixed: the header's caveat 2 names Linux; the all-routed fixture asserts rc=1 and no Linux set written; a nil guard
+  in the step-order check; labels matched with grep -F; tmux pinned after install-deps.
+
