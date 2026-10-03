@@ -71,6 +71,8 @@ async function openPage(engine, origin, platform) {
          engine reported the anchor otherwise, R1 would go RED, not pass falsely. */
       asked.push((req.isNavigationRequest() ? 'DOWNLOAD' : req.method()) + ' ' + u.pathname + u.search);
       if (u.searchParams.get('name') === GONE) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'that file is not there any more, or it was moved' }) });
+      // As the route does: the page's look (?check=1) is 204 with no body; only the download carries the file.
+      if (u.searchParams.get('check') === '1') return route.fulfill({ status: 204, body: '' });
       return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="f.bin"' }, body: 'PK' });
     }
     if (req.method() !== 'GET' && req.method() !== 'HEAD' && u.pathname.startsWith('/api/')) {
