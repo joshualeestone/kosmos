@@ -56,3 +56,4 @@ converged: true
 - [REVIEW] 0 BLOCKER, 1 SHOULD-FIX, 3 NIT, all taken (19:25)
 #### Round 19 (sonnet, blind, whole tool): 0 BLOCKER, 0 SHOULD-FIX, 7 NIT
 - [REVIEW] 0 BLOCKER, 0 SHOULD-FIX, 7 NIT
+- [NIT] round 19 raised 7 NITs; each is taken or reasoned in .claude/plans/bugs-5062.md (round 19 entry)
