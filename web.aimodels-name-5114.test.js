@@ -74,7 +74,8 @@ test('#5127 (Baron): the Claude-Code-missing create refusal names where to conne
     'the refusal a newcomer meets when Claude Code is not installed yet names no place to connect');
   assert.ok(!/Connect a Claude account and Kosmos will set it up/.test(src), 'the placeless wording is back');
   const runners = fs.readFileSync(path.join(__dirname, 'engine', 'runners.js'), 'utf8');
-  assert.ok(!/Connecting a Claude account will download/.test(runners), 'the install refusal names no place again');
+  assert.ok(!/Connecting a Claude account will download|Connect a Claude account and Kosmos will download/.test(runners),
+    'the install refusal names no place again');
 });
 
 test('#5114: the scan finds every spelling of the old name, and skips comments (control)', () => {
