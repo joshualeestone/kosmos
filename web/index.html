@@ -56266,6 +56266,8 @@ async function loadProjects() {
      done" button for a task somebody closed elsewhere. Guarded on the view
      being up, so a stale TK_OPEN cannot repaint a page nobody is looking at. */
   if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) paintTaskPage();
+  // #5153: a task closed or put back elsewhere shows or hides its receipt on this read.
+  if (TK_OPEN !== null && !document.getElementById('pj-task-view').hidden) tkReceiptSync();
   // The settings view holds the archive control now, so a poll that lands
   // while it is open must repaint IT from the truth too -- without this,
   // "Restore failed. Try again." outlives a restore whose write landed and
@@ -57646,6 +57648,16 @@ function tkTaskClosed(n) {
   // A task closed by closing its last part has no closedAt of its own: progress says closed (review 1).
   return Boolean(t && (t.progress ? t.progress.closed : t.closedAt));
 }
+/* #5153: paint the receipt only when the open task, or whether it is closed, changed since it was last painted: the poll
+   calls this, so a task closed or put back by an agent or another window shows or hides its receipt without a fetch on
+   every tick (review 2). openTaskPage forgets the last key, so a task opened again is painted again. */
+let TKR_SHOWN = null;
+function tkReceiptSync() {
+  const key = PJ_CURRENT + ':' + TK_OPEN + ':' + tkTaskClosed(TK_OPEN);
+  if (key === TKR_SHOWN) return;
+  TKR_SHOWN = key;
+  paintTaskReceipt(TK_OPEN);
+}
 async function paintTaskReceipt(n) {
   const holder = document.getElementById('tk-receipt');
   if (!holder) return;
@@ -57731,7 +57743,8 @@ function openTaskPage(n) {
   const receipt = document.getElementById('tk-receipt');
   if (receipt) { receipt.hidden = true; receipt.innerHTML = ''; }
   paintTaskActivity(n);
-  paintTaskReceipt(n);   // #5153
+  TKR_SHOWN = null;   // #5153: a task opened again is painted again
+  tkReceiptSync();
   pjView('task');
   document.getElementById('tk-back').focus();   // the top of the new page
 }
@@ -57770,7 +57783,7 @@ async function tkPartPost(url, body) {
     msg.textContent = heardSentence(spokenHeard(pjById(PJ_CURRENT), out && out.heard));
     // #768: the change just recorded a lifecycle event, so refresh the activity.
     paintTaskActivity(TK_OPEN);
-    paintTaskReceipt(TK_OPEN);   // #5153: closing the last part closes the task
+    tkReceiptSync();   // #5153: closing the last part closes the task
     return true;
   } catch {
     msg.textContent = 'we could not change that';
@@ -57891,7 +57904,7 @@ document.getElementById('tk-done').addEventListener('click', async () => {
     await pjReload();
     // #768: close/reopen recorded a lifecycle event, so refresh the activity.
     paintTaskActivity(TK_OPEN);
-    paintTaskReceipt(TK_OPEN);   // #5153: a closed task shows its receipt, a reopened one hides it
+    tkReceiptSync();   // #5153: a closed task shows its receipt, a reopened one hides it
     /* ⚠️ AND IT STAYS ON THE PAGE. The dialog closed itself here, which was
        right for a dialog: the act was the reason it was open. A page is not
        dismissed by succeeding, and being thrown back to the project on a
