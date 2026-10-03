@@ -87,6 +87,11 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    bash tools/deploy-site.sh --promote
    ```
 
+   **After a forced cannot-tell (#5084):** a fleet board on the prod channel runs the PREVIOUS release during a
+   promote, so the experience gate HOLDS and the #2023 check has not run on the new one. Once that board
+   auto-updates and reports the promoted version, run it: `KOSMOS_GATE_EXPECT_VERSION=<V> bash tools/staging-experience-check.sh <port>`
+   (promote-channel prints this exact line when forced).
+
    `--promote` derives the artifact from the COMMITTED pointer, fetches + sha-verifies it (proving the
    promoted bytes are really served), skips the committed-vs-live guard (the pointer moved on
    purpose), derives the `kosmos-arm64.tar.gz` alias from the promoted bytes rather than fetching the

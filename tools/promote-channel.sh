@@ -170,6 +170,9 @@ if [ "$FAMILY" = mac ]; then
     2)
       if [ "$FORCE" = 1 ]; then
         echo "promote-channel: gate could not run here (exit 2, cannot-tell) and --force was given - promoting on the strength of a HAND verification. NOTE: the experience was NOT automatically verified." >&2
+        # #5084 (Baron's review): on a fleet board the gate HOLDS for every promote, so the #2023 check runs only if
+        # someone runs it after the deploy. Say exactly how.
+        echo "promote-channel: AFTER the deploy, once the board${PORT:+ on :$PORT} reports $V, run the check it could not: KOSMOS_GATE_EXPECT_VERSION=$V bash tools/staging-experience-check.sh${PORT:+ $PORT}" >&2
       else
         echo "promote-channel: gate could not tell (exit 2) - its cannot-tell line above says why: no fresh enforcing board here, or a board that is not running $V (#5084). HOLDING. Run this on/against a fresh staging board on $V, or pass --force after verifying $V by hand." >&2
         exit 2
