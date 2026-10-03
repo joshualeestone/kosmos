@@ -67353,7 +67353,9 @@ async function frPollGates(screenEl, gen) {
       const gspec = FR_GATES[gname];
       if (st !== 'uncheckable') FR_CHECKING_SINCE.delete(gname);
       else {
-        if (!FR_CHECKING_SINCE.has(gname)) FR_CHECKING_SINCE.set(gname, nowMs);
+        // Review 1: a clock set BACKWARD (network time on a fresh Mac) restarts the spell rather than leaving the row
+        // on Checking until the clock catches up, which is the very trap this fixes.
+        if (!FR_CHECKING_SINCE.has(gname) || FR_CHECKING_SINCE.get(gname) > nowMs) FR_CHECKING_SINCE.set(gname, nowMs);
         if (gspec && gspec.turnOnAfterMs > 0 && nowMs - FR_CHECKING_SINCE.get(gname) >= gspec.turnOnAfterMs) reads[i].actionable = true;
       }
     }

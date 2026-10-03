@@ -112,6 +112,17 @@ test('#2559: the clock starts again after any other reading, so Checking always 
   assert.equal(checking(h.rows.tmux), true, 'a NEW uncheckable spell starts as Checking..., not as Turn On');
 });
 
+test('#2559 review 1: a clock set backward restarts the Checking spell; the row still reaches Turn On', async () => {
+  const h = harness();
+  await h.poll();
+  h.clock.now -= 3600 * 1000;   // network time corrects the clock an hour back while the row is Checking
+  await h.poll();
+  assert.equal(checking(h.rows.tmux), true, 'right after the jump the row is Checking (a new spell)');
+  h.clock.now += h.api.ms;
+  await h.poll();
+  assert.equal(checking(h.rows.tmux), false, 'a backward clock jump left the row on Checking past its grace period');
+});
+
 test('#2559: only the Kosmos row changes; the advisory sleep row keeps its own Checking... (scope)', async () => {
   const h = harness();
   await h.poll();
