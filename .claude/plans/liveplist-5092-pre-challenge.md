@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: liveplist-5092
-diff_hash: f2523fa5f38d97d20851fc5db19bb1d4631573a631f2c4abce4cf92fd6444622
-validation: PR CI (full suite on GitHub; merge waits on it). Local: the guard test all PASS under /bin/bash 3.2, 774 node tests reading run-tests.sh 773/0
+diff_hash: a3993bc53e17f4cb1120838bba72ea425c9e86356da91aaf530ee7e95b4c41da
+validation: passed (Mortals, full suite, 2026-10-03 03:56 CDT, hash a3993bc53e17, recorded; head includes origin/main merged 02:30; merged under the CI-starved rule as day-one infra, Splinter 02:28)
 subdir_audit: passed
-timestamp: 2026-10-03T03:50:42Z
+timestamp: 2026-10-03T08:57:02Z
 iterations: 4
 converged: true
 ---
@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 0 BLOCKERs, 4 WARNINGs, 14 NITs
 **Fixed:** every WARNING but one, which is an accepted, documented false red (named-world and connected-folder agents) | **Asked (awaiting user):** 0
 
-**Validation, stated plainly:** no full local suite was run for this head. The change is to the test RUNNER (tools/run-tests.sh and the #3011 guard lib); a full local run would take hours in either queue tonight (Agent1s about 13 deep, Mortals about 12), and Baron wants it on main before the 0.7.20 cut. The PR's own CI runs the full suite (node, both shell shards, which include this guard test, and windows) on GitHub, and merge waits on all of it green. Locally: `tools/test-launchagent-leak-guard-3011.sh` all PASS under /bin/bash 3.2 (17 new legs); every node test that reads run-tests.sh or the guard, 774 tests, 773 pass, 0 fail; the other shell tests that read run-tests.sh pass (test-install.sh needs built dist/ trees and fails identically on main). Seven sabotages (S1 to S7), re-run on the final code, each turned its own legs red. Replayed on the REAL Mortals Liu Kang plist (copied read-only): live-owned under its workers root, not under another.
+**Validation, stated plainly:** Splinter ruled #5092 day-one infra (02:28: a false #3011 red on the 0.7.21 cut costs a cut), to merge under the CI-starved rule on a full validation of its exact head. origin/main was merged in at 02:30 (a2b6cf283; tools/run-tests.sh auto-merged; the guard test and 803 node tests reading run-tests.sh: 0 fail). **The full suite PASSED on Mortals for this exact diff, 2026-10-03 03:56 CDT, hash a3993bc53e17, recorded** (node 14814 tests, 0 fail; the shell half including this guard test passed). PR CI: windows passed; the macOS runs were cancelled under Splinter's CI-queue rule (day-one first). Seven sabotages (S1 to S7) on the final code each reddened their own legs; replayed on the real Mortals Liu Kang plist.
 
 ### Per-iteration breakdown
 
