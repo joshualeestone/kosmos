@@ -95,3 +95,19 @@ Browser: render-connlost-reconnect-3410 gains a crash-loop phase (the word, the 
 - [NIT] "Open it to see what it shows" for an offline row: covered now that Start shows (B2).
 - [NIT] Windows writes no run files: said on the card (Mac-first beta).
 Re-mutated after the fixes: see the commit; 168 related test files 3620/0, the new file 16/16.
+Review-1 fixes mutation-checked, each red: tick forgets a missing key (1), presence forced on (1), no kosmos mark
+from disruption.begin (1), orphan start dropped (2), forget a no-op (1).
+
+## Review 2 (blind, sonnet, 11:1x): 0 BLOCKERs, 2 WARNINGs, 2 NITs
+- [WARNING] Review 1's "a start with no end ends at the next start" also made a BOUNCED live agent (a person or an
+  update stopping and starting it 4 times in 8 minutes, by a path that is not disruption.begin) read as a loop: a
+  false alarm. FIXED: such a run is an ORPHAN and is never counted; a launch that FAILS gets a real end line from the
+  supervisor's EXIT trap (cleanup_launch_secrets, when RUN_STARTED != 1; no exit in the launch block precedes the
+  trap's install, checked). Tests: a failed launch (start + trap end) counts; four start-only lines do not; the trap
+  writes the end. Mutations, each red: orphans counted (1), no trap end (1).
+- [WARNING] Restart pressed on a card already looping excludes one run, so the card can flap off and back on.
+  ACCEPTED (the reviewer's own call): harmless to the push (told is cleared only by a not-looping read).
+- [NIT] CRASHLOOP_TOLD is in memory: a board restart during a loop re-pushes once. ACCEPTED (phonenotify's cooldown,
+  and a board restart mid-loop is rare).
+- [NIT] safeRoster now reads one small file per agent per call. ACCEPTED for now; a memo if it ever shows.
+After: the new file 17/17; 168 related files 3621/0.
