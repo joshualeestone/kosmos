@@ -203,7 +203,7 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   silent (logged).
 - Every early exit of the live selftest removes its temporary folder.
 - Measured 2026-10-03 on macOS 26.7.1, WebKit 21624.5.1.11.3: a passing live selftest takes 25s
-  (adds that to a cut on a console box); a run where nothing saves 81s. The WebKit behaviours this
+  (adds that to a cut on a console box); a run where nothing saves 81s (106s after round 18). The WebKit behaviours this
   plan cites as measured (download ignored on a cross-origin link, a cross-origin download redirect
   cancelled before the delegate) are as of that version.
 - Not changed: the reserved-name copy is checked by count in this repo, not against kosmos-relay
@@ -234,6 +234,17 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   question) turns it red. 21 live rows.
 - The redirect hook's comment says it is a backstop (WebKit stops a cross-origin download redirect
   first, measured), live only for same-origin redirects.
+
+## Review round 19 changes
+- After Don't Allow, a later download from that computer in the same run is said (quietly): "not
+  allowed, Kosmos asks again the next time it opens", instead of doing nothing.
+- A refusal's sheet is titled "Kosmos did not save that file"; a failure keeps "could not".
+- A name is taken if anything is at that path, a dangling symlink included (attributesOfItem, not
+  fileExists, which follows links).
+- Re-measured with every save sabotaged: 106s (the run grew in round 18). Watchdog 200s, gate alarm
+  240s. A passing run: about 28s.
+- Not measured: the quiet window with real sheets (start-on-dismiss); the burst row runs through the
+  selftest presenter, which starts the window when said. The sheet path is pinned from source only.
 
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a

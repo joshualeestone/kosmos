@@ -85,7 +85,7 @@ test('#5167: a download that does not save is said to the person, once', () => {
   assert.equal((fail.match(/tellDownloadFailed\(/g) || []).length, 2, 'a failure already said is said again');
   assert.match(body('@objc(download:willPerformHTTPRedirection:newRequest:decisionHandler:)'),
     /downloadsTold\.insert\(ObjectIdentifier\(download\)\)\n\s+tellDownloadFailed\(/);
-  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String'), /if let present = AppDelegate\.downloadAlertPresenter \{[\s\S]*?\n\s+present\(detail\)\n\s+return\n\s+\}/);
+  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil'), /if let present = AppDelegate\.downloadAlertPresenter \{[\s\S]*?\n\s+present\(detail\)\n\s+return\n\s+\}/);
 });
 
 test('#5167: an error page is not saved as the file, and every refusal before a destination is said once', () => {
@@ -98,7 +98,7 @@ test('#5167: an error page is not saved as the file, and every refusal before a 
 test('#5167: two downloads of the same name at once never get the same destination', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /let taken = Set\(downloadsInFlight\.values\.map/);
-  assert.match(b, /FileManager\.default\.fileExists\(atPath: \$0\.path\) \|\| taken\.contains\(/);
+  assert.match(b, /attributesOfItem\(atPath: \$0\.path\)\) != nil \|\| taken\.contains\(/);
 });
 
 test('#5167: both ways a navigation becomes a download hand it to this delegate (pinned selectors)', () => {
@@ -184,7 +184,7 @@ test('#5167 review 7: Kosmos+ service sites are not boards; the unmarked-file me
     assert.ok(reserved.includes('"' + n + '"'), n + ' is missing from the copy of the coordinator\'s RESERVED_NAMES');
   }
   assert.equal((reserved.match(/"[a-z0-9-]+"/g) || []).length, 45, 'the copy of RESERVED_NAMES changed size (this checks the count and eight names, not every name); re-copy it from kosmos-relay coordinator/src/signin.rs and re-diff');
-  assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String = "Kosmos could not save that file", quiet: Bool = false\)/);
+  assert.match(SRC, /private func tellDownloadFailed\(_ detail: String, title: String\? = nil, quiet: Bool = false\)/);
   assert.match(body('@objc(downloadDidFinish:)'), /title: "Kosmos saved that file without its download mark"/,
     'a kept file is reported under a title saying it was not saved');
 });
@@ -193,7 +193,7 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   const guardAt = b.indexOf('guard navigationResponse.isForMainFrame else {');
   assert.ok(guardAt !== -1 && guardAt < b.indexOf('"attachment"'), 'a subframe response can be saved, or refused with an alert, just by loading');
-  const tell = body('private func tellDownloadFailed(_ detail: String, title: String');
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
   assert.match(tell, /if downloadSheetUp \|\| \(lastDownloadTold\.map \{ Date\(\)\.timeIntervalSince\(\$0\) < AppDelegate\.downloadQuietSeconds \} \?\? false\) \{/, 'a page clicking in a loop can stack sheets');
   assert.match(tell, /if let present = AppDelegate\.downloadAlertPresenter \{[^}]*if quiet \{ lastDownloadTold = Date\(\) \}/, 'the quiet window does not cover the selftest\'s presenter, so the burst row proves nothing');
   assert.match(tell, /self\.downloadSheetUp = false\n\s+self\.lastDownloadTold = Date\(\)/, 'the quiet window starts when the sheet appears, so a quick dismiss leaves the next click silent');
@@ -203,9 +203,9 @@ test('#5167 review 9: a frame cannot save by loading; refusals are said at most 
 });
 
 test('#5167 review 10: only policy refusals are quieted; a frame cannot put up a sheet; the refusal names its cause', () => {
-  const tell = body('private func tellDownloadFailed(_ detail: String, title: String');
-  assert.match(tell, /quiet: Bool = false\) \{\n\s+if quiet \{/, 'a real save failure can be swallowed by the quiet window');
-  assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 4, 'the quiet window covers something other than the four refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show, a download WebKit stopped)');
+  const tell = body('private func tellDownloadFailed(_ detail: String, title: String? = nil');
+  assert.match(tell, /quiet: Bool = false\) \{\n[^\n]*\n[^\n]*\n\s+if quiet \{/, 'a real save failure can be swallowed by the quiet window');
+  assert.equal((SRC.match(/, quiet: true\)/g) || []).length, 5, 'the quiet window covers something other than the five refusals (not-the-board or foreign download, foreign attachment, foreign file the window cannot show, a download WebKit stopped, a computer already refused)');
   const act = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
   assert.match(act, /if navigationAction\.targetFrame\?\.isMainFrame != false \{\n\s+tellDownloadFailed\(isBoardPage\(committedPageURL, board: badgeOrigin\)\n\s+\? "That file is not from this board/,
     'a frame inside the page can put up the app\'s sheet, or the refusal blames the page when the file is the cause');
@@ -215,7 +215,7 @@ test('#5167 review 11: a run where nothing saves is judged, not timed out (the w
   const hatch = SRC.slice(SRC.indexOf('if CommandLine.arguments.contains("--kosmos-app-download-selftest")'));
   const watchdog = Number((hatch.match(/asyncAfter\(deadline: \.now\(\) \+ (\d+)\) \{\n[^\n]*\n\s+print\("download selftest TIMED OUT"\)/) || [])[1]);
   const alarm = Number((BUILD.match(/alarm (\d+); exec @ARGV; exit 127' "\$STAGE\/app\/bin\/kosmos-app" --kosmos-app-download-selftest/) || [])[1]);
-  assert.ok(watchdog >= 150, 'the watchdog (' + watchdog + 's) is under a nothing-saves run (measured 81s), so a total break reads as a timeout');
+  assert.ok(watchdog >= 200, 'the watchdog (' + watchdog + 's) is too close to a nothing-saves run (measured 106s), so a total break can read as a timeout');
   assert.ok(alarm >= watchdog + 20, 'the gate\'s alarm (' + alarm + 's) does not sit above the hatch\'s own watchdog (' + watchdog + 's)');
   assert.match(hatch, /wait\(expect == nil \? 20 : 50\)/);
 });
@@ -272,4 +272,15 @@ test('#5167 review 17: a Kosmos+ computer is asked about before it can save (its
   assert.equal((SRC.match(/askAboutHostForSelftest = /g) || []).length, 2, 'something outside the selftest sets the ask-about seam');
   assert.match(body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)'), /if committedPageURL != nil \{ tellDownloadFailed\(/,
     'a start-up load the window cannot show is reported as a refused file');
+});
+
+test('#5167 review 19: a computer already refused is said (quietly), refusals carry a refusal title, a dangling symlink is taken', () => {
+  assert.match(body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {'),
+    /if refusedDownloadHosts\.contains\(host\) \{\n[^\n]*\n\s+tellDownloadFailed\("Downloads from \\\(host\) were not allowed\. Kosmos asks again the next time it opens\.", quiet: true\)/,
+    'after Don\'t Allow, every later click on that computer does nothing at all');
+  assert.match(body('private func tellDownloadFailed(_ detail: String, title: String? = nil, quiet: Bool = false) {'),
+    /let title = title \?\? \(quiet \? "Kosmos did not save that file" : "Kosmos could not save that file"\)/);
+  assert.match(body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,'),
+    /\(try\? FileManager\.default\.attributesOfItem\(atPath: \$0\.path\)\) != nil \|\| taken\.contains/,
+    'a dangling symlink in Downloads reads as free');
 });
