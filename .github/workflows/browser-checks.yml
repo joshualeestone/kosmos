@@ -162,8 +162,11 @@ jobs:
     # ROUTED to the browser-checks-macos job below, never dropped. The full set was run on
     # ubuntu-latest before this moved (#4601): under Ubuntu's default font 12 checks were red
     # (run 37036328772); rerun with the UI font pinned (step below), six of those passed (run
-    # 37045524112). The other six are in that file, each with its measured cause. None was added
-    # to KNOWN_RED.
+    # 37045524112). Of the other six, one was a defect in the check itself (room-msgbox, fixed by
+    # #5056) and five are in that file. The pin has a cost too: it breaks two checks that pass on
+    # stock Linux (help-tips-3574, tasks-view-3559), and those are routed as well, so the pin is a
+    # trade of six fixed for two routed. Each of the seven entries carries its measured cause. None
+    # was added to KNOWN_RED.
     # What this costs, a fourth way a green here differs from a 3b green: it is Linux Chromium
     # and Linux WebKit (a different port from Safari's), Linux fonts, and bash 5. A difference
     # only macOS shows now surfaces at the cut's 3b or in the nightly full set, which stay on
@@ -293,7 +296,9 @@ jobs:
       # Linux has no Apple font and system-ui comes before Arial, so Chromium drew Ubuntu's wider default and
       # six checks wrapped text a Mac does not (measured, #4601 run 37036328772). With system-ui and
       # sans-serif aliased to Liberation Sans (Arial's metrics, from fonts-liberation) all six passed (run
-      # 37045524112). The step prints what fontconfig resolves, so a drifted image is visible.
+      # 37045524112). It applies to every check in this job, and it breaks two that pass on stock Linux
+      # (help-tips-3574, tasks-view-3559: routed to macOS in tools/bc-macos-only.txt, with the cause).
+      # The step prints what fontconfig resolves, so a drifted image is visible.
       - name: 'pin the UI font to Arial metrics (#4601, Linux)'
         run: |
           mkdir -p "$HOME/.config/fontconfig"
@@ -396,10 +401,15 @@ jobs:
             echo "::error::the checks this diff touches were NOT selected (tools/bc-pr-select.js failed above); only the allowlist ran"
             exit 1
           fi
+      # #4601: when this job fails before the route step, nothing was routed, so browser-checks-macos is skipped too.
+      # Say so here, so a skipped macOS job does not read as "nothing to run on macOS".
+      - name: 'say the routed checks did not run (#4601)'
+        if: failure() && steps.route.outcome != 'success'
+        run: echo "::error::this job failed before routing, so the checks in tools/bc-macos-only.txt that this PR selects did not run on macOS either; fix this job and rerun"
 
   # #4601: the checks routed to macOS (tools/bc-macos-only.txt) that the Linux job named for this PR, run where their
   # result means something. Skipped when there are none (about 3 page PRs in 4, measured on #4601), so most page PRs
-  # wait for no macOS runner at all. always(): a red Linux job must not cost these their run.
+  # wait for no macOS runner at all. !cancelled() (see its if): a red Linux job must not cost these their run.
   browser-checks-macos:
     needs: browser-checks
     # !cancelled(), not always(): a newer push cancels this run, and always() would still spend a macOS

@@ -78,3 +78,19 @@ survive a red Linux job; the font heredoc; no em dashes.
 NIT taken: the route-step comment now says a step failing before route also skips the macOS set (job red then).
 Left: the date in bc-macos-only.txt is right (checked with date); the comma-splitting note; the 60-minute macOS
 timeout (headroom for the queue).
+
+## Final blind review (2026-10-02 19:33, Sonnet) and what it changed
+- The route step is now RUN on fixtures by tools/test-browser-checks-workflow.sh (overlap, selection-only, prefix names
+  in both directions, no selection, all-routed refused). Mutants: swapped case arms red; prefix match red (it was
+  green until the reverse-prefix fixture was added, measured).
+- Each routed name must be a gated.txt line or a run_one label (what the allowlist matches), not only a file.
+- A Linux job that fails before routing now says the macOS checks did not run (pinned in the test; mutant red).
+- Comments corrected: seven routed (five Linux reds plus two broken BY the font pin, a trade of six fixed for two
+  routed); the macOS job's condition is !cancelled(), not always().
+- Left: blank-line and CRLF tokens are inert (whole-token membership); apt update ordering relies on install-deps.
+
+## What this PR's own CI will and will not prove
+It runs both workflows' paths filter, so the Linux job runs and proves the font pin took and the allowlist passes
+under it. The macOS job runs only if this diff's selection names a routed check, which a workflow-only diff likely
+does not, so the macOS job may be SKIPPED and its steps unproven by this PR. The seven routed checks' macOS passes rest
+on the nightly full set (macOS), not on this PR.

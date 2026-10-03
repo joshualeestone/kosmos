@@ -575,9 +575,52 @@ while IFS= read -r line || [ -n "$line" ]; do
   [ "$name" != "$line" ] && [ -n "$cause" ] || fail "bc-macos-only.txt: '$line' has no <TAB><cause> (#4601: a check is routed only with its measured cause)"
   printf '%s' "$cause" | grep -qE '#[0-9]+' || fail "bc-macos-only.txt: '$name' cites no card (#4601: every routed check points at the card that measured it or is explaining it)"
   [ -f "$REPO/docs/browser-checks/$name.js" ] || fail "bc-macos-only.txt names '$name', which is not a check in docs/browser-checks/"
+  # The allowlist matches the LABEL a check runs under (a gated.txt line, or a run_one label in browser-checks.sh),
+  # not its file name, so a routed name must be one of those or the macOS run reds with "never ran" (review, #4601).
+  { grep -qxF "$name" "$REPO/docs/browser-checks/gated.txt" || grep -qE "^[[:space:]]*run_one \"$name\"" "$REPO/tools/browser-checks.sh"; } \
+    || fail "bc-macos-only.txt names '$name', which is neither a gated.txt check nor a run_one label, so no allowlist can select it"
   routed=$((routed + 1))
 done < "$ROUTE"
 [ "$routed" -gt 0 ] || fail "bc-macos-only.txt routes nothing; if that is now true, say so here rather than leaving an empty list"
 pass "every check routed to macOS is a real check with its cause written beside it ($routed routed)"
+
+# #4601: the route step decides what runs where, so RUN it: extracted from the parsed YAML and executed in a scratch
+# tree whose tools/bc-macos-only.txt is a fixture, with GITHUB_ENV and GITHUB_OUTPUT pointed at files.
+if command -v ruby >/dev/null 2>&1; then
+  RT="$(mktemp -d)"
+  ruby -ryaml -e '
+    ss = YAML.load_file(ARGV[0])["jobs"]["browser-checks"]["steps"]
+    st = ss.find { |s| s["id"] == "route" } or abort "no route step"
+    ss.any? { |s| s["if"].to_s.gsub(/\s+/, "") == "failure()&&steps.route.outcome!=" + 39.chr + "success" + 39.chr } or abort "no step says the routed checks did not run when the job fails before routing"
+    File.write(ARGV[1], st["run"])
+  ' "$WF" "$RT/route.sh" || fail "could not extract the route step"
+  mkdir -p "$RT/tools"
+  # route <list-file-contents> <allowlist> <selected>: prints LINUX=<set>|MAC=<set>|OUT=<mac_set>|rc=<n>
+  route() {
+    printf '%b' "$1" > "$RT/tools/bc-macos-only.txt"; : > "$RT/env"; : > "$RT/out"
+    ( cd "$RT" && KOSMOS_BC_CI_ALLOWLIST="$2" KOSMOS_BC_PR_SELECTED="$3" GITHUB_ENV="$RT/env" GITHUB_OUTPUT="$RT/out" bash -eo pipefail route.sh ) >/dev/null 2>&1
+    local rc=$?
+    printf 'LINUX=%s|MAC=%s|OUT=%s|rc=%s' "$(sed -n 's/^KOSMOS_BC_LINUX_SET=//p' "$RT/env")" "$(sed -n 's/^KOSMOS_BC_MAC_SET=//p' "$RT/env")" "$(sed -n 's/^mac_set=//p' "$RT/out")" "$rc"
+  }
+  # A comment, a blank line and no trailing newline; a selection overlapping the allowlist; a routed name only in the selection.
+  got="$(route '# routed\nm1\tcause #1\n\nm2\tcause #2' 'a b' 'b c m1')"
+  [ "$got" = "LINUX=a b c|MAC=m1|OUT=m1|rc=0" ] || fail "route: overlap/selection case gave $got"
+  # Membership is by whole name: a routed name that is a PREFIX of a Linux name must not take it.
+  got="$(route 'ab\tcause #1\n' 'abc' '')"
+  [ "$got" = "LINUX=abc|MAC=|OUT=|rc=0" ] || fail "route: a prefix name was treated as routed: $got"
+  # ...in both directions: a Linux name that is a prefix of a routed one must not be taken either.
+  got="$(route 'abc\tcause #1\n' 'ab' '')"
+  [ "$got" = "LINUX=ab|MAC=|OUT=|rc=0" ] || fail "route: a name that prefixes a routed one was treated as routed: $got"
+  # No selection at all (KOSMOS_BC_PR_SELECTED empty) under set -u.
+  got="$(route 'm1\tcause #1\n' 'a m1' '')"
+  [ "$got" = "LINUX=a|MAC=m1|OUT=m1|rc=0" ] || fail "route: no-selection case gave $got"
+  # Everything routed: the Linux set would be empty, which browser-checks.sh reads as "run every check", so refuse.
+  got="$(route 'm1\tcause #1\n' 'm1' '')"
+  case "$got" in *"|rc=0") fail "route: an empty Linux set was not refused: $got" ;; esac
+  rm -rf "$RT"
+  pass "the route step, run on fixtures: overlap, selection-only, prefix names, no selection, and an all-routed set refused"
+elif [ -n "${CI:-}" ]; then
+  fail "ruby is missing under CI, so the route step cannot be run"
+fi
 
 printf 'all browser-checks-workflow invariants hold\n'
