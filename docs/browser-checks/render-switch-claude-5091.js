@@ -122,7 +122,9 @@ const CODEX_OUT_OF_CREDITS = [
     const after = await page.evaluate(() => { const c = document.getElementById('d-current-rows'); return { current: !!c && !c.hidden, menu: document.getElementById('d-provider').value }; });
     chk(after.current === true, "#5091: after the switch the agent's rows are back (a reset menu does not count as a switch being set up)", JSON.stringify(after));
     const modelRow = await page.evaluate(() => { const m = document.getElementById('d-model'); return m ? [...m.options].map((o) => o.textContent).join(' | ') : 'no #d-model'; });
-    chk(!/GPT|Sol/.test(modelRow), "#5091: after the switch the model row does not name the old provider's model", modelRow.slice(0, 200));
+    chk(!/GPT|Sol/.test(modelRow) && /^Claude \(its default model\)/.test(modelRow), "#5091: after the switch the model row says Claude's default model, not the old provider's model or Unknown Model", modelRow.slice(0, 200));
+    const runsOn = await page.$eval('#d-runson', (e) => e.textContent);
+    chk(/Claude/.test(runsOn) && /b@example\.com/.test(runsOn), '#5091: Right now names Claude and the picked account', runsOn);
     // Round 3: and they speak for the NEW provider: the Move row lists the Claude accounts, on the one picked.
     // The Move menu's first option ("") names the account it is ON; the rest are the Claude accounts it could move to.
     const rows = await page.evaluate(() => { const s = document.getElementById('d-account'); return { here: (s.options[0] || {}).textContent || '', opts: [...s.options].slice(1).map((o) => o.value), msg: document.getElementById('d-account-msg').textContent }; });
