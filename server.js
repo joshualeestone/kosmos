@@ -9497,10 +9497,11 @@ const server = http.createServer(async (req, res) => {
     catch { sendJson(res, 500, { ok: false, error: 'we could not forget that just now' }); }
     return;
   }
-  /* Four exact addresses, not a startsWith family (#3957's route check counts only exact comparisons,
+  /* Five exact addresses (#4960 added agree), not a startsWith family (#3957's route check counts only exact comparisons,
      and an unknown sub-address falls through to the board's own 404). */
   if (pathname === '/api/antigravity/signin' || pathname === '/api/antigravity/signin/code'
-    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop') {
+    || pathname === '/api/antigravity/signin/show' || pathname === '/api/antigravity/signin/stop'
+    || pathname === '/api/antigravity/signin/agree') {
     const signin = require('./engine/agysignin');
     const agy = require('./engine/agystatus');
     const sub = pathname.slice('/api/antigravity/signin'.length);
@@ -9530,7 +9531,7 @@ const server = http.createServer(async (req, res) => {
     }
     /* Code, Show and Stop name the sign-in they mean (the id start() answered), so one tab never
        stops or types into a sign-in another tab started since. */
-    if (sub === '/code' || sub === '/show' || sub === '/stop') {
+    if (sub === '/code' || sub === '/show' || sub === '/stop' || sub === '/agree') {
       readBody(req).then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
@@ -9538,6 +9539,13 @@ const server = http.createServer(async (req, res) => {
         if (sub === '/code') {
           let r;
           try { r = signin.code(body && body.code, id); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass the code just now' }); return; }
+          sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
+          return;
+        }
+        /* #4960: the person's answer to Antigravity's terms (and the OPTIONAL data-sharing box), from Kosmos's panel. */
+        if (sub === '/agree') {
+          let r;
+          try { r = signin.agree(id, { dataUse: body ? body.dataUse : undefined }); } catch { sendJson(res, 500, { ok: false, error: 'Kosmos could not pass your answer just now' }); return; }
           sendJson(res, r.ok ? 200 : refusal(r), r.ok ? { ok: true, ...signin.status() } : { ...r, error: r.because });
           return;
         }
