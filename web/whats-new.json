@@ -1,25 +1,30 @@
 {
-  "version": "0.7.20",
+  "version": "0.7.21",
   "highlights": [
     {
+      "icon": "spark",
+      "title": "Setup points to real places",
+      "line": "Setup messages that pointed to a tab that does not exist now say Settings, AI Models or an agent's AI Settings."
+    },
+    {
       "icon": "chat",
-      "title": "A sign-in notice you can close",
-      "line": "The warning that your agents' sign-in is ending now floats over the page instead of pushing it down, names the account, and has an X."
+      "title": "Agents speak your language",
+      "line": "On a Mac set to another language, agents are now told your language, so they start and post in it instead of English."
+    },
+    {
+      "icon": "swarm",
+      "title": "Switching to Claude works",
+      "line": "Switching an agent to Claude now offers your Claude accounts to pick from, and the panel stops describing the old provider."
     },
     {
       "icon": "shield",
-      "title": "Gemini sign-in asks about your data",
-      "line": "On a Mac, signing Gemini in with a Google subscription shows Antigravity's terms in Kosmos, and you choose if Google may use your data."
+      "title": "See what your agent asks",
+      "line": "When Claude Code asks an agent whether to switch models, its page shows the question, not \"cannot find the question\"."
     },
     {
-      "icon": "list",
-      "title": "Settings stays clickable",
-      "line": "On a long Settings section, the section buttons stay below the top bar instead of sliding under it."
-    },
-    {
-      "icon": "spark",
-      "title": "A running agent's files stay safe",
-      "line": "Deleting a removed agent's files no longer touches a running agent whose name differs from it only in capitals."
+      "icon": "phone",
+      "title": "Honest computer status",
+      "line": "A computer with remote access off now reads \"Remote access off\" on your Kosmos+ account page, not \"Answering now\"."
     }
   ]
 }
