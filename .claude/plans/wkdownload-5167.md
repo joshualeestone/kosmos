@@ -13,8 +13,9 @@ native-app/main.swift had no download handling, so WebKit saved nothing and the 
   (`isSameOriginDownload`: scheme, host, port with default ports, no user part) returns `.download`,
   on every computer mode, BEFORE the connect-only policy. A cross-origin download falls through to
   the policy it had.
-- Response policy: see "Review round 1 changes" (same-origin attachment only; otherwise
-  `canShowMIMEType ? .allow : .cancel`).
+- Response policy: see the review round changes below (board, same-origin attachment or
+  unshowable file is saved; a foreign attachment is refused and said; otherwise shown if WebKit can
+  show it, cancelled if not).
 - `WKDownloadDelegate` on AppDelegate: destination is ~/Downloads via `downloadDestination`
   (separators and colon to `-`, control chars to space, leading dots stripped, empty/`..` to
   "Download", 200-byte cap keeping the extension, " (2)" numbering, UUID fallback after 10000;
@@ -82,6 +83,15 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   navigation; with the redirect case, a run computer's window still loads it. Pre-existing for every
   link, filed as #5169, not changed here.
 
+## Review round 6 changes
+- A board file the window cannot show (a plain link to a .zip) is saved, as Safari does, instead of
+  cancelled with nothing said. Not from the board, it is still cancelled (logged).
+- A file whose quarantine mark cannot be set is KEPT and the person is told it is unmarked (Safari
+  keeps such a file; deleting it would make downloads never work on a disk without the mark).
+- The attachment token is read up to the first `;`, without dropping an empty leading piece.
+- Not changed: in connect mode a cross-origin `<a download>` keeps the connect link policy (it opens
+  in the browser, or on the other Kosmos+ computer), which is visible, not silent.
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
@@ -90,6 +100,6 @@ live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunn
 ## Tests (current)
 - Pure functions: `--kosmos-app-mode-selftest`, 75 rows in all (the #5167 ones: same-origin, board
   page, destination name).
-- Live: 12 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
+- Live: 13 rows in `--kosmos-app-download-selftest` (real WKWebView, loopback HTTP server, polled
   waits, a last-click sentinel), wired into tools/build-kosmos-bundle.sh.
 - Wiring: `native-app.download-5167.test.js`.
