@@ -1,0 +1,41 @@
+# usageagy-5158: Antigravity usage beside Claude, Codex, Gemini CLI and Grok (slice 3)
+
+Card: kosmos#5158. GO: Josh 2026-10-03 11:23 ("we can start on the token usage stuff now and just see how far we get").
+Stacked on slice 1 (PR #5163, `usageproviders-5158`). Merges after Monday with slices 1 and 2.
+
+## What finished looks like
+Settings > Token Usage counts Antigravity agents' tokens per day, per model and per agent, in the same four buckets as
+every other provider, each model call counted once, on the day it was made. Claude's saved days are untouched; Antigravity
+rides the providers file slice 1 added (`<day>.providers.v1.json`), so no new saved format.
+
+## Where the numbers are (measured on this Mac 2026-10-03, read from COPIES of 25 conversations, 109 model calls)
+- Home: `agytrust.agyHome()` (one home; agy has no per-account folders). Conversations: `<home>/conversations/<id>.db`.
+- `gen_metadata(idx, data)`: one protobuf per model call. Model 1.19; usage 1.4: .2 uncached prompt, .5 cached prompt,
+  .9 reply, .10 thoughts, .3 = .9 + .10 (held in 109 of 109). 1.4.1 (1318 in every call) and 1.4.6 (24 in every call)
+  are constants, not tokens.
+- NO time on a model call. The time is on its STEP: `steps.metadata` 1.1 = seconds (a protobuf Timestamp), and the step of
+  type 15 that a call produced carries the call's idx at 20.3 (absent = 0, proto3). In 24 of 25 conversations the type-15
+  steps' idx set equals the gen_metadata idx set exactly; the 25th has one call with NO token counts (a failed call,
+  steps of type 17), so it adds nothing.
+- Folder: `trajectory_metadata_blob` 1.1 (also 7) = the workspace as a `file://` URI, in 25 of 25.
+  (`cache/last_conversations.json` maps only a folder's LATEST conversation, so it cannot place older ones.)
+
+## Buckets
+input = .2; cache_read = .5; output = .9 + .10 (thoughts are output, as for the other three); cache_creation = 0
+(agy records no cache write).
+
+## Once-only
+One row per (conversation id, idx): the idx is gen_metadata's primary key, and each db is one conversation.
+
+## Day
+The linked step's time; a call with no linked step that still has tokens takes the earliest step time carrying its idx at
+20.3, else the conversation's last write (db or its -wal), which is never earlier than the call. A day is frozen only
+from a complete scan, as slice 1 does: a db that cannot be opened while fresh keeps the scan incomplete.
+
+## Decisions
+- Day from the step link, not "credit to the day first seen" (the handoff's plan): that needed a stateful ledger and
+  would put all past Antigravity usage on the day this update first runs. Rejected now that a per-call time exists.
+- Weakest premise: the step link (type 15, field 20.3) and the workspace field are read raw, not documented. If agy moves
+  them, calls fall back to the conversation's last write (a day that may be later) and the folder to "elsewhere";
+  totals stay right.
+- The reader is a 4th scanner in engine/usageproviders.js; the protobuf reading reuses agysession.js's helpers.
