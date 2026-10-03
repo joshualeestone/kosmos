@@ -24,6 +24,8 @@
  *    today's keyboard focus ring, a needs-you card's red edge, the current view's gold and a plain roadmap row unchanged;
  *    on a touch phone at 320, 360, 390, 480 and 520, Add Project clear of the sort and the toggle (#718); with the look off, today's
  *    card, tile and dashed tile (the control),
+ *  - a project's Documents in the new look (docsLook): back is the round chevron, the text link hidden, and it returns
+ *    to the project; the switch is a grey pill with today's gold choice; with the look off, today's link and switch,
  *  - the Agents page in the new look: the plain idle card and the Agents tile lose their border, New agent is a
  *    40px round grey button, a pressed Messages filter still looks pressed; the working card's stroke and the
  *    current view's gold are the same as with the look off; Issue, Question and could-not-read cards keep their
@@ -457,6 +459,35 @@ async function projectsLook(page) {
       return { border: c.borderTopWidth + ' ' + c.borderTopStyle, shadow: c.boxShadow, radius: c.borderTopLeftRadius, padding: c.padding }; });
     await page.evaluate(() => { const g = document.querySelector('#pj-list-view .vt[data-layout="grid"]'); if (g) g.click(); });
     await page.waitForTimeout(300);
+  }
+  await page.evaluate(() => showTab('agents'));
+  await page.waitForTimeout(300);
+  return out;
+}
+/* #4470, a project's Documents screen in the new look: back is the round chevron (the text link hidden) and it
+   returns to the project; the folder / conversation switch is a grey pill (shown by hand: the fixture's room has
+   no files) whose chosen segment keeps today's gold. Reads, then returns to the Agents tab. */
+async function docsLook(page, projectId) {
+  await page.mouse.move(1, 1);
+  await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, projectId);
+  await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 8000 }).catch(() => {});
+  if (await page.isVisible('#pj-docs-all')) await page.click('#pj-docs-all');   // as a person opens it
+  await page.waitForSelector('#pj-docs-view:not([hidden])', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  const out = await page.evaluate(() => {
+    const back = document.getElementById('docs-back'), chev = document.getElementById('docs-chev'), sw = document.getElementById('docs-seg');
+    if (!back || !chev || !sw || document.getElementById('pj-docs-view').hidden) return { found: false };
+    const was = sw.hidden; sw.hidden = false;
+    try {
+      const cs = getComputedStyle(sw), on = sw.querySelector('[aria-checked="true"]');
+      return { found: true, backShown: getComputedStyle(back).display !== 'none', chevShown: getComputedStyle(chev).display !== 'none',
+        segRadius: cs.borderTopLeftRadius, segEdge: cs.borderTopColor, segBg: cs.backgroundColor, chosen: on ? getComputedStyle(on).backgroundColor : 'absent' };
+    } finally { sw.hidden = was; }
+  });
+  if (out.found && out.chevShown) {
+    await page.click('#docs-chev');
+    await page.waitForTimeout(400);
+    out.chevBack = await page.evaluate(() => !document.getElementById('pj-one-view').hidden && document.getElementById('pj-docs-view').hidden);
   }
   await page.evaluate(() => showTab('agents'));
   await page.waitForTimeout(300);
@@ -928,6 +959,11 @@ const AGENTS_LOOK = `(() => {
             `${tag} On, Projects at ${w} on a touch phone: Add Project does not run under the sort or the view toggle (#718)`, JSON.stringify(row));
         }
       }
+      const dcOn = await docsLook(page, proj.id);
+      chk(dcOn.found && !dcOn.backShown && dcOn.chevShown && dcOn.chevBack === true,
+        `${tag} On, Documents: back is the round chevron (the text link hidden), and it returns to the project`, JSON.stringify(dcOn));
+      chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.segBg !== 'rgba(0, 0, 0, 0)',
+        `${tag} On, Documents: the folder / conversation switch is a grey pill with no edge`, JSON.stringify(dcOn));
       const plOn = await projectsLook(page);
       chk(plOn.found && plOn.card === 'rgba(0, 0, 0, 0)' && plOn.shadow === 'none' && plOn.radius === '24px',
         `${tag} On, Projects: a plain project card loses its border and shadow and takes 24px corners`, JSON.stringify(plOn));
@@ -1011,6 +1047,11 @@ const AGENTS_LOOK = `(() => {
          not byte-identical across looks (round 1); what must hold in both is that it reads red. */
       chk(tkOn.found && tkOff.found && tkOn.decisionRed && tkOff.decisionRed && tkOff.plainNotRed === true && tkOff.goldNotRed,
         `${tag} the Needs Your Decision edge reads red with the look on and off`, JSON.stringify({ on: tkOn.decision, off: tkOff.decision }));
+      const dcOff = await docsLook(page, proj.id);
+      chk(dcOff.found && dcOff.backShown && !dcOff.chevShown && dcOff.segRadius !== '999px',
+        `${tag} Off, Documents: today's text back link, no chevron, today's switch (the control)`, JSON.stringify(dcOff));
+      chk(dcOn.found && dcOff.found && dcOn.chosen === dcOff.chosen && dcOff.chosen !== 'absent' && dcOff.chosen !== 'rgba(0, 0, 0, 0)',
+        `${tag} Documents: the chosen segment is today's gold with the look on`, JSON.stringify({ on: dcOn.chosen, off: dcOff.chosen }));
       const plOff = await projectsLook(page);
       chk(plOff.found && plOff.card !== 'rgba(0, 0, 0, 0)' && plOff.shadow !== 'none' && plOff.radius === '12px' && plOff.tile !== 'rgba(0, 0, 0, 0)' && plOff.plus.round !== '50%' && plOff.newBorder === 'dashed',
         `${tag} Off, Projects: today's bordered card with 12px corners, boxed Projects tile and dashed Add Project tile (the control)`, JSON.stringify(plOff));
