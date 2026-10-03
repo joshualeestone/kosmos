@@ -5255,7 +5255,9 @@ function createAgentInner(opts) {
           const { MAX_BYTES } = require('./instructions');
           if (require('./projects').findBlock(text, plMod.START, plMod.END)?.ambiguous) {
             // Two language blocks (instructions pasted from another computer): left as they are, on any sure read.
-            langStep = 'found two language sections in its instructions, so left them as they are; edit its instructions to keep one';
+            langStep = plMod.blockBody(got.tag)
+              ? 'found two language sections in its instructions, so left them as they are; edit its instructions to keep one'
+              : 'found two language sections in its instructions, so left them as they are; edit its instructions to remove them';
           } else {
             const spliced = plMod.applyTo(text, got.tag);
             if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) text = spliced;

@@ -293,3 +293,9 @@ test('#5050 review 15: something at the instructions path that cannot be read is
     assert.equal(out.state, projects.TOLD.COULD_NOT, 'an unreadable instructions path was reported as told');
   } finally { board.restore(); }
 });
+
+test('#5050 review 19: the name carries the script, never the region (Traditional vs Simplified Chinese)', () => {
+  assert.match(pl.blockBody('zh-Hant-TW'), /reads Traditional Chinese \(zh-Hant-TW,/);
+  assert.match(pl.blockBody('zh-Hans-CN'), /reads Simplified Chinese \(zh-Hans-CN,/);
+  assert.match(pl.blockBody('es-MX'), /reads Spanish \(es-MX,/, 'CONTROL: the region stays out of the name');
+});

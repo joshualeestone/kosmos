@@ -90,7 +90,10 @@ function isEnglish(tag) {
 /* The language's name in English ("Spanish"), or the tag itself when the runtime has no name for it. */
 function languageName(tag) {
   try {
-    const base = new Intl.Locale(tag).language;
+    // Language plus script, never the region (review 19): zh-Hant is "Traditional Chinese", not "Chinese", since the
+    // script decides what the person can read; the region (es-MX) only changes the tag beside the name.
+    const loc = new Intl.Locale(tag);
+    const base = loc.script ? `${loc.language}-${loc.script}` : loc.language;
     const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(base);
     return name && name !== base ? name : tag;
   } catch { return tag; }
