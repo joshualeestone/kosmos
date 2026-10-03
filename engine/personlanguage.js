@@ -41,7 +41,7 @@ function normalise(raw) {
 /* The Mac's first preferred language, or null. `defaults` prints a plist array: ( "es-MX", "en-US" ). */
 function macPreferred(run) {
   try {
-    const out = (run || ((cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] })))('defaults', ['read', '-g', 'AppleLanguages']);
+    const out = (run || ((cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] })))('/usr/bin/defaults', ['read', '-g', 'AppleLanguages']);   // absolute, as machine.js does: never whatever is first on PATH
     const m = String(out).match(/"?([A-Za-z]{2,3}(?:[-_][A-Za-z0-9]+)*)"?\s*,?\s*(?:\n|\))/);
     return m ? normalise(m[1]) : null;
   } catch { return null; }
@@ -55,7 +55,8 @@ function macPreferred(run) {
  * ({ env, platform, run, intl }); production passes nothing.
  */
 let source = null;   // test seam: what the no-argument read reads (production: the real machine)
-let cached;   // a SURE read is kept for the process; a fallback is read again once FALLBACK_MS has passed
+let cached;   // a SURE read is kept for the process (a language changed while the board runs reaches new agents at
+              // the next board start); a fallback is read again once FALLBACK_MS has passed
 let fallbackAt = 0;
 const FALLBACK_MS = 5 * 60 * 1000;   // review 4: a hanging `defaults` (2 s timeout) must not stall every create
 function read(o) {

@@ -198,7 +198,7 @@ export KOSMOS_NO_LEGACY_MIGRATION=1
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
-export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test board writes no language block, whatever this Mac's language is
+export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is
 # #4632: the roles and teams catalogue a board downloads when asked (the picker, `kosmos agent
 # roles`, a create for a role it does not hold). A test that needs it serves its own.
 export KOSMOS_CATALOGUE_BASE=http://127.0.0.1:9/

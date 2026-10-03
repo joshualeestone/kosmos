@@ -29,7 +29,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 - server.js: the boot sweep refreshes every agent (written when the setting is not English, removed when it is).
 
 ## Tests
-engine/personlanguage.test.js (14 after the reviews below): the wording, English gives nothing, detection order, write/idempotent, English
+engine/personlanguage.test.js (16 after the reviews below), plus one create test in engine/create.test.js: the wording, English gives nothing, detection order, write/idempotent, English
 removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
@@ -53,7 +53,7 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - Mutations (each restored, against a green baseline): a change to the file after the block at create, never moving
   it, always re-appending, "und" accepted, the runner unpinned, the sweep moved before About-you: each reds one test.
 
-## Review 2 (blind, sonnet)
+## Review 2 (blind, sonnet) (its add-only fallback is SUPERSEDED by review 3: a fallback now changes nothing)
 - A boot read that failed or timed out (Mac `defaults`) falls back to Node's locale, often en-US, which used to remove
   the block from every agent. Now `read()` says whether the answer is sure (the override, or a Mac `defaults` answer)
   or a fallback (Node's Intl locale): a fallback may ADD a block but never removes one, like the About-you sweep's
@@ -82,3 +82,16 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - Documented, not changed: only the FIRST preferred language counts (an English-first list with Spanish second gets
   no block), and a block added by hand on a sure-English Mac is removed at the next boot, as every managed block is.
 - Mutations: no negative cache, a fallback kept forever, the English no-file noise back: each reds.
+
+## Review 5 (blind, opus)
+- `defaults` is called by its absolute path, /usr/bin/defaults, as machine.js does, never whatever is first on PATH.
+- A behavioural create test (engine/create.test.js, #5050): with the override es-MX a real create writes a file that
+  ENDS with the block; with en-US it has none. Disabling the create splice reds it. The splice happens before the
+  runner picks the file name (CLAUDE.md or AGENTS.md), so both runners get the same text; only claude is created here
+  (a codex create needs account fixtures).
+- The runner pin's comment now says "a test that inherits this env": four suites build a board env from scratch and
+  do not get it (fine while the fleet's Macs are English; they would read the real `defaults`, which a non-English
+  Mac would answer).
+- Known, unchanged: a sure read is kept for the process, so a language changed while the board runs reaches new agents
+  at the next start; `languageName` names the base language only (zh-Hans and zh-Hant both "Chinese"; the tag beside
+  it carries the script).

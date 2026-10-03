@@ -2366,6 +2366,32 @@ test('#5023: at birth, near the size limit, the introduction gives way and the c
   assert.ok(Buffer.byteLength(text, 'utf8') <= MAX_BYTES, 'the file is over the limit');
 });
 
+test('#5050: on a Spanish Mac the new agent file ENDS with the language block; on an English one it has none', () => {
+  recorder();
+  create.setDryRun(false);
+  const pl = require('./personlanguage');
+  const saved = process.env.AGENT_WORKFORCE_PERSON_LOCALE;
+  try {
+    process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'es-MX';
+    pl._resetForTests();
+    const made = create.createAgent({ ...BINS, name: 'lang-es', role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    const text = fs.readFileSync(create.instructionFile('lang-es'), 'utf8');
+    assert.ok(text.trimEnd().endsWith(pl.END), 'the language block is not the last thing in the new file');
+    assert.match(text, /reads Spanish \(es-MX, from this computer's language setting\)/);
+    assert.ok(!made.steps || !made.steps.some((st) => /your language/.test(st.label || '') && st.ok === false), 'the language step reported a failure');
+
+    process.env.AGENT_WORKFORCE_PERSON_LOCALE = 'en-US';
+    pl._resetForTests();
+    const plain = create.createAgent({ ...BINS, name: 'lang-en', role: 'pm' });
+    assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+    assert.ok(!fs.readFileSync(create.instructionFile('lang-en'), 'utf8').includes(pl.START), 'an English Mac wrote a language block');
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_PERSON_LOCALE; else process.env.AGENT_WORKFORCE_PERSON_LOCALE = saved;
+    pl._resetForTests();
+  }
+});
+
 test('custom instructions are written verbatim with a trailing newline, and the role template is not', () => {
   recorder();
   create.setDryRun(false);
