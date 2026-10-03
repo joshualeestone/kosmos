@@ -335,8 +335,14 @@ test('#5167 review 27: failures during an alert are counted and said together la
     'counted failures are never said, or are said the instant the alert closes');
   assert.match(body('private func sayPendingDownloadFailures() {'), /guard pendingDownloadFailures > 0, downloadAlertsUp == 0 else \{ return \}/);
   assert.match(body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {'),
-    /answer\(asked && committedPageURL\?\.host\?\.lowercased\(\) == host\)/, 'an answer outlives a switch to another page');
+    /guard committedPageURL\?\.host\?\.lowercased\(\) == host else \{\n[^\n]*\n\s+for waiting in downloadAsks\.removeValue\(forKey: host\) \?\? \[\] \{ waiting\(false\) \}\n\s+return\n\s+\}\n\s+answer\(asked\)/, 'an answer outlives a switch to another page, or a changed page is recorded as the person refusing');
   const gate = BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest'));
   assert.ok(gate.indexOf('*"download selftest PAGE NEVER LOADED"*') < gate.indexOf('*"download selftest TIMED OUT"*'),
     'a page that never loads (possibly the response policy itself) is read as the gate timing out');
+});
+
+test('#5167 review 28: failures counted while the question was up are said after it', () => {
+  const may = body('fileprivate func mayDownload(_ then: @escaping (Bool) -> Void) {');
+  assert.match(may, /downloadAlertsUp -= 1\n\s+if pendingDownloadFailures > 0 \{[^\n]*\n\s+DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ AppDelegate\.downloadQuietSeconds\)/,
+    'a failure that arrived while the question was up is never said');
 });
