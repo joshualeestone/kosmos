@@ -4949,11 +4949,14 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      tracks light/dark; replaces the plain rule #3218 drew here) plus the rail-head grammar: an
      uppercase .railname label on the left and a square .fold.plus + on the right (both styled by
      the shared rules below). */
-  html[data-layout="consolidated"] body.consolidated #alist .alist-grouphdr { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 22px; margin: 6px 2px 2px 6px; padding-top: 8px; border-top: 1px solid var(--k-rule); flex: 0 0 auto; }
+  /* #3129 (Josh, 6.68): the rule above "Other Agents" stopped short of the rail's edges, 14 px in on the left and 10 on
+     the right. It now runs the rail's full width, like the Tasks/Files divider beside it: the negative margins cancel
+     the rail's 8 px padding, and the padding puts the label and its + exactly where they were (14 px and 10 px in). */
+  html[data-layout="consolidated"] body.consolidated #alist .alist-grouphdr { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 22px; margin: 6px -8px 2px -8px; padding: 8px 10px 0 14px; border-top: 1px solid var(--k-rule); flex: 0 0 auto; }
   /* Folded to letters (fold-a): hide the label and the +, leaving only the divider line --
      the same reduction the rail's own .railname (#rail-agents .railname) and its + (#rail-agents-new)
      make when the column collapses. */
-  html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr { justify-content: center; margin-left: 0; margin-right: 0; }
+  html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr { justify-content: center; margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr .railname,
   html[data-layout="consolidated"] body.consolidated.fold-a #alist .alist-grouphdr .alist-newagent { display: none; }
   /* #3387b: the empty-Project-Members hint, shown when a project is open but none of its members are
