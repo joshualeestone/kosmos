@@ -2893,7 +2893,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let ask = AppDelegate.downloadPermissionPresenter { ask(host, answer); return }
         let alert = NSAlert()
         alert.messageText = "Allow downloads from \(host)?"
-        alert.informativeText = "This Kosmos+ computer wants to save a file to your Downloads folder. Allow it only if it is one of your own computers. Your answer lasts until Kosmos quits; after Don't Allow, reloading the page asks again."
+        alert.informativeText = "This Kosmos+ computer wants to save a file to your Downloads folder. Allow it only if it is one of your own computers. Your answer lasts until Kosmos quits; after Don't Allow, View > Reload asks again."
         alert.alertStyle = .warning
         let allow = alert.addButton(withTitle: "Allow")
         let refuse = alert.addButton(withTitle: "Don't Allow")
@@ -3051,8 +3051,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             logLine("#5167: a download answered \(http.statusCode), so nothing was saved")
             downloadsTold.add(download)
-            // The Files lists' page says a refused file itself (pageSaysDownloadRefusal), so that 4xx is not said twice.
-            if (400..<500).contains(http.statusCode), pageSaysDownloadRefusal(http.url ?? download.originalRequest?.url) {
+            // The Files lists' page says any answer that is not OK itself (pageSaysDownloadRefusal), so it is not said twice.
+            if pageSaysDownloadRefusal(http.url ?? download.originalRequest?.url) {
                 completionHandler(nil)
                 return
             }
@@ -5335,6 +5335,12 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         }
     }
     var liveAsked: [String] = []
+    /* Before the rows are read, the messages are waited for (up to 10s), so a busy build box cannot fail a good
+       product on a message that came late. Nine are expected; a run that says fewer is judged as it stands. */
+    func settled(_ go: @escaping () -> Void, tries: Int = 100) {
+        if told.count >= 9 || tries == 0 { go(); return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled(go, tries: tries - 1) }
+    }
     /* The per-computer question through a real click: the probe page is treated as a Kosmos+ computer that
        must be asked. Don't Allow saves nothing (and holds); then, asked fresh, Allow saves. */
     func askArm(then: @escaping () -> Void) {
@@ -5405,7 +5411,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         guard case .ready = state, port == 0, let p = listener.port?.rawValue else { return }
         port = p
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { twoFailArm { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm {
+        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { twoFailArm { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { askArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
@@ -5470,7 +5476,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }

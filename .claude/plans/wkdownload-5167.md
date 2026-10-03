@@ -365,6 +365,13 @@ Rejected: blob:/data: downloads. Nothing in the page builds one to download toda
   it). The burst arm now shows one said and two logged.
 - The summary is titled "Some downloads were not saved" (it can mix refusals and failures).
 
+## Review round 32 changes
+- Every answer that is not OK on a Files-list route is left to the page (its look says any !res.ok);
+  a 5xx there was said twice. Only 4xx was left to it before.
+- The live selftest waits for its nine messages (up to 10s) before reading the rows, so a late
+  message on a busy build box cannot fail a good product.
+- The question says "View > Reload" asks again (a page reloading itself does not).
+
 ## Weakest premise
 Measured in a real WKWebView on this computer, served over plain HTTP on 127.0.0.1. Not measured over a
 live Kosmos+ tunnel in connect mode; the delegate path is the same, but the tunnel's own headers
