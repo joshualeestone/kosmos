@@ -246,6 +246,19 @@ test('a refused download NAVIGATION is 204 with no body (nothing for a browser t
   assert.equal(plain.status, 404, 'CONTROL: a non-navigation refusal is the sentence');
 });
 
+test('the EARLY refusals (no such agent, no such project) are 204 to a download navigation too, and the sentence otherwise', async () => {
+  for (const u of ['/api/agent/nobody-5165/files/download?name=a.pptx', '/api/project/nope-5165/file-download?name=a.pptx']) {
+    const nav = await rawGet(u, { 'sec-fetch-mode': 'navigate' });
+    assert.equal(nav.status, 204, u + ' answered a download navigation with a body a browser could save');
+    assert.equal(nav.body.length, 0);
+    const plain = await rawGet(u, { 'sec-fetch-mode': 'cors' });
+    assert.equal(plain.status, 404, 'CONTROL: ' + u);
+    const b = JSON.parse(plain.body.toString('utf8'));
+    assert.equal(b.ok, false);
+    assert.match(b.because, /no (agent|project) by that name/, 'the refusal is one shape, { ok: false, because }');
+  }
+});
+
 test('on a board that enforces its token, both download routes refuse without it and serve with it', async () => {
   const files = path.join(SANDBOX, 'workers', 'tok', 'Files');
   fs.mkdirSync(files, { recursive: true });
