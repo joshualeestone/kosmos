@@ -771,6 +771,17 @@ which gives it its own home with a fixture account (`fixture@example.invalid`). 
 opt-in because first-run checks want no account, and its own home so no later check sees
 it. `tools.browser-checks-home-3675.test.js` fails if a board-booting check skips the lib.
 
+### `lib-no-phone-home.js` is a library, not a check
+
+**A check run on its own never tells installkosmos.com it is a new install (#5151).** A check run through
+`tools/browser-checks.sh` inherits its dead-port URLs (#4253), but a check run directly
+(`node docs/browser-checks/<check>.js`, to reproduce a red or prove a fix) did not, so its board posted an install
+ping with the checkout's version. Requiring it sets `AGENT_WORKFORCE_CREATED_URL` and
+`AGENT_WORKFORCE_FEEDBACK_URL` to `127.0.0.1:9` unless the caller named one, and `KOSMOS_INTERNAL_RUN=1`, which
+files any ping that does get out under `internal/`. `lib-sandbox-home.js` loads it, and a board-booting check
+without `lib-sandbox-home` loads it directly. `tools.no-phone-home-4253.test.js` fails if a check that boots a
+board loads neither.
+
 ### `lib-firstrun-steps.js` is a library, not a check
 
 The other non-browser `.js` in here. The first-run wizard numbers its steps (`fr-pane-N`,

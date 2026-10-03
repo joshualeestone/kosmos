@@ -23,6 +23,10 @@ const path = require('node:path');
 // require time via BASE).
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'createdbeacon-3038-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+/* kosmos#5151: tools/run-tests.sh exports KOSMOS_INTERNAL_RUN=1 so every board a test starts marks its ping
+   internal. This file asserts what a REAL install sends, so it starts without the mark; the one test that
+   wants it sets it and puts it back. */
+delete process.env.KOSMOS_INTERNAL_RUN;
 
 const beacon = require('./engine/createdbeacon');
 
@@ -162,6 +166,35 @@ test('#4253 rule C: internal:true rides the payload only when the data root hold
     assert.equal(calls[0].body.internal, true, 'the flag reaches the wire, not just payload()');
   } finally {
     fs.rmSync(f, { force: true });
+    beacon.setSender(null);
+  }
+});
+
+/* kosmos#5151: our test and cut runs mark themselves with KOSMOS_INTERNAL_RUN=1, and only the exact string '1'
+   counts. Without it the payload is byte-for-byte what a person's install sends (Josh's three-ping ruling). */
+test('#5151 KOSMOS_INTERNAL_RUN=1 marks the ping internal; anything else, or nothing, leaves a real install unchanged', () => {
+  const root = require('./engine/store').ROOT;
+  fs.rmSync(path.join(root, 'internal.json'), { force: true });
+  const before = process.env.KOSMOS_INTERNAL_RUN;
+  try {
+    delete process.env.KOSMOS_INTERNAL_RUN;
+    const plain = beacon.payload(2);
+    assert.deepEqual(Object.keys(plain).sort(), ['count', 'guide', 'installId', 'os', 'version'], 'no mark: the contract keys, nothing added');
+    for (const v of ['', '0', 'true', 'yes', ' 1', '1 ', '2']) {
+      process.env.KOSMOS_INTERNAL_RUN = v;
+      assert.equal('internal' in beacon.payload(2), false, `KOSMOS_INTERNAL_RUN=${JSON.stringify(v)} must mark nothing`);
+    }
+    process.env.KOSMOS_INTERNAL_RUN = '1';
+    const p = beacon.payload(2);
+    assert.equal(p.internal, true, 'the marked run says it is ours');
+    const { internal, ...rest } = p;
+    assert.deepEqual(rest, plain, 'the mark ADDS internal and changes nothing else in the ping');
+    const calls = capture();
+    beacon.send(2);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].body.internal, true, 'the flag reaches the wire');
+  } finally {
+    if (before === undefined) delete process.env.KOSMOS_INTERNAL_RUN; else process.env.KOSMOS_INTERNAL_RUN = before;
     beacon.setSender(null);
   }
 });

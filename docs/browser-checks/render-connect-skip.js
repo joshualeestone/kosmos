@@ -36,6 +36,7 @@
  *   node docs/browser-checks/render-connect-skip.js <works-url> <broken-url>
  */
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 
 const playwright = require('playwright');
 

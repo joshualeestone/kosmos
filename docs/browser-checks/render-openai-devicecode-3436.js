@@ -1,4 +1,5 @@
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 // Browser-check-surface: openaiSubPaintDevice openaiSubDeviceMarkup openaiSubDeviceAddress ACCT_OPENAI_SUB_MODE openaiSubHow openaiSubOpen openaiSubCodeLeadAt acctOpenaiChoose acctOpenaiSubStart acctOpenaiSubReset acct-openai-pick-sub acct-openai-sub-go fr-openai-sub-code acct-openai-sub-code fr-openai-sub-open acct-openai-sub-open
 
 /**

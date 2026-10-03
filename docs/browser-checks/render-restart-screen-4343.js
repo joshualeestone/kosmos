@@ -1,5 +1,6 @@
 // Browser-check-surface: restart-back restart-msg restart-k restart-up uoffline-slot
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 
 /**
  * kosmos#4343 (Josh, 2026-09-28): when this window's board stops answering, show "Kosmos requires a

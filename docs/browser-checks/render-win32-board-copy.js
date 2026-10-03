@@ -33,6 +33,7 @@
  *   (HEADED by default; HEADED=0 on a console-less machine, as run_one sets it.)
  */
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 const nodePath = require('node:path');
 
 let playwright;

@@ -15,6 +15,9 @@
 # derivations of "what a user receives" is this codebase's worst habit, and the
 # first one is what missed `/setup`.
 set -euo pipefail
+# kosmos#5151: every board this cut boots (the suite, the page layer, 4b's sandboxed install, the staging gate)
+# inherits this, so a ping that gets past the harness redirects is filed as ours, not counted as a person.
+export KOSMOS_INTERNAL_RUN=1
 V="${1:-}"
 [ -n "$V" ] || { echo "usage: bash tools/release.sh <version>   e.g. 0.2.12"; exit 1; }
 # #2036: which channel this cut publishes to.

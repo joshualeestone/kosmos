@@ -1,4 +1,5 @@
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 
 /**
  * Render every state of the Projects screens in a real browser, light and dark.

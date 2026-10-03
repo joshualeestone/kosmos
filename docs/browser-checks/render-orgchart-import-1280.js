@@ -26,6 +26,7 @@
  * // Browser-check-surface: team-orgchart-open cstep-team orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg orgchart-undo orgchart-undo-go orgchart-undo-keep
  */
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 
 const playwright = require('playwright');
 

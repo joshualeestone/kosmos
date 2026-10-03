@@ -562,3 +562,41 @@ test('#4253: every test and browser check that boots server.js keeps the board f
   const bad = all.filter((b) => !b.safe).map((b) => `${b.f}:${b.line}`);
   assert.deepEqual(bad, [], `these spawns boot server.js with an env that neither passes process.env through nor names AGENT_WORKFORCE_CREATED_URL: ${bad.join(', ')}`);
 });
+
+/* kosmos#5151: a check is also run ON ITS OWN (`node docs/browser-checks/<check>.js`), outside browser-checks.sh,
+   and then no harness export reaches its board. Measured 2026-10-03: 11 installs on the unserved 0.7.21, in the
+   window agents ran single checks against main. Every check that boots a board must load lib-no-phone-home,
+   directly or through lib-sandbox-home, which sets the dead-port URLs and marks the run internal. */
+test('#5151: every browser check that boots server.js loads lib-no-phone-home, directly or through lib-sandbox-home', () => {
+  const dir = path.join(REPO, 'docs', 'browser-checks');
+  const checks = fs.readdirSync(dir).filter((f) => f.endsWith('.js') && !f.startsWith('lib-'));
+  /* Any mention of server.js, not boots(): boots() knows the literal spawn shapes the #4253 env rule needs and finds
+     ~22 checks, while most boot through a variable path. Over-inclusion is harmless here (loading the lib in a check
+     that boots nothing changes nothing); under-inclusion is the leak. */
+  const booting = checks.filter((f) => /server\.js/.test(fs.readFileSync(path.join(dir, f), 'utf8')));
+  assert.ok(booting.length >= 100, `found only ${booting.length} checks that mention server.js; the matcher has gone blind`);
+  const loads = /require\(\s*['"]\.\/lib-(no-phone-home|sandbox-home)(\.js)?['"]\s*\)/;
+  const missing = booting.filter((f) => !loads.test(fs.readFileSync(path.join(dir, f), 'utf8')));
+  assert.deepEqual(missing, [], `these checks boot a board run on their own with nothing stopping its install ping: ${missing.join(', ')}`);
+  assert.match(fs.readFileSync(path.join(dir, 'lib-sandbox-home.js'), 'utf8'), /require\(\s*['"]\.\/lib-no-phone-home['"]\s*\)/,
+    'lib-sandbox-home.js must load lib-no-phone-home, or the 100+ checks that rely on it are uncovered');
+});
+
+test('#5151: lib-no-phone-home sets the dead-port URLs and the internal mark, and keeps a URL the caller already named', () => {
+  const run = (extra) => {
+    const env = { ...process.env, ...extra };
+    for (const k of ['AGENT_WORKFORCE_CREATED_URL', 'AGENT_WORKFORCE_FEEDBACK_URL', 'KOSMOS_INTERNAL_RUN']) if (!(k in extra)) delete env[k];
+    const out = require('node:child_process').execFileSync(process.execPath, ['-e',
+      "require(process.argv[1]); process.stdout.write(JSON.stringify([process.env.AGENT_WORKFORCE_CREATED_URL, process.env.AGENT_WORKFORCE_FEEDBACK_URL, process.env.KOSMOS_INTERNAL_RUN]))",
+      path.join(REPO, 'docs', 'browser-checks', 'lib-no-phone-home.js')], { env, encoding: 'utf8' });
+    return JSON.parse(out);
+  };
+  assert.deepEqual(run({}), ['http://127.0.0.1:9/api/created', 'http://127.0.0.1:9/api/feedback', '1'], 'run on its own: both URLs dead, run marked ours');
+  assert.deepEqual(run({ AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:4242/c' }).slice(0, 1), ['http://127.0.0.1:4242/c'], 'a check that names its own collector keeps it');
+});
+
+test('#5151: the harnesses mark their runs internal before any board boots', () => {
+  for (const f of ['tools/run-tests.sh', 'tools/browser-checks.sh', 'tools/release.sh']) {
+    assert.match(fs.readFileSync(path.join(REPO, f), 'utf8'), /^export KOSMOS_INTERNAL_RUN=1\b/m, `${f} must export KOSMOS_INTERNAL_RUN=1 at the top level`);
+  }
+});

@@ -83,6 +83,7 @@ export KOSMOS_AGENT_BROWSER=off
 # ruling: the real install ping is never removed or made opt-out-able); only this
 # harness points it, and the daily report, at a dead local port.
 export AGENT_WORKFORCE_CREATED_URL=http://127.0.0.1:9/api/created
+export KOSMOS_INTERNAL_RUN=1   # kosmos#5151: any ping that does get out is filed as ours (engine/createdbeacon.js isInternal)
 export AGENT_WORKFORCE_FEEDBACK_URL=http://127.0.0.1:9/api/feedback
 export AGENT_WORKFORCE_COMMUNITY_URL=http://127.0.0.1:9/
 export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env writes no language block, whatever this Mac's language is

@@ -1,4 +1,5 @@
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 
 /**
  * #3675: a check's fixture board must not read the host Mac's real accounts.

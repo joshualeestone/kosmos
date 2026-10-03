@@ -1,4 +1,5 @@
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 
 /*
  * #2047: three more Settings switches are 403-SAFE, end to end.

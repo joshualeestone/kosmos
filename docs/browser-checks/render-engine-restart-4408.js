@@ -1,4 +1,5 @@
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 
 /**
  * #4408 (an external tester on prod, 2026-09-28): a board running older code than is on disk (a loaded file whose CONTENT

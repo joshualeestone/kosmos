@@ -1,4 +1,5 @@
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 
 /**
  * The update chip in both of its states (#3955, Mona Lisa's mock A and B: "An update is available"

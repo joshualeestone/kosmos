@@ -1,4 +1,5 @@
 'use strict';
+require('./lib-no-phone-home');   // kosmos#5151: no install ping or report leaves a check's board, even run on its own
 // Browser-check-scope: page  (#4119: it judges every visible piece of text, so it runs on any page change; tools/bc-pr-select.js)
 
 /**
