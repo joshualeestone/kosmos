@@ -3985,8 +3985,8 @@ async function accountConnectable({ provider, accountDir } = {}) {
       return {
         ok: false,
         because: 'there is no OpenAI sign-in on this computer, so an agent created on OpenAI could not run. '
-          + 'Add an OpenAI key in Settings, AI Models'
-          + (hasClaude ? ', or create this agent on Claude instead' : '') + '.',
+          + 'Add an OpenAI key in Settings, AI Models.'
+          + (hasClaude ? ' Or create this agent on Claude instead.' : ''),
       };
     }
     /* 🛑 THE ONE HOME THE GATE AND THE AGENT WOULD DISAGREE ABOUT. A created
@@ -4029,8 +4029,8 @@ async function accountConnectable({ provider, accountDir } = {}) {
     return {
       ok: false,
       because: 'there is no Claude account signed in on this computer, so an agent created on Claude could not run. '
-        + 'Connect a Claude account in Settings, AI Models'
-        + (hasOpenai ? ', or create this agent on OpenAI instead' : '') + '.',
+        + 'Connect a Claude account in Settings, AI Models.'
+        + (hasOpenai ? ' Or create this agent on OpenAI instead.' : ''),
     };
   }
   /* 🛑 REAL liveness, NOT subscription.checkLive (#1916). checkLive is built on
@@ -4060,7 +4060,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
   if (state === NONE) {
     return {
       ok: false,
-      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Sign that account in again from Settings, AI Models before creating an agent on it.`,
+      because: `${acct.email || 'that account'}'s Claude sign-in is not working, so an agent created on it would not be able to run. Before creating an agent on it, sign that account in again from Settings, AI Models.`,
     };
   }
   return { ok: true };

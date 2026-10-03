@@ -5394,7 +5394,7 @@ test('#548: a claude-less Mac refuses an anthropic creation in words, offering O
   r = create.createAgent({ ...noClaude, codexBin: CODEX_BIN, name: 'cg-c', role: 'pm' });
   delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   assert.equal(r.outcome, create.OUTCOME.REFUSED);
-  assert.match(r.because, /or create this agent on OpenAI instead/);
+  assert.match(r.because, /or create this agent on OpenAI instead/i);
   assert.equal(r.alternative.offered, true);
 
   // And nothing was half-made by any of the three refusals.
