@@ -152,6 +152,11 @@ test('#5050: the test runners pin the language to English, so no test depends on
   for (const f of ['tools/run-tests.sh', 'tools/browser-checks.sh']) {
     assert.match(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /^export AGENT_WORKFORCE_PERSON_LOCALE=en\b/m, f);
   }
+  // Review 22: the install harness (and its env -i reboot simulation) and the bundle's smoke boot start real boards too.
+  const install = fs.readFileSync(path.join(__dirname, '..', 'tools', 'test-install.sh'), 'utf8');
+  assert.match(install, /^export AGENT_WORKFORCE_PERSON_LOCALE=en\b/m, 'test-install.sh');
+  assert.match(install, /^\s*AGENT_WORKFORCE_PERSON_LOCALE="\$AGENT_WORKFORCE_PERSON_LOCALE" \\$/m, 'test-install.sh reboot simulation');
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'tools', 'build-kosmos-bundle.sh'), 'utf8'), /^\s*AGENT_WORKFORCE_PERSON_LOCALE=en \\$/m, 'build-kosmos-bundle.sh smoke boot');
 });
 
 test('#5050 review 2/3: a fallback read neither adds nor strips a block; a sure read does both', () => {

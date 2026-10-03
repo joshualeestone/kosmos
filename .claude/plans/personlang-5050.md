@@ -227,3 +227,11 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
 - The create step says "because this computer's language is English" (true for the override too, not only a Mac).
 - Rare, recorded: a sure English read removing the block from a file that is almost only the block can leave it under
   instructions.MIN_CHARS; the write is refused and the agent shows in the boot line each start (reported, not lost).
+
+## Review 22 (blind, sonnet)
+- tools/test-install.sh (its export and its env -i reboot simulation) and tools/build-kosmos-bundle.sh's smoke boot pin
+  AGENT_WORKFORCE_PERSON_LOCALE=en, so those real boards write no language block on a non-English Mac. Pinned in the
+  runner test; mutation (bundle unpinned) reds. The 27 test files that read either script: the same 6 fail on
+  origin/main outside the runner, none only on the branch.
+- Duplicates: the process-long cache (reviews 5, 6), the first-boot write (12, 17). Deferred like the sibling blocks: a
+  near-empty instructions file gets the block appended (connections and dmfiles do the same).
