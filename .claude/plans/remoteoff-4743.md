@@ -184,3 +184,6 @@ Off / on-without-report / on-with-report / out-of-order check-ins all match the 
 ordering; the stored diagnosis kept on an off check-in); no lost flip found; tests pinned with deepEqual on the exact
 JSON; no stale coordinator-unmerged wording. LEFT NITs: the mac-standing.js header does not name the unreadable-settings
 null (#4308).
+
+## Validation (729115ac8, 2026-10-02 22:26)
+Full validation PASSED: node 14348 tests, 14125 pass, 0 fail; test:shell; build; subdir audit rc 0. No leak.
