@@ -63,17 +63,26 @@ async function openPage(engine, origin, platform) {
                      // background reads are GETs to other routes, so they stay out)
   const errors = [];
   pg.on('pageerror', (e) => errors.push(String(e && e.message)));
+  /* The browser's own download (the anchor) is recorded from Playwright's download event as DOWNLOAD, never from the
+     route: measured 2026-10-03, an <a download> request does not pass through page.route in Chromium or WebKit, so
+     the route sees only the page's look and R1 cannot pass on the look alone. Headless WebKit also fires no download
+     event for it (measured the same day), so there the page's own act is what is recorded: every click() on an anchor
+     carrying `download`, as ANCHOR <url>. R1 asks Chromium for the real DOWNLOAD and WebKit for the ANCHOR. */
+  pg.on('download', (d) => { try { const u = new URL(d.url()); asked.push('DOWNLOAD ' + u.pathname + u.search); } catch { asked.push('DOWNLOAD ?'); } d.cancel().catch(() => {}); });
+  await pg.exposeFunction('__fileget5165Anchor', (href) => { try { const u = new URL(href); asked.push('ANCHOR ' + u.pathname + u.search); } catch { asked.push('ANCHOR ?'); } });
+  await pg.addInitScript(() => {
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.hasAttribute('download')) window.__fileget5165Anchor(this.href);
+      return click.apply(this, arguments);
+    };
+  });
   await pg.route('**/*', async (route) => {
     const req = route.request();
     const u = new URL(req.url());
     if (u.pathname === '/' || u.pathname === '/index.html') return route.fulfill({ status: 200, contentType: 'text/html', body: page });
     if (/\/(file-)?download$/.test(u.pathname)) {
-      /* The browser's own download (the anchor) is expected to arrive as a navigation and is recorded as DOWNLOAD;
-         the page's look at the same address is a fetch and keeps its method, so R1 cannot pass on the look alone. If an
-         engine reported the anchor otherwise, R1 would go RED, not pass falsely. */
-      asked.push((req.isNavigationRequest() ? 'DOWNLOAD' : req.method()) + ' ' + u.pathname + u.search);
-      // As the route does: a refused download NAVIGATION is 204 (nothing to save); the page's look gets the sentence.
-      if (u.searchParams.get('name') === GONE && req.isNavigationRequest()) return route.fulfill({ status: 204, body: '' });
+      asked.push(req.method() + ' ' + u.pathname + u.search);   // the page's own look (?check=1)
       if (u.searchParams.get('name') === GONE) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'that file is not there any more, or it was moved' }) });
       // As the route does: the page's look (?check=1) is 204 with no body; only the download carries the file.
       if (u.searchParams.get('check') === '1') return route.fulfill({ status: 204, body: '' });
@@ -145,7 +154,8 @@ async function runRemote(engine, platform, say) {
   engine = engine + ' (' + platform + ' board)';
   try {
     say(await pg.evaluate(() => kplusRemote()) === true, engine + ' R0: the page reached as kosmos-remote.test counts as Kosmos+');
-    for (const [where, listId, name, cls, want] of ROWS) {
+    for (const [where, listId, name, cls, downloaded] of ROWS) {
+      const want = engine.startsWith('webkit') ? downloaded.replace(/^DOWNLOAD /, 'ANCHOR ') : downloaded;
       asked.length = 0;
       const missing = await clickRow(pg, listId, name, cls, () => asked.includes(want));
       const opened = asked.filter((a) => /^POST /.test(a));
