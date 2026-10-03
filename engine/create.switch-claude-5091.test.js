@@ -124,3 +124,38 @@ test('#5091: an account with its own history, or one this computer does not know
   assert.equal(r2.outcome, create.OUTCOME.REFUSED);
   assert.equal(plistText(e), before2);
 });
+
+test('#5091 round 1: the pick goes through setAccount, so the picked account gets its own trust record (#1629)', () => {
+  const f = bornOnCodex('sw5091-trust');
+  const r = create.setProvider(f, 'anthropic', { ...BINS, accountDir: ARIA, pickedByPerson: true });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  const cfg = JSON.parse(fs.readFileSync(nodePath.join(ARIA, '.claude.json'), 'utf8'));
+  const trusted = Object.values(cfg.projects || {}).some((p) => p && p.hasTrustDialogAccepted === true);
+  assert.ok(trusted, 'the picked Claude account has no trust record for the worker folder, so the agent would stop on the trust prompt');
+});
+
+test('#5091 round 1: picking the main account is named back as a pick, with no pin', () => {
+  const main = accounts.list().find((a) => a.isDefault);
+  const g = bornOnCodex('sw5091-main-named');
+  const r = create.setProvider(g, 'anthropic', { ...BINS, accountDir: main.dir, pickedByPerson: true });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(configDirOf(g), null);
+  assert.equal(r.account && r.account.isDefault, true);
+  assert.equal(r.account.chosen, true);
+});
+
+test('#5091 round 1: an account that is gone by the time it is applied is a PARTIAL that says so, never a silent main', () => {
+  const h = bornOnCodex('sw5091-partial');
+  const real = accounts.list;
+  let calls = 0;
+  accounts.list = () => { calls += 1; const rows = real(); return calls === 1 ? rows : rows.filter((a) => a.dir !== ARIA); };
+  let r;
+  try { r = create.setProvider(h, 'anthropic', { ...BINS, accountDir: ARIA, pickedByPerson: true }); }
+  finally { accounts.list = real; }
+  assert.ok(calls >= 2, 'the seam was not reached twice, so this arm does not test the apply step');
+  assert.equal(r.outcome, create.OUTCOME.PARTIAL);
+  assert.match(r.because, /now runs on Claude, but on your main Claude account: it could not move to aria@example\.com/);
+  assert.doesNotMatch(r.because, /\.\)\.$/, 'a doubled full stop');
+  assert.equal(configDirOf(h), null, 'a partial must leave it on the main account, not half-pinned');
+  assert.equal(store.readProfile(h).provider, 'anthropic');
+});

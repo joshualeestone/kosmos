@@ -1770,6 +1770,14 @@ function setProvider(name, provider, opts) {
   /* The ONE provider -> runner map (providerRunner), shared with createAgentInner
      and recordedRunner, so the routes to a runner cannot disagree. */
   const runner = providerRunner(provider);
+  if (job.runner === runner) {
+    /* The vendor word a person reads, from the shared providerLabel map. */
+    const already = providerLabel(provider);
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `${spoken} already runs on ${already}`,
+    };
+  }
   /* #5091 (Josh, 10-02 22:10): a switch TO Claude can name WHICH Claude account, like a switch to OpenAI, Gemini or
      Grok. It was "claude carries no account": every switch landed on the main account, and a person with four Claude
      accounts had no list to pick from. Checked BEFORE anything is written, with setAccount's own two rules (the account
@@ -1785,18 +1793,10 @@ function setProvider(name, provider, opts) {
       return {
         outcome: OUTCOME.REFUSED,
         because: `${found.email || 'that account'} keeps its own separate history, so ${spoken} would arrive there with `
-          + 'nothing it has ever done. Point that account at your agents\' history first, or pick another, so nothing was changed',
+          + 'nothing it has ever done, and nothing was changed. Pick another Claude account, or point that one at your agents\' history first',
       };
     }
-    claudePick = found.isDefault ? null : found;
-  }
-  if (job.runner === runner) {
-    /* The vendor word a person reads, from the shared providerLabel map. */
-    const already = providerLabel(provider);
-    return {
-      outcome: OUTCOME.REFUSED,
-      because: `${spoken} already runs on ${already}`,
-    };
+    claudePick = found;   // the main account too, so a person who picked it hears so (setAccount only for another)
   }
   const { claudeBin, codexBin, geminiBin, grokBin, antigravityBin } = binPaths(opts);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : claudeBin;
@@ -2187,10 +2187,11 @@ function setProvider(name, provider, opts) {
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
-  if (claudePick) {
+  if (claudePick && !claudePick.isDefault) {
     const moved = setAccount(clean, claudePick.dir, opts);
     if (moved && moved.outcome === OUTCOME.REFUSED) {
-      return { outcome: OUTCOME.PARTIAL, because: `${spoken} now runs on Claude, but on your main Claude account: it could not move to ${claudePick.email || 'the account you picked'} (${moved.because}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
+      const why = String(moved.because || '').replace(/[.\s]+$/, '');
+      return { outcome: OUTCOME.PARTIAL, because: `${spoken} now runs on Claude, but on your main Claude account: it could not move to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
     }
   }
   return {
@@ -2204,7 +2205,7 @@ function setProvider(name, provider, opts) {
     /* #3296/#3391: the Gemini/Grok account the switch landed on, so the route can
        name it -- the generic analog of `openaiAccount`. Null for a switch to
        claude/codex and null under dry-run, for the same reason openaiAccount is. */
-    account: claudePick ? { dir: claudePick.dir, email: claudePick.email || null, label: claudePick.label || null, isDefault: false, chosen: !!(opts && opts.pickedByPerson === true) } : switchAccount,
+    account: claudePick ? { dir: claudePick.dir, email: claudePick.email || null, label: claudePick.label || null, isDefault: !!claudePick.isDefault, chosen: !!(opts && opts.pickedByPerson === true) } : switchAccount,
     dropped: {
       model: job.model || null,
       account: Boolean(job.configDir),

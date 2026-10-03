@@ -40,4 +40,19 @@ account and need a second restart.
   (tools.browser-checks-wired 11/11, run from the repo root).
 
 ## Review
-- Round 1: PENDING.
+- Round 1 (opus, blind): 1 BLOCKER, 4 SHOULD-FIX, 5 NIT, all taken (22:5x). BLOCKER (measured): the hint under the new
+  Claude picker said "Choose which OpenAI sign-in it runs on" (switchKeyedSay knew only OpenAI/Gemini/Grok), the very
+  wrong-provider defect this card fixes; switchKeyedSay now speaks Claude for 'anthropic'. SF1: a PARTIAL (switched, but
+  the picked account could not be applied) reached the page as 'changed' and the dialog said Ready; the route now answers
+  'partial', leading with what happened, restart or not. SF2: after a successful switch the menu value is '' and the
+  block stayed hidden (armed is true for ''); the block now hides only for a real other provider. SF3 (Josh's Liu Kang):
+  an Antigravity/Muse agent's account picker returns early, so the block never came back on a reopen;
+  paintProviderPicker now shows it synchronously. SF4: the check could not see SF1-3; it now reads the hint line, repaints
+  the agent's own provider, checks the rows after the switch, and asserts picked:true. NITs: a refused Claude pick
+  re-reads the list; the PARTIAL sentence has one "main", no doubled stop; the pre-check refusal reads straight; the markup
+  comment and static label; the Claude pick is checked after "already runs on Claude", and picking the main is named back.
+  Engine test +3 arms (8/8): PARTIAL via a list seam (asserts the seam was reached twice), the trust record lands in the
+  picked account's .claude.json, the main named back. Browser check 13/13 on the branch; main fails every substantive arm.
+  ⚠️ While stopping the superseded Mortals run, a broken remote tree-walk killed pid 48283; it was in no listing taken
+  moments later (most likely the walk's own awk), not proven. Killing then went by an explicit printed tree.
+- Round 2: PENDING.
