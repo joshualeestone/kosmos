@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: staleah-2716
-diff_hash: b6d6117cc6037acf71fe33a30c1ce36d7023e3bc1b153027141572907e9df9ff
+diff_hash: 8e1233711f47c2dd8ee2b7e055d167068be305c21efd1150658925eef3a8e96d
 validation: passed (real browser, Agent1s light lane 08:11: render-autohello-switch-2716 28/28 incl. the fixed arm; render-switch-claude-5091 all passed; the control is the 0.7.21 cut, red twice on this arm at main)
 subdir_audit: passed (no subdirectory CLAUDE.md in the diff)
 timestamp: 2026-10-03T13:05:06Z
