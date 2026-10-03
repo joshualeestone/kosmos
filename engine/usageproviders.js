@@ -106,7 +106,11 @@ class Acc {
 /* ---------- Codex: <home>/sessions/YYYY/MM/DD/rollout-*.jsonl ---------- */
 async function scanCodex(acc, codexHomes) {
   for (const home of codexHomes) {
-    for (const file of (await walk(path.join(home, 'sessions'), /^rollout-.*\.jsonl$/, [], acc)).sort()) {
+    /* `archived_sessions` too: archiving MOVES a rollout there, so its usage would otherwise drop out of every day not
+       yet frozen. A moved file is never in both places, so nothing is counted twice. */
+    const rollouts = [];
+    for (const sub of ['sessions', 'archived_sessions']) await walk(path.join(home, sub), /^rollout-.*\.jsonl$/, rollouts, acc);
+    for (const file of rollouts.sort()) {
       if (!(await touchedSince(file, acc.sinceDay))) continue;
       let text;
       try { text = await fsp.readFile(file, 'utf8'); } catch { acc.incomplete = true; continue; }

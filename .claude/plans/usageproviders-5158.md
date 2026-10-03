@@ -33,6 +33,22 @@ Launch folder (for per-agent): Codex `session_meta.cwd`; Gemini the session's pr
 - A separate module (`engine/usageproviders.js`) with one reader per provider, so the Claude path is not edited.
 - Reasoning/thinking tokens are counted as output (that is how all three providers bill them) rather than a fifth
   bucket; the four-bucket rule stands.
-- Antigravity is slice 3 (protobuf, no timestamps). Not counted here; said so on the page.
+- Antigravity is slice 3 (protobuf, no timestamps). Not counted here, and the page does not say so (a line about a
+  provider most people do not use reads as noise); recorded as a gap in the PR instead.
 - Weakest premise: Gemini's `input` includes `cached` (true for the Gemini API; every local sample had cached 0, so it is
   unmeasured here). If wrong, Gemini input is undercounted by the cached amount.
+
+## Review 1 (opus): 5 WARNINGs, all taken
+- A failed or partial provider scan would have been frozen as the truth: `scanProviders` now returns `complete`, and a
+  past day is frozen only from a complete scan (shown either way).
+- No test covered the order Claude's history depends on: an end-to-end `dailyUsageByModel` test asserts Claude's two
+  files carry no provider rows and the providers file does; its mutant (merge before the Claude freeze) fails it.
+- A forked Codex rollout replays the parent's totals: its first total is the baseline, not usage (from Codex's design;
+  no fork exists on this fleet to measure).
+- Account homes came from list(), which drops signed-out and forgotten accounts: now found by folder name
+  (`.codex-*`, `.removed-codex-*`, and the Gemini/Grok equivalents), deduped by real path.
+- Every request read every session file: files last written before the first wanted day are skipped (not the Codex
+  YYYY/MM/DD folders, which name the day a session started).
+- NITs taken: Grok turn with no number keyed by index; Grok cache-write assumption commented; Gemini reply-only id
+  comment; server.usage.test.js unsets the provider home variables; Codex `archived_sessions` read. Not taken: Gemini
+  slugs with no `.project_root` (none on this fleet) fall to "elsewhere".
