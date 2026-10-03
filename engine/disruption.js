@@ -91,6 +91,10 @@ function begin(sessionName, cause, atISO) {
   } catch (e) {
     return { ok: false, because: 'we could not write that down (' + (e && e.code || 'unknown') + ')' };
   }
+  /* #5154 review 1: the crash-loop rule must not count the run this ends. This record is cleared on the first live
+     reading and holds only the latest, so the mark goes in the agent's run file too, which nothing clears. Lazy, to
+     keep the two modules free of a require cycle; best-effort. */
+  try { require('./crashloop').noteDeliberate(sessionName, Date.parse(startedAt)); } catch { /* never fails a restart */ }
   return { ok: true, cause: c, startedAt };
 }
 

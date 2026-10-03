@@ -20039,17 +20039,19 @@ function start(port = PORT) {
       const CRASHLOOP_TOLD = new Set();
       const crashLoopTick = setInterval(() => {
         try {
-          const roster = safeRoster() || [];
-          const loopingNow = new Set();
-          for (const a of roster) {
-            if (!a || !a.isNamedOurs || !a.crashLoop || a.crashLoop.looping !== true) continue;
-            loopingNow.add(a.sessionName);
-            if (CRASHLOOP_TOLD.has(a.sessionName)) continue;
-            CRASHLOOP_TOLD.add(a.sessionName);
-            process.stdout.write(`crash-loop: ${a.name || a.sessionName} (${a.sessionName}) restarted ${a.crashLoop.count} times in ${crashloop.WINDOW_MS / 60000} min, each run under ${crashloop.SHORT_RUN_MS / 60000} min; told the person\n`);
-            phonenotify.happened({ kind: 'needs_you', id: 'crashloop:' + a.sessionName + ':' + a.crashLoop.firstAt, agent: a.name || a.sessionName, session: a.sessionName, project: null });
-          }
-          for (const s of [...CRASHLOOP_TOLD]) if (!loopingNow.has(s)) CRASHLOOP_TOLD.delete(s);
+          /* Review 1: read the run files themselves, not the live roster. Between crashes a looping agent has no
+             session, so a roster-based tick missed it most minutes and re-pushed each time it reappeared; it also
+             cost a full snapshot a minute. A session is forgotten ONLY when its own read says the loop is over. */
+          let names = new Map();
+          try { for (const a of safeRoster() || []) if (a && a.sessionName) names.set(store.safeKey(a.sessionName), a.name || a.sessionName); } catch { /* names are a courtesy */ }
+          crashloop.tellLoops({
+            keys: crashloop.keys(), told: CRASHLOOP_TOLD, readOne: (key) => crashloop.read(key),
+            tell: (key, c) => {
+              const shown = names.get(key) || key;
+              process.stdout.write(`crash-loop: ${shown} (${key}) restarted ${c.count} times in ${crashloop.WINDOW_MS / 60000} min, each run under ${crashloop.SHORT_RUN_MS / 60000} min; told the person\n`);
+              phonenotify.happened({ kind: 'needs_you', id: 'crashloop:' + key + ':' + c.firstAt, agent: shown, session: key, project: null });
+            },
+          });
         } catch { /* never breaks the board */ }
       }, 60 * 1000);
       if (crashLoopTick && typeof crashLoopTick.unref === 'function') crashLoopTick.unref();

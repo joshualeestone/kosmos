@@ -33,24 +33,37 @@ const DISRUPTION_SLACK_MS = 10 * 1000;
 function dir() { return path.join(store.ROOT, 'runs'); }
 function fileFor(sessionName) { return path.join(dir(), store.safeKey(sessionName) + '.log'); }
 
-/* The runs in a run file, oldest first: [{ start, end }] in ms, end null while running. A line that is not
-   "start <n>" or "end <n>" is skipped; an "end" with no open start is skipped; a "start" while one is open closes
-   nothing (the old one is treated as unknown and dropped, since its end was never seen). */
+/* The runs in a run file, oldest first: [{ start, end }] in ms, end null while running, plus `deliberate`: every
+   "kosmos <epoch>" line (a restart, switch or change Kosmos itself made, written by noteDeliberate). A line that is not
+   one of the three is skipped; an "end" with no open start is skipped; a "start" while one is open ENDS the old one
+   at the new start (its own end was never seen). Review 1: the deliberate times live HERE, in the run file nothing clears, because the
+   disruption record is cleared on the first live reading after a restart and holds only the latest one. */
 function parse(text) {
   const runs = [];
+  const deliberate = [];
   let open = null;
   for (const line of String(text || '').split('\n')) {
-    const m = /^(start|end) (\d{9,11})$/.exec(line.trim());
+    const m = /^(start|end|kosmos) (\d{9,11})$/.exec(line.trim());
     if (!m) continue;
     const ms = Number(m[2]) * 1000;
-    if (m[1] === 'start') { open = { start: ms, end: null }; runs.push(open); }
+    if (m[1] === 'kosmos') { deliberate.push(ms); continue; }
+    if (m[1] === 'start') {
+      // Review 1: a start whose end never came (a launch that failed before its watch loop, or a supervisor stopped
+      // by TERM) ends at the next start: an upper bound, so a fast failure still reads short (about launchd's 30 s
+      // throttle), a deliberate restart's "kosmos" mark falls inside it, and a reboot reads long.
+      if (open) open.end = ms;
+      open = { start: ms, end: null }; runs.push(open);
+    }
     else if (open && ms >= open.start) { open.end = ms; open = null; }
   }
-  return runs.filter((r) => r.end !== null || r === runs[runs.length - 1]);
+  const out = runs.slice();
+  out.deliberate = deliberate;
+  return out;
 }
 
-/* Pure. `runs` from parse; `deliberateAt` is when the last deliberate disruption began (ms) or null.
-   Returns { looping, count, firstAt, lastAt } (counts and times of the short runs that make the loop). */
+/* Pure. `runs` from parse; `deliberateAt` is a time (ms), or a list of times, at which Kosmos itself disrupted the
+   agent (null for none); `runs.deliberate` (from parse) is added to it. A run any of them falls inside (with
+   DISRUPTION_SLACK_MS either side) is not counted. Returns { looping, count, firstAt, lastAt }. */
 function assess(runs, now, deliberateAt) {
   const list = Array.isArray(runs) ? runs : [];
   const latest = list[list.length - 1];
@@ -58,10 +71,12 @@ function assess(runs, now, deliberateAt) {
   if (latest && (latest.end === null ? now - latest.start > SHORT_RUN_MS : latest.end - latest.start > SHORT_RUN_MS)) {
     return { looping: false, count: 0, firstAt: null, lastAt: null };
   }
+  const marks = [].concat(deliberateAt == null ? [] : deliberateAt, Array.isArray(list.deliberate) ? list.deliberate : [])
+    .filter((t) => Number.isFinite(t));
   const short = list.filter((r) => r.end !== null
     && r.end - r.start <= SHORT_RUN_MS
     && r.end >= now - WINDOW_MS && r.end <= now + DISRUPTION_SLACK_MS
-    && !(Number.isFinite(deliberateAt) && deliberateAt >= r.start - DISRUPTION_SLACK_MS && deliberateAt <= r.end + DISRUPTION_SLACK_MS));
+    && !marks.some((t) => t >= r.start - DISRUPTION_SLACK_MS && t <= r.end + DISRUPTION_SLACK_MS));
   if (short.length < LOOP_RUNS) return { looping: false, count: short.length, firstAt: null, lastAt: null };
   return { looping: true, count: short.length, firstAt: short[0].start, lastAt: short[short.length - 1].end };
 }
@@ -78,4 +93,44 @@ function read(sessionName, now = Date.now()) {
   try { return assess(parse(text), now, deliberateAt); } catch { return { looping: false, count: 0, firstAt: null, lastAt: null }; }
 }
 
-module.exports = { SHORT_RUN_MS, WINDOW_MS, LOOP_RUNS, DISRUPTION_SLACK_MS, dir, fileFor, parse, assess, read };
+/* Review 1: Kosmos is about to disrupt this agent on purpose (a restart, a switch, an instructions change). Called
+   from disruption.begin, the one door every such path goes through. Best-effort: a failed write only means the
+   run it ends may be counted. */
+function noteDeliberate(sessionName, now = Date.now()) {
+  try {
+    fs.mkdirSync(dir(), { recursive: true });
+    fs.appendFileSync(fileFor(sessionName), 'kosmos ' + Math.floor(now / 1000) + '\n');
+    return true;
+  } catch { return false; }
+}
+
+/* Review 1: the agent was removed, or a new one is being made under its name: its runs go with it, so a new agent
+   never inherits "Keeps stopping" from the last one. */
+function forget(sessionName) {
+  try { fs.rmSync(fileFor(sessionName), { force: true }); return true; } catch { return false; }
+}
+
+/* The phone tick's decision, pure (review 1: it was untested). For each run-file `key`, `readOne(key)` answers; a key
+   that is looping and not in `told` is told once (`tell(key, answer)`) and remembered; a key whose OWN read says it is
+   not looping is forgotten, so a later loop tells again. A key merely missing from this pass is NOT forgotten.
+   Returns the keys told this pass. */
+function tellLoops({ keys, told, readOne, tell }) {
+  const out = [];
+  for (const key of Array.isArray(keys) ? keys : []) {
+    let c;
+    try { c = readOne(key); } catch { continue; }
+    if (!c || c.looping !== true) { told.delete(key); continue; }
+    if (told.has(key)) continue;
+    told.add(key);
+    try { tell(key, c); } catch { /* a failed push is not retried this episode */ }
+    out.push(key);
+  }
+  return out;
+}
+
+/* The run files on disk, as keys (the file name less .log). */
+function keys() {
+  try { return fs.readdirSync(dir()).filter((f) => f.endsWith('.log')).map((f) => f.slice(0, -4)); } catch { return []; }
+}
+
+module.exports = { SHORT_RUN_MS, WINDOW_MS, LOOP_RUNS, DISRUPTION_SLACK_MS, dir, fileFor, parse, assess, read, noteDeliberate, forget, tellLoops, keys };

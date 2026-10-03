@@ -61,19 +61,67 @@ test('#5154: a run ended by a deliberate Kosmos restart does not count toward a 
   assert.equal(cl.assess(runs, NOW, during).looping, false, 'a deliberate restart was counted as a crash');
 });
 
-test('#5154: parse reads the supervisor lines and ignores anything else', () => {
+test('#5154: parse reads the supervisor lines, and a start with no end ends at the next start', () => {
   const s = (ms) => Math.floor(ms / 1000);
   const text = [
     'start ' + s(NOW - 10 * MIN), 'end ' + s(NOW - 10 * MIN + 30e3),
     'garbage', 'end 1',                                 // an end with no open start
-    'start ' + s(NOW - 9 * MIN),                        // its end was never seen: dropped by the next start
+    'start ' + s(NOW - 9 * MIN),                        // its end never came: it ends at the next start
     'start ' + s(NOW - 8 * MIN), 'end ' + s(NOW - 8 * MIN + 20e3),
-    'start ' + s(NOW - 1 * MIN),                        // the newest, still running: kept
+    'kosmos ' + s(NOW - 5 * MIN),                       // a deliberate disruption mark
+    'start ' + s(NOW - 1 * MIN),                        // the newest, still running
   ].join('\n');
   const runs = cl.parse(text);
-  assert.equal(runs.length, 3);
-  assert.equal(runs[2].end, null);
-  assert.equal(runs[0].end - runs[0].start, 30e3);
+  assert.equal(runs.length, 4);
+  assert.equal(runs[1].end - runs[1].start, 1 * MIN, 'the orphaned start ends at the next start');
+  assert.equal(runs[3].end, null);
+  assert.deepEqual(runs.deliberate, [NOW - 5 * MIN]);
+});
+
+test('#5154 review 1: a launch that fails before its watch loop (no end lines at all) still reads as a loop', () => {
+  const s = (ms) => Math.floor(ms / 1000);
+  // launchd retries every 30 s; each attempt writes only its start.
+  const text = [0, 1, 2, 3].map((k) => 'start ' + s(NOW - 2 * MIN + k * 30e3)).join('\n');
+  const r = cl.assess(cl.parse(text), NOW, null);
+  assert.equal(r.looping, true, 'a fast-failing launch was not seen');
+});
+
+test('#5154 review 1: a deliberate restart is excluded through read(), even after its disruption record is cleared', () => {
+  const s = (ms) => Math.floor(ms / 1000);
+  const disruption = require('./disruption');
+  const t = Date.now();
+  fs.mkdirSync(cl.dir(), { recursive: true });
+  const lines = [];
+  for (const ago of [10, 9, 8]) lines.push('start ' + s(t - ago * MIN), 'end ' + s(t - ago * MIN + 30e3));
+  fs.writeFileSync(cl.fileFor('Rhea'), lines.join('\n') + '\n');
+  assert.equal(cl.read('Rhea', t).looping, true, 'CONTROL: three short runs are a loop');
+  // A Kosmos restart during the third run: disruption.begin writes the mark into the run file.
+  assert.equal(disruption.begin('Rhea', 'restart', new Date(t - 8 * MIN + 10e3).toISOString()).ok, true);
+  disruption.clear('Rhea');   // as status.js does on the first live reading
+  assert.equal(cl.read('Rhea', t).looping, false, 'a deliberate restart was counted once its record was cleared');
+});
+
+test('#5154 review 1: forget() removes the runs, so a new agent of that name inherits nothing', () => {
+  fs.mkdirSync(cl.dir(), { recursive: true });
+  fs.writeFileSync(cl.fileFor('Old'), 'start 1790000000\n');
+  assert.equal(cl.forget('Old'), true);
+  assert.equal(fs.existsSync(cl.fileFor('Old')), false);
+});
+
+test('#5154 review 1: the phone tick tells once per loop, never again while it lasts, and again after it ends', () => {
+  const told = new Set();
+  const said = [];
+  let looping = { a: true, b: false };
+  const run = (keys) => cl.tellLoops({ keys, told, readOne: (k) => ({ looping: looping[k] === true, count: 3 }), tell: (k) => said.push(k) });
+  run(['a', 'b']);
+  run(['a', 'b']);
+  assert.deepEqual(said, ['a'], 'told twice while looping, or told a key that is not looping');
+  run(['b']);                      // a pass without a (its file missing this minute): NOT forgotten
+  run(['a']);
+  assert.deepEqual(said, ['a'], 'a key missing from one pass was told again');
+  looping.a = false; run(['a']);   // its own read says the loop is over: forgotten
+  looping.a = true; run(['a']);    // a later loop tells again
+  assert.deepEqual(said, ['a', 'a']);
 });
 
 test('#5154: read() takes the run file and the disruption record from the store, and never throws', () => {
@@ -120,12 +168,13 @@ test('#5154: END TO END, what the real supervisor writes is where the engine rea
   assert.equal(cl.read('Pippa').looping, true, 'the engine did not find the loop the supervisor wrote (a root or key mismatch)');
 });
 
-test('#5154: the supervisor records a start only for a session it launched, and the end once it is gone', () => {
+test('#5154: the supervisor records a start when it launches (not adopts), and the end once the session is gone', () => {
   const { src } = supervisorRecordRun();
+  const block = src.indexOf('\nif [ -z "$adopt" ]; then\n');   // the launch block itself, not a comment quoting it
+  const start = src.indexOf('  record_run start', block);
+  assert.ok(block > 0 && start > block && start < src.indexOf('|| exit 1', block), 'the start line must open the launch block, before any `|| exit 1`');
   // The WATCH loop is the last one (an earlier loop waits for a session that is not ours).
   const loop = src.lastIndexOf('while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do');
-  const start = src.indexOf('[ -z "${adopt:-}" ] && record_run start');
-  assert.ok(start > 0 && start < loop, 'the start line must be written just before the watch loop, and only when not adopting');
   const gone = src.indexOf('if [ "$_gone" = 1 ]; then', loop);
   const end = src.indexOf('[ -z "${adopt:-}" ] && record_run end', loop);
   assert.ok(gone > 0 && end > gone && end < src.indexOf('retire_run_token', gone), 'the end line must be written in the confirmed-gone branch');
@@ -160,4 +209,20 @@ test('#5154: the card says what Kosmos saw, before any state sentence', () => {
   assert.ok(first < fn.indexOf("a.state === 'restarting'"), 'the crash-loop sentence must come before the state rules');
   assert.match(fn, /Kosmos has restarted it ' \+ n \+ ' times in the last half hour, and each time it stopped within a couple of minutes\. Kosmos will keep trying\. Open it to see what it shows\./);
   assert.doesNotMatch(fn, /stop it until you can look|what it last showed/, 'Mona Lisa: no stop control exists, and the last screen is gone after a restart');
+});
+
+
+test("#5154 review 1: a looping card keeps its state's PRESENCE (an offline agent keeps its dot, tense and Start)", () => {
+  const page = require('../test-support/page');
+  const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
+  const src = [page.liftConst(SCRIPT, 'CARD_ST_FAILED_RESTART')];
+  const i = SCRIPT.indexOf('const CARD_ST = '); const j = SCRIPT.indexOf('\n};', i);
+  assert.ok(i > -1 && j > i, 'CARD_ST moved');
+  src.push(SCRIPT.slice(i, j + 3), page.lift(SCRIPT, 'cardStOf'), 'return { cardStOf, CARD_ST };');
+  const { cardStOf, CARD_ST } = new Function(src.join('\n'))();
+  const loop = { looping: true, count: 3 };
+  assert.equal(cardStOf({ state: 'stopped', crashLoop: loop }).st, 'attn', 'the needs-you look');
+  assert.equal(cardStOf({ state: 'stopped', crashLoop: loop }).pres, CARD_ST.stopped.pres, 'an offline looping agent was drawn as present');
+  assert.equal(cardStOf({ state: 'working', crashLoop: loop }).pres, CARD_ST.working.pres);
+  assert.equal(cardStOf({ state: 'stopped', crashLoop: null }), CARD_ST.stopped, 'CONTROL: no loop, unchanged');
 });

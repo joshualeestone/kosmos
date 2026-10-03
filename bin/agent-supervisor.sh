@@ -456,6 +456,10 @@ session_id_exact() {
 # stamping @kosmos_agent onto somebody else's session would make the NEXT run of
 # this script recognise it as ours and kill it.
 if [ -z "$adopt" ]; then
+  # #5154: this supervisor is about to LAUNCH (not adopt), so the attempt is a run to count. Written first, before any
+  # `exit 1` below (review 1: a launch that fails early, a missing runner say, is the likeliest day-one loop, and it
+  # never reached the watch loop). A run whose end line never comes ends at the next start (engine/crashloop.js).
+  record_run start
   # ⚠️ The model flag is appended ONLY when a model was chosen, as two more
   # quoted arguments -- never interpolated into a string this file's header
   # forbids. An empty MODEL adds nothing and the runner picks its own default.
@@ -1324,8 +1328,6 @@ unset _LAUNCH_TOKEN _LAUNCH_TOKEN_ONLY
 # restart fails on the session the last run just made: a respawn loop for as
 # long as the machine is on, while the agent looks perfectly healthy because the
 # first attempt worked.
-# #5154: this run launched the session (not an adopt of one already running), so it is a run to count.
-[ -z "${adopt:-}" ] && record_run start
 while "$TMUX_BIN" has-session -t "$TARGET" 2>/dev/null; do
   sleep 10
 done
