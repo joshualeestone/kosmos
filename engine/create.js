@@ -4809,8 +4809,8 @@ function createAgentInner(opts) {
    *
    * And when Claude IS the missing one, the refusal now carries the remedy
    * and, ONLY WHEN IT IS REAL ON THIS MACHINE, the other path (Mona Lisa's
-   * rule, the pill-door law applied to a sentence): "or create this agent
-   * on OpenAI instead" is said only with the codex runner present AND an
+   * rule, the pill-door law applied to a sentence): "Or create this agent
+   * on OpenAI instead." is said only with the codex runner present AND an
    * OpenAI sign-in on the machine, because an alternative that dead-ends
    * is a dead click in words. Which condition suppressed it rides the
    * engine-side `alternative`, never the person's sentence.
