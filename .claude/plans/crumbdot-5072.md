@@ -49,3 +49,12 @@ rebased onto main (the proof's diff_hash is against main), and a free test slot.
 - TODO, in order: run render-subback-4586.js on the fix AND on the old markup (control: expect the 5072 asserts to fail)
   in a free slot; retake shots and post on #5072 for Mona Lisa; after #5053 merges, rebase onto main, validation (6j),
   proof, PR, merge.
+
+## Validation 1 red (01:34): the #4811 surface-gate self-test read the live checks map
+- tools/test-browser-check-surface-gate.sh's compliant-change arms hard-coded render-alltasks.js as the only check
+  that claims tsk-crumb, against the REAL docs/browser-checks folder. This branch rightly adds tsk-crumb to
+  render-subback-4586.js (it tests the crumb), so 3 arms went red. Green on main, red here, same machine: not
+  contention.
+- Fix: the arms now list every check that claims tsk-crumb (a setup arm asserts render-alltasks.js is among them, so
+  the arms cannot go vacuous). Green here (both checks found) and on an origin/main control (one found).
+- Rejected: dropping tsk-crumb from my annotation. It would make the map less true to pass a test that read live state.
