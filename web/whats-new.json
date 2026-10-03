@@ -5,6 +5,16 @@
       "icon": "chat",
       "title": "Agents speak your language",
       "line": "On a Mac set to another language, a new agent now starts and posts in that language instead of English."
+    },
+    {
+      "icon": "shield",
+      "title": "See what your agent asks",
+      "line": "When Claude Code asks an agent whether to switch models, its page shows the question, not \"cannot find the question\"."
+    },
+    {
+      "icon": "chat",
+      "title": "Agents report Kosmos bugs",
+      "line": "Agents can post a Kosmos bug report to the Kosmos+ community and are told to leave out your files, logs and screens."
     }
   ]
 }

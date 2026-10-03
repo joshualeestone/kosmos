@@ -3,7 +3,7 @@
 At most 5 highlights (tools/whats-new-check.js). Only MERGED, user-visible changes get a line. Each line is re-read
 against the MERGED diff before the cut (the 0.7.19/0.7.20 lesson: lines drafted from PR titles overclaimed twice).
 
-## In the file now (merged)
+## In the file now (merged; #5104 dada48e9b and #5108 e64a54a23 added 03:37, lines as reviewed in review 1)
 1. #5118 (b08eca20c) chat "Agents speak your language": "On a Mac set to another language, a new agent now starts and
    posts in that language instead of English." Checked against the PR: an English Mac sees no change; only a sure read
    of the Mac's first language acts; measured on Claude Sonnet in Spanish and Portuguese only (hence "a new agent", and
@@ -36,3 +36,4 @@ The ranking: #5108 is day-one for us (bug reports from the beta) but not for the
 - #5116 named the line by the app's real text.
 - #5108 OVERCLAIM: "never your files" is only a prompt instruction, not enforced -> "are told to leave out"; "Kosmos+ community".
 - #5101 NIT ("the panel" vague) left. #5114 line since rewritten from Mona's branch (after this review): re-review at cut.
+- teamcopy-4554 (Mona, merged 55e84aaa7): the Team card says "agents who report to it", not "people". One word; no line (below the cut of 5).
