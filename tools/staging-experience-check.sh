@@ -105,13 +105,18 @@ HF="$(mktemp "${TMPDIR:-/tmp}/staging-exp-auth.XXXXXXXX")" || { say "mktemp fail
 chmod 600 "$HF" 2>/dev/null || true
 printf 'x-kosmos-board-token: %s\n' "$TOKEN" > "$HF"
 NONCE="$(curl -sS -m 15 -H @"$HF" -X POST "$URL/api/board-nonce" 2>/dev/null | sed -n 's/.*"nonce":"\([0-9a-f]*\)".*/\1/p' | head -1)"
-# #5084: WHICH release this board runs, read from the board itself (`running` is in every answer of
-# POST /api/update/check, even when its network check fails). A pass describes THIS version, so an
-# operator never reads "a fresh session can use 0.7.19" off a board still on 0.7.18 (it happened on
-# the 0.7.19 promote). Read with the same off-argv token header, before it is removed.
+# #5084: WHICH release this board runs, read from the board itself through GET /api/version (read-only: a
+# constant, no update check). A pass describes THIS version, so an operator never reads "a fresh session can use
+# 0.7.19" off a board still on 0.7.18 (it happened on the 0.7.19 promote). NEVER POST /api/update/check for this:
+# it can start an install (round 1 of #5084, measured). A board too old to have the route reads as "cannot read",
+# which is the truth: it cannot speak for the candidate, which has the route. Same off-argv token header, parsed
+# with node (not a sed over the line).
 BOARD_VERSION=""
 if [ -n "$NONCE" ]; then
-  BOARD_VERSION="$(curl -sS -m 20 -H @"$HF" -X POST "$URL/api/update/check" 2>/dev/null | sed -n 's/.*"running":"\([^"]*\)".*/\1/p' | head -1)"
+  VNODE="${NODE:-}"; [ -n "$VNODE" ] && [ -x "$VNODE" ] || VNODE="$(command -v node 2>/dev/null || true)"
+  if [ -n "$VNODE" ]; then
+    BOARD_VERSION="$(curl -sS -m 15 -H @"$HF" "$URL/api/version" 2>/dev/null | "$VNODE" -e 'let b="";process.stdin.on("data",(d)=>{b+=d}).on("end",()=>{try{const v=JSON.parse(b).running;if(typeof v==="string"&&/^[0-9][0-9A-Za-z.+-]*$/.test(v))process.stdout.write(v)}catch{}})' 2>/dev/null || true)"
+  fi
 fi
 rm -f "$HF"; HF=""   # cleared so the EXIT trap's rm is exact, not a no-op on a stale path
 if [ -z "$NONCE" ]; then
@@ -125,7 +130,7 @@ if [ -n "${KOSMOS_GATE_EXPECT_VERSION:-}" ] && [ "$BOARD_VERSION" != "$KOSMOS_GA
   if [ -z "$BOARD_VERSION" ]; then
     say "cannot-tell: could not read which version the board on :$PORT runs, so this check cannot speak for $KOSMOS_GATE_EXPECT_VERSION."
   else
-    say "cannot-tell: the board on :$PORT runs $BOARD_VERSION, not $KOSMOS_GATE_EXPECT_VERSION: this check would test the PREVIOUS release."
+    say "cannot-tell: the board on :$PORT runs $BOARD_VERSION, not $KOSMOS_GATE_EXPECT_VERSION: this check would test another release, not the one being promoted."
     say "  Update that board to $KOSMOS_GATE_EXPECT_VERSION first, or verify $KOSMOS_GATE_EXPECT_VERSION by hand before --force."
   fi
   exit 2

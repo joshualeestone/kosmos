@@ -29,7 +29,7 @@ rc=$?; rm -rf "$TMPROOT2"
 [ "$rc" = 1 ] && pass "enforcing but board unreachable -> alarm (exit 1)" || bad "unreachable board should exit 1, got $rc"
 
 # #5084: WHICH version the gate checked. A fake enforcing board (node, loopback, a free port) answers the
-# four requests the gate makes, and reports a version of our choosing from POST /api/update/check. It
+# requests the gate makes, and reports a version of our choosing from GET /api/version. It
 # proves: a board on another version than KOSMOS_GATE_EXPECT_VERSION is cannot-tell (2) and says so; a
 # board whose version cannot be read is cannot-tell too; a matching board passes and names its version;
 # and with no expected version the gate behaves as before (back-compatible for a hand run).
@@ -43,7 +43,9 @@ const s = http.createServer((q, r) => {
   const cookie = /kosmos_board=1/.test(q.headers.cookie || '');
   const j = (c, o) => { r.writeHead(c, { 'content-type': 'application/json' }); r.end(JSON.stringify(o)); };
   if (q.method === 'POST' && u.pathname === '/api/board-nonce') return ok ? j(200, { nonce: 'abcdef12' }) : j(403, {});
-  if (q.method === 'POST' && u.pathname === '/api/update/check') return ok ? j(200, ver ? { running: ver, latest: null } : { latest: null }) : j(403, {});
+  if (q.method === 'GET' && u.pathname === '/api/version') return ok ? (ver ? j(200, { running: ver }) : j(404, {})) : j(403, {});
+  // Round 1 of #5084: POST /api/update/check can START an install on a real board; the gate must never send it.
+  if (u.pathname === '/api/update/check') { require('node:fs').appendFileSync(process.argv[4], q.method + ' /api/update/check\n'); return j(200, { running: ver }); }
   if (u.pathname === '/' && u.searchParams.get('boot') === 'abcdef12') { r.writeHead(302, { location: '/', 'set-cookie': 'kosmos_board=1; Path=/; HttpOnly' }); return r.end(); }
   if (u.pathname === '/api/accounts') return cookie ? j(200, []) : j(403, {});
   j(404, {});
@@ -51,9 +53,12 @@ const s = http.createServer((q, r) => {
 s.listen(0, '127.0.0.1', () => process.stdout.write(String(s.address().port) + '\n'));
 JS
 fake_gate() {   # $1 board version ("" = none reported), $2 expected ("" = unset); prints rc then the output
-  node "$FAKE/board.js" feedfacefeedface "$1" > "$FAKE/port" 2>/dev/null & local pid=$!
+  node "$FAKE/board.js" feedfacefeedface "$1" "$FAKE/forbidden" > "$FAKE/port" 2>/dev/null & local pid=$!
   local i=0; while [ ! -s "$FAKE/port" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
   local port; port="$(head -1 "$FAKE/port")"
+  # A fake that never started would leave the port empty, and an empty arg sends the gate to KOSMOS_PORT/16180,
+  # a real board. Refuse rather than test against it.
+  if [ -z "$port" ]; then kill "$pid" 2>/dev/null; printf '99\nthe fake board did not start\n'; return; fi
   local out rc
   if [ -n "$2" ]; then out="$(KOSMOS_GATE_EXPECT_VERSION="$2" KOSMOS_STORE_ROOT="$FAKE" bash "$CHECK" "$port" 2>&1)"; rc=$?
   else out="$(env -u KOSMOS_GATE_EXPECT_VERSION KOSMOS_STORE_ROOT="$FAKE" bash "$CHECK" "$port" 2>&1)"; rc=$?; fi
@@ -61,7 +66,7 @@ fake_gate() {   # $1 board version ("" = none reported), $2 expected ("" = unset
   printf '%s\n%s\n' "$rc" "$out"
 }
 r="$(fake_gate 0.7.18 0.7.19)"
-[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"runs 0.7.18, not 0.7.19"*"PREVIOUS release"*) true;; *) false;; esac \
+[ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"runs 0.7.18, not 0.7.19"*"another release"*) true;; *) false;; esac \
   && pass "#5084: a board on the previous release is cannot-tell (exit 2) and says which version it runs" || bad "#5084 previous-release board: $r"
 r="$(fake_gate "" 0.7.19)"
 [ "$(printf '%s' "$r" | head -1)" = 2 ] && case "$r" in *"could not read which version"*) true;; *) false;; esac \
@@ -72,6 +77,7 @@ r="$(fake_gate 0.7.19 0.7.19)"
 r="$(fake_gate 0.7.18 "")"
 [ "$(printf '%s' "$r" | head -1)" = 0 ] && case "$r" in *"USABLE on 0.7.18:"*) true;; *) false;; esac \
   && pass "#5084: with no expected version the gate passes as before and names what it checked" || bad "#5084 no expectation: $r"
+[ ! -s "$FAKE/forbidden" ] && pass "#5084: the gate never sent POST /api/update/check (it can start an install)" || bad "#5084: the gate sent $(cat "$FAKE/forbidden")"
 rm -rf "${FAKE:?}"
 
 # The exit-0 USABLE path is also exercised above against the #5084 fake board (the four requests the gate

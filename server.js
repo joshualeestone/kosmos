@@ -12487,6 +12487,15 @@ const server = http.createServer(async (req, res) => {
      the answer carries reachability so the screen can say "could not
      reach" instead of a false "up to date". POST because it makes a
      network request on the person's behalf (cross-site guard). */
+  /* #5084: which release this board runs, and nothing else. The promote gate needs it to say which version
+     it checked, and POST /api/update/check (the only other place `running` is answered) can START an
+     install (checkNow -> refresh -> maybeAutoInstall), so a gate must never use that to read it. Read-only:
+     a constant, no update check, no fetch. Behind the board token like every /api/* route. */
+  if (pathname === '/api/version' && (req.method === 'GET' || req.method === 'HEAD')) {
+    sendJson(res, 200, { running: updates.RUNNING });
+    return;
+  }
+
   if (pathname === '/api/update/check' && req.method === 'POST') {
     updates.checkNow()
       // offer is the newer()-gated verdict (same gate the toast rides), so
