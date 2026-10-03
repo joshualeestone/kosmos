@@ -257,6 +257,9 @@ function farSide(projectId, startsSentence) {
   return startsSentence === true ? words.charAt(0).toUpperCase() + words.slice(1) : words;
 }
 
+/* The room line both sides show once their room has its key (#3728 member; #5195 owner, who decides what to share
+   and most needs to know the relay cannot read it). */
+const SEALED_LINE = 'This shared room is sealed: only the computers in it can read its messages.';
 function say(projectId, text) {
   if (deps && typeof deps.note === 'function') { try { deps.note(projectId, text); } catch { /* a note is furniture */ } }
 }
@@ -609,11 +612,13 @@ async function ownerHello(projectId, s, link, frame, me) {
   if (st === undefined) return;
   const peers = (st && st.peers) || {};
   if (Object.prototype.hasOwnProperty.call(peers, frame.pub) || Object.values(peers).some((p) => p && p.invite === inv.invite)) return;
-  if (!hasKey(st)) st = { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } };
+  const firstKey = !hasKey(st);
+  if (firstKey) st = { role: 'owner', peers: {}, epoch: 0, keys: { 0: fedseal.randomSecret() } };
   st = Object.assign({}, st, { peers: Object.assign({}, peers, { [frame.pub]: { s: inv.s, code: inv.code, invite: inv.invite, edge: edge.id } }) });
   fedseal.setRoomState(projectId, st);
   fedseal.spendInvite(link.ref, inv.s);
   sendFrame(s, fedseal.shareFrame(inv.s, inv.code, me, frame.pub, st.keys[st.epoch], st.epoch, s.room));
+  if (firstKey) say(projectId, SEALED_LINE);   // #5195: the owner's side too, once, when the room first has its key
 }
 function onKeyFrame(projectId, s, frame) {
   const link = safeLink(projectId);
@@ -628,7 +633,7 @@ function onKeyFrame(projectId, s, frame) {
       const got = fedseal.openShare(st.s, st.code, me, frame, s.room);
       if (!got) return;   // another member's share, or not genuine
       fedseal.setRoomState(projectId, Object.assign({}, st, { peer: got.ownerPub, epoch: got.epoch, keys: { [got.epoch]: got.roomKey } }));
-      say(projectId, 'This shared room is sealed: only the computers in it can read its messages.');
+      say(projectId, SEALED_LINE);
       return;
     }
     if (frame.t === 'key-rotate' && link.role === 'member') {
@@ -808,7 +813,11 @@ function post(projectId, { from, kind, text }) {
       return false;
     }
     if (s && s.status === 'waiting') {
-      say(projectId, 'That message stayed on this computer: nobody outside has joined this shared project yet.');
+      /* #5194: an owner's room key is made when the first member joins and kept through a revoke, so a key here
+         means someone was in this project and is not now: "has joined yet" would be wrong. */
+      say(projectId, hasKey(roomSeal(projectId))
+        ? 'That message stayed on this computer: nobody else is in this shared project now.'
+        : 'That message stayed on this computer: nobody outside has joined this shared project yet.');
       return false;
     }
     say(projectId, 'That message stayed on this computer: the connection to ' + farSide(projectId) + ' is not up right now.');

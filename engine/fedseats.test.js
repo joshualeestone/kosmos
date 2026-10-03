@@ -1216,3 +1216,31 @@ test('#3728: a member two rotations behind holds its posts too', async () => {
   await settle();
   assert.strictEqual(fedseats.post('proj-two-behind', { from: 'Ana', kind: 'person', text: 'on the old key' }), false, 'a member two rotations behind kept posting on the old key');
 });
+
+test('#5195: the owner\'s room says it is sealed once, when its first member joins; never before', async () => {
+  const inv = newInvite('s5195');
+  const { h, seat } = await ownerRoom('proj-seal-5195', 'ref-seal-5195', 'room-5195', [inv]);
+  const sealedNotes = () => h.notes.filter((n) => n.projectId === 'proj-seal-5195' && n.text === 'This shared room is sealed: only the computers in it can read its messages.');
+  assert.strictEqual(sealedNotes().length, 0, 'the room said sealed before any member had the key');
+  const member = fedseal.newKeyPair();
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-5195') });
+  await settle();
+  assert.strictEqual(lines(seat).pop().t, 'key-share');
+  assert.strictEqual(sealedNotes().length, 1, 'the owner was not told its room is sealed: ' + JSON.stringify(h.notes));
+  // The member says hello again (a lost share): answered, and the line is not said twice.
+  say(seat, { event: 'message', data: fedseal.helloFrame(inv.s, inv.code, member, 'room-5195') });
+  await settle();
+  assert.strictEqual(sealedNotes().length, 1, 'the sealed line was said again on a repeat hello');
+});
+
+test('#5194: after its only member is revoked, an owner\'s post says nobody else is in the project now, not that nobody has joined', async () => {
+  federation.recordLink('proj-rev-5194', { role: 'owner', ref: 'ref-rev-5194' });
+  // The room as a revoke leaves it: the key rotated and kept, the revoked member gone from the peers.
+  fedseal.setRoomState('proj-rev-5194', { role: 'owner', peers: {}, epoch: 1, keys: { 0: fedseal.randomSecret(), 1: fedseal.randomSecret() } });
+  const h = harness({ edges: [{ id: 'edge-rev-5194', project_ref: 'ref-rev-5194', status: 'revoked' }] });
+  assert.strictEqual(await fedseats.ensure('proj-rev-5194'), 'waiting');
+  assert.strictEqual(fedseats.post('proj-rev-5194', { from: 'Josh', kind: 'person', text: 'still there?' }), false);
+  const said = h.notes.map((n) => n.text);
+  assert.ok(said.includes('That message stayed on this computer: nobody else is in this shared project now.'), JSON.stringify(said));
+  assert.ok(!said.some((t) => /nobody outside has joined/.test(t)), 'it said nobody has joined after someone had: ' + JSON.stringify(said));
+});
