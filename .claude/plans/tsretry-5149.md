@@ -13,7 +13,7 @@ Card: kosmos#5149. Branch: tsretry-5149.
 - [x] tools/lib/codesign-retry.sh: codesign_ts_retry. Delays from KOSMOS_CODESIGN_TS_DELAYS (default "5 15 45";
       empty = one try); codesign from KOSMOS_CODESIGN_CMD (the test's seam). Output indented four spaces as before.
 - [x] tools/build-kosmos-bundle.sh: source it; both `codesign ... 2>&1 | sed` signs become `codesign_ts_retry ...`.
-- [x] tools/test-codesign-retry-5149.sh (21 checks, function stubs; also: an upper-case message is retried, the caller's nocasematch is kept both ways (called directly, not in a subshell), a `*` delay is not glob-expanded): blip twice then succeed; locked keychain stops
+- [x] tools/test-codesign-retry-5149.sh (23 checks, function stubs; codesign's status holds with no pipefail in the caller and with a newline-only IFS; also: an upper-case message is retried, the caller's nocasematch is kept both ways (called directly, not in a subshell), a `*` delay is not glob-expanded): blip twice then succeed; locked keychain stops
       at once with exit 3; never answers -> 4 tries then fail; first-try success; argv verbatim; empty delays;
       the build script signs through it and has no bare timestamped codesign (incl. --timestamp=). Wired into test:shell.
 - [x] Controls: a lib that never retries reds 6 checks; origin/main's build script reds the 3 wiring checks.
