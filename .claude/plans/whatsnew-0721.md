@@ -37,3 +37,16 @@ The ranking: #5108 is day-one for us (bug reports from the beta) but not for the
 - #5108 OVERCLAIM: "never your files" is only a prompt instruction, not enforced -> "are told to leave out"; "Kosmos+ community".
 - #5101 NIT ("the panel" vague) left. #5114 line since rewritten from Mona's branch (after this review): re-review at cut.
 - teamcopy-4554 (Mona, merged 55e84aaa7): the Team card says "agents who report to it", not "people". One word; no line (below the cut of 5).
+
+## Re-rank 05:10 (Splinter: cap 5, ranked for a NEWCOMER on Monday). In the file now, in this order:
+1. #5126 (#5114, merged; rebase-merged, product commits before 8b52b62df) "Points to the right place". Checked on main:
+   engine/create.js / server.js / web/index.html carry "Settings, AI Models" (8/2/22) and "Accounts tab" 0 times; the
+   refusals read "Connect a Claude account in Settings, AI Models" and "Add an OpenAI key in Settings, AI Models".
+2. #5118 language (merged). 3. #5101 switch to Claude (merged 2324fe4c9). 4. #5104 safeguards question (merged).
+5. #5108 bug reports (merged): HOLDS THE LAST SLOT ONLY UNTIL #5093 merges (Kosmos+ beta users on day one), then out.
+Waiting: #5093 replaces #5108; #5127 ("Terminal tab" copy) and #5128 (Gemini hint skips AI Models), Mona, in flight:
+when they merge, FOLD into line 1 rather than take a slot, e.g. "Instructions now point to places that exist: Settings,
+AI Models, and an agent's AI Settings." (re-check against their merged text). #5116 (notice over #conn): no slot (a
+newcomer has a fresh sign-in). #5124 teamcopy-4554 and #5092/#5094: no line.
+Reasoning, weakest premise: #5101 above #5104 assumes a newcomer switches providers on day one more often than they meet
+Claude Code's safeguards menu; both are plausible, neither measured.

@@ -2,9 +2,19 @@
   "version": "0.7.21",
   "highlights": [
     {
+      "icon": "spark",
+      "title": "Points to the right place",
+      "line": "When an agent cannot start without a Claude or OpenAI account, Kosmos now sends you to Settings, AI Models, where you add one."
+    },
+    {
       "icon": "chat",
       "title": "Agents speak your language",
       "line": "On a Mac set to another language, a new agent now starts and posts in that language instead of English."
+    },
+    {
+      "icon": "swarm",
+      "title": "Switching to Claude works",
+      "line": "Switching an agent to Claude now offers your Claude accounts to pick from, and the panel stops describing the old provider."
     },
     {
       "icon": "shield",
@@ -12,7 +22,7 @@
       "line": "When Claude Code asks an agent whether to switch models, its page shows the question, not \"cannot find the question\"."
     },
     {
-      "icon": "chat",
+      "icon": "tasks",
       "title": "Agents report Kosmos bugs",
       "line": "Agents can post a Kosmos bug report to the Kosmos+ community and are told to leave out your files, logs and screens."
     }
