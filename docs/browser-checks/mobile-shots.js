@@ -497,6 +497,24 @@ const SCREENS = [
     await page.click('#pj-list-view button.vt[data-layout="roadmap"]');
     await page.waitForSelector('#pj-list-view button.vt[data-layout="roadmap"][aria-pressed="true"]', { timeout: 5000 });
   } },
+  /* #4470, a project's Documents screen (opened from the project page's Files), with the look off and on. */
+  { name: 'project-docs', owner: 'Mona Lisa', go: async (page, data) => {
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+  } },
+  { name: 'nl-project-docs', owner: 'Mona Lisa', go: async (page, data) => {
+    await newLook(page);
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.click('#pj-docs-all');
+    await page.waitForSelector('#pj-docs-view', { state: 'visible', timeout: 8000 });
+    /* The sample room has no files, so the folder / conversation switch is hidden; shown by hand for the shot. */
+    await page.evaluate(() => { const sw = document.getElementById('docs-seg'); if (sw) sw.hidden = false; });
+  } },
   /* #4470: an agent's page in the new look, for the side by side with 'agent-chat' and 'agent-profile'. */
   { name: 'nl-agent-chat', owner: 'Mona Lisa', go: async (page, data) => {
     await newLook(page);

@@ -10491,6 +10491,17 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-list-view .viewtoggle .vt:last-child { border-radius: 0 999px 999px 0; }
 :root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row { border-radius: 24px; }
 :root[data-look="new"] body:not(.consolidated) #pj-list.asgrid .pj-row:not(.attn):not(:hover) { border-color: transparent; box-shadow: none; }
+/* #4470, a project's Documents screen in the new look, in the project page's language (no drawing of this screen):
+   back is the round chevron beside the title, as on the project page this screen opens from (Josh's #4586 chevron,
+   which the consolidated view already shows; the tab view's text link hides under the look). Both run the same
+   pjView('one'). The In the project folder | From this conversation switch is a grey pill like the look's other
+   toggles; the chosen segment stays GOLD (Josh, 2026-08-17: "selected is gold, not ink"). */
+:root[data-look="new"] body:not(.consolidated) #docs-back { display: none; }
+:root[data-look="new"] body:not(.consolidated) #docs-chev { display: grid; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg { border-color: transparent; background: var(--nl-grey); border-radius: 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button + button { border-left-color: transparent; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button:first-child { border-radius: 999px 0 0 999px; }
+:root[data-look="new"] body:not(.consolidated) #docs-seg button:last-child { border-radius: 0 999px 999px 0; }
 /* ===== GENERATED: forced dark theme. Do not edit by hand. ===== */
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
