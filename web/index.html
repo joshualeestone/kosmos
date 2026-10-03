@@ -48078,7 +48078,7 @@ async function changeProviderNow(say) {
       {
         const drun = document.getElementById('d-runson');
         const row = CURRENT.account && (ACCOUNTS || []).find((x) => x && x.dir === CURRENT.account.dir);
-        const who = row ? (row.email || row.label || '') : '';
+        const who = row ? acctParenthetical({ account: row }) : '';   // round 6: the normal paint's own rule (name, email, label)
         if (drun) { drun.textContent = 'Right now: '; const b = document.createElement('b'); b.textContent = runsOnWord || ''; drun.appendChild(b); if (who) drun.appendChild(document.createTextNode(' (' + who + ')')); }
       }
       accountsDropped();
