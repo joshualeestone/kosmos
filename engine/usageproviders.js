@@ -274,6 +274,12 @@ async function scanGrok(acc, grokHomes) {
 const AGY_STEP = { CALL_TYPE: 15, TIME: [1, 1], CALL_IDX: [20, 3] };
 const AGY_WORKSPACE = [[1, 1], [7]];
 
+/* What is already decoded, per conversation file, so a request reads only the rows agy added since (review 1: today is
+   never frozen, and decoding every call of a long conversation on every request held the board up). agy appends rows;
+   the LAST call and step read are read again next time, in case either was still being written. Keyed by the file's
+   inode and creation time, so a replaced file starts over. */
+const agyCache = new Map();
+
 function agyWorkspace(agy, blob) {
   if (!blob) return '';
   const buf = Buffer.from(blob);
@@ -285,60 +291,80 @@ function agyWorkspace(agy, blob) {
   return '';
 }
 
+/* A table agy has not written is absent (the call still counts); any other error (busy, corrupt) is not, so the scan is
+   not marked complete over a wrong day or folder (review 1). */
+function unlessAbsent(read, absentValue) {
+  try { return read(); } catch (err) { if (/no such table/i.test(String(err && err.message))) return absentValue; throw err; }
+}
+
 async function scanAntigravity(acc, agyHomes) {
   const agy = require('./agysession');
+  const since = acc.sinceDay ? Date.parse(acc.sinceDay + 'T00:00:00Z') : -Infinity;
   for (const home of agyHomes) {
     let files;
     try { files = (await fsp.readdir(path.join(home, 'conversations'))).filter((f) => /^[0-9a-f-]{8,64}\.db$/i.test(f)).sort(); }
     catch (err) { if (err && err.code !== 'ENOENT') acc.incomplete = true; continue; }
     for (const name of files) {
       const file = path.join(home, 'conversations', name);
-      /* agy commits into <db>-wal while it runs and leaves the db's own mtime alone: either being recent counts. */
-      if (!(await touchedSince(file, acc.sinceDay, acc)) && !(await touchedSince(file + '-wal', acc.sinceDay))) continue;
+      /* Both stats BEFORE opening: opening a WAL db makes an empty -wal beside it, and an EMPTY -wal is not a write
+         (agysession.js). agy commits into a -wal that holds bytes and leaves the db's own mtime alone. */
+      let st;
+      try { st = await fsp.stat(file); } catch (err) { if (err && err.code !== 'ENOENT') acc.incomplete = true; continue; }
+      let walMs = 0;
+      try { const w = await fsp.stat(file + '-wal'); if (w.size > 0) walMs = w.mtimeMs; } catch { /* none */ }
+      if (Math.max(st.mtimeMs, walMs) < since) continue;
+      /* A call with no dated step takes the day the conversation file was CREATED (its mtime where the filesystem keeps
+         no creation time): fixed for the file's life, so a call's day never moves after its day is frozen (review 1).
+         It is never later than the call; at worst it is the conversation's first day. */
+      const born = st.birthtimeMs > 0 ? st.birthtimeMs : st.mtimeMs;
+      const key = st.ino + ':' + born;
+      const c = agyCache.get(file) && agyCache.get(file).key === key ? agyCache.get(file)
+        : { key, cwd: '', byCall: new Map(), anyStep: new Map(), stepsFrom: 0, calls: new Map(), callsFrom: 0 };
       let calls;
       let steps;
-      let meta;
+      let meta = null;
       let db = null;
       try {
         const { DatabaseSync } = require('node:sqlite');
         db = new DatabaseSync(file, { readOnly: true });   // agy's live file: read-only, no write lock (agysession.js)
-        calls = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx').all();
-        /* The time and the folder are extras: a conversation without these tables still counts every call. */
-        try { steps = db.prepare('SELECT step_type, metadata FROM steps').all(); } catch { steps = []; }
-        try { meta = db.prepare("SELECT data FROM trajectory_metadata_blob WHERE id = 'main'").get(); } catch { meta = null; }
+        db.exec('BEGIN');   // one snapshot for the three reads
+        calls = db.prepare('SELECT idx, data FROM gen_metadata WHERE idx >= ? ORDER BY idx').all(c.callsFrom);
+        steps = unlessAbsent(() => db.prepare('SELECT idx, step_type, metadata FROM steps WHERE idx >= ? ORDER BY idx').all(c.stepsFrom), []);
+        if (!c.cwd) meta = unlessAbsent(() => db.prepare("SELECT data FROM trajectory_metadata_blob WHERE id = 'main'").get(), null);
+        db.exec('COMMIT');
       } catch {
         await badFile(acc, file, 'Antigravity conversation');
         continue;
       } finally {
         try { if (db) db.close(); } catch { /* already closed */ }
       }
-      const cwd = agyWorkspace(agy, meta && meta.data);
-      /* Each call's time: its type-15 step's, else the earliest step naming its idx, else the conversation's last write
-         (never earlier than the call). */
-      const byCall = new Map();
-      const anyStep = new Map();
-      for (const st of steps) {
-        const m = Buffer.from(st.metadata || []);
+      if (!c.cwd) c.cwd = agyWorkspace(agy, meta && meta.data);
+      /* A call's time: its type-15 step's, else the earliest step naming its idx at 20.3; earliest wins either way, so
+         reading a step again changes nothing. A step with no 20.3 names no call except through type 15. */
+      for (const s of steps) {
+        const m = Buffer.from(s.metadata || []);
         const secs = agy.numberAt(m, AGY_STEP.TIME);
         if (!secs) continue;
-        const idx = agy.numberAt(m, AGY_STEP.CALL_IDX) || 0;
-        if (st.step_type === AGY_STEP.CALL_TYPE && !byCall.has(idx)) byCall.set(idx, secs);
-        if (!anyStep.has(idx) || secs < anyStep.get(idx)) anyStep.set(idx, secs);
+        const named = agy.numberAt(m, AGY_STEP.CALL_IDX);
+        const into = (map, idx) => { if (!map.has(idx) || secs < map.get(idx)) map.set(idx, secs); };
+        if (s.step_type === AGY_STEP.CALL_TYPE) into(c.byCall, named || 0);
+        if (named !== null) into(c.anyStep, named);
       }
-      let lastWrite = 0;
-      for (const f of [file, file + '-wal']) { try { lastWrite = Math.max(lastWrite, (await fsp.stat(f)).mtimeMs); } catch { /* absent */ } }
-      for (const c of calls) {
-        const u = agy.generationUsage(c.data);
+      if (steps.length) c.stepsFrom = steps[steps.length - 1].idx;
+      for (const row of calls) c.calls.set(row.idx, agy.generationUsage(row.data));
+      if (calls.length) c.callsFrom = calls[calls.length - 1].idx;
+      agyCache.set(file, c);
+      for (const [idx, u] of c.calls) {
         if (!u.found) continue;
-        const secs = byCall.get(c.idx) || anyStep.get(c.idx);
-        const when = secs ? new Date(secs * 1000).toISOString() : (lastWrite ? new Date(lastWrite).toISOString() : null);
-        acc.add(utcDay(when), u.model, cwd, {
+        const secs = c.byCall.get(idx) || c.anyStep.get(idx);
+        acc.add(utcDay(new Date(secs ? secs * 1000 : born).toISOString()), u.model, c.cwd, {
           input_tokens: u.uncached,
           output_tokens: u.reply + u.thoughts,
           cache_creation_input_tokens: 0,
           cache_read_input_tokens: u.cached,
         });
       }
+      await new Promise((resolve) => setImmediate(resolve));   // let the board answer between conversations
     }
   }
 }
@@ -384,4 +410,4 @@ async function scanProviders({ sinceDay, untilDay, homes: h } = {}) {
   return { days: acc.days, folders: acc.folders, homesRead: hs, complete: !acc.incomplete };
 }
 
-module.exports = { scanProviders, defaultHomes, homesByPrefix, BUCKET_FIELDS };
+module.exports = { scanProviders, defaultHomes, homesByPrefix, BUCKET_FIELDS, _agyCache: agyCache }; // _agyCache: tests only
