@@ -11,11 +11,12 @@
  * Kosmos's own first words to them are English. So this block is the whole fix for that, and the ~7,500 words of
  * Kosmos instructions stay in English.
  *
- * The language comes from this computer's setting, read once per process: on a Mac the first preferred language
- * (`defaults read -g AppleLanguages`); elsewhere Node's own locale (Intl), which is ICU's default, the user locale
- * (the region setting on Windows, LANG on Linux), not necessarily the display language; that was not measured on
- * Windows. English writes no block, and an agent that has one loses it when the setting goes back to English.
- * AGENT_WORKFORCE_PERSON_LOCALE overrides the setting (the test runners set it to en; a Settings picker is not built).
+ * The language comes from this computer's setting: on a Mac the first preferred language (`defaults read -g
+ * AppleLanguages`), or the AGENT_WORKFORCE_PERSON_LOCALE override (the test runners set it to en; a Settings picker is
+ * not built). Only those two act. Node's Intl locale is the only other source, and it is ICU's user locale (the
+ * REGION setting on Windows, LANG on Linux), not the display language, so it neither adds nor removes a block: off a
+ * Mac, and on a Mac whose read failed, an agent's file is left exactly as it is. A sure English read writes no block
+ * and removes one an agent already has.
  *
  * Where it sits: writing the block takes it out and appends it again, so it ends the file, where April measured it
  * (top of file was 2/2 too; mid-file is untested). A block added later goes behind it until the next board start,
@@ -49,14 +50,15 @@ function macPreferred(run) {
 /**
  * The person's locale and how it was read: `{ tag, sure }`. The override and a Mac's `defaults` answer are sure;
  * Node's Intl locale is a fallback (the region setting on Windows, LANG elsewhere, or a Mac whose `defaults` read failed
- * or timed out), so it may ADD a block but never takes one away: one bad read at a busy boot must not strip every
- * agent's block (review 2; the About-you sweep is add-only at boot for the same reason). `o` is a test seam
+ * or timed out), and a fallback changes nothing: one bad read at a busy boot must not strip every agent's block, and a
+ * region setting must not put agents into a language the person does not read. `o` is a test seam
  * ({ env, platform, run, intl }); production passes nothing.
  */
-let cached;   // one read per process: the setting is read again at the next board start
+let source = null;   // test seam: what the no-argument read reads (production: the real machine)
+let cached;   // a SURE read is kept for the process; a fallback is read again next time (a Mac read can time out at boot)
 function read(o) {
   if (!o && cached !== undefined) return cached;
-  if (!o) { cached = read({}); return cached; }
+  if (!o) { const got = read(source || {}); if (got.sure) cached = got; return got; }
   const opts = o;
   const env = opts.env || process.env;
   const forced = normalise(env.AGENT_WORKFORCE_PERSON_LOCALE);
@@ -102,8 +104,9 @@ function blockBody(tag) {
 /** `text` with the block for `tag` at its end, or without the block when the language is English. */
 function applyTo(text, tag, opts) {
   const body = blockBody(tag);
-  // English from a fallback read leaves an existing block alone (see read()); a sure English read removes it.
-  if (!body) return opts && opts.keep ? String(text == null ? '' : text) : projects.removeBlock(text, START, END);
+  // A read that is not sure changes nothing, in either direction (see read()).
+  if (opts && opts.keep) return String(text == null ? '' : text);
+  if (!body) return projects.removeBlock(text, START, END);
   // Already the last thing in the file (or not there yet): replaced in place, or appended. Otherwise taken out and
   // appended again, so it ends the file. In place is byte-equal when nothing changed, so no write.
   const at = projects.findBlock(String(text == null ? '' : text), START, END);
@@ -167,4 +170,4 @@ function syncEveryone(roster, opts) {
   return told;
 }
 
-module.exports = { _resetForTests: () => { cached = undefined; }, START, END, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };
+module.exports = { _resetForTests: (src) => { cached = undefined; source = src || null; }, START, END, normalise, macPreferred, read, detect, isEnglish, languageName, blockBody, applyTo, tellAgent, syncEveryone };

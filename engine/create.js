@@ -5247,7 +5247,8 @@ function createAgentInner(opts) {
       let langLanded = false;
       try {
         const plMod = require('./personlanguage');
-        const spliced = plMod.applyTo(text, plMod.detect());
+        const got = plMod.read();
+        const spliced = plMod.applyTo(text, got.tag, { keep: !got.sure });
         const { MAX_BYTES } = require('./instructions');
         if (Buffer.byteLength(spliced, 'utf8') <= MAX_BYTES) { text = spliced; langLanded = true; }
       } catch { /* reported below rather than swallowed */ }

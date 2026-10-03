@@ -99,7 +99,7 @@ test('#5050: the same guards as every instruction write: an untied name and two 
   } finally { board.restore(); }
 });
 
-test('#5050: syncEveryone reads the language once and tells only our agents', () => {
+test('#5050: syncEveryone tells only our agents', () => {
   agentFile('one', '# One\n'); agentFile('two', '# Two\n'); agentFile('nope', '# Nope\n');
   const board = fleet.install([fleet.agent('one'), fleet.stranger('nope'), fleet.agent('two')]);
   try {
@@ -120,10 +120,10 @@ test('#5050: the marker pair is in the registry, so the neutralisers cover it', 
 test('#5050: a new agent gets the block at create, and the board refreshes every agent at boot', () => {
   const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const create = strip(fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8'));
-  assert.match(create, /plMod\.applyTo\(text, plMod\.detect\(\)\)/, 'create.js no longer writes the language block into a new agent');
+  assert.match(create, /const got = plMod\.read\(\);\s*const spliced = plMod\.applyTo\(text, got\.tag, \{ keep: !got\.sure \}\)/, 'create.js no longer writes the language block (from a sure read only) into a new agent');
   // LAST before the file is written, so it ends the file (where April measured it); a block spliced after it would
   // leave it mid-file, a position nobody tested.
-  const at = create.indexOf('plMod.applyTo(text, plMod.detect())');
+  const at = create.indexOf('plMod.applyTo(text, got.tag, { keep: !got.sure })');
   const write = create.indexOf('fs.writeFileSync(instructionFile(name, runner), text', at);
   assert.ok(write > at, 'the instruction file is no longer written after the language block');
   const own = create.indexOf('text = spliced; langLanded = true;', at);
@@ -163,7 +163,7 @@ test('#5050: the test runners pin the language to English, so no test depends on
   }
 });
 
-test('#5050 review 2: English from a fallback read never strips a block; a sure English read does', () => {
+test('#5050 review 2/3: a fallback read neither adds nor strips a block; a sure read does both', () => {
   const original = '# Eve\n\nYou are Eve, who answers the post for the person.\n';
   agentFile('eve', original);
   const board = fleet.install([fleet.agent('eve')]);
@@ -176,9 +176,9 @@ test('#5050 review 2: English from a fallback read never strips a block; a sure 
     assert.equal(fileOf('eve'), withBlock, 'a fallback English read removed the block');
     assert.equal(pl.tellAgent('eve', board.roster, { tag: 'en-US', sure: true }).state, projects.TOLD.TOLD);
     assert.equal(fileOf('eve'), original, 'a sure English read did not remove the block');
-    // A fallback read can still ADD one (it is evidence of a non-English setting).
+    // Nor does a fallback ADD one: off a Mac it is the region setting, not the language the person reads (review 3).
     pl.tellAgent('eve', board.roster, { tag: 'pt-BR', sure: false });
-    assert.match(fileOf('eve'), /reads Portuguese/);
+    assert.equal(fileOf('eve'), original, 'a fallback read added a block');
   } finally { board.restore(); }
   // Which reads are sure: the override and the Mac's defaults; Node's locale is not.
   assert.equal(pl.read({ env: { AGENT_WORKFORCE_PERSON_LOCALE: 'es' }, platform: 'linux' }).sure, true);
@@ -195,4 +195,18 @@ test('#5050 review 2: a sure read never vouches for an agent (the sweep still re
     assert.equal(out.state, projects.TOLD.COULD_NOT, 'a sure language read skipped the agent guard');
     assert.doesNotMatch(fileOf('stray'), /reads Spanish/);
   } finally { board.restore(); }
+});
+
+test('#5050 review 3: only a sure read is kept for the process; a fallback is read again', () => {
+  // A Mac whose defaults read fails (a busy boot), then answers.
+  let macAnswer = null;
+  const src = { env: {}, platform: 'darwin', intl: 'en-US', run: () => { if (!macAnswer) throw new Error('timed out'); return macAnswer; } };
+  try {
+    pl._resetForTests(src);
+    assert.deepEqual(pl.read(), { tag: 'en-US', sure: false }, 'CONTROL: the first read is the fallback');
+    macAnswer = '(\n    "es-MX"\n)\n';
+    assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true }, 'a fallback read was kept, so the Mac answering later was ignored');
+    macAnswer = '(\n    "ja-JP"\n)\n';
+    assert.deepEqual(pl.read(), { tag: 'es-MX', sure: true }, 'a sure read was not kept for the process');
+  } finally { pl._resetForTests(); }
 });

@@ -17,12 +17,12 @@ A probe first: asked for the last section's heading, it answered "## The person'
 No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested before): Portuguese 2/2.
 
 ## Change
-- engine/personlanguage.js: reads the language once (the AGENT_WORKFORCE_PERSON_LOCALE override, then the Mac's first
-  AppleLanguages entry, then Node's Intl locale: ICU's user locale, the region setting on Windows and LANG on Linux,
-  not necessarily the display language; Windows is not measured); `blockBody` is April's
-  variant A word for word plus the one variant-B sentence she recommended ("Kosmos itself talks to you in English;
-  that is not the person's language"); English (any region) or unreadable gives no block; `applyTo` splices it or
-  removes it; `tellAgent` / `syncEveryone` copy connections.js's guards.
+- engine/personlanguage.js: reads the language from the AGENT_WORKFORCE_PERSON_LOCALE override or the Mac's first
+  AppleLanguages entry; ONLY those two (a "sure" read) act. Node's Intl locale (ICU's user locale: the region setting on
+  Windows, LANG on Linux) is the only other source and neither adds nor removes a block, so off a Mac, and on a Mac
+  whose read failed, files are left as they are (Windows waits for a measured source or a picker). `blockBody` is
+  April's variant A word for word plus her one variant-B sentence. A sure English read writes no block and removes an
+  existing one. `tellAgent` / `syncEveryone` copy connections.js's guards.
 - engine/projects.js: the `kosmos:language` marker pair, registered in ALL_MARKERS so the neutralisers cover it.
 - engine/create.js: a new agent gets the block LAST, just before its file is written, so it ends the file (where
   April measured it); pinned, so a splice added after it reds.
@@ -30,7 +30,7 @@ No block: English 2/2. es-MX: Spanish 2/2, room post included. pt-BR (untested b
 
 ## Tests
 engine/personlanguage.test.js (14 after the reviews below): the wording, English gives nothing, detection order, write/idempotent, English
-removes it byte for byte, the guards, the sweep, the registry, and the create/boot wiring with the block last.
+removes it (byte for byte for a file ending in one newline), the guards, the sweep, the registry, and the create/boot wiring with the block last.
 Mutations (each restored): Spanish never written (5 reds), block never removed (1), override ignored (1), create not
 wired (1), boot sweep not wired (1), a splice after the block (1). The meta, marker, create, projects and connections
 suites (68 files): the same 6 fail on origin/main outside the runner, none only on the branch.
@@ -64,3 +64,12 @@ wording was measured on Claude Sonnet only, in Spanish and Brazilian Portuguese 
   still this computer's locale setting; the override is a test seam only); the block can sit mid-file until the next
   boot (documented, resolved in review 1); a single `node --test` outside the runners is not pinned to English (the
   same as every other runner-exported seam; those suites sandbox their workers).
+
+## Review 3 (blind, opus)
+- Off a Mac every read was a fallback, so a block could be added (from the Windows REGION setting) and never removed.
+  Now a fallback changes nothing in either direction: this ships for Macs only, and Windows is untouched.
+- A fallback read is no longer cached for the process (a Mac read that timed out at boot is retried by the next
+  create). A seam lets the test give the no-argument read a failing Mac; mutations caching a fallback, or never
+  caching, each red.
+- Kept as a known cosmetic: moving the block back to the end drops the blank line before the block that followed it
+  (shared removeBlock behaviour).
