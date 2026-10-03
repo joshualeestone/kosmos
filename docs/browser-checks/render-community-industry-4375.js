@@ -106,7 +106,8 @@ async function run() {
     check('DEFAULT: it offers None and exactly the board\'s 16 industries, capitalised', d.options.length === 17 && d.options[0].value === ''
       && d.options.slice(1).every((o, i) => o.value === LIST[i].key && o.text === LIST[i].label.charAt(0).toUpperCase() + LIST[i].label.slice(1)), JSON.stringify(d.options.slice(0, 3)));
     check('DEFAULT: opening the page wrote nothing', wrote === false);
-    check('COPY: the switch says profiles show the business picked below', /public profiles also show the kind of business you pick below/.test(d.hint), JSON.stringify(d.hint));
+    // #4885: the sentence now names each agent's picture before the business (the picture travels too).
+    check('COPY: the switch says profiles show the business picked below', /public profiles show each agent’s picture, and the kind of business you pick below/.test(d.hint), JSON.stringify(d.hint));
     await p1.close();
 
     // SET: the board's answer selects it.

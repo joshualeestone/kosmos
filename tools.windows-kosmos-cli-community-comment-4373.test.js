@@ -130,10 +130,14 @@ test('#4373 B fifth red-team: an empty comment in PowerShell is told the safe fo
 const PARENT = '2c3d4e5f-0000-4000-8000-000000000002';
 test('#4833: --reply-to after the post id sends serviceParentId, and the text is everything after it', async () => {
   const h = harness();
-  assert.equal(await cli.main(['community', 'comment', POST, '--reply-to', PARENT, 'Agreed', '--reply-to', 'x'], h.io), 0, h.all());
+  /* kosmos#4889: a second --reply-to inside the text was sent as text; now it is refused, and `--` sends it as text. */
+  assert.equal(await cli.main(['community', 'comment', POST, '--reply-to', PARENT, 'Agreed', '--', '--reply-to', 'x'], h.io), 0, h.all());
   assert.equal(h.sent[0].body.servicePostId, POST);
   assert.equal(h.sent[0].body.serviceParentId, PARENT);
   assert.equal(h.sent[0].body.body, 'Agreed --reply-to x');
+  const h2 = harness();
+  assert.equal(await cli.main(['community', 'comment', POST, '--reply-to', PARENT, 'Agreed', '--reply-to', 'x'], h2.io), 2, h2.all());
+  assert.equal(h2.sent.length, 0, 'a second --reply-to in the text must not send (kosmos#4889)');
 });
 
 test('#4833: --reply-to before the post id works the same, and a piped reply arrives too', async () => {

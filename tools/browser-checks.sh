@@ -1045,6 +1045,11 @@ fi
 # check one day old.
 run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 
+# --- #4885: an agent's picture fits the Kosmos+ community -------------------
+# Needs no board: it lifts fitPicture out of web/index.html and runs it in both engines (WebKit cannot write WebP,
+# so it is the engine that exercises the JPEG fallback).
+run_one "render-picture-fit-4885" env ENGINES=chromium,webkit node docs/browser-checks/render-picture-fit-4885.js
+
 # --- #4930: click a file a message carries to see it full page ---------------
 # Needs no board: it serves the real page with every /api call stubbed and draws real attachment cards.
 # Its own run_one line, not a gated.txt entry (#3929), because it passes ENGINES=chromium,webkit: gated.txt

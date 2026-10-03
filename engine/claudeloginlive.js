@@ -31,8 +31,8 @@ let reader = null;
 /** Tests only: inject the expiry reader, ccd -> number | null (or a promise of one). */
 function setReaderForTests(fn) { reader = typeof fn === 'function' ? fn : null; }
 
-const cache = new Map();      // service name -> { at, until }
-const inflight = new Map();   // service name -> the read under way
+const cache = new Map();      // service name -> { at, until, gen }: gen is the login generation it was read under (#5018)
+const inflight = new Map();   // service name -> { gen, read }: the read under way and its generation
 function _clearForTest() { cache.clear(); inflight.clear(); }
 
 /* The row's login expiry (epoch ms), or null when there is none to read. Never rejects. */
@@ -42,9 +42,15 @@ function validUntil(row, now = Date.now()) {
   if (!row.isDefault && !ccd) return Promise.resolve(null);
   const service = loginexpiry.serviceNameFor(ccd);
   const hit = cache.get(service);
-  if (hit && now - hit.at < (hit.until == null ? MISS_CACHE_MS : CACHE_MS)) return Promise.resolve(hit.until);
-  if (inflight.has(service)) return inflight.get(service);
-  const read = (async () => {
+  const gen = loginexpiry.loginGeneration();   // #5018: a sign-in since this was read makes it stale
+  if (hit && hit.gen === gen && now - hit.at < (hit.until == null ? MISS_CACHE_MS : CACHE_MS)) return Promise.resolve(hit.until);
+  const busy = inflight.get(service);
+  if (busy && busy.gen === gen) return busy.read;
+  // The entry is in the map BEFORE the read starts: a read with no await (no keychain on this platform) runs to its
+  // end synchronously, and its cleanup must find its own entry, not a binding that does not exist yet.
+  const entry = { gen, read: null };
+  inflight.set(service, entry);
+  entry.read = (async () => {
     let until = null;
     try {
       if (reader) until = await reader(ccd);
@@ -54,12 +60,12 @@ function validUntil(row, now = Date.now()) {
       }
     } catch { until = null; }
     until = Number.isFinite(until) ? until : null;
-    cache.set(service, { at: now, until });
-    inflight.delete(service);
+    const prev = cache.get(service);
+    if (!prev || !(prev.gen > gen)) cache.set(service, { at: now, until, gen });   // an older read never overwrites a newer one
+    if (inflight.get(service) === entry) inflight.delete(service);
     return until;
   })();
-  inflight.set(service, read);
-  return read;
+  return entry.read;
 }
 
 /* validUntil, waited on for at most budgetMs: null when the read has not answered by then (it goes on). */

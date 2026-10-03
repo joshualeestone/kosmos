@@ -142,11 +142,19 @@ test('#3224 ENVELOPE ROUND-TRIP: the emitted answer-command order (flag BEFORE p
   assert.equal(bound.code, 0, bound.stdout + bound.stderr);
   assert.equal(seen[0].in_reply_to, 'm5', 'the emitted (leading) order must bind in_reply_to on the body');
   // The trailing order `kosmos post <project> --in-reply-to <id>` must NOT bind: the project ends
-  // flag parsing, so the flag+id are swept into message text. This is exactly the shape the envelope
-  // must NOT emit -- feeding it here proves the parser would silently post unbound, closing the seam.
+  // flag parsing. This is exactly the shape the envelope must NOT emit. Until kosmos#4889 it posted
+  // the flag+id as message text, unbound and silently; now it is refused and nothing is posted.
   const unbound = await runCli(['post', 'beta', '--in-reply-to', 'm5', 'the answer'], env);
-  assert.equal(unbound.code, 0, unbound.stdout + unbound.stderr);
-  assert.equal(Object.prototype.hasOwnProperty.call(seen[1], 'in_reply_to'), false,
-    'a flag AFTER the project must NOT bind (leading-only): the token becomes message text, not the citation');
-  assert.match(seen[1].text, /--in-reply-to m5/, 'the trailing flag+id land verbatim in the message text, unbound');
+  assert.equal(unbound.code, 2, unbound.stdout + unbound.stderr);
+  assert.match(unbound.stdout + unbound.stderr, /--in-reply-to is not an option of kosmos post/);
+  assert.equal(seen.length, 1, 'a flag AFTER the project must NOT bind (leading-only) and, since #4889, must not post at all');
+}));
+
+test('#4889: past a bare --, the text is sent as written and the -- itself is dropped (the bash half sees the words)', () => withStubBoard(async (port, seen) => {
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+  const out = await runCli(['post', 'beta', '--', '--in-reply-to', 'is', 'just', 'words'], env);
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].text, '--in-reply-to is just words', 'the escaped text must arrive as written, without the --');
+  assert.equal(Object.prototype.hasOwnProperty.call(seen[0], 'in_reply_to'), false, 'an escaped --in-reply-to must not bind');
 }));
